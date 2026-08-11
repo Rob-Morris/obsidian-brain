@@ -41,6 +41,6 @@ Releases/
 - Same-type children live in `{Type}/{key}/`.
 - Cross-type children live in `{Type}/{scope}/`, where `scope` is the canonical owner key rewritten from slash form to token form (for example `project/brain` → `project~brain`).
 - The subfolder name is derived from the canonical owner key, not guessed from the title.
-- `brain_create` accepts `parent` as a canonical artefact key, unique name or basename, or relative path. It always persists the canonical `{type}/{key}` value.
+- `artefact.create` accepts `parent` as a canonical artefact key, unique name or basename, or relative path. It always persists the canonical `{type}/{key}` value.
 
 **Archiving sub-artefacts:** See the [archiving standard](archiving.md) for how archiving works within child subfolders.

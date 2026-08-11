@@ -47,7 +47,7 @@ def project_identity(command_id: str) -> ProjectionIdentity:
         command_id=command_id,
         noun=noun,
         verb=verb,
-        mcp_tool=f"brain_{projected_noun}_{projected_verb}",
+        mcp_tool=command_id,
         cli_argv=(noun, verb),
         script_argv=(noun, verb),
         module_path=f"_application/{projected_noun}/{projected_verb}.py",
@@ -72,18 +72,12 @@ def command_id_from_argv(
 
 
 def command_id_from_mcp_tool(tool_name: str, command_ids: tuple[str, ...]) -> str:
-    """Resolve an MCP name only when exactly one catalogue command owns it."""
+    """Resolve an exact canonical MCP name owned by the selected catalogue."""
 
-    if not isinstance(tool_name, str) or not tool_name.startswith("brain_"):
-        raise ValueError("MCP command tools must use the brain_<noun>_<verb> grammar")
-    candidates = [
-        command_id
-        for command_id in command_ids
-        if project_identity(command_id).mcp_tool == tool_name
-    ]
-    if len(candidates) != 1:
-        raise ValueError("MCP tool name is ambiguous without an owning catalogue")
-    return candidates[0]
+    validate_command_id(tool_name)
+    if tool_name not in command_ids:
+        raise ValueError("MCP tool name is not owned by this catalogue")
+    return tool_name
 
 
 def request_schema(request_type: type[CommandRequest]) -> dict[str, object]:

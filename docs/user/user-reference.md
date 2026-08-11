@@ -1,402 +1,166 @@
 # Brain Reference
 
-Complete reference for every artefact type, convention, configuration point, and system in a Brain vault. For a walkthrough of how to use the Brain day-to-day, see [Getting Started](getting-started.md) and [Workflows](workflows.md).
+This page is the stable user-facing reference for Brain Core 0.55.0 and CLI 2.0.0. Exact command schemas, examples and availability come from the installed Brain rather than a duplicated hand-maintained inventory.
 
----
+## Vault model
 
-## Contents
+All user content is an artefact:
 
-- [Artefact Types](#artefact-types)
-- [System Reference](#system-reference)
-- [Configuration Reference](#configuration-reference)
-- [Tooling](#tooling)
-- [Colour System](#colour-system)
-- [Writing Style](#writing-style)
-- [Maintaining This Guide](#maintaining-this-guide)
+- **Living artefacts** evolve over time and live in configured top-level type folders.
+- **Temporal artefacts** record a moment and live below `_Temporal/`, optionally beneath a living owner chain.
+- `_Config/` contains user-owned taxonomy, templates, skills, memories, styles and triggers.
+- `.brain-core/` is versioned application code and must not be edited directly.
+- `.brain/` is Brain-owned state; `.brain/local/` is machine-local and gitignored.
+- `_Archive/` holds deliberately removed artefacts outside the active namespace.
 
----
+The compiled `_Config/router.md` is the concise navigation map. Taxonomy definitions under `_Config/Taxonomy/` own artefact contracts; templates under `_Config/Templates/` own initial document shapes.
 
-## Artefact Types
+## Canonical command grammar
 
-For the full list of default artefact types, see [Template Library Guide](template-library-guide.md).
+Every semantic operation has one dot-separated command identifier and one noun/verb CLI spelling:
 
-For type definitions (frontmatter, naming patterns, filing rules), see the artefact library at `src/brain-core/artefact-library/`.
-
-## System Reference
-
-For artefact system mechanics (lifecycle, frontmatter, filing, workflows), see [System Guide](system-guide.md).
-
----
-
-## Configuration Reference
-
-### Router (`_Config/router.md`)
-
-Vault-specific routing rules used by the compiled router and degraded bootstrap path. Contains:
-- **Always-rules** — vault-specific constraints that apply every session
-- **Conditional triggers** — "when X happens, follow this link to the taxonomy file"
-
-Each trigger is a condition paired with a goto pointer. The taxonomy file's `## Trigger` section contains the detailed instructions. This means triggers are defined in one place (no duplication between router and taxonomy).
-
-### Taxonomy (`_Config/Taxonomy/`)
-
-One file per artefact type, organised as `Living/{key}.md` and `Temporal/{key}.md`. Each taxonomy file defines:
-- Purpose and description
-- Naming pattern
-- Frontmatter schema
-- Lifecycle and status values (if applicable)
-- Archiving rules (if applicable)
-- Trigger section (if applicable)
-- Conventions and writing guidance
-
-### Templates (`_Config/Templates/`)
-
-Obsidian templates for each type, organised as `Living/{Type Name}.md` and `Temporal/{Type Name}.md`. Used by Obsidian's core Templates plugin or Templater.
-
-### Styles
-
-- **`_Config/Styles/obsidian.md`** — colour assignments for the vault's artefact types
-- **`_Config/Styles/writing.md`** — writing style guide (language preferences, conventions)
-
-### User Preferences
-
-- **`_Config/User/preferences-always.md`** — your standing instructions for agents (workflow preferences, quality standards, behaviour rules). Read every session.
-- **`_Config/User/gotchas.md`** — learned pitfalls from previous sessions. Friction patterns that recur get distilled here. Read every session.
-
-Both are freeform markdown. Content is entirely up to you.
-
-### Memories (`_Config/Memories/`)
-
-Reference cards that agents load on demand — factual context about projects, tools, and concepts. Each memory is a `.md` file with a `triggers` list in YAML frontmatter:
-
-```yaml
----
-triggers: [brain core, obsidian-brain, vault system]
----
+```text
+artefact.read       brain artefact read
+artefact.create     brain artefact create
+vault.check         brain vault check
+brain.doctor        brain brain doctor
 ```
 
-**Trigger matching:** Case-insensitive substring. `brain_read(resource="memory", name="brain")` matches a memory with trigger "brain core". Falls back to exact filename match if no trigger matches.
+Selected-Brain application commands can project to MCP, CLI, the direct command script and typed Python when the catalogue marks that projection eligible. Machine-global launcher commands project only where their owner and locality permit. The projections share one request type, application owner and structural `brain.command-result/1` result.
 
-**File format:** YAML frontmatter with `triggers` list, then a markdown reference card body. Memories answer "what is it?" — what something is, where it lives, how pieces relate, key facts. If the content is "how do I do it?" (steps, procedures, tool usage), it belongs in a skill (`_Config/Skills/`), not a memory. A memory can reference a skill but should not replicate it.
-
-**Naive fallback:** `_Config/Memories/README.md` contains a trigger → file table for agents without MCP or the compiled router.
-
-**Creating a memory:**
-1. Create `.md` file in `_Config/Memories/` with `triggers: [...]` in frontmatter
-2. Write reference card body
-3. Run `python3 .brain-core/scripts/compile_router.py`
-4. Update the README table
-
-### Skills (`_Config/Skills/`)
-
-Skill documents for MCP tools, CLI commands, or plugin workflows. One folder per skill with a `SKILL.md` file describing what the skill does and how to use it.
-
----
-
-## Tooling
-
-### MCP Tools
-
-If your vault runs the Brain MCP server (`.brain-core/brain_mcp/server.py`), twenty-two focused tools are available:
-
-**brain_init** (safe, auto-approvable)
-- Additive bootstrap/orientation snapshot for the Brain runtime
-- Returns vault identity plus coarse readiness/warmup state, `bootstrap_hint`, `next_action`, and optional cheap debug diagnostics
-- Optional `warmup` parameter ensures shared background warmup is running or already complete, then returns immediately
-
-**brain_session** (safe, auto-approvable)
-- Bootstrap an agent session in one call — returns the canonical session model as compact JSON
-- Includes: static core bootstrap content, structured core-doc references with MCP load instructions, local workspace-configuration CLI guidance, always-rules, user preferences, gotchas, triggers, condensed artefact types, environment, memory/skill/plugin/style indexes, config metadata, and when available workspace-aware bootstrap fields (`workspace`, `workspace_record`, `workspace_defaults`)
-- Optional `context` parameter for scoped sessions (not yet implemented)
-- Optional `operator_key` parameter for operator authentication — sets the session profile for per-call tool enforcement
-- Refreshes `.brain/local/session.md`, the generated markdown bootstrap mirror, from the same model; that refresh is best-effort and runs on a background worker, so a stalled write never blocks readiness or tool calls
-- If router warmup is still in progress, returns a structured progress/retry payload instead of blocking blindly
-
-**brain_read** (safe, no side effects)
-- Look up artefacts, triggers, styles, templates, skills, plugins, memories, workspaces, environment info, the compiled router, or read artefact files by path
-- `name` is required for named resources such as `skill`, `memory`, `workspace`, `artefact`, and `file`; rejected for `environment` and `router`. For temporal artefacts, the display name works without the dated prefix — e.g. "Colour Theory" finds `20260404-research~Colour Theory.md`
-- Trigger reads pass the exact trigger condition through `name`, for example `After meaningful work`
-- `resource="file"` can also read `.brain-core/` docs by vault-relative path when the agent is operating over MCP, e.g. `brain_read(resource="file", name=".brain-core/standards/provenance.md")`
-
-**brain_search** (safe, no side effects)
-- Search vault content by query text
-- Optional `resource` parameter (default `"artefact"`) — also accepts `skill`, `trigger`, `style`, `memory`, `plugin` for searching non-artefact collections via text matching
-- Artefact-specific filters: `type` (key, full type, or singular form), `tag`, `status`
-- Optional `mode` parameter for artefact search: `lexical`, `semantic`, `hybrid`. If omitted, Brain prefers `hybrid` when semantic retrieval is enabled and usable; otherwise it uses `lexical`
-- `lexical` may use Obsidian CLI when available; `semantic` uses persisted vectors only; `hybrid` fuses BM25 + vectors and does not use Obsidian CLI as its lexical leg
-- If persisted retrieval state cannot be refreshed honestly because of an unreadable source file, compiled-router embeddings drift, or a retrieval-index persistence failure, artefact search returns that explicit error instead of silently serving stale results
-- Non-artefact resources stay lexical-only and reject semantic/hybrid modes
-
-**brain_list** (safe, no side effects)
-- List vault artefacts exhaustively — not relevance-ranked
-- `resource="artefact"` supports honest creation and modification date filters, stable sorting, bounded page sizes, and opaque cursor continuation. Unknown types fail clearly.
-- Trigger `query` filters search category, condition, detail and target rather than a non-existent display name.
-- If index-backed retrieval state is blocked by an unreadable source file, compiled-router embeddings drift, or a retrieval-index persistence failure, artefact listing returns that explicit error instead of stale results
-- Non-artefact collections such as `skill`, `memory`, `template`, and `style` support only optional `query`; `workspace` and `archive` accept no filters
-- Use instead of `brain_search` when completeness matters (e.g. "all research from the last 2 weeks")
-
-**brain_outline / brain_check** (safe, no side effects)
-- `brain_outline(path)` returns exact heading/callout selectors accepted by `brain_edit`
-- `brain_check` returns filterable structured Doctor findings without applying repairs
-
-**brain_stage / brain_discard_stage** (local staging)
-- Stage a large body under an opaque retry-safe handle; failed writes preserve it and successful writes consume it
-- Handles expire after 24 hours; explicitly discard an unused handle to release it sooner
-
-**brain_upload_attachment** (additive attachment upload)
-- Requires a canonical living artefact key (`type/key` or `type~key`) or a bare standalone folder key, plus a filename and base64 bytes
-- Writes to `_Assets/Attachments/<type~key>/<filename>` for an artefact or `_Assets/Attachments/<folder-key>/<filename>` for a standalone scope; temporal artefacts use standalone scopes
-- Returns resolved destination metadata, vault-relative path, Obsidian embed, byte count, SHA-256 digest, and `created` state
-- Identical retries succeed without rewriting; a different existing file is never overwritten
-- Living key/type changes move the scope and rewrite embeds; delete and conversion to temporal preserve and report the orphaned scope
-
-**brain_create** (additive, safe to auto-approve)
-- Takes one resource-discriminated `request`. Artefacts use `{resource: "artefact", type, title, ...}`; `skill`, `memory`, `style`, and `template` use `{resource, name, content, ...}` and cannot receive artefact-only fields
-- Body input is an explicit `content` variant: `{"source": "inline", "content": "..."}`, a retry-safe `brain_stage` handle, or a legacy caller-owned file path
-- Body contract is explicit: artefacts plus `skill` / `memory` / `style` take markdown body content after frontmatter; `template` takes a full markdown document with its own frontmatter block. Separate `frontmatter` input is rejected for `template`
-- Artefacts: resolves template and naming pattern from the compiled router; living artefacts get a generated `key` from the clearest free title-derived words before using a random suffix. When a temporal artefact has a living `parent`, it files under that owner chain before the `yyyy-mm` folder instead of flattening into the global temporal namespace
-- Non-artefact resources: `skill` → `_Config/Skills/{name}/SKILL.md`, `memory` → `_Config/Memories/{name}.md`, `style` → `_Config/Styles/{name}.md`, `template` → `_Config/Templates/{classification}/{Type}.md`
-- Resource-specific fields are enforced strictly: artefact creation requires `type` + `title`, non-artefact creation requires `name`, and cross-resource extras are rejected
-- Returns structured path/resource metadata plus a concise confirmation
-
-**brain_edit** (single-file mutation)
-- Takes one required top-level `request`: `{request: {subject, mutation}}`. `subject` discriminates an artefact `path` from a named `skill`, `memory`, `style`, or `template`; `mutation` discriminates the operation and exposes only its valid fields
-- `edit` — replace body content, optionally merge frontmatter changes (overwrites fields)
-- `append` — add content to end of existing body
-- `prepend` — insert content before existing body or before a target section's heading
-- `replace_text` — replace exact text; zero/ambiguous matches fail unless occurrence or replace-all intent is explicit
-- Inline mutation content is always post-frontmatter markdown. To change frontmatter, use the mutation's `frontmatter` member rather than embedding a leading frontmatter block
-- Optional `frontmatter` parameter — `edit` overwrites fields; `append`/`prepend` extend list fields (with dedup) and overwrite scalars. Set a field to `null` to delete it. All operations support frontmatter-only mutations (omit body)
-- Memory trigger edits refresh `brain_read(resource="memory", ...)` immediately; editing `_Config/` resources does not make them appear in `brain_search(resource="artefact")`
-- `target` identifies the structural node:
-  - `":body"` for the full markdown body after frontmatter
-  - a heading target such as `"### Notes"`
-  - a callout target such as `"[!note] Implementation status"`
-- Optional `selector` disambiguates duplicates:
-  - `occurrence` — 1-based duplicate selector
-  - `within` — ordered ancestor chain of `{target, occurrence?}` steps
-- `scope` chooses the mutable range inside the resolved target:
-  - `target=":body"`: `section`, `intro`
-  - heading targets: `section`, `body`, `intro`, `heading` (`heading` is `edit`-only)
-  - callout targets: `section`, `body`, `header` (`header` is `edit`-only)
-  - `delete_section` uses the same `target` / `selector` model but does not take `scope`
-- Body mutations are explicit. Omitted `target` no longer means "whole body"; use `target=":body", scope="section"` for full-body mutations.
-- `target=":body", scope="intro"` runs from the start of the markdown body to the first heading. Callouts inside that range stay part of the intro instead of terminating it.
-- Old spellings are hard-errors with guidance:
-  - `:entire_body` → `target=":body", scope="section"`
-  - `:body_preamble` / `:body_before_first_heading` → `target=":body", scope="intro"`
-  - `:section:...` → the real heading/callout target with `scope="section"`
-- Structural edit confirmations include the resolved range in the response, for example `(body section)`, `(body intro)`, `(heading body: ## Notes)`, or `(callout header: [!note] Status)`.
-- For artefacts: `path` accepts canonical artefact key (for example `"design/brain"`), vault-relative path, or filename basename; for temporal artefacts the display-name portion of the dated filename also resolves (e.g. `"Colour Theory"` → `20260404-research~Colour Theory.md`); validated against the compiled router
-- For non-artefact resources: `name` identifies the resource (e.g. `"my-skill"`); for templates, name is the artefact type key (e.g. `"wiki"`). No terminal status auto-move or `modified` injection
-- Validation is resource/op-specific: artefacts require `path`, editable `_Config/` resources require `name`, `delete_section` requires `target`, and fields that belong to a different resource are rejected early
-- Generic edits reject `parent`, `key`, `status`, and naming-driving fields. Use `brain_reparent`, `brain_set_status`, `brain_set_key`, or `brain_set_naming_field`; these commands apply all derived moves, links, tags, descendants, and timestamps.
-- `brain_reparent` always requires an explicit `parent`: pass a parent reference to move ownership or JSON null to clear it. Omitting the field fails before mutation.
-
-**brain_define** (operator-only definition mutation)
-- Creates or replaces coherent type bundles (taxonomy, linked template, and discoverable artefact folder) and plugin definitions at fixed, validated destinations; replacement requires reviewed current hashes
-- Creates, replaces, or deletes an exact structured trigger entry; targets must exist and replacement checks the current target
-- Use this instead of generic editing for `_Config/Taxonomy/`, `_Config/router.md`, or `_Plugins/`
-
-**brain_move** (vault-wide/destructive, requires approval)
-- Flat top-level move tool for artefact path/classification transitions
-- `rename` — request shape: `{op: "rename", source, dest}`; artefact-aware same-type move with automatic wikilink updates (uses Obsidian CLI when available). When a link rewrite occurs inside a markdown table row, Brain drops wikilink aliases that would insert `|` into a cell
-- `convert` — request shape: `{op: "convert", path, target_type, parent?, recursive?}`; changes artefact type, moves the file, reconciles frontmatter, updates wikilinks, and generates a distinctive living `key` when converting temporal artefacts to living types. Living parents with living descendants return `HAS_DESCENDANTS` unless `recursive: true` is supplied for living→temporal conversion.
-- `archive` — request shape: `{op: "archive", path, recursive?}`; archives a terminal-status artefact to `_Archive/` with date-prefix rename and wikilink updates. Artefacts with living descendants return `HAS_DESCENDANTS` unless `recursive: true` is supplied
-- `unarchive` — request shape: `{op: "unarchive", path, recursive?}`; restores one artefact or an archived subtree through current metadata/status projection. If an archived candidate cannot be inspected, Brain restores the known subtree and warns with the skipped candidate's path and reason rather than claiming the restore was complete.
-
-**brain_action** (vault-wide/destructive, requires approval)
-- Smaller workflow/utility bucket using a schema-discriminated `{request: {action, params}}`
-- `delete` — request shape: `{request: {action: "delete", params: {path, recursive?}}}`; deletes an artefact file and replaces wikilinks with strikethrough text. Artefacts with living descendants return `HAS_DESCENDANTS` unless `recursive: true` is supplied
-- `reparent-children` reparents the direct children of a living artefact; `brain_reparent` changes one artefact's own parent
-- `shape-printable` — request shape: `{request: {action: "shape-printable", params: {source, slug, render?, keep_heading_with_next?, pdf_engine?}}}`; creates a printable artefact and renders `_Assets/Generated/Printables/{stem}.pdf` via pandoc
-- `shape-presentation` — request shape: `{request: {action: "shape-presentation", params: {source, slug, render?, preview?}}}`; creates a presentation artefact, renders `_Assets/Generated/Presentations/{stem}.pdf`, and optionally launches Marp live preview
-- `shape` — request shape: `{request: {action: "shape", params: {target, mode}}}`, where the shaping skill selects `brainstorm`, `refine`, or `discover`; opens or continues the source artefact's same-day shaping transcript and transitions it through the canonical `shaping` lifecycle state
-- `fix-links` — request shape: `{request: {action: "fix-links", params: {fix?, path?, links?}}}`; scans for broken wikilinks and attempts auto-resolution
-**brain_classify / brain_resolve / brain_ingest** (experimental content processing)
-- The read-only classify and resolve tools are permissioned separately from mutating ingest
-- `brain_ingest` runs classify → infer title → resolve → create/update; optional type/title hints skip their respective steps, and its mode is honoured. Exact filename identity or high-confidence semantic cosine evidence can authorise an update; BM25 matches remain advisory candidates.
-- If `classify` or `resolve` needs the shared retrieval index and that index is blocked by an unreadable source file, compiled-router embeddings drift, or a retrieval-index persistence failure, the tool returns that explicit rebuild error instead of stale retrieval state
-
-### Server Logging
-
-The MCP server writes persistent logs to `.brain/local/mcp-server.log` (2 MB max, 1 backup). Startup diagnostics, tool call tracing, and errors are logged at INFO level. Startup now emits explicit begin/success/failure markers for config load, router freshness, index freshness, workspace registry load, and session-mirror refresh, so a stalled startup can be localised from the log alone. To include tool arguments in the log, set the environment variable `BRAIN_LOG_LEVEL=DEBUG`. The log file is local-only (gitignored).
-
-After a Brain upgrade, an old live MCP proxy may return
-`proxy_restart_required` before any tool lookup. Restart the MCP connection once
-to load the matching proxy; the server does not translate or execute the
-blocked call. With the matching proxy, planned pre-effect version drift can be
-replayed only after interface validation. Unexpected read loss is retried at
-most once, while a lost mutation is never replayed: Brain reports a durable
-receipt when available or a non-retryable `command_outcome_unknown` reference
-that can be queried with `invocation.read`.
-
-### Scripts
-
-Available in `.brain-core/scripts/`. Scripts are the source of truth for all vault operations — the MCP server imports from them. The optional [`brain` CLI](../functional/cli.md) provides ergonomic shortcuts that dispatch to these same top-level script surfaces.
-
-Beyond vault-scoped dispatch, the CLI also owns the machine-level surfaces: `brain doctor` for shared-runtime diagnosis and `brain machine ...` for explicit legacy-Brain migration and orphan-runtime pruning. Those commands still route into launcher-safe Python owners under `.brain-core/scripts/`; the CLI remains chrome rather than a separate implementation layer.
-
-Use direct script invocation from a compatible Python 3.12+ launcher as the baseline command-line path. Launcher-safe bootstrap entrypoints such as `repair.py`, `setup.py`, and `configure.py` do their setup there; runtime-owning lifecycle entrypoints such as `repair.py`, `configure.py`, `session.py`, and `check.py` then hand substantive managed work into the canonical managed runtime automatically, while `setup.py` stays launcher-safe for baseline workspace binding.
-
-The same is now true for the managed operational wrappers: `build_index.py`, `search_index.py`, `construct_benchmark_fixture.py`, `evaluate_search.py`, `compile_router.py`, `compile_colours.py`, `sync_definitions.py`, `shape_printable.py`, `shape_presentation.py`, and `migrate_naming.py` all start in the launcher only long enough to enter the managed runtime. You do not need to activate the vault venv manually before using them. Portable lexical wrappers (`build_lexical_index.py`, `search_lexical.py`) stay in the launcher and use the same lexical index format without any semantic/runtime handoff.
-
-| Script | Purpose |
-|---|---|
-| `compile_router.py` | Compile router, taxonomy, skills, and styles into a single JSON file |
-| `compile_colours.py` | Generate folder colour CSS and graph colour groups |
-| `build_lexical_index.py` | Build the shared lexical retrieval index only, without semantic sidecar work or managed-runtime handoff |
-| `build_index.py` | Build the retrieval index for search and refresh embeddings sidecars when `semantic_processing` or `semantic_retrieval` is enabled, router data is available, and the optional semantic runtime has been installed; unreadable retrieval sources and persistence failures now fail explicitly |
-| `list_artefacts.py` | Exhaustive structured pages with honest date filters and cursor continuation |
-| `search_lexical.py` | Query the shared lexical retrieval index through the portable lexical-only wrapper |
-| `search_index.py` | Search the local retrieval index from the command line via lexical, semantic, or hybrid modes; hybrid preserves obvious exact-anchor lexical wins, gives a small tie-break boost to a clearly dominant semantic top result, preserves strong lexical title champions when the query literally contains their core title phrase (stripping only the shipped `Brain` product namespace from first-party titles), and can apply a stronger semantic rescue when lexical and semantic leaders are clearly disjoint |
-| `construct_benchmark_fixture.py` | Mine a real vault for lexical / semantic / hybrid / cluster / filter-sensitive benchmark cases and emit both a benchmark fixture JSON and an audit JSON; unreadable source files now fail explicitly |
-| `evaluate_search.py` | Benchmark lexical, semantic, and hybrid retrieval against a JSON query set |
-| `setup.py` | Public workspace setup owner: bind a workspace to a Brain, converge the Brain-owned local scaffold, and optionally run a guided setup wizard over the explicit workspace/MCP configure surfaces. |
-| `configure.py` | Explicit installed-vault configuration entry point: targeted `workspace binding`, `workspace metadata`, `workspace bootstrap`, `mcp`, `agent-skills`, and `semantic` surfaces without going through the setup wrapper. |
-| `read.py` | Query compiled router resources (artefacts, triggers, styles, templates, skills, etc.) |
-| `create.py` | Create a new artefact with template/naming resolution; parented temporal artefacts file under the owner chain before the month folder |
-| `edit.py` | Strict structural and exact-text edits; rejects lifecycle-owned metadata |
-| `outline.py` | List exact structural edit selectors |
-| `stage.py`, `discard_stage.py` | Create or release bounded retry-safe body handles |
-| `upload_attachment.py` | Add caller-owned files beneath a required artefact or standalone attachment scope from a local source path or base64 content |
-| `lifecycle.py` | Explicit parent/status/key/naming-field mutation commands |
-| `rename.py` | Rename/delete with automatic wikilink updates; refuses stale router state and unsafe move sets before touching links |
-| `repair.py` | Named repairs including preview/apply metadata-authoritative ownership projection |
-| `session.py` | Build the canonical session model and refresh `.brain/local/session.md`; keeps a launcher-safe SessionStart shim and hands substantive work into the managed runtime |
-| `obsidian_cli.py` | IPC client for native Obsidian CLI (library module used by MCP) |
-| `process.py` | Domain logic behind split classify/resolve/ingest permissions |
-| `shape_printable.py` | Create printable + render PDF |
-| `shape_presentation.py` | Create presentation + render PDF + launch preview |
-| `start_shaping_session.py` | Open or continue a shaping session for an existing, taxonomy-declared shapeable artefact |
-| `start_shaping.py` | Compatibility launcher for the shaping-session script |
-| `upgrade.py` | Canonical brain-core upgrade entry point from a source directory, including versioned migrations, binary-safe rollback snapshots, `.brain/local/last-upgrade.json`, runtime/retrieval reconciliation, and structured recommended follow-ups when a checked-in client discovery adapter is introduced or changed |
-| `migrations/migrate_to_0_50_0.py` | Recursive owner-folder migration for v0.50.0; direct CLI supports dry-run/apply and JSON blocker diagnostics |
-| `vault_registry.py` | User-home authoritative Brain registry for local Brain IDs (currently typed `local` entries pointing at vault roots), plus an optional machine default Brain pointer stored separately |
-| `workspace_registry.py` | Workspace key→path resolution and registration |
-| `install.py` | Shared Python installer core used by `install.sh` and `install.ps1`; normal users invoke a platform launcher, while the core owns scaffold/runtime/MCP policy and lifecycle output. |
-| `check.py` | Structural compliance checker — validates naming, frontmatter, month folders, archives, status values, and now routes launcher-safe runtime/MCP/registry diagnostics through the shared bootstrap seam before adding managed semantic diagnostics |
-| `migrate_naming.py` | Migrate vault filenames from old aggressive slugs to generous naming conventions |
-| `fix_links.py` | Auto-repair broken wikilinks using naming convention heuristics; refuses stale router state before scanning or applying fixes |
-| `sync_definitions.py` | Sync artefact library definitions to vault `_Config/` using tracked source hashes plus markdown-aware comparison for `.md` files, so harmless pipe-table rewrites do not surface as conflicts |
-| `config.py` | Vault configuration loader (three-layer merge: template → vault → local) |
-| `generate_key.py` | Generate operator key + SHA-256 hash for pasting into `config.yaml` |
-
-### Compliance Checks
-
-Complementary tools:
-
-**`check.py`** (structural compliance) — deep scan that validates all files against the compiled router: naming patterns, frontmatter type and required fields, owner-scoped month folders for temporal files, archive metadata, status values, duplicate frontmatter corruption, broken or ambiguous wikilinks, and aliased wikilinks inside markdown tables (including YAML frontmatter property-links like `parent: "[[foo]]"`; wikilinks inside code, HTML comments, `$$` math, and raw HTML blocks are treated as literal text). When runtime, router, lexical-index, MCP, semantic, local workspace-registry drift, or duplicate artefact frontmatter is detected, normal output prints the exact `repair.py` command to run and JSON/compliance output includes structured `repair` metadata. Run on demand or during maintenance. Flags: `--json` (structured output), `--actionable` (fix suggestions), `--severity <level>` (filter).
+Discover the installed interface instead of guessing:
 
 ```bash
-python3 .brain-core/scripts/check.py                    # human-readable
-python3 .brain-core/scripts/check.py --json --actionable # structured with fixes
-python3 .brain-core/scripts/check.py --vault /path/to/vault  # check a specific vault
+brain command list --json
+brain command list --owner application --json
+brain command describe artefact.create --json
+brain command describe brain.upgrade --owner launcher --json
 ```
 
-**`configure.py`** (installed-vault semantic lifecycle) — explicit local opt-in surface for semantic retrieval. `configure.py semantic --enable` turns on the local semantic-retrieval flag in `.brain/local/config.yaml`, provisions the pinned semantic runtime into the central managed runtime, snapshots the pinned local model under `.brain/local/semantic-models/`, records `.brain/local/semantic-model-manifest.json`, and refreshes router/index/embeddings sidecars so the vault lands in a usable state immediately. Use `--no-provision` when you want to record semantic intent without attempting package install, local model provisioning, or asset refresh yet.
+Descriptions include the exact strict request schema, minimal example, result schema, stable error/warning codes, dependency tier, locality, providers, authority, effects, retry class, projection eligibility and current availability. Default discovery is static and does not probe optional providers; request an explicit refresh only when current provider availability matters.
+
+## MCP
+
+MCP names preserve the canonical dotted command ID exactly:
+
+- `session.start` → `session.start`
+- `command.list` → `command.list`
+- `command.describe` → `command.describe`
+- `artefact.read` → `artefact.read`
+- `artefact.create` → `artefact.create`
+- `vault.check` → `vault.check`
+
+Each granular tool exposes its own top-level request fields. There is no generic `request` envelope and no compatibility aggregate. The removed 1.x tools—including `brain_session`, `brain_read`, `brain_create`, `brain_edit`, `brain_define`, `brain_move`, `brain_action` and `brain_process`—are not aliases.
+
+Start with `session.start`, then use `command.list` and `command.describe` for bounded discovery. For example, inspect `artefact.create` before supplying its fields to the `artefact.create` tool.
+
+The MCP server derives all registrations, schemas, descriptions and tool hints from the selected Brain's catalogue. Profile authority is checked before dynamic request resolution and effects. The cumulative built-in profiles expose 37 reader, 63 contributor, 74 maintainer, 77 operator and 78 administrator tools; custom profiles use exact granular names.
+
+After an upgrade, an old live proxy can return `proxy_restart_required` before tool lookup. Restart the MCP connection to load the matching proxy. Planned pre-effect drift is replayed only after positive command compatibility; an unexpectedly lost mutation is never blindly replayed. Query its durable reference with `invocation.read`.
+
+See [MCP tools](../functional/mcp-tools.md) for transport, protocol and result details.
+
+## CLI
+
+The installed `brain` command is a machine-global CLI 2 bootloader plus a versioned distribution. It resolves exactly one selected local Brain and executes either:
+
+- a launcher-owned machine command, without importing selected-Brain application semantics; or
+- an application command through that selected Brain's own `command.py`.
+
+Supply semantic fields as a strict JSON object:
 
 ```bash
-python3.12 .brain-core/scripts/configure.py semantic --enable
-python3.12 .brain-core/scripts/configure.py semantic --enable --no-provision --json
+brain artefact read --request-json '{"reference":"design/brain"}' --json
+brain vault check --request-json '{"actionable":true}' --json
+brain brain upgrade --vault /path/to/brain \
+  --request-json '{"acknowledge_global_cli_cutover":true}' --json
 ```
 
-**`configure.py agent-skills`** (client discovery adapters) — explicitly installs
-the same stable `shaping` adapter for Claude Code, Codex, or both. The adapter
-loads the authoritative shaping workflow from the active Brain with
-`brain_session` and `brain_read`; it does not copy versioned workflow files into
-the client directory. Existing unmanaged skills are preserved unless `--replace`
-is supplied; replaced trees are archived outside skill discovery under
-`~/.<client>/.brain-skill-backups/`. `--remove` applies only to an unmodified
-Brain-owned adapter. Restart a client after its adapter changes.
+Use `--request-json -` to read one object from stdin. `--vault`, `--brain` and workspace binding select the Brain; they are adapter inputs, never semantic command fields. `--dry-run` is trusted execution context. Exit categories are stable: 0 success, 1 known partial, 2 request/domain failure, 3 authority/capability unavailable, and 4 infrastructure failure or unknown mutation outcome.
 
-**`repair.py`** (infrastructure recovery) — explicit repair surface for current-vault operational drift. It bootstraps from any compatible Python 3.12+ launcher, repairs the central managed runtime at `~/.brain/venvs/py<X.Y>-<sha16>/` when needed, then hands off into it for packageful work. First-cut scopes are `runtime`, `mcp`, `router`, `lexical`, `registry`, `frontmatter`, and `semantic`; the semantic scope restores the pinned runtime packages, local model snapshot/manifest, and sidecars together for an already-configured vault. Missing sidecars degrade cleanly at runtime; present-but-corrupt sidecars now fail explicitly so the owning entry point can rebuild or point you at repair.
+CLI 2 refuses application discovery against a pre-0.55 Brain. Launcher discovery and recovery remain available so the operator can run the checked upgrade. See [CLI](../functional/cli.md).
+
+## Direct script and Python projections
+
+For selected-Brain automation without the global CLI:
 
 ```bash
-python3.12 .brain-core/scripts/repair.py runtime
-python3.12 .brain-core/scripts/repair.py mcp
-python3.12 .brain-core/scripts/repair.py router --dry-run
-python3.12 .brain-core/scripts/repair.py lexical
-python3.12 .brain-core/scripts/repair.py registry
-python3.12 .brain-core/scripts/repair.py semantic
+python3 .brain-core/scripts/command.py artefact read \
+  --request-json '{"name":"design/brain"}' --json
 ```
 
-If you are unsure which scope applies, run `check.py` first. For most broken
-tooling cases, `repair.py runtime` is the right recovery path when the central
-managed Brain runtime itself is broken. `repair.py mcp` repairs installed
-current-vault project MCP state for the clients already present; it does not
-create a first-time project registration. `repair.py semantic` is the semantic
-equivalent after a vault has been opted in with
-`configure.py semantic --enable`; it restores the pinned runtime packages, the
-local model snapshot/manifest, and the embeddings sidecars together.
+This direct projection uses the same catalogue, resolver, invocation boundary and structural result as MCP and CLI. It is not a second command grammar. The typed Python boundary is `CommandApplication(context).invoke(request)` with sealed request types; callers compose trusted context outside `_application`.
 
-**`compliance_check.py`** (session hygiene) — quick checks like "did you log today?" and "are backups fresh?" Run after each work block.
+Legacy top-level operation scripts are internal implementation components or removed surfaces, not supported semantic entry points. Platform install and pre-cutover recovery launchers remain explicit exceptions. See [Scripts](../functional/scripts.md).
 
-### Fallback Chain
+## Dependency and availability model
 
-When full tooling isn't available, agents degrade gracefully:
+Dependency tier, locality and providers are independent:
 
-1. **MCP tools** — `brain_session` returns the canonical session model as JSON
-2. **CLI session fallback** — from a bound external workspace, `brain session --json` resolves the workspace's Brain through the machine-level resolution runtime and dispatches only to that Brain's own `session.py`
-3. **Generated markdown bootstrap** — read `.brain-core/index.md`, then `.brain/local/session.md`
-4. **Degraded fallback** — read `.brain-core/index.md`, then `.brain-core/md-bootstrap.md`, then raw config files as directed
+- **bootstrap** commands use the stdlib-safe base needed for discovery and recovery;
+- **portable** commands use the portable selected-Brain runtime;
+- **managed** commands require the managed runtime;
+- locality distinguishes selected-Brain application work from machine-global launcher work;
+- required providers block execution when absent; optional providers may enrich an otherwise complete result.
 
-There is no non-MCP `brain_init` twin. The MCP `brain_init` tool remains the cheap readiness/warmup probe; no-MCP bootstrap uses `brain session --json` when a JSON session payload is needed.
+Adapters never silently provision dependencies, switch Brains or elevate authority. Unavailable results state the required/current tier, missing provider or capability, freshness, recoverability and one structured next action.
 
----
+## Configuration and profiles
 
-## Colour System
+Configuration merges:
 
-Brain auto-generates folder colours to visually distinguish types in the Obsidian sidebar. Colours are computed by `compile_colours.py` and regenerated automatically when you run `python3 .brain-core/scripts/compile_router.py`.
+1. `.brain-core/defaults/config.yaml` — shipped defaults;
+2. `.brain/config.yaml` — shared vault configuration;
+3. `.brain/local/config.yaml` — machine-local overrides for the `defaults` zone only.
 
-### How Colours Are Assigned
+The `vault` zone is shared authority and cannot be overridden locally. The `defaults` zone uses type-aware scalar, boolean, list and mapping merges. Malformed configuration and unknown profile tools fail closed.
 
-- **Living artefact folders** — hues distributed evenly across available colour space (HSL with S=57%, L=72%)
-- **Temporal child folders** — independent hue distribution, then blended 35% towards rose for a warm, cohesive tint
-- **System folders** — fixed reserved colours: Config = Violet, Temporal = Rose, Plugins = Orchid, Assets/Archives = Slate
+MCP reads an operator key from trusted server configuration (`BRAIN_OPERATOR_KEY`); CLI accepts `--operator-key` as adapter input. Neither is part of a semantic request. Store only the key's SHA-256 hash in shared configuration; keep the secret in local configuration or a secrets manager. Generate a key with `brain operator generate-key`.
 
-### Algorithm
+See [Configuration](../functional/config.md).
 
-Hues are distributed across 240° of available space (360° minus four 30° exclusion zones reserved for system colours). Types are sorted alphabetically, so colours are deterministic — same type list always produces the same colours. Adding a new type shifts existing colours by a small, predictable amount.
+## Workspace binding
 
-**System colour exclusion zones:** Slate (195–225°), Violet (255–285°), Orchid (285–315°), Rose (325–355°).
+`.brain/local/workspace.yaml` belongs to the connecting workspace, not the vault. It records the local Brain identity, workspace slug and filing defaults. Configure it on the agent's machine:
 
-### Temporal Blend Formula
+```bash
+brain workspace bind --vault /path/to/brain \
+  --workspace /absolute/path/to/workspace --request-json '{}' --json
+```
 
-`result = base + (rose - base) × 0.35` per RGB channel.
+MCP cannot configure the connecting agent's local filesystem. Remote-Brain transport and gateway hosting are separate from this local command architecture.
 
-This gives temporal folders a warm, cohesive tint while keeping each type visually distinct.
+## Recovery and compliance
 
-### Graph View Colours
+Useful granular checks and repairs include:
 
-The same colour assignments are applied to Obsidian's graph view. Graph colours are written as `colorGroups` entries in `.obsidian/graph.json`. The graph view is canvas-based (CSS doesn't apply), so colours use a `path:` query with a decimal RGB integer. System folders, living folders, temporal children, and archive folders all appear in the graph with matching colours.
+```bash
+brain brain doctor --json
+brain vault check --vault /path/to/brain --json
+brain runtime repair --vault /path/to/brain --json
+brain runtime refresh-router --vault /path/to/brain --request-json '{"force":true}' --json
+brain retrieval refresh-lexical --vault /path/to/brain --request-json '{"force":true}' --json
+brain retrieval repair-semantic --vault /path/to/brain --json
+brain workspace repair-registry --vault /path/to/brain --json
+brain mcp repair --vault /path/to/brain --json
+```
 
-The `graph.json` merge preserves all existing graph settings (scale, forces, display options) — only `colorGroups` is replaced on each compile.
+Run `brain command describe <command-id> --json` before relying on an example here: the installed catalogue is authoritative.
 
-### File Locations
+## Bootstrap fallback
 
-- **Sidebar colours:** `.obsidian/snippets/brain-folder-colours.css` — auto-generated CSS snippet
-- **Graph colours:** `.obsidian/graph.json` `colorGroups` — auto-generated, other settings preserved
+Agents degrade in this order:
 
-Both files are auto-generated — do not edit colour entries manually. Regenerate with `python3 .brain-core/scripts/compile_router.py` or `python3 .brain-core/scripts/compile_colours.py`. Algorithm details and CSS selector templates are in `.brain-core/colours.md`.
+1. MCP `session.start` returns the canonical JSON session model.
+2. CLI `brain session start --json` returns the same application result through the selected Brain.
+3. Read `.brain-core/index.md`, then the generated `.brain/local/session.md`.
+4. Follow `.brain-core/md-bootstrap.md` when generated state is unavailable.
 
----
+## Further reference
 
-## Writing Style
-
-Configured in `_Config/Styles/writing.md`. Default conventions:
-
-**Universal:** Australian English.
-
-**External audience** (tagged `audience/external` or user-requested):
-
-1. Point first, support underneath
-2. Vary sentence length — short punches, long builds momentum, mix keeps prose alive
-3. Short, familiar, specific words ("use" not "utilise")
-4. Strong verbs; cut the adverb
-5. No em dashes (use commas, colons, semicolons)
-6. Write how a sharp person talks
-7. Avoid inflated vocabulary and filler
-8. Show, don't tell — concrete detail persuades
-9. Every sentence earns its place; stop when done
-10. Lead each sentence with the important thing; push setup to the end
+- [System guide](system-guide.md) — artefact lifecycle, structure and naming
+- [Workflows](workflows.md) — everyday use
+- [MCP tools](../functional/mcp-tools.md) — granular MCP projection
+- [CLI](../functional/cli.md) — CLI 2 grammar and lifecycle
+- [Scripts](../functional/scripts.md) — direct and Python parity
+- [Configuration](../functional/config.md) — config, profiles and skills

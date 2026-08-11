@@ -1,16 +1,12 @@
 #!/usr/bin/env python3
-"""
-session.py — Build the canonical bootstrap session model for agents.
+"""Build the canonical bootstrap session model for agents.
 
 The canonical model combines static brain-core bootstrap content, compiled
 router state, user preference files, config, and runtime environment. The
-MCP server renders it as JSON via `brain_session`; non-MCP flows use the
-generated markdown mirror at `.brain/local/session.md`.
-
-Usage:
-    python3 session.py
-    python3 session.py --vault /path/to/vault --json
-    python3 session.py --context mcp-spike
+MCP server renders it as JSON via ``session.start``; non-MCP flows use the
+generated markdown mirror at ``.brain/local/session.md``. Public callers use
+``session.start`` through ``command.py``; the executable guard remains a
+bootstrap/recovery entry point for the launcher and repository tests.
 """
 
 import json
@@ -198,8 +194,8 @@ def _load_command_catalogue_route(vault_root, brain_core_version):
     return {
         **value,
         "brain_core_version": brain_core_version,
-        "list": "Use brain_command_list for filtered, paginated commands.",
-        "describe": "Use brain_command_describe for one complete command contract.",
+        "list": "Use command.list for filtered, paginated commands.",
+        "describe": "Use command.describe for one complete command contract.",
     }
 
 
@@ -253,8 +249,8 @@ def _workspace_configuration_summary(
         "binding_status": binding_status,
         "purpose": "Configure a local folder as a Brain workspace.",
         "command": (
-            "brain configure workspace binding "
-            "--path <absolute-local-workspace-path>"
+            "brain workspace bind --workspace <absolute-local-workspace-path> "
+            "--request-json '{}'"
         ),
         "selection": (
             "Run on the agent's local machine. If the intended Brain is not "
@@ -455,9 +451,8 @@ def _load_core_docs(core_body):
                     "title": title.strip(),
                     "path": path,
                     "load_with": {
-                        "tool": "brain_read",
-                        "resource": "file",
-                        "name": path,
+                        "tool": "vault.read-file",
+                        "path": path,
                     },
                 }
             )

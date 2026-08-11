@@ -1,19 +1,14 @@
 #!/usr/bin/env python3
-"""
-create.py — Create vault artefacts and _Config/ resources.
+"""Internal creation semantics for vault artefacts and named documents.
 
 Artefact creation resolves type from the compiled router, reads the template,
 generates a filename from the naming pattern, and writes the file with
 frontmatter.
 
 Resource creation (skill, memory, style, template) writes to the appropriate
-_Config/ subfolder following each resource kind's conventions.
-
-Usage:
-    python3 create.py --type idea --title "My Idea"
-    python3 create.py --type idea --title "My Idea" --body "Content here"
-    python3 create.py --type idea --title "My Idea" --vault /path/to/vault --json
-    python3 create.py --resource skill --name my-skill --body "Skill content"
+_Config/ subfolder following each resource kind's conventions. Public callers
+use the granular ``<resource>.create`` commands through ``command.py``; the
+parser retained here is an internal maintenance and repository-test entry point.
 """
 
 import argparse
@@ -323,7 +318,7 @@ def create_resource(vault_root, router, resource="artefact", **kwargs):
 
     if resource not in CREATABLE_RESOURCES:
         raise ValueError(
-            f"Resource '{resource}' is not creatable via brain_create. "
+            f"Resource '{resource}' is not creatable by a canonical command. "
             f"Creatable resources: {', '.join(CREATABLE_RESOURCES)}"
         )
 
@@ -332,9 +327,9 @@ def create_resource(vault_root, router, resource="artefact", **kwargs):
     frontmatter = kwargs.get("frontmatter")
 
     if not name:
-        raise ValueError(f"brain_create(resource='{resource}') requires name.")
+        raise ValueError(f"{resource}.create requires a name.")
     if not body:
-        raise ValueError(f"brain_create(resource='{resource}') requires body.")
+        raise ValueError(f"{resource}.create requires content.")
 
     return _RESOURCE_CREATORS[resource](vault_root, router, name, body, frontmatter)
 

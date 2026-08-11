@@ -328,7 +328,7 @@ class TestEditResource:
             )
 
     def test_name_required_for_non_artefact(self, vault, router):
-        with pytest.raises(ValueError, match="name"):
+        with pytest.raises(ValueError, match="reference"):
             edit.edit_resource(
                 str(vault), router, resource="skill",
                 operation="edit", body="content",

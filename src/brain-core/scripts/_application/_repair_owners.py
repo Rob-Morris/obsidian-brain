@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Callable, ClassVar, Mapping
 
-from ._mutation_support import no_effect_error, operator_mutation_entry
+from ._mutation_support import contributor_mutation_entry, no_effect_error
 from .context import InvocationContext
 from .receipts import CommittedEffect
 from .results import CommandError, ErrorCode, Ok, Partial, RequestErrorDetails
@@ -116,7 +116,7 @@ def execute_repair(
 
 
 def catalogue_entry(request_type, executor):
-    return operator_mutation_entry(request_type, executor)
+    return contributor_mutation_entry(request_type, executor)
 
 
 def _error_message(result: dict) -> str:

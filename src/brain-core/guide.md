@@ -144,9 +144,9 @@ Not every type has status. Wiki and Notes are evergreen; temporal types without 
 
 Use **basename-only** wikilinks: `[[My Page]]`, not `[[Wiki/My Page]]`. Basename links survive folder moves and archiving. Path-qualified links break when files move into subfolders. Avoid aliased wikilinks inside markdown tables (`[[Target|Alias]]`) because the alias separator is also a table column separator; Brain drops those aliases during table-row link rewrites and `check.py` warns on existing table aliases.
 
-Only wikilink to targets that already exist. If the artefact doesn't exist yet, write plain text — create the artefact first, then link. `brain_create` and `brain_edit` warn about broken or resolvable wikilinks in every write, and `brain_action(request={"action": "fix-links", "params": {...}})` repairs them one file or vault-wide at a time. Full rules are in the [wikilinks standard](standards/wikilinks.md); resolution mechanics are in the [linking standard](standards/linking.md).
+Only wikilink to targets that already exist. If the artefact doesn't exist yet, write plain text — create the artefact first, then link. `artefact.create` and the granular artefact mutations warn about broken or resolvable wikilinks, and `links.fix` repairs them one file or vault-wide at a time. Full rules are in the [wikilinks standard](standards/wikilinks.md); resolution mechanics are in the [linking standard](standards/linking.md).
 
-`brain_create` auto-disambiguates basename collisions across type folders by appending the type key (e.g. `My Page (idea).md`).
+`artefact.create` auto-disambiguates basename collisions across type folders by appending the type key (e.g. `My Page (idea).md`).
 
 ## Provenance
 
@@ -164,12 +164,12 @@ When one artefact spins out of another, link them. Full details are in the [prov
 
 Published writing moves to `Writing/+Published/` with date-prefixed filenames. Full details in the writing taxonomy.
 
-For normal publishing, call `brain_set_status(path="...", status="published")`.
+For normal publishing, call `artefact.set-status(path="...", status="published")`.
 The lifecycle handler sets a missing `publisheddate` to today, applies the
 date-prefixed rename, and moves the file into `Writing/+Published/`.
 
 To use a different publication date, first call
-`brain_set_naming_field(path="...", field="publisheddate", value="YYYY-MM-DD")`,
+`artefact.set-naming-field(path="...", field="publisheddate", value="YYYY-MM-DD")`,
 then set the published status.
 
 ## Terminal Status and Archiving
@@ -186,7 +186,7 @@ Living artefacts that reach a terminal status move to a `+Status/` folder within
 
 `+Deprecated/` is the unified abandonment folder; the reason (superseded, rejected, cancelled, retired, duplicate) is captured in a `> [!info] Deprecated — <reason>` callout in the artefact body.
 
-`_Archive/` is reserved for deliberate removal — a "soft delete" that takes files completely out of the active vault namespace (index, search, and all normal operations). Use `brain_move(op="archive", path="...", recursive=true)` to archive an ownership subtree and `brain_move(op="unarchive", path="...", recursive=true)` to restore one; omit `recursive` for a single artefact. Use `brain_list(resource="archive")` to list archived files, `brain_read(resource="archive", name="...")` to read a specific one. Full details are in the [archiving standard](standards/archiving.md).
+`_Archive/` is reserved for deliberate removal — a "soft delete" that takes files completely out of the active vault namespace. Use `artefact.archive` and `artefact.unarchive` for transitions, `artefact.list(location="archived")` to list the archive namespace, and `artefact.read(location="archived")` to read from it. Full details are in the [archiving standard](standards/archiving.md).
 
 ## Extending Your Vault
 
@@ -197,9 +197,9 @@ Before adding a type, check:
 - You'll create multiple files of this type (not just one)
 - It needs different naming, frontmatter, or lifecycle rules
 
-To add a living type: create the root folder, create the taxonomy file in `_Config/Taxonomy/Living/`, optionally add a router trigger, then run `python3 .brain-core/scripts/compile_router.py` — colours are auto-generated.
+To add a living type: use `type.create` with the reviewed taxonomy and template, optionally add a `trigger.create`, then run `runtime.refresh-router` — colours are auto-generated.
 
-To add a temporal type: create the folder under `_Temporal/`, create taxonomy in `_Config/Taxonomy/Temporal/`, then run `python3 .brain-core/scripts/compile_router.py` — rose-blended colours are auto-generated.
+To add a temporal type: use `type.create` with classification `temporal`, then run `runtime.refresh-router` — rose-blended colours are auto-generated.
 
 Full details in the [Template Library Guide — Extending Your Vault](https://github.com/rob-morris/obsidian-brain/blob/main/docs/user/template-library-guide.md).
 
@@ -221,60 +221,44 @@ Full details in the [Template Library Guide — Extending Your Vault](https://gi
 To bind a workspace and optionally configure Claude Code and Codex to use this vault's MCP server:
 
 ```bash
-# Bind the current directory to this Brain
-cd /my/project && python3 /path/to/vault/.brain-core/scripts/setup.py workspace . --vault /path/to/vault
-
-# Bind only, through the targeted CLI surface
-brain configure workspace binding --vault /path/to/vault --path /my/project --slug my-project
+# Bind one workspace to this Brain
+brain workspace bind --vault /path/to/vault --workspace /my/project --request-json '{}'
 
 # Configure project-scoped MCP transport for both clients
-python3 /path/to/vault/.brain-core/scripts/configure.py mcp --vault /path/to/vault --workspace /my/project --client all
+brain mcp configure --vault /path/to/vault --workspace /my/project --request-json '{"scope":"project","client":"all"}'
 
 # Claude-only local scope (gitignored; Codex has no local scope)
-python3 /path/to/vault/.brain-core/scripts/configure.py mcp --vault /path/to/vault --workspace /my/project --client claude --local
+brain mcp configure --vault /path/to/vault --workspace /my/project --request-json '{"scope":"local","client":"claude"}'
 
 # Register as your default brain for all projects for both clients
-python3 /path/to/vault/.brain-core/scripts/configure.py mcp --vault /path/to/vault --user --client all
+brain mcp configure --vault /path/to/vault --request-json '{"scope":"user","client":"all"}'
 
 # Install the active-Brain shaping discovery adapter for both clients
-python3 /path/to/vault/.brain-core/scripts/configure.py agent-skills --vault /path/to/vault --client all
+brain agent-skill configure --vault /path/to/vault --request-json '{"client":"all"}'
 ```
 
-`setup.py workspace` and `configure.py mcp` are the public setup and transport surfaces. Older automation that used the retired `init.py` compatibility shell should move to the targeted `setup.py` / `configure.py` command for the concern it owns.
+`workspace.bind`, `workspace.configure-bootstrap` and `mcp.configure` are separate public setup and transport owners. Use `brain command describe` for their exact request contracts.
 
 For project scope, registration is not the whole story. Claude still needs the project's `.mcp.json` entry approved via `/mcp`, and Codex still needs the project trusted with the project-scoped `brain` MCP enabled. Once that project-scoped entry is active, it outranks the user-scoped one. Until then, either client may keep routing `mcp__brain__*` calls to a user-scoped `brain`.
 
 The optional shaping adapter is a stable discovery shim, not a copied workflow.
-At invocation time it calls `brain_session` and loads the active Brain's
-`.brain-core/skills/shaping/SKILL.md` through `brain_read`. Re-run the command to
+At invocation time it calls `session.start` and loads the active Brain's
+`.brain-core/skills/shaping/SKILL.md` through `vault.read-file`. Re-run the command to
 update a Brain-owned adapter; use `--replace` only after reviewing an existing
 unmanaged skill, which is archived first. Restart the affected clients after a
 change.
 
 ## Tooling
 
-If your vault has the Brain MCP server running, you get twenty-two focused tools:
+If your vault has the Brain MCP server running, every eligible catalogue command appears under its canonical dotted `<noun>.<verb>` name. Start with `session.start`, discover with `command.list`, and inspect an exact schema and minimal request with `command.describe`. The removed aggregate 1.x tools are not aliases.
 
-- **brain_init** — additive bootstrap/orientation snapshot with readiness, warmup status, and optional cheap debug output. `warmup=true` ensures background warmup is underway, then returns immediately.
-- **brain_session** — bootstrap an agent session in one call (static core bootstrap content, structured core-doc references with explicit `brain_read(resource="file", ...)` load instructions, local workspace-configuration CLI guidance, always-rules, preferences, gotchas, triggers, artefact types, environment); also refreshes `.brain/local/session.md`
-- **brain_read** — read a specific resource by name: artefact content (by relative path, basename, or display name — resolves like wikilinks), type definitions, triggers, styles, templates, skills, plugins, memories, or workspaces. Name is required for collection resources; use brain_list to enumerate collections.
-- **brain_search** — find files by query, type, tag, status, and retrieval mode (`lexical`, `semantic`, `hybrid`). Omitted mode prefers hybrid when semantic retrieval is enabled and usable; lexical may use Obsidian CLI, while non-artefact collections stay lexical-only.
-- **brain_list** — enumerate resources exhaustively with honest creation/modified filters and stable cursor pagination.
-- **brain_outline / brain_check** — discover exact edit selectors and inspect structured Doctor findings without mutation.
-- **brain_stage / brain_discard_stage** — hold large bodies under bounded retry-safe handles or release unused handles.
-- **brain_upload_attachment** — add base64-encoded non-markdown files beneath a required living-artefact or standalone attachment scope and receive resolved destination metadata, the vault path, and Obsidian embed.
-- **brain_create** — create a new artefact or _Config/ resource (additive, safe to auto-approve). Its resource-discriminated request has exact artefact versus skill, memory, style, and template variants. Inline bodies use `"content": {"source": "inline", "content": "..."}`; `body` and `kind` are not aliases.
-- **brain_edit** — explicit structural edits and exact-text replacement. Generic edits reject lifecycle-owned metadata; use **brain_reparent**, **brain_set_status**, **brain_set_key**, and **brain_set_naming_field** so derived paths, links, tags, descendants, and timestamps remain consistent. `brain_reparent` requires `parent`; pass null explicitly to clear ownership.
-- **brain_define** — operator-only, guarded authoring for coherent type bundles, triggers, and plugins. Type replacement checks both taxonomy and template hashes; plugin replacement checks its definition hash; trigger changes identify exact current entries.
-- **brain_move** — rename, convert, archive, or unarchive artefacts via a flat top-level move contract
-- **brain_action** — schema-discriminated workflow bucket for delete, reparent-children, `shape` session mechanics, printable/presentation shaping helpers, and fix-links
-- **brain_classify / brain_resolve / brain_ingest** — split experimental content tools; read-only classification/resolution no longer grants ingest permission.
+Common families include `artefact.*`, `memory.*`, `skill.*`, `style.*`, `template.*`, `plugin.*`, `trigger.*`, `type.*`, `content.*`, `retrieval.*`, `links.*`, `shaping.*`, `workspace.*`, `vault.*`, `runtime.*`, `stage.*` and `attachment.upload`. Profiles authorise exact leaves rather than aggregate buckets.
 
 The MCP server logs to `.brain/local/mcp-server.log` — startup diagnostics, tool call tracing, and errors. Set `BRAIN_LOG_LEVEL=DEBUG` for tool argument details.
 
-For structural compliance (naming, frontmatter, archives), run `python3 .brain-core/scripts/check.py`.
+For structural compliance, run `brain vault check --json`.
 
-Without MCP, read `.brain-core/index.md` first. The scripts in `.brain-core/scripts/` remain authoritative and the `brain` CLI dispatches to them, including `outline.py`, `stage.py`, `discard_stage.py`, `upload_attachment.py`, and `lifecycle.py`. Direct mutation scripts share the vault mutation lock; artefact mutations also refuse stale compiled router state.
+Without MCP, read `.brain-core/index.md` first. Use `brain <noun> <verb>` or the selected Brain's `command.py <noun> <verb>` direct projection. Both share the same typed request, semantic owner, structural result, profile gate and vault mutation lock.
 
 ## Further Reading
 

@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from typing import ClassVar, Mapping
 
 from .._artefact_transition import PathChange
-from .._mutation_support import no_effect_error, operator_mutation_entry
+from .._mutation_support import contributor_mutation_entry, no_effect_error
 from ..context import InvocationContext
 from ..receipts import CommittedEffect
 from ..results import CommandError, ErrorCode, Ok, Partial, RequestErrorDetails
@@ -129,7 +129,7 @@ def _payload(result: dict) -> ArtefactMigrateNamingPayload:
 
 
 def catalogue_entry():
-    return operator_mutation_entry(ArtefactMigrateNamingRequest, execute)
+    return contributor_mutation_entry(ArtefactMigrateNamingRequest, execute)
 
 
 def resolver_entry():

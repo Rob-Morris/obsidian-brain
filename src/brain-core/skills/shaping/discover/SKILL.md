@@ -16,7 +16,7 @@ If you don't have an artefact path and transcript path from the parent skill, re
 ## Process
 
 - Follow the shared Q&A rules in `shaping/assess`
-- After each answer: incorporate into the artefact via `brain_edit`, record the turn in the transcript
+- After each answer: incorporate it with the narrowest `document.edit` change and append the turn to the transcript with another `document.edit` append change
 - **Signal progress** with terse prompts that open new territory: "Anything else? How you two met? Things she's into?"
 - Read the body so far, suggest 1-2 unexplored areas — don't drill deeper into the current thread
 - Keep it succinct. The user should always feel it's OK to stop.
@@ -25,7 +25,7 @@ If you don't have an artefact path and transcript path from the parent skill, re
 
 - No fixed completion criteria. When the user signals done or you've covered the territory, do a quick review: any obvious gaps? Anything mentioned but not captured?
 - Present any gaps. If the user says they're done, they're done.
-- Confirm before changing status — "Set status to `{completion_status}`?" Apply the taxonomy's exact value via `brain_set_status(path="{path}", status="{completion_status}")`. Signal: "Fully shaped — [artefact] is `{completion_status}`."
+- Confirm before changing status — "Set status to `{completion_status}`?" Apply the taxonomy's exact value via `artefact.set-status(path="{path}", status="{completion_status}")`. Signal: "Fully shaped — [artefact] is `{completion_status}`."
 
 ## Red Flags
 

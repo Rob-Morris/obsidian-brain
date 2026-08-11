@@ -4,7 +4,6 @@ import pytest
 
 import compile_router
 import define
-from brain_mcp import server
 
 
 TYPE_DEFINITION = """# Widgets
@@ -226,27 +225,6 @@ def test_trigger_replace_target_precondition_fails_without_write(tmp_path):
             new_condition="Changed",
         )
     assert router.read_text() == original
-
-
-def test_mcp_definition_tool_returns_structured_result(tmp_path, monkeypatch):
-    monkeypatch.setattr(server, "_vault_root", str(tmp_path))
-    monkeypatch.setattr(server, "_session_profile", None)
-    monkeypatch.setattr(server, "_config", None)
-    monkeypatch.setattr(server, "_ensure_config_fresh", lambda _tool: None)
-    request = server._BrainDefinePluginRequest.model_validate({
-        "kind": "plugin",
-        "name": "example-plugin",
-        "mutation": {
-            "operation": "create",
-            "definition": "# Example plugin\n",
-        },
-    })
-
-    result = server.brain_define(request)
-
-    assert result.isError is not True
-    assert result.structuredContent["path"] == "_Plugins/example-plugin/SKILL.md"
-    assert (tmp_path / "_Plugins/example-plugin/SKILL.md").is_file()
 
 
 def test_definition_cli_success_and_failure_before_mutation(tmp_path, capsys):

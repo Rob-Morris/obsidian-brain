@@ -125,7 +125,7 @@ def enable_semantic(
     if not provision:
         notes.append(
             "Runtime provisioning was skipped (--no-provision). "
-            "Run `python3 .brain-core/scripts/check.py --actionable` or "
+            "Run `vault.check` with `actionable: true` or "
             "`python3 .brain-core/scripts/repair.py semantic` later if this vault "
             "remains unavailable for semantic search."
         )

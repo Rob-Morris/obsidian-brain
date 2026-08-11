@@ -146,7 +146,7 @@ def test_replay_uses_epoch_command_version_and_mutation_not_fingerprint():
     assert replay_identity_compatible(**facts)
     for field, incompatible in (
         ("replacement_epoch", 3),
-        ("replacement_command_id", "artefact.edit"),
+        ("replacement_command_id", "document.edit"),
         ("replacement_command_version", 4),
         ("replacement_mutation_class", "none"),
     ):

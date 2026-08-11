@@ -33,7 +33,7 @@ Most artefacts lean one way, but a session can blend both — a design might sta
 
 ## Opening or Continuing a Shaping Session
 
-The shaping skill owns the end-to-end activity: resolve or create the artefact, read its taxonomy contract, choose a mode, run the Q&A loop, review the result, and apply the taxonomy's completion status. Once the target and mode are known, it calls `brain_action(request={"action": "shape", "params": {"target": "...", "mode": "refine"}})`.
+The shaping skill owns the end-to-end activity: resolve or create the artefact, read its taxonomy contract, choose a mode, run the Q&A loop, review the result, and apply the taxonomy's completion status. Once the target and mode are known, it calls the `shaping.start` MCP command with `target` and `mode`.
 
 The low-level `shape` action opens or continues the session mechanics only:
 
@@ -42,7 +42,7 @@ The low-level `shape` action opens or continues the session mechanics only:
 3. **Creates or appends to today's transcript** — linked to the artefact, with provenance in both directions
 4. **Sets status canonically** — uses the lifecycle handler, including moves and status hooks
 
-The action does not conduct Q&A, choose what to ask, or decide that shaping is complete. Those are skill-level judgements. Internally, `start_shaping_session()` names this narrower session-boundary primitive; `start_shaping.py` remains a compatibility launcher for direct script consumers.
+The action does not conduct Q&A, choose what to ask, or decide that shaping is complete. Those are skill-level judgements. Internally, `start_shaping_session()` names this narrower session-boundary primitive. Public direct-script callers use `command.py shaping start`; the former `start_shaping.py` compatibility launcher was removed at the 0.55.0 command-interface cutover.
 
 Sometimes shaping begins before the user knows what they're shaping. In this case, the first questions are exploratory — identifying the artefact type and creating it is part of the skill process. The skill calls `shape` once the target is clear.
 

@@ -252,7 +252,7 @@ def test_validate_config_bad_profile_tool():
 def test_validate_config_accepts_adapter_owned_additional_tools():
     cfg = {
         "vault": {
-            "profiles": {"reader": {"allow": ["brain_command_list"]}},
+            "profiles": {"reader": {"allow": ["command.list"]}},
             "operators": [],
         },
         "defaults": {"default_profile": "reader"},
@@ -260,7 +260,7 @@ def test_validate_config_accepts_adapter_owned_additional_tools():
 
     issues = config_mod._validate_config(
         cfg,
-        additional_valid_tools=frozenset(("brain_command_list",)),
+        additional_valid_tools=frozenset(("command.list",)),
     )
 
     assert issues == []
@@ -297,7 +297,9 @@ def test_validate_config_clean():
     cfg = {
         "vault": {
             "profiles": {
-                "reader": {"allow": ["brain_session", "brain_read", "brain_search"]},
+                "reader": {
+                    "allow": ["session.start", "artefact.read", "artefact.search"]
+                },
             },
             "operators": [
                 {"id": "test", "profile": "reader", "auth": {"type": "key", "hash": "sha256:abc"}},

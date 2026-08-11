@@ -332,7 +332,7 @@ def outline_structural_nodes(body):
     """Return the editable heading/callout outline for a markdown body.
 
     The result deliberately uses the same scanner as structural edits, so every
-    advertised target is accepted by ``brain_edit``. Occurrence numbers are
+    advertised target is accepted by the granular artefact mutations. Occurrence numbers are
     scoped to siblings with the same target text; ``within`` gives the heading
     ancestry needed to build a selector when a target is duplicated.
     """

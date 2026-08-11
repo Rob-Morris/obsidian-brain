@@ -383,8 +383,18 @@ def cleanup_claude_bootstrap(
     bootstrap_line: Optional[str] = None,
 ) -> bool:
     rel_path = CLAUDE_LOCAL_MD_FILE if local else CLAUDE_MD_FILE
-    line = bootstrap_line if bootstrap_line is not None else bootstrap_line_for_target(target_dir)
-    return _remove_bootstrap_line(target_dir / rel_path, line)
+    path = target_dir / rel_path
+    if bootstrap_line is not None:
+        return _remove_bootstrap_line(path, bootstrap_line)
+    lines = (
+        bootstrap_line_for_target(target_dir),
+        "ALWAYS DO FIRST: Call MCP `brain_session`, else read `.brain-core/index.md` if it exists.",
+        "ALWAYS DO FIRST: Call MCP `brain_session`; if MCP is unavailable, run `brain session --json` from this workspace.",
+    )
+    changed = False
+    for line in lines:
+        changed = _remove_bootstrap_line(path, line) or changed
+    return changed
 
 
 def _converge_workspace_manifest(
@@ -440,7 +450,7 @@ def ensure_session_start_hook(
     new_entry = {"hooks": [new_hook]}
     settings["hooks"].setdefault("SessionStart", []).append(new_entry)
     safe_write_json(settings_path, settings)
-    info("Added SessionStart hook for brain_session")
+    info("Added SessionStart hook for session.start")
     return settings_path
 
 
@@ -693,7 +703,7 @@ def mcp_followup_notes(clients: List[str], scope: str, target_dir: Optional[Path
     if "claude" in clients:
         if project_scope:
             notes.append("Claude:   open Claude Code in this directory and use /mcp to approve `brain` if prompted")
-            notes.append("Verify:   ask Claude to call `brain_session` and confirm `environment.vault_root`")
+            notes.append("Verify:   ask Claude to call `session.start` and confirm `environment.vault_root`")
         else:
             notes.append("Verify:   claude mcp list")
     if "codex" in clients:
@@ -701,7 +711,7 @@ def mcp_followup_notes(clients: List[str], scope: str, target_dir: Optional[Path
             notes.append(
                 "Codex:    trust this project and ensure the project-scoped `brain` MCP is enabled if prompted"
             )
-            notes.append("Verify:   ask Codex to call `brain_session` and confirm `environment.vault_root`")
+            notes.append("Verify:   ask Codex to call `session.start` and confirm `environment.vault_root`")
             notes.append("Health:   codex mcp list")
         else:
             notes.append("Verify:   codex mcp list")

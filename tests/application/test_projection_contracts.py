@@ -52,13 +52,10 @@ def test_every_application_command_has_one_collision_free_mechanical_projection(
 
     assert len({item.mcp_tool for item in projections}) == len(projections)
     assert len({item.cli_argv for item in projections}) == len(projections)
-    assert project_identity("vault.check").mcp_tool == "brain_vault_check"
-    assert project_identity("artefact.replace-text").cli_argv == (
-        "artefact",
-        "replace-text",
-    )
-    assert project_identity("artefact.replace-text").module_path == (
-        "_application/artefact/replace_text.py"
+    assert project_identity("vault.check").mcp_tool == "vault.check"
+    assert project_identity("document.edit").cli_argv == ("document", "edit")
+    assert project_identity("document.edit").module_path == (
+        "_application/document/edit.py"
     )
     assert all(
         1 <= len(entry.summary.removesuffix(".").split()) <= 12
@@ -66,14 +63,14 @@ def test_every_application_command_has_one_collision_free_mechanical_projection(
     )
 
 
-def test_name_resolvers_reject_aliases_stutter_and_ambiguous_unowned_mcp_names():
+def test_name_resolvers_reject_aliases_stutter_and_unowned_mcp_names():
     command_ids = tuple(
         entry.command_id for entry in current_application_catalogue().entries
     )
     assert command_id_from_argv(
-        "artefact", "replace-text", command_ids
-    ) == "artefact.replace-text"
-    assert command_id_from_mcp_tool("brain_vault_check", command_ids) == "vault.check"
+        "document", "edit", command_ids
+    ) == "document.edit"
+    assert command_id_from_mcp_tool("vault.check", command_ids) == "vault.check"
 
     for noun, verb in (("brain", "vault-check"), ("artefact", "replace_text")):
         try:
@@ -84,11 +81,11 @@ def test_name_resolvers_reject_aliases_stutter_and_ambiguous_unowned_mcp_names()
             raise AssertionError("non-canonical CLI alias unexpectedly resolved")
 
     try:
-        command_id_from_mcp_tool("brain_one_two_three", command_ids)
+        command_id_from_mcp_tool("one.two", command_ids)
     except ValueError as exc:
-        assert "ambiguous" in str(exc)
+        assert "not owned" in str(exc)
     else:
-        raise AssertionError("ambiguous MCP name unexpectedly resolved without a catalogue")
+        raise AssertionError("unowned MCP name unexpectedly resolved")
 
 
 def test_every_application_request_projects_to_a_strict_described_object_schema():
@@ -132,24 +129,30 @@ def test_every_discovery_example_resolves_through_the_real_dynamic_boundary():
 
 
 def test_request_schema_preserves_required_defaults_enums_and_nested_shapes():
-    from _application.artefact.replace_text import ArtefactReplaceTextRequest
+    from _application.document.edit import DocumentEditRequest
 
-    schema = request_schema(ArtefactReplaceTextRequest)
+    schema = request_schema(DocumentEditRequest)
 
-    assert schema["required"] == ["path", "old_text", "new_text"]
-    assert schema["properties"]["replace_all"]["default"] is False
-    assert schema["properties"]["scope"]["enum"] == [
-        "section",
-        "intro",
-        "body",
-        "heading",
-        "header",
-        None,
+    assert schema["required"] == ["target", "change"]
+    assert schema["properties"]["fix_links"]["default"] is False
+    assert schema["properties"]["target"]["properties"]["resource"]["enum"] == [
+        "artefact",
+        "memory",
+        "skill",
+        "style",
+        "template",
     ]
-    assert (
-        schema["properties"]["selector"]["properties"]["within"]["type"]
-        == "array"
-    )
+    operations = {
+        branch["properties"]["operation"]["enum"][0]
+        for branch in schema["properties"]["change"]["anyOf"]
+    }
+    assert operations == {
+        "replace",
+        "append",
+        "prepend",
+        "delete-section",
+        "replace-text",
+    }
 
     from _application.requests import CommandListRequest
 

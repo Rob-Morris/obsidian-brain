@@ -18,6 +18,7 @@ Usage:
     cfg = load_config("/path/to/vault")
 """
 
+import json
 import os
 import sys
 import warnings
@@ -32,19 +33,36 @@ from _common._yaml import YamlError, load_mapping_file
 CONFIG_YAML = os.path.join(".brain", "config.yaml")
 LOCAL_CONFIG_YAML = os.path.join(".brain", "local", "config.yaml")
 
-# All valid MCP tool names (for profile validation)
-_VALID_TOOLS = frozenset([
-    "brain_init", "brain_session", "brain_read", "brain_outline", "brain_check",
-    "brain_search", "brain_list", "brain_stage", "brain_discard_stage",
-    "brain_upload_attachment", "brain_create", "brain_edit",
-    "brain_reparent", "brain_set_status", "brain_set_key", "brain_define",
-    "brain_set_naming_field", "brain_classify", "brain_resolve", "brain_ingest",
-    "brain_move", "brain_action",
-])
-
-
 class ConfigError(ValueError):
     """Raised when parsed config has an invalid structural shape."""
+
+
+def _load_valid_tools() -> frozenset[str]:
+    """Load the low-dependency command authority projection shipped with Brain Core."""
+
+    core_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    path = os.path.join(core_dir, "defaults", "command-authority.json")
+    try:
+        with open(path, encoding="utf-8") as handle:
+            value = json.load(handle)
+    except (OSError, json.JSONDecodeError) as exc:
+        raise ConfigError(f"invalid shipped command authority at {path}: {exc}") from exc
+    if not isinstance(value, dict) or set(value) != {"schema", "commands"}:
+        raise ConfigError(f"invalid shipped command authority shape at {path}")
+    tools = value["commands"]
+    if (
+        value["schema"] != "brain.command-authority/1"
+        or not isinstance(tools, list)
+        or any(not isinstance(tool, str) or not tool for tool in tools)
+        or tools != sorted(set(tools))
+    ):
+        raise ConfigError(f"invalid shipped command authority content at {path}")
+    return frozenset(tools)
+
+
+# Exact command names are data so this portable configuration plane does not
+# import the managed application catalogue merely to validate shared profiles.
+_VALID_TOOLS = _load_valid_tools()
 
 
 # ---------------------------------------------------------------------------

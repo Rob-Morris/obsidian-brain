@@ -841,7 +841,7 @@ class TestCreateResource:
             )
 
     def test_body_required_for_non_artefact(self, vault, router):
-        with pytest.raises(ValueError, match="body"):
+        with pytest.raises(ValueError, match="content"):
             create.create_resource(
                 str(vault), router, resource="skill",
                 name="no-body",

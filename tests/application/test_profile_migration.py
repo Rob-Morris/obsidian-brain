@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 
+from _common._yaml import dump_yaml_text, load_mapping_file
 from _application.projection import project_identity
 from _application.registry import current_application_catalogue
 from _command_interface.profile_migration import (
@@ -15,6 +16,8 @@ from _command_interface.profile_migration import (
     ProfileMigrationError,
     migrate_profile_allow_lists,
 )
+from _command_interface.profiles import builtin_profile_allow_lists
+import migrate_to_0_55_0
 
 
 DISPOSITIONS = (
@@ -22,6 +25,7 @@ DISPOSITIONS = (
     / "fixtures"
     / "command_interface_dispositions_v1.json"
 )
+CORE_ROOT = Path(__file__).resolve().parents[2] / "src" / "brain-core"
 
 
 def _legacy_builtins():
@@ -29,6 +33,26 @@ def _legacy_builtins():
         name: {"allow": list(tools), "label": f"{name} profile"}
         for name, tools in _LEGACY_BUILTIN_ALLOW.items()
     }
+
+
+def test_shipped_authority_asset_and_profile_defaults_match_the_catalogue():
+    catalogue = current_application_catalogue()
+    expected = builtin_profile_allow_lists(catalogue)
+    authority = json.loads(
+        (CORE_ROOT / "defaults" / "command-authority.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    defaults = load_mapping_file(CORE_ROOT / "defaults" / "config.yaml")
+
+    assert authority == {
+        "schema": "brain.command-authority/1",
+        "commands": list(expected["administrator"]),
+    }
+    assert {
+        name: tuple(definition["allow"])
+        for name, definition in defaults["vault"]["profiles"].items()
+    } == expected
 
 
 def _leaf_command_ids(value):
@@ -77,11 +101,15 @@ def test_exact_legacy_builtins_become_catalogue_derived_granular_profiles():
     )
 
     assert {name: len(value["allow"]) for name, value in result.profiles.items()} == {
-        "reader": 41,
-        "contributor": 82,
-        "operator": 109,
+        "reader": 37,
+        "contributor": 63,
+        "maintainer": 76,
+        "operator": 85,
+        "administrator": 86,
     }
     assert [change.strategy for change in result.changes] == [
+        "builtin",
+        "builtin",
         "builtin",
         "builtin",
         "builtin",
@@ -112,7 +140,7 @@ def test_custom_profile_expands_only_its_legacy_capabilities():
         "description": "Read and search only.",
     }
     assert result.changes[0].strategy == "custom"
-    assert "brain_invocation_read" not in result.profiles["auditor"]["allow"]
+    assert "invocation.read" not in result.profiles["auditor"]["allow"]
 
 
 def test_custom_mutator_gains_only_the_required_outcome_query_closure():
@@ -124,7 +152,7 @@ def test_custom_mutator_gains_only_the_required_outcome_query_closure():
         project_identity(command_id).mcp_tool
         for command_id in _LEGACY_COMMANDS["brain_create"]
     }
-    expected.add("brain_invocation_read")
+    expected.add("invocation.read")
 
     assert set(result.profiles["author"]["allow"]) == expected
 
@@ -136,8 +164,8 @@ def test_mixed_and_already_granular_profiles_are_idempotent():
             "mixed": {
                 "allow": [
                     "brain_read",
-                    "brain_vault_read_file",
-                    "brain_command_list",
+                    "vault.read-file",
+                    "command.list",
                 ]
             }
         },
@@ -163,3 +191,58 @@ def test_profile_migration_fails_closed_before_returning_partial_output(
 ):
     with pytest.raises(ProfileMigrationError, match=message):
         migrate_profile_allow_lists(profiles, current_application_catalogue())
+
+
+def test_v055_upgrade_migration_writes_all_five_builtin_profiles(tmp_path):
+    config_path = tmp_path / ".brain" / "config.yaml"
+    config_path.parent.mkdir(parents=True)
+    config_path.write_text(
+        dump_yaml_text(
+            {
+                "vault": {
+                    "brain_name": "Test Brain",
+                    "profiles": _legacy_builtins(),
+                },
+                "defaults": {"default_profile": "operator"},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    result = migrate_to_0_55_0.migrate(str(tmp_path))
+    migrated = load_mapping_file(config_path)
+
+    assert result["status"] == "ok"
+    assert result["profiles"] == [
+        "reader",
+        "contributor",
+        "maintainer",
+        "operator",
+        "administrator",
+    ]
+    assert {
+        name: len(definition["allow"])
+        for name, definition in migrated["vault"]["profiles"].items()
+    } == {
+        "reader": 37,
+        "contributor": 63,
+        "maintainer": 76,
+        "operator": 85,
+        "administrator": 86,
+    }
+    assert migrated["vault"]["brain_name"] == "Test Brain"
+    assert migrated["defaults"] == {"default_profile": "operator"}
+
+
+def test_v055_upgrade_migration_leaves_config_untouched_on_unknown_grant(tmp_path):
+    config_path = tmp_path / ".brain" / "config.yaml"
+    config_path.parent.mkdir(parents=True)
+    original = dump_yaml_text(
+        {"vault": {"profiles": {"custom": {"allow": ["unknown.tool"]}}}}
+    )
+    config_path.write_text(original, encoding="utf-8")
+
+    with pytest.raises(ProfileMigrationError, match="unknown tool"):
+        migrate_to_0_55_0.migrate(str(tmp_path))
+
+    assert config_path.read_text(encoding="utf-8") == original

@@ -2,7 +2,7 @@
 
 session.py extracts ``## Core Docs`` and ``## Standards`` from this file
 during MCP bootstrap and now requires both to resolve unambiguously.
-A duplicate or missing heading would raise inside ``brain_session``.
+A duplicate or missing heading would raise inside ``session.start``.
 """
 
 from pathlib import Path

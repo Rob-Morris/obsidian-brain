@@ -128,7 +128,7 @@ launcher Python discovery so it passes regardless of what the runner ships.
 
 The `Windows user smoke` GitHub Actions workflow runs only
 `tests/test_windows_user_smoke.py` on `windows-latest`. It protects the native
-Windows user path (installer launcher, MCP startup, and one `brain_read` round
+Windows user path (installer launcher, MCP startup, and one `vault.read-file` round
 trip) without making the full suite a Windows contributor gate.
 
 If you touch semantic retrieval, embeddings, or the evaluation harness, also

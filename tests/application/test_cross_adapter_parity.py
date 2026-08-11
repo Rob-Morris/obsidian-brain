@@ -46,7 +46,7 @@ def _vault(tmp_path):
     script = root / ".brain-core" / "scripts" / "command.py"
     script.parent.mkdir(parents=True)
     script.write_text("# selected Brain command owner\n", encoding="utf-8")
-    (root / ".brain-core" / "VERSION").write_text("0.54.59\n", encoding="utf-8")
+    (root / ".brain-core" / "VERSION").write_text("0.55.0\n", encoding="utf-8")
     return root
 
 
@@ -56,7 +56,7 @@ def _context(vault):
         vault_root=vault,
         brain_id="parity-brain",
         profile="reader",
-        allowed_tools=frozenset(("brain_command_list",)),
+        allowed_tools=frozenset(("command.list",)),
         dependency_tier=DependencyTier.PORTABLE,
         provider_ids=(),
         capability_states=(),
@@ -105,7 +105,7 @@ def _mcp(vault, payload):
         resolver=current_request_resolver(),
         context_factory=_context_factory(vault),
     )
-    return asyncio.run(mcp.call_tool("brain_command_list", payload))
+    return asyncio.run(mcp.call_tool("command.list", payload))
 
 
 def _local_cli(vault, payload):
@@ -211,7 +211,7 @@ def test_local_cli_crosses_a_real_selected_brain_process_boundary(tmp_path):
         "vault:\n"
         "  profiles:\n"
         "    reader:\n"
-        "      allow: [brain_vault_read_file]\n"
+        "      allow: [vault.read-file]\n"
         "defaults:\n"
         "  default_profile: reader\n",
         encoding="utf-8",

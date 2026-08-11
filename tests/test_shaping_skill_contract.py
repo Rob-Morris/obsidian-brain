@@ -11,9 +11,9 @@ def _read(relative_path):
 def test_assess_reads_taxonomy_and_selects_mode_before_opening_session():
     assess = _read("assess/SKILL.md")
 
-    taxonomy_read = assess.index('brain_read(resource="type"')
+    taxonomy_read = assess.index('type.read(reference="{type-key}")')
     mode_selection = assess.index("Select the shaping mode")
-    session_open = assess.index('"action": "shape"')
+    session_open = assess.index('shaping.start(target="{path}", mode="{mode}")')
 
     assert taxonomy_read < mode_selection < session_open
     assert "start-shaping" not in assess
@@ -32,11 +32,12 @@ def test_all_terminal_modes_apply_taxonomy_completion_status():
     for relative_path in ("refine/SKILL.md", "discover/SKILL.md"):
         content = _read(relative_path)
         assert "{completion_status}" in content
-        assert "brain_set_status" in content
+        assert "artefact.set-status" in content
 
 
-def test_skill_uses_shape_action_consistently():
+def test_skill_uses_granular_shaping_start_consistently():
     content = "\n".join(path.read_text() for path in SKILL_ROOT.rglob("SKILL.md"))
 
     assert "start-shaping" not in content
-    assert '"action": "shape"' in content
+    assert '"action": "shape"' not in content
+    assert "shaping.start" in content

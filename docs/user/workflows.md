@@ -175,7 +175,7 @@ Back on the idea log, a callout records the spin-out:
 
 The idea has legs. Time to shape it properly:
 
-The shaping skill reads the design taxonomy, chooses its conversational mode, and calls `brain_action` with the `shape` action to open or continue today's linked session. The action owns transcript and lifecycle mechanics; the skill owns the questions, review, and completion decision.
+The shaping skill reads the design taxonomy, chooses its conversational mode, and calls the granular `shaping.start` MCP command to open or continue today's linked session. The application command owns transcript and lifecycle mechanics; the skill owns the questions, review, and completion decision.
 
 ```
 Designs/shared-token-validation.md
@@ -197,7 +197,7 @@ status: shaping
 
 The design doc has structure: a core goal, open decisions, transcripts from Q&A sessions that shaped it. It moves through `shaping` → `ready` → `active` → `implemented`.
 
-Set the idea's status to `adopted` with `brain_set_status`; Brain moves it to `Ideas/+Adopted/` and updates wikilinks vault-wide. If the idea is later revived with a non-terminal status, the same handler moves it back out.
+Set the idea's status to `adopted` with the `artefact.set-status` MCP command; Brain moves it to `Ideas/+Adopted/` and updates wikilinks vault-wide. If the idea is later revived with a non-terminal status, the same handler moves it back out.
 
 ### The Thread is Never Lost
 
@@ -255,7 +255,7 @@ An agent that has Brain MCP access can add a non-markdown file without receiving
 general write permission to the vault:
 
 ```text
-brain_upload_attachment(
+attachment.upload(
   destination_key="design/my-app-architecture",
   name="architecture.svg",
   content_base64="<base64 bytes>"
@@ -304,7 +304,7 @@ The Brain includes a structural compliance checker (`check.py`) that validates e
 
 When compliance detects shaped drift — including valid parent metadata whose
 folder projection was changed out-of-band in Obsidian — it points at the exact
-repair command. `brain repair ownership --dry-run` previews the metadata-
+repair command. `brain artefact repair-ownership --dry-run --json` previews the metadata-
 authoritative move set; apply it explicitly after review. Brain never infers a
 missing parent field from folder structure.
 

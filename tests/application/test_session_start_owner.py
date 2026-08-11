@@ -20,8 +20,8 @@ def test_session_start_returns_typed_bootstrap_and_refreshes_mirror(
 
     result = application.invoke(SessionStartRequest())
 
-    assert result.status == "ok"
-    assert result.result.brain_core_version == "0.54.59"
+    assert result.status == "ok", result
+    assert result.result.brain_core_version == "0.55.0"
     assert result.result.active_profile == "reader"
     assert result.result.core_bootstrap
     assert result.result.core_docs
@@ -29,10 +29,10 @@ def test_session_start_returns_typed_bootstrap_and_refreshes_mirror(
     assert result.result.config.default_profile == "operator"
     assert result.result.command_catalogue.schema == "brain.command-catalogue/1"
     assert result.result.command_catalogue.interface_epoch == 1
-    assert result.result.command_catalogue.installed_application_command_count == 117
-    assert result.result.command_catalogue.list.startswith("Use brain_command_list")
+    assert result.result.command_catalogue.installed_application_command_count == 86
+    assert result.result.command_catalogue.list.startswith("Use command.list")
     assert result.result.command_catalogue.describe.startswith(
-        "Use brain_command_describe"
+        "Use command.describe"
     )
     assert not hasattr(result.result, "context")
     mirror = command_vault_clone.vault_root / ".brain/local/session.md"
@@ -54,6 +54,7 @@ def test_session_start_carries_trusted_workspace_context(command_vault_clone):
 
     result = application.invoke(SessionStartRequest())
 
+    assert result.status == "ok", result
     assert result.result.workspace.directory == str(workspace.resolve())
     assert result.result.workspace.location == "external"
     assert result.result.workspace_configuration.binding_status == "not configured"

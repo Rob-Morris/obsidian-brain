@@ -1,388 +1,145 @@
 # Architecture Overview
 
-## System Overview
+## System overview
 
-brain-core is a self-extending system for organising Obsidian vaults, for agents and humans working together. It ships a versioned engine (`.brain-core/`) into each vault that provides MCP tools, CLI scripts, and a taxonomy-driven configuration layer. Together these give agents and human operators a shared, structured interface to vault content: creating and editing artefacts, searching by keyword, enforcing naming and status conventions, and bootstrapping agents with the minimum context needed to operate correctly.
+Obsidian Brain is a filesystem-first knowledge system with one typed command application shared by agents, CLI users, direct automation and Python callers. Markdown and YAML remain the durable source of truth; generated state is disposable and rebuildable.
 
----
+The command architecture separates two authorities:
 
-## Component Map
+- the **selected-Brain application** owns operations whose meaning belongs to one installed Brain;
+- the **machine-global launcher** owns Brain selection, install/upgrade, global CLI replacement, MCP client configuration and machine maintenance.
 
-### `.brain-core/` — the engine
+Neither catalogue imports, copies or manufactures the other's semantic owners.
 
-Copied into the vault during setup and upgrade (not symlinked — vaults are self-contained and portable). `setup.py` and `configure.py` are the public workspace / client lifecycle surfaces; their shared launcher-safe ownership now lives under `_bootstrap/` (`vaults.py`, `workspace_scaffold.py`, `mcp_transport.py`, and `agent_skills.py`). `repair.py` is the explicit current-vault recovery entry point and bootstraps packageful repair back into the central managed runtime at `~/.brain/venvs/py<X.Y>-<sha16>/` (see [DD-048](decisions/dd-048-central-managed-runtime.md)) when needed. The no-MCP `brain session` bootstrap path uses a separate machine-owned resolution runtime at `~/.brain/resolution-runtime/` before dispatching to the resolved Brain's own `session.py` (see [DD-054](decisions/dd-054-machine-resolution-runtime.md)). Contains:
+## Component map
 
-- `scripts/` — all vault operation logic as importable Python modules with CLI entry points
-- `brain_mcp/server.py` + `brain_mcp/_server_*.py` — MCP composition root and sibling tool handlers; holds router and index in memory
-- `skills/` — core skill documents (system-provided, tagged `"source": "core"`, overwritten on upgrade)
-- `client-adapters/` — stable native-client discovery templates; executable workflows remain under `skills/`
-- `index.md` — thin bootstrap entry point; routes agents to `brain_session`, `.brain/local/session.md`, or `md-bootstrap.md`
-- `session-core.md` — checked-in authored source for the static core bootstrap content and core-doc references
-- `md-bootstrap.md` — explicit degraded fallback for environments without MCP or a generated session mirror
+### Vault content
 
-### `.brain/` — vault-local runtime state
+- `_Config/` — user-owned taxonomy, templates, triggers, skills, memories, styles and preferences;
+- `_Temporal/` — time-bound artefacts, optionally filed beneath living owner chains;
+- living type folders — evolving artefacts and their owner-projected subfolders;
+- `_Archive/` — deliberate removals outside the active namespace;
+- `_Assets/` — derived and attachment assets;
+- `.brain/` — Brain-owned state and machine-local state;
+- `.brain-core/` — versioned installed application, immutable to normal vault commands.
 
-Generated, gitignored. The compiled outputs that tooling reads at runtime:
+### Selected-Brain application
 
-| Path | Contents |
-|---|---|
-| `.brain/local/compiled-router.json` | Compiled router — the interface contract between config and tooling |
-| `.brain/local/session.md` | Generated markdown mirror of the canonical session model |
-| `.brain/local/retrieval-index.json` | BM25 retrieval index for keyword search |
-| `.brain/local/init-state.json` | Recorded MCP registrations owned by this vault for safe scoped removal |
-| `.brain/config.yaml` | Vault-level configuration (layer 2 of 3) |
-| `.brain/local/config.yaml` | Machine-local overrides (layer 3 of 3; gitignored) |
-| `.brain/local/workspaces.json` | Workspace key-to-path registry |
-| `.brain/local/mcp-server.log` | Rotating server log (2 MB max, 1 backup) with explicit startup phase markers |
+`src/brain-core/scripts/_application/` is the transport-neutral application package. It owns:
 
-### `_Config/` — user-customisable definitions
+- sealed typed request/result payloads;
+- immutable command identifiers and command versions;
+- `CommandApplication(context).invoke(request)`;
+- the authoritative `brain.command-catalogue/1` and dynamic request resolver;
+- dependency tier, locality, provider, authority, effect, retry and projection facts;
+- structural `ok | partial | error` results and outcome receipts;
+- mechanical request/result schemas and minimal examples.
 
-Instance configuration specific to this vault installation:
+Application executors call lower-level `_bootstrap`, `_portable`, `_common`, `_lifecycle`, `_search` and related domain packages. Those packages do not import back into `_application`. The application package imports no MCP SDK, parser, terminal renderer, implicit environment selector or concrete provisioning owner.
 
-- `_Config/router.md` — lean bridge: capability detection, always-rules, conditional trigger gotos (~45 tokens)
-- `_Config/Taxonomy/` — one file per artefact type with detailed instructions; loaded on demand
-- `_Config/Skills/` — user-defined skill documents; discovered by the compiler alongside core skills
-- `_Config/Memories/` — standing context injected by trigger matching
-- `_Config/Styles/` — formatting style definitions
-- `_Config/Templates/` — artefact creation templates
-- `_Config/User/preferences-always.md` — vault owner's workflow preferences and quality standards
-- `_Config/User/gotchas.md` — learned lessons from previous sessions
+### Machine-global launcher
 
-### `_Temporal/` — time-stamped artefacts
+`cli/_launcher/` owns the independent stdlib-safe `brain.launcher-catalogue/1`. Its typed commands cover Brain registry/selection, install/uninstall/upgrade, managed-runtime recovery, MCP and agent-skill configuration, operator key generation and machine maintenance.
 
-Working files in type subfolders under `_Temporal/`, each organised into `yyyy-mm/` month folders. Temporal types are discovered by scanning `_Temporal/` subfolders (distinct from the living-type scan).
+The launcher cannot invent selected-Brain application commands. The outer CLI composes discovery presentation from the two catalogues while preserving owner and provenance; identity collisions fail closed.
 
-### Living artefact folders — user content
+### Adapters
 
-Root-level folders without a `_` or `.` prefix are living artefact types (e.g. `Projects/`, `Research/`, `Ideas/`). Discovered by scanning the vault root — no registry required. Each type maps to a folder defined in `_Config/Taxonomy/`.
+- `brain_mcp/` registers every MCP-eligible application command under its canonical `<noun>.<verb>` identifier;
+- `cli/_local_cli/` maps the one noun/verb grammar to either a launcher owner or the selected Brain's own `command.py` process;
+- `scripts/command.py` is the direct selected-Brain projection;
+- typed Python constructs a sealed request and invokes `CommandApplication` with trusted context.
 
-### `_Archive/` — archived artefacts
+Adapters own parsing, selection, transport and presentation. They do not own semantic branching. Trusted `InvocationContext`—selected Brain, authenticated profile, provider bindings, invocation identity, receipt writer, tier, clock and dry-run—is composed outside the semantic request and cannot be supplied as request JSON.
 
-`_Archive/` is the deliberate-removal path for taking artefacts out of the active vault namespace. Routine terminal statuses usually move living artefacts into `+Status/` folders within their type namespace; archived artefacts are the separate subset intentionally moved to the top-level `_Archive/` tree by type and canonical child-folder structure. Archived files remain readable but are write-protected by the path security model and excluded from normal artefact operations.
+## One command grammar
 
----
+Every public semantic operation has one canonical dot identifier:
 
-## Data Flow
-
-A typical MCP tool call follows this path:
-
-```
-MCP client request
-  → brain_mcp/server.py — traces, gates, and delegates to the matching MCP handler
-  → sibling MCP handler module — maps the tool to the relevant script call
-  → script reads compiled router / retrieval index from in-memory state
-  → operates on the vault filesystem (read, write, rename, etc.)
-  → returns a structured response to the MCP client
+```text
+artefact.create
+artefact.read
+vault.check
+brain.upgrade
 ```
 
-The server now starts from a minimal runtime skeleton, answers MCP `initialize`, and then drives router/index/workspace/session maintenance as background warmup. Warmup emits stable begin/success/failure markers into `.brain/local/mcp-server.log`, which makes a stalled config load, router freshness pass, index rebuild, registry load, or session-mirror refresh diagnosable without extra instrumentation. Warmup-dependent MCP calls return structured progress/retry payloads while readiness is still `starting`, instead of blocking blindly on cold startup. Scripts called via MCP still pay no disk I/O for router or index reads once warmup has finished. Scripts called directly (without MCP) read the same JSON files from disk on each invocation — same logic, higher cold-start cost.
+The CLI spelling is `brain <noun> <verb>`. MCP names preserve canonical `<noun>.<verb>` identifiers exactly. The direct script uses `<noun> <verb>`, and Python uses the corresponding sealed request type. Alternatives become separate commands when they differ in required fields, results/errors, authority, dependency tier, locality, atomicity, retry or effect behaviour.
 
-Mid-session, if `.brain-core/` is upgraded the server detects version drift on the next tool call and exits cleanly with code `10`. The MCP proxy interprets that as a planned restart and relaunches the server with the new code. The proxy uses one restart coordinator for every child-loss path (planned restart, crash, broken pipe, or startup failure), but the actual backoff/restart loop now lives on a dedicated recovery thread. The main stdin loop keeps reading while recovery runs, so requests that arrive during backoff or initial-start failure get the transient `server restarting, please retry` error immediately instead of queueing in the pipe. If backoff exhausts, the proxy switches to explicit restart-MCP guidance; if the recovery thread itself dies, the dead-child path surfaces a hard unrecoverable error instead of waiting forever.
+`command.list` and `command.describe` expose exact installed contracts. Static discovery never probes optional providers; explicit refresh creates one bounded capability snapshot. Documentation and generated fixtures point to catalogue discovery instead of becoming a second operation inventory.
 
----
+## Result and recovery model
 
-## Key Architectural Properties
+All application projections preserve `brain.command-result/1`:
 
-### Filesystem-first discovery
+- `ok` contains a typed result and may enumerate committed effects;
+- `partial` contains the known committed effects and a typed error;
+- `error` contains no result and declares either no effects or an unknown mutation outcome.
 
-Artefact types are discovered by scanning vault folders, not by reading a registry. Root-level non-system folders become living types. `_Temporal/` subfolders become temporal types. The convention is: any top-level folder starting with `_` or `.` is infrastructure. `_Temporal/` follows this convention (excluded from the living-type scan) but receives its own dedicated scan for its children. This means adding a new artefact type requires only creating a folder and a taxonomy file — no registry update.
+Unexpected mutation loss is never replayed blindly. Effect-bearing invocation outcomes are written to bounded, privacy-minimal receipts. `invocation.read` can resolve a durable reference; absence of a conclusive receipt never proves no effect. Stable exit categories and MCP error projection derive from the same structure.
 
-### Compiled router as contract
+## Dependency planes
 
-The compiled router (`.brain/local/compiled-router.json`) is the interface between human-readable config and all tooling. Source files — `session-core.md`, `router.md`, taxonomy files, skills, styles, memories, plugins, and `VERSION` — are the single source of truth. The compiler combines them into a hash-invalidated cache: SHA-256 of every source file is stored in `meta.sources`, and the cache is considered stale the moment any source changes. The router is environment-specific (includes platform, runtime availability, absolute vault root) and is never committed to version control. The MCP server auto-compiles it at startup and auto-recompiles mid-session when sources change or new resources appear; staleness is checked on a 5-second TTL via SHA-256 hashes for edits and a directory-mtime signature for additions/deletions, so the check itself stays cheap on stable vaults (DD-042).
+Commands declare an ordered minimum dependency tier:
 
-### Scripts as single source of truth
+1. **bootstrap** — stdlib-safe discovery and recovery;
+2. **portable** — portable Brain operations;
+3. **managed** — operations requiring the managed runtime.
 
-The MCP server is a thin wrapper. All vault operation logic lives in `.brain-core/scripts/` as importable Python modules, each with a CLI entry point. The server imports functions from scripts and adds MCP transport, in-memory caching, process-local mutation serialization for mutating tool calls, and Obsidian CLI delegation. This means agents without MCP use the scripts directly and get identical results. New operations are always implemented as scripts first, then exposed via MCP — never the reverse.
+Tier, locality and providers are independent. Selected-Brain and machine-global locality do not imply a tier. Required providers block execution; optional providers can enrich an otherwise complete result. Adapters do not silently provision, hand off, elevate authority or switch the selected Brain.
 
-The command-interface migration adds a transport-neutral application boundary
-under `scripts/_application/` (DD-061). Typed request classes own command
-identity/version/result type; adapters compose trusted `InvocationContext`
-values and call `CommandApplication.invoke`. The boundary checks authority and
-capability state before executor entry, validates structural
-`brain.command-result/1` values, and records typed outcome receipts. It imports
-no MCP SDK, parser, environment resolver or managed provider, and lower-level
-packages never import back into it. The v0.54.1 foundation is internal only:
-the existing MCP, CLI and direct-script flow above remains authoritative until
-the coordinated breaking cutover. v0.54.2 extends that foundation with bounded
-privacy-minimal outcome receipt retention/query semantics, strict dynamic
-request resolution, independent compatibility-version rules and deduplicated
-provider refresh. A separate stdlib-only `brain.launcher-catalogue/1` beside
-the machine-global launcher owns its 23 pre-Brain/self-replacing operations;
-it never imports or manufactures selected-Brain application executors.
-v0.54.3 begins owner migration with catalogue-backed `command.list`,
-`command.describe` and receipt-backed `invocation.read`; these are internal
-application owners, not yet additional MCP or CLI surfaces.
-v0.54.4 adds the first portable domain family: `artefact.read`,
-`artefact.list` and `artefact.outline`. Adapter-free `_portable` modules own
-their filesystem/filter/structural semantics; legacy scripts delegate down and
-typed application executors normalise the shared result boundary.
-v0.54.5 extends portable read ownership to `runtime.read-environment`,
-`vault.read-router` and `links.check`. Environment/router results are exact
-typed views, and link diagnosis remains independent of compiled-router health.
-v0.54.6 adds separate `read` and `list` owners for skills, styles and plugins.
-They share adapter-free named-document mechanics while retaining independent
-request, result, executor and catalogue identities.
-v0.54.7 adds exact memory and trigger collection owners. Memory reads use
-canonical names; trigger reads use unique conditions; search remains a separate
-semantic operation rather than an ambiguous read mode.
-v0.54.8 separates exact active vault-file reads from archived-artefact reads
-and archive listing. Exact vault-relative identity and archive membership are
-validated before filesystem access, while legacy adapters delegate to the same
-portable path and archive-discovery semantics.
-v0.54.9 gives artefact types and templates separate exact-key read/list owners.
-Type reads return the authored taxonomy definition through a bounded result,
-and template results expose actual `.md` paths that compose with exact file
-reads; legacy alias matching remains confined to the old adapters.
-v0.54.10 separates workspace metadata reads, listing and path resolution.
-Canonical workspace commands validate exact slugs, fail closed on corrupt
-machine-local registry state and apply embedded-over-linked precedence once per
-identity; legacy public adapters remain unchanged until cutover.
-v0.54.11 completes the portable read-only catalogue group with bounded config,
-vault compliance and artefact-library status owners. Config output excludes
-operator/authentication and machine-path data; diagnostic recovery names
-canonical commands rather than embedding shell commands.
-v0.54.12 migrates `session.start` as a managed reader command with an honest
-derived-cache-write effect. Its bootstrap result is fully typed, workspace
-identity comes from trusted invocation context, and the canonical session model
-and markdown mirror remain owned by `session.py`.
-v0.54.13 completes the optional-semantic read group with granular search,
-classification and duplicate-resolution owners. Portable lexical and taxonomy
-paths remain complete; semantic enhancement requires trusted provider and
-capability context before any selected-Brain semantic sidecar is loaded.
-v0.54.14 begins typed mutation ownership with staging and attachment transfer.
-Contributor authority, receipt-required retry, compact committed effects and
-unknown-outcome handling are enforced at the application boundary while the
-existing staging and attachment modules retain content/path semantics.
-v0.54.15 adds separate memory, skill and style creation owners over immutable
-inline/staged content and deterministic typed frontmatter fields. Existing
-creation semantics remain canonical, including stale-router refusal and
-post-commit staged-handle cleanup.
-v0.54.16 adds create-only `template.create`: full-document content, type-linked
-placement, no separate frontmatter and no overwrite. Legacy aggregate overwrite
-behavior remains isolated until the coordinated breaking cutover.
-v0.54.17 adds typed `artefact.create` with optional template-backed content,
-explicit type/parent/key intent and bounded structural parent/link results. It
-removes caller-file content from the new owner while retaining the existing
-type, naming, placement and write semantics behind the application boundary.
-v0.54.18 adds five distinct artefact document-mutation owners over typed
-structural selectors and scopes. The shared application seam owns request,
-staging, result and effect rules while `edit.py` continues to own body,
-frontmatter, derived-path and wikilink behaviour.
-v0.54.19 projects that seam into 20 concrete memory, skill, style and template
-commands. Each domain/verb remains independently discoverable and typed; shared
-inherited field contracts and bindings remove duplication without restoring a
-cross-resource aggregate command.
-v0.54.20 adds four explicit artefact lifecycle commands. Reparenting requires
-the nullable parent field to be present, and all four commands retain the
-existing lifecycle invariant engine as their single semantic owner.
-v0.54.21 adds five operator artefact transitions. Requests are split by verb,
-same-type rename policy belongs to the script semantic layer, and results
-distinguish committed, known-partial and unknown effects structurally.
-v0.54.22 completes the operator artefact-maintenance group with explicit
-child-reparent modes, bounded repair and naming workflows, and link preview/fix
-results that do not leak machine or selected-vault paths.
-v0.54.23 adds granular plugin and trigger definition mutations. Plugin content
-uses the shared inline/staged seam with optimistic replacement hashes; trigger
-commands identify exact current router entries before replacement or deletion.
-v0.54.24 adds typed artefact-type definition bundles. Taxonomy and template
-documents retain one atomic semantic write, independent optimistic hashes and
-post-commit staged-handle finalisation while projecting as granular commands.
-v0.54.25 separates artefact-library installation from synchronisation. Both
-commands target one type, preserve local customisation unless sync explicitly
-forces replacement, and retain portable `sync_definitions.py` semantics.
-v0.54.26 adds distinct router repair/rebuild owners over one portable semantic
-seam. Cache inspection, compilation, persistence, semantic invalidation and
-session refresh no longer belong only to packageful repair orchestration.
-v0.54.27 applies the same explicit repair/rebuild grammar to the portable
-lexical index. Rebuilding invalidates semantic sidecars so lexical and semantic
-retrieval cannot retain different document sets.
-v0.54.28 adds rollback-safe selected-Brain workspace-registry repair. It keeps
-that portable mutation distinct from caller-local workspace configuration and
-reports failed restoration as a known partial effect.
-v0.54.29 adds typed `shaping.start` ownership. The command owns mechanical
-lifecycle/transcript effects while the shaping skill retains conversational
-mode selection, questions and completion judgement.
-v0.54.30 adds managed `content.ingest` ownership over classify, resolve and
-create/update. Lexical similarity is advisory only; automatic updates require
-exact filename identity or high-confidence semantic evidence.
-v0.54.31 separates semantic opt-in, health repair and unconditional rebuild
-into managed `retrieval.enable`, `retrieval.repair-semantic` and
-`retrieval.rebuild-semantic` owners. The configure adapter now delegates to the
-same lifecycle seam, and post-flag provisioning failures report partial effects.
-v0.54.32 separates printable and presentation rendering into managed
-provider-backed owners with strict family-specific inputs and independent
-markdown, PDF and preview-process effect reporting.
-v0.54.33 separates retrieval benchmark construction from read-only evaluation.
-Both remain managed CLI/script/Python workflows and are explicitly ineligible
-for MCP; construction now bounds output and seed paths to the selected Brain.
-v0.54.34 adds caller-local workspace binding, bootstrap, registration, setup
-and metadata owners. They require an available `caller_filesystem` provider and
-take the target directory only from trusted invocation context, while their
-payloads remain portable and free of arbitrary host paths.
-v0.54.35 establishes the independent stdlib-only launcher invocation boundary
-and typed machine-registry, CLI-version and managed-runtime read owners. It
-shares the structural result vocabulary but never imports selected-Brain
-`_application` or manufactures synthetic application executors.
-v0.54.36 extends that boundary with the six machine Brain-registry mutation
-owners. Their structured lower seams preserve legacy scalar callers while
-distinguishing no-op, dry-run, registry-row, default-pointer, known-partial and
-unknown outcomes at the canonical launcher boundary.
-v0.54.37 completes the effect-free launcher group with bounded Doctor and
-operator-key owners. Doctor uses a read-only machine-registry comparison,
-projects repair guidance as command identifiers and receives CLI binary
-identity only through trusted launcher context.
-v0.54.38 adds machine-global `agent-skill.configure` ownership. The client home
-is trusted launcher context, all requested client destinations are preflighted
-without writes, and adapter plus replacement-backup effects are independently
-receipted.
-v0.54.39 adds fail-closed orphan-runtime pruning ownership. It retains an
-unregistered current Brain through trusted context, requires live-process
-visibility, avoids derived-registry writes and treats recursive-deletion errors
-as outcome uncertainty.
-v0.54.40 adds launcher ownership for legacy Brain migration. The owner composes
-target-Brain repair processes, keeps machine discovery read-only and preserves
-known partial versus unknown child or recursive-deletion outcomes in receipts.
-v0.54.41 adds explicit launcher ownership for managed-runtime repair. It uses
-trusted selected-Brain context, performs bootstrap-tier provisioning without a
-hidden interpreter hand-off and retains no-effect, partial and unknown runtime
-mutation states.
-v0.54.42 moves MCP configure and repair ownership behind the launcher boundary.
-Both commands use trusted machine context and a shared fixed-file transaction;
-they do not provision runtimes or absorb workspace binding/ignore ownership.
-The transaction either commits the complete preflighted plan, restores it, or
-returns a known-partial receipt containing every surviving path.
-v0.54.43 completes the machine lifecycle owner set with typed install,
-uninstall and upgrade commands. Their source distribution and selected Brain
-come from trusted launcher context; dry-run is non-mutating, uninstall has a
-fixed deletion set, and CLI replacement uses the shared file transaction.
-v0.54.44 begins adapter projection from the completed owner catalogues. One
-stdlib-only application seam now owns mechanical names, strict request schemas
-and canonical result envelopes before MCP, CLI and direct-script presentation.
-v0.54.45 makes selected-Brain discovery authoritative and structural:
-`command.list` returns snapshot-bound summaries and `command.describe` derives
-complete request, result, safety, availability and example contracts from the
-owning catalogue and sealed types.
-v0.54.46 adds the shared dynamic adapter boundary beneath MCP, CLI and direct
-scripts. It alone resolves payloads, invokes the application, projects canonical
-JSON/structured/text results and assigns the stable 0–4 exit categories.
-v0.54.47 adds the first concrete local adapter boundary outside `_application`.
-It composes trusted profile, selected-Brain, dependency, provider and workspace
-state inward and stores only effect-bearing outcome receipts in bounded local
-state. This keeps filesystem and authority discovery out of the command model.
-v0.54.48 adds the staged direct noun/verb projection over that boundary. It
-selects and authenticates local context without runtime hand-off, reuses one
-catalogue/resolver assembly, preserves structural result/exit semantics, and
-keeps default discovery probe-free while explicit refresh remains bounded.
-v0.54.49 adds the staged granular FastMCP projection from that same catalogue.
-Each eligible command has one mechanical flat tool and exact canonical schema;
-omitted transport fields remain omitted until the shared resolver applies
-defaults, and structured results preserve the common MCP error state.
-v0.54.50 stages a bounded session discovery route backed by a checked static
-catalogue fingerprint. Typed `session.start` includes only routing facts and
-list/describe directions; the legacy bootstrap remains unchanged until cutover.
-v0.54.51 verifies the staged projection through pinned real Claude and Codex
-clients against a localhost-only model endpoint, exercises a minimal MCP call
-through each client, adds catalogue-derived MCP safety annotations, and enforces
-the per-tool and complete-catalogue token ceilings with the pinned tokeniser.
-v0.54.52 adds authoritative launcher list/describe projection and a separate
-`_local_cli` composition boundary. The launcher remains bootstrap-owned; the
-outer view retains each catalogue's schema, fingerprint, cursor and raw payload
-and rejects identity collisions instead of inventing shared semantic authority.
-v0.54.53 derives cumulative granular built-in profiles from catalogue
-eligibility and authority and rejects known denied commands before dynamic
-request resolution. Public aggregate defaults remain unchanged until cutover.
-v0.54.54 adds owner-preserving local execution: launcher entries resolve and
-execute in the machine-global launcher, while application entries execute only
-through the selected Brain's own `command.py` process. The outer CLI validates
-provenance, structural result identity and exit categories without importing
-selected-Brain application semantics.
-v0.54.55 structurally projects known request failures across every staged
-selected-Brain adapter and gives the outer CLI sole ownership of JSON/human
-stream placement. A deterministic harness compares typed Python, dynamic,
-direct-script, real FastMCP and composed local CLI envelopes for equivalent
-valid and invalid intent; result/exit drift fails closed.
-v0.54.56 stages the one-time profile migration separately from runtime
-authorisation. Exact legacy built-ins become catalogue-derived granular sets;
-custom profiles preserve only their explicit legacy authority plus mandatory
-outcome-query closure. Unknown or malformed authority fails before output, and
-the function remains disconnected from public config until cutover.
-v0.54.57 stages explicit, non-exiting local `command list/describe` grammar.
-Owner selection and shared filter spellings remain presentation concerns; each
-owner receives only its own request/filter data, and application refresh never
-becomes launcher semantics. Public CLI v1 dispatch remains unchanged.
-v0.54.59 activates the stdlib-only proxy/server command-interface contract.
-The server emits the catalogue-derived header and rejects every call before
-tool lookup when its running proxy marker is missing or incompatible. Proxy
-0.6.0 supplies protocol 2, binds accepted calls before dispatch and separates
-planned drift from unplanned child loss: only positively compatible drift calls
-replay; reads receive one independent retry; mutations are never replayed and
-resolve through durable receipts or non-retryable outcome-unknown results.
+## Configuration and generated state
 
-The lifecycle/bootstrap side of that script layer now has an explicit shared owner under `scripts/_bootstrap/`. `runtime.py` owns launcher discovery, managed-runtime handoff, executable path identity, and the shared `BRAIN_BOOTSTRAP_SUMMARY` contract; `diagnostics.py` owns the launcher-safe runtime/MCP/registry checks needed before managed semantic work is available; `mcp_state.py` owns shared MCP/config-layout and init-state helpers; `vaults.py` owns the env-aware vault-root discovery seam used by the public lifecycle wrappers; `workspace_scaffold.py` owns Brain-local ignore-rule convergence; `mcp_transport.py` owns the shared Claude/Codex transport/config write engine; and `agent_skills.py` owns version-neutral, ownership-safe client skill adapters. Entry points such as `setup.py`, `repair.py`, `configure.py`, `session.py`, and `check.py` now converge on that seam instead of carrying parallel launcher or env-var logic.
+Vault configuration merges:
 
-Managed operational wrappers now consume that same seam instead of assuming the caller already arranged the right interpreter. Retrieval wrappers (`build_index.py`, `search_index.py`, `construct_benchmark_fixture.py`, `evaluate_search.py`) and the remaining managed direct wrappers (`compile_router.py`, `compile_colours.py`, `sync_definitions.py`, `shape_printable.py`, `shape_presentation.py`, `migrate_naming.py`) all start in a compatible launcher Python only long enough to enter the canonical managed runtime, then continue substantive work there.
+1. `.brain-core/defaults/config.yaml`;
+2. `.brain/config.yaml`;
+3. `.brain/local/config.yaml` for permitted machine-local defaults.
 
-Within that script layer, retrieval ownership is now split honestly by
-responsibility: lexical index and retrieval policy live under `scripts/_search/`,
-semantic sidecar and local-model mechanics live under `scripts/_semantic/`,
-and combined router + lexical + semantic refresh workflows plus the canonical
-derived-cache and managed semantic inspect/repair/check owners live under
-`scripts/_lifecycle/` (notably `derived_cache_state.py` and
-`semantic_repairs.py`). The top-level `build_index.py`,
-`search_index.py`, and `repair.py semantic` surfaces remain supported script
-entrypoints, but they are thin wrappers over those canonical module owners
-rather than the Python import surface. Internal production code and tests now
-depend on `_search`, `_semantic`, and `_lifecycle` directly; the wrappers
-remain as supported script surfaces only.
+The shared `vault` zone cannot be overridden locally. Malformed configuration and unknown profile tools fail closed.
 
-The optional [`brain` CLI](../functional/cli.md) (installed by `install.sh` to `~/.local/bin/brain` by default, `/usr/local/bin/brain` with `--system`, or skipped with `--skip-cli`) is a thin dispatch layer on top of these scripts — `brain repair runtime` reaches the same `repair.py` entry surface against the active vault's central managed runtime. The CLI versions independently from `brain-core`; its dispatch surface is the contract. See [DD-049](decisions/dd-049-brain-cli-thin-dispatch.md).
+`.brain/local/compiled-router.json`, lexical/semantic indexes, session mirrors, registries and other derived state are hash-validated caches. Human-readable config and content remain authoritative. Owners either rebuild stale state or return an explicit unavailable/error result; they do not silently serve known-stale data.
 
-Repair ownership is split by altitude. `check.py` and `repair.py` diagnose or
-repair vault-local state only: `.brain/local/workspaces.json`, the compiled
-router, the lexical index, retrieval sidecars, and artefact frontmatter under
-the selected vault root. Machine-wide state belongs to `machine.py`,
-`doctor_machine.py`, and `vault_registry.py`: `$XDG_CONFIG_HOME/brain/vaults`
-(default `~/.config/brain/vaults`), the `default` Brain pointer, and shared
-managed runtimes under `~/.brain/venvs/`. Vault-scoped repair may read across
-that line to report useful guidance, but it must not mutate machine-wide state.
+## Security boundaries
 
-### Three-layer config merge
+Caller-supplied paths are resolved against explicit roots and checked for traversal, symlinks and protected namespaces before effects. Fixed-destination definition and attachment owners narrow authority rather than broadening general write permissions. Mutating selected-Brain commands share a vault-scoped cross-process lock.
 
-Vault configuration is assembled from three layers at server startup:
+Profile authority is derived from the application catalogue. Built-ins project exact cumulative reader, contributor and operator leaves. The 0.55.0 cutover migrates legacy profile names once; there is no runtime aggregate compatibility fallback.
 
-1. **Template defaults** — built-in baseline values
-2. **`.brain/config.yaml`** — vault-level configuration (committed with the vault)
-3. **`.brain/local/config.yaml`** — machine-local overrides (gitignored)
+The MCP proxy and replacement server exchange a strict command-interface header. An incompatible proxy fails before tool lookup. Planned pre-effect restart can replay only a positively compatible command; unexpected read loss retries at most once; unexpected mutation loss uses receipts and never blind replay.
 
-Later layers override earlier ones. This lets vault owners set shared defaults while individual machines or operators override specific values without affecting others.
+## Installation and checked cutover
 
-### Path security model
+CLI 2 is a small platform bootloader plus a versioned distribution. A fresh install writes a matching Brain Core, catalogue, launcher, CLI, proxy and installer set.
 
-Two complementary guards protect the vault from unintended writes:
+Upgrade preflights the complete local Brain registry and classifies every local/remote/stale entry before mutation. Other local Brains affected by the machine-global CLI replacement require exact acknowledgement; stale exclusions are explicit. Brain Core and the CLI distribution commit inside one checked transaction. Failure either proves restoration of the old set or retains recovery material and reports uncertainty honestly.
 
-- **`resolve_and_check_bounds(path, bounds)`** — resolves symlinks and verifies the target is within the vault root. Raises `ValueError` if the resolved path escapes the boundary or is a symlink when symlink-following is disabled. Used on every read that accepts a caller-supplied path.
-- **`check_write_allowed(rel_path)`** — enforces folder-level write restrictions. Dot-prefixed top-level folders (`.brain/`, `.obsidian/`, `.brain-core/`) are always blocked. Underscore-prefixed top-level folders are blocked unless in the explicit allowlist: only `_Temporal/` and `_Config/` are writable. `_Archive/`, `_Plugins/`, `_Workspaces/`, and `_Assets/` are protected from general writes. The separate `brain_upload_attachment` capability derives one validated `_Assets/Attachments/<scope>/<filename>` destination from a required artefact or folder key and does not broaden this allowlist ([DD-059](decisions/dd-059-attachment-upload-boundary.md)).
-- **`safe_write(path, content, bounds=...)` / `safe_write_via(path, writer, bounds=...)`** — shared atomic write primitives (temp file + `os.replace`) that call `resolve_and_check_bounds` before writing. Text/JSON writes go through `safe_write(...)`; callback-driven serializers can use `safe_write_via(...)` for the same atomic replacement path.
+CLI 2 refuses application discovery against a pre-cutover Brain but retains launcher-owned discovery and recovery. Old direct Brain scripts remain available only as recovery material in the old installation; the new release does not ship public compatibility aliases.
 
----
+## Agent bootstrap
 
-## Agent Reading Flow
+Agents bootstrap in this order:
 
-Agents bootstrap through one canonical session model with three operating modes:
+1. MCP `session.start` returns the canonical JSON session model.
+2. CLI `brain session start --json` invokes the same selected-Brain command.
+3. `.brain-core/index.md` routes to the generated `.brain/local/session.md`.
+4. `.brain-core/md-bootstrap.md` routes to raw config when generated state is unavailable.
 
-1. **MCP bootstrap** — `brain_init` is the additive cheap orientation surface: it reports vault identity plus coarse readiness/warmup state, a static `bootstrap_hint`, and can optionally ensure warmup is underway. `brain_session` remains the canonical full session model as compact JSON: static core bootstrap content, structured core-doc references with explicit MCP load instructions, local workspace-configuration guidance, always-rules, user preferences, gotchas, triggers, condensed artefact types, environment, and config/profile metadata when known. The `workspace_configuration` record identifies the operation as local CLI work, gives the `brain configure workspace binding` command, and explicitly states that MCP cannot configure the connecting agent's filesystem. It never substitutes server filesystem paths into the client-local command. While warmup is still running, `brain_session` returns a structured progress/retry payload instead of blocking blindly. Coarse readiness policy for `router`, `index`, and semantic waits now lives behind one shared owner, so MCP handlers emit the same `needs` and `next_action` contract regardless of which warmup-dependent tool was called. Once ready, `brain_session` also refreshes `.brain/local/session.md` from the same model.
-2. **CLI session fallback** — if MCP is unavailable from a bound external workspace, `brain session --json` runs the machine-level resolver, resolves the bound/default Brain, and dispatches only to that Brain's own `session.py`. This provides the JSON session model without a non-MCP `brain_init` twin.
-3. **Generated markdown bootstrap** — if no JSON session path is available, agents read `.brain-core/index.md`, which routes them to `.brain/local/session.md`. That file is regenerated by normal runtime entry points (`brain_session`, `session.py`, router compile/startup paths), so it stays in parity with the JSON model for shared content.
-4. **Degraded raw-file fallback** — if there is no MCP and no generated session mirror, `.brain-core/index.md` routes agents to `.brain-core/md-bootstrap.md`, which points them at `_Config/router.md`, user preferences, gotchas, and raw vault navigation.
+The workspace configuration record describes local CLI work and never substitutes server paths for the connecting agent's filesystem. Remote transport and gateway hosting are separate from this local command architecture.
 
-All modes begin with the `AGENTS.md` bootstrap directive, which points agents to `brain_session` first and `.brain-core/index.md` as the stable no-MCP entry point.
+## Version policy
 
----
+- incompatible MCP identity/request projection increments the interface epoch;
+- breaking command input, result, stable-code or semantic changes increment that command version;
+- result, catalogue, launcher and proxy shapes version independently;
+- fingerprints validate one exact static catalogue and are not compatibility versions.
+
+Local calls bind to installed versions rather than accepting caller-supplied command versions.
 
 ## Cross-references
 
-- `bounded-contexts.md` — bounded context map, responsibilities, and import policy
-- `decisions/` — individual design decisions (rationale, trade-offs, status)
-- `security.md` — detailed security model
-- `../functional/` — tool and script reference documentation
+- [Bounded contexts](bounded-contexts.md)
+- [Security model](security.md)
+- [Typed command application boundary](decisions/dd-061-typed-command-application-boundary.md)
+- [MCP tools](../functional/mcp-tools.md)
+- [CLI](../functional/cli.md)
+- [Scripts](../functional/scripts.md)

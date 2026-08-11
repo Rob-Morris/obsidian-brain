@@ -1,25 +1,13 @@
 #!/usr/bin/env python3
-"""
-read.py — Read Brain vault resources from the compiled router.
+"""Internal compiled-router and vault resource readers.
 
 Queries the compiled router JSON for artefact types, triggers, styles,
 templates, skills, plugins, memories, environment, and router metadata.
 
-The MCP server imports these functions directly (with its in-memory router),
-avoiding JSON parsing overhead. Standalone CLI reads from disk.
-
-Usage:
-    python3 read.py type
-    python3 read.py type --name wiki
-    python3 read.py trigger --name "After meaningful work"
-    python3 read.py style --name concise
-    python3 read.py template --name wiki
-    python3 read.py skill
-    python3 read.py memory --name "brain core"
-    python3 read.py environment
-    python3 read.py router
-    python3 read.py artefact --name "Designs/brain-master-design.md"
-    python3 read.py file --name "obsidian-brain-dev"
+Application owners import these functions where the portable typed owners do
+not already provide the lower seam. Public callers use granular read/list
+commands through ``command.py``; the parser retained here is an internal
+maintenance and repository-test entry point.
 """
 
 import argparse
@@ -66,18 +54,18 @@ def _check_vault_containment(vault_root, rel_path):
 # ---------------------------------------------------------------------------
 
 def _require_name(resource_label, name):
-    """Raise ValueError if name is missing, directing to brain_list."""
+    """Raise ValueError if a named-resource read omits its reference."""
     if not name:
         raise ValueError(
-            f"brain_read(resource='{resource_label}') requires name. "
-            f"To list all {resource_label}s, use brain_list(resource='{resource_label}')."
+            f"{resource_label}.read requires a reference. "
+            f"To enumerate {resource_label} resources, use {resource_label}.list."
         )
 
 
 def read_named_resource(router, vault_root, resource_label, name, router_key, doc_field):
     """Read a specific item's file content by name.
 
-    Requires name. Listing (name=None) is handled by brain_list.
+    Requires a name. Enumeration is owned by the resource's list command.
     """
     _require_name(resource_label, name)
     if resource_label in {"skill", "style", "plugin"}:
@@ -92,7 +80,7 @@ def read_named_resource(router, vault_root, resource_label, name, router_key, do
 def read_type(router, vault_root, name=None):
     """Read a specific artefact type definition by key/name.
 
-    Listing via brain_list(resource='type').
+    Enumeration is owned by ``type.list``.
     """
     _require_name("type", name)
     return _portable_read_type(router, name)
@@ -129,7 +117,7 @@ def read_plugin(router, vault_root, name=None):
 def read_memory(router, vault_root, name=None):
     """Read a specific memory by trigger/name (case-insensitive substring).
 
-    Listing via brain_list(resource='memory').
+    Enumeration is owned by ``memory.list``.
     """
     _require_name("memory", name)
     memories = router.get("memories", [])
@@ -165,7 +153,7 @@ def read_artefact(router, vault_root, name=None):
     return _portable_read_artefact(router, vault_root, name)
 
 
-# Mapping from _Config/ subfolder to the correct brain_read resource.
+# Mapping from _Config/ subfolder to the canonical read-command noun.
 _CONFIG_RESOURCE_MAP = {
     "Memories": "memory",
     "Skills": "skill",
@@ -209,7 +197,7 @@ def read_file(router, vault_root, name=None):
         if is_archived_path(name):
             return {
                 "error": f"'{name}' is archived. "
-                "Use brain_read(resource=\"archive\", name=\"...\") to read archived files."
+                "Use artefact.read with location='archived'."
             }
         return _check_vault_containment(vault_root, name) or read_file_content(vault_root, name)
 
@@ -237,7 +225,7 @@ def read_file(router, vault_root, name=None):
 def read_archive(router, vault_root, name=None):
     """Read a specific archived file by path inside _Archive/.
 
-    Listing via brain_list(resource='archive').
+    Enumeration is owned by ``artefact.list`` with ``location='archived'``.
     """
     _require_name("archive", name)
     return _portable_read_archive(vault_root, name, infer_markdown=True)

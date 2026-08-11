@@ -558,10 +558,10 @@ def test_configure_workspace_bootstrap_installs_agents_and_claude(tmp_path, caps
     assert exit_code == 0
     payload = json.loads(capsys.readouterr().out)
     assert payload["status"] == "ok"
-    assert "Call MCP `brain_session`" in (workspace / "AGENTS.md").read_text(encoding="utf-8")
+    assert "Call MCP `session.start`" in (workspace / "AGENTS.md").read_text(encoding="utf-8")
     claude_bootstrap = (workspace / "CLAUDE.md").read_text(encoding="utf-8")
-    assert "Call MCP `brain_session`" in claude_bootstrap
-    assert "brain session --json" in claude_bootstrap
+    assert "Call MCP `session.start`" in claude_bootstrap
+    assert "brain session start --json" in claude_bootstrap
 
 
 def test_configure_workspace_bootstrap_remove_cleans_project_claude_bootstrap(tmp_path, capsys):
@@ -808,7 +808,7 @@ def test_configure_mcp_returns_structured_result(tmp_path, monkeypatch, capsys):
     assert payload["steps"][0]["name"] == "mcp_transport"
     assert payload["steps"][0]["status"] == "changed"
     assert any("/mcp" in note for note in payload["notes"])
-    assert any("brain_session" in note for note in payload["notes"])
+    assert any("session.start" in note for note in payload["notes"])
 
 
 def test_configure_agent_skills_cli_uses_shared_client_boundary(

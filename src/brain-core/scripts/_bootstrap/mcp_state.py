@@ -37,10 +37,10 @@ INIT_STATE_REL = ".brain/local/init-state.json"
 INIT_STATE_VERSION = 1
 
 CLAUDE_MD_BOOTSTRAP_VAULT = (
-    "ALWAYS DO FIRST: Call MCP `brain_session`, else read `.brain-core/index.md` if it exists."
+    "ALWAYS DO FIRST: Call MCP `session.start`, else read `.brain-core/index.md` if it exists."
 )
 CLAUDE_MD_BOOTSTRAP_PROJECT = (
-    "ALWAYS DO FIRST: Call MCP `brain_session`; if MCP is unavailable, run `brain session --json` from this workspace."
+    "ALWAYS DO FIRST: Call MCP `session.start`; if MCP is unavailable, run `brain session start --json` from this workspace."
 )
 
 
@@ -180,8 +180,8 @@ def build_session_hook_command(
     launcher = python_path or _resolve_session_launcher()
     command = _join_hook_command([launcher, *_session_hook_argv(vault_root, target_dir)])
     if sys.platform == "win32":
-        return f"Write-Output 'brain_session called:'; {command}"
-    return f"echo brain_session called: && {command}"
+        return f"Write-Output 'session.start called:'; {command}"
+    return f"echo session.start called: && {command}"
 
 
 def _hook_command_contains_arg(command: str, arg: str) -> bool:

@@ -115,6 +115,16 @@ def _default_path():
     return os.fspath(config_home() / "brain" / "default")
 
 
+def registry_path():
+    """Return the authoritative machine registry path for read-only diagnostics."""
+    return _registry_path()
+
+
+def default_path():
+    """Return the authoritative default-pointer path for read-only diagnostics."""
+    return _default_path()
+
+
 @contextlib.contextmanager
 def _locked():
     """Serialize load-modify-save across concurrent installers.

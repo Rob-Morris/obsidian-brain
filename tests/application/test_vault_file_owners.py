@@ -4,8 +4,14 @@ from __future__ import annotations
 
 import pytest
 
-from _application.artefact.list_archived import ArtefactListArchivedRequest
-from _application.artefact.read_archived import ArtefactReadArchivedRequest
+from _application.artefact.list import (
+    ArtefactListLocation,
+    ArtefactListRequest,
+)
+from _application.artefact.read import (
+    ArtefactLocation,
+    ArtefactReadRequest,
+)
 from _application.registry import current_request_resolver
 from _application.results import ErrorCode
 from _application.vault.read_file import VaultReadFileRequest
@@ -64,12 +70,20 @@ def test_archived_artefact_owners_read_and_list_top_level_and_legacy_paths(
         )
     application = application_for(command_vault_clone.vault_root)
 
-    listing = application.invoke(ArtefactListArchivedRequest())
+    listing = application.invoke(
+        ArtefactListRequest(location=ArtefactListLocation.ARCHIVED)
+    )
     reading = application.invoke(
-        ArtefactReadArchivedRequest("Ideas/_Archive/20260202-legacy-idea.md")
+        ArtefactReadRequest(
+            "Ideas/_Archive/20260202-legacy-idea.md",
+            ArtefactLocation.ARCHIVED,
+        )
     )
     inferred_extension = application.invoke(
-        ArtefactReadArchivedRequest("Ideas/_Archive/20260202-legacy-idea")
+        ArtefactReadRequest(
+            "Ideas/_Archive/20260202-legacy-idea",
+            ArtefactLocation.ARCHIVED,
+        )
     )
 
     assert [item.path for item in listing.result.items] == [
@@ -85,7 +99,10 @@ def test_archive_boundary_is_explicit(command_vault_baseline):
     application = application_for(command_vault_baseline.vault_root)
 
     active_as_archived = application.invoke(
-        ArtefactReadArchivedRequest("Ideas/Command Fixture Candidate.md")
+        ArtefactReadRequest(
+            "Ideas/Command Fixture Candidate.md",
+            ArtefactLocation.ARCHIVED,
+        )
     )
     archived_as_file = application.invoke(
         VaultReadFileRequest("_Archive/Ideas/old.md")
@@ -106,13 +123,13 @@ def test_vault_file_transport_contracts_are_strict():
     ) is VaultReadFileRequest
     assert type(
         resolver.resolve(
-            "artefact.read-archived",
-            {"path": "_Archive/Ideas/old.md"},
+            "artefact.read",
+            {"reference": "_Archive/Ideas/old.md", "location": "archived"},
         )
-    ) is ArtefactReadArchivedRequest
+    ) is ArtefactReadRequest
     assert type(
-        resolver.resolve("artefact.list-archived", {})
-    ) is ArtefactListArchivedRequest
+        resolver.resolve("artefact.list", {"location": "archived"})
+    ) is ArtefactListRequest
 
     with pytest.raises(ValueError, match="unexpected fields"):
-        resolver.resolve("artefact.list-archived", {"query": "old"})
+        resolver.resolve("artefact.list", {"query": "old"})

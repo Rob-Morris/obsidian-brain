@@ -42,8 +42,8 @@ bash install.sh --non-interactive --skip-mcp /path/to/brain
 
 The installer creates the vault from the template, copies `.brain-core/` into it, provisions the light machine resolution runtime used by no-MCP `brain session`, and then offers an MCP registration choice for Claude Code and Codex — register this Brain for this vault only (project scope, the default) or as your machine default brain (user scope) — provisioning the managed Python runtime as needed. `install.sh` and `install.ps1` both hand fresh/existing-vault install policy to the shared Python installer core at `src/brain-core/scripts/install.py`. The POSIX wrapper can also install brain-core into an existing Obsidian vault and detect already-installed Brain vaults; for those, the canonical upgrade path is `upgrade.py` and `install.sh` only delegates to it. In network-restricted environments you can pass `--skip-mcp` to scaffold the vault without runtime / MCP setup, or rerun the printed retry steps later if dependency installation fails. Use `--non-interactive` when you want installer automation without prompts; it selects the this-vault-only (project) scope. When upgrade changes `.brain-core/brain_mcp/requirements.txt`, `upgrade.py` provisions the matching shared runtime under `~/.brain/venvs/` itself; `install.sh --skip-mcp` passes through the opt-out. Same-version re-apply, downgrade, or explicit migration rerun flows remain explicit `upgrade.py --force` operations. Project scope still outranks user scope for both clients once the project-scoped MCP is active: in Claude, approve `brain` via `/mcp`; in Codex, trust the project and ensure `brain` is enabled for that project. See [install.sh](../functional/scripts.md#installsh) and [install.py](../functional/scripts.md#installpy) for full details, modes, and flags.
 
-Semantic retrieval remains optional. Enable it later from inside the vault with
-`python3 .brain-core/scripts/configure.py semantic --enable`. That command
+Semantic retrieval remains optional. Enable it later with
+`brain retrieval enable --vault /path/to/brain --json`. That command
 installs the pinned semantic runtime into the central managed runtime, snapshots
 the pinned local model under `.brain/local/semantic-models/`, records
 `.brain/local/semantic-model-manifest.json`, and refreshes embeddings sidecars
@@ -53,56 +53,55 @@ so semantic search stays local-only at query time.
 
 ## Command-line usage
 
-For command-line usage, direct script invocation is the canonical baseline:
+The installed `brain` CLI uses the same noun/verb grammar as MCP, direct script and typed Python projections:
 
 ```bash
-python3 .brain-core/scripts/check.py --actionable
-python3 .brain-core/scripts/repair.py runtime
+brain vault check --request-json '{"actionable":true}' --json
+brain runtime repair --json
+brain command describe artefact.create --json
 ```
 
-If you install the optional [`brain` CLI](../functional/cli.md), it is shorthand over those same stable top-level scripts:
+For selected-Brain automation without the machine-global CLI, use the one direct projection:
 
 ```bash
-brain check --actionable
-brain repair runtime
+python3 .brain-core/scripts/command.py vault check \
+  --request-json '{"actionable":true}' --json
 ```
 
-For agent bootstrap, MCP remains the primary path: call `brain_session`. When MCP is unavailable from a bound external workspace, run:
+For agent bootstrap, MCP remains the primary path: call `session.start`. When MCP is unavailable from a bound external workspace, run:
 
 ```bash
-brain session --json
+brain session start --json
 ```
 
-That command resolves the workspace binding through the machine-level resolution runtime and then dispatches only to the bound Brain's own `session.py`. It is not a separate non-MCP `brain_init` command.
+That command resolves the workspace binding through the machine-level launcher and dispatches the canonical `session.start` request only to the selected Brain's application owner.
 
-A small portable script family also stays usable from a compatible launcher Python in restricted no-network environments, including the core artefact commands plus `build_lexical_index.py` and `search_lexical.py`. See [User Reference](user-reference.md#scripts) for the command-family breakdown and [Script Reference](../functional/scripts.md) for the exact per-script contract.
+Commands declare bootstrap, portable or managed dependency tiers. The adapter never silently provisions or changes tier; availability and one next action are part of the structural result. See [User Reference](user-reference.md#dependency-and-availability-model) and [Script Reference](../functional/scripts.md).
 
-When you already have a Brain and just want to bind a specific folder as a workspace without choosing MCP policy yet, use the public `setup workspace` surface:
+When you already have a Brain and want to bind a folder without choosing transport policy, use `workspace.bind`:
 
 ```bash
-brain setup workspace /path/to/project --vault /path/to/brain
-
-# or call the shipped script directly
-python3.12 .brain-core/scripts/setup.py workspace /path/to/project --vault /path/to/brain
+brain workspace bind --vault /path/to/brain --workspace /path/to/project \
+  --request-json '{}' --json
 ```
 
 That creates or repairs `.brain/local/workspace.yaml` with the workspace's `brain + slug` binding and adds Brain-owned machine-local ignore rules in git-backed targets without writing `.mcp.json`, `.codex/config.toml`, or SessionStart hooks. Configure transport later only if you want it, for example:
 
 ```bash
-# Project scope for one workspace
-brain configure mcp --vault /path/to/brain --workspace /path/to/project --client all
-
-# or call the shipped script directly
-python3.12 .brain-core/scripts/configure.py mcp --vault /path/to/brain --workspace /path/to/project --client all
+# Project scope for one workspace and both clients
+brain mcp configure --vault /path/to/brain --workspace /path/to/project \
+  --request-json '{"scope":"project","client":"all"}' --json
 
 # User scope everywhere on the machine
-brain configure mcp --vault /path/to/brain --user --client all
+brain mcp configure --vault /path/to/brain \
+  --request-json '{"scope":"user","client":"all"}' --json
 ```
 
-For a targeted binding without the additional setup scaffold, run:
+To converge the selected Brain's bootstrap scaffold after binding, run the separate application command:
 
 ```bash
-brain configure workspace binding --vault /path/to/brain --path /absolute/path/to/project --slug project-slug
+brain workspace configure-bootstrap --vault /path/to/brain \
+  --workspace /absolute/path/to/project --json
 ```
 
 This local CLI command writes only the workspace's
@@ -113,12 +112,13 @@ To make the active Brain's shaping workflow discoverable as a native skill in
 Claude Code and Codex, install the shared discovery adapter once:
 
 ```bash
-brain configure agent-skills --vault /path/to/brain --client all
+brain agent-skill configure --vault /path/to/brain \
+  --request-json '{"client":"all"}' --json
 ```
 
-The adapter contains no shaping workflow of its own. It asks `brain_session` for
+The adapter contains no shaping workflow of its own. It calls `session.start` for
 the active Brain, then loads that Brain's `.brain-core/skills/shaping/SKILL.md`
-through `brain_read`, so a normal Brain upgrade updates the workflow without
+through `vault.read-file`, so a normal Brain upgrade updates the workflow without
 copying it into each client's global skill directory. Existing unmanaged shaping
 skills are preserved; after reviewing them, use `--replace` to archive each old
 directory outside skill discovery under
@@ -214,9 +214,14 @@ A new Brain vault ships with a practical starter set: Daily Notes, Designs, Docu
 
 ### Adding Types When You Need Them
 
-When you find yourself creating content that doesn't fit anywhere, that's the signal to add a type. The artefact library (`.brain-core/artefact-library/`) has ready-to-install definitions for types like Wiki, Journals, Zettelkasten, Printables, and more. Each comes with a taxonomy file and template. Folder colours are auto-generated when you run `python3 .brain-core/scripts/compile_router.py`.
+When you find yourself creating content that doesn't fit anywhere, that's the signal to add a type. The artefact library (`.brain-core/artefact-library/`) has ready-to-install definitions for types like Wiki, Journals, Zettelkasten, Printables, and more. Each comes with a taxonomy file and template. Folder colours are regenerated by `runtime.refresh-router`.
 
-To install types from the library, use `python3 .brain-core/scripts/sync_definitions.py`. You can preview with a dry run, sync specific types, or let it run automatically after upgrades. See [sync_definitions](../functional/scripts.md) for full parameters.
+Use `brain type status --request-json '{}' --json` to inspect library types, then
+install or update one with `brain type sync --request-json
+'{"type_key":"living/wiki"}' --json`. Definition sync also runs automatically
+after upgrades according to the vault's `artefact_sync` preference. See
+[Direct Script and Python Command Interfaces](../functional/scripts.md) and use
+`brain command describe type.sync --json` for the exact request contract.
 
 The rule of thumb: add a type when you'll create multiple files of that kind and they need different conventions from what you already have. If it's a one-off, a subfolder or tag within an existing type is simpler.
 
@@ -234,7 +239,7 @@ Designs/
     Brain Mcp Server.md
 ```
 
-This works for any living type — designs, ideas, wiki pages. Sub-artefacts inherit the parent type, so no separate taxonomy or CSS is needed. When a sub-artefact reaches a terminal status, use `brain_set_status`; the handler moves it into the matching `+Status/` folder. Use `_Archive/` only for deliberate removal from the active vault namespace.
+This works for any living type — designs, ideas, wiki pages. Sub-artefacts inherit the parent type, so no separate taxonomy or CSS is needed. When a sub-artefact reaches a terminal status, use `artefact.set-status`; the handler moves it into the matching `+Status/` folder. Use `_Archive/` only for deliberate removal from the active vault namespace.
 
 ### Giving Agents Context with Memories
 
@@ -277,42 +282,39 @@ prompt because installed adapters load that workflow dynamically.
 If you are not sure what is broken, start with:
 
 ```bash
-python3 .brain-core/scripts/check.py --actionable
+brain vault check --request-json '{"actionable":true}' --json
 ```
 
-When `check.py --actionable` detects shaped infrastructure drift, it prints the
-exact `repair.py` command to run.
+When `vault.check` detects shaped infrastructure drift, it returns the exact
+granular repair command to run.
 
-`repair.py` repairs one named scope at a time:
+Repair one named scope at a time:
 
 ```bash
-python3.12 .brain-core/scripts/repair.py runtime
-python3.12 .brain-core/scripts/repair.py mcp
-python3.12 .brain-core/scripts/repair.py router
-python3.12 .brain-core/scripts/repair.py lexical
-python3.12 .brain-core/scripts/repair.py registry
-python3.12 .brain-core/scripts/repair.py semantic
+brain runtime repair --json
+brain mcp repair --json
+brain runtime refresh-router --request-json '{"force":true}' --json
+brain retrieval refresh-lexical --request-json '{"force":true}' --json
+brain workspace repair-registry --json
+brain retrieval repair-semantic --json
 ```
 
-For most broken-tooling cases, `repair.py runtime` is the important one when
-the shared managed runtime under `~/.brain/venvs/` is broken. `repair.py mcp`
+For most broken-tooling cases, `brain runtime repair` is the important command when
+the shared managed runtime under `~/.brain/venvs/` is broken. `mcp.repair`
 repairs installed current-vault project MCP registration state against that
 usable runtime. It does not act as a first-time installer or add a second
-client to the vault. `repair.py semantic` is the semantic equivalent after a
-vault has been opted in with `configure.py semantic --enable`. It
+client to the vault. `retrieval.repair-semantic` is the semantic equivalent after a
+vault has been opted in with `retrieval.enable`. It
 restores the pinned runtime packages, local model snapshot/manifest, and
 embeddings sidecars together. `router`, `lexical`, and `registry` are narrower
-generated-state repairs and are usually best run when `check.py` tells you to.
+generated-state repairs and are usually best run when `vault.check` tells you to.
 
-`repair.py` may be launched from any compatible Python 3.12+ interpreter, but
-packageful repair always converges back into the central managed runtime at
-`~/.brain/venvs/`. It does not install packages into your wider Python
-environment.
-
-If you installed the optional [`brain` CLI](../functional/cli.md), the same
-operations are available as `brain check --actionable`, `brain repair runtime`,
-`brain repair router`, and so on. The CLI dispatches directly to the scripts
-above; it adds no behaviour.
+CLI 2's launcher recovery stays bootstrap-safe and converges packageful work
+into the central managed runtime under `~/.brain/venvs/`; it does not install
+packages into your wider Python environment. Use `brain vault check`,
+`brain runtime refresh-router`, `brain retrieval refresh-lexical`,
+`brain workspace repair-registry` and `brain retrieval repair-semantic` for
+the narrower generated-state scopes.
 
 ---
 

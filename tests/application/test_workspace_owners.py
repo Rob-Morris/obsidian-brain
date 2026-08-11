@@ -10,7 +10,6 @@ from _application.registry import current_request_resolver
 from _application.results import ErrorCode
 from _application.workspace.list import WorkspaceListRequest
 from _application.workspace.read import WorkspaceMode, WorkspaceReadRequest
-from _application.workspace.resolve import WorkspaceResolveRequest
 from command_application import application_for
 
 
@@ -32,22 +31,21 @@ def _add_embedded_workspace(clone, slug="analysis"):
     )
 
 
-def test_workspace_read_and_resolve_have_distinct_bounded_results(
+def test_workspace_read_includes_resolution_and_metadata(
     command_vault_clone,
 ):
     _add_embedded_workspace(command_vault_clone)
     application = application_for(command_vault_clone.vault_root)
 
     reading = application.invoke(WorkspaceReadRequest("analysis"))
-    resolution = application.invoke(WorkspaceResolveRequest("analysis"))
 
     assert reading.status == "ok"
     assert reading.result.mode is WorkspaceMode.EMBEDDED
     assert reading.result.hub_path == "Workspaces/analysis.md"
     assert reading.result.status == "active"
     assert reading.result.tags == ("workspace/analysis",)
-    assert resolution.result.slug == "analysis"
-    assert resolution.result.path == str(
+    assert reading.result.slug == "analysis"
+    assert reading.result.path == str(
         command_vault_clone.vault_root / "_Workspaces" / "analysis"
     )
 
@@ -95,7 +93,7 @@ def test_workspace_commands_fail_closed_on_invalid_identity_and_registry(
     application = application_for(command_vault_clone.vault_root)
 
     listing = application.invoke(WorkspaceListRequest())
-    resolution = application.invoke(WorkspaceResolveRequest("missing"))
+    resolution = application.invoke(WorkspaceReadRequest("missing"))
 
     assert listing.error.code is ErrorCode.CONFLICT
     assert resolution.error.code is ErrorCode.CONFLICT
@@ -109,9 +107,5 @@ def test_workspace_transport_contracts_are_strict():
     assert type(
         resolver.resolve("workspace.read", {"reference": "analysis"})
     ) is WorkspaceReadRequest
-    assert type(
-        resolver.resolve("workspace.resolve", {"reference": "analysis"})
-    ) is WorkspaceResolveRequest
-
     with pytest.raises(ValueError, match="unexpected fields"):
         resolver.resolve("workspace.list", {"query": "analysis"})

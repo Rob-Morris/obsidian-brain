@@ -58,7 +58,9 @@ class Locality(str, Enum):
 class Authority(str, Enum):
     READER = "reader"
     CONTRIBUTOR = "contributor"
+    MAINTAINER = "maintainer"
     OPERATOR = "operator"
+    ADMINISTRATOR = "administrator"
 
 
 class EffectClass(str, Enum):

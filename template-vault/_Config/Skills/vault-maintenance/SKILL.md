@@ -29,10 +29,12 @@ Fix any issues before moving on.
 For deep structural compliance (naming, frontmatter, archive metadata, status values), run:
 
 ```bash
-python3 .brain-core/scripts/check.py
+brain vault check --request-json '{}' --json
 ```
 
-Use `--json` for structured output, `--actionable` for fix suggestions, `--severity warning` to filter.
+Set `actionable: true` or `severity: "warning"` in the request object when those
+views are needed; use `brain command describe vault.check --json` for the exact
+schema.
 
 ## Session End
 

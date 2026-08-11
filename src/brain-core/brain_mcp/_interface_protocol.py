@@ -19,7 +19,6 @@ INTERFACE_HEADER_EXTENSION = "brainCommandInterface"
 _ASCII_LOWER = frozenset("abcdefghijklmnopqrstuvwxyz")
 _ASCII_DIGITS = frozenset("0123456789")
 _ASCII_ALNUM = _ASCII_LOWER | _ASCII_DIGITS
-_TOOL_NAME_CHARACTERS = _ASCII_ALNUM | {"_"}
 _COMMAND_PART_CHARACTERS = _ASCII_ALNUM | {"-"}
 
 
@@ -64,8 +63,7 @@ class CommandInterfaceHeader:
             _tool_name(name)
             if not isinstance(mapping, InterfaceTool):
                 raise TypeError("interface tool mappings must use InterfaceTool")
-            expected_name = "brain_" + mapping.command_id.replace(".", "_").replace("-", "_")
-            if name != expected_name:
+            if name != mapping.command_id:
                 raise ValueError(
                     "projected MCP tool name contradicts its command identifier"
                 )
@@ -388,11 +386,12 @@ def _command_id(value: object) -> None:
 
 def _tool_name(value: object) -> None:
     text = _non_empty(value, "projected MCP tool name")
-    if not text.startswith("brain_") or any(
-        character not in _TOOL_NAME_CHARACTERS
-        for character in text
-    ):
-        raise ValueError("projected MCP tool name must use brain_<noun>_<verb> grammar")
+    try:
+        _command_id(text)
+    except ValueError as exc:
+        raise ValueError(
+            "projected MCP tool name must use canonical noun.verb grammar"
+        ) from exc
 
 
 def _canonical_part(value: str) -> bool:

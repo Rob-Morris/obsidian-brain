@@ -1,48 +1,83 @@
 # Bounded Context Map
 
-brain-core is organised around a small set of bounded contexts. These are documentation boundaries first: they clarify ownership, import direction, and where new work belongs. They do not imply that every context must immediately become its own package or runtime service.
+Brain Core separates semantic application ownership, machine-global lifecycle ownership, transport adapters and lower-level implementation planes. These boundaries are enforced by import and catalogue tests, not naming convention alone.
 
 ## Contexts
 
-| Context | Responsibilities | Scripts |
+| Context | Responsibility | Primary location |
 |---|---|---|
-| Compilation | Compile runtime artefacts from source definitions; keep generated router, colours, and search index current | `compile_router.py`, `compile_colours.py`, `build_index.py`, `sync_definitions.py` |
-| Artefact Operations | Read and mutate vault content and config resources through the router contract | `create.py`, `edit.py`, `read.py`, `rename.py`, `fix_links.py`, `start_shaping_session.py` (`start_shaping.py` compatibility launcher), `shape_printable.py`, `shape_presentation.py` |
-| Compliance | Validate structure, naming, and taxonomy conformance | `check.py` |
-| Content Intelligence | Search and enumerate content for retrieval workflows | `search_index.py`, `list_artefacts.py` |
-| Session & Configuration | Assemble runtime config, bootstrap sessions, manage operator/auth state, resolve registered workspaces | `session.py`, `config.py`, `workspace_registry.py`, `generate_key.py` |
-| Lifecycle Management | Set up, configure, repair, upgrade, and migrate the engine and vault naming conventions over time | `setup.py`, `configure.py`, `repair.py`, `upgrade.py`, `migrate_naming.py`, `migrations/` |
-| MCP Integration | Expose script capabilities over MCP transport, enforce tool-level resilience and profile gates | `brain_mcp/server.py`, `brain_mcp/proxy.py`, `brain_mcp/_server_*.py` |
-| Platform Integration | Bridge to external platform capabilities that are not part of the core domain model | `obsidian_cli.py` |
+| Application kernel | Sealed requests/results, invocation boundary, selected-Brain catalogue, resolver, discovery and projection facts | `src/brain-core/scripts/_application/` |
+| Launcher application | Machine-global registry, install/upgrade, runtime recovery, MCP/client configuration and maintenance | `cli/_launcher/` |
+| Local CLI composition | Parse the canonical grammar, compose discovery, select an owner, invoke without merging semantics, render structural results | `cli/_local_cli/` |
+| MCP projection | Mechanical eligible-tool registration, proxy protocol and MCP result projection | `src/brain-core/brain_mcp/` |
+| Trusted local composition | Selected vault/workspace, profile, providers, tier and outcome receipt storage | `src/brain-core/scripts/_command_interface/` |
+| Bootstrap plane | Stdlib-safe config, selection, session, registry and recovery seams | `src/brain-core/scripts/_bootstrap/` |
+| Portable plane | Low-dependency vault reads/mutations and lexical operations | `src/brain-core/scripts/_portable/` and domain packages |
+| Managed plane | Optional managed-runtime retrieval, rendering and provider-backed work | managed domain/provider packages |
+| Platform adapters | Obsidian and other external capabilities behind explicit provider ports | platform-specific modules |
 
-## Import Policy
+## Import direction
 
-### Stable dependency direction
+Dependencies point inward:
 
-Dependencies should point inward toward lower-level shared capabilities, not sideways across peer contexts.
+```text
+MCP / CLI / direct script
+          |
+trusted context + request resolution
+          |
+CommandApplication
+          |
+application executors
+          |
+bootstrap / portable / managed domain seams
+          |
+filesystem and explicit providers
+```
 
-- All contexts may depend on `_common/` public API.
-- MCP Integration may depend on any script context because it is an adapter layer over the core operations.
-- Platform Integration should remain a leaf adapter: other contexts may call it, but it should not import domain scripts.
-- Compilation outputs are consumed by Artefact Operations, Compliance, Content Intelligence, and Session & Configuration, but compilation scripts should not import those higher-level contexts to do their work.
-- Lifecycle Management may orchestrate other contexts at process boundaries, but should avoid reaching into private helpers across contexts.
+The rules are:
 
-### Public versus private code
+- `_application` imports no MCP SDK, CLI parser, terminal renderer, implicit environment selector or concrete provisioner.
+- Lower-level domain packages do not import back into `_application`.
+- The launcher catalogue never imports selected-Brain application executors.
+- The selected-Brain catalogue never imports machine-global launcher owners.
+- `_local_cli` may compose catalogue presentation but must preserve owner/provenance and invoke across the selected Brain's process boundary.
+- MCP derives registrations and schemas from application entries; it does not implement semantic variants.
+- Concrete providers implement application ports and cannot elevate authority or change locality/tier metadata.
 
-- `_common/__init__.py` is the shared-kernel facade. Cross-context helpers should be promoted there as explicit public API.
-- Underscore-prefixed helpers inside individual modules stay private to that module unless promoted.
-- Prefer importing a script's documented top-level function over reaching into its internal helpers from another context.
-- If a new capability is broadly shared and not naturally owned by an existing context, add it to `_common/` instead of creating ad hoc cross-context imports.
+Package initialisers remain lean so importing bootstrap or portable code does not eagerly import managed dependencies.
 
-### Practical guidance for new work
+## Ownership test
 
-- New user-visible vault operations usually belong in Artefact Operations.
-- New validation rules belong in Compliance, even if they inspect content produced elsewhere.
-- Search and listing features belong in Content Intelligence.
-- Config loading, session bootstrap, and operator policy belong in Session & Configuration.
-- Install, upgrade, and migration flows belong in Lifecycle Management.
-- MCP server concerns stay in MCP Integration; do not move domain logic there.
+A public operation belongs to exactly one semantic owner. Split it when alternatives differ in any of:
 
-## Why This Matters
+- required fields;
+- result or stable error contract;
+- authority;
+- minimum dependency tier;
+- locality or required providers;
+- atomicity, effect class or retry safety.
 
-This map gives the repo a shared language for refactors. When a file feels overloaded, the first question is which bounded context owns the behaviour. When an import feels awkward, the first check is whether it crosses a context boundary through a private seam.
+Data enums are appropriate only when every alternative shares those contracts. Adapter convenience is not a reason to combine semantic owners.
+
+## Trusted context versus semantic request
+
+Semantic request fields describe what the command should do. `InvocationContext` describes trusted execution facts: selected Brain, profile/authority, capability snapshot, providers, invocation/correlation identity, receipt writer, current tier, clock and dry-run. Adapters compose context; callers cannot smuggle it through request JSON.
+
+This separation preserves the dependency planes: an executor consumes an already-proven context and does not rediscover environment, authenticate again, provision a runtime or hand off to another process implicitly.
+
+## Public surfaces
+
+The supported surfaces are projections, not owners:
+
+- granular MCP `<noun>.<verb>`;
+- CLI `brain <noun> <verb>`;
+- direct `command.py <noun> <verb>`;
+- sealed typed Python requests through `CommandApplication`.
+
+Legacy aggregate MCP tools, irregular CLI aliases and public top-level operation scripts are removed at the coordinated 0.55.0/CLI 2.0 cutover. Platform install and pre-cutover recovery launchers are explicit lifecycle exceptions.
+
+## Practical guidance
+
+For a new selected-Brain operation, add one request/result, executor, catalogue entry and resolver registration, then prove all eligible projections mechanically. For machine-global behaviour, add a launcher request/result and owner without importing selected-Brain semantics. Shared filesystem/domain mechanics belong below the application executor, not in adapters or catalogue definitions.
+
+See [Architecture overview](overview.md), [Security](security.md) and [DD-061](decisions/dd-061-typed-command-application-boundary.md).

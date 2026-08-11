@@ -222,7 +222,12 @@ def decode_empty(payload: Mapping[str, object], request_type):
     return request_type()
 
 
-def catalogue_entry(request_type, executor):
+def catalogue_entry(
+    request_type,
+    executor,
+    *,
+    authority: Authority = Authority.OPERATOR,
+):
     from .catalogue import ApplicationEntry
 
     return ApplicationEntry(
@@ -232,7 +237,7 @@ def catalogue_entry(request_type, executor):
         locality=Locality.SELECTED_BRAIN_LOCAL,
         required_providers=("semantic_runtime",),
         optional_providers=(),
-        authority=Authority.OPERATOR,
+        authority=authority,
         effect_class=EffectClass.SELECTED_BRAIN_MUTATION,
         retry_class=RetryClass.RECEIPT_REQUIRED,
         projections=tuple(

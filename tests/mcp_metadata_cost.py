@@ -45,6 +45,33 @@ SUPPORTED_CLIENTS = {
     },
 }
 
+PRE_CUTOVER_TOOL_NAMES = frozenset(
+    {
+        "brain_action",
+        "brain_check",
+        "brain_classify",
+        "brain_create",
+        "brain_define",
+        "brain_discard_stage",
+        "brain_edit",
+        "brain_ingest",
+        "brain_init",
+        "brain_list",
+        "brain_move",
+        "brain_outline",
+        "brain_read",
+        "brain_reparent",
+        "brain_resolve",
+        "brain_search",
+        "brain_session",
+        "brain_set_key",
+        "brain_set_naming_field",
+        "brain_set_status",
+        "brain_stage",
+        "brain_upload_attachment",
+    }
+)
+
 
 def canonical_json(value) -> str:
     """Encode metadata with deterministic key order and no incidental space."""
@@ -84,6 +111,12 @@ def _hash(value) -> str:
 def build_metadata_capture() -> dict:
     """Capture raw registration and supported-client relative cost projections."""
     registered = sorted(asyncio.run(server.mcp.list_tools()), key=lambda tool: tool.name)
+    actual_names = frozenset(tool.name for tool in registered)
+    if actual_names != PRE_CUTOVER_TOOL_NAMES:
+        raise RuntimeError(
+            "pre-cutover MCP metadata baseline is immutable and can only be "
+            "regenerated from the exact historical 22-tool surface"
+        )
     tools = [
         {
             "name": tool.name,

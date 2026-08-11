@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from ._mutation_support import no_effect_error, operator_mutation_entry
+from ._mutation_support import maintainer_mutation_entry, no_effect_error
 from .context import InvocationContext
 from .receipts import CommittedEffect
 from .results import (
@@ -64,7 +64,6 @@ def execute_definition_sync(
     context: InvocationContext,
     request,
     *,
-    expected_state: TypeDefinitionState,
     force: bool,
 ):
     from _common import (
@@ -93,21 +92,6 @@ def execute_definition_sync(
                 )
             if state is TypeDefinitionState.NOT_INSTALLABLE:
                 return no_effect_error(type(request), ErrorCode.CONFLICT, reason)
-            if expected_state is TypeDefinitionState.UNINSTALLED:
-                if state is not TypeDefinitionState.UNINSTALLED:
-                    return no_effect_error(
-                        type(request),
-                        ErrorCode.CONFLICT,
-                        f"{request.type_key} is {state.value}; use type.sync",
-                        "type_key",
-                    )
-            elif state is TypeDefinitionState.UNINSTALLED:
-                return no_effect_error(
-                    type(request),
-                    ErrorCode.CONFLICT,
-                    f"{request.type_key} is uninstalled; use type.install",
-                    "type_key",
-                )
             result = sync_definitions.sync_definitions(
                 root,
                 dry_run=context.dry_run,
@@ -217,4 +201,4 @@ def _payload(type_key: str, force: bool, result: dict) -> TypeDefinitionSyncPayl
 
 
 def catalogue_entry(request_type, executor):
-    return operator_mutation_entry(request_type, executor)
+    return maintainer_mutation_entry(request_type, executor)

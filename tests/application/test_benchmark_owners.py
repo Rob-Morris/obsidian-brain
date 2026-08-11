@@ -165,7 +165,7 @@ def test_evaluate_returns_report_without_effects(command_vault_clone, monkeypatc
         ),
     ),
 )
-def test_benchmark_transports_are_non_mcp_managed_operator_commands(
+def test_benchmark_transports_are_non_mcp_managed_maintainer_commands(
     command_id,
     request_type,
     payload,
@@ -177,7 +177,7 @@ def test_benchmark_transports_are_non_mcp_managed_operator_commands(
 
     assert type(request) is request_type
     assert entry.dependency_tier is DependencyTier.MANAGED
-    assert entry.authority is Authority.OPERATOR
+    assert entry.authority is Authority.MAINTAINER
     assert entry.effect_class is effect
     assert entry.retry_class is retry
     assert entry.eligible_projections == (

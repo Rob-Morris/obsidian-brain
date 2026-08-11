@@ -144,6 +144,22 @@ def test_content_classify_exposes_typed_context_without_an_open_result_bag(
     )
 
 
+def test_content_classify_degrades_to_context_when_lexical_index_is_missing(
+    command_vault_clone,
+):
+    index = command_vault_clone.vault_root / ".brain/local/retrieval-index.json"
+    index.unlink()
+
+    result = application_for(command_vault_clone.vault_root).invoke(
+        ContentClassifyRequest("A proposed command-interface improvement.")
+    )
+
+    assert result.status == "ok"
+    assert result.result.strategy is ContentClassifyMode.CONTEXT_ASSEMBLY
+    assert isinstance(result.result.classification, ClassificationContext)
+    assert result.result.classification.type_descriptions
+
+
 def test_content_resolve_preserves_exact_filename_decision(command_vault_baseline):
     application = application_for(command_vault_baseline.vault_root)
 

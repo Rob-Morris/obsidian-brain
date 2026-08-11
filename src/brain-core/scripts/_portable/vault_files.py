@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+from datetime import datetime, timezone
 
 from _common import (
     MissingFileResult,
@@ -30,7 +31,10 @@ def _read_exact_file(vault_root, path):
 def read_vault_file(vault_root, path):
     if is_archived_path(path):
         return {
-            "error": f"'{path}' is archived. Use artefact.read-archived instead."
+            "error": (
+                f"'{path}' is archived. Use artefact.read with "
+                'location="archived" instead.'
+            )
         }
     return _read_exact_file(vault_root, path)
 
@@ -78,8 +82,16 @@ def list_archived_artefacts(router, vault_root):
                         "path": relative,
                         "title": os.path.splitext(filename)[0],
                         "type": fields.get("type", ""),
+                        "created": fields.get("created", ""),
+                        "modified": datetime.fromtimestamp(
+                            os.path.getmtime(absolute), timezone.utc
+                        ).isoformat(),
                         "status": fields.get("status", ""),
                         "archiveddate": fields.get("archiveddate", ""),
+                        "tags": fields.get("tags", []),
+                        "key": fields.get("key", ""),
+                        "parent": fields.get("parent", ""),
+                        "location": "archived",
                     }
                 )
 

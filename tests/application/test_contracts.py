@@ -137,7 +137,13 @@ def test_result_variants_have_one_structurally_valid_shape():
     ok = Ok(
         "command.list",
         2,
-        CommandListPayload((), "snapshot", SnapshotFreshness.FRESH),
+        CommandListPayload(
+            "brain.command-catalogue/1",
+            "sha256:test",
+            (),
+            "snapshot",
+            SnapshotFreshness.FRESH,
+        ),
     )
     partial = Partial(
         "artefact.delete",

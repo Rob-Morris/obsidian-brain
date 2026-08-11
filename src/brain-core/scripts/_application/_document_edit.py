@@ -139,8 +139,9 @@ class NamedReplaceTextRequest:
         validate_replace_request(self, subject_field="name")
 
 
-def validate_structural_request(request, *, subject_field: str) -> None:
-    _validate_subject(request, subject_field)
+def validate_structural_request(request, *, subject_field: str | None) -> None:
+    if subject_field is not None:
+        _validate_subject(request, subject_field)
     if request.content is not None and not isinstance(
         request.content, (InlineContent, StagedContent)
     ):
@@ -152,16 +153,18 @@ def validate_structural_request(request, *, subject_field: str) -> None:
     _validate_fix_links(request)
 
 
-def validate_delete_request(request, *, subject_field: str) -> None:
-    _validate_subject(request, subject_field)
+def validate_delete_request(request, *, subject_field: str | None) -> None:
+    if subject_field is not None:
+        _validate_subject(request, subject_field)
     _validate_target(request.target, "target")
     _validate_selector(request.selector)
     _validate_frontmatter(request)
     _validate_fix_links(request)
 
 
-def validate_replace_request(request, *, subject_field: str) -> None:
-    _validate_subject(request, subject_field)
+def validate_replace_request(request, *, subject_field: str | None) -> None:
+    if subject_field is not None:
+        _validate_subject(request, subject_field)
     if not isinstance(request.old_text, str) or not request.old_text:
         raise ValueError(f"{request.COMMAND_ID} old_text must be non-empty")
     if not isinstance(request.new_text, str):
@@ -188,6 +191,7 @@ def execute_document_edit(
     resource: str,
     operation: str,
     subject_field: str,
+    result_operation: str | None = None,
 ):
     from _common import (
         MutationLockError,
@@ -250,7 +254,7 @@ def execute_document_edit(
         result,
         staged_handle,
         staging_warning,
-        operation=operation.replace("_", "-"),
+        operation=result_operation or operation.replace("_", "-"),
     )
     warnings = []
     if staging_warning:

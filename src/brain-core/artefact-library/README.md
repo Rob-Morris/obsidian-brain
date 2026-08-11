@@ -98,7 +98,7 @@ Templates may use a small set of placeholders that the tooling expands at create
 
 - `{{date:FORMAT}}` — replaced with the current date/time using tokens (`YYYY`, `MM`, `DD`, `ddd`, `YYYY-MM-DD`, `YYYYMMDD`).
 - Custom `SOURCE_*` string vars supplied by specific workflows (shaping transcripts, printables, presentations).
-- `{{agent: ...}}` — **authoring-time hints** for an agent populating the template on the naive path (no `brain_create`). Tooling strips these tokens at create time; they never reach the final artefact. Use them to explain what frontmatter or body content a naive agent must supply that tooling would otherwise inject automatically (e.g. `key:` and hub tags on living artefacts). Keep the instruction self-contained and concrete — cross-reference `.brain-core/standards/` rather than re-explain the whole contract.
+- `{{agent: ...}}` — **authoring-time hints** for an agent populating the template without `artefact.create`. Tooling strips these tokens at create time; they never reach the final artefact. Use them to explain what frontmatter or body content a naive agent must supply that tooling would otherwise inject automatically (e.g. `key:` and hub tags on living artefacts). Keep the instruction self-contained and concrete — cross-reference `.brain-core/standards/` rather than re-explain the whole contract.
 
 Frontmatter does not undergo placeholder substitution; `{{agent:...}}` hints belong in the body.
 
@@ -122,39 +122,47 @@ Artefact types that have a lifecycle should include a `status` field in frontmat
 **Install a specific type into the vault:**
 
 ```bash
-python3 .brain-core/scripts/sync_definitions.py --types living/releases
+brain type sync --request-json '{"type_key":"living/releases"}' --json
 ```
 
-or from the CLI:
-
-Installs any type listed in `types` that is not already in the vault, and updates any that are. Install is additive — no `--force` needed.
+The same command installs an uninstalled library type or updates an installed
+type. Initial install is additive — no `force` field is needed.
 
 **Check what's installable or syncable:**
 
 ```bash
-python3 .brain-core/scripts/sync_definitions.py --status
+brain type status --request-json '{}' --json
 ```
 
-Returns a read-only classification of every library type: `uninstalled`, `in_sync`, `sync_ready`, `locally_customised`, `conflict`, plus a `not_installable` bucket for library-side errors. See the [state taxonomy](../../../docs/functional/scripts.md#sync_definitionspy) for what each state means.
+Returns a read-only classification of every library type: `uninstalled`,
+`in_sync`, `sync_ready`, `locally_customised`, `conflict`, plus a
+`not_installable` bucket for library-side errors. Use `brain command describe
+type.status --json` for the exact result contract.
 
 **Sync already-installed types to their latest library versions:**
 
 ```bash
-python3 .brain-core/scripts/sync_definitions.py
+brain type sync --request-json '{"type_key":"living/releases"}' --json
 ```
 
-Bare sync never installs new types — it only updates already-installed ones. After a CLI upgrade (`install.sh` or `upgrade.py`), this runs automatically governed by the `artefact_sync` preference in `.brain/preferences.json`: `auto` applies safe updates, `ask` (default) returns a preview, `skip` does nothing. CLI flags `--sync` / `--no-sync` override. Use `force` for conflicts, or `artefact_sync_exclude` to permanently skip specific files.
+Use `type.status` to choose the type keys that need attention, then call
+`type.sync` once per selected type. After a CLI upgrade (`brain brain upgrade`),
+definition sync runs automatically under the `artefact_sync` preference in
+`.brain/preferences.json`: `auto` applies safe updates, `ask` (default) returns
+a preview, and `skip` does nothing. Upgrade request fields can override that
+policy. Set `force: true` on `type.sync` for a reviewed conflict, or use
+`artefact_sync_exclude` to permanently skip specific files.
 
 **Custom or unpackaged type:**
 
-Library types should use `sync_definitions.py` so manifest/tracking provenance
-is retained. For a custom type, follow the guarded six-step workflow:
+Library types should use `type.sync` so manifest/tracking provenance is
+retained. For a custom type, follow the guarded six-step workflow:
 
 1. Draft the taxonomy and linked template in reviewed local files.
-2. Run `brain define type create --name <key> --classification <living|temporal> --definition-file taxonomy.md --template-file template.md`; this validates and creates the taxonomy, template, and storage folder as one bundle.
-3. If needed, add its router entry with `brain define trigger create --condition "..." --target "_Config/Taxonomy/{Living|Temporal}/<key>"`.
-4. Run `python3 .brain-core/scripts/compile_router.py` — colours are auto-generated from the compiled router.
-5. Validate with `python3 .brain-core/scripts/check.py` (use `--actionable` for repair guidance).
+2. Run `brain type create` with the name, classification, and staged or inline `definition` and `template` content; this validates and creates the taxonomy, template, and storage folder as one bundle. Use `brain command describe type.create --json` for the exact request schema.
+3. If needed, add its router entry with `brain trigger create`; use `brain command describe trigger.create --json` for its request schema.
+4. Run `brain runtime refresh-router --request-json '{}' --json` — colours are auto-generated from the compiled router.
+5. Validate with `brain vault check --request-json '{"actionable":true}' --json`.
 6. Log the addition.
 
 Each type's README includes the specific paths and an optional router trigger line.

@@ -223,7 +223,7 @@ def test_type_bundle_rejects_one_handle_for_two_distinct_documents():
         ),
     ),
 )
-def test_type_definition_transports_are_granular_operator_commands(
+def test_type_definition_transports_are_granular_maintainer_commands(
     command_id,
     payload,
     request_type,
@@ -232,7 +232,7 @@ def test_type_definition_transports_are_granular_operator_commands(
     entry = current_application_catalogue().resolve(request)
 
     assert type(request) is request_type
-    assert entry.authority is Authority.OPERATOR
+    assert entry.authority is Authority.MAINTAINER
     assert entry.effect_class is EffectClass.SELECTED_BRAIN_MUTATION
     assert entry.retry_class is RetryClass.RECEIPT_REQUIRED
 

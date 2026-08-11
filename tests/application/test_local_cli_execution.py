@@ -37,6 +37,8 @@ from _local_cli.execution import (
     SelectedBrainProcess,
     render_local_result,
 )
+from _local_cli.main import CliError, _trusted_distribution
+from _local_cli.runtime import resolve_selected_brain
 from _application.projection import canonical_result_envelope
 from _application.receipts import CommittedEffect as ApplicationCommittedEffect
 from _application.results import (
@@ -276,6 +278,34 @@ def test_selected_brain_process_rejects_ambiguous_roots(tmp_path):
         SelectedBrainProcess(link, Path(sys.executable).resolve())
     with pytest.raises(ValueError, match="absolute"):
         SelectedBrainProcess(Path("relative"), Path(sys.executable).resolve())
+
+
+def test_local_cli_rejects_symlinked_selected_brain(tmp_path):
+    vault = tmp_path / "Brain"
+    core = vault / ".brain-core"
+    core.mkdir(parents=True)
+    (core / "VERSION").write_text("0.55.0\n", encoding="utf-8")
+    link = tmp_path / "Brain-link"
+    link.symlink_to(vault, target_is_directory=True)
+
+    with pytest.raises(ValueError, match="not an installed local Brain"):
+        resolve_selected_brain(vault=str(link), brain_id=None, workspace=None)
+
+
+def test_local_cli_rejects_symlinked_distribution_identity(tmp_path, monkeypatch):
+    binary = tmp_path / "brain"
+    binary.write_text("#!/bin/sh\n", encoding="utf-8")
+    distribution = tmp_path / "distribution"
+    catalogue = distribution / "cli" / "launcher_catalogue.py"
+    catalogue.parent.mkdir(parents=True)
+    catalogue.write_text("# catalogue\n", encoding="utf-8")
+    linked_distribution = tmp_path / "distribution-link"
+    linked_distribution.symlink_to(distribution, target_is_directory=True)
+    monkeypatch.setenv("BRAIN_CLI_BINARY", str(binary))
+    monkeypatch.setenv("BRAIN_CLI_DISTRIBUTION_ROOT", str(linked_distribution))
+
+    with pytest.raises(CliError, match="distribution is missing or unsafe"):
+        _trusted_distribution()
 
 
 def test_application_process_invoker_rejects_malformed_child_contract(tmp_path):

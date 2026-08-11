@@ -63,7 +63,7 @@ def read_artefact(router, vault_root, name=None):
         if is_archived_path(name):
             return {
                 "error": f"'{name}' is archived. "
-                "Use brain_read(resource=\"archive\", name=\"...\") to read archived files."
+                "Use artefact.read with location='archived'."
             }
         return _check_vault_containment(vault_root, name) or read_file_content(
             vault_root,
@@ -77,7 +77,7 @@ def read_artefact(router, vault_root, name=None):
         if resource:
             return {
                 "error": f"'{name}' is in _Config/, not an artefact folder. "
-                f"Use brain_read(resource=\"{resource}\") instead."
+                f"Use {resource}.read instead."
             }
         return {"error": str(exc)}
     return read_file_content(vault_root, resolved)

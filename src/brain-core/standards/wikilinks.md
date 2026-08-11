@@ -23,7 +23,7 @@ If a link's target lives outside brain-managed space, use plain text or a markdo
 
 ## Check and Fix
 
-`brain_create` and `brain_edit` run a per-file check after every write and warn when the artefact contains broken, resolvable, or ambiguous wikilinks. Warnings appear in the tool response but never block the write:
+`artefact.create` and the granular artefact edit commands run a per-file check after every write and warn when the artefact contains broken, resolvable, or ambiguous wikilinks. Warnings appear in the command result but never block the write:
 
 ```
 ⚠ Broken wikilinks: [[Helix]], [[Skogarmaor]]
@@ -34,51 +34,45 @@ If a link's target lives outside brain-managed space, use plain text or a markdo
 
 A link is **resolvable** when the fixer can map the written stem to a canonical file via naming heuristics (slug → title, temporal prefix, etc.). It's **broken** when no target matches, and **ambiguous** when multiple files share the basename.
 
-### `brain_action(request={"action": "fix-links", "params": {...}})`
+### `links.fix`
 
 Single-file and vault-wide modes share one action:
 
 ```python
-# Vault-wide scan (dry run)
-brain_action(request={"action": "fix-links", "params": {}})
+# Vault-wide inspection, including proposed substitutions
+links.check()
+
+# Single-file inspection
+links.check(path="People/Fidel.md")
 
 # Vault-wide apply
-brain_action(request={"action": "fix-links", "params": {"fix": True}})
-
-# Single file scan
-brain_action(request={
-    "action": "fix-links",
-    "params": {"path": "People/Fidel.md"},
-})
+links.fix()
 
 # Single file, fix every resolvable link
-brain_action(request={
-    "action": "fix-links",
-    "params": {"path": "People/Fidel.md", "fix": True},
-})
+links.fix(path="People/Fidel.md")
 
 # Single file, fix only the named links
-brain_action(request={
-    "action": "fix-links",
-    "params": {
-        "path": "People/Fidel.md",
-        "fix": True,
-        "links": ["Graph memory session management"],
-    },
-})
+links.fix(
+    path="People/Fidel.md",
+    links=["Graph memory session management"],
+)
 ```
 
 `links` is optional — omit to apply every resolvable fix in the file. The param is named `links` (not `stems`) to match the warning output agents see on the preceding create/edit call.
 
 ### `fix_links` convenience flag
 
-`brain_create` and `brain_edit` accept an optional `fix_links` boolean (default `false`). When `true`, every resolvable link in the written artefact is rewritten to its canonical target immediately after the write. Remaining broken or ambiguous links are still reported as warnings.
+`artefact.create` and `document.edit` accept an optional `fix_links` boolean (default `false`) for artefact targets. When `true`, every resolvable link in the written artefact is rewritten to its canonical target immediately after the write. Remaining broken or ambiguous links are still reported as warnings.
 
 ```python
-brain_edit(request={
-    "subject": {"resource": "artefact", "path": "People/Fidel.md", "fix_links": True},
-    "mutation": {"operation": "edit", "content": {"source": "inline", "content": ...}},
-})
+document.edit(
+    target={"resource": "artefact", "reference": "People/Fidel.md"},
+    change={
+        "operation": "replace",
+        "content": {"source": "inline", "content": ...},
+    },
+    fix_links=True,
+)
 ```
 
 Use `fix_links=True` when you're confident the resolvable suggestions are correct — e.g. you wrote the slug form and the fixer is mapping it to the canonical title. Leave it off (the default) when you want to review suggestions before applying.

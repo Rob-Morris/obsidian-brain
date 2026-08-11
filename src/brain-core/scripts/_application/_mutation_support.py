@@ -140,31 +140,22 @@ def no_effect_error(
 
 
 def contributor_mutation_entry(request_type, executor):
-    from .catalogue import ApplicationEntry
+    return mutation_entry(request_type, executor, Authority.CONTRIBUTOR)
 
-    return ApplicationEntry(
-        request_type=request_type,
-        executor=executor,
-        dependency_tier=DependencyTier.PORTABLE,
-        locality=Locality.SELECTED_BRAIN_LOCAL,
-        required_providers=(),
-        optional_providers=(),
-        authority=Authority.CONTRIBUTOR,
-        effect_class=EffectClass.SELECTED_BRAIN_MUTATION,
-        retry_class=RetryClass.RECEIPT_REQUIRED,
-        projections=tuple(
-            ProjectionEligibility(projection, True)
-            for projection in (
-                Projection.MCP,
-                Projection.CLI,
-                Projection.SCRIPT,
-                Projection.PYTHON,
-            )
-        ),
-    )
+
+def maintainer_mutation_entry(request_type, executor):
+    return mutation_entry(request_type, executor, Authority.MAINTAINER)
 
 
 def operator_mutation_entry(request_type, executor):
+    return mutation_entry(request_type, executor, Authority.OPERATOR)
+
+
+def administrator_mutation_entry(request_type, executor):
+    return mutation_entry(request_type, executor, Authority.ADMINISTRATOR)
+
+
+def mutation_entry(request_type, executor, authority: Authority):
     from .catalogue import ApplicationEntry
 
     return ApplicationEntry(
@@ -174,7 +165,7 @@ def operator_mutation_entry(request_type, executor):
         locality=Locality.SELECTED_BRAIN_LOCAL,
         required_providers=(),
         optional_providers=(),
-        authority=Authority.OPERATOR,
+        authority=authority,
         effect_class=EffectClass.SELECTED_BRAIN_MUTATION,
         retry_class=RetryClass.RECEIPT_REQUIRED,
         projections=tuple(

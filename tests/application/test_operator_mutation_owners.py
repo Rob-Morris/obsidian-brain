@@ -1,4 +1,4 @@
-"""Owner behaviour for remaining operator mutation workflows."""
+"""Owner behaviour for broad Contributor mutation workflows."""
 
 from __future__ import annotations
 
@@ -10,8 +10,8 @@ from _application.artefact.reparent_children import (
     ReparentChildrenMode,
 )
 from _application.artefact.migrate_naming import ArtefactMigrateNamingRequest
-from _application.artefact.repair_frontmatter import ArtefactRepairFrontmatterRequest
-from _application.artefact.repair_ownership import ArtefactRepairOwnershipRequest
+from _application.artefact.repair import ArtefactRepairRequest, ArtefactRepairScope
+from _application.links.check import LinksCheckRequest
 from _application.links.fix import LinksFixRequest
 from _application.registry import current_application_catalogue, current_request_resolver
 from _application.results import ErrorCode
@@ -79,7 +79,7 @@ def test_reparent_children_transport_requires_mode_specific_parent():
         )
 
 
-def test_links_fix_preview_and_apply_are_structural(command_vault_clone):
+def test_links_check_proposes_and_links_fix_applies(command_vault_clone):
     root = command_vault_clone.vault_root
     target = root / "Wiki/Brain Inbox.md"
     referrer = root / "Wiki/linker.md"
@@ -91,18 +91,14 @@ def test_links_fix_preview_and_apply_are_structural(command_vault_clone):
     router = compile_router.compile(str(root))
     compile_router.persist_compiled_router(str(root), router)
 
-    preview = application_for(root).invoke(LinksFixRequest(path="Wiki/linker.md"))
+    preview = application_for(root).invoke(LinksCheckRequest(path="Wiki/linker.md"))
 
     assert preview.status == "ok"
-    assert preview.result.mode == "preview"
-    assert preview.result.summary.resolvable == 1
-    assert preview.result.resolvable[0].resolved_to == "Brain Inbox"
-    assert preview.result.substitutions == 0
+    assert len(preview.result.proposals) == 1
+    assert preview.result.proposals[0].resolved_to == "Brain Inbox"
     assert "[[brain-inbox]]" in referrer.read_text()
 
-    applied = application_for(root).invoke(
-        LinksFixRequest(apply=True, path="Wiki/linker.md")
-    )
+    applied = application_for(root).invoke(LinksFixRequest(path="Wiki/linker.md"))
 
     assert applied.status == "ok"
     assert applied.result.mode == "apply"
@@ -113,17 +109,17 @@ def test_links_fix_preview_and_apply_are_structural(command_vault_clone):
 
 def test_links_fix_context_dry_run_overrides_apply(command_vault_clone):
     result = application_for(command_vault_clone.vault_root, dry_run=True).invoke(
-        LinksFixRequest(apply=True)
+        LinksFixRequest()
     )
 
     assert result.status == "ok"
-    assert result.result.mode == "preview"
+    assert result.result.mode == "planned"
     assert result.result.substitutions == 0
     assert result.committed_effects == ()
 
 
 def test_links_filter_is_only_valid_for_scoped_apply():
-    with pytest.raises(ValueError, match="requires apply=true and a path"):
+    with pytest.raises(ValueError, match="requires a path"):
         LinksFixRequest(links=("broken-link",))
 
 
@@ -144,14 +140,14 @@ def test_frontmatter_repair_returns_bounded_steps_and_changes(command_vault_clon
     )
 
     result = application_for(command_vault_clone.vault_root).invoke(
-        ArtefactRepairFrontmatterRequest()
+        ArtefactRepairRequest(ArtefactRepairScope.FRONTMATTER)
     )
 
     assert result.status == "ok"
     assert result.result.scope == "frontmatter"
     assert result.result.status.value == "ok"
     assert result.result.steps[-1].status == "changed"
-    assert result.committed_effects[0].kind == "artefact.repair-frontmatter"
+    assert result.committed_effects[0].kind == "artefact.repair"
     written = path.read_text()
     assert written.count("---\n") == 2
     assert "  - repaired" in written
@@ -167,7 +163,9 @@ def test_ownership_repair_projects_authoritative_parent(command_vault_clone):
     router = compile_router.compile(str(root))
     compile_router.persist_compiled_router(str(root), router)
 
-    result = application_for(root).invoke(ArtefactRepairOwnershipRequest())
+    result = application_for(root).invoke(
+        ArtefactRepairRequest(ArtefactRepairScope.OWNERSHIP)
+    )
 
     assert result.status == "ok"
     assert result.result.scope == "ownership"
@@ -207,20 +205,23 @@ def test_naming_migration_previews_and_applies_canonical_filename(
     assert applied.committed_effects[0].kind == "artefact.migrate-naming"
 
 
-@pytest.mark.parametrize(
-    ("command_id", "request_type"),
-    (
-        ("artefact.migrate-naming", ArtefactMigrateNamingRequest),
-        ("artefact.repair-frontmatter", ArtefactRepairFrontmatterRequest),
-        ("artefact.repair-ownership", ArtefactRepairOwnershipRequest),
-    ),
-)
-def test_zero_input_operator_workflows_reject_hidden_options(command_id, request_type):
+def test_zero_input_naming_migration_rejects_hidden_options():
     resolver = current_request_resolver()
 
-    assert type(resolver.resolve(command_id, {})) is request_type
+    assert type(
+        resolver.resolve("artefact.migrate-naming", {})
+    ) is ArtefactMigrateNamingRequest
     with pytest.raises(ValueError, match="unexpected fields"):
-        resolver.resolve(command_id, {"scope": "all"})
+        resolver.resolve("artefact.migrate-naming", {"scope": "all"})
+
+
+def test_artefact_repair_requires_one_explicit_scope():
+    resolver = current_request_resolver()
+    assert resolver.resolve(
+        "artefact.repair", {"scope": "frontmatter"}
+    ).scope is ArtefactRepairScope.FRONTMATTER
+    with pytest.raises(ValueError, match="frontmatter or ownership"):
+        resolver.resolve("artefact.repair", {"scope": "all"})
 
 
 @pytest.mark.parametrize(
@@ -233,7 +234,7 @@ def test_zero_input_operator_workflows_reject_hidden_options(command_id, request
         ),
         (
             "links.fix",
-            {"apply": False, "path": DESIGN},
+            {"path": DESIGN},
             LinksFixRequest,
         ),
         (
@@ -242,23 +243,23 @@ def test_zero_input_operator_workflows_reject_hidden_options(command_id, request
             ArtefactMigrateNamingRequest,
         ),
         (
-            "artefact.repair-frontmatter",
-            {},
-            ArtefactRepairFrontmatterRequest,
+            "artefact.repair",
+            {"scope": "frontmatter"},
+            ArtefactRepairRequest,
         ),
         (
-            "artefact.repair-ownership",
-            {},
-            ArtefactRepairOwnershipRequest,
+            "artefact.repair",
+            {"scope": "ownership"},
+            ArtefactRepairRequest,
         ),
     ),
 )
-def test_operator_workflow_catalogue_contract(command_id, payload, request_type):
+def test_contributor_workflow_catalogue_contract(command_id, payload, request_type):
     request = current_request_resolver().resolve(command_id, payload)
     entry = current_application_catalogue().resolve(request)
 
     assert type(request) is request_type
-    assert entry.authority is Authority.OPERATOR
+    assert entry.authority is Authority.CONTRIBUTOR
     assert entry.effect_class is EffectClass.SELECTED_BRAIN_MUTATION
     assert entry.retry_class is RetryClass.RECEIPT_REQUIRED
 

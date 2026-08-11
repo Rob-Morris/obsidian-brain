@@ -60,7 +60,7 @@ allowlist `{_Temporal, _Config}`:
 | Folder | Status | Reason |
 |---|---|---|
 | `_Archive/` | **blocked** | Managed via `archive` action only |
-| `_Assets/` | **blocked generally** | Only `brain_upload_attachment` may create files in a validated scope beneath `_Assets/Attachments/` |
+| `_Assets/` | **blocked generally** | Only `attachment.upload` may create files in a validated scope beneath `_Assets/Attachments/` |
 | `_Plugins/` | **blocked** | Plugin data, not agent-written content |
 | `_Workspaces/` | **blocked** | Workspace config, not agent-written content |
 | `_Temporal/` | **allowed** | User-facing temporary/in-progress artefacts |
@@ -92,25 +92,29 @@ See: [DD-031: Path security model](decisions/dd-031-path-security-model.md)
 
 ## Privilege Split
 
-Three built-in profiles define what each agent can do:
+Five cumulative built-in profiles define what each agent can do:
 
 | Profile | Allowed tools |
 |---|---|
-| `reader` | Read tools including `brain_outline`, `brain_check`, `brain_classify`, and `brain_resolve` |
-| `contributor` | All reader tools + staging, attachment upload, create/edit/lifecycle tools, and `brain_ingest` |
-| `operator` | All contributor tools + guarded `brain_define`, `brain_move`, `brain_action` |
+| `reader` | Inspect and discover Brain content and configuration (37 application / 37 MCP commands) |
+| `contributor` | Reader access plus ordinary content creation, editing and lifecycle work (63 / 63 cumulative) |
+| `maintainer` | Contributor access plus definition, plugin and derived-index maintenance (76 / 74 cumulative) |
+| `operator` | Maintainer access plus workspace registration and runtime-operational changes (85 / 77 cumulative) |
+| `administrator` | Operator access plus irreversible artefact deletion (86 / 78 cumulative) |
 
 Profiles are defined in `defaults/config.yaml` under `vault.profiles` and can be
 extended or replaced in `.brain/config.yaml`. The default profile when no key is
-supplied is `operator`, which preserves backward compatibility for single-agent vaults.
+supplied is `operator` for single-operator local vaults.
 
-**Per-tool enforcement:** Profile enforcement happens at the start of every tool call
-via `_enforce_profile()`. If the session profile does not include the tool in its
-`allow` list, the call returns an error immediately. No state is carried between calls
-beyond `_session_profile` (set during `brain_session`).
+**Per-command enforcement:** The application boundary checks the catalogue command's
+authority against trusted profile state before dynamic request resolution, executor
+entry or effects. Unknown commands and profile names fail closed. The 0.55.0 upgrade
+migrates legacy aggregate allow-lists once; runtime aggregate fallback does not exist.
 
-**Design intent:** A read-only summariser agent gets `reader`; a writing agent gets
-`contributor`; an admin agent gets `operator`. The profiles live in the vault zone of
+**Design intent:** A read-only summariser gets `reader`; an agent working normally
+with content gets `contributor`; a Brain custodian gets `maintainer`; an agent managing
+workspace/runtime operations gets `operator`; and only a principal trusted with
+irreversible deletion gets `administrator`. The profiles live in the vault zone of
 config, so they are shared across all machines and cannot be overridden locally.
 
 See: [DD-033: Operator profiles](decisions/dd-033-operator-profiles.md)
@@ -119,14 +123,14 @@ See: [DD-033: Operator profiles](decisions/dd-033-operator-profiles.md)
 
 ## Operator Authentication
 
-`brain_session` is the authentication entry point. When called with an `operator_key`,
+MCP accepts `BRAIN_OPERATOR_KEY` as trusted server configuration and CLI accepts
+`--operator-key` as adapter input. Neither value is a semantic request field.
 `authenticate_operator()` in `config.py`:
 
 1. Hashes the supplied key with SHA-256, formatted as `sha256:<hexdigest>`.
 2. Compares the hash against `vault.operators[]` entries in config.
 3. Returns `(profile_name, operator_id)` on match; raises `ValueError` on mismatch.
-4. If no key is supplied, returns the default profile (typically `operator`) with no
-   operator id — preserving single-agent backward compatibility.
+4. If no key is supplied, returns the configured default profile with no operator id.
 
 **Key generation:** The `generate_key.py` script wraps `hash_key()` for operators who
 need to create and register a new key. It prints the plaintext key (shown once, to be
@@ -258,7 +262,7 @@ not request data, and preflights every selected client through a no-write path
 before applying the first change. Dry-run therefore exercises the real
 ownership and destination checks without creating client directories.
 
-**Exclusive mode:** `safe_write(exclusive=True)` (used by `brain_create`) checks file
+**Exclusive mode:** `safe_write(exclusive=True)` (used by `artefact.create`) checks file
 existence before writing, providing a lightweight create-or-fail guarantee.
 
 **`safe_write_json()`** is a thin wrapper over the same kernel, and
@@ -323,11 +327,10 @@ symlinks all raise during preflight. That keeps a path-valid but unsafe rename
 or ownership move plan from clobbering an existing artefact or rewriting links
 to a path that will not be created.
 
-Direct mutation scripts (`create.py`, `edit.py`, `rename.py`, and
-`fix_links.py`) also refuse stale or unreadable compiled router state before
-writing. This keeps local non-MCP operations aligned with the MCP server's
-mid-session freshness gate: stale derived state is either repaired/recompiled
-or surfaced as an actionable error, not used to drive a mutation.
+Application mutation owners refuse stale or unreadable compiled state before
+writing. MCP, CLI, direct `command.py` and typed Python therefore share the same
+precondition: stale derived state is repaired through an explicit command or
+surfaced as an actionable error, never used to drive a mutation.
 
 See: [DD-036: Safe write pattern](decisions/dd-036-safe-write-pattern.md)
 
@@ -335,29 +338,20 @@ See: [DD-036: Safe write pattern](decisions/dd-036-safe-write-pattern.md)
 
 ## MCP Mutation Serialization
 
-Mutating MCP and Brain CLI calls are serialized behind a vault-scoped
-cross-process lock. This applies to:
-
-- `brain_create`
-- `brain_upload_attachment`
-- `brain_edit`
-- lifecycle mutations and ownership repair
-- `brain_define`
-- `brain_move`
-- `brain_action`
-- `brain_ingest`
+Mutating selected-Brain commands across MCP, CLI, direct script and typed Python
+are serialised behind a vault-scoped cross-process lock. This includes granular
+artefact/content/definition mutations, attachment upload, shaping/rendering,
+link repair and runtime/index mutations.
 
 **Why it exists:** some script paths that look single-file can trigger broader
 vault mutations, such as status-driven moves and vault-wide wikilink rewrites.
 Serializing mutations prevents these flows from interleaving across agents,
 MCP servers, and CLI processes sharing one vault.
 
-The canonical lock lives in the shared script layer, with bounded acquisition
-and owner diagnostics; MCP adds an in-process lock for its own cached state.
-
-**Scope limit:** this protects one MCP server process only. Direct script users
-and multi-process callers still need their own coordination if they perform
-parallel writes against the same vault.
+The canonical lock lives below the application boundary, with bounded
+acquisition and owner diagnostics. It coordinates processes sharing one vault;
+machine-global launcher transactions use their own fixed-state locking and
+checked rollback boundaries.
 
 ---
 

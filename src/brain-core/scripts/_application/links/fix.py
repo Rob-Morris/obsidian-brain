@@ -1,11 +1,11 @@
-"""Typed ``links.fix`` owner with explicit preview/apply intent."""
+"""Typed applying ``links.fix`` owner."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import ClassVar, Mapping
 
-from .._mutation_support import no_effect_error, operator_mutation_entry
+from .._mutation_support import contributor_mutation_entry, no_effect_error
 from ..context import InvocationContext
 from ..receipts import CommittedEffect
 from ..results import ErrorCode, Ok
@@ -59,13 +59,10 @@ class LinksFixRequest:
     COMMAND_VERSION: ClassVar[int] = 1
     RESULT_TYPE: ClassVar[type] = LinksFixPayload
 
-    apply: bool = False
     path: str | None = None
     links: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
-        if not isinstance(self.apply, bool):
-            raise ValueError("links.fix apply must be a boolean")
         if self.path is not None and (
             not isinstance(self.path, str) or not self.path.strip()
         ):
@@ -76,8 +73,8 @@ class LinksFixRequest:
             raise ValueError("links.fix links must contain non-empty strings")
         if len(self.links) != len(set(self.links)):
             raise ValueError("links.fix links must be unique")
-        if self.links and (self.path is None or not self.apply):
-            raise ValueError("links filtering requires apply=true and a path")
+        if self.links and self.path is None:
+            raise ValueError("links filtering requires a path")
 
 
 def execute(context: InvocationContext, request: LinksFixRequest):
@@ -93,7 +90,7 @@ def execute(context: InvocationContext, request: LinksFixRequest):
     router = load_fresh_compiled_router(root)
     if "error" in router:
         return no_effect_error(LinksFixRequest, ErrorCode.CONFLICT, router["error"])
-    apply = request.apply and not context.dry_run
+    apply = not context.dry_run
     try:
         if apply:
             with vault_mutation_lock(root):
@@ -127,21 +124,18 @@ def execute(context: InvocationContext, request: LinksFixRequest):
 
 
 def decode(payload: Mapping[str, object]) -> LinksFixRequest:
-    unexpected = sorted(set(payload) - {"apply", "path", "links"})
+    unexpected = sorted(set(payload) - {"path", "links"})
     if unexpected:
         raise ValueError(f"unexpected fields: {', '.join(unexpected)}")
-    apply = payload.get("apply", False)
     path = payload.get("path")
     links = payload.get("links", ())
-    if not isinstance(apply, bool):
-        raise ValueError("apply must be a boolean")
     if path is not None and not isinstance(path, str):
         raise ValueError("path must be a string")
     if isinstance(links, list):
         links = tuple(links)
     if not isinstance(links, tuple):
         raise ValueError("links must be an array of strings")
-    return LinksFixRequest(apply, path, links)
+    return LinksFixRequest(path, links)
 
 
 def _run(fix_links, root, router, request, *, apply: bool):
@@ -168,7 +162,7 @@ def _run(fix_links, root, router, request, *, apply: bool):
 def _payload(result: dict, path: str | None, applied: bool) -> LinksFixPayload:
     summary = result["summary"]
     return LinksFixPayload(
-        mode="apply" if applied else "preview",
+        mode="apply" if applied else "planned",
         path=path,
         resolvable=tuple(
             ResolvableLink(
@@ -203,7 +197,7 @@ def _payload(result: dict, path: str | None, applied: bool) -> LinksFixPayload:
 
 
 def catalogue_entry():
-    return operator_mutation_entry(LinksFixRequest, execute)
+    return contributor_mutation_entry(LinksFixRequest, execute)
 
 
 def resolver_entry():

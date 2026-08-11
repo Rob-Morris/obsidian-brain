@@ -12,13 +12,12 @@ from .._definition_sync import (
     validate_type_key,
 )
 from ..context import InvocationContext
-from .status import TypeDefinitionState
 
 
 @dataclass(frozen=True, slots=True)
 class TypeSyncRequest:
     COMMAND_ID: ClassVar[str] = "type.sync"
-    COMMAND_VERSION: ClassVar[int] = 1
+    COMMAND_VERSION: ClassVar[int] = 2
     RESULT_TYPE: ClassVar[type] = TypeDefinitionSyncPayload
 
     type_key: str
@@ -34,7 +33,6 @@ def execute(context: InvocationContext, request: TypeSyncRequest):
     return execute_definition_sync(
         context,
         request,
-        expected_state=TypeDefinitionState.IN_SYNC,
         force=request.force,
     )
 

@@ -23,8 +23,7 @@ from .._read_support import command_error
 @dataclass(frozen=True, slots=True)
 class SessionLoadInstruction:
     tool: str
-    resource: str
-    name: str
+    path: str
 
 
 @dataclass(frozen=True, slots=True)

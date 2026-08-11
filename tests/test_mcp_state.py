@@ -218,7 +218,7 @@ def test_windows_session_hook_uses_powershell_quoting(bootstrap_vault, monkeypat
 
     command = build_session_hook_command(vault_root, workspace, python_path=managed_python)
 
-    assert command.startswith("Write-Output 'brain_session called:'; & ")
+    assert command.startswith("Write-Output 'session.start called:'; & ")
     assert "'C:\\tools&x\\.brain\\venvs\\py3.12\\Scripts\\python.exe'" in command
     assert "'C:\\Users\\Rob&x\\Documents\\Brain\\.brain-core\\scripts\\session.py'" in command
     assert "'C:\\Users\\Rob&x\\Documents\\Brain'" in command
@@ -244,7 +244,7 @@ def test_posix_session_hook_prefix_and_quoting(bootstrap_vault, monkeypatch):
 
     command = build_session_hook_command(bootstrap_vault, bootstrap_vault, python_path=managed_python)
 
-    assert command.startswith("echo brain_session called: && ")
+    assert command.startswith("echo session.start called: && ")
     assert "Write-Output" not in command
     assert managed_python in command
 

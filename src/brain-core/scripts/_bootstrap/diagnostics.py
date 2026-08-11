@@ -446,7 +446,7 @@ def collect_mcp_check_findings(vault_root: str | Path) -> list[dict]:
                 "check": "mcp_registration:claude_session_hook_missing",
                 "severity": "warning",
                 "file": CLAUDE_LOCAL_SETTINGS_FILE,
-                "message": "Claude SessionStart hook for brain_session is missing or does not match the canonical command.",
+                "message": "Claude SessionStart hook for session.start is missing or does not match the canonical command.",
             }, vault_root, "mcp"))
         elif hook_state.get("stale_count", 0) or hook_state.get("duplicate_count", 0):
             specifically_reported_clients.add("claude")

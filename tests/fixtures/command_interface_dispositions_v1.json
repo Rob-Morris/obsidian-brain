@@ -55,39 +55,39 @@
       ],
       "mappings": {
         "artefact": {
-          "append": "artefact.append",
-          "delete_section": "artefact.delete-section",
-          "edit": "artefact.edit",
-          "prepend": "artefact.prepend",
-          "replace_text": "artefact.replace-text"
+          "append": "document.edit",
+          "delete_section": "document.edit",
+          "edit": "document.edit",
+          "prepend": "document.edit",
+          "replace_text": "document.edit"
         },
         "memory": {
-          "append": "memory.append",
-          "delete_section": "memory.delete-section",
-          "edit": "memory.edit",
-          "prepend": "memory.prepend",
-          "replace_text": "memory.replace-text"
+          "append": "document.edit",
+          "delete_section": "document.edit",
+          "edit": "document.edit",
+          "prepend": "document.edit",
+          "replace_text": "document.edit"
         },
         "skill": {
-          "append": "skill.append",
-          "delete_section": "skill.delete-section",
-          "edit": "skill.edit",
-          "prepend": "skill.prepend",
-          "replace_text": "skill.replace-text"
+          "append": "document.edit",
+          "delete_section": "document.edit",
+          "edit": "document.edit",
+          "prepend": "document.edit",
+          "replace_text": "document.edit"
         },
         "style": {
-          "append": "style.append",
-          "delete_section": "style.delete-section",
-          "edit": "style.edit",
-          "prepend": "style.prepend",
-          "replace_text": "style.replace-text"
+          "append": "document.edit",
+          "delete_section": "document.edit",
+          "edit": "document.edit",
+          "prepend": "document.edit",
+          "replace_text": "document.edit"
         },
         "template": {
-          "append": "template.append",
-          "delete_section": "template.delete-section",
-          "edit": "template.edit",
-          "prepend": "template.prepend",
-          "replace_text": "template.replace-text"
+          "append": "document.edit",
+          "delete_section": "document.edit",
+          "edit": "document.edit",
+          "prepend": "document.edit",
+          "replace_text": "document.edit"
         }
       }
     },
@@ -185,7 +185,7 @@
       "axis": "resource",
       "disposition": "split",
       "mappings": {
-        "archive": "artefact.list-archived",
+        "archive": "artefact.list",
         "artefact": "artefact.list",
         "memory": "memory.list",
         "plugin": "plugin.list",
@@ -209,7 +209,7 @@
       "axis": "resource",
       "disposition": "split",
       "mappings": {
-        "archive": "artefact.read-archived",
+        "archive": "artefact.read",
         "artefact": "artefact.read",
         "environment": "runtime.read-environment",
         "file": "vault.read-file",
@@ -365,7 +365,7 @@
       "mappings": {
         "archive": {
           "owner": "application",
-          "target": "artefact.read-archived"
+          "target": "artefact.read"
         },
         "artefact": {
           "owner": "application",
@@ -422,11 +422,11 @@
       "mappings": {
         "frontmatter": {
           "owner": "application",
-          "target": "artefact.repair-frontmatter"
+          "target": "artefact.repair"
         },
         "lexical": {
           "owner": "application",
-          "target": "retrieval.repair-lexical"
+          "target": "retrieval.refresh-lexical"
         },
         "mcp": {
           "owner": "launcher",
@@ -434,7 +434,7 @@
         },
         "ownership": {
           "owner": "application",
-          "target": "artefact.repair-ownership"
+          "target": "artefact.repair"
         },
         "registry": {
           "owner": "application",
@@ -442,7 +442,7 @@
         },
         "router": {
           "owner": "application",
-          "target": "runtime.repair-router"
+          "target": "runtime.refresh-router"
         },
         "runtime": {
           "owner": "launcher",
@@ -539,9 +539,9 @@
   "direct_script_dispositions": {
     "application": {
       "build_index.py": "retrieval.rebuild-semantic",
-      "build_lexical_index.py": "retrieval.rebuild-lexical",
+      "build_lexical_index.py": "retrieval.refresh-lexical",
       "check.py": "vault.check",
-      "compile_router.py": "runtime.rebuild-router",
+      "compile_router.py": "runtime.refresh-router",
       "config.py": "vault.read-config",
       "construct_benchmark_fixture.py": "retrieval.construct-benchmark",
       "discard_stage.py": "stage.discard",
@@ -627,7 +627,7 @@
       "sync_definitions.py": {
         "owner": "application",
         "targets": [
-          "type.install",
+          "type.sync",
           "type.status",
           "type.sync"
         ]
@@ -651,7 +651,7 @@
         "targets": [
           "workspace.list",
           "workspace.register",
-          "workspace.resolve",
+          "workspace.read",
           "workspace.unregister"
         ]
       }
@@ -751,13 +751,10 @@
       },
       "commands": [
         "artefact.list",
-        "artefact.list-archived",
         "artefact.outline",
         "artefact.read",
-        "artefact.read-archived",
         "command.describe",
         "command.list",
-        "invocation.read",
         "links.check",
         "memory.list",
         "memory.read",
@@ -780,8 +777,7 @@
         "vault.read-file",
         "vault.read-router",
         "workspace.list",
-        "workspace.read",
-        "workspace.resolve"
+        "workspace.read"
       ]
     },
     "application_read_resource_text": {
@@ -792,7 +788,9 @@
         "locality": "selected_brain_local",
         "providers": {
           "required": [],
-          "optional": []
+          "optional": [
+            "obsidian_cli"
+          ]
         },
         "authority": "reader",
         "effect_class": "none",
@@ -885,44 +883,85 @@
         ]
       },
       "commands": [
-        "artefact.append",
+        "artefact.archive",
+        "artefact.convert",
         "artefact.create",
-        "artefact.delete-section",
-        "artefact.edit",
-        "artefact.prepend",
+        "artefact.migrate-naming",
+        "artefact.rename",
+        "artefact.repair",
         "artefact.reparent",
-        "artefact.replace-text",
+        "artefact.reparent-children",
         "artefact.set-key",
         "artefact.set-naming-field",
         "artefact.set-status",
+        "artefact.unarchive",
         "attachment.upload",
-        "memory.append",
+        "document.edit",
+        "links.fix",
         "memory.create",
-        "memory.delete-section",
-        "memory.edit",
-        "memory.prepend",
-        "memory.replace-text",
         "shaping.start",
-        "skill.append",
         "skill.create",
-        "skill.delete-section",
-        "skill.edit",
-        "skill.prepend",
-        "skill.replace-text",
         "stage.create",
         "stage.discard",
-        "style.append",
         "style.create",
-        "style.delete-section",
-        "style.edit",
-        "style.prepend",
-        "style.replace-text",
-        "template.append",
-        "template.create",
-        "template.delete-section",
-        "template.edit",
-        "template.prepend",
-        "template.replace-text"
+        "template.create"
+      ]
+    },
+    "application_contributor_read": {
+      "contract": {
+        "owner": "application",
+        "canonical_result_owner": "application_command",
+        "dependency_tier": "portable",
+        "locality": "selected_brain_local",
+        "providers": {
+          "required": [],
+          "optional": []
+        },
+        "authority": "contributor",
+        "effect_class": "none",
+        "retry_class": "safe",
+        "eligible_projections": [
+          "mcp",
+          "cli",
+          "script",
+          "python"
+        ]
+      },
+      "commands": [
+        "invocation.read"
+      ]
+    },
+    "application_maintainer_mutation": {
+      "contract": {
+        "owner": "application",
+        "canonical_result_owner": "application_command",
+        "dependency_tier": "portable",
+        "locality": "selected_brain_local",
+        "providers": {
+          "required": [],
+          "optional": []
+        },
+        "authority": "maintainer",
+        "effect_class": "selected_brain_mutation",
+        "retry_class": "receipt_required",
+        "eligible_projections": [
+          "mcp",
+          "cli",
+          "script",
+          "python"
+        ]
+      },
+      "commands": [
+        "plugin.create",
+        "plugin.replace",
+        "retrieval.refresh-lexical",
+        "runtime.refresh-router",
+        "trigger.create",
+        "trigger.delete",
+        "trigger.replace",
+        "type.create",
+        "type.replace",
+        "type.sync"
       ]
     },
     "application_operator_mutation": {
@@ -946,30 +985,31 @@
         ]
       },
       "commands": [
-        "artefact.archive",
-        "artefact.convert",
-        "artefact.delete",
-        "artefact.migrate-naming",
-        "artefact.rename",
-        "artefact.repair-frontmatter",
-        "artefact.repair-ownership",
-        "artefact.reparent-children",
-        "artefact.unarchive",
-        "links.fix",
-        "plugin.create",
-        "plugin.replace",
-        "retrieval.rebuild-lexical",
-        "retrieval.repair-lexical",
-        "runtime.rebuild-router",
-        "runtime.repair-router",
-        "trigger.create",
-        "trigger.delete",
-        "trigger.replace",
-        "type.create",
-        "type.install",
-        "type.replace",
-        "type.sync",
         "workspace.repair-registry"
+      ]
+    },
+    "application_administrator_mutation": {
+      "contract": {
+        "owner": "application",
+        "canonical_result_owner": "application_command",
+        "dependency_tier": "portable",
+        "locality": "selected_brain_local",
+        "providers": {
+          "required": [],
+          "optional": []
+        },
+        "authority": "administrator",
+        "effect_class": "selected_brain_mutation",
+        "retry_class": "receipt_required",
+        "eligible_projections": [
+          "mcp",
+          "cli",
+          "script",
+          "python"
+        ]
+      },
+      "commands": [
+        "artefact.delete"
       ]
     },
     "application_caller_local_mutation": {
@@ -984,7 +1024,7 @@
           ],
           "optional": []
         },
-        "authority": "contributor",
+        "authority": "operator",
         "effect_class": "caller_local_mutation",
         "retry_class": "receipt_required",
         "eligible_projections": [
@@ -1055,7 +1095,7 @@
         "shaping.render-printable"
       ]
     },
-    "application_semantic_runtime_mutation": {
+    "application_operator_semantic_runtime_mutation": {
       "contract": {
         "owner": "application",
         "canonical_result_owner": "application_command",
@@ -1079,8 +1119,33 @@
       },
       "commands": [
         "retrieval.enable",
-        "retrieval.rebuild-semantic",
         "retrieval.repair-semantic"
+      ]
+    },
+    "application_maintainer_semantic_runtime_mutation": {
+      "contract": {
+        "owner": "application",
+        "canonical_result_owner": "application_command",
+        "dependency_tier": "managed",
+        "locality": "selected_brain_local",
+        "providers": {
+          "required": [
+            "semantic_runtime"
+          ],
+          "optional": []
+        },
+        "authority": "maintainer",
+        "effect_class": "selected_brain_mutation",
+        "retry_class": "receipt_required",
+        "eligible_projections": [
+          "mcp",
+          "cli",
+          "script",
+          "python"
+        ]
+      },
+      "commands": [
+        "retrieval.rebuild-semantic"
       ]
     },
     "application_benchmark_mutation": {
@@ -1093,7 +1158,7 @@
           "required": [],
           "optional": []
         },
-        "authority": "operator",
+        "authority": "maintainer",
         "effect_class": "selected_brain_mutation",
         "retry_class": "receipt_required",
         "eligible_projections": [
@@ -1116,7 +1181,7 @@
           "required": [],
           "optional": []
         },
-        "authority": "operator",
+        "authority": "maintainer",
         "effect_class": "none",
         "retry_class": "safe",
         "eligible_projections": [

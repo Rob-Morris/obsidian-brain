@@ -122,6 +122,8 @@ def test_command_list_filters_and_paginates_the_bound_catalogue(tmp_path):
     )
 
     assert first.result.command_ids == ("command.describe", "command.list")
+    assert first.result.catalogue_schema == "brain.command-catalogue/1"
+    assert first.result.catalogue_fingerprint == build_application_catalogue().fingerprint
     assert first.result.next_cursor == CatalogueCursor("snapshot", "command.list")
     assert second.result.command_ids == ("invocation.read",)
     assert second.result.next_cursor is None
@@ -217,11 +219,13 @@ def test_command_describe_returns_installed_identity_or_not_found(tmp_path):
     missing = application.invoke(CommandDescribeRequest("artefact.read"))
 
     assert found.result.command_id == "invocation.read"
+    assert found.result.catalogue_schema == "brain.command-catalogue/1"
+    assert found.result.catalogue_fingerprint == build_application_catalogue().fingerprint
     assert found.result.command_version == 2
     assert found.result.owner.value == "application"
     assert found.result.request_schema_json
     assert found.result.result_schema_json
-    assert found.result.examples[0].mcp_tool == "brain_invocation_read"
+    assert found.result.examples[0].mcp_tool == "invocation.read"
     assert missing.error.code is ErrorCode.NOT_FOUND
 
 

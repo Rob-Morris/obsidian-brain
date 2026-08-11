@@ -29,7 +29,7 @@ def validate_staged_body_handle(handle):
     match = _HANDLE_RE.fullmatch(handle or "")
     if not match:
         raise ValueError(
-            "Invalid body_handle. Create one with brain_stage and pass the returned handle."
+            "Invalid stage handle. Create one with stage.create and pass the returned handle."
         )
     return handle
 

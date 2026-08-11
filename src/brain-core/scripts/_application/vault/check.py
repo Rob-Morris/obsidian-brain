@@ -22,12 +22,12 @@ class CheckSeverity(str, Enum):
 
 
 _REPAIR_COMMANDS = {
-    "frontmatter": "artefact.repair-frontmatter",
-    "lexical": "retrieval.repair-lexical",
+    "frontmatter": "artefact.repair",
+    "lexical": "retrieval.refresh-lexical",
     "mcp": "brain.repair-mcp",
-    "ownership": "artefact.repair-ownership",
+    "ownership": "artefact.repair",
     "registry": "workspace.repair-registry",
-    "router": "runtime.repair-router",
+    "router": "runtime.refresh-router",
     "runtime": "runtime.repair",
     "semantic": "retrieval.repair-semantic",
 }

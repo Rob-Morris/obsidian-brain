@@ -4,12 +4,14 @@ from __future__ import annotations
 
 from dataclasses import dataclass, replace
 from enum import Enum
+import json
 from pathlib import Path
 import re
 import shutil
 from typing import ClassVar
 
 from .context import LauncherContext
+from .cutover import CutoverPreflight, CutoverPreflightError, preflight as cutover_preflight
 from .contracts import (
     CapabilityUnavailableDetails,
     CommandError,
@@ -118,6 +120,9 @@ class BrainUpgradePayload:
     files_modified: int
     files_removed: int
     migrations: tuple[str, ...]
+    preflight: CutoverPreflight
+    cli_distribution_fingerprint: str | None
+    post_commit_reconciliation: tuple[LifecycleStep, ...]
 
     def __post_init__(self) -> None:
         _absolute_result_path(self.vault_root, "upgrade vault_root")
@@ -129,6 +134,14 @@ class BrainUpgradePayload:
             raise ValueError("upgrade file counts cannot be negative")
         if any(not item.strip() for item in self.migrations):
             raise ValueError("upgrade migration identifiers must be non-empty")
+        if not isinstance(self.preflight, CutoverPreflight):
+            raise ValueError("upgrade result requires a checked cutover preflight")
+        if (
+            self.cli_distribution_fingerprint is not None
+            and not self.cli_distribution_fingerprint.startswith("sha256:")
+        ):
+            raise ValueError("upgrade CLI distribution fingerprint is invalid")
+        _steps(self.post_commit_reconciliation)
 
 
 @dataclass(frozen=True, slots=True)
@@ -161,12 +174,14 @@ class BrainUninstallRequest:
 @dataclass(frozen=True, slots=True)
 class BrainUpgradeRequest:
     COMMAND_ID: ClassVar[str] = "brain.upgrade"
-    COMMAND_VERSION: ClassVar[int] = 1
+    COMMAND_VERSION: ClassVar[int] = 2
     RESULT_TYPE: ClassVar[type] = BrainUpgradePayload
 
     force: bool = False
     definition_sync: UpgradePolicy = UpgradePolicy.AUTO
     dependency_sync: UpgradePolicy = UpgradePolicy.AUTO
+    acknowledge_global_cli_cutover: bool = False
+    excluded_stale_brain_ids: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         if not isinstance(self.force, bool):
@@ -175,6 +190,14 @@ class BrainUpgradeRequest:
             raise ValueError("definition sync policy must be closed and typed")
         if not isinstance(self.dependency_sync, UpgradePolicy):
             raise ValueError("dependency sync policy must be closed and typed")
+        if not isinstance(self.acknowledge_global_cli_cutover, bool):
+            raise ValueError("global CLI cutover acknowledgement must be boolean")
+        if self.excluded_stale_brain_ids != tuple(
+            sorted(set(self.excluded_stale_brain_ids))
+        ):
+            raise ValueError("stale Brain exclusions must be sorted and unique")
+        for brain_id in self.excluded_stale_brain_ids:
+            _brain_id(brain_id)
 
 
 def _absolute_request_path(value: object, field: str) -> None:
@@ -538,15 +561,86 @@ def _load_upgrade(core: Path):
     return module
 
 
-def _cli_plan(context: LauncherContext, source_root: Path):
-    from _bootstrap.file_transaction import FilePlan
+def _source_interface_contract(source_root: Path, core: Path) -> tuple[str, int, int]:
+    version = _source_version(core)
+    catalogue = json.loads(
+        (core / "command-catalogue.json").read_text(encoding="utf-8")
+    )
+    epoch = catalogue.get("interface_epoch")
+    if not isinstance(epoch, int) or isinstance(epoch, bool) or epoch < 1:
+        raise ValueError("source command catalogue has an invalid interface epoch")
+    protocol_text = (core / "brain_mcp" / "_interface_protocol.py").read_text(
+        encoding="utf-8"
+    )
+    match = re.search(r"^PROXY_PROTOCOL = ([0-9]+)$", protocol_text, re.MULTILINE)
+    if match is None:
+        raise ValueError("source proxy protocol declaration is invalid")
+    return version, epoch, int(match.group(1))
 
-    plan = FilePlan()
-    source = source_root / "cli" / "brain"
-    target = context.cli_binary
-    if target.is_file():
-        plan.write_text(target, source.read_text(encoding="utf-8"))
-    return plan
+
+def _checked_preflight(
+    context: LauncherContext,
+    request: BrainUpgradeRequest,
+    source_root: Path,
+    core: Path,
+) -> CutoverPreflight:
+    version, epoch, protocol = _source_interface_contract(source_root, core)
+    assert context.current_vault is not None
+    return cutover_preflight(
+        selected_vault=context.current_vault,
+        source_brain_core_version=version,
+        old_cli_version=context.cli_version,
+        new_cli_version="2.0.0",
+        interface_epoch=epoch,
+        proxy_protocol=protocol,
+        acknowledge_global_cli_cutover=request.acknowledge_global_cli_cutover,
+        excluded_stale_brain_ids=request.excluded_stale_brain_ids,
+    )
+
+
+def _reconciliation_steps(result: dict) -> tuple[LifecycleStep, ...]:
+    steps = []
+    if isinstance(result.get("sync_error"), str):
+        steps.append(
+            LifecycleStep(
+                "definition_sync",
+                LifecycleStatus.CHANGED,
+                result["sync_error"],
+            )
+        )
+    for name, key in (
+        ("managed_runtime", "central_runtime"),
+        ("machine_resolution_runtime", "machine_resolution_runtime"),
+        ("retrieval_assets", "retrieval_asset_repair"),
+    ):
+        value = result.get(key)
+        if value is None:
+            continue
+        outcome = value.get("outcome") if isinstance(value, dict) else None
+        if outcome in {"error", "partial", "unknown"}:
+            status = LifecycleStatus.CHANGED
+            message = value.get("message") or f"{name} reconciliation requires recovery."
+        else:
+            status = LifecycleStatus.CHANGED if outcome in {"updated", "changed", "ok"} else LifecycleStatus.NOOP
+            message = (
+                value.get("message")
+                if isinstance(value, dict) and isinstance(value.get("message"), str)
+                else f"{name} reconciliation completed."
+            )
+        steps.append(LifecycleStep(name, status, message))
+    return tuple(steps)
+
+
+def _reconciliation_failed(result: dict) -> bool:
+    return isinstance(result.get("sync_error"), str) or any(
+        isinstance(result.get(key), dict)
+        and result[key].get("outcome") in {"error", "partial", "unknown"}
+        for key in (
+            "central_runtime",
+            "machine_resolution_runtime",
+            "retrieval_asset_repair",
+        )
+    )
 
 
 def execute_upgrade(context: LauncherContext, request: BrainUpgradeRequest):
@@ -563,10 +657,28 @@ def execute_upgrade(context: LauncherContext, request: BrainUpgradeRequest):
         )
     source_root, core = source
     try:
-        cli_plan = _cli_plan(context, source_root)
+        preflight = _checked_preflight(context, request, source_root, core)
         upgrade_script = _load_upgrade(core)
-    except (OSError, RuntimeError, ValueError) as exc:
+    except (CutoverPreflightError, OSError, RuntimeError, ValueError) as exc:
         return no_effect_error(type(request), ErrorCode.CONFLICT, str(exc))
+
+    installed_distribution = None
+
+    def commit_cutover(_upgrade_result):
+        nonlocal installed_distribution
+        from _distribution import install_distribution
+
+        installed_distribution = install_distribution(
+            source_root,
+            context.cli_binary,
+            cli_version="2.0.0",
+            expected_brain_core_version=preflight.source_brain_core_version,
+        )
+        return {
+            "cli_binary": str(installed_distribution.cli_binary),
+            "distribution_root": str(installed_distribution.distribution_root),
+            "manifest_fingerprint": installed_distribution.manifest_fingerprint,
+        }
 
     result = upgrade_script.upgrade(
         str(vault),
@@ -575,12 +687,33 @@ def execute_upgrade(context: LauncherContext, request: BrainUpgradeRequest):
         dry_run=context.dry_run,
         sync=_policy(request.definition_sync),
         sync_deps=_policy(request.dependency_sync),
+        commit_callback=None if context.dry_run else commit_cutover,
     )
     status = result.get("status")
     if status == "error":
-        raise RuntimeError(result.get("message") or "Brain upgrade outcome could not be proven.")
+        commit = result.get("cutover_commit")
+        if result.get("rollback_verified") is False or (
+            isinstance(commit, dict)
+            and commit.get("external_rollback_verified") is False
+        ):
+            raise RuntimeError(
+                result.get("message") or "Brain/CLI cutover rollback could not be proven."
+            )
+        return no_effect_error(
+            type(request),
+            ErrorCode.CONFLICT,
+            result.get("message") or "Brain upgrade was rolled back.",
+        )
     if status not in {"ok", "skipped"}:
         raise RuntimeError(f"Brain upgrader returned an unknown status: {status!r}")
+    if result.get("new_version") != preflight.source_brain_core_version:
+        raise RuntimeError(
+            "Brain upgrader returned a version that does not match cutover preflight"
+        )
+    if not context.dry_run and status == "ok" and installed_distribution is None:
+        raise RuntimeError(
+            "Brain upgrader did not execute the coordinated CLI commit callback"
+        )
     lifecycle_status = (
         LifecycleStatus.PLANNED
         if context.dry_run and status == "ok"
@@ -597,39 +730,36 @@ def execute_upgrade(context: LauncherContext, request: BrainUpgradeRequest):
         len(result.get("files_modified", [])),
         len(result.get("files_removed", [])),
         _migration_ids(result),
+        preflight,
+        (
+            installed_distribution.manifest_fingerprint
+            if installed_distribution is not None
+            else None
+        ),
+        _reconciliation_steps(result),
     )
     if context.dry_run or status == "skipped":
         effects = ()
     else:
-        effects = (CommittedEffect(request.COMMAND_ID, f"upgrade:{vault}"),)
-        from _bootstrap.file_transaction import FileTransactionError, apply_file_changes
-
-        cli_changes = cli_plan.changes()
-        try:
-            apply_file_changes(cli_changes)
-        except FileTransactionError as exc:
-            partial_effects = list(effects)
-            partial_effects.extend(
-                CommittedEffect(
-                    request.COMMAND_ID,
-                    f"{'directory' if path.is_dir() else 'file'}:{path}",
-                )
-                for path in exc.surviving_paths
-            )
-            message = str(exc)
-            return Partial(
+        effects = (
+            CommittedEffect(request.COMMAND_ID, f"upgrade:{vault}"),
+            CommittedEffect(request.COMMAND_ID, f"file:{context.cli_binary}"),
+            CommittedEffect(
                 request.COMMAND_ID,
-                request.COMMAND_VERSION,
-                CommandError(
-                    ErrorCode.CONFLICT,
-                    message,
-                    RequestErrorDetails(None, message),
-                ),
-                tuple(partial_effects),
-            )
-        effects += tuple(
-            CommittedEffect(request.COMMAND_ID, f"file:{change.path}")
-            for change in cli_changes
+                f"directory:{installed_distribution.distribution_root}",
+            ),
+        )
+    if _reconciliation_failed(result):
+        message = "The Brain/CLI cutover committed, but post-commit reconciliation requires recovery."
+        return Partial(
+            request.COMMAND_ID,
+            request.COMMAND_VERSION,
+            CommandError(
+                ErrorCode.CONFLICT,
+                message,
+                RequestErrorDetails(None, message),
+            ),
+            effects,
         )
     return Ok(request.COMMAND_ID, request.COMMAND_VERSION, payload, effects)
 

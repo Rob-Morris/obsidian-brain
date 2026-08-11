@@ -63,7 +63,7 @@ from ._interface_protocol import (
 # Constants
 # ---------------------------------------------------------------------------
 
-PROXY_VERSION = "0.6.0"
+PROXY_VERSION = "0.7.0"
 
 _LOG_REL = os.path.join(".brain", "local", "mcp-proxy.log")
 _LOG_MAX_BYTES = 2 * 1024 * 1024  # 2 MB
@@ -1141,7 +1141,7 @@ class Proxy:
                 _outcome_unknown_response(record, diagnostic=header_error)
             )
             return
-        mapping = header.tool("brain_invocation_read")
+        mapping = header.tool("invocation.read")
         if mapping is None or mapping.command_id != "invocation.read":
             self._send_to_client(
                 _outcome_unknown_response(
@@ -1156,7 +1156,7 @@ class Proxy:
             "id": query_id,
             "method": "tools/call",
             "params": {
-                "name": "brain_invocation_read",
+                "name": "invocation.read",
                 "arguments": {"invocation_id": record.invocation_id},
             },
         }
@@ -1732,10 +1732,13 @@ class Proxy:
             return request, None
         params = request.get("params")
         tool_name = params.get("name") if isinstance(params, dict) else None
-        # Pre-cutover aggregate calls remain development scaffolding. Phase 6
-        # removes them and makes absence from this mapping fail closed.
-        if not isinstance(tool_name, str) or header.tool(tool_name) is None:
-            return request, None
+        if not isinstance(tool_name, str):
+            raise ValueError("tools/call requires a string tool name")
+        if header.tool(tool_name) is None:
+            raise ValueError(
+                "tool is not advertised by the active Brain command interface; "
+                "re-discover tools and use the canonical granular command"
+            )
         invocation_id = f"mcp-{uuid.uuid4()}"
         record, forwarded = accept_call(
             request,

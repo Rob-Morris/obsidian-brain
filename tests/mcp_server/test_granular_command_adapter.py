@@ -34,7 +34,7 @@ class _Clock:
 def _vault(tmp_path):
     root = (tmp_path / "Brain").resolve()
     (root / ".brain-core").mkdir(parents=True, exist_ok=True)
-    (root / ".brain-core" / "VERSION").write_text("0.54.59\n")
+    (root / ".brain-core" / "VERSION").write_text("0.55.0\n")
     return root
 
 
@@ -128,16 +128,16 @@ def test_every_mcp_eligible_command_registers_one_flat_canonical_schema(tmp_path
 
 
 def test_real_fastmcp_call_returns_structural_content_and_error_state(tmp_path):
-    allowed = ("brain_command_list",)
+    allowed = ("command.list",)
     mcp, _catalogue, _resolver, _names = _registered(tmp_path, allowed)
 
     ok = asyncio.run(
         mcp.call_tool(
-            "brain_command_list",
+            "command.list",
             {"dependency_tier": "managed", "page_size": 1},
         )
     )
-    denied = asyncio.run(mcp.call_tool("brain_artefact_list", {}))
+    denied = asyncio.run(mcp.call_tool("artefact.list", {}))
 
     assert ok.structuredContent["command"] == "command.list"
     assert ok.structuredContent["status"] == "ok"
@@ -160,10 +160,10 @@ def test_real_fastmcp_maps_envelopes_wrong_types_and_unknown_fields(
 ):
     mcp, _catalogue, _resolver, _names = _registered(
         tmp_path,
-        ("brain_command_list",),
+        ("command.list",),
     )
 
-    result = asyncio.run(mcp.call_tool("brain_command_list", payload))
+    result = asyncio.run(mcp.call_tool("command.list", payload))
 
     assert result.structuredContent["command"] == "command.list"
     assert result.structuredContent["error"]["code"] == "invalid_request"

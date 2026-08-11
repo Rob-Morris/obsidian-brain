@@ -89,8 +89,10 @@ def test_granular_targets_are_unique_canonical_command_ids() -> None:
         for aggregate in dispositions["aggregate_mappings"].values()
         for target in _flatten_targets(aggregate["mappings"])
     ]
-    assert len(targets) == len(set(targets))
     assert all(COMMAND_ID.fullmatch(target) for target in targets)
+    duplicates = {target for target in targets if targets.count(target) > 1}
+    assert duplicates == {"document.edit"}
+    assert targets.count("document.edit") == 25
 
 
 def test_body_source_variants_have_explicit_behaviour() -> None:

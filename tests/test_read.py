@@ -124,7 +124,7 @@ class TestReadResource:
 
     def test_type_requires_name(self, vault):
         _, router = vault
-        with pytest.raises(ValueError, match="requires name"):
+        with pytest.raises(ValueError, match="requires a reference"):
             read.read_resource(router, "", "type")
 
     def test_type_by_key(self, vault):
@@ -145,7 +145,7 @@ class TestReadResource:
 
     def test_trigger_requires_name(self, vault):
         _, router = vault
-        with pytest.raises(ValueError, match="requires name"):
+        with pytest.raises(ValueError, match="requires a reference"):
             read.read_resource(router, "", "trigger")
 
     def test_trigger_reads_by_exact_condition(self, vault):
@@ -162,7 +162,7 @@ class TestReadResource:
 
     def test_style_requires_name(self, vault):
         _, router = vault
-        with pytest.raises(ValueError, match="requires name"):
+        with pytest.raises(ValueError, match="requires a reference"):
             read.read_resource(router, "", "style")
 
     def test_style_content(self, vault):
@@ -189,7 +189,7 @@ class TestReadResource:
 
     def test_skill_requires_name(self, vault):
         _, router = vault
-        with pytest.raises(ValueError, match="requires name"):
+        with pytest.raises(ValueError, match="requires a reference"):
             read.read_resource(router, "", "skill")
 
     def test_skill_content(self, vault):
@@ -199,7 +199,7 @@ class TestReadResource:
 
     def test_plugin_requires_name(self, vault):
         _, router = vault
-        with pytest.raises(ValueError, match="requires name"):
+        with pytest.raises(ValueError, match="requires a reference"):
             read.read_resource(router, "", "plugin")
 
     def test_plugin_content(self, vault):
@@ -228,7 +228,7 @@ class TestReadResource:
 
     def test_memory_requires_name(self, vault):
         _, router = vault
-        with pytest.raises(ValueError, match="requires name"):
+        with pytest.raises(ValueError, match="requires a reference"):
             read.read_resource(router, "", "memory")
 
     def test_memory_by_trigger(self, vault):
@@ -387,7 +387,7 @@ class TestReadArtefact:
         # basename "test-memory" resolves to _Config/Memories/ — should suggest memory resource
         result = read.read_resource(router, str(tmp_path), "artefact", name="test-memory")
         assert "error" in result
-        assert 'resource="memory"' in result["error"]
+        assert "memory.read" in result["error"]
 
 
 # ---------------------------------------------------------------------------

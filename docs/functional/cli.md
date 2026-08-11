@@ -1,232 +1,90 @@
-# `brain` CLI
+# Brain CLI 2
 
-A thin, optional dispatch CLI for Brain. Resolves the active vault, finds its central managed runtime ([DD-048](../architecture/decisions/dd-048-central-managed-runtime.md)), and exec's into a `.brain-core/scripts/<name>.py` script. The dispatch contract is [DD-049](../architecture/decisions/dd-049-brain-cli-thin-dispatch.md).
+The `brain` CLI is the machine-local projection of the Brain command architecture. CLI 2.0.0 replaces the former flat dispatch grammar with one predictable noun/verb grammar and one structural result contract.
 
-**Scripts in `.brain-core/scripts/` remain authoritative.** The CLI adds no new command semantics — it resolves the active vault/runtime and dispatches to the same top-level script entrypoints users can invoke directly. Users who never install the CLI lose nothing; everything still works by invoking scripts directly from a compatible Python 3.12+ launcher. See [Script Reference](scripts.md) for the canonical bootstrap / portable / managed command-family model; this page documents the optional `brain ...` shorthand only.
+## Command grammar
 
-The command-interface migration now also carries an internal stdlib-only
-`cli/launcher_catalogue.py` with the 23 pre-Brain or self-replacing operations
-owned by the machine-global launcher. It records owner, version, entry point,
-authority, effects, retry policy and explicit projection exclusions under
-`brain.launcher-catalogue/1`. It does not change the v1 public grammar below;
-the catalogue becomes active only in the coordinated CLI 2.0 cutover.
-
-v0.54.35 adds the adjacent stdlib-only `cli/_launcher/` invocation boundary
-and typed owners for registry default/list/resolve, CLI version and managed
-runtime path/runnable resolution. These owners share the structural command
-result vocabulary without importing selected-Brain `_application`, and they
-remain internal until the same coordinated cutover.
-
-v0.54.36 adds typed mutation owners for machine Brain registration, backfill,
-unregistration, default selection/clearing and stale-entry pruning. They retain
-the existing registry file semantics but expose exact no-op, dry-run, committed
-and partial outcomes through command-specific launcher results and receipts.
-Dry-run uses the same locked feasibility checks without writing. Registry-row and
-default-pointer effects remain distinct, including when the first commits and
-the second fails. The public v1 shell grammar is still unchanged.
-
-v0.54.37 completes the effect-free launcher group with typed `brain.doctor` and
-`operator.generate-key` owners. Canonical Doctor returns bounded CLI, derived
-registry, runtime and optional vault findings; it detects `brains.json` drift
-without repairing it and supplies canonical repair command IDs rather than
-embedded shell strings. Operator-key output is a bounded tuple of typed
-key/SHA-256 candidates. The existing v1 Doctor adapter keeps its current
-behaviour until the coordinated cutover.
-
-v0.54.38 adds typed `agent-skill.configure` ownership. Client and
-configure/remove intent are closed request values; the target home directory is
-trusted launcher context. A no-write pass validates every selected client before
-application, dry-run returns that real plan, and committed adapter/backup effects
-are receipted independently. The existing v1 configuration adapter stays public
-until coordinated cutover.
-
-v0.54.39 adds typed `machine.prune-runtimes` ownership. Canonical pruning uses
-trusted current-Brain context and read-only registry comparison, requires a
-successful live-process scan, returns a real no-write plan and receipts every
-removed runtime directory. Recursive-deletion failure remains non-retryable and
-outcome-unknown. The existing v1 machine adapter stays public until coordinated
-cutover.
-
-v0.54.40 adds typed `machine.migrate-legacy` ownership. Its request accepts no
-target, one canonical Brain ID or one absolute Brain path; its bounded result
-reports each selected Brain and repair step. Canonical migration keeps machine
-discovery read-only, returns a real no-write plan, receipts known changed or
-partial repair scopes and treats child timeouts, invalid output and uncertain
-recursive deletion as non-retryable unknown outcomes. The existing v1 machine
-adapter stays public until coordinated cutover.
-
-v0.54.41 adds typed `runtime.repair` ownership. The target Brain comes from
-trusted launcher selection, and the bootstrap-tier owner directly creates or
-synchronises its shared managed runtime without a hidden process hand-off.
-Dry-run returns the real plan; successful mutation receipts one runtime scope;
-post-mutation verification failure is known partial; and interrupted venv or
-pip mutation is non-retryable and outcome-unknown. An existing unusable runtime
-fails closed rather than being deleted without live-use proof. The existing v1
-repair adapter stays public until coordinated cutover.
-
-v0.54.42 adds typed `mcp.configure` and `mcp.repair` launcher ownership. Client,
-scope and configure/remove intent are closed request values; selected Brain,
-caller directory and user home are trusted launcher context. The owners require
-an already healthy managed runtime and never bind a workspace, edit ignore
-rules, invoke a client CLI or provision/handoff a runtime as a side effect.
-Their direct fixed-file transaction validates all inputs before writing,
-restores all files on failure and receipts any surviving rollback effects.
-Recorded removal remains available without a healthy runtime or binding and
-only removes exact Brain-owned state. Existing public v1 adapters stay in place
-until coordinated cutover.
-
-v0.54.43 adds typed `brain.install`, `brain.uninstall` and `brain.upgrade`
-launcher ownership. Install requires an explicit Brain ID, obtains source Core
-and template state from trusted launcher distribution context, and offers a
-genuine no-write registry/destination plan. Uninstall acts only on the selected
-Brain, preflights fixed system roots, performs exact recorded MCP cleanup and
-preserves notes, shared runtimes, user-scope configuration and the global CLI.
-Upgrade loads the trusted distribution upgrader, accepts closed sync policies
-and atomically refreshes the running CLI path without losing its executable
-mode. Recursive uninstall uncertainty and unverified upgrade rollback remain
-non-retryable unknown outcomes. Public v1 CLI behaviour is unchanged until the
-coordinated cutover.
-
-v0.54.52 adds launcher-owned `list` and `describe` discovery over the static
-manifest and sealed launcher request/result types. The outer stdlib-only
-`cli/_local_cli/` package may compose that view with selected-Brain discovery,
-but it preserves each owner schema, fingerprint, cursor and payload rather than
-creating a third catalogue. Launcher/application command collisions fail
-closed. Public v1 CLI behaviour remains unchanged until coordinated cutover.
-
-v0.54.54 makes that staged composition executable without merging ownership.
-The launcher dynamic adapter resolves launcher request types and emits the
-shared structural result and exit vocabulary; the application process adapter
-executes the selected Brain's own `command.py` and validates its result schema,
-identity and exit category. The outer router selects only from owner-labelled
-composed entries and never imports selected-Brain `_application`. Public v1 CLI
-behaviour remains unchanged until coordinated cutover.
-
-v0.54.55 makes structural result and stream parity explicit. Known semantic
-request failures now use the same `brain.command-result/1` error through typed
-Python, dynamic, direct-script, FastMCP and composed local CLI paths. The outer
-CLI alone renders canonical JSON to stdout or concise human errors to stderr;
-selected-Brain child stderr and result/exit disagreement fail closed. Public v1
-CLI behaviour remains unchanged until coordinated cutover.
-
-v0.54.57 stages non-exiting `brain command list/describe` grammar. `--owner`
-accepts `application`, `launcher` or `all` and defaults to the composed local
-view. Shared filter spellings project separately into selected-Brain request
-data and launcher manifest filters; refresh remains selected-Brain-owned.
-Native grammar failures use exit category 2. Public v1 dispatch remains
-unchanged until the CLI 2.0 cutover.
-
-## Install
-
-The CLI is installed automatically by `install.sh` to `~/.local/bin/brain` (user scope) or `/usr/local/bin/brain` (with `--system`). `upgrade.py` refreshes any installed CLI binary on each upgrade; it does not install a new CLI where none existed.
-
-To skip the CLI: `bash install.sh --skip-cli <path>`.
-
-To install only the CLI to an additional vault on a machine that already has it:
-
-```bash
-brain install <path>
+```text
+brain [selection] <noun> <verb> [--request-json JSON|-] [--json] [--dry-run]
+brain command list [discovery filters] [--json]
+brain command describe <command-id> [--owner application|launcher|all] [--json]
+brain --version
+brain --help
 ```
 
-`brain install` downloads the `install.sh` pinned to the Brain release ref bundled into the CLI binary, not a floating `main` branch script.
-
-## Subcommands
-
-### Dispatched (vault-scoped, run against `.brain-core/scripts/`)
-
-| `brain` form | Dispatches to | Notes |
-|---|---|---|
-| `brain check [--actionable] [--severity S]` | `check.py` | Structural compliance check; same as `python3 check.py`. |
-| `brain create --type T --title "Title" [...]` | `create.py` | Create a new artefact; accepts retry-safe `--body-handle`. |
-| `brain edit edit\|append\|prepend\|replace_text\|delete_section [...]` | `edit.py` | Strict structural or exact-text edit. |
-| `brain outline PATH` | `outline.py` | List exact editable heading/callout selectors. |
-| `brain list [...]` | `list_artefacts.py` | Exhaustive filtered, paginated enumeration. |
-| `brain search QUERY [...]` | `search_index.py` | Relevance-ranked search. |
-| `brain stage --body\|--body-file ...` | `stage.py` | Create a retry-safe opaque body handle. |
-| `brain discard-stage HANDLE` | `discard_stage.py` | Release an unused staged body immediately. |
-| `brain upload-attachment --destination-key K --file P [--name N]` | `upload_attachment.py` | Add a non-markdown file beneath the artefact or standalone scope selected by `K`; base64 input is also supported. |
-| `brain reparent PATH --parent P\|--clear` | `lifecycle.py reparent` | Change authoritative parent and derived paths. |
-| `brain set-status PATH STATUS` | `lifecycle.py set-status` | Change status through its lifecycle handler. |
-| `brain set-key PATH KEY` | `lifecycle.py set-key` | Change living key and derived ownership. |
-| `brain set-naming-field PATH FIELD VALUE` | `lifecycle.py set-naming-field` | Change a naming-driving field safely. |
-| `brain define {type\|trigger\|plugin} ...` | `define.py` | Guarded runtime-definition authoring; replacements use optimistic preconditions. |
-| `brain rename "source" "dest"` | `rename.py` | Rename + update wikilinks. |
-| `brain setup workspace [PATH] [...]` | `setup.py` | Bind a workspace to a Brain and converge the Brain-owned local scaffold. |
-| `brain configure workspace {binding\|metadata\|bootstrap} [...]` | `configure.py` | Targeted workspace-owned configuration surfaces. |
-| `brain configure mcp [...]` | `configure.py` | Explicit MCP transport configuration. |
-| `brain configure agent-skills [--client claude\|codex\|all] [...]` | `configure.py` | Install, update, archive/replace, or remove active-Brain native-skill discovery adapters. |
-| `brain configure semantic --enable [...]` | `configure.py` | Vault lifecycle configuration. |
-| `brain repair {runtime\|mcp\|router\|lexical\|registry\|frontmatter\|semantic\|ownership}` | `repair.py` | Infrastructure and explicit metadata-authoritative ownership repair. |
-| `brain upgrade --source P [...]` | `upgrade.py` | In-place brain-core upgrade. |
-| `brain session [--json]` | `session.py` | Build the session bootstrap model. With no directly scoped vault, this command first resolves the target Brain through the machine-level resolution runtime, then dispatches to only that Brain's own `session.py`. |
-| `brain read RESOURCE [--name N]` | `read.py` | Query compiled router resources; read failures use stderr and a non-zero exit. |
-| `brain migrate-naming [--dry-run]` | `migrate_naming.py` | Filename migrations. |
-| `brain fix-links [--fix]` | `fix_links.py` | Auto-repair broken wikilinks. |
-
-Hyphens in subcommand names map to underscores in script filenames (`migrate-naming` ↔ `migrate_naming.py`). The legacy `brain init` dispatch noun has been retired; use `brain setup workspace` for workspace binding and `brain configure ...` for targeted workspace or MCP policy.
-
-`brain session` has one narrow pre-dispatch exception, documented in [DD-054](../architecture/decisions/dd-054-machine-resolution-runtime.md). If `--vault` is present, the CLI dispatches directly to that Brain. If no vault is directly in scope, or a workspace is explicitly supplied through `BRAIN_WORKSPACE_DIR`, `--workspace-dir`, or the deprecated `--project-dir`, the CLI runs the stdlib-only machine resolver at `~/.brain/resolution-runtime/resolve_brain.py`. A local result then dispatches to the resolved Brain's own `session.py` with `--vault <target>`. A degraded result emits a `session_resolution` payload (`vault_root: null`) when `--json` is requested, or recovery guidance in text mode. Remote Brain targets are recognised as a future seam but return explicit "not yet supported" guidance for this non-MCP path.
-
-### CLI-only (no script dispatch)
-
-| Command | Purpose |
-|---|---|
-| `brain version`, `brain --version` | Print the CLI version. |
-| `brain --help`, `brain -h` | List subcommands and resolution rules. |
-| `brain install <path>` | Scaffold a new vault at `<path>` (wraps `install.sh`). Useful when adding a second vault. |
-| `brain doctor [--json] [--actionable] [--severity S] [--vault V]` | Machine-level health checks. The shell still resolves the current/source Brain and keeps the degraded fallback, but when a source Brain is available it now hands the composed Doctor experience to `doctor.py`: CLI/PATH/Python basics, machine-level shared-runtime diagnosis from `doctor_machine.py`, and current-vault `check.py` as a separate vault-local section. |
-| `brain machine <action> [...]` | Machine-level maintenance actions. The shell resolves a source Brain, then dispatches `machine.py` for explicit mutation surfaces such as legacy-Brain migration and orphan-runtime pruning. |
-
-`brain doctor` bootstraps its Python handoff from the user-home vault registry (`vault_registry.py`, stored at `$XDG_CONFIG_HOME/brain/vaults`, default `~/.config/brain/vaults`). Once a source Brain is available, `doctor.py` becomes the launcher-safe composition owner for the Doctor experience: it renders CLI/PATH/Python basics, consumes machine-level shared-runtime findings from `doctor_machine.py` / `_machine/`, and runs the current vault's own `check.py --json` so the vault-local section stays owned by that Brain's version of `check.py`. The shell still prefers `vault_registry.py` as its curated bootstrap signal, but may fall back to `brains.json` when the curated registry no longer points at a runnable source Brain. Machine-level diagnosis now also points drifted Brains back to their own `repair.py mcp` / `repair.py registry` paths instead of treating that registration state as machine-owned. If `brain doctor` auto-repairs derived machine-registry drift, it exits non-zero once and expects a re-run to confirm the machine is clean.
-
-`brain machine` shares that same source-Brain bootstrap and `_machine/` substrate, but exposes explicit mutation surfaces instead of diagnosis. The current actions are:
-
-- `brain machine migrate-legacy [--brain SELECTOR] [--dry-run] [--json]` — converge discovered legacy Brains off vault-local `.venv` directories. Runtime, MCP, and registry repair stays Brain-owned: the machine layer delegates back to each target Brain's own `repair.py` scopes before removing the legacy `.venv`, then verifies the Brain now resolves to a shared central runtime.
-- `brain machine prune-runtimes [--dry-run] [--json]` — remove shared central runtimes already proven orphaned by the canonical Brain/runtime registry plus live-process detection.
-
-These four are the named exceptions to the "scripts authoritative" rule. Each operates *before or outside* any vault. See DD-049 §"Scripts stay authoritative".
-
-## Vault resolution
-
-For dispatched subcommands other than the `brain session` no-vault path, the CLI resolves the active vault in this order:
-
-1. `--vault <path>` if present (absolute or relative — re-injected to the dispatched script as an absolute path).
-2. `$BRAIN_VAULT_ROOT` env var.
-3. CWD walk to the nearest `.brain-core/VERSION`.
-
-If none resolves: `brain: no vault found — pass --vault <path>, set BRAIN_VAULT_ROOT, or run from inside a vault`.
-
-## Argument forwarding
-
-All arguments after the subcommand pass through to the dispatched script unchanged, *except* `--vault`, which the CLI consumes for its own resolution and re-injects as an absolute path. This guarantees scripts always see an absolute `--vault` even when the user gave a relative path or relied on CWD walk.
-
-## Versioning
-
-The CLI versions independently from `brain-core`. The CLI's contract is the dispatch surface plus CLI-only behaviour. A `brain-core` release that changes script behaviour does not affect CLI versioning. A `brain-core` release that *renames* a dispatched script requires a CLI major bump (or a back-compat shim), while backward-compatible CLI-only behaviour changes take a CLI patch bump. `brain install` is pinned separately through `BRAIN_INSTALL_REF`, which should always match the shipped `brain-core` release tag (`v<src/brain-core/VERSION>`).
-
-Starting version: `1.0.0`. See DD-049 §"The dispatch surface is a versioned API".
-
-## Examples
+Command IDs use `<noun>.<verb>`; CLI words use the same noun and verb separated by a space. For example:
 
 ```bash
-# Repair the managed runtime for the vault in the current directory.
-brain repair runtime
-
-# Run check.py against a specific vault.
-brain check --vault ~/Documents/Brain --actionable
-
-# Doctor mode, outside any vault — machine-level checks only.
-brain doctor
-
-# Doctor mode, inside a vault — machine diagnosis first, then the current vault's own check.py section.
-cd ~/Documents/Brain && brain doctor
-
-# Structured Doctor output for the current vault.
-brain doctor --vault ~/Documents/Brain --json
-
-# Preview orphan-runtime pruning without mutating anything.
-brain machine prune-runtimes --dry-run
-
-# Equivalent without the CLI (still supported, always).
-python3 ~/Documents/Brain/.brain-core/scripts/repair.py runtime --vault ~/Documents/Brain
+brain artefact read --request-json '{"reference":"Designs/Example.md"}' --json
+brain artefact create --request-json '{"type":"living/wiki","title":"Example","content":{"source":"inline","content":"Body"}}' --json
+brain brain doctor --request-json '{}' --json
 ```
+
+There are no flat aliases, aggregate action buckets, parser spelling aliases or legacy-mode translations. Request fields are passed in one JSON object so MCP, CLI, direct script and typed Python use the same semantic request.
+
+`--request-json -` reads the object from standard input. Unknown fields, malformed JSON and a command with anything other than one noun and one verb fail as request errors.
+
+## Discover commands instead of memorising them
+
+The installed catalogues are authoritative. Use discovery for the exact command set, request schema, version, owner, safety class, dependency tier, authority and current availability:
+
+```bash
+brain command list --owner all --page-size 100 --json
+brain command list --owner application --query artefact --json
+brain command describe artefact.create --owner application --json
+brain command describe brain.upgrade --owner launcher --json
+```
+
+`application` commands are owned by the selected Brain. `launcher` commands are machine-global and owned by the installed CLI distribution. The composed view preserves that owner and each catalogue's fingerprint; it does not create a third semantic catalogue.
+
+## Select a Brain
+
+Selection options are global and mutually constrained:
+
+- `--vault PATH` selects an installed local Brain explicitly.
+- `--brain ID` resolves one registered local Brain.
+- `--workspace PATH` supplies the caller-local workspace used by normal workspace binding resolution.
+- With no explicit selector, the CLI uses the canonical local resolution ladder.
+- `--operator-key KEY` authenticates the application command against the selected Brain's profiles.
+
+Launcher commands may run without a selected Brain when their schema permits it. Application commands always execute through the selected Brain's own `.brain-core/scripts/command.py`; the machine-global CLI does not import or emulate another Brain's application semantics.
+
+## Dependency planes
+
+The command catalogue declares `bootstrap`, `portable` or `managed` as an ordered minimum dependency tier. The CLI runs bootstrap and portable application commands with its Python 3.12+ launcher, and resolves the selected Brain's managed runtime only for managed commands. Locality and provider requirements remain separate catalogue facts; a higher dependency tier does not imply machine-global ownership or remote transport.
+
+## Results and exit categories
+
+`--json` emits exactly one `brain.command-result/1` envelope. Human mode renders the same envelope without changing its semantics.
+
+- `ok` contains a typed result.
+- `partial` lists each known committed effect.
+- `error` has `effects: none` or `effects: unknown`.
+- Unknown mutation outcomes are non-retryable and include an outcome reference for `invocation.read`.
+
+Exit categories are stable across CLI and direct script:
+
+| Exit | Category |
+|---:|---|
+| 0 | Success |
+| 1 | Known partial outcome |
+| 2 | Usage, request or domain error |
+| 3 | Authority or capability unavailable |
+| 4 | Infrastructure failure or unknown mutation outcome |
+
+## Launcher recovery and old Brains
+
+CLI 2 can identify and recover an installed Brain older than 0.55.0, but it does not translate the old grammar. Launcher-owned version, doctor, install and upgrade/recovery commands remain available. Attempting an application command returns structural `upgrade_required`; that Brain's own legacy scripts remain directly invocable until the Brain is upgraded.
+
+`brain.upgrade` v2 performs a complete-registry preflight and coordinates Brain Core 0.55+, CLI 2, catalogue, manifest and proxy contracts. Known other pre-cutover Brains require `acknowledge_global_cli_cutover: true`. Stale registry IDs require an exact sorted `excluded_stale_brain_ids` list; unknown registry scope cannot be waived.
+
+## Installation
+
+The installer writes a versioned distribution under the selected prefix and a small platform bootloader under `bin/`:
+
+- Unix-like user install: `~/.local/bin/brain` and `~/.local/lib/brain-cli/2.0.0/`.
+- Native Windows user install: `%LOCALAPPDATA%\Programs\Brain\bin\brain.cmd` and the adjacent `lib\brain-cli\2.0.0\` distribution.
+
+The distribution contains the launcher application plus the Brain Core payload needed for install, upgrade and selected-Brain execution. Installation and replacement verify a content manifest and executable identity; failed replacement restores the proven old binary/distribution pair or retains recovery material and reports the outcome as unverified.
+
+The bootloader requires Python 3.12 or newer. `BRAIN_CLI_VERSION` is `2.0.0`; `BRAIN_INSTALL_REF` is `v0.55.0`.

@@ -27,10 +27,17 @@ class ArtefactSort(str, Enum):
     TITLE = "title"
 
 
+class ArtefactListLocation(str, Enum):
+    ACTIVE = "active"
+    ARCHIVED = "archived"
+    ALL = "all"
+
+
 @dataclass(frozen=True, slots=True)
 class ArtefactListItem:
     reference: str
     path: str
+    location: ArtefactListLocation
     title: str
     artefact_type: str
     created: str
@@ -39,6 +46,7 @@ class ArtefactListItem:
     frontmatter_key: str | None = None
     parent: str | None = None
     children_count: int | None = None
+    archived_date: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -54,9 +62,10 @@ class ArtefactListPayload:
 @dataclass(frozen=True, slots=True)
 class ArtefactListRequest:
     COMMAND_ID: ClassVar[str] = "artefact.list"
-    COMMAND_VERSION: ClassVar[int] = 1
+    COMMAND_VERSION: ClassVar[int] = 2
     RESULT_TYPE: ClassVar[type] = ArtefactListPayload
 
+    location: ArtefactListLocation = ArtefactListLocation.ACTIVE
     type_filter: str | None = None
     since: str | None = None
     until: str | None = None
@@ -69,6 +78,8 @@ class ArtefactListRequest:
     page_size: int = 500
 
     def __post_init__(self) -> None:
+        if not isinstance(self.location, ArtefactListLocation):
+            raise ValueError("artefact.list location must use ArtefactListLocation")
         for name in (
             "type_filter",
             "since",
@@ -94,12 +105,13 @@ class ArtefactListRequest:
 
 def execute(context: InvocationContext, request: ArtefactListRequest):
     from _common import artefact_type_prefix, make_artefact_key
-    from _portable.artefact_listing import list_from_vault
+    from _portable.artefact_listing import list_combined_from_vault
     from _search.lexical_query import IndexNotFoundError
 
     try:
-        page = list_from_vault(
+        page = list_combined_from_vault(
             context.selected_brain.vault_root,
+            location=request.location.value,
             type_filter=request.type_filter,
             since=request.since,
             until=request.until,
@@ -122,10 +134,13 @@ def execute(context: InvocationContext, request: ArtefactListRequest):
                     artefact_type_prefix(item["type"]),
                     item["key"],
                 )
-                if item.get("key") and item["type"].startswith("living/")
+                if item.get("location", "active") == "active"
+                and item.get("key")
+                and item["type"].startswith("living/")
                 else item["path"]
             ),
             path=item["path"],
+            location=ArtefactListLocation(item.get("location", "active")),
             title=item["title"],
             artefact_type=item["type"],
             created=item["created"],
@@ -134,6 +149,7 @@ def execute(context: InvocationContext, request: ArtefactListRequest):
             frontmatter_key=item.get("key"),
             parent=item.get("parent"),
             children_count=item.get("children_count"),
+            archived_date=item.get("archiveddate"),
         )
         for item in page["items"]
     )
@@ -170,6 +186,7 @@ def _optional_string(payload: Mapping[str, object], name: str) -> str | None:
 
 def decode(payload: Mapping[str, object]) -> ArtefactListRequest:
     allowed = {
+        "location",
         "type_filter",
         "since",
         "until",
@@ -190,7 +207,15 @@ def decode(payload: Mapping[str, object]) -> ArtefactListRequest:
     sort = payload.get("sort", ArtefactSort.DATE_DESC.value)
     if not isinstance(sort, str):
         raise ValueError("sort must be a string")
+    location = payload.get("location", ArtefactListLocation.ACTIVE.value)
+    if not isinstance(location, str):
+        raise ValueError("location must be a string")
+    try:
+        location_value = ArtefactListLocation(location)
+    except ValueError as exc:
+        raise ValueError("location must be active, archived, or all") from exc
     return ArtefactListRequest(
+        location=location_value,
         type_filter=_optional_string(payload, "type_filter"),
         since=_optional_string(payload, "since"),
         until=_optional_string(payload, "until"),

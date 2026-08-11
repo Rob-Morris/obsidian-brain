@@ -24,7 +24,7 @@ All content in the vault is an artefact, classified into two types:
 | **Living** | Vault root (e.g. `Wiki/`) | Evolves over time. Current version is the source of truth. |
 | **Temporal** | `_Temporal/` (e.g. `_Temporal/Logs/`) | Bound to a moment. Written once, rarely edited. |
 
-System folders (`_Assets/`, `_Config/`, `_Plugins/`, `.obsidian/`) are infrastructure, not artefacts. Living artefacts that reach a routine terminal status usually move into a `+Status/` folder within their type namespace and remain searchable. The top-level `_Archive/` directory is a separate deliberate-removal path: archived files are date-prefixed (`yyyymmdd-Title.md`), carry `archiveddate: YYYY-MM-DD` in frontmatter, and are excluded from search indexing. `brain_move(op="archive", path="...")` handles the archive rename and wikilink updates automatically (Obsidian CLI first, grep-replace fallback).
+System folders (`_Assets/`, `_Config/`, `_Plugins/`, `.obsidian/`) are infrastructure, not artefacts. Living artefacts that reach a routine terminal status usually move into a `+Status/` folder within their type namespace and remain searchable. The top-level `_Archive/` directory is a separate deliberate-removal path: archived files are date-prefixed (`yyyymmdd-Title.md`), carry `archiveddate: YYYY-MM-DD` in frontmatter, and are excluded from search indexing. `artefact.archive` handles the archive rename and wikilink updates automatically.
 
 ## Architecture
 
@@ -69,7 +69,7 @@ Designs/
     Brain Mcp Server.md
 ```
 
-Cross-type child folders use `{scope}/` (for example `Releases/project~brain/`), where `scope` is the tokenised form of the owner's canonical key. Archiving uses `brain_move(op="archive", path="...")`, which moves artefacts to a top-level `_Archive/` directory at the vault root while preserving type and canonical child-folder structure inside. Archived files are excluded from the vault file index, search, and all normal operations.
+Cross-type child folders use `{scope}/` (for example `Releases/project~brain/`), where `scope` is the tokenised form of the owner's canonical key. `artefact.archive` moves artefacts to a top-level `_Archive/` directory at the vault root while preserving type and canonical child-folder structure inside. Archived files are excluded from the vault file index, search, and all normal operations.
 
 ## Documentation
 
@@ -122,7 +122,7 @@ Cross-type child folders use `{scope}/` (for example `Releases/project~brain/`),
 - `_Temporal/Transcripts/` — conversation transcripts
 
 **System:**
-- `_Assets/` — non-markdown files and generated output (`Attachments/` + `Generated/`). General agent writes remain blocked; `brain_upload_attachment` is the narrow additive path into validated artefact or standalone subfolders of `Attachments/`.
+- `_Assets/` — non-markdown files and generated output (`Attachments/` + `Generated/`). General agent writes remain blocked; `attachment.upload` is the narrow additive path into validated artefact or standalone subfolders of `Attachments/`.
 - `_Config/` — router, taxonomy, style, colours, templates, user skills, user preferences
 - `_Plugins/` — empty, ready for plugins
 - `_Workspaces/` — workspace data bucket (infrastructure)

@@ -109,6 +109,8 @@ class _FoundationOwners:
             CommandListRequest.COMMAND_ID,
             CommandListRequest.COMMAND_VERSION,
             CommandListPayload(
+                catalogue.schema,
+                catalogue.fingerprint,
                 tuple(self._summary(entry, context, snapshot) for entry in page),
                 snapshot.token,
                 snapshot.freshness,
@@ -291,8 +293,7 @@ class _FoundationOwners:
             entry.replacement_command_id,
         )
 
-    @staticmethod
-    def _description(entry: ApplicationEntry, context: InvocationContext):
+    def _description(self, entry: ApplicationEntry, context: InvocationContext):
         identity = project_identity(entry.command_id)
         result_variants = [
             ResultVariantContract("ok", "The command completed with a typed result."),
@@ -309,6 +310,8 @@ class _FoundationOwners:
             )
         example_payload = minimal_request_payload(entry.request_type)
         return CommandDescriptionPayload(
+            self._require_catalogue().schema,
+            self._require_catalogue().fingerprint,
             entry.command_id,
             entry.command_version,
             CommandOwner.APPLICATION,
@@ -357,7 +360,12 @@ def _availability(entry: ApplicationEntry, context: InvocationContext, snapshot)
     return Availability.UNKNOWN if unknown else Availability.AVAILABLE
 
 
-def _entry(request_type: type, executor) -> ApplicationEntry:
+def _entry(
+    request_type: type,
+    executor,
+    *,
+    authority: Authority = Authority.READER,
+) -> ApplicationEntry:
     return ApplicationEntry(
         request_type=request_type,
         executor=executor,
@@ -365,7 +373,7 @@ def _entry(request_type: type, executor) -> ApplicationEntry:
         locality=Locality.SELECTED_BRAIN_LOCAL,
         required_providers=(),
         optional_providers=(),
-        authority=Authority.READER,
+        authority=authority,
         effect_class=EffectClass.NONE,
         retry_class=RetryClass.SAFE,
         projections=_ALL_APPLICATION_PROJECTIONS,
@@ -381,7 +389,11 @@ def build_application_catalogue(
     entries = (
         _entry(CommandDescribeRequest, owners.command_describe),
         _entry(CommandListRequest, owners.command_list),
-        _entry(InvocationReadRequest, owners.invocation_read),
+        _entry(
+            InvocationReadRequest,
+            owners.invocation_read,
+            authority=Authority.CONTRIBUTOR,
+        ),
         *additional_entries,
     )
     catalogue = ApplicationCatalogue(

@@ -121,45 +121,51 @@ def test_artefact_delete_returns_exact_removed_paths_and_cleans_links(
 
 
 @pytest.mark.parametrize(
-    ("command_id", "payload", "request_type"),
+    ("command_id", "payload", "request_type", "authority"),
     (
         (
             "artefact.rename",
             {"source": DESIGN, "dest": "Designs/Renamed.md"},
             ArtefactRenameRequest,
+            Authority.CONTRIBUTOR,
         ),
         (
             "artefact.convert",
             {"path": CANDIDATE, "target_type": "design", "recursive": True},
             ArtefactConvertRequest,
+            Authority.CONTRIBUTOR,
         ),
         (
             "artefact.archive",
             {"path": TERMINAL, "recursive": False},
             ArtefactArchiveRequest,
+            Authority.CONTRIBUTOR,
         ),
         (
             "artefact.unarchive",
             {"path": "_Archive/Ideas/example.md"},
             ArtefactUnarchiveRequest,
+            Authority.CONTRIBUTOR,
         ),
         (
             "artefact.delete",
             {"path": DESIGN, "recursive": True},
             ArtefactDeleteRequest,
+            Authority.ADMINISTRATOR,
         ),
     ),
 )
-def test_transition_transport_and_operator_catalogue_contract(
+def test_transition_transport_has_user_centred_authority(
     command_id,
     payload,
     request_type,
+    authority,
 ):
     request = current_request_resolver().resolve(command_id, payload)
     entry = current_application_catalogue().resolve(request)
 
     assert type(request) is request_type
-    assert entry.authority is Authority.OPERATOR
+    assert entry.authority is authority
     assert entry.effect_class is EffectClass.SELECTED_BRAIN_MUTATION
     assert entry.retry_class is RetryClass.RECEIPT_REQUIRED
 

@@ -9,7 +9,7 @@ A plugin has up to four pieces:
 | Piece | Location | Purpose |
 |-------|----------|---------|
 | Data folder | `_Plugins/{Name}/` | Files managed by the tool — do not hand-edit unless the plugin says you can |
-| Plugin definition | `_Plugins/{Name}/SKILL.md` | Makes the installed plugin discoverable through `brain_read(resource="plugin")` |
+| Plugin definition | `_Plugins/{Name}/SKILL.md` | Makes the installed plugin discoverable through `plugin.read` / `plugin.search` |
 | Reusable agent skill | `_Config/Skills/{name}/SKILL.md` | Optional standalone skill surfaced with other Brain skills |
 | MCP config | Claude: `.mcp.json`; Codex: `.codex/config.toml` | Starts the tool's MCP server in the chosen client |
 | Router entry | `_Config/router.md` | Makes the plugin visible to agents each session |
@@ -25,7 +25,7 @@ Each tool provides its own install instructions, typically in its own repo. The 
 
 1. Install the tool's binary or application.
 2. Create the plugin data folder and its definition. Operators can use
-   `brain_define` (or `brain define plugin create --name "{Name}" --definition-file SKILL.md`)
+   `plugin.create` (CLI `brain plugin create`; inspect it with `brain command describe plugin.create --json`)
    to write only `_Plugins/{Name}/SKILL.md` through the guarded path.
 3. Copy a reusable agent skill to `_Config/Skills/{name}/SKILL.md` if the plugin provides one separately.
 4. Add MCP config to `.mcp.json` or `.codex/config.toml` if the tool exposes MCP tools.
@@ -37,7 +37,7 @@ If the plugin ships both a README and a Brain skill doc, treat the plugin README
 
 Plugins own their data folder completely. Brain does not impose an internal schema within `_Plugins/{Name}/`. However:
 
-- Brain owns only the optional top-level `SKILL.md` definition when it is managed through `brain_define`; the tool owns its remaining data.
+- Brain owns only the optional top-level `SKILL.md` definition when it is managed through `plugin.create` / `plugin.replace`; the tool owns its remaining data.
 - Markdown with YAML frontmatter is strongly preferred when the plugin stores human-readable records.
 - Flat frontmatter keeps files compatible with Dataview and similar Obsidian tooling.
 - Files under `_Plugins/` are browsable in Obsidian and inherit the gold plugin theme.

@@ -1,6 +1,6 @@
 # Obsidian Brain
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE) ![Version](https://img.shields.io/badge/version-0.54.59-blue) ![Platform](https://img.shields.io/badge/platform-Obsidian-7C3AED) ![Python](https://img.shields.io/badge/python-≥3.12-3776AB?logo=python&logoColor=white) ![MCP](https://img.shields.io/badge/MCP-server-green)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE) ![Version](https://img.shields.io/badge/version-0.55.0-blue) ![Platform](https://img.shields.io/badge/platform-Obsidian-7C3AED) ![Python](https://img.shields.io/badge/python-≥3.12-3776AB?logo=python&logoColor=white) ![MCP](https://img.shields.io/badge/MCP-server-green)
 
 A self-evolving knowledge base for agents and humans working together on what matters.
 
@@ -52,8 +52,8 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File .\install.ps1 -VaultPath C:\path\t
 Brain installs the managed Python runtime to `~/.brain/venvs/py<X.Y>-<sha16>/`, content-addressed by `requirements.txt`. Vaults sharing the same dependencies share one venv on disk. See [DD-048](docs/architecture/decisions/dd-048-central-managed-runtime.md) for rationale.
 
 Semantic retrieval remains explicit opt-in. Enable it at install time with
-`install.sh --enable-semantic`, or later from inside the vault with
-`python3 .brain-core/scripts/configure.py semantic --enable`. That
+`install.sh --enable-semantic`, or later with
+`brain retrieval enable --vault /path/to/brain --json`. That
 flow writes the local semantic-retrieval flag first, installs the pinned
 semantic Python stack into the central managed runtime, snapshots the pinned
 model under `.brain/local/semantic-models/`, records
@@ -64,46 +64,44 @@ sidecars so ordinary semantic search stays fully local.
 
 **Start talking:** Open your agent in the vault folder (for example `cd /path/to/brain && claude` or `cd /path/to/brain && codex`). It reads the vault structure and knows what to do. See [Workflows](docs/user/workflows.md) for what working with the brain looks like in practice.
 
-**Command-line usage:** direct script invocation is the baseline command surface, for example `python3 .brain-core/scripts/check.py --actionable` or `python3 .brain-core/scripts/repair.py runtime`. The optional [`brain` CLI](docs/functional/cli.md) is shorthand over those same stable top-level scripts when installed. A small portable script subset also remains available for restricted no-network environments. See [Getting Started](docs/user/getting-started.md#command-line-usage), [User Reference](docs/user/user-reference.md#scripts), and the [Script Reference](docs/functional/scripts.md).
+**Command-line usage:** the installed [`brain` CLI](docs/functional/cli.md) uses one noun/verb grammar across application and machine operations. For example, `brain vault check`, `brain artefact read`, and `brain brain doctor`. Every semantic request is supplied as strict JSON; `brain command list --json` and `brain command describe <noun.verb> --json` are authoritative discovery. Selected-Brain automation can invoke the same command through `python3 .brain-core/scripts/command.py <noun> <verb>` or the typed Python application. See [Getting Started](docs/user/getting-started.md#command-line-usage), [User Reference](docs/user/user-reference.md), and the [Script Reference](docs/functional/scripts.md).
 
 #### Upgrade
 
-The canonical upgrade path is `upgrade.py` from a clone of this repo:
+The canonical upgrade path after CLI 2 installation is the checked launcher transaction:
 
 ```bash
-python3.12 src/brain-core/scripts/upgrade.py --source src/brain-core --vault /path/to/brain
+brain brain upgrade --vault /path/to/brain --request-json '{"acknowledge_global_cli_cutover":true}' --json
 ```
 
-If you want a convenience wrapper that fetches the repo or prompts for confirmation, `install.sh` can delegate to `upgrade.py` for an already-installed vault:
+For the 0.55.0 cutover itself, or when recovering without CLI 2, run the source upgrade wrapper:
 
 ```bash
-bash install.sh /path/to/brain
+bash install.sh /path/to/brain --acknowledge-global-cli-cutover
 ```
 
-The wrapper detects the existing installation, shows the version change, and then runs `upgrade.py`. When `.brain-core/brain_mcp/requirements.txt` changes, `upgrade.py` provisions the matching central runtime at `~/.brain/venvs/py<X.Y>-<sha16>/` (creating or reusing); existing project MCP registrations are left in place. Vaults that still point at a legacy per-vault `.venv/` get a one-line migration command in the upgrade output. After the file update, `upgrade.py` now reconciles retrieval assets through the supported repair lifecycle too: lexical-only vaults run `repair.py lexical`, while semantic-enabled vaults run `repair.py semantic`, which already refreshes router, lexical index, and embeddings sidecars together. When the Claude/Codex shaping discovery adapter is introduced or its checked-in template changes, upgrade output also recommends the explicit `configure.py agent-skills --client all` follow-up; it never runs that machine-global write automatically. Same-version re-apply, downgrade, and migration rerun flows remain explicit `upgrade.py --force` operations.
+The cutover preflights the complete local Brain registry, requires an exact acknowledgement when other local Brains depend on the global CLI, and commits Brain Core plus the versioned CLI distribution as one checked transaction. Incomplete registries, unacknowledged affected Brains, stale entries without explicit exclusions, unsafe paths, and version mismatches fail before mutation. A failed commit restores the proven old set or retains explicit recovery material rather than claiming rollback without evidence. See [CLI](docs/functional/cli.md) for the complete request contract.
 
 #### Repair
 
-If the local Brain runtime or generated state drifts, use the explicit repair entry point:
+If the local Brain runtime or generated state drifts, use the granular command interface:
 
 ```bash
-python3.12 .brain-core/scripts/repair.py runtime
-python3.12 .brain-core/scripts/repair.py mcp
-python3.12 .brain-core/scripts/repair.py router
-python3.12 .brain-core/scripts/repair.py lexical
-python3.12 .brain-core/scripts/repair.py registry
-python3.12 .brain-core/scripts/repair.py semantic
+brain runtime repair --vault /path/to/brain --json
+brain mcp repair --vault /path/to/brain --json
+brain runtime refresh-router --vault /path/to/brain --request-json '{"force":true}' --json
+brain retrieval refresh-lexical --vault /path/to/brain --request-json '{"force":true}' --json
+brain workspace repair-registry --vault /path/to/brain --json
+brain retrieval repair-semantic --vault /path/to/brain --json
 ```
 
-Or, with the optional [`brain` CLI](docs/functional/cli.md): `brain repair runtime`, `brain repair mcp`, `brain repair router`, and so on. The CLI is a thin dispatcher — scripts remain authoritative.
-
-For most users, `repair.py runtime` is the main recovery path. Use it when the
-central managed runtime or its baseline packages have drifted. `repair.py mcp`
+For most users, `brain runtime repair` is the main recovery path. Use it when the
+central managed runtime or its baseline packages have drifted. `mcp.repair`
 is the MCP-specific follow-up scope for repairing current-vault project MCP
 registration against that working runtime; it repairs only the clients that are
 already installed for the vault, and it does not act as a first-time installer.
-`repair.py semantic` is the semantic equivalent after a vault has been opted in
-with `configure.py semantic --enable`: it repairs the pinned runtime packages,
+`retrieval.repair-semantic` is the semantic equivalent after a vault has been opted in
+with `retrieval.enable`: it repairs the pinned runtime packages,
 the local model snapshot/manifest, and the embeddings sidecars together. The
 other scopes repair generated router/index state or the local workspace
 registry.
@@ -111,12 +109,13 @@ registry.
 If you do not know what is broken, start with:
 
 ```bash
-python3 .brain-core/scripts/check.py --actionable
+brain brain doctor --vault /path/to/brain --json
+brain vault check --vault /path/to/brain --json
 ```
 
-When `check.py --actionable` detects router, MCP, semantic-runtime, or local
-workspace-registry drift, it prints the exact `repair.py` command to run.
-`repair.py` may be launched from any compatible Python 3.12+ interpreter, but
+When `vault.check` detects router, MCP, semantic-runtime, or local
+workspace-registry drift, it returns the exact granular repair command to run.
+Launcher recovery may start from any compatible Python 3.12+ interpreter, but
 packageful repair converges into the central managed runtime at
 `~/.brain/venvs/py<X.Y>-<sha16>/`; it does not install packages into your
 wider Python environment.
@@ -157,40 +156,46 @@ If you prefer to do it yourself:
 1. Clone this repo: `git clone https://github.com/rob-morris/obsidian-brain.git`
 2. Copy `template-vault/` to your preferred location: `cp -R template-vault /path/to/brain`
 3. Copy brain-core into the vault: `cp -R src/brain-core /path/to/brain/.brain-core`
-4. Provision the central managed runtime: `cd /path/to/brain && python3.12 .brain-core/scripts/_common/_venv.py ensure --vault . --launcher python3.12`. This creates `~/.brain/venvs/py3.12-<sha16>/` if missing and installs `requirements.txt` into it.
-5. Optionally configure MCP transport: run `.brain-core/scripts/configure.py mcp` with a compatible launcher Python, e.g. `python3.12 .brain-core/scripts/configure.py mcp --client all` (or add `--user --client all` for all projects). This public surface and the installer share the launcher-safe MCP transport owner in `.brain-core/scripts/_bootstrap/mcp_transport.py`.
+4. Install CLI 2 and its versioned distribution: `python3.12 cli/_distribution.py . ~/.local/bin/brain` (choose an equivalent user bin path on other platforms).
+5. Provision the central managed runtime: `cd /path/to/brain && python3.12 .brain-core/scripts/_common/_venv.py ensure --vault . --launcher python3.12`. This creates `~/.brain/venvs/py3.12-<sha16>/` if missing and installs `requirements.txt` into it.
+6. Optionally configure MCP transport with `brain mcp configure --vault /path/to/brain --request-json '{"scope":"project","client":"all"}'`. This launcher command and the installer share the same launcher-safe transport owner.
    For project scope, the file write is not the whole story: Claude still needs `/mcp` approval for `brain`, and Codex still needs the project trusted with `brain` enabled.
-6. Optionally install the active-Brain shaping discovery adapter for both clients: `python3.12 .brain-core/scripts/configure.py agent-skills --client all`. If an older unmanaged shaping skill is already installed, review it and rerun with `--replace`; Brain archives the old directory instead of deleting it. Restart the clients after installation.
-7. Open the folder as an Obsidian vault
-8. Enable the CSS snippet in **Settings > Appearance > CSS Snippets** (`brain-folder-colours`)
+7. Optionally install the active-Brain shaping discovery adapter for both clients: `brain agent-skill configure --vault /path/to/brain --request-json '{"client":"all"}'`. If an older unmanaged shaping skill is already installed, review it and rerun with `{"client":"all","replace":true}`; Brain archives the old directory instead of deleting it. Restart the clients after installation.
+8. Open the folder as an Obsidian vault.
+9. Enable the CSS snippet in **Settings > Appearance > CSS Snippets** (`brain-folder-colours`).
 
 </details>
 
 ### Connecting from Other Projects
 
-When MCP setup is enabled, the install script registers the server for the vault directory at project scope for Claude Code and Codex. After that, the public surfaces are `setup.py workspace` / `brain setup workspace` for binding and `configure.py mcp` / `brain configure mcp` for transport policy. From inside the vault, use one of these:
+When MCP setup is enabled, the installer registers the server for the vault directory at project scope for Claude Code and Codex. Workspace binding and machine-global transport policy remain separate granular commands:
 
 ```bash
-# Make the brain available to all projects for both clients
-python3.12 .brain-core/scripts/configure.py mcp --user --client all
+# Make the Brain available to all projects for both clients
+brain mcp configure --vault /path/to/brain \
+  --request-json '{"scope":"user","client":"all"}' --json
 
 # Bind and configure a specific project for both clients
-python3.12 .brain-core/scripts/setup.py workspace /path/to/project --vault .
-python3.12 .brain-core/scripts/configure.py mcp --workspace /path/to/project --client all
+brain workspace bind --vault /path/to/brain --workspace /path/to/project \
+  --request-json '{}' --json
+brain mcp configure --vault /path/to/brain --workspace /path/to/project \
+  --request-json '{"scope":"project","client":"all"}' --json
 
-# Or just scaffold the folder binding/workspace metadata without MCP
-python3.12 .brain-core/scripts/setup.py workspace /path/to/project --vault .
+# Or just converge the workspace bootstrap without MCP
+brain workspace configure-bootstrap --vault /path/to/brain \
+  --workspace /path/to/project --json
 
 # Claude-only local scope for a specific project (gitignored; Codex has no local scope)
-python3.12 .brain-core/scripts/configure.py mcp --workspace /path/to/project --client claude --local
+brain mcp configure --vault /path/to/brain --workspace /path/to/project \
+  --request-json '{"scope":"local","client":"claude"}' --json
 ```
 
-Use `--user` if you want the brain everywhere. Use `setup.py workspace` (or `brain setup workspace`) to bind a single project without choosing transport yet, then `configure.py mcp` (or `brain configure mcp`) if you do want MCP there. Use `--client claude --local` when you want Claude-only local config in `.claude/settings.local.json` without committing it. For project scope, the project-scoped MCP still outranks the user-scoped one once it is active, but registration alone is not enough: in Claude, approve `brain` via `/mcp`; in Codex, trust the project and ensure `brain` is enabled. Until then, either client may keep using the user-scoped `brain`.
+Use `scope: "user"` if you want the Brain everywhere. Bind a project without choosing transport, then run `mcp.configure` only when wanted. Use `scope: "local", client: "claude"` for gitignored Claude-only local configuration. For project scope, registration alone is not enough: approve `brain` via `/mcp` in Claude; trust the project and enable `brain` in Codex.
 
 To expose shaping through each client's native skill discovery while keeping the
 workflow version-matched to the active Brain, install the small discovery adapters
-once with `brain configure agent-skills --vault /path/to/brain --client all`.
-They load `.brain-core/skills/shaping/` through `brain_session` and `brain_read` at
+once with `brain agent-skill configure --vault /path/to/brain --request-json '{"client":"all"}'`.
+They start a session with `session.start`, then load `.brain-core/skills/shaping/` with `vault.read-file` at
 invocation time; upgrades therefore do not copy workflow files into client-owned
 directories. Adapter installation is explicit and ownership-safe, not an implicit
 side effect of vault upgrade. If the stable discovery adapter itself changes,

@@ -20,11 +20,11 @@ If you don't have an artefact path and transcript path from the parent skill, re
 
 ## Process
 
-1. **Understand context.** Read the vault router (`brain_read(resource="router")`). If the idea relates to existing artefacts, read them. Assess scope — if the idea describes multiple independent things, help decompose into separate artefacts before diving in.
+1. **Understand context.** Read the vault router with `vault.read-router()`. If the idea relates to existing artefacts, read them with `artefact.read`. Assess scope — if the idea describes multiple independent things, help decompose into separate artefacts before diving in.
 2. **Ask clarifying questions** one at a time to understand: purpose, constraints, success criteria. Focus on *what* and *why* before *how*. Follow the shared Q&A rules in `shaping/assess`.
 3. **Explore approaches.** Propose 2-3 approaches with trade-offs. Follow the options format from assess's shared Q&A rules.
 4. **Present the design in sections**, scaled to complexity. Ask after each section whether it looks right. Cover what's relevant: architecture, components, data flow, trade-offs, open questions. Be ready to go back and revise.
-5. **Write content into the artefact** via `brain_edit` once the user approves each section.
+5. **Write content into the artefact** with `document.edit`, selecting the exact `replace`, `append`, `prepend`, `delete-section` or `replace-text` change only after the user approves each section.
 
 ## Handoff to Refine
 

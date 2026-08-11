@@ -5,27 +5,18 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import ClassVar
 
-from ._named_edit_requests import NAMED_EDIT_REQUEST_TYPES, NamedEditRequest
-from .artefact.append import ArtefactAppendRequest
 from .artefact.archive import ArtefactArchiveRequest
 from .artefact.convert import ArtefactConvertRequest
 from .artefact.create import ArtefactCreateRequest
 from .artefact.delete import ArtefactDeleteRequest
-from .artefact.delete_section import ArtefactDeleteSectionRequest
-from .artefact.edit import ArtefactEditRequest
 from .artefact.list import ArtefactListRequest
-from .artefact.list_archived import ArtefactListArchivedRequest
 from .artefact.migrate_naming import ArtefactMigrateNamingRequest
 from .artefact.outline import ArtefactOutlineRequest
-from .artefact.prepend import ArtefactPrependRequest
 from .artefact.read import ArtefactReadRequest
-from .artefact.read_archived import ArtefactReadArchivedRequest
-from .artefact.repair_frontmatter import ArtefactRepairFrontmatterRequest
-from .artefact.repair_ownership import ArtefactRepairOwnershipRequest
+from .artefact.repair import ArtefactRepairRequest
 from .artefact.reparent import ArtefactReparentRequest
 from .artefact.rename import ArtefactRenameRequest
 from .artefact.reparent_children import ArtefactReparentChildrenRequest
-from .artefact.replace_text import ArtefactReplaceTextRequest
 from .artefact.search import ArtefactSearchRequest
 from .artefact.set_key import ArtefactSetKeyRequest
 from .artefact.set_naming_field import ArtefactSetNamingFieldRequest
@@ -35,6 +26,7 @@ from .attachment.upload import AttachmentUploadRequest
 from .content.classify import ContentClassifyRequest
 from .content.ingest import ContentIngestRequest
 from .content.resolve import ContentResolveRequest
+from .document.edit import DocumentEditRequest
 from .links.check import LinksCheckRequest
 from .links.fix import LinksFixRequest
 from .memory.list import MemoryListRequest
@@ -49,13 +41,11 @@ from .plugin.search import PluginSearchRequest
 from .retrieval.construct_benchmark import RetrievalConstructBenchmarkRequest
 from .retrieval.enable import RetrievalEnableRequest
 from .retrieval.evaluate import RetrievalEvaluateRequest
-from .retrieval.rebuild_lexical import RetrievalRebuildLexicalRequest
+from .retrieval.refresh_lexical import RetrievalRefreshLexicalRequest
 from .retrieval.rebuild_semantic import RetrievalRebuildSemanticRequest
-from .retrieval.repair_lexical import RetrievalRepairLexicalRequest
 from .retrieval.repair_semantic import RetrievalRepairSemanticRequest
-from .runtime.rebuild_router import RuntimeRebuildRouterRequest
+from .runtime.refresh_router import RuntimeRefreshRouterRequest
 from .runtime.read_environment import RuntimeReadEnvironmentRequest
-from .runtime.repair_router import RuntimeRepairRouterRequest
 from .session.start import SessionStartRequest
 from .shaping.render_presentation import ShapingRenderPresentationRequest
 from .shaping.render_printable import ShapingRenderPrintableRequest
@@ -80,7 +70,6 @@ from .trigger.read import TriggerReadRequest
 from .trigger.replace import TriggerReplaceRequest
 from .trigger.search import TriggerSearchRequest
 from .type.create import TypeCreateRequest
-from .type.install import TypeInstallRequest
 from .type.list import ArtefactTypeListRequest
 from .type.read import ArtefactTypeReadRequest
 from .type.replace import TypeReplaceRequest
@@ -96,7 +85,6 @@ from .workspace.list import WorkspaceListRequest
 from .workspace.read import WorkspaceReadRequest
 from .workspace.register import WorkspaceRegisterRequest
 from .workspace.repair_registry import WorkspaceRepairRegistryRequest
-from .workspace.resolve import WorkspaceResolveRequest
 from .workspace.setup import WorkspaceSetupRequest
 from .workspace.unregister import WorkspaceUnregisterRequest
 from .workspace.update_metadata import WorkspaceUpdateMetadataRequest
@@ -158,12 +146,18 @@ class CommandSummary:
 
 @dataclass(frozen=True, slots=True)
 class CommandListPayload:
+    catalogue_schema: str
+    catalogue_fingerprint: str
     entries: tuple[CommandSummary, ...]
     snapshot_token: str
     availability_freshness: SnapshotFreshness
     next_cursor: CatalogueCursor | None = None
 
     def __post_init__(self) -> None:
+        if not self.catalogue_schema.startswith("brain.command-catalogue/"):
+            raise ValueError("command list payload requires the application catalogue schema")
+        if not self.catalogue_fingerprint.startswith("sha256:"):
+            raise ValueError("command list payload requires the application catalogue fingerprint")
         command_ids = self.command_ids
         if command_ids != tuple(sorted(command_ids)):
             raise ValueError("command list payload identifiers must be sorted")
@@ -190,8 +184,9 @@ class CommandExample:
     request_json: str
 
     def __post_init__(self) -> None:
-        if not self.label.strip() or not self.mcp_tool.startswith("brain_"):
+        if not self.label.strip():
             raise ValueError("command example requires a label and MCP tool")
+        validate_command_id(self.mcp_tool)
         if len(self.cli_argv) != 2 or any(not item.strip() for item in self.cli_argv):
             raise ValueError("command example requires canonical CLI noun and verb")
 
@@ -208,6 +203,8 @@ class ResultVariantContract:
 
 @dataclass(frozen=True, slots=True)
 class CommandDescriptionPayload:
+    catalogue_schema: str
+    catalogue_fingerprint: str
     command_id: str
     command_version: int
     owner: CommandOwner
@@ -233,6 +230,10 @@ class CommandDescriptionPayload:
     replacement_command_id: str | None
 
     def __post_init__(self) -> None:
+        if not self.catalogue_schema.startswith("brain.command-catalogue/"):
+            raise ValueError("command description requires the application catalogue schema")
+        if not self.catalogue_fingerprint.startswith("sha256:"):
+            raise ValueError("command description requires the application catalogue fingerprint")
         validate_command_id(self.command_id)
         if self.command_version < 1 or not self.summary.strip():
             raise ValueError("command description requires a version and summary")
@@ -354,25 +355,17 @@ CommandRequest = (
     CommandListRequest
     | CommandDescribeRequest
     | InvocationReadRequest
-    | ArtefactAppendRequest
     | ArtefactArchiveRequest
     | ArtefactConvertRequest
     | ArtefactCreateRequest
     | ArtefactDeleteRequest
-    | ArtefactDeleteSectionRequest
-    | ArtefactEditRequest
     | ArtefactReadRequest
-    | ArtefactReadArchivedRequest
-    | ArtefactRepairFrontmatterRequest
-    | ArtefactRepairOwnershipRequest
+    | ArtefactRepairRequest
     | ArtefactReparentRequest
     | ArtefactRenameRequest
     | ArtefactReparentChildrenRequest
     | ArtefactOutlineRequest
-    | ArtefactPrependRequest
-    | ArtefactReplaceTextRequest
     | ArtefactListRequest
-    | ArtefactListArchivedRequest
     | ArtefactMigrateNamingRequest
     | ArtefactSearchRequest
     | ArtefactSetKeyRequest
@@ -383,10 +376,10 @@ CommandRequest = (
     | ContentClassifyRequest
     | ContentIngestRequest
     | ContentResolveRequest
+    | DocumentEditRequest
     | LinksCheckRequest
     | LinksFixRequest
     | MemoryCreateRequest
-    | NamedEditRequest
     | MemoryListRequest
     | MemoryReadRequest
     | MemorySearchRequest
@@ -398,13 +391,11 @@ CommandRequest = (
     | RetrievalConstructBenchmarkRequest
     | RetrievalEnableRequest
     | RetrievalEvaluateRequest
-    | RetrievalRebuildLexicalRequest
+    | RetrievalRefreshLexicalRequest
     | RetrievalRebuildSemanticRequest
-    | RetrievalRepairLexicalRequest
     | RetrievalRepairSemanticRequest
-    | RuntimeRebuildRouterRequest
+    | RuntimeRefreshRouterRequest
     | RuntimeReadEnvironmentRequest
-    | RuntimeRepairRouterRequest
     | SessionStartRequest
     | ShapingRenderPresentationRequest
     | ShapingRenderPrintableRequest
@@ -429,7 +420,6 @@ CommandRequest = (
     | TriggerReplaceRequest
     | TriggerSearchRequest
     | TypeCreateRequest
-    | TypeInstallRequest
     | ArtefactTypeListRequest
     | ArtefactTypeReadRequest
     | TypeReplaceRequest
@@ -445,7 +435,6 @@ CommandRequest = (
     | WorkspaceReadRequest
     | WorkspaceRegisterRequest
     | WorkspaceRepairRegistryRequest
-    | WorkspaceResolveRequest
     | WorkspaceSetupRequest
     | WorkspaceUnregisterRequest
     | WorkspaceUpdateMetadataRequest
@@ -459,25 +448,17 @@ def command_identity(request: CommandRequest) -> tuple[str, int, type]:
         CommandListRequest,
         CommandDescribeRequest,
         InvocationReadRequest,
-        ArtefactAppendRequest,
         ArtefactArchiveRequest,
         ArtefactConvertRequest,
         ArtefactCreateRequest,
         ArtefactDeleteRequest,
-        ArtefactDeleteSectionRequest,
-        ArtefactEditRequest,
         ArtefactReadRequest,
-        ArtefactReadArchivedRequest,
-        ArtefactRepairFrontmatterRequest,
-        ArtefactRepairOwnershipRequest,
+        ArtefactRepairRequest,
         ArtefactReparentRequest,
         ArtefactRenameRequest,
         ArtefactReparentChildrenRequest,
         ArtefactOutlineRequest,
-        ArtefactPrependRequest,
-        ArtefactReplaceTextRequest,
         ArtefactListRequest,
-        ArtefactListArchivedRequest,
         ArtefactMigrateNamingRequest,
         ArtefactSearchRequest,
         ArtefactSetKeyRequest,
@@ -488,10 +469,10 @@ def command_identity(request: CommandRequest) -> tuple[str, int, type]:
         ContentClassifyRequest,
         ContentIngestRequest,
         ContentResolveRequest,
+        DocumentEditRequest,
         LinksCheckRequest,
         LinksFixRequest,
         MemoryCreateRequest,
-        *NAMED_EDIT_REQUEST_TYPES,
         MemoryListRequest,
         MemoryReadRequest,
         MemorySearchRequest,
@@ -503,13 +484,11 @@ def command_identity(request: CommandRequest) -> tuple[str, int, type]:
         RetrievalConstructBenchmarkRequest,
         RetrievalEnableRequest,
         RetrievalEvaluateRequest,
-        RetrievalRebuildLexicalRequest,
+        RetrievalRefreshLexicalRequest,
         RetrievalRebuildSemanticRequest,
-        RetrievalRepairLexicalRequest,
         RetrievalRepairSemanticRequest,
-        RuntimeRebuildRouterRequest,
+        RuntimeRefreshRouterRequest,
         RuntimeReadEnvironmentRequest,
-        RuntimeRepairRouterRequest,
         SessionStartRequest,
         ShapingRenderPresentationRequest,
         ShapingRenderPrintableRequest,
@@ -534,7 +513,6 @@ def command_identity(request: CommandRequest) -> tuple[str, int, type]:
         TriggerReplaceRequest,
         TriggerSearchRequest,
         TypeCreateRequest,
-        TypeInstallRequest,
         ArtefactTypeListRequest,
         ArtefactTypeReadRequest,
         TypeReplaceRequest,
@@ -550,7 +528,6 @@ def command_identity(request: CommandRequest) -> tuple[str, int, type]:
         WorkspaceReadRequest,
         WorkspaceRegisterRequest,
         WorkspaceRepairRegistryRequest,
-        WorkspaceResolveRequest,
         WorkspaceSetupRequest,
         WorkspaceUnregisterRequest,
         WorkspaceUpdateMetadataRequest,

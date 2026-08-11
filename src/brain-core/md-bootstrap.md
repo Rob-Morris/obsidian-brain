@@ -9,5 +9,7 @@ Explicit degraded fallback for environments without MCP or a generated
 
 ## Tooling
 
-- `.brain-core/scripts/` — CLI tools for vault operations (compile_router, compile_colours, build_index, search_index, read, create, edit, rename, check, repair, fix_links, workspace_registry, vault_registry, session, shape_printable, shape_presentation, start_shaping_session, upgrade)
+- `.brain-core/scripts/command.py command list --request-json '{}' --json` — discover the installed selected-Brain commands
+- `.brain-core/scripts/command.py <noun> <verb> --request-json '<object>' --json` — invoke one selected-Brain command through the canonical direct projection
+- `brain command list --owner all --json` — discover the composed local CLI catalogue when CLI 2 is available
 - Navigate the vault via wikilinks from the router and index

@@ -131,7 +131,7 @@ def test_ensure_session_start_hook_creates_hook(project, bootstrap_vault):
     hooks = data["hooks"]["SessionStart"]
     assert len(hooks) == 1
     command = hooks[0]["hooks"][0]["command"]
-    assert command.startswith("echo brain_session called:")
+    assert command.startswith("echo session.start called:")
     assert "session.py" in command
     assert str(bootstrap_vault) in command
     assert "--workspace-dir" in command
@@ -151,7 +151,7 @@ def test_ensure_session_start_hook_creates_powershell_hook_on_windows(
     data = json.loads((project / ".claude" / "settings.local.json").read_text(encoding="utf-8"))
     hook = data["hooks"]["SessionStart"][0]["hooks"][0]
     assert hook["shell"] == "powershell"
-    assert hook["command"].startswith("Write-Output 'brain_session called:'; & ")
+    assert hook["command"].startswith("Write-Output 'session.start called:'; & ")
     assert "'C:\\tools&x\\python.exe'" in hook["command"]
 
 
@@ -379,7 +379,7 @@ def test_mcp_followup_notes_are_shared_for_project_scope(project):
     notes = mcp_transport.mcp_followup_notes(["claude", "codex"], "project", project)
 
     assert any("/mcp" in note for note in notes)
-    assert any("brain_session" in note for note in notes)
+    assert any("session.start" in note for note in notes)
     assert any("codex mcp list" in note for note in notes)
 
 

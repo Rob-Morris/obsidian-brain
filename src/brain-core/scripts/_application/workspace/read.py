@@ -36,7 +36,7 @@ class WorkspaceReadPayload:
 @dataclass(frozen=True, slots=True)
 class WorkspaceReadRequest:
     COMMAND_ID: ClassVar[str] = "workspace.read"
-    COMMAND_VERSION: ClassVar[int] = 1
+    COMMAND_VERSION: ClassVar[int] = 2
     RESULT_TYPE: ClassVar[type] = WorkspaceReadPayload
 
     reference: str

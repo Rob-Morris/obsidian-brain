@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Mapping
 
-from ._mutation_support import no_effect_error, operator_mutation_entry
+from ._mutation_support import maintainer_mutation_entry, no_effect_error
 from .context import InvocationContext
 from .receipts import CommittedEffect
 from .results import ErrorCode, Ok
@@ -94,4 +94,4 @@ def decode_empty(payload: Mapping[str, object], request_type):
 
 
 def catalogue_entry(request_type, executor):
-    return operator_mutation_entry(request_type, executor)
+    return maintainer_mutation_entry(request_type, executor)

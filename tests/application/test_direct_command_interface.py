@@ -58,7 +58,7 @@ def _context_factory(tmp_path, tools):
     return create
 
 
-def _run(tmp_path, argv, *, tools=("brain_command_list",), stdin=""):
+def _run(tmp_path, argv, *, tools=("command.list",), stdin=""):
     out = StringIO()
     err = StringIO()
     code = run(
@@ -97,7 +97,7 @@ def test_direct_human_output_and_authority_exit_are_structural(tmp_path):
     denied = _run(
         tmp_path,
         ["artefact", "list"],
-        tools=("brain_command_list",),
+        tools=("command.list",),
     )
 
     assert ok == (0, "command.list: ok\n", "")
@@ -170,7 +170,7 @@ def test_direct_command_observes_real_local_composition(tmp_path, monkeypatch):
         "vault:\n"
         "  profiles:\n"
         "    operator:\n"
-        "      allow: [brain_command_list]\n"
+        "      allow: [command.list]\n"
         "defaults:\n"
         "  default_profile: operator\n"
     )
@@ -223,7 +223,7 @@ def test_direct_provider_inventory_is_complete_and_refresh_is_deduplicated(
         "vault:\n"
         "  profiles:\n"
         "    operator:\n"
-        "      allow: [brain_command_list]\n"
+        "      allow: [command.list]\n"
         "defaults:\n"
         "  default_profile: operator\n"
     )

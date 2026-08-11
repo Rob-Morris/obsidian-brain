@@ -10,8 +10,8 @@ A type is defined by a folder, a taxonomy, a template, and (optionally) a router
 2. **Taxonomy file** — create `_Config/Taxonomy/Living/{key}.md` (use the lowercased-hyphenated key, e.g. `daily-notes.md`) with the sections listed below. Without a taxonomy the folder still registers as a type, but is flagged `configured: false` and tooling cannot validate or auto-create artefacts in it.
 3. **Template file** — create `_Config/Templates/Living/{Title}.md` (use the human-readable Title Case form, e.g. `Daily Notes.md`) with default frontmatter and a section skeleton.
 4. **Router trigger** *(optional)* — if the type should be created in response to a recurring condition, append a one-line conditional to `_Config/router.md`: `When ... → [[_Config/Taxonomy/Living/{key}]]`. Most living hubs are created reactively and don't need one. The compiler reads `_Config/router.md` for the *condition* and the taxonomy's `## Trigger` section for the *detail*; both are merged into the compiled router.
-5. **Compile router** — `python3 .brain-core/scripts/compile_router.py` regenerates the compiled router and folder-colour CSS. Until this runs, MCP tools and other consumers don't see the new type.
-6. **Validate** — `python3 .brain-core/scripts/check.py` flags missing taxonomy/template files, frontmatter inconsistencies, naming violations, parent-contract breakage, and broken wikilinks. Run with `--actionable` for fix suggestions.
+5. **Compile router** — `brain runtime refresh-router --request-json '{}' --json` regenerates the compiled router and folder-colour CSS. Until this runs, consumers do not see the new type.
+6. **Validate** — `brain vault check --request-json '{"actionable":true}' --json` flags missing taxonomy/template files, frontmatter inconsistencies, naming violations, parent-contract breakage, and broken wikilinks.
 7. **Log** — record the addition in the daily note.
 
 ## Type Identifier vs Frontmatter Type
@@ -112,7 +112,7 @@ To add a new type to brain-core for distribution, create a bundle at `artefact-l
 - **`taxonomy.md`** and **`template.md`** — the canonical content vaults install.
 - **`README.md`** — short summary for the artefact library index.
 
-Then list the new type in `artefact-library/README.md`. If the type should ship installed by default, also add the folder + router trigger to `template-vault/`. The install flow (`upgrade.py` → `sync_definitions.py` → `compile_router.py`) installs and tracks the type in target vaults; existing customisation is preserved unless `--force` is passed.
+Then list the new type in `artefact-library/README.md`. If the type should ship installed by default, also add the folder + router trigger to `template-vault/`. The checked upgrade and definition-sync owners install and track the type in target vaults; existing customisation is preserved unless explicit force policy is supplied.
 
 ## Reference
 

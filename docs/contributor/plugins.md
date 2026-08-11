@@ -23,7 +23,7 @@ Contributor skills used to work on brain-core are separate from vault plugin ski
 The plugin data folder lives at `_Plugins/{Name}/` inside the vault. Use title case for the display name, for example `Undertask`, `Bookmarks`, or `Contacts`. The folder inherits gold styling automatically.
 
 If the plugin should be discoverable through Brain's plugin resource, package a
-complete plugin definition at `_Plugins/{Name}/SKILL.md`. `brain_define` and
+complete plugin definition at `_Plugins/{Name}/SKILL.md`. `plugin.create` / `plugin.replace` and
 `brain define plugin` are the guarded authoring paths for that one file: create
 fails on an existing definition, while replace requires the SHA-256 of the
 reviewed current definition. They do not edit the plugin's other data, install

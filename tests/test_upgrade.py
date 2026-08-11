@@ -10,8 +10,16 @@ import sys
 
 import pytest
 
+REPO_ROOT = Path(__file__).resolve().parents[1]
+CLI_DIR = REPO_ROOT / "cli"
+if str(CLI_DIR) not in sys.path:
+    sys.path.insert(0, str(CLI_DIR))
+
+from _distribution import install_distribution, verify_distribution
 import migrate_to_0_53_0
 import upgrade
+from _command_interface.profile_migration import _LEGACY_BUILTIN_ALLOW
+from _common._yaml import dump_yaml_text, load_mapping_file
 from brain_test_support import write_executable as _write_executable
 
 
@@ -50,6 +58,20 @@ def _replace_vault_scripts_with_real(vault):
     scripts_dir = vault / ".brain-core" / "scripts"
     shutil.rmtree(scripts_dir)
     _copy_real_scripts(vault / ".brain-core")
+
+
+@pytest.fixture(autouse=True)
+def _isolate_global_cli_targets(tmp_path, monkeypatch):
+    """Never let upgrade unit tests inspect or replace the developer's CLI."""
+
+    monkeypatch.setattr(
+        upgrade,
+        "CLI_TARGET_LOCATIONS",
+        (
+            tmp_path / "machine" / "user" / "bin" / "brain",
+            tmp_path / "machine" / "system" / "bin" / "brain",
+        ),
+    )
 
 
 def _make_real_compile_source(tmp_path, version="0.29.1"):
@@ -114,6 +136,47 @@ def _seed_tracking(vault, type_key, taxonomy_path, version="0.18.0"):
     }
     (vault / ".brain" / "tracking.json").write_text(json.dumps(tracking, indent=2) + "\n")
     return tracking["installed"][type_key]["files"]["taxonomy"]["source_hash"]
+
+
+def test_upgrade_runner_applies_the_v055_profile_migration(tmp_path):
+    vault = tmp_path / "Brain"
+    scripts = vault / ".brain-core" / "scripts"
+    shutil.copytree(_REAL_SCRIPTS, scripts)
+    config_path = vault / ".brain" / "config.yaml"
+    config_path.parent.mkdir(parents=True)
+    config_path.write_text(
+        dump_yaml_text(
+            {
+                "vault": {
+                    "profiles": {
+                        name: {"allow": list(commands)}
+                        for name, commands in _LEGACY_BUILTIN_ALLOW.items()
+                    }
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    results, ledger = upgrade._run_migrations(
+        str(vault),
+        "0.54.59",
+        "0.55.0",
+        raise_on_error=True,
+    )
+
+    assert [(item["version"], item["status"]) for item in results] == [
+        ("0.55.0", "ok")
+    ]
+    assert "0.55.0" in ledger["migrations"]
+    profiles = load_mapping_file(config_path)["vault"]["profiles"]
+    assert {name: len(value["allow"]) for name, value in profiles.items()} == {
+        "reader": 37,
+        "contributor": 63,
+        "maintainer": 76,
+        "operator": 85,
+        "administrator": 86,
+    }
 
 
 class TestShapingLifecycleMigration:
@@ -565,7 +628,6 @@ class TestAgentSkillUpgradeFollowup:
                 ],
             },
         )
-        monkeypatch.setattr(upgrade, "_refresh_brain_cli", lambda _source: None)
         monkeypatch.setattr(
             sys,
             "argv",
@@ -612,7 +674,6 @@ class TestAgentSkillUpgradeFollowup:
                 "followups": [followup],
             },
         )
-        monkeypatch.setattr(upgrade, "_refresh_brain_cli", lambda _source: None)
         monkeypatch.setattr(
             sys,
             "argv",
@@ -952,6 +1013,122 @@ class TestPrecompileDefinitionRemediation:
 
         tracking = json.loads((vault / ".brain" / "tracking.json").read_text())
         assert tracking["installed"]["living/daily-notes"]["files"]["taxonomy"]["source_hash"] == tracked_hash
+
+    def test_cutover_callback_failure_proves_the_old_core_was_restored(self, tmp_path):
+        source = _make_real_compile_source(tmp_path, version="0.55.0")
+        vault = _make_minimal_upgrade_vault(tmp_path, version="0.54.59")
+        before = {
+            path.relative_to(vault / ".brain-core").as_posix(): path.read_bytes()
+            for path in (vault / ".brain-core").rglob("*")
+            if path.is_file()
+        }
+
+        class CheckedExternalFailure(RuntimeError):
+            rollback_verified = True
+
+        def fail_commit(_result):
+            assert (vault / ".brain-core" / "VERSION").read_text().strip() == "0.55.0"
+            raise CheckedExternalFailure("injected CLI commit failure")
+
+        result = upgrade.upgrade(
+            str(vault),
+            str(source),
+            sync=False,
+            sync_deps=False,
+            commit_callback=fail_commit,
+        )
+
+        after = {
+            path.relative_to(vault / ".brain-core").as_posix(): path.read_bytes()
+            for path in (vault / ".brain-core").rglob("*")
+            if path.is_file()
+        }
+        assert result["status"] == "error"
+        assert result["rollback_verified"] is True
+        assert result["cutover_commit"]["external_rollback_verified"] is True
+        assert before == after
+
+    def test_cutover_commits_matching_core_and_cli_without_touching_other_brain(
+        self, tmp_path
+    ):
+        source = _make_real_compile_source(tmp_path, version="0.55.0")
+        selected = _make_minimal_upgrade_vault(tmp_path, version="0.54.59")
+        other_root = tmp_path / "other"
+        other_root.mkdir()
+        other = _make_minimal_upgrade_vault(other_root, version="0.54.40")
+        other_before = {
+            path.relative_to(other).as_posix(): path.read_bytes()
+            for path in other.rglob("*")
+            if path.is_file()
+        }
+        cli_binary = tmp_path / "machine" / "bin" / "brain"
+
+        def commit_cli(_result):
+            installed = install_distribution(
+                REPO_ROOT,
+                cli_binary,
+                cli_version="2.0.0",
+                expected_brain_core_version="0.55.0",
+            )
+            return {
+                "status": "changed",
+                "cli_version": installed.cli_version,
+                "brain_core_version": installed.brain_core_version,
+                "fingerprint": installed.manifest_fingerprint,
+            }
+
+        result = upgrade.upgrade(
+            str(selected),
+            str(source),
+            sync=False,
+            sync_deps=False,
+            commit_callback=commit_cli,
+        )
+
+        other_after = {
+            path.relative_to(other).as_posix(): path.read_bytes()
+            for path in other.rglob("*")
+            if path.is_file()
+        }
+        manifest = verify_distribution(
+            tmp_path / "machine" / "lib" / "brain-cli" / "2.0.0"
+        )
+        assert result["status"] == "ok"
+        assert (selected / ".brain-core" / "VERSION").read_text().strip() == "0.55.0"
+        assert result["cutover_commit"]["cli_version"] == "2.0.0"
+        assert manifest["brain_core_version"] == "0.55.0"
+        assert other_before == other_after
+
+    def test_unverified_core_rollback_retains_recovery_backup(
+        self, tmp_path, monkeypatch
+    ):
+        source = _make_real_compile_source(tmp_path, version="0.55.0")
+        vault = _make_minimal_upgrade_vault(tmp_path, version="0.54.59")
+
+        class CheckedExternalFailure(RuntimeError):
+            rollback_verified = True
+
+        monkeypatch.setattr(
+            upgrade,
+            "_restore_brain_core",
+            lambda *_args: (_ for _ in ()).throw(OSError("injected restore failure")),
+        )
+        result = upgrade.upgrade(
+            str(vault),
+            str(source),
+            sync=False,
+            sync_deps=False,
+            commit_callback=lambda _result: (_ for _ in ()).throw(
+                CheckedExternalFailure("injected CLI commit failure")
+            ),
+        )
+
+        recovery = Path(result["rollback"]["recovery_backup"])
+        assert result["status"] == "error"
+        assert result["rollback_verified"] is False
+        assert result["rollback"]["brain_core"] == "unverified"
+        assert recovery.is_dir()
+        assert (recovery / ".brain-core" / "VERSION").read_text().strip() == "0.54.59"
 
 
 class TestPostUpgradeSyncOverrides:
@@ -1349,7 +1526,17 @@ class TestUpgradeProgressLogging:
         (old_requirements / "requirements.txt").write_text("mcp==1.0.0\n")
         log_path = vault / ".brain" / "local" / "last-upgrade.json"
 
-        def fake_upgrade(vault_root, source_arg, *, force=False, dry_run=False, sync=None, sync_deps=None):
+        def fake_upgrade(
+            vault_root,
+            source_arg,
+            *,
+            force=False,
+            dry_run=False,
+            sync=None,
+            sync_deps=None,
+            commit_callback=None,
+        ):
+            assert commit_callback is None
             result = {
                 "status": "ok",
                 "old_version": "0.35.9",
@@ -1395,7 +1582,17 @@ class TestUpgradeProgressLogging:
         vault = _make_minimal_upgrade_vault(tmp_path)
         log_path = vault / ".brain" / "local" / "last-upgrade.json"
 
-        def fake_upgrade(vault_root, source_arg, *, force=False, dry_run=False, sync=None, sync_deps=None):
+        def fake_upgrade(
+            vault_root,
+            source_arg,
+            *,
+            force=False,
+            dry_run=False,
+            sync=None,
+            sync_deps=None,
+            commit_callback=None,
+        ):
+            assert commit_callback is None
             assert sync_deps is None
             return {
                 "status": "ok",
@@ -1412,7 +1609,6 @@ class TestUpgradeProgressLogging:
             }
 
         monkeypatch.setattr(upgrade, "upgrade", fake_upgrade)
-        monkeypatch.setattr(upgrade, "_refresh_brain_cli", lambda _source: None)
         monkeypatch.setattr(
             sys,
             "argv",
@@ -1442,7 +1638,17 @@ class TestUpgradeProgressLogging:
         monkeypatch.setattr(upgrade.sys, "platform", "win32")
         monkeypatch.setattr(upgrade.sys, "executable", r"C:\Program Files\Python312\python.exe")
 
-        def fake_upgrade(vault_root, source_arg, *, force=False, dry_run=False, sync=None, sync_deps=None):
+        def fake_upgrade(
+            vault_root,
+            source_arg,
+            *,
+            force=False,
+            dry_run=False,
+            sync=None,
+            sync_deps=None,
+            commit_callback=None,
+        ):
+            assert commit_callback is None
             return {
                 "status": "ok",
                 "old_version": "0.35.9",
@@ -1467,7 +1673,6 @@ class TestUpgradeProgressLogging:
             }
 
         monkeypatch.setattr(upgrade, "upgrade", fake_upgrade)
-        monkeypatch.setattr(upgrade, "_refresh_brain_cli", lambda _source: None)
         monkeypatch.setattr(
             sys,
             "argv",
@@ -1618,34 +1823,3 @@ class TestUpgradeCliCentralRuntime:
         )
         assert second.returncode == 0, second.stderr
         assert "Reused central runtime" in second.stderr
-
-    def test_refresh_brain_cli_does_not_install_when_cli_is_absent(self, tmp_path, monkeypatch):
-        source = Path(__file__).resolve().parents[1] / "src" / "brain-core"
-        fake_home = tmp_path / "home"
-        user_cli = fake_home / ".local" / "bin" / "brain"
-        system_cli = fake_home / "usr-local" / "bin" / "brain"
-        monkeypatch.setattr(upgrade, "CLI_TARGET_LOCATIONS", (user_cli, system_cli))
-
-        result = upgrade._refresh_brain_cli(str(source))
-
-        assert result is None
-        assert not user_cli.exists()
-        assert not system_cli.exists()
-
-    def test_refresh_brain_cli_updates_existing_install_only(self, tmp_path, monkeypatch):
-        source = Path(__file__).resolve().parents[1] / "src" / "brain-core"
-        cli_source = Path(__file__).resolve().parents[1] / "cli" / "brain"
-        fake_home = tmp_path / "home"
-        user_cli = fake_home / ".local" / "bin" / "brain"
-        system_cli = fake_home / "usr-local" / "bin" / "brain"
-        user_cli.parent.mkdir(parents=True)
-        user_cli.write_text("stale\n")
-        monkeypatch.setattr(upgrade, "CLI_TARGET_LOCATIONS", (user_cli, system_cli))
-
-        result = upgrade._refresh_brain_cli(str(source))
-
-        assert result is not None
-        assert result["outcome"] == "refreshed"
-        assert result["refreshed"] == [str(user_cli)]
-        assert user_cli.read_text() == cli_source.read_text()
-        assert not system_cli.exists()

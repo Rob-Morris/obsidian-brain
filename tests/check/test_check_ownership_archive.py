@@ -344,7 +344,7 @@ class TestOwnershipChecks:
         assert len(hits) == 1
         assert hits[0]["severity"] == "warning"
         assert "folder implies `design/auth-redesign`" in hits[0]["message"]
-        assert "brain_reparent" in hits[0]["fix"]
+        assert "artefact.reparent" in hits[0]["fix"]
         assert hits[0]["repairable"] is False
 
     def test_subfolder_with_invalid_key_name_flagged_as_orphan(self, vault):

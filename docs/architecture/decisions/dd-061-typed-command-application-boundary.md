@@ -1,6 +1,6 @@
 # DD-061: Typed selected-Brain command application boundary
 
-**Status:** Implemented (v0.54.1; extended v0.54.2–v0.54.59)
+**Status:** Implemented (v0.55.0; foundation staged in v0.54.1–v0.54.59)
 **Extends:** DD-002, DD-003, DD-045, DD-049
 
 ## Context
@@ -895,8 +895,9 @@ facts.
 Pinned Claude Code 2.1.226 and Codex CLI 0.147.0 captures run the real clients
 against a localhost model endpoint and the real stdio FastMCP server. They
 record Claude's eager model declarations, Codex's deferred tool-search
-declaration and a successful minimal `brain_command_list` request through each
-client. No external model request is made.
+declaration and a successful minimal `command.list` request through each
+client. The capture also proves both clients' private underscore encoding of
+dotted MCP names. No external model request is made.
 
 The corresponding deterministic replay uses `tiktoken` 0.12.0 with
 `o200k_base`. Both complete 109-tool client projections stay below 16,384
@@ -1036,3 +1037,47 @@ is returned in a versioned transport wrapper because the original typed command
 result cannot be reconstructed; every absent, corrupt, contradictory or
 explicitly unknown outcome becomes canonical non-retryable
 `command_outcome_unknown` with the queryable reference.
+
+## v0.55.0 coordinated public cutover
+
+Brain Core 0.55.0 makes the typed application boundary the only public
+selected-Brain semantic authority. The MCP server is a catalogue-derived
+granular composition root; CLI 2 uses one noun/verb grammar and crosses into
+the selected Brain's `command.py` process; direct automation uses that same
+script; typed Python uses sealed requests through `CommandApplication`.
+
+Raw MCP tool names preserve the canonical dotted command ID exactly, such as
+`artefact.read`; the `brain` server name is not repeated in each tool. Pinned
+Claude Code and Codex clients may encode separators as underscores inside their
+model API projections, but that private boundary representation is not a Brain
+alias or a second public naming grammar.
+
+The aggregate MCP decorators, irregular CLI dispatcher, public compatibility
+scripts and permanent translation mappings are removed. Profile allow-lists
+migrate once inside the checked upgrade transaction and runtime authorisation
+accepts exact granular command names only.
+
+The final catalogue consolidates operations that differ only by target or mode:
+`document.edit` owns five edit changes across five document resources; active
+versus archived read/list is a field; definition installation and refresh share
+`type.sync`; router and lexical maintenance each use one optional-force refresh;
+and artefact repair uses an explicit scope. The resulting application catalogue
+has 86 commands and 78 MCP projections. The five cumulative shipped profiles
+cover 37/63/76/85/86 application commands for reader/contributor/maintainer/
+operator/administrator respectively; their MCP projections contain
+37/63/74/77/78 tools because eight caller-local or benchmark commands are
+intentionally not MCP-eligible.
+
+The supported-client metadata budget remains 16,384 tokens for the complete
+catalogue and 512 for ordinary tools. `document.edit` has one explicit 2,048
+token allowance because its five resource targets and five strict change
+variants are the approved cohesive interface; making those fields opaque or
+re-splitting the command merely to preserve the earlier per-leaf ceiling would
+undo the semantic consolidation. Current pinned projections remain below
+9,000 tokens in total.
+
+The independent launcher catalogue remains machine-global. Upgrade preflights
+the complete local registry, requires explicit acknowledgement of other Brains
+affected by CLI replacement, and commits Brain Core plus the versioned CLI
+distribution as one checked set. CLI 2 retains launcher recovery against an old
+Brain but refuses application discovery until that Brain reaches the cutover.

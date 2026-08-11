@@ -5,7 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Callable, Mapping
 
-from ._mutation_support import no_effect_error, operator_mutation_entry
+from ._mutation_support import mutation_entry, no_effect_error
+from .types import Authority
 from .context import InvocationContext
 from .receipts import CommittedEffect
 from .results import (
@@ -195,8 +196,13 @@ def path_changes(values) -> tuple[PathChange, ...]:
     return tuple(PathChange(item["old_path"], item["new_path"]) for item in values)
 
 
-def catalogue_entry(request_type, executor):
-    return operator_mutation_entry(request_type, executor)
+def catalogue_entry(
+    request_type,
+    executor,
+    *,
+    authority: Authority = Authority.CONTRIBUTOR,
+):
+    return mutation_entry(request_type, executor, authority)
 
 
 def _request_subject(request) -> str:

@@ -45,4 +45,4 @@ The system is self-extending. When content has no appropriate home, add a new ar
 - [Interpret user preferences and gotchas files](standards/user-preferences.md)
 
 Always:
-- Use `brain_list` (`list_artefacts.py`) not `brain_search` (`search_index.py`) when enumerating or filtering artefacts by type, date range, or tag — `brain_list` is exhaustive; `brain_search` is relevance-ranked and suited for content queries only.
+- Use `artefact.list` rather than `artefact.search` when enumerating or filtering artefacts by type, date range, or tag — list is exhaustive; search is relevance-ranked and suited to content queries.

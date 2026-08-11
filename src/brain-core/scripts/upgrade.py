@@ -19,6 +19,7 @@ Usage:
 import argparse
 import ast
 import filecmp
+import hashlib
 import importlib
 import importlib.util
 import json
@@ -29,6 +30,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+from dataclasses import asdict
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
@@ -84,7 +86,6 @@ IGNORE_FILES = {".DS_Store", "upgrade.py"}
 REQ_FILE_REL = os.path.join("brain_mcp", "requirements.txt")
 AGENT_SKILL_ADAPTER_REL = os.path.join("client-adapters", "shaping", "SKILL.md")
 VENV_HELPER_REL = os.path.join(".brain-core", "scripts", "_common", "_venv.py")
-CLI_SOURCE_REL = os.path.join("cli", "brain")
 CLI_TARGET_LOCATIONS = (
     Path.home() / ".local" / "bin" / "brain",
     Path("/usr/local/bin/brain"),
@@ -946,20 +947,23 @@ _COMPILE_TIMEOUT = 60  # seconds (longer than server's 30s startup timeout
                        # the validation gate — worth waiting longer)
 
 
-def _copytree_ignore(_dir, entries):
-    """Ignore filter for shutil.copytree — matches IGNORE_DIRS/IGNORE_FILES."""
-    return [e for e in entries if e in IGNORE_DIRS or e in IGNORE_FILES or e.endswith(".pyc")]
+def _walk_exact_tree(root: str) -> set[str]:
+    """Return every file under ``root`` for exact rollback accounting."""
+    paths = set()
+    for dirpath, _dirnames, filenames in os.walk(root):
+        for filename in filenames:
+            paths.add(os.path.relpath(os.path.join(dirpath, filename), root))
+    return paths
 
 
 def _backup_brain_core(target: str) -> str:
-    """Copy .brain-core/ to a temp directory outside the vault.
+    """Copy the exact .brain-core/ tree to a temp directory outside the vault.
 
     Returns the backup directory path. The caller is responsible for
     cleanup (success) or restore (failure).
     """
     backup_dir = tempfile.mkdtemp(prefix="brain-core-backup-")
-    shutil.copytree(target, os.path.join(backup_dir, BRAIN_CORE_DIR),
-                    ignore=_copytree_ignore)
+    shutil.copytree(target, os.path.join(backup_dir, BRAIN_CORE_DIR))
     return backup_dir
 
 
@@ -968,8 +972,8 @@ def _restore_brain_core(backup_dir: str, target: str) -> None:
     backup_src = os.path.join(backup_dir, BRAIN_CORE_DIR)
 
     # Remove files that weren't in the backup (i.e. newly added by upgrade)
-    backup_files = _walk_tree(backup_src)
-    current_files = _walk_tree(target)
+    backup_files = _walk_exact_tree(backup_src)
+    current_files = _walk_exact_tree(target)
     for rel in current_files - backup_files:
         abs_path = os.path.join(target, rel)
         try:
@@ -983,6 +987,59 @@ def _restore_brain_core(backup_dir: str, target: str) -> None:
         dst = os.path.join(target, rel)
         os.makedirs(os.path.dirname(dst), exist_ok=True)
         shutil.copy2(src, dst)
+
+    # Bytecode generation and other temporary work can leave empty directories
+    # that were not part of the old core. Remove only directories now proven
+    # empty; directories containing restored files are retained naturally.
+    for dirpath, dirnames, _filenames in os.walk(target, topdown=False):
+        for dirname in dirnames:
+            try:
+                os.rmdir(os.path.join(dirpath, dirname))
+            except OSError:
+                pass
+
+
+def _tree_fingerprint(root: str) -> str:
+    """Hash the exact file set and bytes used by upgrade rollback."""
+    digest = hashlib.sha256()
+    for rel in sorted(_walk_exact_tree(root)):
+        digest.update(rel.encode("utf-8"))
+        digest.update(b"\0")
+        with open(os.path.join(root, rel), "rb") as handle:
+            for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+                digest.update(chunk)
+        digest.update(b"\0")
+    return "sha256:" + digest.hexdigest()
+
+
+def _snapshots_verified(
+    snapshots: dict[str, dict],
+    *,
+    roots: Optional[set[str]] = None,
+) -> bool:
+    for path, state in snapshots.items():
+        if state.get("exists"):
+            try:
+                with open(path, "rb") as handle:
+                    if handle.read() != state["content"]:
+                        return False
+            except OSError:
+                return False
+        elif os.path.exists(path):
+            return False
+    for root in roots or ():
+        expected = {
+            path
+            for path, state in snapshots.items()
+            if state.get("exists") and os.path.commonpath((root, path)) == root
+        }
+        actual = set()
+        if os.path.exists(root):
+            for dirpath, _dirnames, filenames in os.walk(root):
+                actual.update(os.path.join(dirpath, name) for name in filenames)
+        if actual != expected:
+            return False
+    return True
 
 
 def _write_upgrade_log(vault_root: str, result: dict) -> None:
@@ -1267,43 +1324,91 @@ def _ensure_machine_resolution_runtime(vault_root: Path) -> dict:
     }
 
 
-def _refresh_brain_cli(source: str) -> Optional[dict]:
-    """Refresh the `brain` CLI binary at known locations from the upgrade source.
+def _prepare_cli_cutover(
+    vault_root: Path,
+    source: Path,
+    *,
+    acknowledge_global_cli_cutover: bool,
+    excluded_stale_brain_ids: tuple[str, ...],
+) -> dict | None:
+    """Build the complete-registry plan for an installed global CLI."""
 
-    Idempotent. Refreshes any existing `~/.local/bin/brain` and `/usr/local/bin/brain`
-    binaries from `<source>/../../cli/brain`. Does nothing when no CLI is
-    already installed: CLI install remains an explicit installer/user choice,
-    not a side effect of vault upgrade. Returns a summary or None when the
-    source clone does not ship `cli/brain` (older sources) or when no CLI
-    targets exist.
-    """
-    cli_source = Path(source).parent.parent / CLI_SOURCE_REL
-    if not cli_source.is_file():
+    targets = [path for path in CLI_TARGET_LOCATIONS if path.is_file()]
+    if not targets:
         return None
+    if len(targets) != 1:
+        raise ValueError(
+            "multiple global Brain CLI installations exist; retain exactly one "
+            "before the coordinated cutover"
+        )
+    target = targets[0]
+    repo_root = source.resolve().parent.parent
+    cli_root = repo_root / "cli"
+    if not (cli_root / "_distribution.py").is_file():
+        raise ValueError("breaking Brain upgrade requires the complete CLI 2 distribution")
+    if str(cli_root) not in sys.path:
+        sys.path.insert(0, str(cli_root))
+    from _launcher.cutover import preflight
 
-    existing = [t for t in CLI_TARGET_LOCATIONS if t.is_file()]
-    if not existing:
-        return None
-    targets = existing
+    catalogue = json.loads((source / "command-catalogue.json").read_text(encoding="utf-8"))
+    epoch = catalogue.get("interface_epoch")
+    if not isinstance(epoch, int) or isinstance(epoch, bool) or epoch < 1:
+        raise ValueError("source command catalogue has an invalid interface epoch")
+    protocol_text = (source / "brain_mcp" / "_interface_protocol.py").read_text(
+        encoding="utf-8"
+    )
+    protocol_match = re.search(
+        r"^PROXY_PROTOCOL = ([0-9]+)$", protocol_text, re.MULTILINE
+    )
+    if protocol_match is None:
+        raise ValueError("source proxy protocol declaration is invalid")
+    source_version = _read_version(str(source))
+    if source_version is None:
+        raise ValueError("source Brain Core version is missing")
+    cli_text = target.read_text(encoding="utf-8")
+    version_match = re.search(
+        r'^BRAIN_CLI_VERSION="([0-9]+\.[0-9]+\.[0-9]+)"$',
+        cli_text,
+        re.MULTILINE,
+    )
+    if version_match is None:
+        raise ValueError(
+            f"installed Brain CLI version is unclassifiable: {target}"
+        )
+    old_cli_version = version_match.group(1)
+    report = preflight(
+        selected_vault=vault_root,
+        source_brain_core_version=source_version,
+        old_cli_version=old_cli_version,
+        new_cli_version="2.0.0",
+        interface_epoch=epoch,
+        proxy_protocol=int(protocol_match.group(1)),
+        acknowledge_global_cli_cutover=acknowledge_global_cli_cutover,
+        excluded_stale_brain_ids=excluded_stale_brain_ids,
+    )
+    return {
+        "target": target,
+        "repo_root": repo_root,
+        "source_version": source_version,
+        "preflight": report,
+    }
 
-    refreshed: list[str] = []
-    errors: list[dict] = []
-    for target in targets:
-        try:
-            target.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copyfile(str(cli_source), str(target))
-            os.chmod(str(target), 0o755)
-            refreshed.append(str(target))
-        except OSError as e:
-            errors.append({"target": str(target), "message": str(e)})
 
-    summary: dict = {"source": str(cli_source), "refreshed": refreshed}
-    if errors:
-        summary["outcome"] = "error"
-        summary["errors"] = errors
-    else:
-        summary["outcome"] = "refreshed"
-    return summary
+def _commit_cli_cutover(plan: dict) -> dict:
+    from _distribution import install_distribution
+
+    installed = install_distribution(
+        plan["repo_root"],
+        plan["target"],
+        cli_version="2.0.0",
+        expected_brain_core_version=plan["source_version"],
+    )
+    return {
+        "status": "committed",
+        "cli_binary": str(installed.cli_binary),
+        "distribution_root": str(installed.distribution_root),
+        "manifest_fingerprint": installed.manifest_fingerprint,
+    }
 
 
 def _load_post_upgrade_semantic_config(vault_root: Path):
@@ -1486,6 +1591,7 @@ def upgrade(
     dry_run: bool = False,
     sync: Optional[bool] = None,
     sync_deps: Optional[bool] = None,
+    commit_callback=None,
 ) -> dict:
     """Upgrade .brain-core/ in a vault from a source directory.
 
@@ -1505,6 +1611,9 @@ def upgrade(
             None=follow preference).
         sync_deps: Override post-upgrade central-runtime sync behaviour
             (True=force, False=skip, None=follow requirements change).
+        commit_callback: Optional local cutover callback executed after core,
+            compile and migrations validate but before rollback material is
+            released. Raising requests a checked core rollback.
 
     Returns:
         Dict with status, version info, and file change lists.
@@ -1598,7 +1707,18 @@ def upgrade(
     )
 
     # --- Backup .brain-core/ before modifying anything ---
+    old_core_fingerprint = _tree_fingerprint(target)
     backup_dir = _backup_brain_core(target)
+    backup_core = os.path.join(backup_dir, BRAIN_CORE_DIR)
+    if _tree_fingerprint(backup_core) != old_core_fingerprint:
+        shutil.rmtree(backup_dir, ignore_errors=True)
+        return {
+            "status": "error",
+            "old_version": old_version,
+            "new_version": new_version,
+            "message": "Upgrade refused — Brain Core backup verification failed.",
+            "rollback_verified": True,
+        }
 
     precompile_snapshots: dict[str, dict] = {}
     precompile_snapshot_roots: set[str] = set()
@@ -1606,17 +1726,52 @@ def upgrade(
     postcompile_snapshot_roots: set[str] = set()
 
     def _rollback(msg, *, migration_result: Optional[dict] = None):
-        if precompile_snapshots:
-            _restore_snapshots(precompile_snapshots, roots=precompile_snapshot_roots)
-        if postcompile_snapshots:
-            _restore_snapshots(postcompile_snapshots, roots=postcompile_snapshot_roots)
-        _restore_brain_core(backup_dir, target)
-        shutil.rmtree(backup_dir, ignore_errors=True)
+        restore_errors = []
+        for snapshots, roots, label in (
+            (precompile_snapshots, precompile_snapshot_roots, "pre-compile state"),
+            (postcompile_snapshots, postcompile_snapshot_roots, "post-compile state"),
+        ):
+            if not snapshots:
+                continue
+            try:
+                _restore_snapshots(snapshots, roots=roots)
+            except Exception as exc:
+                restore_errors.append(f"{label}: {exc}")
+        try:
+            _restore_brain_core(backup_dir, target)
+        except Exception as exc:
+            restore_errors.append(f"Brain Core: {exc}")
+        try:
+            core_verified = _tree_fingerprint(target) == old_core_fingerprint
+        except OSError as exc:
+            restore_errors.append(f"Brain Core verification: {exc}")
+            core_verified = False
+        snapshots_verified = _snapshots_verified(
+            precompile_snapshots,
+            roots=precompile_snapshot_roots,
+        ) and _snapshots_verified(
+            postcompile_snapshots,
+            roots=postcompile_snapshot_roots,
+        )
+        rollback_verified = not restore_errors and core_verified and snapshots_verified
+        if rollback_verified:
+            shutil.rmtree(backup_dir, ignore_errors=True)
         err_result = {
             "status": "error",
             "old_version": old_version,
             "new_version": new_version,
-            "message": f"Upgrade rolled back — {msg}",
+            "message": (
+                f"Upgrade rolled back — {msg}"
+                if rollback_verified
+                else f"Upgrade rollback is incomplete or unverified — {msg}"
+            ),
+            "rollback_verified": rollback_verified,
+            "rollback": {
+                "brain_core": "restored" if core_verified else "unverified",
+                "vault_state": "restored" if snapshots_verified else "unverified",
+                "recovery_backup": None if rollback_verified else backup_dir,
+                "errors": restore_errors,
+            },
         }
         if migration_result is not None:
             err_result["migration_result"] = migration_result
@@ -1740,6 +1895,20 @@ def upgrade(
         result["migrations"] = migrations
     if _all_migrations_recorded(vault_root, new_version, ledger=ledger):
         _write_migrated_version_marker(vault_root, new_version)
+
+    if commit_callback is not None:
+        try:
+            result["cutover_commit"] = commit_callback(result)
+        except Exception as exc:
+            rolled_back = _rollback(f"coordinated cutover commit failed: {exc}")
+            rolled_back["cutover_commit"] = {
+                "status": "error",
+                "message": str(exc),
+                "external_rollback_verified": getattr(
+                    exc, "rollback_verified", None
+                ),
+            }
+            return rolled_back
 
     shutil.rmtree(backup_dir, ignore_errors=True)
 
@@ -1867,6 +2036,23 @@ def main() -> None:
         "--no-sync-deps", action="store_const", const=False, dest="sync_deps",
         help="Skip central managed runtime sync after upgrade",
     )
+    parser.add_argument(
+        "--acknowledge-global-cli-cutover",
+        action="store_true",
+        help="Acknowledge every classified pre-cutover Brain named by preflight.",
+    )
+    parser.add_argument(
+        "--exclude-stale-brain",
+        action="append",
+        default=[],
+        metavar="BRAIN_ID",
+        help="Explicitly exclude one stale registry entry from global CLI cutover scope.",
+    )
+    parser.add_argument(
+        "--unattended",
+        action="store_true",
+        help="Refuse any confirmation prompt; all required acknowledgements must be explicit.",
+    )
     args = parser.parse_args()
 
     try:
@@ -1875,6 +2061,33 @@ def main() -> None:
         fatal(str(e))
 
     source = str(Path(args.source).resolve())
+    try:
+        cutover = _prepare_cli_cutover(
+            Path(vault_root),
+            Path(source),
+            acknowledge_global_cli_cutover=True,
+            excluded_stale_brain_ids=tuple(args.exclude_stale_brain),
+        )
+    except (OSError, ValueError) as exc:
+        fatal(f"CLI cutover preflight failed: {exc}")
+    if cutover is not None:
+        affected = cutover["preflight"].affected_brain_ids
+        if affected and not args.acknowledge_global_cli_cutover:
+            print(
+                "The global CLI 2 replacement leaves these registered Brains on "
+                "launcher-only recovery until each is upgraded:",
+                file=sys.stderr,
+            )
+            for brain_id in affected:
+                print(f"  - {brain_id}", file=sys.stderr)
+            if args.unattended or not sys.stdin.isatty():
+                fatal(
+                    "rerun with --acknowledge-global-cli-cutover after reviewing "
+                    "the affected Brain IDs"
+                )
+            response = input("Proceed with this exact global CLI cutover? [y/N]: ")
+            if response.casefold() != "y":
+                fatal("global CLI cutover was not acknowledged")
     result = upgrade(
         str(vault_root),
         source,
@@ -1882,11 +2095,15 @@ def main() -> None:
         dry_run=args.dry_run,
         sync=args.sync,
         sync_deps=args.sync_deps,
+        commit_callback=(
+            None
+            if args.dry_run or cutover is None
+            else lambda _result: _commit_cli_cutover(cutover)
+        ),
     )
+    if cutover is not None:
+        result["cutover_preflight"] = asdict(cutover["preflight"])
     if result["status"] == "ok" and not args.dry_run:
-        cli_refresh = _refresh_brain_cli(source)
-        if cli_refresh is not None:
-            result["cli_refresh"] = cli_refresh
         _write_upgrade_log(str(vault_root), result)
 
     if args.json_output:

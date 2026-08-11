@@ -704,6 +704,50 @@ def test_upgrade_non_interactive_does_not_pass_force_to_upgrade_script(tmp_path)
     assert "--no-sync-deps" in (target / "upgrade-args.txt").read_text()
 
 
+def test_upgrade_wrapper_preserves_repeated_stale_brain_exclusions(tmp_path):
+    source = tmp_path / "source"
+    source.mkdir()
+    _copy_source_checkout(source)
+
+    (source / "src" / "brain-core" / "VERSION").write_text("1.0.1\n")
+    (source / "src" / "brain-core" / "scripts" / "upgrade.py").write_text(
+        "import json, sys\n"
+        "from pathlib import Path\n"
+        "args = sys.argv[1:]\n"
+        "vault = Path(args[args.index('--vault') + 1])\n"
+        "(vault / 'upgrade-args.json').write_text(json.dumps(args))\n"
+    )
+    target = tmp_path / "vault"
+    (target / ".brain-core").mkdir(parents=True)
+    (target / ".brain-core" / "VERSION").write_text("1.0.0\n")
+
+    result = subprocess.run(
+        [
+            "bash",
+            "install.sh",
+            "--non-interactive",
+            "--skip-mcp",
+            "--exclude-stale-brain",
+            "stale-a",
+            "--exclude-stale-brain",
+            "stale-b",
+            str(target),
+        ],
+        cwd=source,
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+
+    assert result.returncode == 0, result.stderr
+    args = json.loads((target / "upgrade-args.json").read_text())
+    assert [
+        args[index + 1]
+        for index, arg in enumerate(args)
+        if arg == "--exclude-stale-brain"
+    ] == ["stale-a", "stale-b"]
+
+
 def test_upgrade_wrapper_uses_resolved_managed_python(tmp_path):
     source = tmp_path / "source"
     source.mkdir()

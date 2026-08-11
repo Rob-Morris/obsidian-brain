@@ -22,6 +22,7 @@ from _application.types import (
     DependencyTier,
     EffectClass,
     SnapshotFreshness,
+    validate_command_id,
 )
 
 
@@ -42,7 +43,7 @@ class BoundProvider:
 
 @dataclass(frozen=True, slots=True)
 class ProfileAuthority:
-    """Enforce one authenticated profile's granular MCP-equivalent allow-list."""
+    """Enforce one authenticated profile's canonical command allow-list."""
 
     profile: str
     allowed_tools: frozenset[str]
@@ -50,8 +51,13 @@ class ProfileAuthority:
     def __post_init__(self) -> None:
         if not self.profile.strip():
             raise ValueError("profile authority requires a profile name")
-        if any(not tool.startswith("brain_") for tool in self.allowed_tools):
-            raise ValueError("profile authority accepts only canonical Brain MCP tool names")
+        try:
+            for tool in self.allowed_tools:
+                validate_command_id(tool)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(
+                "profile authority accepts only canonical Brain MCP tool names"
+            ) from exc
 
     def allows(
         self,

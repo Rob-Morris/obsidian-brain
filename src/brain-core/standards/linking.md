@@ -18,7 +18,7 @@ Path-qualified links like `[[Wiki/My Page]]` match only if the file sits at that
 **Use basename-only links by default.** They survive folder moves, archiving, and subfolder reorganisation.
 
 - **Temporal artefacts**: always basename. Dated filenames (`20260329-decision~JWT Refresh Strategy`) are naturally unique across the vault.
-- **Living artefacts**: basename by default. `brain_create` auto-disambiguates collisions (see below).
+- **Living artefacts**: basename by default. `artefact.create` auto-disambiguates collisions (see below).
 - **Path-qualified links**: avoid. They break when files move into subfolders, get archived, or get reorganised.
 
 ## Documentation Link Policy
@@ -36,7 +36,7 @@ This keeps source docs readable in the repo, keeps bootstrap instructions transp
 
 A collision happens when two files share the same basename (e.g. `Wiki/JWT Refresh.md` and `Ideas/JWT Refresh.md`). Every `[[JWT Refresh]]` link becomes ambiguous — Obsidian picks whichever is "closest", which may not be what the author intended.
 
-**Automatic disambiguation for new artefacts:** `brain_create` handles collisions automatically:
+**Automatic disambiguation for new artefacts:** `artefact.create` handles collisions automatically:
 
 - **Cross-folder** (same basename in a different type folder): appends the type key — `JWT Refresh (ideas).md`. Links use the full name: `[[JWT Refresh (ideas)]]`.
 - **Same-folder** (duplicate title in the same type): appends a random 3-character suffix — `JWT Refresh k7f.md`.
@@ -62,7 +62,7 @@ The compliance checker (`scripts/check.py`) detects:
 
 ## For Agents Without MCP Tools
 
-If you're working with the vault directly (no `brain_create` / `brain_action` tools):
+If you're working with the vault directly (without granular Brain commands):
 
 1. Before creating a file, search for existing files with the same basename
 2. When linking, use the basename only — don't include folder paths

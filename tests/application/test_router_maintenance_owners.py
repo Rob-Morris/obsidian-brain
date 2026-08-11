@@ -7,8 +7,7 @@ import pytest
 from _application._router_maintenance import RouterMaintenanceStatus
 from _application.registry import current_application_catalogue, current_request_resolver
 from _application.results import ErrorCode
-from _application.runtime.rebuild_router import RuntimeRebuildRouterRequest
-from _application.runtime.repair_router import RuntimeRepairRouterRequest
+from _application.runtime.refresh_router import RuntimeRefreshRouterRequest
 from _application.types import Authority, EffectClass, RetryClass
 from _portable import router_maintenance
 from command_application import application_for
@@ -19,7 +18,7 @@ ROUTER_PATH = ".brain/local/compiled-router.json"
 
 def test_router_repair_is_noop_when_cache_is_fresh(command_vault_clone):
     result = application_for(command_vault_clone.vault_root).invoke(
-        RuntimeRepairRouterRequest()
+        RuntimeRefreshRouterRequest()
     )
 
     assert result.status == "ok"
@@ -43,7 +42,7 @@ def test_router_repair_rebuilds_stale_cache_and_clears_sidecars(
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text("stale")
 
-    result = application_for(root).invoke(RuntimeRepairRouterRequest())
+    result = application_for(root).invoke(RuntimeRefreshRouterRequest())
 
     assert result.status == "ok"
     assert result.result.status is RouterMaintenanceStatus.CHANGED
@@ -57,14 +56,14 @@ def test_router_repair_rebuilds_stale_cache_and_clears_sidecars(
 
 def test_router_rebuild_is_explicit_even_when_cache_is_fresh(command_vault_clone):
     result = application_for(command_vault_clone.vault_root).invoke(
-        RuntimeRebuildRouterRequest()
+        RuntimeRefreshRouterRequest(force=True)
     )
 
     assert result.status == "ok"
     assert result.result.status is RouterMaintenanceStatus.CHANGED
     assert result.result.reason == "explicit-rebuild"
     assert result.result.forced is True
-    assert result.committed_effects[0].kind == "runtime.rebuild-router"
+    assert result.committed_effects[0].kind == "runtime.refresh-router"
 
 
 def test_router_rebuild_dry_run_plans_without_writing(command_vault_clone):
@@ -72,7 +71,7 @@ def test_router_rebuild_dry_run_plans_without_writing(command_vault_clone):
     before = (root / ROUTER_PATH).read_bytes()
 
     result = application_for(root, dry_run=True).invoke(
-        RuntimeRebuildRouterRequest()
+        RuntimeRefreshRouterRequest(force=True)
     )
 
     assert result.status == "ok"
@@ -90,7 +89,7 @@ def test_router_refresh_failure_is_known_partial(command_vault_clone, monkeypatc
     )
 
     result = application_for(command_vault_clone.vault_root).invoke(
-        RuntimeRebuildRouterRequest()
+        RuntimeRefreshRouterRequest(force=True)
     )
 
     assert result.status == "partial"
@@ -109,30 +108,22 @@ def test_router_post_commit_failure_is_honestly_unknown(
         raise OSError("sidecar cleanup failed after router write")
 
     monkeypatch.setattr(router_maintenance, "clear_embeddings_outputs", fail_after_router_write)
-    result = application_for(root).invoke(RuntimeRebuildRouterRequest())
+    result = application_for(root).invoke(RuntimeRefreshRouterRequest(force=True))
 
     assert result.error.code is ErrorCode.COMMAND_OUTCOME_UNKNOWN
     assert result.effects == "unknown"
     assert (root / ROUTER_PATH).is_file()
 
 
-@pytest.mark.parametrize(
-    ("command_id", "request_type"),
-    (
-        ("runtime.rebuild-router", RuntimeRebuildRouterRequest),
-        ("runtime.repair-router", RuntimeRepairRouterRequest),
-    ),
-)
-def test_router_maintenance_transports_are_strict_operator_commands(
-    command_id,
-    request_type,
-):
-    request = current_request_resolver().resolve(command_id, {})
+def test_router_maintenance_transport_is_a_strict_maintainer_command():
+    command_id = "runtime.refresh-router"
+    request = current_request_resolver().resolve(command_id, {"force": True})
     entry = current_application_catalogue().resolve(request)
 
-    assert type(request) is request_type
-    assert entry.authority is Authority.OPERATOR
+    assert type(request) is RuntimeRefreshRouterRequest
+    assert request.force is True
+    assert entry.authority is Authority.MAINTAINER
     assert entry.effect_class is EffectClass.SELECTED_BRAIN_MUTATION
     assert entry.retry_class is RetryClass.RECEIPT_REQUIRED
     with pytest.raises(ValueError, match="unexpected fields"):
-        current_request_resolver().resolve(command_id, {"force": True})
+        current_request_resolver().resolve(command_id, {"rebuild": True})

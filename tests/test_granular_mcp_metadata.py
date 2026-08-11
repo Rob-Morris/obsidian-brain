@@ -7,6 +7,8 @@ from pathlib import Path
 
 from granular_mcp_metadata import (
     CAPTURE_PATH,
+    COMPACT_TOOL_TOKENS,
+    LARGE_TOOL_ALLOWLIST,
     MAX_CATALOGUE_TOKENS,
     MAX_TOOL_TOKENS,
     SUPPORTED_CLIENTS,
@@ -34,7 +36,7 @@ def test_supported_client_projections_obey_release_token_ceilings():
         "full_catalogue_tokens": MAX_CATALOGUE_TOKENS,
     }
     assert set(capture["clients"]) == set(SUPPORTED_CLIENTS)
-    assert capture["raw_fastmcp"]["tool_count"] == 109
+    assert capture["raw_fastmcp"]["tool_count"] == 78
     for client, expected in SUPPORTED_CLIENTS.items():
         projected = capture["clients"][client]
         assert {
@@ -46,9 +48,14 @@ def test_supported_client_projections_obey_release_token_ceilings():
                 "projector_source",
             )
         } == expected
-        assert projected["tool_count"] == 109
+        assert projected["tool_count"] == 78
         assert projected["tokens"] <= MAX_CATALOGUE_TOKENS
         assert projected["maximum_tool_tokens"] <= MAX_TOOL_TOKENS
+        assert {
+            name
+            for name, metadata in projected["tools"].items()
+            if metadata["tokens"] > COMPACT_TOOL_TOKENS
+        } <= LARGE_TOOL_ALLOWLIST
         assert all(
             item["tokens"] <= MAX_TOOL_TOKENS
             for item in projected["tools"].values()

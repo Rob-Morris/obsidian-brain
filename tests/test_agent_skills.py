@@ -47,7 +47,8 @@ def test_install_configures_both_clients_from_one_adapter(tmp_path):
         content = (skill_dir / "SKILL.md").read_text()
         marker = json.loads((skill_dir / agent_skills.MARKER_FILE).read_text())
         assert content == ADAPTER_CONTENT
-        assert "brain_session" in content
+        assert "session.start" in content
+        assert "vault.read-file" in content
         assert '.brain-core/skills/shaping/SKILL.md' in content
         assert "start-shaping" not in content
         assert marker == _marker_for(content)

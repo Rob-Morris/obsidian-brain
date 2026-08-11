@@ -1,15 +1,10 @@
 #!/usr/bin/env python3
-"""
-edit.py — Edit, append, or prepend to vault artefacts and _Config/ resources.
+"""Internal document and lifecycle mutation semantics.
 
-Validates paths against the compiled router, then modifies file content
-with frontmatter preservation. Also provides artefact type conversion.
-
-Usage:
-    python3 edit.py edit --path "Wiki/my-page.md" --target ":body" --scope "section" --body "New body"
-    python3 edit.py append --path "Wiki/my-page.md" --target "## Notes" --scope "body" --body "Appended text"
-    python3 edit.py prepend --path "Wiki/my-page.md" --target ":body" --scope "intro" --body "Before existing"
-    python3 edit.py edit --path "Wiki/my-page.md" --target "## Notes" --scope "body" --within "# API" --within-occurrence 2 --body "New body" --vault /path --json
+Validates paths against the compiled router, then modifies file content with
+frontmatter preservation. It also provides artefact lifecycle and conversion
+semantics. Public callers use granular commands through ``command.py``; the
+parser retained here is an internal maintenance and repository-test entry point.
 """
 
 import argparse
@@ -214,19 +209,6 @@ def _format_scope_help(kind, valid_scopes):
         else:
             lines.append(f"  scope='{scope_name}'")
     return "\n".join(lines)
-
-
-def brain_edit_scope_description():
-    """Shared MCP-facing description of the public scope contract."""
-    return (
-        "Mutable range inside target. Required for edit/append/prepend; not "
-        "allowed for delete_section. ':body' -> 'section' (whole body) | "
-        "'intro' (before first heading); heading -> 'section' (heading + "
-        "subtree) | 'body' (content under heading) | 'intro' (before first "
-        "child heading, else whole body) | 'heading' (line-only, edit-only); callout -> "
-        "'section' (whole callout) | 'body' (content under header) | "
-        "'header' (line-only, edit-only)."
-    )
 
 
 class ScopeValidationError(ValueError):
@@ -720,9 +702,9 @@ def _apply_body_operation(existing_body, operation, body, *, target=None,
 EDITABLE_RESOURCES = RESOURCE_KINDS
 
 _LIFECYCLE_FIELD_COMMANDS = {
-    "parent": "brain_reparent",
-    "key": "brain_set_key",
-    "status": "brain_set_status",
+    "parent": "artefact.reparent",
+    "key": "artefact.set-key",
+    "status": "artefact.set-status",
 }
 
 
@@ -730,7 +712,7 @@ def handler_owned_frontmatter_fields(art):
     """Map protected metadata fields to their explicit public command."""
     result = dict(_LIFECYCLE_FIELD_COMMANDS)
     for field in naming_driver_fields((art or {}).get("naming")):
-        result.setdefault(field, "brain_set_naming_field")
+        result.setdefault(field, "artefact.set-naming-field")
     return result
 
 
@@ -744,7 +726,7 @@ def _reject_handler_owned_frontmatter(art, changes):
     field = protected[0]
     raise ValueError(
         f"frontmatter.{field} is lifecycle-owned and cannot be changed with "
-        f"brain_edit. Use {handlers[field]} so Brain can preflight and preserve "
+        f"document.edit. Use {handlers[field]} so Brain can preflight and preserve "
         "derived paths, ownership, links, and indexes."
     )
 
@@ -941,12 +923,12 @@ def edit_resource(vault_root, router, resource="artefact", operation="edit",
 
     if resource not in EDITABLE_RESOURCES:
         raise ValueError(
-            f"Resource '{resource}' is not editable via brain_edit. "
+            f"Resource '{resource}' is not editable via document.edit. "
             f"Editable resources: {', '.join(EDITABLE_RESOURCES)}"
         )
 
     if not name:
-        raise ValueError(f"brain_edit(resource='{resource}') requires name.")
+        raise ValueError(f"document.edit for resource '{resource}' requires a reference.")
 
     # Resolve and read config resource
     rel_path = config_resource_rel_path(router, resource, name)

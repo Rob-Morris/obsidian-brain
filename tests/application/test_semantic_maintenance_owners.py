@@ -153,16 +153,25 @@ def test_semantic_commands_fail_preflight_without_managed_provider(command_vault
 
 
 @pytest.mark.parametrize(
-    ("command_id", "request_type"),
+    ("command_id", "request_type", "authority"),
     (
-        ("retrieval.enable", RetrievalEnableRequest),
-        ("retrieval.rebuild-semantic", RetrievalRebuildSemanticRequest),
-        ("retrieval.repair-semantic", RetrievalRepairSemanticRequest),
+        ("retrieval.enable", RetrievalEnableRequest, Authority.OPERATOR),
+        (
+            "retrieval.rebuild-semantic",
+            RetrievalRebuildSemanticRequest,
+            Authority.MAINTAINER,
+        ),
+        (
+            "retrieval.repair-semantic",
+            RetrievalRepairSemanticRequest,
+            Authority.OPERATOR,
+        ),
     ),
 )
 def test_semantic_transports_are_strict_managed_operator_commands(
     command_id,
     request_type,
+    authority,
 ):
     request = current_request_resolver().resolve(command_id, {})
     entry = current_application_catalogue().resolve(request)
@@ -170,7 +179,7 @@ def test_semantic_transports_are_strict_managed_operator_commands(
     assert type(request) is request_type
     assert entry.dependency_tier is DependencyTier.MANAGED
     assert entry.required_providers == ("semantic_runtime",)
-    assert entry.authority is Authority.OPERATOR
+    assert entry.authority is authority
     assert entry.effect_class is EffectClass.SELECTED_BRAIN_MUTATION
     assert entry.retry_class is RetryClass.RECEIPT_REQUIRED
     with pytest.raises(ValueError, match="unexpected fields"):

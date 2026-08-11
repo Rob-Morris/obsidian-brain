@@ -31,7 +31,7 @@ def benchmark_entry(request_type, executor, *, mutation: bool):
         locality=Locality.SELECTED_BRAIN_LOCAL,
         required_providers=(),
         optional_providers=(),
-        authority=Authority.OPERATOR,
+        authority=Authority.MAINTAINER,
         effect_class=(
             EffectClass.SELECTED_BRAIN_MUTATION
             if mutation

@@ -3,6 +3,10 @@
 **Status:** Implemented (v0.53.0)
 **Extends:** DD-024, DD-045, DD-056
 
+**Cutover note (v0.55.0):** DD-061 retires the temporary
+`start_shaping.py` compatibility launcher. The session primitive remains, and
+public direct-script callers now use `command.py shaping start`.
+
 ## Context
 
 The public `start-shaping` action both commenced and continued shaping sessions. Its name described only the first transition, while its implementation accepted presentation concerns such as a transcript title and skill selector. The shaping skills separately chose the conversational workflow, but their routing depended on hard-coded type lists and repeated lifecycle writes that could bypass the invariant-preserving handlers established by DD-056.
@@ -26,7 +30,7 @@ Resolve the transcript folder, filename, date source, frontmatter type, and
 template from the compiled `temporal/shaping-transcript` taxonomy. The session
 primitive owns no parallel naming convention.
 
-Retain `start_shaping.py` only as a direct-script compatibility launcher. The old MCP action discriminator is removed because the public contract is pre-1.0 and internal callers ship with the same release.
+Retain `start_shaping.py` temporarily as a direct-script compatibility launcher. The old MCP action discriminator is removed because the public contract is pre-1.0 and internal callers ship with the same release. DD-061 later removes that launcher at the coordinated command-interface cutover.
 
 ## Alternatives Considered
 
@@ -49,7 +53,7 @@ Rejected because those are deterministic integrity operations. Keeping them in p
 - New shapeable types opt in through taxonomy metadata without editing skill routing lists.
 - Lifecycle hooks, terminal-folder revival, index dirtying, and partial-apply reporting use their canonical seams.
 - External MCP callers using `start-shaping`, `title`, or `skill_type` must migrate to `shape`, `target`, and a required `mode`.
-- Direct script callers retain a compatibility path while the legacy surface is phased out.
+- Direct script callers retained a compatibility path until DD-061 completed the phase-out in v0.55.0.
 
 ## Implementation Notes
 

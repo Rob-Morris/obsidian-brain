@@ -89,7 +89,7 @@ def test_workspace_mutations_have_one_caller_local_contract(
     assert entry.locality is Locality.CALLER_LOCAL
     assert entry.required_providers == ("caller_filesystem",)
     assert entry.optional_providers == ()
-    assert entry.authority is Authority.CONTRIBUTOR
+    assert entry.authority is Authority.OPERATOR
     assert entry.effect_class is EffectClass.CALLER_LOCAL_MUTATION
     assert entry.retry_class is RetryClass.RECEIPT_REQUIRED
     assert entry.eligible_projections == (

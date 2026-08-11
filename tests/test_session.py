@@ -65,13 +65,13 @@ class TestBuildSessionModel:
             "schema": "brain.command-catalogue/1",
             "interface_epoch": 1,
             "static_fingerprint": (
-                "sha256:8233579798fa5493ad1413fd5bbaf43bd79dd30cabe33f3dea417965f6a60edf"
+                "sha256:bc226ef447da360f967591afd3b801f17a9d3821e2b3b79add70ba35dff03b05"
             ),
-            "installed_application_command_count": 117,
+            "installed_application_command_count": 86,
             "brain_core_version": "0.25.0",
-            "list": "Use brain_command_list for filtered, paginated commands.",
+            "list": "Use command.list for filtered, paginated commands.",
             "describe": (
-                "Use brain_command_describe for one complete command contract."
+                "Use command.describe for one complete command contract."
             ),
         }
         assert len(json.dumps(route, separators=(",", ":")).encode("utf-8")) <= 512
@@ -112,9 +112,8 @@ class TestBuildSessionModel:
                         "title": "Extend the vault",
                         "path": ".brain-core/standards/extending/README.md",
                         "load_with": {
-                            "tool": "brain_read",
-                            "resource": "file",
-                            "name": ".brain-core/standards/extending/README.md",
+                            "tool": "vault.read-file",
+                            "path": ".brain-core/standards/extending/README.md",
                         },
                     }
                 ],
@@ -126,9 +125,8 @@ class TestBuildSessionModel:
                         "title": "Track provenance",
                         "path": ".brain-core/standards/provenance.md",
                         "load_with": {
-                            "tool": "brain_read",
-                            "resource": "file",
-                            "name": ".brain-core/standards/provenance.md",
+                            "tool": "vault.read-file",
+                            "path": ".brain-core/standards/provenance.md",
                         },
                     }
                 ],
@@ -154,8 +152,8 @@ class TestBuildSessionModel:
             "binding_status": "not configured",
             "purpose": "Configure a local folder as a Brain workspace.",
             "command": (
-                "brain configure workspace binding "
-                "--path <absolute-local-workspace-path>"
+                "brain workspace bind --workspace <absolute-local-workspace-path> "
+                "--request-json '{}'"
             ),
             "selection": (
                 "Run on the agent's local machine. If the intended Brain is "
@@ -183,8 +181,8 @@ class TestBuildSessionModel:
         )
         assert model["workspace_configuration"]["surface"] == "local CLI"
         assert model["workspace_configuration"]["command"] == (
-            "brain configure workspace binding "
-            "--path <absolute-local-workspace-path>"
+            "brain workspace bind --workspace <absolute-local-workspace-path> "
+            "--request-json '{}'"
         )
 
     def test_workspace_configuration_does_not_embed_server_paths(self, tmp_path):
@@ -199,8 +197,8 @@ class TestBuildSessionModel:
         )
 
         assert model["workspace_configuration"]["command"] == (
-            "brain configure workspace binding "
-            "--path <absolute-local-workspace-path>"
+            "brain workspace bind --workspace <absolute-local-workspace-path> "
+            "--request-json '{}'"
         )
         assert str(vault_root) not in model["workspace_configuration"]["command"]
         assert str(workspace_dir) not in model["workspace_configuration"]["command"]
@@ -366,8 +364,8 @@ class TestSessionCli:
         assert "## Workspace Configuration" in content
         assert "`surface`: `local CLI`" in content
         assert (
-            "brain configure workspace binding "
-            "--path <absolute-local-workspace-path>"
+            "brain workspace bind --workspace <absolute-local-workspace-path> "
+            "--request-json '{}'"
         ) in content
 
     def test_main_includes_workspace_defaults_when_manifest_present(

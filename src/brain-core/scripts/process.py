@@ -2,7 +2,7 @@
 """
 process.py — Content classification, duplicate resolution, and ingestion
 
-Provides the domain operations exposed by brain_classify, brain_resolve, and brain_ingest:
+Provides the domain operations exposed by content.classify, content.resolve, and content.ingest:
   classify   — Determine the best artefact type for content.
   resolve    — Check if content should create or update an existing artefact.
   ingest     — Full pipeline: classify -> resolve -> create/update.

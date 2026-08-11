@@ -108,7 +108,7 @@ def _collect_artefacts(
         if resolved_parent and doc.get("parent") != resolved_parent:
             continue
 
-        created_date = _index_date(doc.get("created"))
+        created_date = _index_date(doc.get("created") or doc.get("archiveddate"))
         modified_date = _index_date(doc.get("modified"))
         missing_created_for_bound = bool((since or until) and not created_date)
         if since and created_date and created_date < since:
@@ -136,7 +136,10 @@ def _collect_artefacts(
             "created": created_date,
             "modified": modified_date,
             "status": doc.get("status", ""),
+            "location": doc.get("location", "active"),
         }
+        if doc.get("archiveddate"):
+            result["archiveddate"] = doc["archiveddate"]
         key = doc.get("key") or (artefact_meta or {}).get("key")
         if key:
             result["key"] = key
@@ -247,3 +250,22 @@ def list_from_vault(vault_root, **kwargs):
         raise FileNotFoundError(router["error"])
     index = lexical_query.load_index(vault_root)
     return list_artefacts_page(index, router, **kwargs)
+
+
+def list_combined_from_vault(vault_root, *, location="active", **kwargs):
+    """List active, archived or all artefacts through one filter/page contract."""
+
+    if location not in {"active", "archived", "all"}:
+        raise ValueError("location must be active, archived, or all")
+    router = load_compiled_router(vault_root)
+    if "error" in router:
+        raise FileNotFoundError(router["error"])
+    documents = []
+    if location in {"active", "all"}:
+        index = lexical_query.load_index(vault_root)
+        documents.extend(index.get("documents", ()))
+    if location in {"archived", "all"}:
+        from _portable.vault_files import list_archived_artefacts
+
+        documents.extend(list_archived_artefacts(router, vault_root))
+    return list_artefacts_page({"documents": documents}, router, **kwargs)

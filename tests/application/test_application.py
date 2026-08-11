@@ -130,7 +130,13 @@ def _invoke(tmp_path, entry, *, context=None):
 
 
 def _payload():
-    return CommandListPayload((), "snapshot", SnapshotFreshness.FRESH)
+    return CommandListPayload(
+        "brain.command-catalogue/1",
+        "sha256:test",
+        (),
+        "snapshot",
+        SnapshotFreshness.FRESH,
+    )
 
 
 def test_success_flows_through_one_executor_and_records_no_effects(tmp_path):

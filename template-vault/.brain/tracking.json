@@ -72,29 +72,29 @@
       }
     },
     "living/people": {
-      "brain_core_version": "0.42.4",
-      "installed_at": "2026-05-25T03:17:24.742922+00:00",
+      "brain_core_version": "0.55.0",
+      "installed_at": "2026-08-11T04:57:46.142671+00:00",
       "files": {
         "taxonomy": {
           "source_hash": "sha256:ebc9d464a4db13baace748d11e959d04eb15e3d721bcef67a7e4cc6480fce500",
           "target": "_Config/Taxonomy/Living/people.md"
         },
         "template": {
-          "source_hash": "sha256:e9e63b352436d7949bba2711d8ecd242368423e9adbe9aca124799250a68dc43",
+          "source_hash": "sha256:79cb698593081e09f0358638b7a90df9c18506b92dc8ef81551647488af390ed",
           "target": "_Config/Templates/Living/People.md"
         }
       }
     },
     "living/projects": {
-      "brain_core_version": "0.34.2",
-      "installed_at": "2026-05-01T05:22:36.214495+00:00",
+      "brain_core_version": "0.55.0",
+      "installed_at": "2026-08-11T04:57:46.142671+00:00",
       "files": {
         "taxonomy": {
           "source_hash": "sha256:f44c1ea4bca3b1fd75778f2b766ece36e48084f1787b4b62fc8d62edcb0026d1",
           "target": "_Config/Taxonomy/Living/projects.md"
         },
         "template": {
-          "source_hash": "sha256:e7b134b81a525c6a2d11a20dda1ec00a864dbecc5df5a93b8383ac84d5fc411b",
+          "source_hash": "sha256:f41bb05bdab68075e490bafbfec1edfe31753dcfda03ec7f314c7d0dc5425ac6",
           "target": "_Config/Templates/Living/Projects.md"
         }
       }
@@ -114,25 +114,25 @@
       }
     },
     "living/workspaces": {
-      "brain_core_version": "0.42.4",
-      "installed_at": "2026-05-25T03:17:24.742922+00:00",
+      "brain_core_version": "0.55.0",
+      "installed_at": "2026-08-11T04:57:46.142671+00:00",
       "files": {
         "taxonomy": {
           "source_hash": "sha256:6215a1f446009c2f28db504b59a941c9985aa7c5b2344f163aa23de46fd33725",
           "target": "_Config/Taxonomy/Living/workspaces.md"
         },
         "template": {
-          "source_hash": "sha256:1d6e3da14f8b435788bbaef10a15f8593d7def10326b124f368eb8546db19a09",
+          "source_hash": "sha256:cc2533b75f166aeded99b725dbdd14ca53071537aecd3701a34fbe1956871175",
           "target": "_Config/Templates/Living/Workspaces.md"
         }
       }
     },
     "living/writing": {
-      "brain_core_version": "0.52.0",
-      "installed_at": "2026-07-15T18:06:31.905424+00:00",
+      "brain_core_version": "0.55.0",
+      "installed_at": "2026-08-11T04:57:46.142671+00:00",
       "files": {
         "taxonomy": {
-          "source_hash": "sha256:83ddaa78cd56038de0a3b232f11499b9073dfbb6fb045965ae3bca493a4ce5e4",
+          "source_hash": "sha256:e2b3fe557ef05e4aa88e676cf6c7aa0914e64bf3493bb2a060d89a5d8a00b1a7",
           "target": "_Config/Taxonomy/Living/writing.md"
         },
         "template": {
@@ -170,8 +170,8 @@
       }
     },
     "temporal/cookies": {
-      "brain_core_version": "0.53.2",
-      "installed_at": "2026-07-22T09:03:12.736165+00:00",
+      "brain_core_version": "0.55.0",
+      "installed_at": "2026-08-11T04:57:46.142671+00:00",
       "files": {
         "taxonomy": {
           "source_hash": "sha256:42512902a3b17e0672566e7fe6a355e5f380e5cf694ff1a5f6669f0fe97cfdd0",
@@ -182,7 +182,7 @@
           "target": "_Config/Templates/Temporal/Cookies.md"
         },
         "skill": {
-          "source_hash": "sha256:e912609f61eb97e61ae304fcf597998ea2c1291b663aa67e463d73c7020ebe53",
+          "source_hash": "sha256:8ba6c39241b8a64cf91a157168d7ba14c4449c6579e6d4cf77fa6fc2cd59ec30",
           "target": "_Config/Skills/cookies/SKILL.md"
         }
       }
@@ -286,8 +286,8 @@
       }
     },
     "temporal/presentations": {
-      "brain_core_version": "0.53.2",
-      "installed_at": "2026-07-22T09:03:12.736165+00:00",
+      "brain_core_version": "0.55.0",
+      "installed_at": "2026-08-11T04:57:46.142671+00:00",
       "files": {
         "taxonomy": {
           "source_hash": "sha256:5546999c09a2e5541fc6173b9b373d07cadb8a390bc1486e7ab33b148bc39816",
@@ -298,7 +298,7 @@
           "target": "_Config/Templates/Temporal/Presentations.md"
         },
         "skill": {
-          "source_hash": "sha256:913c9babd5a82f8d765b38963aae1e26527b4b244148a0ab8a8eb973108de34c",
+          "source_hash": "sha256:951fa568983bc51fdd65e55cbef013f8ad8019c85197953d0be6feaaeae1cb72",
           "target": "_Config/Skills/presentations/SKILL.md"
         },
         "theme": {

@@ -12,7 +12,7 @@ from _application.adapter import ApplicationAdapter
 from _application.receipts import MemoryReceiptStore
 from _application.registry import current_application_catalogue, current_request_resolver
 from _application.results import ErrorCode
-from _application.types import Availability, DependencyTier, SnapshotFreshness
+from _application.types import Authority, Availability, DependencyTier, SnapshotFreshness
 from _command_interface.context import SystemClock, compose_local_context
 from _command_interface.profiles import builtin_profile_allow_lists
 
@@ -35,7 +35,7 @@ def _vault(tmp_path):
 def _context(
     tmp_path,
     *,
-    tools=frozenset(("brain_command_list",)),
+    tools=frozenset(("command.list",)),
     invocation_id="inv-local",
 ):
     clock = _Clock()
@@ -135,26 +135,62 @@ def test_adapter_bounds_authority_evaluator_failures_before_resolution(tmp_path)
     assert result.exit_code == 4
 
 
-def test_built_in_granular_profiles_derive_cumulative_exact_mcp_leaves():
+def test_built_in_profiles_derive_cumulative_exact_application_commands():
     profiles = builtin_profile_allow_lists(current_application_catalogue())
 
     assert {name: len(tools) for name, tools in profiles.items()} == {
-        "reader": 41,
-        "contributor": 82,
-        "operator": 109,
+        "reader": 37,
+        "contributor": 63,
+        "maintainer": 76,
+        "operator": 85,
+        "administrator": 86,
     }
-    assert set(profiles["reader"]) < set(profiles["contributor"]) < set(
-        profiles["operator"]
+    assert (
+        set(profiles["reader"])
+        < set(profiles["contributor"])
+        < set(profiles["maintainer"])
+        < set(profiles["operator"])
+        < set(profiles["administrator"])
     )
-    assert "brain_command_list" in profiles["reader"]
-    assert "brain_artefact_create" in profiles["contributor"]
-    assert "brain_artefact_delete" in profiles["operator"]
-    assert not set(profiles["operator"]) & {
+    assert "command.list" in profiles["reader"]
+    assert "artefact.create" in profiles["contributor"]
+    assert "artefact.delete" in profiles["administrator"]
+    assert "artefact.delete" not in profiles["operator"]
+    assert "retrieval.construct-benchmark" in profiles["maintainer"]
+    assert "workspace.bind" in profiles["operator"]
+    assert not set(profiles["administrator"]) & {
         "brain_action",
         "brain_create",
         "brain_edit",
         "brain_move",
     }
+
+
+def test_every_application_command_has_the_exact_five_profile_authority_matrix():
+    catalogue = current_application_catalogue()
+    profiles = builtin_profile_allow_lists(catalogue)
+    ranks = {
+        Authority.READER: 0,
+        Authority.CONTRIBUTOR: 1,
+        Authority.MAINTAINER: 2,
+        Authority.OPERATOR: 3,
+        Authority.ADMINISTRATOR: 4,
+    }
+    profile_rank = {
+        "reader": 0,
+        "contributor": 1,
+        "maintainer": 2,
+        "operator": 3,
+        "administrator": 4,
+    }
+
+    assert len(catalogue.entries) == 86
+    for profile, maximum in profile_rank.items():
+        allowed = set(profiles[profile])
+        for entry in catalogue.entries:
+            assert (entry.command_id in allowed) is (
+                ranks[entry.authority] <= maximum
+            ), (profile, entry.command_id, entry.authority.value)
 
 
 def test_local_context_refuses_missing_or_symlinked_core_and_open_provider_sets(tmp_path):

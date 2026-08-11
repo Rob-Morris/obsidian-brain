@@ -66,6 +66,14 @@ def _vault(tmp_path, version="0.54.41"):
     return vault
 
 
+def _register(monkeypatch, tmp_path, vault):
+    config = tmp_path / "config"
+    registry = config / "brain" / "vaults"
+    registry.parent.mkdir(parents=True, exist_ok=True)
+    registry.write_text(f"# brain registry v2\nselected\tlocal\t{vault}\n")
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(config))
+
+
 def _invocation(
     tmp_path,
     *,
@@ -177,7 +185,7 @@ def test_install_dry_run_validates_registry_and_writes_nothing(tmp_path, monkeyp
 
     assert result.result.status is LifecycleStatus.PLANNED
     assert result.result.mode is InstallMode.FRESH
-    assert result.result.brain_core_version == "0.54.59"
+    assert result.result.brain_core_version == "0.55.0"
     assert result.committed_effects == ()
     assert not target.exists()
     assert not (tmp_path / "config").exists()
@@ -301,6 +309,7 @@ def test_uninstall_recursive_failure_is_outcome_unknown(tmp_path, monkeypatch):
 
 def test_upgrade_projects_dry_run_and_closed_policies(tmp_path, monkeypatch):
     vault = _vault(tmp_path)
+    _register(monkeypatch, tmp_path, vault)
     calls = []
 
     def fake_upgrade(*args, **kwargs):
@@ -308,7 +317,7 @@ def test_upgrade_projects_dry_run_and_closed_policies(tmp_path, monkeypatch):
         return {
             "status": "ok",
             "old_version": "0.54.41",
-            "new_version": "0.54.42",
+            "new_version": "0.55.0",
             "files_added": ["one"],
             "files_modified": ["two", "three"],
             "files_removed": [],
@@ -338,6 +347,7 @@ def test_upgrade_projects_dry_run_and_closed_policies(tmp_path, monkeypatch):
 
 def test_upgrade_success_receipts_core_and_error_is_unknown(tmp_path, monkeypatch):
     vault = _vault(tmp_path)
+    _register(monkeypatch, tmp_path, vault)
     cli_binary = tmp_path / "bin" / "brain"
     cli_binary.parent.mkdir()
     cli_binary.write_text("old cli\n")
@@ -350,13 +360,14 @@ def test_upgrade_success_receipts_core_and_error_is_unknown(tmp_path, monkeypatc
             (),
             {
                 "upgrade": staticmethod(
-                    lambda *_args, **_kwargs: {
+                    lambda *_args, **kwargs: {
                         "status": "ok",
                         "old_version": "0.54.41",
-                        "new_version": "0.54.42",
+                        "new_version": "0.55.0",
                         "files_added": [],
                         "files_modified": ["VERSION"],
                         "files_removed": [],
+                        "cutover_commit": kwargs["commit_callback"]({}),
                     }
                 )
             },
@@ -365,7 +376,7 @@ def test_upgrade_success_receipts_core_and_error_is_unknown(tmp_path, monkeypatc
     success = _invocation(tmp_path, vault=vault).invoke(BrainUpgradeRequest())
     assert success.result.status is LifecycleStatus.CHANGED
     assert success.committed_effects[0].subject == f"upgrade:{vault}"
-    assert "BRAIN_INSTALL_REF=\"v0.54.59\"" in cli_binary.read_text()
+    assert "BRAIN_INSTALL_REF=\"v0.55.0\"" in cli_binary.read_text()
     assert stat.S_IMODE(cli_binary.stat().st_mode) == 0o755
     assert success.committed_effects[1].subject == f"file:{cli_binary}"
 
@@ -380,6 +391,7 @@ def test_upgrade_success_receipts_core_and_error_is_unknown(tmp_path, monkeypatc
                     lambda *_args, **_kwargs: {
                         "status": "error",
                         "message": "rollback uncertain",
+                        "rollback_verified": False,
                     }
                 )
             },

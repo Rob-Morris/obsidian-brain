@@ -36,38 +36,25 @@ def _windows_smoke_env(tmp_path: Path) -> dict[str, str]:
     env["HOME"] = str(home)
     env["USERPROFILE"] = str(home)
     env["APPDATA"] = str(appdata)
+    env["LOCALAPPDATA"] = str(home / "AppData" / "Local")
     env["PYTHONPATH"] = os.pathsep.join([str(BRAIN_CORE), str(SCRIPTS)])
     return env
 
 
-# Bound on how long we wait for background warmup to compile the router before
-# brain_read can serve the environment resource. The server runs warmup off the
-# request thread and returns a "starting" progress response with retry_after_ms
-# until the router is ready, so the smoke test honours that contract rather than
-# racing the first call against a cold start (slow on the Windows runner).
-_WARMUP_READY_TIMEOUT_S = 120.0
-
-
-def _parse_environment(text: str) -> dict[str, str]:
-    """Parse a successful brain_read environment payload.
-
-    The environment resource is formatted as ``key=value`` lines (see
-    _server_reading._fmt_environment), not JSON, so split each line on its first
-    ``=`` (values such as the vault root are Windows paths without ``=``).
-    """
-    env: dict[str, str] = {}
-    for line in text.splitlines():
-        if not line:
-            continue
-        assert "=" in line, f"environment line is not key=value: {line!r}"
-        key, value = line.split("=", 1)
-        env[key] = value
+def _parse_environment(envelope: dict) -> dict[str, object]:
+    assert envelope["schema"] == "brain.command-result/1"
+    assert envelope["command"] == "runtime.read-environment"
+    assert envelope["status"] == "ok"
+    env = {
+        fact["name"]: fact["value"]
+        for fact in envelope["result"]["facts"]
+    }
     missing = {"vault_root", "platform"} - set(env)
     assert not missing, f"environment payload missing keys {sorted(missing)}: {text!r}"
     return env
 
 
-async def _call_installed_brain_read(vault_root: Path, env: dict[str, str]) -> dict:
+async def _call_installed_environment_read(vault_root: Path, env: dict[str, str]) -> dict:
     config = json.loads((vault_root / ".mcp.json").read_text(encoding="utf-8"))
     server_config = config["mcpServers"]["brain"]
     server_env = dict(env)
@@ -84,50 +71,28 @@ async def _call_installed_brain_read(vault_root: Path, env: dict[str, str]) -> d
         async with ClientSession(read_stream, write_stream) as session:
             await session.initialize()
             tools = await session.list_tools()
-            assert any(tool.name == "brain_read" for tool in tools.tools)
-            assert any(tool.name == "brain_upload_attachment" for tool in tools.tools)
+            assert any(tool.name == "runtime.read-environment" for tool in tools.tools)
+            assert any(tool.name == "attachment.upload" for tool in tools.tools)
 
-            deadline = asyncio.get_running_loop().time() + _WARMUP_READY_TIMEOUT_S
-            while True:
-                result = await session.call_tool("brain_read", {"resource": "environment"})
-                text = result.content[0].text
-                if not result.isError:
-                    environment = _parse_environment(text)
-                    upload = await session.call_tool(
-                        "brain_upload_attachment",
-                        {
-                            "destination_key": "windows-smoke",
-                            "name": "windows-smoke.txt",
-                            "content_base64": base64.b64encode(
-                                b"native windows attachment"
-                            ).decode("ascii"),
-                        },
-                    )
-                    assert not upload.isError, upload.content[0].text
-                    assert upload.structuredContent["path"] == (
-                        "_Assets/Attachments/windows-smoke/windows-smoke.txt"
-                    )
-                    return environment
-
-                # Cold-start progress contract: the readiness snapshot is JSON
-                # with status "starting". Any other isError response is a real
-                # failure — including a plaintext "Error: ..." that is not JSON —
-                # so surface the raw text rather than masking it with a
-                # JSONDecodeError from an unconditional json.loads.
-                try:
-                    payload = json.loads(text)
-                except json.JSONDecodeError:
-                    payload = None
-                status = payload.get("status") if isinstance(payload, dict) else None
-                assert status == "starting", text
-                now = asyncio.get_running_loop().time()
-                assert now < deadline, (
-                    f"brain_read environment never became ready: {payload}"
-                )
-                retry_after_s = payload.get("retry_after_ms", 1000) / 1000
-                remaining = max(0, deadline - now)
-                retry_after_s = min(max(retry_after_s, 0.05), remaining)
-                await asyncio.sleep(retry_after_s)
+            result = await session.call_tool("runtime.read-environment", {})
+            assert not result.isError, result.content[0].text
+            environment = _parse_environment(result.structuredContent)
+            upload = await session.call_tool(
+                "attachment.upload",
+                {
+                    "destination_key": "windows-smoke",
+                    "name": "windows-smoke.txt",
+                    "content_base64": base64.b64encode(
+                        b"native windows attachment"
+                    ).decode("ascii"),
+                },
+            )
+            assert not upload.isError, upload.content[0].text
+            upload_envelope = upload.structuredContent
+            assert upload_envelope["status"] == "ok"
+            uploaded_path = upload_envelope["result"]["path"]
+            assert (vault_root / uploaded_path).read_bytes() == b"native windows attachment"
+            return environment
 
 
 def _run_install_ps1(vault: Path, env: dict[str, str], *, launcher: str | None) -> subprocess.CompletedProcess[str]:
@@ -160,7 +125,7 @@ def _run_install_ps1(vault: Path, env: dict[str, str], *, launcher: str | None) 
     )
 
 
-def test_native_windows_install_and_mcp_brain_read_round_trip(tmp_path):
+def test_native_windows_install_and_granular_mcp_round_trip(tmp_path):
     env = _windows_smoke_env(tmp_path)
     vault = tmp_path / "Brain Vault"
     discovery_vault = tmp_path / "Discovered Python Brain Vault"
@@ -187,10 +152,19 @@ def test_native_windows_install_and_mcp_brain_read_round_trip(tmp_path):
     install = _run_install_ps1(vault, env, launcher=sys.executable)
     assert install.returncode == 0, install.stderr
     assert (vault / ".mcp.json").is_file()
+    cli = Path(env["LOCALAPPDATA"]) / "Programs" / "Brain" / "bin" / "brain.cmd"
+    assert cli.is_file()
+    cli_version = subprocess.run(
+        [str(cli), "--version"],
+        cwd=REPO_ROOT,
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    assert cli_version.returncode == 0, cli_version.stderr
+    assert cli_version.stdout.strip() == "brain 2.0.0"
 
-    environment = asyncio.run(_call_installed_brain_read(vault, env))
+    environment = asyncio.run(_call_installed_environment_read(vault, env))
     assert Path(environment["vault_root"]) == vault
     assert environment["platform"] == "win32"
-    assert (
-        vault / "_Assets" / "Attachments" / "windows-smoke.txt"
-    ).read_bytes() == b"native windows attachment"

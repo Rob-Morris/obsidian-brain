@@ -12,6 +12,7 @@ from .._semantic_maintenance import (
     execute_rebuild,
 )
 from ..context import InvocationContext
+from ..types import Authority
 
 
 @dataclass(frozen=True, slots=True)
@@ -30,7 +31,11 @@ def decode(payload: Mapping[str, object]) -> RetrievalRebuildSemanticRequest:
 
 
 def catalogue_entry():
-    return semantic_catalogue_entry(RetrievalRebuildSemanticRequest, execute)
+    return semantic_catalogue_entry(
+        RetrievalRebuildSemanticRequest,
+        execute,
+        authority=Authority.MAINTAINER,
+    )
 
 
 def resolver_entry():

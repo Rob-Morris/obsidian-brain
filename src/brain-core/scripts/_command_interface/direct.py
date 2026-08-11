@@ -77,6 +77,7 @@ def compose_direct_context(
     operator_key: str | None = None,
     workspace_dir: Path | None = None,
     dry_run: bool = False,
+    invocation_id: str | None = None,
     clock=None,
 ):
     """Resolve one fresh direct-process invocation context without hand-off."""
@@ -118,7 +119,14 @@ def compose_direct_context(
     else:
         states = ()
         snapshot_token = _snapshot_token(states, observed_at)
-    invocation_id = f"direct-{uuid.uuid4()}"
+    if invocation_id is None:
+        invocation_id = f"direct-{uuid.uuid4()}"
+    elif (
+        not isinstance(invocation_id, str)
+        or not invocation_id.strip()
+        or len(invocation_id) > 128
+    ):
+        raise DirectContextError("trusted invocation identity is invalid")
     receipt_store = FileReceiptStore(root, clock)
     return compose_local_context(
         vault_root=root,

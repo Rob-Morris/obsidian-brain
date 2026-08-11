@@ -26,6 +26,54 @@ DEFAULT_OUTPUT = (
 MCP_SERVER = REPO_ROOT / "tests" / "fixtures" / "granular_mcp_stdio_server.py"
 PYTHON = REPO_ROOT / ".venv" / "bin" / "python"
 
+SUCCESSFUL_CALLS = (
+    ("command.list", {"page_size": 1}),
+    (
+        "artefact.read",
+        {
+            "reference": "Designs/project~command-fixture/Command Fixture Design.md",
+            "location": "active",
+        },
+    ),
+    ("artefact.list", {"location": "all", "page_size": 1}),
+    (
+        "document.edit",
+        {
+            "target": {"resource": "memory", "reference": "brain-core-reference"},
+            "change": {
+                "operation": "replace",
+                "content": {
+                    "source": "inline",
+                    "content": "# Brain Core Reference\n\nReal-client capture.\n",
+                },
+                "target": ":body",
+                "scope": "section",
+            },
+        },
+    ),
+    ("type.sync", {"type_key": "living/journals"}),
+    ("runtime.refresh-router", {}),
+    ("retrieval.refresh-lexical", {}),
+    ("artefact.repair", {"scope": "frontmatter"}),
+    ("workspace.read", {"reference": "analysis"}),
+    (
+        "links.check",
+        {"path": "Designs/project~command-fixture/Command Fixture Design.md"},
+    ),
+    (
+        "links.fix",
+        {"path": "Designs/project~command-fixture/Command Fixture Design.md"},
+    ),
+)
+
+
+def _codex_tool_name(command_id: str) -> str:
+    return command_id.replace(".", "_").replace("-", "_")
+
+
+def _claude_tool_name(command_id: str) -> str:
+    return command_id.replace(".", "_")
+
 
 def _response(output: list[dict], model: str) -> dict:
     return {
@@ -65,6 +113,7 @@ class _CaptureServer:
     def __init__(self, client: str):
         self.client = client
         self.requests: list[dict] = []
+        self.review_requests: list[dict] = []
         owner = self
 
         class Handler(BaseHTTPRequestHandler):
@@ -72,10 +121,14 @@ class _CaptureServer:
                 length = int(self.headers.get("content-length", "0"))
                 payload = json.loads(self.rfile.read(length))
                 payload["_capture_path"] = self.path
-                owner.requests.append(payload)
-                if owner.client == "codex-cli":
+                if owner.client == "codex-cli" and owner._is_codex_review(payload):
+                    owner.review_requests.append(payload)
+                    body, content_type = owner._codex_review_response(payload)
+                elif owner.client == "codex-cli":
+                    owner.requests.append(payload)
                     body, content_type = owner._codex_response(payload)
                 else:
+                    owner.requests.append(payload)
                     body, content_type = owner._claude_response(payload)
                 self.send_response(200)
                 self.send_header("content-type", content_type)
@@ -111,19 +164,20 @@ class _CaptureServer:
                 "status": "completed",
                 "execution": "client",
                 "arguments": {
-                    "query": "brain_command_list list installed Brain commands catalogue",
+                    "query": " ".join(command for command, _request in SUCCESSFUL_CALLS),
                     "limit": 20,
                 },
                 "call_id": "call_search",
             }
-        elif number == 2:
+        elif number <= len(SUCCESSFUL_CALLS) + 1:
+            command_id, request = SUCCESSFUL_CALLS[number - 2]
             item = {
-                "id": "fc_brain",
+                "id": f"fc_brain_{number - 2}",
                 "type": "function_call",
                 "status": "completed",
-                "arguments": '{"page_size":1}',
-                "call_id": "call_brain",
-                "name": "brain_command_list",
+                "arguments": canonical_json(request),
+                "call_id": f"call_brain_{number - 2}",
+                "name": _codex_tool_name(command_id),
                 "namespace": "mcp__brain",
             }
         else:
@@ -141,6 +195,44 @@ class _CaptureServer:
                     }
                 ],
             }
+        return self._codex_wire(item, payload)
+
+    @staticmethod
+    def _is_codex_review(payload: dict) -> bool:
+        return (
+            payload.get("text", {}).get("format", {}).get("name")
+            == "codex_output_schema"
+        )
+
+    def _codex_review_response(self, payload: dict) -> tuple[bytes, str]:
+        item = {
+            "id": f"msg_review_{len(self.review_requests)}",
+            "type": "message",
+            "status": "completed",
+            "role": "assistant",
+            "content": [
+                {
+                    "type": "output_text",
+                    "text": canonical_json(
+                        {
+                            "outcome": "allow",
+                            "rationale": (
+                                "The requested command is confined to the disposable "
+                                "capture vault and is explicitly authorised by the test."
+                            ),
+                            "risk_level": "low",
+                            "user_authorization": "high",
+                        }
+                    ),
+                    "annotations": [],
+                    "logprobs": [],
+                }
+            ],
+        }
+        return self._codex_wire(item, payload)
+
+    @staticmethod
+    def _codex_wire(item: dict, payload: dict) -> tuple[bytes, str]:
         response = _response([item], payload.get("model", "capture-model"))
         events = [
             {
@@ -174,12 +266,24 @@ class _CaptureServer:
             return b'{"input_tokens":1}', "application/json"
         number = sum(bool(request.get("tools")) for request in self.requests)
         if payload.get("tools") and number == 1:
+            command_id, request = SUCCESSFUL_CALLS[0]
             content = [
                 {
                     "type": "tool_use",
-                    "id": "toolu_capture",
-                    "name": "mcp__brain__brain_command_list",
-                    "input": {"page_size": 1},
+                    "id": "toolu_capture_0",
+                    "name": "mcp__brain__" + _claude_tool_name(command_id),
+                    "input": request,
+                }
+            ]
+            stop_reason = "tool_use"
+        elif payload.get("tools") and number <= len(SUCCESSFUL_CALLS):
+            command_id, request = SUCCESSFUL_CALLS[number - 1]
+            content = [
+                {
+                    "type": "tool_use",
+                    "id": f"toolu_capture_{number - 1}",
+                    "name": "mcp__brain__" + _claude_tool_name(command_id),
+                    "input": request,
                 }
             ]
             stop_reason = "tool_use"
@@ -208,7 +312,7 @@ class _CaptureServer:
             block = {**content[0], "input": {}}
             delta = {
                 "type": "input_json_delta",
-                "partial_json": '{"page_size":1}',
+                "partial_json": canonical_json(content[0]["input"]),
             }
         else:
             block = {"type": "text", "text": ""}
@@ -275,8 +379,12 @@ def _capture_codex(temp: Path, vault: Path) -> dict:
             "-c",
             "model_providers.capture=" + (model_provider % server.port),
             "-c",
+            "model_context_window=1000000",
+            "-c",
+            "model_auto_compact_token_limit=900000",
+            "-c",
             "mcp_servers.brain=" + _toml_inline(server_config),
-            "Call brain_command_list with page_size 1.",
+            "Call each requested Brain command in order and report completion.",
         ]
         environment = {**os.environ, "CAPTURE_KEY": "capture", "CODEX_HOME": str(codex_home)}
         completed = subprocess.run(
@@ -304,7 +412,10 @@ def _capture_claude(temp: Path, vault: Path) -> dict:
             str(config),
             "--strict-mcp-config",
             "--allowedTools",
-            "mcp__brain__brain_command_list",
+            " ".join(
+                "mcp__brain__" + _claude_tool_name(command_id)
+                for command_id, _request in SUCCESSFUL_CALLS
+            ),
             "--permission-mode",
             "dontAsk",
             "--no-session-persistence",
@@ -313,7 +424,7 @@ def _capture_claude(temp: Path, vault: Path) -> dict:
             "--print",
             "--output-format",
             "json",
-            "Call brain_command_list with page_size 1.",
+            "Call each requested Brain command in order and report completion.",
         ]
         environment = {
             **os.environ,
@@ -347,24 +458,39 @@ def _toml_inline(value) -> str:
 
 
 def _codex_evidence(requests: list[dict]) -> dict:
-    if len(requests) != 3:
-        raise RuntimeError(f"Codex capture expected three model requests, got {len(requests)}")
+    expected_requests = len(SUCCESSFUL_CALLS) + 2
+    if len(requests) != expected_requests:
+        summaries = [
+            {
+                "path": request.get("_capture_path"),
+                "input_types": [
+                    item.get("type")
+                    for item in request.get("input", [])
+                    if isinstance(item, dict)
+                ],
+            }
+            for request in requests
+        ]
+        raise RuntimeError(
+            f"Codex capture expected {expected_requests} model requests, got "
+            f"{len(requests)}: {canonical_json(summaries)}"
+        )
     search_output = next(
         item
         for item in requests[1]["input"]
         if item.get("type") == "tool_search_output"
     )
     namespace = next(item for item in search_output["tools"] if item["name"] == "mcp__brain")
-    declaration = next(
-        item for item in namespace["tools"] if item["name"] == "brain_command_list"
-    )
-    call_output = next(
-        item
-        for item in requests[2]["input"]
-        if item.get("type") == "function_call_output" and item.get("call_id") == "call_brain"
-    )["output"]
-    if '"command":"command.list"' not in call_output or '"status":"ok"' not in call_output:
-        raise RuntimeError(f"Codex minimal MCP request did not return command.list success: {call_output}")
+    try:
+        declaration = next(
+            item for item in namespace["tools"] if item["name"] == "command_list"
+        )
+    except StopIteration as exc:
+        raise RuntimeError(
+            "Codex deferred search did not encode dotted command.list: "
+            + canonical_json([item.get("name") for item in namespace["tools"]])
+        ) from exc
+    successes = _codex_successes(requests)
     return {
         "client_version": "0.147.0",
         "capture_path": "deferred client tool search",
@@ -373,7 +499,26 @@ def _codex_evidence(requests: list[dict]) -> dict:
         "declaration_hash": _sha256(declaration),
         "minimal_request": {"page_size": 1},
         "minimal_result": {"command": "command.list", "status": "ok"},
+        "successful_requests": successes,
     }
+
+
+def _codex_successes(requests: list[dict]) -> dict[str, dict]:
+    outputs = {
+        item["call_id"]: item["output"]
+        for request in requests
+        for item in request.get("input", [])
+        if item.get("type") == "function_call_output"
+    }
+    successes = {}
+    for index, (command_id, request) in enumerate(SUCCESSFUL_CALLS):
+        output = outputs.get(f"call_brain_{index}")
+        if not isinstance(output, str):
+            raise RuntimeError(f"Codex omitted {command_id} tool output")
+        if f'"command":"{command_id}"' not in output or '"status":"ok"' not in output:
+            raise RuntimeError(f"Codex {command_id} call was not successful: {output}")
+        successes[command_id] = request
+    return successes
 
 
 def _claude_evidence(requests: list[dict]) -> dict:
@@ -385,41 +530,21 @@ def _claude_evidence(requests: list[dict]) -> dict:
             and request.get("tools")
         )
     ]
-    if len(requests) != 2:
+    expected_requests = len(SUCCESSFUL_CALLS) + 1
+    if len(requests) != expected_requests:
         raise RuntimeError(
-            "Claude capture expected two message requests, got "
+            f"Claude capture expected {expected_requests} message requests, got "
             f"{[(item['_capture_path'], len(item.get('tools', []))) for item in requests]}"
         )
     declarations = [
         tool
         for tool in requests[0].get("tools", [])
-        if tool.get("name", "").startswith("mcp__brain__brain_")
+        if tool.get("name", "").startswith("mcp__brain__")
     ]
     declaration = next(
-        tool for tool in declarations if tool["name"] == "mcp__brain__brain_command_list"
+        tool for tool in declarations if tool.get("description") == "List command resources."
     )
-    try:
-        tool_result = next(
-            block
-            for message in requests[1].get("messages", [])
-            if message.get("role") == "user"
-            for block in message.get("content", [])
-            if isinstance(block, dict) and block.get("type") == "tool_result"
-        )
-    except StopIteration as exc:
-        raise RuntimeError(
-            "Claude follow-up omitted the expected tool result: "
-            + canonical_json(requests[1].get("messages", []))[-4000:]
-        ) from exc
-    result_payload = json.loads(tool_result["content"])
-    if (
-        result_payload.get("command") != "command.list"
-        or result_payload.get("status") != "ok"
-    ):
-        raise RuntimeError(
-            "Claude minimal MCP request did not return command.list success: "
-            + canonical_json(tool_result)[-4000:]
-        )
+    successes = _claude_successes(requests)
     return {
         "client_version": "2.1.226",
         "capture_path": "eager model request declarations",
@@ -429,7 +554,34 @@ def _claude_evidence(requests: list[dict]) -> dict:
         "declaration_hash": _sha256(declaration),
         "minimal_request": {"page_size": 1},
         "minimal_result": {"command": "command.list", "status": "ok"},
+        "successful_requests": successes,
     }
+
+
+def _claude_successes(requests: list[dict]) -> dict[str, dict]:
+    result_payloads = {}
+    for request in requests:
+        for message in request.get("messages", []):
+            if message.get("role") != "user":
+                continue
+            for block in message.get("content", []):
+                if not isinstance(block, dict) or block.get("type") != "tool_result":
+                    continue
+                try:
+                    payload = json.loads(block["content"])
+                except (TypeError, json.JSONDecodeError) as exc:
+                    raise RuntimeError(
+                        "Claude dotted MCP call returned non-JSON tool content: "
+                        + canonical_json(block)[-4000:]
+                    ) from exc
+                if payload.get("status") == "ok":
+                    result_payloads[payload.get("command")] = payload
+    successes = {}
+    for command_id, request in SUCCESSFUL_CALLS:
+        if command_id not in result_payloads:
+            raise RuntimeError(f"Claude {command_id} call did not return success")
+        successes[command_id] = request
+    return successes
 
 
 def _sha256(value) -> str:
@@ -439,13 +591,27 @@ def _sha256(value) -> str:
 def build_capture() -> dict:
     with tempfile.TemporaryDirectory(prefix="brain-real-client-capture-") as directory:
         temp = Path(directory)
-        vault = temp / "Brain"
-        core = vault / ".brain-core"
-        core.mkdir(parents=True)
-        (core / "VERSION").write_text("0.54.59\n", encoding="utf-8")
+        from command_vault import assemble_command_vault_baseline
+
+        baseline = assemble_command_vault_baseline(
+            temp / "Brain",
+            machine_state_root=temp / "machine-state",
+            source_root=REPO_ROOT,
+        )
+        vault = baseline.vault_root
+        linked_workspace = temp / "analysis-workspace"
+        linked_workspace.mkdir()
+        workspace_registry = vault / ".brain" / "local" / "workspaces.json"
+        workspace_registry.parent.mkdir(parents=True, exist_ok=True)
+        workspace_registry.write_text(
+            json.dumps(
+                {"workspaces": {"analysis": {"path": str(linked_workspace)}}}
+            ),
+            encoding="utf-8",
+        )
         return {
             "schema": "brain.command-interface-real-client-evidence/1",
-            "captured_at": "2026-08-10T17:00:00+10:00",
+            "captured_at": "2026-08-11T17:00:00+10:00",
             "localhost_model_endpoint": True,
             "external_model_request": False,
             "clients": {

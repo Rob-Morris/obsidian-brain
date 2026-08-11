@@ -8,7 +8,7 @@ Release milestone records structurally owned by a living artefact and filed unde
 |---|---|---|
 | `README.md` | Install notes for this type | n/a |
 | `taxonomy.md` | Canonical type definition used by the router compiler | `_Config/Taxonomy/Living/releases.md` |
-| `template.md` | Scaffold used by `brain_create` | `_Config/Templates/Living/Releases.md` |
+| `template.md` | Scaffold used by `artefact.create` | `_Config/Templates/Living/Releases.md` |
 
 ## Install
 

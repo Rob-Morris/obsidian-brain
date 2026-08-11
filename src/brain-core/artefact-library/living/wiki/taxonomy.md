@@ -27,7 +27,7 @@ Wiki pages are flat by default — one file per concept in `Wiki/`. When a broad
 - The **master page** stays in `Wiki/` as the entry point (e.g. `Wiki/Claude Code.md`, key `claude-code`)
 - **Sub-pages** live in `Wiki/{key}/` (e.g. `Wiki/claude-code/Claude Code Tool Search.md`)
 - Sub-pages inherit the wiki type — no separate taxonomy needed
-- Use `brain_create` with the `parent` parameter to place sub-pages directly
+- Use `artefact.create` with the `parent` field to place sub-pages directly
 
 The subfolder makes the relationship implicit in the filesystem. You don't need to read the files to understand the hierarchy.
 

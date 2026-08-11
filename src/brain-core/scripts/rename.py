@@ -1,15 +1,11 @@
 #!/usr/bin/env python3
-"""
-rename.py — Rename or delete a vault file and update all wikilinks.
+"""Internal rename/delete and wikilink-reconciliation semantics.
 
 Scans all .md files in the vault for wikilinks matching the old path stem,
 replaces them with the new path stem (rename) or strikethrough text (delete),
-then renames/removes the file itself.
-
-Usage:
-    python3 rename.py "Wiki/old-name.md" "Wiki/new-name.md"
-    python3 rename.py --vault /path/to/vault "source.md" "dest.md"
-    python3 rename.py "source.md" "dest.md" --json
+then renames/removes the file itself. Public callers use ``artefact.rename`` or
+``artefact.delete`` through ``command.py``; the parser retained here is an
+internal maintenance and repository-test entry point.
 """
 
 import argparse
@@ -565,7 +561,7 @@ def _preflight_delete_path(vault_root, path):
     if is_archived_path(path):
         raise ValueError(
             "Delete does not operate on _Archive/. "
-            "Use brain_move(op='unarchive') first or remove the file manually."
+            "Use artefact.unarchive first or remove the file manually."
         )
     if not os.path.isfile(abs_path):
         raise FileNotFoundError(f"File not found: {path}")

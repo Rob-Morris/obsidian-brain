@@ -1676,7 +1676,7 @@ class TestVersionDriftReplay:
                 "tools/call",
                 id="granular-1",
                 params={
-                    "name": "brain_artefact_create",
+                    "name": "artefact.create",
                     "arguments": {"type": "living/wiki", "title": "Example"},
                 },
             )
@@ -1685,13 +1685,34 @@ class TestVersionDriftReplay:
         forwarded, record = proxy._prepare_interface_call(raw)
 
         assert record.raw_request == raw
-        assert record.projected_tool == "brain_artefact_create"
+        assert record.projected_tool == "artefact.create"
         assert record.command_id == "artefact.create"
         assert record.header_fingerprint == header.fingerprint
         assert record.invocation_id.startswith("mcp-")
         assert forwarded["params"]["_meta"] == {
             "brainInvocation": {"invocationId": record.invocation_id}
         }
+
+    def test_unadvertised_legacy_tool_refuses_before_child_dispatch(
+        self, tmp_path, monkeypatch
+    ):
+        proxy, _sent_to_client = _make_inprocess_proxy(tmp_path, monkeypatch, [])
+        with proxy._interface_lock:
+            proxy._interface_header = application_interface_header(
+                current_application_catalogue()
+            )
+        raw = json.loads(
+            _make_jsonrpc(
+                "tools/call",
+                id="legacy-1",
+                params={"name": "brain_create", "arguments": {}},
+            )
+        )
+
+        with pytest.raises(ValueError, match="not advertised"):
+            proxy._prepare_interface_call(raw)
+
+        assert proxy._accepted_calls == {}
 
     def test_compatible_granular_replay_reaches_replacement_child(
         self, tmp_path, monkeypatch
@@ -1707,7 +1728,7 @@ class TestVersionDriftReplay:
             _make_jsonrpc(
                 "tools/call",
                 id=201,
-                params={"name": "brain_artefact_read", "arguments": {"path": "Example"}},
+                params={"name": "artefact.read", "arguments": {"path": "Example"}},
             )
         )
         forwarded, record = proxy._prepare_interface_call(raw)
@@ -1732,7 +1753,7 @@ class TestVersionDriftReplay:
             _make_jsonrpc(
                 "tools/call",
                 id=202,
-                params={"name": "brain_artefact_read", "arguments": {"path": "Example"}},
+                params={"name": "artefact.read", "arguments": {"path": "Example"}},
             )
         )
         forwarded, record = proxy._prepare_interface_call(raw)
@@ -1740,7 +1761,7 @@ class TestVersionDriftReplay:
             header,
             tools=tuple(
                 (name, replace(mapping, command_version=mapping.command_version + 1))
-                if name == "brain_artefact_read"
+                if name == "artefact.read"
                 else (name, mapping)
                 for name, mapping in header.tools
             ),
@@ -1788,7 +1809,7 @@ class TestVersionDriftReplay:
             _make_jsonrpc(
                 "tools/call",
                 id=203,
-                params={"name": "brain_artefact_read", "arguments": {"path": "Example"}},
+                params={"name": "artefact.read", "arguments": {"path": "Example"}},
             )
         )
 
@@ -1827,7 +1848,7 @@ class TestUnexpectedChildOutcomeSafety:
         header, forwarded, record = self._accepted(
             proxy,
             request_id=301,
-            tool="brain_artefact_read",
+            tool="artefact.read",
             arguments={"path": "Designs/Example.md"},
         )
         replacement = _FakeChild()
@@ -1855,7 +1876,7 @@ class TestUnexpectedChildOutcomeSafety:
         _header, forwarded, record = self._accepted(
             proxy,
             request_id=302,
-            tool="brain_artefact_create",
+            tool="artefact.create",
             arguments={"type": "living/wiki", "title": "Example"},
         )
         with proxy._inflight_lock:
@@ -1873,7 +1894,7 @@ class TestUnexpectedChildOutcomeSafety:
 
         assert len(replacement.sent) == 1
         assert replacement.sent[0]["params"] == {
-            "name": "brain_invocation_read",
+            "name": "invocation.read",
             "arguments": {"invocation_id": record.invocation_id},
         }
         assert forwarded not in replacement.sent
@@ -1891,7 +1912,7 @@ class TestUnexpectedChildOutcomeSafety:
         _header, _forwarded, record = self._accepted(
             proxy,
             request_id=303,
-            tool="brain_artefact_delete",
+            tool="artefact.delete",
             arguments={"path": "Designs/Example.md"},
         )
         replacement = _FakeChild()
@@ -1934,7 +1955,7 @@ class TestUnexpectedChildOutcomeSafety:
         _header, forwarded, record = self._accepted(
             proxy,
             request_id=304,
-            tool="brain_artefact_create",
+            tool="artefact.create",
             arguments={"type": "living/wiki", "title": "Example"},
         )
         replacement = _FakeChild()

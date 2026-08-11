@@ -14,6 +14,7 @@ from .._artefact_transition import (
     validate_string,
 )
 from ..context import InvocationContext
+from ..types import Authority
 
 
 @dataclass(frozen=True, slots=True)
@@ -62,7 +63,11 @@ def decode(payload: Mapping[str, object]) -> ArtefactDeleteRequest:
 
 
 def catalogue_entry():
-    return transition_catalogue_entry(ArtefactDeleteRequest, execute)
+    return transition_catalogue_entry(
+        ArtefactDeleteRequest,
+        execute,
+        authority=Authority.ADMINISTRATOR,
+    )
 
 
 def resolver_entry():

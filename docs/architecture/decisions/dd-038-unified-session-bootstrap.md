@@ -1,7 +1,11 @@
 # DD-038: Unified session bootstrap
 
 **Status:** Implemented (v0.25.0)
-**Extended by:** DD-040
+**Extended by:** DD-040, DD-061
+
+**Cutover note (v0.55.0):** DD-061 renames the canonical MCP bootstrap tool
+from `brain_session` to `session.start`. The unified session model and fallback
+ordering defined here are unchanged.
 
 ## Context
 
@@ -39,14 +43,14 @@ The canonical session model is assembled from:
 
 That model is rendered in two normal bootstrap forms:
 
-- `brain_session` JSON for MCP agents
+- `session.start` JSON for MCP agents
 - `.brain/local/session.md` for non-MCP/script bootstrap
 
 To support this split cleanly:
 
 - `.brain-core/index.md` becomes a thin entry point only
 - `.brain-core/session-core.md` becomes the checked-in source for static core bootstrap content
-- `brain_session` exposes session-core reference docs as structured `core_docs` entries with explicit MCP load instructions, while the markdown mirror renders them as local file links
+- `session.start` exposes session-core reference docs as structured `core_docs` entries with explicit MCP load instructions, while the markdown mirror renders them as local file links
 - the temporary polyfill surface is removed entirely
 - `.brain-core/md-bootstrap.md` remains as the explicit degraded fallback for agents that have neither MCP nor a generated markdown session
 
@@ -54,13 +58,13 @@ Source bootstrap docs are authored in repo-native form. Doc-to-doc navigation us
 
 Bootstrap content is runtime-operational only. Contributor workflow policy for
 changing `obsidian-brain` does not belong in `session-core.md`, `index.md`,
-`brain_session`, or `.brain/local/session.md`; those surfaces are shipped to
+`session.start`, or `.brain/local/session.md`; those surfaces are shipped to
 normal Brain agents and must stay focused on using the vault rather than
 contributing to the repo.
 
 The intended agent reading flow becomes:
 
-1. If MCP is available, call `brain_session`
+1. If MCP is available, call `session.start`
 2. Otherwise, read `.brain/local/session.md` if it exists
 3. Otherwise, follow `.brain-core/index.md` into `.brain-core/md-bootstrap.md` and read raw source files directly
 

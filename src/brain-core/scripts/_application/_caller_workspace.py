@@ -208,7 +208,7 @@ def caller_workspace_entry(request_type, executor):
         locality=Locality.CALLER_LOCAL,
         required_providers=("caller_filesystem",),
         optional_providers=(),
-        authority=Authority.CONTRIBUTOR,
+        authority=Authority.OPERATOR,
         effect_class=EffectClass.CALLER_LOCAL_MUTATION,
         retry_class=RetryClass.RECEIPT_REQUIRED,
         projections=(

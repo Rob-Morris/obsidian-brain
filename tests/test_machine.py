@@ -1098,7 +1098,7 @@ def test_doctor_machine_main_renders_brain_level_repair_guidance(monkeypatch, tm
     assert doctor_machine.main() == 1
     human = capsys.readouterr().out
     assert "repair: mcp — Claude Brain MCP config does not point at the canonical managed Python." in human
-    assert "repair: mcp — Claude SessionStart hook for brain_session is missing or does not match the canonical command." in human
+    assert "repair: mcp — Claude SessionStart hook for session.start is missing or does not match the canonical command." in human
     assert ".brain-core/scripts/repair.py" in human
     assert "mcp --vault" in human
     assert "repair: registry — Registry contains invalid linked-workspace entries: bad" in human

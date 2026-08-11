@@ -33,7 +33,9 @@ CAPTURE_PATH = (
 )
 TOKENISER = "tiktoken/0.12.0:o200k_base"
 TOKEN_ENCODING = "o200k_base"
-MAX_TOOL_TOKENS = 512
+COMPACT_TOOL_TOKENS = 512
+MAX_TOOL_TOKENS = 2_048
+LARGE_TOOL_ALLOWLIST = frozenset({"document.edit"})
 MAX_CATALOGUE_TOKENS = 16_384
 SUPPORTED_CLIENTS = {
     "claude-code": {
@@ -85,14 +87,14 @@ def project_tool(client: str, tool: dict[str, object]) -> dict[str, object]:
 
     if client == "claude-code":
         return {
-            "name": f"mcp__brain__{tool['name']}",
+            "name": f"mcp__brain__{tool['name'].replace('.', '_')}",
             "description": tool["description"],
             "input_schema": tool["input_schema"],
         }
     if client == "codex-cli":
         return {
             "type": "function",
-            "name": tool["name"],
+            "name": tool["name"].replace(".", "_").replace("-", "_"),
             "description": tool["description"],
             "strict": False,
             "defer_loading": True,

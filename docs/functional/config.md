@@ -60,7 +60,7 @@ shipped template and follow the normal defaults-zone merge rules, so a local
 override can opt in without changing the shared vault config.
 
 Semantic and hybrid retrieval also require the optional semantic runtime
-configured via `python3 .brain-core/scripts/configure.py semantic --enable`.
+configured via `brain retrieval enable --vault /path/to/brain --json`.
 That flow writes the local semantic flags first, then provisions the pinned
 runtime packages, snapshots the pinned model under
 `.brain/local/semantic-models/`, records
@@ -78,16 +78,16 @@ defaults:
     semantic_retrieval: true
 ```
 
-- `semantic_processing` enables embedding-backed `brain_classify`,
-  `brain_resolve`, and `brain_ingest` behaviour. When false, degraded
+- `semantic_processing` enables embedding-backed `content.classify`,
+  `content.resolve`, and `content.ingest` behaviour. When false, degraded
   non-embedding modes remain available.
 - `semantic_retrieval` enables semantic and hybrid artefact search. When true,
-  `brain_search` accepts `mode="semantic"` and `mode="hybrid"`, and omitted
+  `artefact.search` accepts `mode="semantic"` and `mode="hybrid"`, and omitted
   `mode` defaults to hybrid when the embeddings sidecars and dependencies are
   available.
 - `defaults.local_runtime.semantic_engine_installed` is a machine-local marker
-  written by `configure.py semantic --enable` or repaired by
-  `repair.py semantic`. It flips true only after the configured vault has the
+  written by `retrieval.enable` or repaired by
+  `retrieval.repair-semantic`. It flips true only after the configured vault has the
   pinned runtime packages, the pinned local model snapshot, and refreshed
   sidecars; the runtime still re-checks dependencies, manifest/model load, and
   sidecar provenance before using the semantic engine.
@@ -101,7 +101,7 @@ defaults:
 
 On startup, the MCP server probes the three config inputs, loads them through the same shared Brain-owned YAML seam as `load_config()`, runs the merge, validates the result (unknown profile tool names raise warnings), and publishes the merged config into the long-lived server runtime.
 
-Config freshness is also checked mid-session before profile enforcement and before `brain_session` authentication. Missing optional vault/local config files are treated as `{}`; malformed or unreadable YAML is a config error. While a config error is active, guarded MCP tools fail closed and `brain_init(debug=true)` reports `debug.config_error`. The last good config remains in memory internally, but runtime readers do not use it again until a later config signature change reloads cleanly.
+Config freshness is checked before profile enforcement and before `session.start` authentication. Missing optional vault/local config files are treated as `{}`; malformed or unreadable YAML is a config error. While a config error is active, granular MCP commands fail closed. The last good config remains in memory internally, but runtime readers do not use it again until a later config signature change reloads cleanly.
 
 ---
 
@@ -125,46 +125,48 @@ The distinction from Brain config:
 - `.brain/local/workspace.yaml` is workspace-level identity and defaults (machine-local)
 - `.brain/local/workspaces.json` is machine-local binding state for linked workspaces
 
-Tooling such as `setup.py workspace` or `configure.py workspace binding` may scaffold `.brain/local/workspace.yaml`, but the file remains human-editable and is expected to evolve over time.
-`repair.py registry` is intentionally narrower: it repairs or normalises `.brain/local/workspaces.json` only, not the human-owned workspace manifest.
+`workspace.bind` may scaffold `.brain/local/workspace.yaml`, but the file remains human-editable and is expected to evolve over time.
+`workspace.repair-registry` is intentionally narrower: it repairs or normalises `.brain/local/workspaces.json` only, not the human-owned workspace manifest.
 
 ---
 
-## Operator Profiles
+## Authority Profiles
 
 **Design decisions:** [DD-025](../architecture/decisions/dd-025-privilege-split.md), [DD-059](../architecture/decisions/dd-059-attachment-upload-boundary.md)
 
-The config system supports three built-in operator profiles with different levels of access:
+The config system supports five cumulative built-in profiles with user-centred levels of access:
 
 | Profile | Intended use |
 |---------|-------------|
-| `reader` | Read-only access, including `brain_outline`, `brain_check`, `brain_classify`, and `brain_resolve` |
-| `contributor` | Read + attachment upload + create/edit/lifecycle and `brain_ingest` |
-| `operator` | Full access including guarded `brain_define`, `brain_move`, and `brain_action` |
+| `reader` | Inspect and discover Brain content and configuration (37 application / 37 MCP commands) |
+| `contributor` | Reader access plus ordinary content creation, editing and lifecycle work (63 / 63 cumulative) |
+| `maintainer` | Contributor access plus definition, plugin and derived-index maintenance (76 / 74 cumulative) |
+| `operator` | Maintainer access plus workspace registration and runtime-operational changes (85 / 77 cumulative) |
+| `administrator` | Operator access plus irreversible artefact deletion (86 / 78 cumulative) |
 
 Each profile has a per-tool allow-list defined in the vault config. Tools not on the active profile's allow-list return an error `CallToolResult` — no silent failures.
 
-The staged command interface derives its future built-in lists from the
-authoritative catalogue's MCP eligibility and authority metadata: reader has 41
-exact leaves, contributor cumulatively has 82, and operator has all 109. A
+Brain Core 0.55.0 derives its built-in lists from the authoritative catalogue's
+authority metadata: reader has 37 exact application commands, contributor
+cumulatively has 63, maintainer 76, operator 85 and administrator all 86. MCP
+projects the eligible 37, 63, 74, 77 and 78-command subsets respectively. A
 known denied leaf is rejected from catalogue plus trusted profile state before
-dynamic request resolution, executor entry or effects. Existing aggregate
-defaults remain public until the coordinated breaking cutover migrates both
-built-in and custom allow-lists; there is no runtime aggregate fallback.
+dynamic request resolution, executor entry or effects. There is no aggregate
+name fallback.
 
-v0.54.56 stages that one-time migration as a pure pre-write operation. Exact
-historical built-ins become the catalogue-derived sets above. A custom profile
+The 0.55.0 upgrade performs a one-time, fail-closed profile migration. Exact
+historical three-profile built-ins become the five catalogue-derived sets above. A custom profile
 expands only the legacy tools it explicitly allowed, preserves its other
 metadata and gains `invocation.read` only when a mapped mutator requires
 receipt-backed recovery. Mixed granular/legacy input is idempotent; unknown
 tools or malformed definitions fail the whole migration before output. The
-migration is not activated until the coordinated cutover transaction.
+migration is part of the checked upgrade transaction.
 
 ### Authentication
 
-`brain_session` accepts an optional `operator_key` parameter. Before authenticating, the server refreshes config if any config input changed. It then hashes the supplied key with SHA-256 and matches it against registered operators in the vault config. On a match, it sets the session profile to the operator's configured profile for all subsequent per-call enforcement. If `operator_key` is omitted, the default profile from config is used.
+The MCP composition root accepts `BRAIN_OPERATOR_KEY` as trusted server configuration; the CLI accepts `--operator-key` as adapter input. Before composing invocation authority, Brain refreshes config, hashes the supplied key with SHA-256 and matches it against registered operators in the vault config. On a match, the invocation uses the operator's configured profile. If no key is supplied, the default profile is used. Operator identity is never a semantic request field.
 
-All tools except `brain_session` itself enforce the active profile. If config is malformed or unreadable, enforcement fails closed and guarded tools return the config error. If the active session profile is removed from config while the server is running, guarded tools return an error asking the operator to run `brain_session` again or fix config. Vaults with fresh config but no active session profile still run without per-call enforcement, which preserves the unauthenticated bootstrap path.
+Every command is authorised before request resolution and executor entry. If config is malformed, unreadable, or names an unknown profile/tool, enforcement fails closed. `session.start` remains available as the explicit authentication/bootstrap command; it does not create a compatibility session state for removed aggregate tools.
 
 ### Generating a key
 
@@ -201,12 +203,12 @@ directories. Brain can install the same thin `shaping` adapter into both without
 duplicating the actual workflow:
 
 ```bash
-brain configure agent-skills --vault /path/to/brain --client all
+brain agent-skill configure --vault /path/to/brain --request-json '{"client":"all"}'
 ```
 
 The checked-in adapter template at
-`.brain-core/client-adapters/shaping/SKILL.md` calls `brain_session`, then reads the authoritative
-`.brain-core/skills/shaping/SKILL.md` from the active Brain with `brain_read`.
+`.brain-core/client-adapters/shaping/SKILL.md` calls `session.start`, then reads the authoritative
+`.brain-core/skills/shaping/SKILL.md` from the active Brain with `vault.read-file`.
 Consequently the client-visible workflow and its MCP contract come from the same
 Brain version. Only the stable adapter is installed under
 `~/.claude/skills/shaping/` or `~/.codex/skills/shaping/`.

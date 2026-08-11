@@ -1,19 +1,11 @@
 #!/usr/bin/env python3
-"""
-check.py — Router-driven vault compliance checker (DD-009)
+"""Internal router-driven vault compliance semantics (DD-009).
 
 Reads the compiled router JSON and validates vault files against structural
 and repair-oriented content rules. Never parses taxonomy markdown — all
 per-type rules come from the compiled router. The compiler is the single
-adaptation point.
-
-Usage:
-    python3 check.py                     # human-readable output
-    python3 check.py --json              # structured JSON output
-    python3 check.py --actionable        # include fix suggestions
-    python3 check.py --severity warning  # filter by severity
-    python3 check.py --json --actionable # combined
-    python3 check.py --vault /path/to/vault  # check a specific vault
+adaptation point. Public callers use ``vault.check`` through ``command.py``;
+the parser retained here is an internal maintenance and recovery entry point.
 """
 
 import argparse
@@ -555,7 +547,7 @@ def check_parent_contract(vault_root, router, *, ctx=None):
                 "file": rel_path,
                 "message": f"Child artefact missing canonical parent field (folder implies `{resolved_parent}`).",
                 "fix": (
-                    "Set parent explicitly with `brain_reparent`; Brain will not infer "
+                    "Set parent explicitly with `artefact.reparent`; Brain will not infer "
                     "authoritative metadata from the current folder"
                 ),
                 "folder_implies": resolved_parent,

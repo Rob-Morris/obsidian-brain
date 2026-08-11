@@ -12,6 +12,7 @@ from granular_mcp_metadata import (
     canonical_json,
     project_tool,
 )
+from capture_real_mcp_clients import SUCCESSFUL_CALLS
 
 
 EVIDENCE_PATH = (
@@ -29,7 +30,7 @@ def _hash(value) -> str:
 def test_pinned_real_clients_observe_current_command_list_declaration():
     evidence = json.loads(EVIDENCE_PATH.read_text(encoding="utf-8"))
     command_list = next(
-        tool for tool in _registered_tools() if tool["name"] == "brain_command_list"
+        tool for tool in _registered_tools() if tool["name"] == "command.list"
     )
 
     assert evidence["schema"] == "brain.command-interface-real-client-evidence/1"
@@ -47,6 +48,7 @@ def test_pinned_real_clients_observe_current_command_list_declaration():
             "command": "command.list",
             "status": "ok",
         }
+        assert observed["successful_requests"] == dict(SUCCESSFUL_CALLS)
 
 
 def test_real_clients_cover_eager_and_deferred_projection_paths():
@@ -55,7 +57,7 @@ def test_real_clients_cover_eager_and_deferred_projection_paths():
     claude_catalogue = [project_tool("claude-code", tool) for tool in registered]
 
     assert clients["claude-code"]["capture_path"] == "eager model request declarations"
-    assert clients["claude-code"]["initial_brain_declarations"] == len(registered) == 109
+    assert clients["claude-code"]["initial_brain_declarations"] == len(registered) == 78
     assert clients["claude-code"]["catalogue_hash"] == _hash(claude_catalogue)
     assert clients["codex-cli"]["capture_path"] == "deferred client tool search"
     assert clients["codex-cli"]["initial_brain_declarations"] == 0

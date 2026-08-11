@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from ._mutation_support import (
     MutationContent,
     no_effect_error,
-    operator_mutation_entry,
+    maintainer_mutation_entry,
     resolve_mutation_content,
 )
 from .context import InvocationContext
@@ -234,4 +234,4 @@ def execute_type_definition(
 
 
 def catalogue_entry(request_type, executor):
-    return operator_mutation_entry(request_type, executor)
+    return maintainer_mutation_entry(request_type, executor)

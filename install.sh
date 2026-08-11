@@ -89,13 +89,21 @@ parse_flags() {
     SKIP_CLI=false
     INSTALL_SYSTEM=false
     ENABLE_SEMANTIC=false
+    ACKNOWLEDGE_GLOBAL_CLI_CUTOVER=false
+    STALE_BRAIN_EXCLUSIONS=()
     BRAIN_ID=""
     VAULT_PATH=""
     local expect_id=false
+    local expect_stale_exclusion=false
     for arg in "$@"; do
         if [ "$expect_id" = true ]; then
             BRAIN_ID="$arg"
             expect_id=false
+            continue
+        fi
+        if [ "$expect_stale_exclusion" = true ]; then
+            STALE_BRAIN_EXCLUSIONS+=("$arg")
+            expect_stale_exclusion=false
             continue
         fi
         case "$arg" in
@@ -117,6 +125,12 @@ parse_flags() {
             --enable-semantic)
                 ENABLE_SEMANTIC=true
                 ;;
+            --acknowledge-global-cli-cutover)
+                ACKNOWLEDGE_GLOBAL_CLI_CUTOVER=true
+                ;;
+            --exclude-stale-brain)
+                expect_stale_exclusion=true
+                ;;
             --id)
                 # Next arg is the Brain ID value.
                 expect_id=true
@@ -126,6 +140,7 @@ parse_flags() {
                 ;;
         esac
     done
+    [ "$expect_stale_exclusion" = false ] || err "--exclude-stale-brain requires a Brain ID."
 }
 
 # Expand ~ and resolve to absolute path
@@ -661,6 +676,9 @@ fi
 
 printf '\n' >&2
 if [ "$UPGRADE_MODE" = true ]; then
+    if [ "$SKIP_CLI" = true ]; then
+        err "--skip-cli cannot be used for the coordinated Brain Core 0.55 / CLI 2 cutover."
+    fi
     [ -n "$PYTHON" ] || err "Python 3.12+ is required for upgrade. Install it and rerun, or call upgrade.py with a compatible interpreter."
     step "Upgrading brain-core"
     upgrade_cmd=(
@@ -672,6 +690,19 @@ if [ "$UPGRADE_MODE" = true ]; then
     if [ "$SKIP_MCP" = true ]; then
         upgrade_cmd+=(--no-sync-deps)
     fi
+    if [ "$NON_INTERACTIVE" = true ]; then
+        upgrade_cmd+=(--unattended)
+    fi
+    if [ "$ACKNOWLEDGE_GLOBAL_CLI_CUTOVER" = true ]; then
+        upgrade_cmd+=(--acknowledge-global-cli-cutover)
+    fi
+    # Bash 3.2 (the macOS system shell) treats "${empty_array[@]}" as an
+    # unbound variable under `set -u`. The `+` form expands to zero arguments
+    # when no exclusions were supplied while preserving spaces in populated
+    # entries.
+    for stale_brain_id in ${STALE_BRAIN_EXCLUSIONS[@]+"${STALE_BRAIN_EXCLUSIONS[@]}"}; do
+        upgrade_cmd+=(--exclude-stale-brain "$stale_brain_id")
+    done
     "${upgrade_cmd[@]}"
     NEW_VERSION=$(cat "$VAULT_PATH/.brain-core/VERSION" 2>/dev/null || echo "unknown")
     printf '    \033[1mUpgraded to:\033[0m v%s\n' "$NEW_VERSION" >&2
@@ -785,42 +816,32 @@ if [ -n "$PYTHON" ] && { [ "${CONFIGURE_SEMANTIC:-}" = "y" ] || [ "${CONFIGURE_S
 fi
 
 # ---------------------------------------------------------------------------
-# brain CLI install (~/.local/bin/brain, or /usr/local/bin/brain with --system)
+# brain CLI distribution install (~/.local, or /usr/local with --system)
 # ---------------------------------------------------------------------------
 
 if [ "$UPGRADE_MODE" != true ] && [ "$SKIP_CLI" != true ]; then
-    if [ -f "$REPO_DIR/cli/brain" ]; then
-        if [ "$INSTALL_SYSTEM" = true ]; then
-            CLI_TARGET_DIR="/usr/local/bin"
-        else
-            CLI_TARGET_DIR="$HOME/.local/bin"
-        fi
-        CLI_TARGET="$CLI_TARGET_DIR/brain"
-        mkdir -p "$CLI_TARGET_DIR" 2>/dev/null || true
-        if cp "$REPO_DIR/cli/brain" "$CLI_TARGET" 2>/dev/null && chmod +x "$CLI_TARGET" 2>/dev/null; then
-            printf '\n' >&2
-            info "Installed brain CLI: $CLI_TARGET"
-            case ":${PATH}:" in
-                *":${CLI_TARGET_DIR}:"*) ;;
-                *)
-                    warn "$CLI_TARGET_DIR is not on your PATH."
-                    info "Add this to your shell profile (~/.zshrc, ~/.bashrc):"
-                    info "  export PATH=\"$CLI_TARGET_DIR:\$PATH\""
-                    ;;
-            esac
-        else
-            printf '\n' >&2
-            warn "Could not install brain CLI to $CLI_TARGET."
-            if [ "$INSTALL_SYSTEM" = true ]; then
-                info "Retry with sudo, or install to user scope:"
-                info "  sudo install -m 0755 \"$REPO_DIR/cli/brain\" \"$CLI_TARGET\""
-                info "  # or (no sudo):"
-                info "  install -m 0755 \"$REPO_DIR/cli/brain\" \"$HOME/.local/bin/brain\""
-            else
-                info "Install manually with:"
-                info "  install -m 0755 \"$REPO_DIR/cli/brain\" \"$CLI_TARGET\""
-            fi
-        fi
+    if [ "$INSTALL_SYSTEM" = true ]; then
+        CLI_TARGET_DIR="/usr/local/bin"
+    else
+        CLI_TARGET_DIR="$HOME/.local/bin"
+    fi
+    CLI_TARGET="$CLI_TARGET_DIR/brain"
+    if [ -n "$PYTHON" ] && "$PYTHON" "$REPO_DIR/cli/_distribution.py" "$REPO_DIR" "$CLI_TARGET" >/dev/null; then
+        printf '\n' >&2
+        info "Installed brain CLI 2 distribution: $CLI_TARGET"
+        case ":${PATH}:" in
+            *":${CLI_TARGET_DIR}:"*) ;;
+            *)
+                warn "$CLI_TARGET_DIR is not on your PATH."
+                info "Add this to your shell profile (~/.zshrc, ~/.bashrc):"
+                info "  export PATH=\"$CLI_TARGET_DIR:\$PATH\""
+                ;;
+        esac
+    else
+        printf '\n' >&2
+        warn "Could not install the brain CLI 2 distribution to $CLI_TARGET."
+        info "The vault is installed; retry CLI installation with Python 3.12+:"
+        info "  python3.12 \"$REPO_DIR/cli/_distribution.py\" \"$REPO_DIR\" \"$CLI_TARGET\""
     fi
 elif [ "$UPGRADE_MODE" != true ] && [ "$SKIP_CLI" = true ]; then
     info "brain CLI install skipped (--skip-cli)."

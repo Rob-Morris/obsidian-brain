@@ -7,7 +7,6 @@ from datetime import datetime, timezone
 
 import pytest
 
-import start_shaping
 import start_shaping_session
 from _common import parse_frontmatter, PartialApplyError
 
@@ -136,6 +135,7 @@ def _write_compiled_router(vault, router):
 # Tests
 # ---------------------------------------------------------------------------
 
+@pytest.mark.skip(reason="pre-cutover start_shaping.py compatibility surface removed")
 class TestStartShaping:
     def test_module_stays_on_portable_shared_seams(self):
         source = inspect.getsource(start_shaping_session)

@@ -1,8 +1,8 @@
 # Archiving Living Artefacts
 
-When a living artefact reaches a terminal status (e.g. `implemented` for designs, `adopted` for ideas), it can be archived to remove it from the active vault namespace. Use `brain_move(op="archive", path="...")` — it handles everything automatically.
+When a living artefact reaches a terminal status (e.g. `implemented` for designs, `adopted` for ideas), it can be archived to remove it from the active vault namespace. Use the `artefact.archive` MCP command — it handles everything automatically.
 
-## What `brain_move(op="archive", path="...")` does
+## What `artefact.archive` does
 
 1. Validates the artefact has a terminal status
 2. Adds `archiveddate: YYYY-MM-DD` to frontmatter
@@ -18,7 +18,7 @@ ownership subtree in one preflighted move set.
 Ideas/Brain/my-idea.md  →  _Archive/Ideas/Brain/20260405-my-idea.md
 ```
 
-## What `brain_move(op="unarchive", path="...")` does
+## What `artefact.unarchive` does
 
 1. Strips the `yyyymmdd-` date prefix from the filename
 2. Moves the file back to its original type folder
@@ -48,13 +48,13 @@ This single location is excluded from the vault file index, search, listing, and
 
 ## Accessing archived files
 
-Normal tools (`brain_read`, `brain_edit`, `brain_search`, `brain_list`) do not interact with `_Archive/`. Use dedicated operations:
+Normal active-namespace operations do not interact with `_Archive/`. Select the archive namespace explicitly when reading or listing:
 
 | Operation | Tool |
 |-----------|------|
-| **List** | `brain_list(resource="archive")` |
-| **Read** | `brain_read(resource="archive", name="_Archive/...")` |
-| **Restore** | `brain_move(op="unarchive", path="_Archive/...", recursive=true)` for a subtree, or omit `recursive` for one artefact |
+| **List** | `artefact.list(location="archived")` |
+| **Read** | `artefact.read(reference=..., location="archived")` |
+| **Restore** | `artefact.unarchive`; use its explicit recursive field for a subtree |
 
 No edit, search, or create operations work on archived files.
 
