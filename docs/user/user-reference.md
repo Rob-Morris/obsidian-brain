@@ -1,6 +1,6 @@
 # Brain Reference
 
-This page is the stable user-facing reference for Brain Core 0.55.6 and CLI 2.0.3. Exact command schemas, examples and availability come from the installed Brain rather than a duplicated hand-maintained inventory.
+This page is the stable user-facing reference for Brain Core 0.55.7 and CLI 2.0.3. Exact command schemas, examples and availability come from the installed Brain rather than a duplicated hand-maintained inventory.
 
 ## Vault model
 
@@ -56,7 +56,7 @@ Start with `session.start`, then use `command.list` and `command.describe` for b
 
 The MCP server derives all registrations, schemas, descriptions and tool hints from the selected Brain's catalogue. Profile authority is checked before dynamic request resolution and effects. The cumulative built-in profiles expose 37 reader, 63 contributor, 74 maintainer, 77 operator and 78 administrator tools; custom profiles use exact granular names.
 
-After an upgrade, an old live proxy can return `proxy_restart_required` before tool lookup. Restart the MCP connection to load the matching proxy. Planned pre-effect drift is replayed only after positive command compatibility; an unexpectedly lost mutation is never blindly replayed. Query its durable reference with `invocation.read`.
+Every MCP call checks the installed Brain Core version before composing context or executing effects. Planned pre-effect drift exits for proxy replacement and is replayed only after positive command compatibility. An unexpectedly lost mutation is never blindly replayed; query its durable reference with `invocation.read`. Receipt lookup is read-only, including for missing or expired references.
 
 See [MCP tools](../functional/mcp-tools.md) for transport, protocol and result details.
 
@@ -104,6 +104,8 @@ Dependency tier, locality and providers are independent:
 - required providers block execution when absent; optional providers may enrich an otherwise complete result.
 
 Adapters never silently provision dependencies, switch Brains or elevate authority. Unavailable results state the required/current tier, missing provider or capability, freshness, recoverability and one structured next action.
+
+Explicit availability refresh respects both provider and aggregate deadlines. Timed-out probes degrade to `unknown`, run behind a fixed process-wide background bound and cannot keep a completed CLI process alive.
 
 ## Configuration and profiles
 

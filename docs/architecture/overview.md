@@ -65,7 +65,7 @@ brain.upgrade
 
 The CLI spelling is `brain <noun> <verb>`. MCP names preserve canonical `<noun>.<verb>` identifiers exactly. The direct script uses `<noun> <verb>`, and Python uses the corresponding sealed request type. Alternatives become separate commands when they differ in required fields, results/errors, authority, dependency tier, locality, atomicity, retry or effect behaviour.
 
-`command.list` and `command.describe` expose exact installed contracts. Static discovery never probes optional providers; explicit refresh creates one bounded capability snapshot. Documentation and generated fixtures point to catalogue discovery instead of becoming a second operation inventory.
+`command.list` and `command.describe` expose exact installed contracts. Static discovery never probes optional providers; explicit refresh creates one bounded capability snapshot. Provider and aggregate deadlines degrade late work to unknown behind a fixed process-wide daemon bound, so refresh cannot accumulate unbounded stuck workers or delay process exit. Documentation and generated fixtures point to catalogue discovery instead of becoming a second operation inventory.
 
 ## Result and recovery model
 
@@ -75,7 +75,7 @@ All application projections preserve `brain.command-result/1`:
 - `partial` contains the known committed effects and a typed error;
 - `error` contains no result and declares either no effects or an unknown mutation outcome.
 
-Unexpected mutation loss is never replayed blindly. Effect-bearing invocation outcomes are written to bounded, privacy-minimal receipts. `invocation.read` can resolve a durable reference; absence of a conclusive receipt never proves no effect. Stable exit categories and MCP error projection derive from the same structure.
+Unexpected mutation loss is never replayed blindly. Effect-bearing invocation outcomes are written to bounded, privacy-minimal receipts. `invocation.read` resolves a durable reference without creating storage, locking files or deleting expired state; absence of a conclusive receipt never proves no effect. Stable exit categories and MCP error projection derive from the same structure.
 
 ## Dependency planes
 

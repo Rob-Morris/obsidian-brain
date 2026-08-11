@@ -18,6 +18,8 @@ The released application catalogue owns 86 commands and currently projects 78 of
 
 Start a session with `session.start`. Discover commands with `command.list`, and inspect one exact request/result contract with `command.describe`. Default discovery uses static catalogue facts and does not probe optional providers; request an explicit refresh only when current provider availability matters.
 
+Explicit refresh enforces provider-specific and aggregate deadlines. Timed-out probes report `unknown`; a fixed process-wide daemon bound prevents repeated MCP calls from accumulating unbounded stuck probes or delaying CLI process exit.
+
 The former aggregates and variants are removed: `brain_init`, `brain_session`, `brain_read`, `brain_create`, `brain_edit`, `brain_define`, `brain_move`, `brain_action`, `brain_process` and the other flat v1 tools are not aliases and are not callable.
 
 ## Request contract
@@ -42,7 +44,7 @@ Every tool returns the same `brain.command-result/1` structure in `structuredCon
 - `partial`: an error plus the exact known `committed_effects`;
 - `error`: no result and `effects: none` or `effects: unknown`.
 
-Warnings, stable error codes, typed details and next actions survive every projection. A mutating child loss is never blindly replayed. When no conclusive receipt exists, the result is non-retryable `command_outcome_unknown` with an outcome reference; query it with `invocation.read`.
+Warnings, stable error codes, typed details and next actions survive every projection. A mutating child loss is never blindly replayed. When no conclusive receipt exists, the result is non-retryable `command_outcome_unknown` with an outcome reference; query it with `invocation.read`. Lookup never creates receipt storage, locks files or deletes expired records; expiry is reported logically, while writes and explicit maintenance own cleanup.
 
 ## Authority profiles
 
@@ -72,3 +74,5 @@ Proxy 0.7.0 supplies protocol 2. On replacement it:
 5. never replays an unexpected mutation, resolving it through outcome receipts instead.
 
 Clients must restart and re-discover tools after the 0.55 cutover. There is no request translation map or legacy server mode.
+
+After startup, every generated tool handler checks the installed `.brain-core/VERSION` before composing trusted context or entering an executor. Drift exits with the proxy's distinguished code 10 so replacement and compatibility-checked replay occur within the triggering call.

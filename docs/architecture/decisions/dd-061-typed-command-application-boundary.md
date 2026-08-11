@@ -773,6 +773,9 @@ Default listing maps one already-composed capability snapshot and performs no
 provider probe. Explicit refresh calls one bounded refresher with the distinct
 provider set. Its small retained snapshot window gives each continuation cursor
 the same token and availability observation; expired tokens fail explicitly.
+Provider-specific and aggregate deadlines run behind a fixed process-wide
+daemon bound: timed-out work becomes unknown, cannot hold a one-shot process
+open and cannot accumulate unbounded workers across repeated MCP refreshes.
 
 `command.describe` v2 derives strict request and result-payload schemas,
 structural result branches, stable error/warning vocabularies, safety/provider

@@ -104,6 +104,7 @@ def _mcp(vault, payload):
         catalogue=current_application_catalogue(),
         resolver=current_request_resolver(),
         context_factory=_context_factory(vault),
+        invocation_guard=lambda: None,
     )
     return asyncio.run(mcp.call_tool("command.list", payload))
 

@@ -65,3 +65,37 @@ def test_server_accepts_only_bounded_proxy_invocation_identity(metadata):
         )
     )
     assert accepted == "mcp-accepted-id"
+
+
+def test_server_version_guard_uses_proxy_restart_exit_code(tmp_path, monkeypatch):
+    vault = tmp_path / "Brain"
+    marker = vault / ".brain-core" / "VERSION"
+    marker.parent.mkdir(parents=True)
+    marker.write_text("0.55.7\n", encoding="utf-8")
+    monkeypatch.setattr(server, "_selected_vault", lambda: vault)
+    monkeypatch.setattr(server, "_LOADED_VERSION", "0.55.6")
+
+    def exit_with(code):
+        raise SystemExit(code)
+
+    monkeypatch.setattr(server.os, "_exit", exit_with)
+
+    with pytest.raises(SystemExit) as exc:
+        server._check_version_drift()
+
+    assert exc.value.code == 10
+
+
+def test_server_version_guard_keeps_matching_process_alive(tmp_path, monkeypatch):
+    vault = tmp_path / "Brain"
+    marker = vault / ".brain-core" / "VERSION"
+    marker.parent.mkdir(parents=True)
+    marker.write_text("0.55.6\n", encoding="utf-8")
+    monkeypatch.setattr(server, "_selected_vault", lambda: vault)
+    monkeypatch.setattr(server, "_LOADED_VERSION", "0.55.6")
+    exits = []
+    monkeypatch.setattr(server.os, "_exit", exits.append)
+
+    server._check_version_drift()
+
+    assert exits == []

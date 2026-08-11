@@ -33,6 +33,14 @@ from ._command_adapter import (  # noqa: E402
 from ._proxy_protocol_gate import install_proxy_protocol_gate  # noqa: E402
 
 
+_EXIT_VERSION_DRIFT = 10
+_LOADED_VERSION = (
+    (Path(__file__).resolve().parent.parent / "VERSION")
+    .read_text(encoding="utf-8")
+    .strip()
+)
+
+
 def _selected_vault() -> Path:
     raw = os.environ.get("BRAIN_VAULT_ROOT")
     if not raw:
@@ -47,6 +55,20 @@ def _selected_vault() -> Path:
     if marker.is_symlink() or not marker.is_file():
         raise RuntimeError("BRAIN_VAULT_ROOT is not an installed Brain")
     return root
+
+
+def _check_version_drift() -> None:
+    """Exit for proxy replacement when the installed command code changed."""
+
+    marker = _selected_vault() / ".brain-core" / "VERSION"
+    try:
+        disk_version = marker.read_text(encoding="utf-8").strip()
+    except OSError:
+        return
+    if disk_version and disk_version != _LOADED_VERSION:
+        # FastMCP/anyio can wrap SystemExit and lose its status. A direct exit
+        # preserves the proxy's distinguished, replay-safe restart signal.
+        os._exit(_EXIT_VERSION_DRIFT)
 
 
 def _invocation_id_from_metadata(metadata: object) -> str:
@@ -97,6 +119,7 @@ def _build_public_mcp() -> FastMCP:
         catalogue=catalogue,
         resolver=current_request_resolver(),
         context_factory=_mcp_context_factory,
+        invocation_guard=_check_version_drift,
     )
     install_proxy_protocol_gate(public, application_interface_header(catalogue))
     return public

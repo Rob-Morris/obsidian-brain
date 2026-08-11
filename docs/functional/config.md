@@ -162,6 +162,11 @@ receipt-backed recovery. Mixed granular/legacy input is idempotent; unknown
 tools or malformed definitions fail the whole migration before output. The
 migration is part of the checked upgrade transaction.
 
+The same migration rewrites exact Brain-shipped `brain_session` bootstrap text
+in root `AGENTS.md`/`Agents.md` and `CLAUDE.md` to `session.start`, even when no
+shared profile config exists. Custom prose is untouched, and profile validation
+finishes before either config or bootstrap output is written.
+
 ### Authentication
 
 The MCP composition root accepts `BRAIN_OPERATOR_KEY` as trusted server configuration; the CLI accepts `--operator-key` as adapter input. Before composing invocation authority, Brain refreshes config, hashes the supplied key with SHA-256 and matches it against registered operators in the vault config. On a match, the invocation uses the operator's configured profile. If no key is supplied, the default profile is used. Operator identity is never a semantic request field.

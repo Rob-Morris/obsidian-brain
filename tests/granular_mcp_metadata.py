@@ -70,6 +70,7 @@ def _registered_tools() -> list[dict[str, object]]:
         catalogue=current_application_catalogue(),
         resolver=current_request_resolver(),
         context_factory=lambda **_metadata: None,
+        invocation_guard=lambda: None,
     )
     registered = sorted(asyncio.run(mcp.list_tools()), key=lambda tool: tool.name)
     return [

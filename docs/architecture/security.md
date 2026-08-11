@@ -200,6 +200,12 @@ identity, outcome state, timestamp and compact effect references. Request
 bodies, credentials and provider values are not representable in the receipt
 schema. Proven no-effect results are not persisted.
 
+`invocation.read` is a strictly non-mutating lookup. Missing receipt storage
+returns no receipt without creating directories or lock files; expired records
+are logically absent without deletion. Atomic publication lets readers avoid a
+cross-process write lock, while receipt writes and explicit maintenance retain
+serialised retention cleanup.
+
 The MCP proxy/server protocol marker is a local compatibility assertion, not an
 authentication credential. The long-lived proxy sets it only in the child
 environment; a replacement server with a missing, malformed or incompatible

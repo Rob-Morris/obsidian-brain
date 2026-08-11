@@ -246,3 +246,102 @@ def test_v055_upgrade_migration_leaves_config_untouched_on_unknown_grant(tmp_pat
         migrate_to_0_55_0.migrate(str(tmp_path))
 
     assert config_path.read_text(encoding="utf-8") == original
+
+
+@pytest.mark.parametrize("filename", ("AGENTS.md", "Agents.md", "CLAUDE.md"))
+def test_v055_upgrade_migrates_known_bootstraps_without_shared_config(
+    tmp_path,
+    filename,
+):
+    bootstrap = tmp_path / filename
+    bootstrap.write_text(
+        "# Brain\n\nALWAYS DO FIRST: Call MCP `brain_session`.\n",
+        encoding="utf-8",
+    )
+
+    result = migrate_to_0_55_0.migrate(str(tmp_path))
+    reported_name = (
+        "AGENTS.md"
+        if filename == "Agents.md" and (tmp_path / "AGENTS.md").is_file()
+        else filename
+    )
+
+    assert result == {
+        "status": "ok",
+        "profiles": [],
+        "strategies": {},
+        "bootstraps": [reported_name],
+    }
+    assert "Call MCP `session.start`" in bootstrap.read_text(encoding="utf-8")
+    assert "brain_session" not in bootstrap.read_text(encoding="utf-8")
+
+
+def test_v055_upgrade_migrates_profiles_and_deduplicates_symlinked_bootstrap(
+    tmp_path,
+):
+    config_path = tmp_path / ".brain" / "config.yaml"
+    config_path.parent.mkdir(parents=True)
+    config_path.write_text(
+        dump_yaml_text({"vault": {"profiles": _legacy_builtins()}}),
+        encoding="utf-8",
+    )
+    agents = tmp_path / "AGENTS.md"
+    agents.write_text(
+        "ALWAYS DO FIRST: Call MCP `brain_session`, else read "
+        "`.brain-core/index.md` if it exists.\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "CLAUDE.md").symlink_to(agents)
+
+    result = migrate_to_0_55_0.migrate(str(tmp_path))
+
+    assert len(result["profiles"]) == 5
+    assert result["bootstraps"] == ["AGENTS.md"]
+    assert agents.read_text(encoding="utf-8").count("session.start") == 1
+
+
+def test_v055_upgrade_migrates_shipped_project_workspace_bootstrap(tmp_path):
+    bootstrap = tmp_path / "CLAUDE.md"
+    bootstrap.write_text(
+        "ALWAYS DO FIRST: Call MCP `brain_session`; if MCP is unavailable, run "
+        "`brain session --json` from this workspace.\n",
+        encoding="utf-8",
+    )
+
+    result = migrate_to_0_55_0.migrate(str(tmp_path))
+
+    assert result["bootstraps"] == ["CLAUDE.md"]
+    assert bootstrap.read_text(encoding="utf-8") == (
+        "ALWAYS DO FIRST: Call MCP `session.start`; if MCP is unavailable, run "
+        "`brain session start --json` from this workspace.\n"
+    )
+
+
+def test_v055_upgrade_validates_profiles_before_changing_bootstrap(tmp_path):
+    config_path = tmp_path / ".brain" / "config.yaml"
+    config_path.parent.mkdir(parents=True)
+    config_path.write_text(
+        dump_yaml_text(
+            {"vault": {"profiles": {"custom": {"allow": ["unknown.tool"]}}}}
+        ),
+        encoding="utf-8",
+    )
+    bootstrap = tmp_path / "AGENTS.md"
+    original = "ALWAYS DO FIRST: Call MCP `brain_session`.\n"
+    bootstrap.write_text(original, encoding="utf-8")
+
+    with pytest.raises(ProfileMigrationError, match="unknown tool"):
+        migrate_to_0_55_0.migrate(str(tmp_path))
+
+    assert bootstrap.read_text(encoding="utf-8") == original
+
+
+def test_v055_upgrade_preserves_unrecognised_bootstrap_prose(tmp_path):
+    bootstrap = tmp_path / "AGENTS.md"
+    original = "Our historical notes mention brain_session but are user-authored.\n"
+    bootstrap.write_text(original, encoding="utf-8")
+
+    result = migrate_to_0_55_0.migrate(str(tmp_path))
+
+    assert result == {"status": "skipped", "profiles": [], "bootstraps": []}
+    assert bootstrap.read_text(encoding="utf-8") == original

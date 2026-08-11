@@ -74,6 +74,7 @@ def main() -> int:
         catalogue=catalogue,
         resolver=current_request_resolver(),
         context_factory=_context_factory(vault_root, allowed_tools),
+        invocation_guard=lambda: None,
     )
     mcp.run(transport="stdio")
     return 0

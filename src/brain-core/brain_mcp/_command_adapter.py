@@ -35,6 +35,7 @@ from ._interface_protocol import (
 
 
 ContextFactory = Callable[..., InvocationContext]
+InvocationGuard = Callable[[], None]
 
 
 def application_interface_header(
@@ -83,6 +84,7 @@ def register_application_tools(
     catalogue: ApplicationCatalogue,
     resolver: RequestResolver,
     context_factory: ContextFactory,
+    invocation_guard: InvocationGuard,
 ) -> tuple[str, ...]:
     """Register every MCP-eligible application command exactly once."""
 
@@ -92,7 +94,13 @@ def register_application_tools(
         if Projection.MCP not in entry.eligible_projections:
             continue
         name = project_identity(entry.command_id).mcp_tool
-        handler = _handler(entry, catalogue, adapter, context_factory)
+        handler = _handler(
+            entry,
+            catalogue,
+            adapter,
+            context_factory,
+            invocation_guard,
+        )
         mcp.add_tool(
             handler,
             name=name,
@@ -137,8 +145,13 @@ def _handler(
     catalogue: ApplicationCatalogue,
     adapter: ApplicationAdapter,
     context_factory: ContextFactory,
+    invocation_guard: InvocationGuard,
 ):
     def invoke(**arguments) -> CallToolResult:
+        # This pre-effect boundary deliberately sits outside the recoverable
+        # adapter error path. The server guard exits with code 10 so the proxy
+        # can replace stale command code and replay under the new interface.
+        invocation_guard()
         try:
             context = context_factory(
                 command_id=entry.command_id,

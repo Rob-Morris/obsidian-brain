@@ -69,10 +69,19 @@ class FileReceiptStore:
             self._trim_locked()
 
     def read(self, reference: OutcomeReference) -> OutcomeReceipt | None:
-        with self._locked_directory():
+        with self._lock:
+            if not _validate_existing_directory(self._root, self._directory):
+                return None
             now = self._clock.now()
-            self._cleanup_locked(now)
-            return self._read_path(self._path(reference))
+            if now.tzinfo is None:
+                raise ValueError("receipt read clock must be timezone-aware")
+            receipt = self._read_path(self._path(reference))
+            if (
+                receipt is not None
+                and receipt.recorded_at < now - self._policy.retention
+            ):
+                return None
+            return receipt
 
     def cleanup(self) -> int:
         with self._locked_directory():
@@ -103,6 +112,10 @@ class FileReceiptStore:
             raise ValueError(f"outcome receipt must be a regular file: {path.name}")
         try:
             raw = json.loads(path.read_text(encoding="utf-8"))
+        except FileNotFoundError:
+            # Writers publish atomically and maintenance may remove an expired
+            # receipt between the existence check and the read.
+            return None
         except (OSError, json.JSONDecodeError) as exc:
             raise ValueError(f"invalid outcome receipt: {path.name}") from exc
         return _decode(raw)
@@ -169,6 +182,23 @@ def _ensure_private_directory(root: Path, directory: Path) -> None:
             current.mkdir()
     if directory.resolve() != directory:
         raise ValueError("receipt directory resolves outside its fixed location")
+
+
+def _validate_existing_directory(root: Path, directory: Path) -> bool:
+    current = root
+    for part in RECEIPT_DIRECTORY.parts:
+        current = current / part
+        if current.is_symlink():
+            raise ValueError(f"refusing symlinked receipt directory: {current}")
+        if not current.exists():
+            return False
+        if not current.is_dir():
+            raise ValueError(
+                f"receipt directory component is not a directory: {current}"
+            )
+    if directory.resolve() != directory:
+        raise ValueError("receipt directory resolves outside its fixed location")
+    return True
 
 
 def _encode(receipt: OutcomeReceipt) -> dict[str, object]:

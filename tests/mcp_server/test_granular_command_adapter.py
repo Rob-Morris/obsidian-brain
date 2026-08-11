@@ -89,6 +89,7 @@ def _registered(tmp_path, allowed_tools):
         catalogue=catalogue,
         resolver=resolver,
         context_factory=_context_factory(tmp_path, allowed_tools),
+        invocation_guard=lambda: None,
     )
     return mcp, catalogue, resolver, names
 
@@ -144,6 +145,29 @@ def test_real_fastmcp_call_returns_structural_content_and_error_state(tmp_path):
     assert ok.isError is False
     assert denied.structuredContent["error"]["code"] == "authority_denied"
     assert denied.isError is True
+
+
+def test_invocation_guard_runs_before_context_composition(tmp_path):
+    catalogue = current_application_catalogue()
+    mcp = FastMCP("guard-order-test")
+    context_calls = []
+
+    def reject_stale_process():
+        raise SystemExit(10)
+
+    register_application_tools(
+        mcp,
+        catalogue=catalogue,
+        resolver=current_request_resolver(),
+        context_factory=lambda **metadata: context_calls.append(metadata),
+        invocation_guard=reject_stale_process,
+    )
+
+    with pytest.raises(SystemExit) as exc:
+        asyncio.run(mcp.call_tool("command.list", {}))
+
+    assert exc.value.code == 10
+    assert context_calls == []
 
 
 @pytest.mark.parametrize(
