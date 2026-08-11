@@ -19,7 +19,10 @@ from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 
 
-pytestmark = pytest.mark.skipif(sys.platform != "win32", reason="native Windows smoke")
+native_windows = pytest.mark.skipif(
+    sys.platform != "win32",
+    reason="native Windows smoke",
+)
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 BRAIN_CORE = REPO_ROOT / "src" / "brain-core"
@@ -50,8 +53,30 @@ def _parse_environment(envelope: dict) -> dict[str, object]:
         for fact in envelope["result"]["facts"]
     }
     missing = {"vault_root", "platform"} - set(env)
-    assert not missing, f"environment payload missing keys {sorted(missing)}: {text!r}"
+    assert not missing, f"environment payload missing keys {sorted(missing)}: {envelope!r}"
     return env
+
+
+def test_environment_parser_requires_complete_structural_facts():
+    envelope = {
+        "schema": "brain.command-result/1",
+        "command": "runtime.read-environment",
+        "status": "ok",
+        "result": {
+            "facts": [
+                {"name": "vault_root", "value": "C:/Brain"},
+                {"name": "platform", "value": "win32"},
+            ]
+        },
+    }
+
+    assert _parse_environment(envelope) == {
+        "vault_root": "C:/Brain",
+        "platform": "win32",
+    }
+    envelope["result"]["facts"].pop()
+    with pytest.raises(AssertionError, match="environment payload missing keys"):
+        _parse_environment(envelope)
 
 
 async def _call_installed_environment_read(vault_root: Path, env: dict[str, str]) -> dict:
@@ -125,6 +150,7 @@ def _run_install_ps1(vault: Path, env: dict[str, str], *, launcher: str | None) 
     )
 
 
+@native_windows
 def test_native_windows_install_and_granular_mcp_round_trip(tmp_path):
     env = _windows_smoke_env(tmp_path)
     vault = tmp_path / "Brain Vault"
