@@ -8,6 +8,7 @@ Never edit past changelog entries. Only add new entries at the top.
 
 | Version | Date | Summary |
 |---|---|---|
+| [v0.55.5](changelog/v0.55.5.md) | 2026-08-11 | Accept vault-self project anchors in MCP context |
 | [v0.55.4](changelog/v0.55.4.md) | 2026-08-11 | Correct native Windows CLI Python probing |
 | [v0.55.3](changelog/v0.55.3.md) | 2026-08-11 | Resolve installed Windows CLI distribution roots |
 | [v0.55.2](changelog/v0.55.2.md) | 2026-08-11 | Verify native Windows bootloaders by platform semantics |

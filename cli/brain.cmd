@@ -1,7 +1,7 @@
 @echo off
 setlocal
 set "BRAIN_CLI_VERSION=2.0.3"
-set "BRAIN_INSTALL_REF=v0.55.4"
+set "BRAIN_INSTALL_REF=v0.55.5"
 
 set "SELF_DIR=%~dp0"
 set "SELF_PATH=%~f0"

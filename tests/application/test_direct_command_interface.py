@@ -205,6 +205,35 @@ def test_direct_command_observes_real_local_composition(tmp_path, monkeypatch):
     assert not (vault / ".brain" / "local" / "command-outcomes").exists()
 
 
+def test_direct_context_accepts_selected_vault_as_project_anchor(
+    tmp_path,
+    monkeypatch,
+):
+    vault = _vault(tmp_path)
+    (vault / ".brain").mkdir()
+    (vault / ".brain" / "config.yaml").write_text(
+        "vault:\n"
+        "  profiles:\n"
+        "    operator:\n"
+        "      allow: [runtime.read-environment]\n"
+        "defaults:\n"
+        "  default_profile: operator\n"
+    )
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config-home"))
+
+    context = direct_context.compose_direct_context(
+        vault_root=vault,
+        command_id="runtime.read-environment",
+        catalogue=current_application_catalogue(),
+        workspace_dir=vault,
+        invocation_id="mcp-vault-self-project",
+        clock=_Clock(),
+    )
+
+    assert context.selected_brain.vault_root == vault
+    assert context.workspace_dir == vault
+
+
 def test_direct_provider_inventory_is_complete_and_refresh_is_deduplicated(
     tmp_path,
     monkeypatch,

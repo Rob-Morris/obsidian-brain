@@ -194,20 +194,28 @@ def _resolve_workspace(root: Path, workspace_dir: Path | None) -> Path | None:
     if not workspace_dir.is_absolute() or workspace_dir.is_symlink():
         raise DirectContextError("direct workspace must be a regular absolute path")
     workspace = workspace_dir.resolve()
-    from _bootstrap.workspace_binding import resolve_startup_target
+    from _bootstrap.workspace_binding import resolve_brain_target
 
     try:
-        target = resolve_startup_target(
+        target = resolve_brain_target(
             workspace_env=str(workspace),
             vault_root_env=str(root),
             start_dir=workspace,
         )
     except Exception as exc:
         raise DirectContextError(f"direct workspace cannot be resolved: {exc}") from exc
+    target_vault = Path(target.vault_root).resolve()
+    if (
+        target.source == "vault_self"
+        and target.workspace_dir is None
+        and workspace == root
+        and target_vault == root
+    ):
+        return workspace
     if (
         target.workspace_dir is None
         or Path(target.workspace_dir).resolve() != workspace
-        or Path(target.vault_root).resolve() != root
+        or target_vault != root
     ):
         raise DirectContextError("direct workspace is not bound to the selected Brain")
     return workspace
