@@ -189,7 +189,7 @@ def test_native_windows_install_and_granular_mcp_round_trip(tmp_path):
         timeout=60,
     )
     assert cli_version.returncode == 0, cli_version.stderr
-    assert cli_version.stdout.strip() == "brain 2.0.0"
+    assert cli_version.stdout.strip() == "brain 2.0.1"
 
     environment = asyncio.run(_call_installed_environment_read(vault, env))
     assert Path(environment["vault_root"]) == vault

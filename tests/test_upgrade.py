@@ -17,6 +17,7 @@ if str(CLI_DIR) not in sys.path:
     sys.path.insert(0, str(CLI_DIR))
 
 from _distribution import install_distribution, verify_distribution
+from _local_cli.runtime import CLI_VERSION
 import migrate_to_0_53_0
 import upgrade
 from _command_interface.profile_migration import _LEGACY_BUILTIN_ALLOW
@@ -1068,7 +1069,7 @@ class TestPrecompileDefinitionRemediation:
             installed = install_distribution(
                 REPO_ROOT,
                 cli_binary,
-                cli_version="2.0.0",
+                cli_version=CLI_VERSION,
                 expected_brain_core_version=CORE_VERSION,
             )
             return {
@@ -1092,11 +1093,11 @@ class TestPrecompileDefinitionRemediation:
             if path.is_file()
         }
         manifest = verify_distribution(
-            tmp_path / "machine" / "lib" / "brain-cli" / "2.0.0"
+            tmp_path / "machine" / "lib" / "brain-cli" / CLI_VERSION
         )
         assert result["status"] == "ok"
         assert (selected / ".brain-core" / "VERSION").read_text().strip() == CORE_VERSION
-        assert result["cutover_commit"]["cli_version"] == "2.0.0"
+        assert result["cutover_commit"]["cli_version"] == CLI_VERSION
         assert manifest["brain_core_version"] == CORE_VERSION
         assert other_before == other_after
 

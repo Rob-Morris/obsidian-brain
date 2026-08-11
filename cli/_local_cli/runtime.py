@@ -14,7 +14,7 @@ from _launcher.context import LauncherContext, ProviderBindings
 from _launcher.contracts import OutcomeReceipt
 
 
-CLI_VERSION = "2.0.0"
+CLI_VERSION = "2.0.1"
 CUTOVER_BRAIN_VERSION = (0, 55, 0)
 
 

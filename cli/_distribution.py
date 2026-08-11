@@ -207,6 +207,14 @@ def _validate_source(source: Path, cli_version: str, brain_core_version: str) ->
             "CLI install ref does not match the Brain Core distribution",
             rollback_verified=True,
         )
+    actual_core = (source / "src" / "brain-core" / "VERSION").read_text(
+        encoding="utf-8"
+    ).strip()
+    if actual_core != brain_core_version:
+        raise DistributionInstallError(
+            "Brain Core source version does not match the requested distribution",
+            rollback_verified=True,
+        )
 
 
 def _source_bootloader(source: Path, binary: Path) -> Path:
@@ -220,14 +228,6 @@ def _declared_version(text: str, name: str, *, prefix: str = "") -> str | None:
         re.MULTILINE | re.IGNORECASE,
     )
     return match.group(1) if match is not None else None
-    actual_core = (source / "src" / "brain-core" / "VERSION").read_text(
-        encoding="utf-8"
-    ).strip()
-    if actual_core != brain_core_version:
-        raise DistributionInstallError(
-            "Brain Core source version does not match the requested distribution",
-            rollback_verified=True,
-        )
 
 
 def _copy_distribution(source: Path, stage: Path) -> None:
@@ -302,7 +302,10 @@ def _verify_pair(
     _validate_staged(distribution, manifest)
     if _file_fingerprint(binary) != _file_fingerprint(source_binary):
         raise ValueError("installed CLI binary does not match the distribution")
-    if stat.S_IMODE(binary.stat().st_mode) != 0o755:
+    if sys.platform == "win32":
+        if binary.suffix.casefold() != ".cmd":
+            raise ValueError("installed Windows CLI binary must use the .cmd bootloader")
+    elif stat.S_IMODE(binary.stat().st_mode) != 0o755:
         raise ValueError("installed CLI binary is not executable")
 
 

@@ -590,7 +590,7 @@ def _checked_preflight(
         selected_vault=context.current_vault,
         source_brain_core_version=version,
         old_cli_version=context.cli_version,
-        new_cli_version="2.0.0",
+        new_cli_version="2.0.1",
         interface_epoch=epoch,
         proxy_protocol=protocol,
         acknowledge_global_cli_cutover=request.acknowledge_global_cli_cutover,
@@ -671,7 +671,7 @@ def execute_upgrade(context: LauncherContext, request: BrainUpgradeRequest):
         installed_distribution = install_distribution(
             source_root,
             context.cli_binary,
-            cli_version="2.0.0",
+            cli_version="2.0.1",
             expected_brain_core_version=preflight.source_brain_core_version,
         )
         return {
