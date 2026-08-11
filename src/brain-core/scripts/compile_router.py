@@ -14,9 +14,7 @@ Usage:
 import hashlib
 import json
 import os
-import platform
 import re
-import shutil
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -925,13 +923,10 @@ def resource_source_dirs(vault_root):
 # ---------------------------------------------------------------------------
 
 def detect_environment(vault_root):
-    """Detect runtime environment."""
-    return {
-        "vault_root": str(vault_root),
-        "platform": sys.platform,
-        "python_version": platform.python_version(),
-        "cli_available": shutil.which("brain") is not None,
-    }
+    """Detect runtime environment through the portable canonical owner."""
+    from _portable.router_views import detect_environment as detect_live_environment
+
+    return detect_live_environment(vault_root)
 
 
 

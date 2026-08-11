@@ -14,9 +14,11 @@ from command_application import application_for
 
 
 def test_runtime_read_environment_returns_bounded_sorted_facts(
-    command_vault_baseline,
+    command_vault_clone,
 ):
-    result = application_for(command_vault_baseline.vault_root).invoke(
+    (command_vault_clone.vault_root / ".brain/local/compiled-router.json").unlink()
+
+    result = application_for(command_vault_clone.vault_root).invoke(
         RuntimeReadEnvironmentRequest()
     )
 
@@ -26,7 +28,7 @@ def test_runtime_read_environment_returns_bounded_sorted_facts(
         sorted(fact.name for fact in facts)
     )
     values = {fact.name: fact.value for fact in facts}
-    assert values["vault_root"] == str(command_vault_baseline.vault_root)
+    assert values["vault_root"] == str(command_vault_clone.vault_root)
     assert isinstance(values["platform"], str)
     assert all(
         isinstance(fact.value, (str, bool, int, float))

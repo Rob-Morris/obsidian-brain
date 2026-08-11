@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from typing import ClassVar, Mapping
 
 from ..context import InvocationContext
-from ..results import CommandError, Error, ErrorCode, Ok
+from ..results import Ok
 from ..types import (
     Authority,
     DependencyTier,
@@ -42,14 +42,7 @@ class RuntimeReadEnvironmentRequest:
 def execute(context: InvocationContext, _request: RuntimeReadEnvironmentRequest):
     from _portable.router_views import environment_from_vault
 
-    try:
-        environment = environment_from_vault(context.selected_brain.vault_root)
-    except FileNotFoundError as exc:
-        return Error(
-            RuntimeReadEnvironmentRequest.COMMAND_ID,
-            RuntimeReadEnvironmentRequest.COMMAND_VERSION,
-            CommandError(ErrorCode.CONFLICT, str(exc)),
-        )
+    environment = environment_from_vault(context.selected_brain.vault_root)
     facts = tuple(
         RuntimeFact(name, value)
         for name, value in sorted(environment.items())
