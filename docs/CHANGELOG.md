@@ -8,6 +8,7 @@ Never edit past changelog entries. Only add new entries at the top.
 
 | Version | Date | Summary |
 |---|---|---|
+| [v0.55.3](changelog/v0.55.3.md) | 2026-08-11 | Resolve installed Windows CLI distribution roots |
 | [v0.55.2](changelog/v0.55.2.md) | 2026-08-11 | Verify native Windows bootloaders by platform semantics |
 | [v0.55.1](changelog/v0.55.1.md) | 2026-08-11 | Bound the managed runtime to the supported MCP major |
 | [v0.55.0](changelog/v0.55.0.md) | 2026-08-11 | **BREAKING — [Release: Brain Command Architecture](changelog/releases/v0.55.0-brain-command-architecture.md)** |

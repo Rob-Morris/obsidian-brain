@@ -11,8 +11,10 @@ import subprocess
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 CLI = REPO_ROOT / "cli" / "brain"
+WINDOWS_CLI = REPO_ROOT / "cli" / "brain.cmd"
 CORE_VERSION = (REPO_ROOT / "src" / "brain-core" / "VERSION").read_text().strip()
 CLI_TEXT = CLI.read_text()
+WINDOWS_CLI_TEXT = WINDOWS_CLI.read_text()
 
 
 def _shell_value(name):
@@ -90,8 +92,20 @@ print(json.dumps(base, separators=(',', ':')))
 
 
 def test_release_versions_move_together():
-    assert _shell_value("BRAIN_CLI_VERSION") == "2.0.1"
+    assert _shell_value("BRAIN_CLI_VERSION") == "2.0.2"
     assert _shell_value("BRAIN_INSTALL_REF") == f"v{CORE_VERSION}"
+
+
+def test_windows_bootloader_defaults_to_the_installed_distribution():
+    default = (
+        'set "DISTRIBUTION_ROOT=%SELF_DIR%..\\lib\\brain-cli\\'
+        '%BRAIN_CLI_VERSION%"'
+    )
+
+    assert default in WINDOWS_CLI_TEXT
+    assert WINDOWS_CLI_TEXT.index(default) < WINDOWS_CLI_TEXT.index(
+        "if defined BRAIN_CLI_BUNDLE"
+    )
 
 
 def test_version_and_launcher_discovery_need_no_selected_brain(tmp_path):
@@ -100,11 +114,11 @@ def test_version_and_launcher_discovery_need_no_selected_brain(tmp_path):
     listing = _run(tmp_path, "command", "list", "--owner", "launcher", "--json")
 
     assert version.returncode == 0
-    assert version.stdout.strip() == "brain 2.0.1"
+    assert version.stdout.strip() == "brain 2.0.2"
     payload = json.loads(structural.stdout)
     assert structural.returncode == 0
     assert payload["command"] == "brain.version"
-    assert payload["result"]["cli_version"] == "2.0.1"
+    assert payload["result"]["cli_version"] == "2.0.2"
     commands = json.loads(listing.stdout)
     assert listing.returncode == 0
     assert commands["schema"] == "brain.local-command-list/1"

@@ -1,16 +1,15 @@
 @echo off
 setlocal
-set "BRAIN_CLI_VERSION=2.0.1"
-set "BRAIN_INSTALL_REF=v0.55.2"
+set "BRAIN_CLI_VERSION=2.0.2"
+set "BRAIN_INSTALL_REF=v0.55.3"
 
 set "SELF_DIR=%~dp0"
 set "SELF_PATH=%~f0"
+set "DISTRIBUTION_ROOT=%SELF_DIR%..\lib\brain-cli\%BRAIN_CLI_VERSION%"
 if defined BRAIN_CLI_BUNDLE (
     set "DISTRIBUTION_ROOT=%BRAIN_CLI_BUNDLE%"
-) else if exist "%SELF_DIR%_local_cli\main.py" if exist "%SELF_DIR%..\src\brain-core\VERSION" (
-    set "DISTRIBUTION_ROOT=%SELF_DIR%.."
-) else (
-    set "DISTRIBUTION_ROOT=%SELF_DIR%..\lib\brain-cli\%BRAIN_CLI_VERSION%"
+) else if exist "%SELF_DIR%_local_cli\main.py" (
+    if exist "%SELF_DIR%..\src\brain-core\VERSION" set "DISTRIBUTION_ROOT=%SELF_DIR%.."
 )
 for %%I in ("%DISTRIBUTION_ROOT%") do set "DISTRIBUTION_ROOT=%%~fI"
 
