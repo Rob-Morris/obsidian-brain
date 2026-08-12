@@ -9,6 +9,7 @@ registration and the replacement-proxy protocol gate.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 import os
 from pathlib import Path
 import sys
@@ -76,10 +77,12 @@ def _check_version_drift() -> None:
 
 
 def _invocation_id_from_metadata(metadata: object) -> str:
-    extras = getattr(metadata, "model_extra", None)
-    invocation = extras.get("brainInvocation") if isinstance(extras, dict) else None
+    extras = metadata if isinstance(metadata, Mapping) else getattr(metadata, "model_extra", None)
+    invocation = (
+        extras.get("brainInvocation") if isinstance(extras, Mapping) else None
+    )
     invocation_id = (
-        invocation.get("invocationId") if isinstance(invocation, dict) else None
+        invocation.get("invocationId") if isinstance(invocation, Mapping) else None
     )
     if (
         not isinstance(invocation_id, str)

@@ -65,6 +65,9 @@ def test_server_accepts_only_bounded_proxy_invocation_identity(metadata):
         )
     )
     assert accepted == "mcp-accepted-id"
+    assert server._invocation_id_from_metadata(
+        {"brainInvocation": {"invocationId": "mcp-sdk2-mapping"}}
+    ) == "mcp-sdk2-mapping"
 
 
 def test_server_version_guard_uses_proxy_restart_exit_code(tmp_path, monkeypatch):
