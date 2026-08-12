@@ -109,8 +109,6 @@ async def _call_installed_environment_read(vault_root: Path, env: dict[str, str]
                         "read-environment",
                         "--vault",
                         str(vault_root),
-                        "--workspace",
-                        str(vault_root),
                         "--request-json",
                         "{}",
                         "--json",
