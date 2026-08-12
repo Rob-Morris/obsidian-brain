@@ -100,8 +100,41 @@ async def _call_installed_environment_read(vault_root: Path, env: dict[str, str]
             assert any(tool.name == "attachment.upload" for tool in tools.tools)
 
             result = await session.call_tool("runtime.read-environment", {})
-            assert not result.is_error, result.content[0].text
+            if result.is_error:
+                direct = subprocess.run(
+                    [
+                        server_config["command"],
+                        str(vault_root / ".brain-core" / "scripts" / "command.py"),
+                        "runtime",
+                        "read-environment",
+                        "--vault",
+                        str(vault_root),
+                        "--workspace",
+                        str(vault_root),
+                        "--request-json",
+                        "{}",
+                        "--json",
+                    ],
+                    cwd=vault_root,
+                    env=server_env,
+                    capture_output=True,
+                    text=True,
+                    timeout=60,
+                )
+                proxy_log = vault_root / ".brain" / "local" / "mcp-proxy.log"
+                diagnostics = (
+                    f"\ndirect exit={direct.returncode}"
+                    f"\ndirect stdout={direct.stdout}"
+                    f"\ndirect stderr={direct.stderr}"
+                    f"\nproxy log={proxy_log.read_text(encoding='utf-8') if proxy_log.is_file() else '<absent>'}"
+                )
+                raise AssertionError(result.content[0].text + diagnostics)
             environment = _parse_environment(result.structured_content)
+            elevation = await session.call_tool(
+                "access.request",
+                {"commands": ["attachment.upload"], "use_count": 1},
+            )
+            assert not elevation.is_error, elevation.content[0].text
             upload = await session.call_tool(
                 "attachment.upload",
                 {
