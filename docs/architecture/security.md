@@ -96,11 +96,11 @@ Five cumulative built-in profiles define what each agent can do:
 
 | Profile | Allowed tools |
 |---|---|
-| `reader` | Inspect and discover Brain content and configuration (37 application / 37 MCP commands) |
-| `contributor` | Reader access plus ordinary content creation, editing and lifecycle work (63 / 63 cumulative) |
-| `maintainer` | Contributor access plus definition, plugin and derived-index maintenance (76 / 74 cumulative) |
-| `operator` | Maintainer access plus workspace registration and runtime-operational changes (85 / 77 cumulative) |
-| `administrator` | Operator access plus irreversible artefact deletion (86 / 78 cumulative) |
+| `reader` | Inspect and discover Brain content and configuration (23 application / 23 MCP commands) |
+| `contributor` | Reader access plus ordinary content creation, editing and lifecycle work (45 / 44 cumulative) |
+| `maintainer` | Contributor access plus definition, plugin and derived-index maintenance (58 / 55 cumulative) |
+| `operator` | Maintainer access plus workspace registration and runtime-operational changes (67 / 56 cumulative) |
+| `administrator` | Operator access plus irreversible artefact deletion (68 / 57 cumulative) |
 
 Profiles are defined in `defaults/config.yaml` under `vault.profiles` and can be
 extended or replaced in `.brain/config.yaml`. The default profile when no key is

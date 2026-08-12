@@ -1,6 +1,6 @@
 # Brain Reference
 
-This page is the stable user-facing reference for Brain Core 0.55.8 and CLI 2.0.3. Exact command schemas, examples and availability come from the installed Brain rather than a duplicated hand-maintained inventory.
+This page is the stable user-facing reference for Brain Core 0.56.0 and CLI 2.0.3. Exact command schemas, examples and availability come from the installed Brain rather than a duplicated hand-maintained inventory.
 
 ## Vault model
 
@@ -54,7 +54,7 @@ Each granular tool exposes its own top-level request fields. There is no generic
 
 Start with `session.start`, then use `command.list` and `command.describe` for bounded discovery. For example, inspect `artefact.create` before supplying its fields to the `artefact.create` tool.
 
-The MCP server derives all registrations, schemas, descriptions and tool hints from the selected Brain's catalogue. Profile authority is checked before dynamic request resolution and effects. The cumulative built-in profiles expose 37 reader, 63 contributor, 74 maintainer, 77 operator and 78 administrator tools; custom profiles use exact granular names.
+The MCP server derives all registrations, schemas, descriptions and tool hints from the selected Brain's catalogue. Profile authority is checked before dynamic request resolution and effects. The cumulative built-in profiles expose 23 reader, 44 contributor, 55 maintainer, 56 operator and 57 administrator MCP tools; custom profiles use exact command names.
 
 Every MCP call checks the installed Brain Core version before composing context or executing effects. Planned pre-effect drift exits for proxy replacement and is replayed only after positive command compatibility. An unexpectedly lost mutation is never blindly replayed; query its durable reference with `invocation.read`. Receipt lookup is read-only, including for missing or expired references.
 

@@ -138,18 +138,18 @@ The config system supports five cumulative built-in profiles with user-centred l
 
 | Profile | Intended use |
 |---------|-------------|
-| `reader` | Inspect and discover Brain content and configuration (37 application / 37 MCP commands) |
-| `contributor` | Reader access plus ordinary content creation, editing and lifecycle work (63 / 63 cumulative) |
-| `maintainer` | Contributor access plus definition, plugin and derived-index maintenance (76 / 74 cumulative) |
-| `operator` | Maintainer access plus workspace registration and runtime-operational changes (85 / 77 cumulative) |
-| `administrator` | Operator access plus irreversible artefact deletion (86 / 78 cumulative) |
+| `reader` | Inspect and discover Brain content and configuration (23 application / 23 MCP commands) |
+| `contributor` | Reader access plus ordinary content creation, editing and lifecycle work (45 / 44 cumulative) |
+| `maintainer` | Contributor access plus definition, plugin and derived-index maintenance (58 / 55 cumulative) |
+| `operator` | Maintainer access plus workspace registration and runtime-operational changes (67 / 56 cumulative) |
+| `administrator` | Operator access plus irreversible artefact deletion (68 / 57 cumulative) |
 
 Each profile has a per-tool allow-list defined in the vault config. Tools not on the active profile's allow-list return an error `CallToolResult` — no silent failures.
 
-Brain Core 0.55.0 derives its built-in lists from the authoritative catalogue's
-authority metadata: reader has 37 exact application commands, contributor
-cumulatively has 63, maintainer 76, operator 85 and administrator all 86. MCP
-projects the eligible 37, 63, 74, 77 and 78-command subsets respectively. A
+Brain Core derives its built-in lists from the authoritative catalogue's
+authority metadata: reader has 23 exact application commands, contributor
+cumulatively has 45, maintainer 58, operator 67 and administrator all 68. MCP
+projects the eligible 23, 44, 55, 56 and 57-command subsets respectively. A
 known denied leaf is rejected from catalogue plus trusted profile state before
 dynamic request resolution, executor entry or effects. There is no aggregate
 name fallback.

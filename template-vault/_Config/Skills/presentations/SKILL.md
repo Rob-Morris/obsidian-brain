@@ -8,14 +8,14 @@ Create slide decks from vault content using Marp CLI.
 
 ## Session Start
 
-1. Read the presentations taxonomy: `type.read(reference="presentation")`
+1. Read the presentations taxonomy: `resource.read(resource="type", reference="presentation")`
 2. Check Marp is installed: `marp --version`
    - Install if missing: `npm install -g @marp-team/marp-cli`
 3. Locate the theme: `_Config/Skills/presentations/theme.css`
 
 ## Shaping Workflow
 
-Use `shaping.render-presentation(source=..., slug=...)` to create the presentation artefact, render its PDF, and launch a live preview:
+Use `shaping.render(source=..., slug=..., output={"kind":"presentation"})` to create the presentation artefact, render its PDF, and launch a live preview:
 
 1. **Call the tool.** `source` is the vault artefact to present (relative path). `slug` is the deck name (lowercase-hyphenated).
 2. **The tool creates** the presentation file from the template if it does not already exist.

@@ -13,11 +13,13 @@ from _application.registry import current_application_catalogue
 from _command_interface.profile_migration import (
     _LEGACY_BUILTIN_ALLOW,
     _LEGACY_COMMANDS,
+    _REMOVED_GRANULAR_COMMANDS,
     ProfileMigrationError,
     migrate_profile_allow_lists,
 )
 from _command_interface.profiles import builtin_profile_allow_lists
 import migrate_to_0_55_0
+import migrate_to_0_56_0
 
 
 DISPOSITIONS = (
@@ -33,6 +35,28 @@ def _legacy_builtins():
         name: {"allow": list(tools), "label": f"{name} profile"}
         for name, tools in _LEGACY_BUILTIN_ALLOW.items()
     }
+
+
+def _previous_granular_builtins():
+    """Reconstruct the exact v0.55 built-ins from the current vocabulary."""
+
+    reverse_consolidations = {}
+    for old_tool, current_tool in _REMOVED_GRANULAR_COMMANDS.items():
+        reverse_consolidations.setdefault(current_tool, set()).add(old_tool)
+    profiles = {}
+    for profile, tools in builtin_profile_allow_lists(
+        current_application_catalogue()
+    ).items():
+        previous = set(tools) - {"runtime.status", "runtime.warmup"}
+        for current_tool, old_tools in reverse_consolidations.items():
+            if current_tool in previous:
+                previous.remove(current_tool)
+                previous.update(old_tools)
+        profiles[profile] = {
+            "allow": sorted(previous),
+            "label": f"{profile} profile",
+        }
+    return profiles
 
 
 def test_shipped_authority_asset_and_profile_defaults_match_the_catalogue():
@@ -83,14 +107,27 @@ def _fixture_replacements(tool, fixture):
     return set()
 
 
+def _final_replacements(command_ids):
+    return {
+        _REMOVED_GRANULAR_COMMANDS.get(command_id, command_id)
+        for command_id in command_ids
+    }
+
+
 def test_legacy_mapping_matches_the_closed_operation_disposition_evidence():
     fixture = json.loads(DISPOSITIONS.read_text(encoding="utf-8"))
 
     assert set(_LEGACY_COMMANDS) == set(fixture["mcp_tool_dispositions"])
     for tool, command_ids in _LEGACY_COMMANDS.items():
-        expected = _fixture_replacements(tool, fixture)
+        expected = _final_replacements(_fixture_replacements(tool, fixture))
         if tool == "brain_init":
-            expected = {"command.describe", "command.list", "session.start"}
+            expected = {
+                "command.describe",
+                "command.list",
+                "runtime.status",
+                "runtime.warmup",
+                "session.start",
+            }
         assert set(command_ids) == expected, tool
 
 
@@ -101,11 +138,11 @@ def test_exact_legacy_builtins_become_catalogue_derived_granular_profiles():
     )
 
     assert {name: len(value["allow"]) for name, value in result.profiles.items()} == {
-        "reader": 37,
-        "contributor": 63,
-        "maintainer": 76,
-        "operator": 85,
-        "administrator": 86,
+        "reader": 23,
+        "contributor": 45,
+        "maintainer": 58,
+        "operator": 67,
+        "administrator": 68,
     }
     assert [change.strategy for change in result.changes] == [
         "builtin",
@@ -224,11 +261,11 @@ def test_v055_upgrade_migration_writes_all_five_builtin_profiles(tmp_path):
         name: len(definition["allow"])
         for name, definition in migrated["vault"]["profiles"].items()
     } == {
-        "reader": 37,
-        "contributor": 63,
-        "maintainer": 76,
-        "operator": 85,
-        "administrator": 86,
+        "reader": 23,
+        "contributor": 45,
+        "maintainer": 58,
+        "operator": 67,
+        "administrator": 68,
     }
     assert migrated["vault"]["brain_name"] == "Test Brain"
     assert migrated["defaults"] == {"default_profile": "operator"}
@@ -345,3 +382,76 @@ def test_v055_upgrade_preserves_unrecognised_bootstrap_prose(tmp_path):
 
     assert result == {"status": "skipped", "profiles": [], "bootstraps": []}
     assert bootstrap.read_text(encoding="utf-8") == original
+
+
+def test_v056_upgrade_migrates_exact_shipped_granular_profiles(tmp_path):
+    config_path = tmp_path / ".brain" / "config.yaml"
+    config_path.parent.mkdir(parents=True)
+    config_path.write_text(
+        dump_yaml_text({"vault": {"profiles": _previous_granular_builtins()}}),
+        encoding="utf-8",
+    )
+
+    result = migrate_to_0_56_0.migrate(str(tmp_path))
+    migrated = load_mapping_file(config_path)
+
+    assert result["status"] == "ok"
+    assert result["profiles"] == [
+        "reader",
+        "contributor",
+        "maintainer",
+        "operator",
+        "administrator",
+    ]
+    assert {
+        name: tuple(definition["allow"])
+        for name, definition in migrated["vault"]["profiles"].items()
+    } == builtin_profile_allow_lists(current_application_catalogue())
+    assert all(strategy == "builtin" for strategy in result["strategies"].values())
+
+
+def test_v056_upgrade_preserves_custom_authority_while_consolidating(tmp_path):
+    config_path = tmp_path / ".brain" / "config.yaml"
+    config_path.parent.mkdir(parents=True)
+    config_path.write_text(
+        dump_yaml_text(
+            {
+                "vault": {
+                    "profiles": {
+                        "custom": {
+                            "allow": ["memory.read", "session.start"],
+                        }
+                    }
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    result = migrate_to_0_56_0.migrate(str(tmp_path))
+    migrated = load_mapping_file(config_path)
+
+    assert result == {
+        "status": "ok",
+        "profiles": ["custom"],
+        "strategies": {"custom": "custom"},
+    }
+    assert migrated["vault"]["profiles"]["custom"]["allow"] == [
+        "resource.read",
+        "session.start",
+    ]
+    assert "runtime.status" not in migrated["vault"]["profiles"]["custom"]["allow"]
+
+
+def test_v056_upgrade_fails_before_writing_an_unknown_grant(tmp_path):
+    config_path = tmp_path / ".brain" / "config.yaml"
+    config_path.parent.mkdir(parents=True)
+    original = dump_yaml_text(
+        {"vault": {"profiles": {"custom": {"allow": ["unknown.tool"]}}}}
+    )
+    config_path.write_text(original, encoding="utf-8")
+
+    with pytest.raises(ProfileMigrationError, match="unknown tool"):
+        migrate_to_0_56_0.migrate(str(tmp_path))
+
+    assert config_path.read_text(encoding="utf-8") == original

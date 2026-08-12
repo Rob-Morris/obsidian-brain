@@ -14,7 +14,7 @@ Handles session setup for all shaping sub-skills. Called by the parent `shaping`
 
 1. If the user named a specific artefact: read it via `artefact.read(reference="...")`. If it doesn't resolve, ask the user what type to create, then use `artefact.create` with top-level `type`, `title` and optional `content` fields.
 2. If the user described an idea with no artefact: ask what artefact type fits, then create it via `artefact.create`.
-3. Read the type taxonomy with `type.read(reference="{type-key}")`. Require complete `shaping` metadata: `flavour`, `bar`, and `completion_status`. If it is absent, explain that the type is not shapeable and stop before creating a transcript.
+3. Read the type taxonomy with `resource.read(resource="type", reference="{type-key}")`. Require complete `shaping` metadata: `flavour`, `bar`, and `completion_status`. If it is absent, explain that the type is not shapeable and stop before creating a transcript.
 4. Check for prior sessions before opening this one: if the artefact has a `**Transcripts:**` line, this is a resumption. The artefact is the source of truth for current state — read it, not old transcripts. Only consult prior transcripts if you need to understand *why* something was decided.
 5. **Select the shaping mode** from the taxonomy and artefact content:
    - `flavour: discovery` → **discover**

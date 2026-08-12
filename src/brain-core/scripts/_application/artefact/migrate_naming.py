@@ -129,7 +129,15 @@ def _payload(result: dict) -> ArtefactMigrateNamingPayload:
 
 
 def catalogue_entry():
-    return contributor_mutation_entry(ArtefactMigrateNamingRequest, execute)
+    from ..catalogue import exclude_projection
+    from ..types import Projection
+
+    return exclude_projection(
+        contributor_mutation_entry(ArtefactMigrateNamingRequest, execute),
+        Projection.MCP,
+        "Vault-wide naming migration is reserved for deliberate CLI or "
+        "direct-script administration.",
+    )
 
 
 def resolver_entry():

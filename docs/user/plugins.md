@@ -9,7 +9,7 @@ A plugin has up to four pieces:
 | Piece | Location | Purpose |
 |-------|----------|---------|
 | Data folder | `_Plugins/{Name}/` | Files managed by the tool — do not hand-edit unless the plugin says you can |
-| Plugin definition | `_Plugins/{Name}/SKILL.md` | Makes the installed plugin discoverable through `plugin.read` / `plugin.search` |
+| Plugin definition | `_Plugins/{Name}/SKILL.md` | Makes the installed plugin discoverable through `resource.read(resource="plugin", ...)` / `resource.search(resource="plugin", ...)` |
 | Reusable agent skill | `_Config/Skills/{name}/SKILL.md` | Optional standalone skill surfaced with other Brain skills |
 | MCP config | Claude: `.mcp.json`; Codex: `.codex/config.toml` | Starts the tool's MCP server in the chosen client |
 | Router entry | `_Config/router.md` | Makes the plugin visible to agents each session |

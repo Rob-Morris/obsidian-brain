@@ -7,6 +7,7 @@ from enum import Enum
 from typing import Generic, Literal, TypeVar
 
 from .receipts import CommittedEffect, OutcomeReference
+from .runtime_status import RuntimeProgressDetails
 from .types import DependencyTier, Locality, SnapshotFreshness, validate_command_id
 
 
@@ -132,6 +133,7 @@ ErrorDetails = (
     | AuthorityDeniedDetails
     | InternalErrorDetails
     | OutcomeUnknownDetails
+    | RuntimeProgressDetails
 )
 
 

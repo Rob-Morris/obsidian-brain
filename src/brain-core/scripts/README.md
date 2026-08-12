@@ -20,6 +20,10 @@ python3 .brain-core/scripts/command.py command describe \
   --request-json '{"target_command_id":"artefact.create"}' --json
 python3 .brain-core/scripts/command.py artefact read \
   --request-json '{"reference":"design/brain"}' --json
+python3 .brain-core/scripts/command.py resource read \
+  --request-json '{"resource":"type","reference":"design"}' --json
+python3 .brain-core/scripts/command.py runtime status \
+  --request-json '{}' --json
 ```
 
 Use command discovery for the exact installed schema and minimal request. `command.py` accepts only the canonical noun/verb identity and strict JSON object. Selection, operator identity and dry-run are trusted adapter context; they cannot be smuggled into semantic fields.
@@ -57,6 +61,13 @@ scripts/
 It does not import `argparse`, the MCP SDK, terminal renderers, environment selectors or concrete provisioning. Lower-level packages never import back into `_application`.
 
 `_command_interface/` is the trusted composition boundary for direct selected-Brain invocation. It resolves the selected vault/workspace, authenticates profile authority, composes providers, chooses the current tier and persists privacy-minimal outcome receipts. It does not own command semantics.
+
+Related named resources are owned publicly by `resource.create`,
+`resource.list`, `resource.read` and `resource.search`; their older target-only
+modules remain lower implementation seams. `runtime.status`, `runtime.warmup`
+and cold `session.start` share the stdlib-safe `brain.runtime-status/1`
+readiness snapshot. Presentation and printable rendering share
+`shaping.render` with a strict `output.kind` variant.
 
 ## Dependency planes
 

@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 import hashlib
 import json
-from typing import Callable
+from typing import Callable, get_args, get_origin
 
 from .context import InvocationContext
 from .requests import CommandRequest, command_identity
@@ -59,7 +59,7 @@ class ApplicationEntry:
         return self.request_type.COMMAND_VERSION
 
     @property
-    def result_type(self) -> type:
+    def result_type(self):
         return self.request_type.RESULT_TYPE
 
     def __post_init__(self) -> None:
@@ -157,9 +157,7 @@ class ApplicationCatalogue:
                     "request_type": (
                         f"{entry.request_type.__module__}:{entry.request_type.__qualname__}"
                     ),
-                    "result_type": (
-                        f"{entry.result_type.__module__}:{entry.result_type.__qualname__}"
-                    ),
+                    "result_type": type_identity(entry.result_type),
                     "dependency_tier": entry.dependency_tier.name.lower(),
                     "locality": entry.locality.value,
                     "required_providers": entry.required_providers,
@@ -180,6 +178,41 @@ class ApplicationCatalogue:
         }
         encoded = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
         return "sha256:" + hashlib.sha256(encoded).hexdigest()
+
+
+def exclude_projection(
+    entry: ApplicationEntry,
+    projection: Projection,
+    reason: str,
+) -> ApplicationEntry:
+    """Return an entry with one deliberately unsupported public projection."""
+    if not isinstance(projection, Projection):
+        raise ValueError("projection exclusion requires a typed projection")
+    if not isinstance(reason, str) or not reason.strip():
+        raise ValueError("projection exclusion requires a non-empty reason")
+    projections = tuple(
+        ProjectionEligibility(item.projection, False, reason.strip())
+        if item.projection is projection
+        else item
+        for item in entry.projections
+    )
+    if projections == entry.projections:
+        raise ValueError(f"projection is already unsupported: {projection.value}")
+    return replace(entry, projections=projections)
+
+
+def type_identity(annotation: object) -> str:
+    """Return a stable identity for a payload type or strict payload union."""
+    if get_origin(annotation) is not None:
+        arguments = get_args(annotation)
+        if not arguments:
+            raise TypeError(f"unsupported result annotation: {annotation!r}")
+        return "union[" + ",".join(type_identity(item) for item in arguments) + "]"
+    module = getattr(annotation, "__module__", None)
+    qualname = getattr(annotation, "__qualname__", None)
+    if not isinstance(module, str) or not isinstance(qualname, str):
+        raise TypeError(f"unsupported result annotation: {annotation!r}")
+    return f"{module}:{qualname}"
 
 
 def _summary(command_id: str) -> str:

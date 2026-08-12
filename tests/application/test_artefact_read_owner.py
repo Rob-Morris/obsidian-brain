@@ -8,6 +8,7 @@ from _application.artefact.read import ArtefactReadRequest
 from _application.registry import current_application_catalogue, current_request_resolver
 from _application.requests import CommandListRequest
 from _application.results import ErrorCode
+from _application.types import Projection
 from command_application import application_for
 
 
@@ -39,15 +40,12 @@ FINAL_COMMAND_IDS = (
     "invocation.read",
     "links.check",
     "links.fix",
-    "memory.create",
-    "memory.list",
-    "memory.read",
-    "memory.search",
     "plugin.create",
-    "plugin.list",
-    "plugin.read",
     "plugin.replace",
-    "plugin.search",
+    "resource.create",
+    "resource.list",
+    "resource.read",
+    "resource.search",
     "retrieval.construct-benchmark",
     "retrieval.enable",
     "retrieval.evaluate",
@@ -56,32 +54,17 @@ FINAL_COMMAND_IDS = (
     "retrieval.repair-semantic",
     "runtime.read-environment",
     "runtime.refresh-router",
+    "runtime.status",
+    "runtime.warmup",
     "session.start",
-    "shaping.render-presentation",
-    "shaping.render-printable",
+    "shaping.render",
     "shaping.start",
-    "skill.create",
-    "skill.list",
-    "skill.read",
-    "skill.search",
     "stage.create",
     "stage.discard",
-    "style.create",
-    "style.list",
-    "style.read",
-    "style.search",
-    "template.create",
-    "template.list",
-    "template.read",
     "trigger.create",
     "trigger.delete",
-    "trigger.list",
-    "trigger.read",
     "trigger.replace",
-    "trigger.search",
     "type.create",
-    "type.list",
-    "type.read",
     "type.replace",
     "type.status",
     "type.sync",
@@ -125,7 +108,7 @@ def test_artefact_read_maps_missing_and_escape_errors_before_effects(
     assert escaped.effects == "none"
 
 
-def test_catalogue_identity_is_the_exact_final_86_command_surface():
+def test_catalogue_identity_is_the_exact_final_68_command_surface():
     resolver = current_request_resolver()
     request = resolver.resolve(
         "artefact.read",
@@ -136,6 +119,25 @@ def test_catalogue_identity_is_the_exact_final_86_command_surface():
     assert type(request) is ArtefactReadRequest
     assert catalogue.resolve(request).command_id == "artefact.read"
     assert tuple(entry.command_id for entry in catalogue.entries) == FINAL_COMMAND_IDS
+
+
+def test_physical_admin_commands_are_explicitly_excluded_only_from_mcp():
+    catalogue = current_application_catalogue()
+    excluded = {
+        "artefact.migrate-naming",
+        "retrieval.enable",
+        "workspace.repair-registry",
+    }
+
+    for command_id in excluded:
+        entry = next(item for item in catalogue.entries if item.command_id == command_id)
+        assert Projection.MCP not in entry.eligible_projections
+        assert set(entry.eligible_projections) == {
+            Projection.CLI,
+            Projection.SCRIPT,
+            Projection.PYTHON,
+        }
+        assert entry.projections[0].reason
 
 
 def test_foundational_discovery_immediately_includes_cohesive_artefact_owners(

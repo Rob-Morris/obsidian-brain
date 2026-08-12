@@ -65,9 +65,9 @@ class TestBuildSessionModel:
             "schema": "brain.command-catalogue/1",
             "interface_epoch": 1,
             "static_fingerprint": (
-                "sha256:bc226ef447da360f967591afd3b801f17a9d3821e2b3b79add70ba35dff03b05"
+                "sha256:e3beaed634032eb66378c3854629fb8210fa9ae9a2308c87b1ee07a22c9937d9"
             ),
-            "installed_application_command_count": 86,
+            "installed_application_command_count": 68,
             "brain_core_version": "0.25.0",
             "list": "Use command.list for filtered, paginated commands.",
             "describe": (

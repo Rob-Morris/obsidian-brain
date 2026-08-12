@@ -286,8 +286,8 @@
       }
     },
     "temporal/presentations": {
-      "brain_core_version": "0.55.0",
-      "installed_at": "2026-08-11T04:57:46.142671+00:00",
+      "brain_core_version": "0.56.0",
+      "installed_at": "2026-08-12T07:20:39.570473+00:00",
       "files": {
         "taxonomy": {
           "source_hash": "sha256:5546999c09a2e5541fc6173b9b373d07cadb8a390bc1486e7ab33b148bc39816",
@@ -298,7 +298,7 @@
           "target": "_Config/Templates/Temporal/Presentations.md"
         },
         "skill": {
-          "source_hash": "sha256:951fa568983bc51fdd65e55cbef013f8ad8019c85197953d0be6feaaeae1cb72",
+          "source_hash": "sha256:acb589b08060038b78075c10bccf450a7195bd427abbf9e4a4c6da0df9d1088a",
           "target": "_Config/Skills/presentations/SKILL.md"
         },
         "theme": {

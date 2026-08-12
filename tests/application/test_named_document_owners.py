@@ -5,22 +5,22 @@ from __future__ import annotations
 import compile_router
 import pytest
 
-from _application.plugin.list import PluginListRequest
-from _application.plugin.read import PluginReadRequest
 from _application.registry import current_request_resolver
+from _application.resource.list import ListableResource, ResourceListRequest
+from _application.resource.read import ReadableResource, ResourceReadRequest
 from _application.results import ErrorCode
-from _application.skill.list import SkillListRequest
-from _application.skill.read import SkillReadRequest
-from _application.style.list import StyleListRequest
-from _application.style.read import StyleReadRequest
 from command_application import application_for
 
 
 def test_skill_owners_return_exact_typed_documents(command_vault_baseline):
     application = application_for(command_vault_baseline.vault_root)
 
-    listing = application.invoke(SkillListRequest(query="software-design"))
-    reading = application.invoke(SkillReadRequest("shaping"))
+    listing = application.invoke(
+        ResourceListRequest(ListableResource.SKILL, query="software-design")
+    )
+    reading = application.invoke(
+        ResourceReadRequest(ReadableResource.SKILL, "shaping")
+    )
 
     assert listing.status == "ok"
     assert listing.result.total == 2
@@ -38,8 +38,10 @@ def test_skill_owners_return_exact_typed_documents(command_vault_baseline):
 def test_style_owners_return_sorted_names_and_content(command_vault_baseline):
     application = application_for(command_vault_baseline.vault_root)
 
-    listing = application.invoke(StyleListRequest())
-    reading = application.invoke(StyleReadRequest("obsidian"))
+    listing = application.invoke(ResourceListRequest(ListableResource.STYLE))
+    reading = application.invoke(
+        ResourceReadRequest(ReadableResource.STYLE, "obsidian")
+    )
 
     assert [item.name for item in listing.result.items] == ["obsidian", "writing"]
     assert listing.result.total == 2
@@ -52,9 +54,11 @@ def test_plugin_owners_handle_empty_and_installed_collections(
     command_vault_clone,
 ):
     baseline = application_for(command_vault_baseline.vault_root)
-    assert baseline.invoke(PluginListRequest()).result.total == 0
+    assert baseline.invoke(ResourceListRequest(ListableResource.PLUGIN)).result.total == 0
     assert (
-        baseline.invoke(PluginReadRequest("example")).error.code
+        baseline.invoke(
+            ResourceReadRequest(ReadableResource.PLUGIN, "example")
+        ).error.code
         is ErrorCode.NOT_FOUND
     )
 
@@ -68,8 +72,10 @@ def test_plugin_owners_handle_empty_and_installed_collections(
     compile_router.persist_compiled_router(str(command_vault_clone.vault_root), router)
     application = application_for(command_vault_clone.vault_root)
 
-    listing = application.invoke(PluginListRequest())
-    reading = application.invoke(PluginReadRequest("example"))
+    listing = application.invoke(ResourceListRequest(ListableResource.PLUGIN))
+    reading = application.invoke(
+        ResourceReadRequest(ReadableResource.PLUGIN, "example")
+    )
 
     assert [item.name for item in listing.result.items] == ["example"]
     assert reading.result.name == "example"
@@ -79,20 +85,30 @@ def test_plugin_owners_handle_empty_and_installed_collections(
 def test_named_document_transport_resolves_only_its_exact_request_shape():
     resolver = current_request_resolver()
 
-    assert type(resolver.resolve("skill.read", {"reference": "shaping"})) is SkillReadRequest
-    assert type(resolver.resolve("skill.list", {"query": "shape"})) is SkillListRequest
-    assert type(resolver.resolve("style.read", {"reference": "obsidian"})) is StyleReadRequest
-    assert type(resolver.resolve("style.list", {})) is StyleListRequest
-    assert type(resolver.resolve("plugin.read", {"reference": "example"})) is PluginReadRequest
-    assert type(resolver.resolve("plugin.list", {})) is PluginListRequest
+    skill = resolver.resolve(
+        "resource.read", {"resource": "skill", "reference": "shaping"}
+    )
+    style = resolver.resolve("resource.list", {"resource": "style"})
+    plugin = resolver.resolve(
+        "resource.read", {"resource": "plugin", "reference": "example"}
+    )
+    assert type(skill) is ResourceReadRequest
+    assert skill.resource is ReadableResource.SKILL
+    assert type(style) is ResourceListRequest
+    assert style.resource is ListableResource.STYLE
+    assert type(plugin) is ResourceReadRequest
+    assert plugin.resource is ReadableResource.PLUGIN
 
 
 @pytest.mark.parametrize(
     ("command_id", "payload"),
     (
-        ("skill.read", {"reference": ""}),
-        ("style.list", {"query": ""}),
-        ("plugin.read", {"reference": "example", "name": "other"}),
+        ("resource.read", {"resource": "skill", "reference": ""}),
+        ("resource.list", {"resource": "style", "query": ""}),
+        (
+            "resource.read",
+            {"resource": "plugin", "reference": "example", "name": "other"},
+        ),
     ),
 )
 def test_named_document_requests_reject_empty_or_extra_intent(command_id, payload):

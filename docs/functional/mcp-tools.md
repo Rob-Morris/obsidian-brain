@@ -19,9 +19,13 @@ An MCP-eligible command exposes its canonical `<noun>.<verb>` identifier directl
 
 The MCP server name remains `brain`; it is not repeated inside every tool name. Clients may encode dots and hyphens internally when projecting MCP tools into a model API. That private encoding does not change the raw MCP name or the command contract.
 
-The released application catalogue owns 86 commands and currently projects 78 of them to MCP. Those numbers and every tool schema are checked from the authoritative catalogue; this document deliberately does not duplicate the full list.
+The released application catalogue owns 68 commands and currently projects 57 of them to MCP. Those numbers and every tool schema are checked from the authoritative catalogue; this document deliberately does not duplicate the full list.
 
-Start a session with `session.start`. Discover commands with `command.list`, and inspect one exact request/result contract with `command.describe`. Default discovery uses static catalogue facts and does not probe optional providers; request an explicit refresh only when current provider availability matters.
+Start a session with `session.start`. On a cold Brain it starts or joins background warm-up and returns the shared `brain.runtime-status/1` snapshot with guidance to poll `runtime.status`; retry `session.start` when ready. `runtime.status` is a cheap read-only observation, while `runtime.warmup` explicitly starts, joins or retries warm-up. Discover commands with `command.list`, and inspect one exact request/result contract with `command.describe`. Default discovery uses static catalogue facts and does not probe optional providers; request an explicit refresh only when current provider availability matters.
+
+Related named resources share the strict `resource.create`, `resource.list`, `resource.read` and `resource.search` tools. Each has a shallow resource or target discriminator and a closed resource-specific result union. Presentation and printable output similarly share `shaping.render` with a strict `output.kind` branch. These commands replace target-only leaves without introducing a generic invocation gateway.
+
+`artefact.migrate-naming`, `retrieval.enable` and `workspace.repair-registry` remain available through the CLI, direct script and typed Python interfaces but are deliberately not registered in agent-facing MCP. Their catalogue records state the local-administration reason.
 
 Explicit refresh enforces provider-specific and aggregate deadlines. Timed-out probes report `unknown`; a fixed process-wide daemon bound prevents repeated MCP calls from accumulating unbounded stuck probes or delaying CLI process exit.
 
@@ -53,7 +57,7 @@ Warnings, stable error codes, typed details and next actions survive every proje
 
 ## Authority profiles
 
-Profiles authorise exact granular tool names. The built-in `reader`, `contributor`, `maintainer`, `operator` and `administrator` projections are cumulative and derived from catalogue authority metadata. Their MCP allow-lists contain 37, 63, 74, 77 and 78 tools respectively. Upgrade migrates exact legacy built-ins and expands explicit custom aggregate grants once; there is no runtime aggregate fallback after cutover. A command is authorised before its request is dynamically resolved.
+Profiles authorise exact command names. The built-in `reader`, `contributor`, `maintainer`, `operator` and `administrator` application sets contain 23, 45, 58, 67 and 68 commands; their MCP-eligible subsets contain 23, 44, 55, 56 and 57 tools. Upgrade migrates exact legacy built-ins and expands explicit custom aggregate or superseded-leaf grants once; there is no runtime fallback after cutover. A command is authorised before its request is dynamically resolved.
 
 ## Metadata and client budgets
 
@@ -64,7 +68,7 @@ Tool summaries are short and contain no parameter manuals. Every reachable reque
 - safe retry commands set `idempotentHint`;
 - `openWorldHint` is false.
 
-The supported-client gate uses real Claude Code and Codex CLI projections with pinned capture tooling. The catalogue must stay within 16,384 deterministic tokens per supported client. Ordinary tools remain within 512 tokens; the explicitly cohesive `document.edit` schema may use up to 2,048 so its resource and change variants remain structurally strict rather than opaque or artificially split.
+The supported-client gate uses real Claude Code and Codex CLI projections with pinned capture tooling. The catalogue must stay within 16,384 deterministic tokens per supported client. Ordinary tools remain within 512 tokens; the explicitly cohesive `document.edit` and `resource.create` schemas may use up to 2,048 so their strict variants remain structural rather than opaque or artificially split.
 
 ## Proxy replacement protocol
 

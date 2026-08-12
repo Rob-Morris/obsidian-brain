@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from typing import Mapping
 
-from .catalogue import ApplicationCatalogue, ApplicationEntry
+from .catalogue import ApplicationCatalogue, ApplicationEntry, type_identity
 from .context import InvocationContext
 from .receipts import OutcomeReference, ReceiptLookupState
 from .requests import (
@@ -317,7 +317,7 @@ class _FoundationOwners:
             CommandOwner.APPLICATION,
             entry.summary,
             json.dumps(request_schema(entry.request_type), separators=(",", ":")),
-            f"{entry.result_type.__module__}:{entry.result_type.__qualname__}",
+            type_identity(entry.result_type),
             json.dumps(result_payload_schema(entry.request_type), separators=(",", ":")),
             tuple(result_variants),
             tuple(error_codes),

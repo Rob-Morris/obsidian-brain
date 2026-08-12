@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 from pathlib import Path
+import json
 
 import pytest
 
 from _application.registry import current_application_catalogue, current_request_resolver
 from _application.session.start import SessionStartRequest
+from _application.runtime.status import RuntimeStatusRequest
 from _application.types import DependencyTier, EffectClass
+from _bootstrap import readiness
 from command_application import application_for
 
 
@@ -16,9 +19,34 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 CORE_VERSION = (REPO_ROOT / "src" / "brain-core" / "VERSION").read_text().strip()
 
 
+def _mark_ready(vault_root):
+    path = vault_root / ".brain/local/runtime-status.json"
+    path.write_text(
+        json.dumps(
+            {
+                "schema": "brain.runtime-status/1",
+                "core_version": CORE_VERSION,
+                "run_id": "test-ready",
+                "state": "ready",
+                "phase": None,
+                "components": {
+                    "router": "ready",
+                    "lexical": "ready",
+                    "semantic": "disabled",
+                },
+                "retry_after_ms": None,
+                "started_at": "2026-08-12T01:00:00+00:00",
+                "last_error": None,
+            }
+        ),
+        encoding="utf-8",
+    )
+
+
 def test_session_start_returns_typed_bootstrap_and_refreshes_mirror(
     command_vault_clone,
 ):
+    _mark_ready(command_vault_clone.vault_root)
     application = application_for(
         command_vault_clone.vault_root,
         dependency_tier=DependencyTier.MANAGED,
@@ -35,7 +63,7 @@ def test_session_start_returns_typed_bootstrap_and_refreshes_mirror(
     assert result.result.config.default_profile == "operator"
     assert result.result.command_catalogue.schema == "brain.command-catalogue/1"
     assert result.result.command_catalogue.interface_epoch == 1
-    assert result.result.command_catalogue.installed_application_command_count == 86
+    assert result.result.command_catalogue.installed_application_command_count == 68
     assert result.result.command_catalogue.list.startswith("Use command.list")
     assert result.result.command_catalogue.describe.startswith(
         "Use command.describe"
@@ -50,6 +78,7 @@ def test_session_start_returns_typed_bootstrap_and_refreshes_mirror(
 
 
 def test_session_start_carries_trusted_workspace_context(command_vault_clone):
+    _mark_ready(command_vault_clone.vault_root)
     workspace = command_vault_clone.vault_root.parent / "agent-workspace"
     workspace.mkdir()
     application = application_for(
@@ -64,6 +93,30 @@ def test_session_start_carries_trusted_workspace_context(command_vault_clone):
     assert result.result.workspace.directory == str(workspace.resolve())
     assert result.result.workspace.location == "external"
     assert result.result.workspace_configuration.binding_status == "not configured"
+
+
+def test_cold_session_start_returns_the_shared_progress_snapshot(
+    command_vault_clone,
+    monkeypatch,
+):
+    status_path = command_vault_clone.vault_root / ".brain/local/runtime-status.json"
+    status_path.unlink(missing_ok=True)
+    monkeypatch.setattr(readiness, "_spawn_worker", lambda *_args: None)
+    application = application_for(
+        command_vault_clone.vault_root,
+        dependency_tier=DependencyTier.MANAGED,
+    )
+
+    started = application.invoke(SessionStartRequest())
+    observed = application.invoke(RuntimeStatusRequest())
+
+    assert started.status == "error"
+    assert started.retryable is True
+    assert started.error.details.runtime_status == observed.result.runtime_status
+    assert started.error.details.runtime_status.schema == "brain.runtime-status/1"
+    assert started.error.details.runtime_status.state == "warming"
+    assert "runtime.status" in started.error.next_action.instruction
+    assert "session.start" in started.error.next_action.instruction
 
 
 def test_session_start_catalogue_declares_managed_cache_effect():

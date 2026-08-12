@@ -29,15 +29,12 @@ from .content.resolve import ContentResolveRequest
 from .document.edit import DocumentEditRequest
 from .links.check import LinksCheckRequest
 from .links.fix import LinksFixRequest
-from .memory.list import MemoryListRequest
-from .memory.create import MemoryCreateRequest
-from .memory.read import MemoryReadRequest
-from .memory.search import MemorySearchRequest
 from .plugin.create import PluginCreateRequest
-from .plugin.list import PluginListRequest
-from .plugin.read import PluginReadRequest
 from .plugin.replace import PluginReplaceRequest
-from .plugin.search import PluginSearchRequest
+from .resource.create import ResourceCreateRequest
+from .resource.list import ResourceListRequest
+from .resource.read import ResourceReadRequest
+from .resource.search import ResourceSearchRequest
 from .retrieval.construct_benchmark import RetrievalConstructBenchmarkRequest
 from .retrieval.enable import RetrievalEnableRequest
 from .retrieval.evaluate import RetrievalEvaluateRequest
@@ -46,32 +43,17 @@ from .retrieval.rebuild_semantic import RetrievalRebuildSemanticRequest
 from .retrieval.repair_semantic import RetrievalRepairSemanticRequest
 from .runtime.refresh_router import RuntimeRefreshRouterRequest
 from .runtime.read_environment import RuntimeReadEnvironmentRequest
+from .runtime.status import RuntimeStatusRequest
+from .runtime.warmup import RuntimeWarmupRequest
 from .session.start import SessionStartRequest
-from .shaping.render_presentation import ShapingRenderPresentationRequest
-from .shaping.render_printable import ShapingRenderPrintableRequest
+from .shaping.render import ShapingRenderRequest
 from .shaping.start import ShapingStartRequest
-from .skill.list import SkillListRequest
-from .skill.create import SkillCreateRequest
-from .skill.read import SkillReadRequest
-from .skill.search import SkillSearchRequest
 from .stage.create import StageCreateRequest
 from .stage.discard import StageDiscardRequest
-from .style.list import StyleListRequest
-from .style.create import StyleCreateRequest
-from .style.read import StyleReadRequest
-from .style.search import StyleSearchRequest
-from .template.list import TemplateListRequest
-from .template.create import TemplateCreateRequest
-from .template.read import TemplateReadRequest
 from .trigger.create import TriggerCreateRequest
 from .trigger.delete import TriggerDeleteRequest
-from .trigger.list import TriggerListRequest
-from .trigger.read import TriggerReadRequest
 from .trigger.replace import TriggerReplaceRequest
-from .trigger.search import TriggerSearchRequest
 from .type.create import TypeCreateRequest
-from .type.list import ArtefactTypeListRequest
-from .type.read import ArtefactTypeReadRequest
 from .type.replace import TypeReplaceRequest
 from .type.status import TypeStatusRequest
 from .type.sync import TypeSyncRequest
@@ -379,15 +361,12 @@ CommandRequest = (
     | DocumentEditRequest
     | LinksCheckRequest
     | LinksFixRequest
-    | MemoryCreateRequest
-    | MemoryListRequest
-    | MemoryReadRequest
-    | MemorySearchRequest
     | PluginCreateRequest
-    | PluginListRequest
-    | PluginReadRequest
     | PluginReplaceRequest
-    | PluginSearchRequest
+    | ResourceCreateRequest
+    | ResourceListRequest
+    | ResourceReadRequest
+    | ResourceSearchRequest
     | RetrievalConstructBenchmarkRequest
     | RetrievalEnableRequest
     | RetrievalEvaluateRequest
@@ -396,32 +375,17 @@ CommandRequest = (
     | RetrievalRepairSemanticRequest
     | RuntimeRefreshRouterRequest
     | RuntimeReadEnvironmentRequest
+    | RuntimeStatusRequest
+    | RuntimeWarmupRequest
     | SessionStartRequest
-    | ShapingRenderPresentationRequest
-    | ShapingRenderPrintableRequest
+    | ShapingRenderRequest
     | ShapingStartRequest
-    | SkillCreateRequest
-    | SkillListRequest
-    | SkillReadRequest
-    | SkillSearchRequest
     | StageCreateRequest
     | StageDiscardRequest
-    | StyleCreateRequest
-    | StyleListRequest
-    | StyleReadRequest
-    | StyleSearchRequest
-    | TemplateCreateRequest
-    | TemplateListRequest
-    | TemplateReadRequest
     | TriggerCreateRequest
     | TriggerDeleteRequest
-    | TriggerListRequest
-    | TriggerReadRequest
     | TriggerReplaceRequest
-    | TriggerSearchRequest
     | TypeCreateRequest
-    | ArtefactTypeListRequest
-    | ArtefactTypeReadRequest
     | TypeReplaceRequest
     | TypeStatusRequest
     | TypeSyncRequest
@@ -472,15 +436,12 @@ def command_identity(request: CommandRequest) -> tuple[str, int, type]:
         DocumentEditRequest,
         LinksCheckRequest,
         LinksFixRequest,
-        MemoryCreateRequest,
-        MemoryListRequest,
-        MemoryReadRequest,
-        MemorySearchRequest,
         PluginCreateRequest,
-        PluginListRequest,
-        PluginReadRequest,
         PluginReplaceRequest,
-        PluginSearchRequest,
+        ResourceCreateRequest,
+        ResourceListRequest,
+        ResourceReadRequest,
+        ResourceSearchRequest,
         RetrievalConstructBenchmarkRequest,
         RetrievalEnableRequest,
         RetrievalEvaluateRequest,
@@ -489,32 +450,17 @@ def command_identity(request: CommandRequest) -> tuple[str, int, type]:
         RetrievalRepairSemanticRequest,
         RuntimeRefreshRouterRequest,
         RuntimeReadEnvironmentRequest,
+        RuntimeStatusRequest,
+        RuntimeWarmupRequest,
         SessionStartRequest,
-        ShapingRenderPresentationRequest,
-        ShapingRenderPrintableRequest,
+        ShapingRenderRequest,
         ShapingStartRequest,
-        SkillCreateRequest,
-        SkillListRequest,
-        SkillReadRequest,
-        SkillSearchRequest,
         StageCreateRequest,
         StageDiscardRequest,
-        StyleCreateRequest,
-        StyleListRequest,
-        StyleReadRequest,
-        StyleSearchRequest,
-        TemplateCreateRequest,
-        TemplateListRequest,
-        TemplateReadRequest,
         TriggerCreateRequest,
         TriggerDeleteRequest,
-        TriggerListRequest,
-        TriggerReadRequest,
         TriggerReplaceRequest,
-        TriggerSearchRequest,
         TypeCreateRequest,
-        ArtefactTypeListRequest,
-        ArtefactTypeReadRequest,
         TypeReplaceRequest,
         TypeStatusRequest,
         TypeSyncRequest,

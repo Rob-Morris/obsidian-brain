@@ -11,7 +11,9 @@ def _read(relative_path):
 def test_assess_reads_taxonomy_and_selects_mode_before_opening_session():
     assess = _read("assess/SKILL.md")
 
-    taxonomy_read = assess.index('type.read(reference="{type-key}")')
+    taxonomy_read = assess.index(
+        'resource.read(resource="type", reference="{type-key}")'
+    )
     mode_selection = assess.index("Select the shaping mode")
     session_open = assess.index('shaping.start(target="{path}", mode="{mode}")')
 

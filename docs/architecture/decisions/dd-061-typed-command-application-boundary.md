@@ -1099,3 +1099,26 @@ a competing Pydantic interpretation. The proxy protocol gate now wraps the
 SDK's method-based `tools/call` handler while preserving its pre-lookup denial
 and initialise-extension ownership. Stdio compatibility is exercised against a
 2025-06-18 client as well as the current SDK client.
+
+## v0.56.0 target-only consolidation and runtime readiness
+
+Five cohesive commands replace 25 leaves whose semantics differed only by
+named-resource target or rendered output: `resource.create`, `resource.list`,
+`resource.read`, `resource.search` and `shaping.render`. Their discriminated
+request and result unions remain closed, so consolidation removes catalogue
+noise without replacing useful structure with a generic invocation gateway.
+Distinct artefact lifecycle intents remain separate commands.
+
+`artefact.migrate-naming`, `retrieval.enable` and
+`workspace.repair-registry` remain available to local CLI, direct-script and
+typed-Python administrators but are intentionally absent from MCP. The current
+catalogue therefore contains 68 application commands and 57 MCP projections.
+
+Bootstrap-safe `runtime.status` observes one exact
+`brain.runtime-status/1` snapshot without probing or writing.
+`runtime.warmup` starts, joins or explicitly retries bounded background
+readiness work. Cold `session.start` starts or joins that same work and returns
+promptly with the identical snapshot and polling guidance; it creates the
+managed session only after readiness. The 0.56 migration recognises the exact
+shipped 0.55 profile set and adopts refreshed built-ins, while custom profiles
+receive only command-for-command replacements.

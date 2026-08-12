@@ -35,7 +35,7 @@ TOKENISER = "tiktoken/0.12.0:o200k_base"
 TOKEN_ENCODING = "o200k_base"
 COMPACT_TOOL_TOKENS = 512
 MAX_TOOL_TOKENS = 2_048
-LARGE_TOOL_ALLOWLIST = frozenset({"document.edit"})
+LARGE_TOOL_ALLOWLIST = frozenset({"document.edit", "resource.create"})
 MAX_CATALOGUE_TOKENS = 16_384
 SUPPORTED_CLIENTS = {
     "claude-code": {

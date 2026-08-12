@@ -10,11 +10,15 @@ from _application._mutation_support import (
     InlineContent,
     StagedContent,
 )
-from _application.memory.create import MemoryCreateRequest
 from _application.registry import current_application_catalogue, current_request_resolver
+from _application.resource.create import (
+    MemoryCreateTarget,
+    ResourceCreateRequest,
+    SkillCreateTarget,
+    StyleCreateTarget,
+    TemplateCreateTarget,
+)
 from _application.results import ErrorCode
-from _application.skill.create import SkillCreateRequest
-from _application.style.create import StyleCreateRequest
 from _application.types import Authority, EffectClass, RetryClass
 from _common import parse_frontmatter
 from _staging import read_staged_body, stage_body
@@ -25,25 +29,28 @@ from command_application import application_for
     ("command_request", "expected_path", "expected_resource"),
     (
         (
-            MemoryCreateRequest(
-                "command-memory",
+            ResourceCreateRequest(
+                MemoryCreateTarget(
+                    "memory",
+                    "command-memory",
+                    (FrontmatterField("triggers", ("command", "boundary")),),
+                ),
                 InlineContent("Remember the command boundary.\n"),
-                (FrontmatterField("triggers", ("command", "boundary")),),
             ),
             "_Config/Memories/command-memory.md",
             "memory",
         ),
         (
-            SkillCreateRequest(
-                "command-skill",
+            ResourceCreateRequest(
+                SkillCreateTarget("skill", "command-skill"),
                 InlineContent("# Command Skill\n\nUse typed commands.\n"),
             ),
             "_Config/Skills/command-skill/SKILL.md",
             "skill",
         ),
         (
-            StyleCreateRequest(
-                "command-style",
+            ResourceCreateRequest(
+                StyleCreateTarget("style", "command-style"),
                 InlineContent("# Command Style\n\nBe explicit.\n"),
             ),
             "_Config/Styles/command-style.md",
@@ -73,13 +80,16 @@ def test_named_resource_create_owners_return_typed_effects(
 def test_memory_create_preserves_typed_frontmatter(command_vault_clone):
     application = application_for(command_vault_clone.vault_root)
     result = application.invoke(
-        MemoryCreateRequest(
-            "typed-memory",
-            InlineContent("Typed memory body.\n"),
-            (
-                FrontmatterField("priority", 3),
-                FrontmatterField("triggers", ("typed", "memory")),
+        ResourceCreateRequest(
+            MemoryCreateTarget(
+                "memory",
+                "typed-memory",
+                (
+                    FrontmatterField("priority", 3),
+                    FrontmatterField("triggers", ("typed", "memory")),
+                ),
             ),
+            InlineContent("Typed memory body.\n"),
         )
     )
 
@@ -96,7 +106,10 @@ def test_named_create_consumes_stage_only_after_success(command_vault_clone):
     application = application_for(command_vault_clone.vault_root)
 
     result = application.invoke(
-        SkillCreateRequest("staged-skill", StagedContent(handle))
+        ResourceCreateRequest(
+            SkillCreateTarget("skill", "staged-skill"),
+            StagedContent(handle),
+        )
     )
 
     assert result.status == "ok"
@@ -106,7 +119,10 @@ def test_named_create_consumes_stage_only_after_success(command_vault_clone):
 
     duplicate = stage_body(vault_root, "duplicate")["handle"]
     failed = application.invoke(
-        SkillCreateRequest("staged-skill", StagedContent(duplicate))
+        ResourceCreateRequest(
+            SkillCreateTarget("skill", "staged-skill"),
+            StagedContent(duplicate),
+        )
     )
     assert failed.error.code is ErrorCode.CONFLICT
     assert "skills-count-drift" in failed.error.message
@@ -119,7 +135,10 @@ def test_named_create_dry_run_refuses_to_invent_a_created_resource(
     application = application_for(command_vault_clone.vault_root, dry_run=True)
 
     result = application.invoke(
-        StyleCreateRequest("dry-style", InlineContent("body"))
+        ResourceCreateRequest(
+            StyleCreateTarget("style", "dry-style"),
+            InlineContent("body"),
+        )
     )
 
     assert result.error.code is ErrorCode.INVALID_REQUEST
@@ -142,7 +161,10 @@ def test_named_create_post_commit_failure_is_honestly_unknown(
     application = application_for(command_vault_clone.vault_root)
 
     result = application.invoke(
-        MemoryCreateRequest("uncertain-memory", InlineContent("body"))
+        ResourceCreateRequest(
+            MemoryCreateTarget("memory", "uncertain-memory"),
+            InlineContent("body"),
+        )
     )
 
     assert result.error.code is ErrorCode.COMMAND_OUTCOME_UNKNOWN
@@ -153,23 +175,23 @@ def test_named_create_post_commit_failure_is_honestly_unknown(
     ).exists()
 
 
-def test_named_create_transports_are_granular_and_strict():
+def test_named_create_transport_is_consolidated_and_strict():
     resolver = current_request_resolver()
     cases = (
-        ("memory.create", MemoryCreateRequest),
-        ("skill.create", SkillCreateRequest),
-        ("style.create", StyleCreateRequest),
+        ("memory", MemoryCreateTarget),
+        ("skill", SkillCreateTarget),
+        ("style", StyleCreateTarget),
     )
-    for command_id, request_type in cases:
+    for resource, target_type in cases:
         request = resolver.resolve(
-            command_id,
+            "resource.create",
             {
-                "name": "example",
+                "target": {"resource": resource, "name": "example", "frontmatter": {"tags": ["one", "two"]}},
                 "content": {"source": "inline", "content": "body"},
-                "frontmatter": {"tags": ["one", "two"]},
             },
         )
-        assert type(request) is request_type
+        assert type(request) is ResourceCreateRequest
+        assert type(request.target) is target_type
         entry = current_application_catalogue().resolve(request)
         assert entry.authority is Authority.CONTRIBUTOR
         assert entry.effect_class is EffectClass.SELECTED_BRAIN_MUTATION
@@ -177,15 +199,42 @@ def test_named_create_transports_are_granular_and_strict():
 
     with pytest.raises(ValueError, match="source"):
         resolver.resolve(
-            "memory.create",
-            {"name": "bad", "content": {"kind": "inline", "content": "body"}},
+            "resource.create",
+            {
+                "target": {"resource": "memory", "name": "bad"},
+                "content": {"kind": "inline", "content": "body"},
+            },
         )
     with pytest.raises(ValueError, match="nested"):
         resolver.resolve(
-            "memory.create",
+            "resource.create",
             {
-                "name": "bad",
+                "target": {
+                    "resource": "memory",
+                    "name": "bad",
+                    "frontmatter": {"nested": {"value": 1}},
+                },
                 "content": {"source": "inline", "content": "body"},
-                "frontmatter": {"nested": {"value": 1}},
+            },
+        )
+
+    template = resolver.resolve(
+        "resource.create",
+        {
+            "target": {"resource": "template", "name": "designs"},
+            "content": {"source": "inline", "content": "body"},
+        },
+    )
+    assert type(template.target) is TemplateCreateTarget
+    with pytest.raises(ValueError, match="unexpected template target fields"):
+        resolver.resolve(
+            "resource.create",
+            {
+                "target": {
+                    "resource": "template",
+                    "name": "designs",
+                    "frontmatter": {},
+                },
+                "content": {"source": "inline", "content": "body"},
             },
         )
