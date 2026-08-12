@@ -1,6 +1,9 @@
 {
   "schema": "brain.command-authority/1",
   "commands": [
+    "access.reduce",
+    "access.request",
+    "access.status",
     "artefact.archive",
     "artefact.convert",
     "artefact.create",

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 from dataclasses import asdict
+import getpass
 import json
 import os
 from pathlib import Path
@@ -85,11 +86,13 @@ def run(argv: list[str] | None = None) -> int:
         payload = _request_payload(common.request_json)
         entry = _launcher_entry(command_id)
         if entry is not None:
+            operator_key = _launcher_operator_key(command_id, common.operator_key)
             context = compose_launcher_context(
                 cli_binary=cli_binary,
                 distribution_root=distribution_root,
                 selected=selected,
                 dry_run=common.dry_run,
+                operator_key=operator_key,
             )
             projection = LocalCliExecution(
                 (
@@ -112,6 +115,7 @@ def run(argv: list[str] | None = None) -> int:
                     distribution_root=distribution_root,
                     selected=selected,
                     dry_run=common.dry_run,
+                    operator_key=common.operator_key,
                 )
                 projection = LocalCliExecution(
                     (
@@ -195,6 +199,19 @@ def _request_payload(value: str) -> dict[str, object]:
     if not isinstance(decoded, dict):
         raise LocalCliUsageError("--request-json must decode to an object")
     return decoded
+
+
+def _launcher_operator_key(command_id: str, supplied: str | None) -> str | None:
+    if command_id != "access.approve" or supplied:
+        return supplied
+    if not sys.stdin.isatty():
+        raise LocalCliUsageError(
+            "access approve requires --operator-key when no interactive terminal is available"
+        )
+    value = getpass.getpass("Brain operator key: ")
+    if not value.strip():
+        raise LocalCliUsageError("access approve requires a non-empty operator key")
+    return value
 
 
 def _launcher_entry(command_id: str) -> ComposedCommandEntry | None:

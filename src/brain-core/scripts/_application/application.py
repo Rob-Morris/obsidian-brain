@@ -82,6 +82,9 @@ class CommandApplication:
             elif context.capabilities.availability_of(provider_id) is not Availability.AVAILABLE:
                 missing.append(f"capability:{provider_id}")
         if not missing:
+            consume = getattr(context.authority, "consume", None)
+            if callable(consume) and not consume(entry.command_id):
+                return authority_denied_result(context, entry, active_denial=True)
             return None
 
         details = CapabilityUnavailableDetails(
@@ -184,22 +187,51 @@ class CommandApplication:
 def authority_denied_result(
     context: InvocationContext,
     entry: ApplicationEntry,
+    *,
+    active_denial: bool = False,
 ) -> Error | None:
     """Return the canonical denial for trusted context and a catalogue entry."""
 
-    if context.authority.allows(
+    if not active_denial and context.authority.allows(
         command_id=entry.command_id,
         required=entry.authority,
         effect=entry.effect_class,
     ):
         return None
+    ceiling_allows = getattr(context.authority, "ceiling_allows", None)
+    within_ceiling = (
+        ceiling_allows(entry.command_id)
+        if callable(ceiling_allows)
+        else False
+    )
+    requestable = bool(
+        within_ceiling
+        and context.access is not None
+        and context.access.can_elevate(entry.command_id)
+    )
+    boundary = "active_grant" if within_ceiling else "ceiling"
+    if requestable:
+        message = "The command is within the authenticated ceiling but is not active."
+        next_action = CommandNextAction(
+            "access.request",
+            (CommandArgument("commands", (entry.command_id,)),),
+        )
+    else:
+        message = "The authenticated profile ceiling does not permit this command."
+        next_action = None
     return Error(
         entry.command_id,
         entry.command_version,
         CommandError(
             ErrorCode.AUTHORITY_DENIED,
-            "The authenticated profile does not permit this command.",
-            AuthorityDeniedDetails(context.profile, entry.authority.value),
+            message,
+            AuthorityDeniedDetails(
+                context.profile,
+                entry.authority.value,
+                boundary,
+                requestable,
+            ),
+            next_action=next_action,
         ),
     )
 

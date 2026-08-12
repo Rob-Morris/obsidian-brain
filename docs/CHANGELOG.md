@@ -8,6 +8,7 @@ Never edit past changelog entries. Only add new entries at the top.
 
 | Version | Date | Summary |
 |---|---|---|
+| [v0.57.0](changelog/v0.57.0.md) | 2026-08-12 | Add ceiling-visible MCP discovery and Reader-default exact access leases |
 | [v0.56.0](changelog/v0.56.0.md) | 2026-08-12 | Consolidate target-only commands and restore runtime warm-up contracts |
 | [v0.55.8](changelog/v0.55.8.md) | 2026-08-12 | Admit MCP SDK 2 and port the server adapter |
 | [v0.55.7](changelog/v0.55.7.md) | 2026-08-12 | Restore session.start cutover and bounded read-only execution |

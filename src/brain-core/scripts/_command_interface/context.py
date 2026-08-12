@@ -14,6 +14,7 @@ from _application.context import (
     ProviderBindings,
     SelectedBrain,
 )
+from _application.access_contracts import AccessController
 from _application.projection import project_identity
 from _application.receipts import ReceiptReader, ReceiptWriter
 from _application.types import (
@@ -43,10 +44,11 @@ class BoundProvider:
 
 @dataclass(frozen=True, slots=True)
 class ProfileAuthority:
-    """Enforce one authenticated profile's canonical command allow-list."""
+    """Enforce an active grant beneath one authenticated profile ceiling."""
 
     profile: str
     allowed_tools: frozenset[str]
+    access: AccessController | None = None
 
     def __post_init__(self) -> None:
         if not self.profile.strip():
@@ -67,7 +69,19 @@ class ProfileAuthority:
         effect: EffectClass,
     ) -> bool:
         del required, effect
+        tool = project_identity(command_id).mcp_tool
+        return tool in self.allowed_tools and (
+            self.access is None or self.access.allows(tool)
+        )
+
+    def ceiling_allows(self, command_id: str) -> bool:
         return project_identity(command_id).mcp_tool in self.allowed_tools
+
+    def consume(self, command_id: str) -> bool:
+        tool = project_identity(command_id).mcp_tool
+        return tool in self.allowed_tools and (
+            self.access is None or self.access.consume(tool)
+        )
 
 
 def compose_local_context(
@@ -85,6 +99,7 @@ def compose_local_context(
     correlation_id: str,
     invocation_id: str,
     receipt_store: ReceiptReader | ReceiptWriter,
+    access: AccessController | None = None,
     workspace_dir: Path | None = None,
     capability_snapshots: CapabilitySnapshotStore | None = None,
     dry_run: bool = False,
@@ -115,7 +130,7 @@ def compose_local_context(
     return InvocationContext(
         selected_brain=SelectedBrain(brain_id, root),
         profile=profile,
-        authority=ProfileAuthority(profile, allowed_tools),
+        authority=ProfileAuthority(profile, allowed_tools, access),
         dependency_tier=dependency_tier,
         capabilities=CapabilitySnapshot(
             snapshot_token,
@@ -129,6 +144,7 @@ def compose_local_context(
         receipt_writer=receipt_store,
         receipt_reader=receipt_store,
         clock=clock or SystemClock(),
+        access=access,
         dry_run=dry_run,
         workspace_dir=resolved_workspace,
         capability_snapshots=capability_snapshots,

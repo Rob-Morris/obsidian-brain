@@ -69,6 +69,12 @@ and cold `session.start` share the stdlib-safe `brain.runtime-status/1`
 readiness snapshot. Presentation and printable rendering share
 `shaping.render` with a strict `output.kind` variant.
 
+`access.status`, `access.request` and `access.reduce` own the selected-Brain
+active-grant lifecycle across every application projection. External approval
+is intentionally outside that application boundary: the CLI-only
+`access.approve` launcher invokes `access_approval.py` with a separately trusted
+operator identity, and neither surface is registered in MCP or `command.py`.
+
 ## Dependency planes
 
 Commands declare one ordered minimum tier:

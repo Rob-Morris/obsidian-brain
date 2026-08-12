@@ -155,6 +155,7 @@ def _summary(command_id: str) -> str:
     verb_words = verb.replace("-", " ")
     direct = {
         "backfill": "Backfill the {noun} registry",
+        "approve": "Approve one pending {noun} request",
         "configure": "Configure {noun}",
         "doctor": "Diagnose {noun} state",
         "install": "Install one {noun}",
@@ -177,6 +178,7 @@ LAUNCHER_CATALOGUE = LauncherCatalogue(
     tuple(
         sorted(
             (
+                _mutation("access.approve", "_launcher.access:approve", "brain", "access", "approve"),
                 _mutation("agent-skill.configure", "_launcher.agent_skill:configure", "brain", "agent-skill", "configure"),
                 _mutation("brain.backfill", "_launcher.registry:backfill", "brain", "backfill"),
                 _mutation("brain.clear-default", "_launcher.registry:clear_default", "brain", "clear-default"),

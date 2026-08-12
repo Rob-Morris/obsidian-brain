@@ -79,7 +79,7 @@ def test_mcpserver_serves_a_2025_06_18_stdio_client(tmp_path):
         process.wait(timeout=5)
 
     assert responses[1]["result"]["protocolVersion"] == "2025-06-18"
-    assert len(responses[2]["result"]["tools"]) == 57
+    assert len(responses[2]["result"]["tools"]) == 60
     call = responses[3]["result"]
     assert call["isError"] is False
     assert call["structuredContent"]["command"] == "command.list"
@@ -103,7 +103,7 @@ def test_mcpserver_serves_a_2026_07_28_stdio_client(tmp_path):
 
         assert session.protocol_version == "2026-07-28"
         assert discovery.supported_versions == ["2026-07-28"]
-        assert len(tools.tools) == 57
+        assert len(tools.tools) == 60
         assert result.is_error is False
         assert result.structured_content["command"] == "command.list"
 
@@ -141,10 +141,31 @@ def test_public_server_supports_stateless_2026_streamable_http(monkeypatch):
                         result = await session.call_tool("command.list", {})
 
         assert session.protocol_version == "2026-07-28"
-        assert len(tools.tools) == 57
+        assert len(tools.tools) == 60
         assert result.is_error is True
         assert result.structured_content["error"]["code"] == (
             "proxy_restart_required"
         )
 
     anyio.run(exercise)
+
+
+def test_public_server_projects_only_the_authenticated_profile_ceiling(
+    tmp_path,
+    monkeypatch,
+):
+    vault = _vault(tmp_path)
+    shared = vault / ".brain/config.yaml"
+    shared.parent.mkdir(parents=True)
+    shared.write_text("defaults:\n  default_profile: reader\n", encoding="utf-8")
+    monkeypatch.setenv("BRAIN_VAULT_ROOT", str(vault))
+    monkeypatch.delenv("BRAIN_OPERATOR_KEY", raising=False)
+    public = server._build_public_mcp()
+
+    tools = anyio.run(public.list_tools)
+    names = tuple(tool.name for tool in tools)
+
+    assert len(names) == 26
+    assert "access.request" in names
+    assert "artefact.delete" not in names
+    assert "invocation.read" not in names

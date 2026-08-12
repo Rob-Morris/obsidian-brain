@@ -13,6 +13,9 @@ from command_application import application_for
 
 
 FINAL_COMMAND_IDS = (
+    "access.reduce",
+    "access.request",
+    "access.status",
     "artefact.archive",
     "artefact.convert",
     "artefact.create",
@@ -108,7 +111,7 @@ def test_artefact_read_maps_missing_and_escape_errors_before_effects(
     assert escaped.effects == "none"
 
 
-def test_catalogue_identity_is_the_exact_final_68_command_surface():
+def test_catalogue_identity_is_the_exact_final_71_command_surface():
     resolver = current_request_resolver()
     request = resolver.resolve(
         "artefact.read",

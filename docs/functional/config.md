@@ -138,18 +138,18 @@ The config system supports five cumulative built-in profiles with user-centred l
 
 | Profile | Intended use |
 |---------|-------------|
-| `reader` | Inspect and discover Brain content and configuration (23 application / 23 MCP commands) |
-| `contributor` | Reader access plus ordinary content creation, editing and lifecycle work (45 / 44 cumulative) |
-| `maintainer` | Contributor access plus definition, plugin and derived-index maintenance (58 / 55 cumulative) |
-| `operator` | Maintainer access plus workspace registration and runtime-operational changes (67 / 56 cumulative) |
-| `administrator` | Operator access plus irreversible artefact deletion (68 / 57 cumulative) |
+| `reader` | Inspect, discover and manage access state (26 application / 26 MCP commands) |
+| `contributor` | Reader access plus ordinary content creation, editing and lifecycle work (48 / 47 cumulative) |
+| `maintainer` | Contributor access plus definition, plugin and derived-index maintenance (61 / 58 cumulative) |
+| `operator` | Maintainer access plus workspace registration and runtime-operational changes (70 / 59 cumulative) |
+| `administrator` | Operator access plus irreversible artefact deletion (71 / 60 cumulative) |
 
 Each profile has a per-tool allow-list defined in the vault config. Tools not on the active profile's allow-list return an error `CallToolResult` — no silent failures.
 
 Brain Core derives its built-in lists from the authoritative catalogue's
-authority metadata: reader has 23 exact application commands, contributor
-cumulatively has 45, maintainer 58, operator 67 and administrator all 68. MCP
-projects the eligible 23, 44, 55, 56 and 57-command subsets respectively. A
+authority metadata: reader has 26 exact application commands, contributor
+cumulatively has 48, maintainer 61, operator 70 and administrator all 71. MCP
+projects the eligible 26, 47, 58, 59 and 60-command subsets respectively. A
 known denied leaf is rejected from catalogue plus trusted profile state before
 dynamic request resolution, executor entry or effects. There is no aggregate
 name fallback.
@@ -166,6 +166,25 @@ The same migration rewrites exact Brain-shipped `brain_session` bootstrap text
 in root `AGENTS.md`/`Agents.md` and `CLAUDE.md` to `session.start`, even when no
 shared profile config exists. Custom prose is untouched, and profile validation
 finishes before either config or bootstrap output is written.
+
+### Active access
+
+The authenticated profile is the command ceiling. Active access is configured separately:
+
+```yaml
+vault:
+  access:
+    elevation_policy: automatic  # automatic | external | denied
+    default_lease_seconds: 900
+    max_lease_seconds: 3600
+    pending_seconds: 900
+    max_use_count: 100
+defaults:
+  access:
+    initial_profile: reader
+```
+
+The shared `vault.access` policy cannot be overridden by machine-local config. `defaults.access.initial_profile` is locally customisable, but its commands are intersected with the authenticated ceiling. Leases are principal-scoped, exact, absolutely expiring and stored under `.brain/local/access-state.json`; `access.status` is read-only when that file does not exist. `external` policy requires a registered operator key supplied out of band to `brain access approve`; the approving operator profile must cover the requested commands.
 
 ### Authentication
 

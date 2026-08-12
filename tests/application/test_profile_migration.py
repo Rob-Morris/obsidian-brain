@@ -20,6 +20,7 @@ from _command_interface.profile_migration import (
 from _command_interface.profiles import builtin_profile_allow_lists
 import migrate_to_0_55_0
 import migrate_to_0_56_0
+import migrate_to_0_57_0
 
 
 DISPOSITIONS = (
@@ -47,7 +48,13 @@ def _previous_granular_builtins():
     for profile, tools in builtin_profile_allow_lists(
         current_application_catalogue()
     ).items():
-        previous = set(tools) - {"runtime.status", "runtime.warmup"}
+        previous = set(tools) - {
+            "access.reduce",
+            "access.request",
+            "access.status",
+            "runtime.status",
+            "runtime.warmup",
+        }
         for current_tool, old_tools in reverse_consolidations.items():
             if current_tool in previous:
                 previous.remove(current_tool)
@@ -138,11 +145,11 @@ def test_exact_legacy_builtins_become_catalogue_derived_granular_profiles():
     )
 
     assert {name: len(value["allow"]) for name, value in result.profiles.items()} == {
-        "reader": 23,
-        "contributor": 45,
-        "maintainer": 58,
-        "operator": 67,
-        "administrator": 68,
+        "reader": 26,
+        "contributor": 48,
+        "maintainer": 61,
+        "operator": 70,
+        "administrator": 71,
     }
     assert [change.strategy for change in result.changes] == [
         "builtin",
@@ -261,11 +268,11 @@ def test_v055_upgrade_migration_writes_all_five_builtin_profiles(tmp_path):
         name: len(definition["allow"])
         for name, definition in migrated["vault"]["profiles"].items()
     } == {
-        "reader": 23,
-        "contributor": 45,
-        "maintainer": 58,
-        "operator": 67,
-        "administrator": 68,
+        "reader": 26,
+        "contributor": 48,
+        "maintainer": 61,
+        "operator": 70,
+        "administrator": 71,
     }
     assert migrated["vault"]["brain_name"] == "Test Brain"
     assert migrated["defaults"] == {"default_profile": "operator"}
@@ -455,3 +462,67 @@ def test_v056_upgrade_fails_before_writing_an_unknown_grant(tmp_path):
         migrate_to_0_56_0.migrate(str(tmp_path))
 
     assert config_path.read_text(encoding="utf-8") == original
+
+
+def test_v057_upgrade_adds_access_controls_only_to_exact_shipped_profiles(
+    tmp_path,
+):
+    current = builtin_profile_allow_lists(current_application_catalogue())
+    previous = {
+        name: {
+            "allow": sorted(
+                set(commands)
+                - {"access.reduce", "access.request", "access.status"}
+            ),
+            "label": f"{name} profile",
+        }
+        for name, commands in current.items()
+    }
+    config_path = tmp_path / ".brain" / "config.yaml"
+    config_path.parent.mkdir(parents=True)
+    config_path.write_text(
+        dump_yaml_text({"vault": {"profiles": previous}}),
+        encoding="utf-8",
+    )
+
+    result = migrate_to_0_57_0.migrate(str(tmp_path))
+    migrated = load_mapping_file(config_path)
+
+    assert result["status"] == "ok"
+    assert result["profiles"] == [
+        "reader",
+        "contributor",
+        "maintainer",
+        "operator",
+        "administrator",
+    ]
+    assert {
+        name: tuple(definition["allow"])
+        for name, definition in migrated["vault"]["profiles"].items()
+    } == current
+
+
+def test_v057_upgrade_does_not_widen_custom_profiles(tmp_path):
+    config_path = tmp_path / ".brain" / "config.yaml"
+    config_path.parent.mkdir(parents=True)
+    config_path.write_text(
+        dump_yaml_text(
+            {
+                "vault": {
+                    "profiles": {
+                        "custom": {
+                            "allow": ["artefact.read", "session.start"],
+                        }
+                    }
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    result = migrate_to_0_57_0.migrate(str(tmp_path))
+
+    assert result == {"status": "skipped", "profiles": []}
+    assert load_mapping_file(config_path)["vault"]["profiles"]["custom"][
+        "allow"
+    ] == ["artefact.read", "session.start"]

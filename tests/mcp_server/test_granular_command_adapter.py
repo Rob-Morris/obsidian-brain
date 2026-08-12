@@ -8,7 +8,10 @@ from datetime import datetime
 import pytest
 from mcp.server import MCPServer
 
-from brain_mcp._command_adapter import register_application_tools
+from brain_mcp._command_adapter import (
+    application_interface_header,
+    register_application_tools,
+)
 from _application.projection import minimal_request_payload, project_identity, request_schema
 from _application.receipts import MemoryReceiptStore
 from _application.registry import current_application_catalogue, current_request_resolver
@@ -126,6 +129,26 @@ def test_every_mcp_eligible_command_registers_one_flat_canonical_schema(tmp_path
             entry.retry_class is RetryClass.SAFE
         )
         assert tool.annotations.open_world_hint is False
+
+
+def test_registration_and_proxy_header_share_one_ceiling_projection(tmp_path):
+    catalogue = current_application_catalogue()
+    allowed = frozenset(("access.status", "command.list"))
+    mcp = MCPServer("ceiling-test")
+
+    names = register_application_tools(
+        mcp,
+        catalogue=catalogue,
+        resolver=current_request_resolver(),
+        context_factory=_context_factory(tmp_path, allowed),
+        invocation_guard=lambda: None,
+        allowed_tools=allowed,
+    )
+    header = application_interface_header(catalogue, allowed_tools=allowed)
+
+    assert names == ("access.status", "command.list")
+    assert tuple(tool.name for tool in asyncio.run(mcp.list_tools())) == names
+    assert tuple(name for name, _mapping in header.tools) == names
 
 
 def test_real_mcpserver_call_returns_structural_content_and_error_state(tmp_path):

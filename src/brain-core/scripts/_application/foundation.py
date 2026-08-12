@@ -126,6 +126,7 @@ class _FoundationOwners:
                 candidate
                 for candidate in self._require_catalogue().entries
                 if candidate.command_id == request.target_command_id
+                and _ceiling_allows(context, candidate.command_id)
             ),
             None,
         )
@@ -171,6 +172,8 @@ class _FoundationOwners:
         context: InvocationContext,
         snapshot,
     ) -> bool:
+        if not _ceiling_allows(context, entry.command_id):
+            return False
         if request.owner is not None and request.owner is not CommandOwner.APPLICATION:
             return False
         if (
@@ -358,6 +361,13 @@ def _availability(entry: ApplicationEntry, context: InvocationContext, snapshot)
         if state is Availability.UNKNOWN:
             unknown = True
     return Availability.UNKNOWN if unknown else Availability.AVAILABLE
+
+
+def _ceiling_allows(context: InvocationContext, command_id: str) -> bool:
+    """Hide catalogue entries excluded by an authenticated profile ceiling."""
+
+    evaluator = getattr(context.authority, "ceiling_allows", None)
+    return True if not callable(evaluator) else bool(evaluator(command_id))
 
 
 def _entry(

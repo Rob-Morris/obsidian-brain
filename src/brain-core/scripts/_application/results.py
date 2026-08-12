@@ -107,10 +107,14 @@ class CapabilityUnavailableDetails:
 class AuthorityDeniedDetails:
     profile: str
     required: str
+    boundary: Literal["ceiling", "active_grant"] = "ceiling"
+    requestable: bool = False
 
     def __post_init__(self) -> None:
         if not self.profile.strip() or not self.required.strip():
             raise ValueError("authority-denied details require profile and required authority")
+        if self.requestable and self.boundary != "active_grant":
+            raise ValueError("only active-grant denial can be requestable")
 
 
 @dataclass(frozen=True, slots=True)

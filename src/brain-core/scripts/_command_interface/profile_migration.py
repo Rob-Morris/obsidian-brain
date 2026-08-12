@@ -325,29 +325,45 @@ def _is_exact_previous_granular_builtin_set(
     """Recognise the exact v0.55 shipped profiles after command consolidation.
 
     The previous built-ins differ from the current ones only by superseded
-    target-only leaves and the two new runtime readiness commands. Comparing
+    target-only leaves and newly added bootstrap/access controls. Comparing
     their projected meaning avoids embedding five large duplicate allow-lists.
     """
 
     if set(profiles) != set(builtins):
         return False
-    new_bootstrap_tools = {"runtime.status", "runtime.warmup"}
-    for profile, expected in builtins.items():
-        definition = profiles.get(profile)
-        if not isinstance(definition, Mapping):
-            return False
-        allow = definition.get("allow")
-        if not isinstance(allow, list) or any(
-            not isinstance(item, str) or not item.strip() for item in allow
-        ):
-            return False
-        try:
-            projected = _project_tool_set(allow, granular_entries)
-        except ProfileMigrationError:
-            return False
-        if projected != set(expected) - new_bootstrap_tools:
-            return False
-    return True
+    new_access_tools = {
+        "access.reduce",
+        "access.request",
+        "access.status",
+    }
+    new_runtime_tools = {
+        "runtime.status",
+        "runtime.warmup",
+    }
+    for additions in (
+        new_access_tools,
+        new_access_tools | new_runtime_tools,
+    ):
+        matches = True
+        for profile, expected in builtins.items():
+            definition = profiles.get(profile)
+            if not isinstance(definition, Mapping):
+                return False
+            allow = definition.get("allow")
+            if not isinstance(allow, list) or any(
+                not isinstance(item, str) or not item.strip() for item in allow
+            ):
+                return False
+            try:
+                projected = _project_tool_set(allow, granular_entries)
+            except ProfileMigrationError:
+                return False
+            if projected != set(expected) - additions:
+                matches = False
+                break
+        if matches:
+            return True
+    return False
 
 
 def _project_tool_set(

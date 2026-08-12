@@ -1,6 +1,6 @@
 # MCP Command Interface
 
-Brain Core 0.55 exposes the selected-Brain application catalogue as granular MCP tools. `server.py` is a small composition root: it registers catalogue projections, composes trusted local invocation context and installs the replacement-proxy protocol gate. Semantic logic belongs to application commands, not the MCP adapter.
+Brain Core 0.57 exposes the selected-Brain application catalogue as granular MCP tools. `server.py` is a small composition root: it registers catalogue projections, composes trusted local invocation context and installs the replacement-proxy protocol gate. Semantic logic belongs to application commands, not the MCP adapter.
 
 The transport boundary uses the official Python `MCPServer` API at the exact
 reviewed `mcp==2.0.0` pin. It continues to serve supported 2025 protocol clients;
@@ -19,7 +19,7 @@ An MCP-eligible command exposes its canonical `<noun>.<verb>` identifier directl
 
 The MCP server name remains `brain`; it is not repeated inside every tool name. Clients may encode dots and hyphens internally when projecting MCP tools into a model API. That private encoding does not change the raw MCP name or the command contract.
 
-The released application catalogue owns 68 commands and currently projects 57 of them to MCP. Those numbers and every tool schema are checked from the authoritative catalogue; this document deliberately does not duplicate the full list.
+The released application catalogue owns 71 commands and marks 60 as MCP-eligible. A running server exposes only the authenticated profile ceiling, so the actual list is 26, 47, 58, 59 or 60 tools for the cumulative built-in profiles. Those numbers and every tool schema are checked from the authoritative catalogue; this document deliberately does not duplicate the full list.
 
 Start a session with `session.start`. On a cold Brain it starts or joins background warm-up and returns the shared `brain.runtime-status/1` snapshot with guidance to poll `runtime.status`; retry `session.start` when ready. `runtime.status` is a cheap read-only observation, while `runtime.warmup` explicitly starts, joins or retries warm-up. Discover commands with `command.list`, and inspect one exact request/result contract with `command.describe`. Default discovery uses static catalogue facts and does not probe optional providers; request an explicit refresh only when current provider availability matters.
 
@@ -30,6 +30,20 @@ Related named resources share the strict `resource.create`, `resource.list`, `re
 Explicit refresh enforces provider-specific and aggregate deadlines. Timed-out probes report `unknown`; a fixed process-wide daemon bound prevents repeated MCP calls from accumulating unbounded stuck probes or delaying CLI process exit.
 
 The former aggregates and variants are removed: `brain_init`, `brain_session`, `brain_read`, `brain_create`, `brain_edit`, `brain_define`, `brain_move`, `brain_action`, `brain_process` and the other flat v1 tools are not aliases and are not callable.
+
+## Ceiling, active grant and elevation
+
+Authentication establishes an immutable command ceiling for the MCP process. `tools/list`, the proxy interface header, `command.list` and `command.describe` omit commands above that ceiling. Changing credentials or the ceiling requires proxy replacement and client re-discovery; an ordinary elevation lease does not change tool definitions.
+
+The active grant starts at `defaults.access.initial_profile`, which is `reader` unless configured otherwise and is always intersected with the ceiling. Commands within the ceiling but outside the active grant return `authority_denied` with `boundary: active_grant`, `requestable: true` and an `access.request` next action. Commands above the ceiling are not requestable.
+
+- `access.status` reads the initial grant, active commands, inactive ceiling commands, leases and pending requests without writing state.
+- `access.request` requests one exact command or a sorted coherent set of at most eight. Leases have absolute expiry and may have a bounded use count.
+- `access.reduce` revokes exact leases or commands, or returns to the initial grant.
+
+`vault.access.elevation_policy` is `automatic`, `external` or `denied`. Automatic elevation records intent but is not a security boundary against the authenticated agent. External elevation creates a pending request that only the CLI-only `brain access approve` launcher command can approve using a separately supplied registered operator secret whose profile covers every requested command; the requesting principal cannot approve its own request. Lease authority is checked on every call and a use is consumed only after request and capability preflight. Expiry or schema removal is never relied on for enforcement.
+
+This deliberately separates authorisation from client-side lazy loading. Claude Code may defer schemas and handles catalogue-change notifications; current Codex clients do not provide the same hot-refresh guarantee. Brain therefore keeps the ceiling-visible catalogue deterministic and uses call-time leases instead of mutating `tools/list` during a session.
 
 ## Request contract
 
@@ -57,7 +71,7 @@ Warnings, stable error codes, typed details and next actions survive every proje
 
 ## Authority profiles
 
-Profiles authorise exact command names. The built-in `reader`, `contributor`, `maintainer`, `operator` and `administrator` application sets contain 23, 45, 58, 67 and 68 commands; their MCP-eligible subsets contain 23, 44, 55, 56 and 57 tools. Upgrade migrates exact legacy built-ins and expands explicit custom aggregate or superseded-leaf grants once; there is no runtime fallback after cutover. A command is authorised before its request is dynamically resolved.
+Profiles authorise exact command names. The built-in `reader`, `contributor`, `maintainer`, `operator` and `administrator` application ceilings contain 26, 48, 61, 70 and 71 commands; their MCP-eligible subsets contain 26, 47, 58, 59 and 60 tools. Upgrade migrates exact shipped built-ins; custom profiles retain only their explicit grants. There is no runtime fallback or compatibility alias after cutover. Ceiling and active-grant checks both occur before dynamic request resolution.
 
 ## Metadata and client budgets
 

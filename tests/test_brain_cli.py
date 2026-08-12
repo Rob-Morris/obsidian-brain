@@ -92,7 +92,7 @@ print(json.dumps(base, separators=(',', ':')))
 
 
 def test_release_versions_move_together():
-    assert _shell_value("BRAIN_CLI_VERSION") == "2.0.3"
+    assert _shell_value("BRAIN_CLI_VERSION") == "2.1.0"
     assert _shell_value("BRAIN_INSTALL_REF") == f"v{CORE_VERSION}"
 
 
@@ -119,18 +119,18 @@ def test_version_and_launcher_discovery_need_no_selected_brain(tmp_path):
     listing = _run(tmp_path, "command", "list", "--owner", "launcher", "--json")
 
     assert version.returncode == 0
-    assert version.stdout.strip() == "brain 2.0.3"
+    assert version.stdout.strip() == "brain 2.1.0"
     payload = json.loads(structural.stdout)
     assert structural.returncode == 0
     assert payload["command"] == "brain.version"
-    assert payload["result"]["cli_version"] == "2.0.3"
+    assert payload["result"]["cli_version"] == "2.1.0"
     commands = json.loads(listing.stdout)
     assert listing.returncode == 0
     assert commands["schema"] == "brain.local-command-list/1"
     command_ids = [entry["command_id"] for entry in commands["entries"]]
     assert len(command_ids) == len(set(command_ids))
     assert "brain.version" in command_ids
-    assert len(commands["entries"]) == 23
+    assert len(commands["entries"]) == 24
 
 
 def test_help_and_parser_expose_only_canonical_noun_verb_grammar(tmp_path):

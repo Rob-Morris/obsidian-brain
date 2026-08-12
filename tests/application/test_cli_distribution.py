@@ -75,7 +75,10 @@ def test_installed_cli_discovers_real_selected_brain_catalogue(
     assert completed.returncode == 0, completed.stderr
     payload = json.loads(completed.stdout)
     assert payload["schema"] == "brain.local-command-list/1"
-    assert len(payload["entries"]) == 68
+    assert len(payload["entries"]) == 70
+    assert "artefact.delete" not in {
+        entry["command_id"] for entry in payload["entries"]
+    }
     assert payload["entries"][0]["catalogue_schema"] == "brain.command-catalogue/1"
 
 

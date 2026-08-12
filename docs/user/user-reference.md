@@ -1,6 +1,6 @@
 # Brain Reference
 
-This page is the stable user-facing reference for Brain Core 0.56.0 and CLI 2.0.3. Exact command schemas, examples and availability come from the installed Brain rather than a duplicated hand-maintained inventory.
+This page is the stable user-facing reference for Brain Core 0.57.0 and CLI 2.1.0. Exact command schemas, examples and availability come from the installed Brain rather than a duplicated hand-maintained inventory.
 
 ## Vault model
 
@@ -54,7 +54,7 @@ Each granular tool exposes its own top-level request fields. There is no generic
 
 Start with `session.start`, then use `command.list` and `command.describe` for bounded discovery. For example, inspect `artefact.create` before supplying its fields to the `artefact.create` tool.
 
-The MCP server derives all registrations, schemas, descriptions and tool hints from the selected Brain's catalogue. Profile authority is checked before dynamic request resolution and effects. The cumulative built-in profiles expose 23 reader, 44 contributor, 55 maintainer, 56 operator and 57 administrator MCP tools; custom profiles use exact command names.
+The MCP server derives registrations, schemas, descriptions and tool hints from the selected Brain's catalogue, then exposes only the authenticated ceiling. The cumulative built-in ceilings expose 26 reader, 47 contributor, 58 maintainer, 59 operator and 60 administrator MCP tools; custom profiles use exact command names. Active access starts at Reader by default. Use `access.status`, request exact within-ceiling leases with `access.request`, and revoke them with `access.reduce`; leases do not change the visible tool catalogue.
 
 Every MCP call checks the installed Brain Core version before composing context or executing effects. Planned pre-effect drift exits for proxy replacement and is replayed only after positive command compatibility. An unexpectedly lost mutation is never blindly replayed; query its durable reference with `invocation.read`. Receipt lookup is read-only, including for missing or expired references.
 
@@ -80,13 +80,15 @@ Use `--request-json -` to read one object from stdin. `--vault`, `--brain` and w
 
 CLI 2 refuses application discovery against a pre-0.55 Brain. Launcher discovery and recovery remain available so the operator can run the checked upgrade. See [CLI](../functional/cli.md).
 
+With external elevation policy, `access.request` returns a pending identifier. A separately trusted local operator approves it with `brain access approve`; that launcher-only command is not exposed to MCP or the selected-Brain direct script.
+
 ## Direct script and Python projections
 
 For selected-Brain automation without the global CLI:
 
 ```bash
 python3 .brain-core/scripts/command.py artefact read \
-  --request-json '{"name":"design/brain"}' --json
+  --request-json '{"reference":"design/brain"}' --json
 ```
 
 This direct projection uses the same catalogue, resolver, invocation boundary and structural result as MCP and CLI. It is not a second command grammar. The typed Python boundary is `CommandApplication(context).invoke(request)` with sealed request types; callers compose trusted context outside `_application`.

@@ -63,7 +63,7 @@ def test_session_start_returns_typed_bootstrap_and_refreshes_mirror(
     assert result.result.config.default_profile == "operator"
     assert result.result.command_catalogue.schema == "brain.command-catalogue/1"
     assert result.result.command_catalogue.interface_epoch == 1
-    assert result.result.command_catalogue.installed_application_command_count == 68
+    assert result.result.command_catalogue.installed_application_command_count == 71
     assert result.result.command_catalogue.list.startswith("Use command.list")
     assert result.result.command_catalogue.describe.startswith(
         "Use command.describe"

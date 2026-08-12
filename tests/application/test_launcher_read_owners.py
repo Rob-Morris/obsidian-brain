@@ -168,7 +168,7 @@ def test_launcher_version_returns_static_manifest_identity(tmp_path):
     assert result.result.cli_version == "1.2.0"
     assert result.result.launcher_catalogue_schema == "brain.launcher-catalogue/1"
     assert result.result.launcher_catalogue_fingerprint == LAUNCHER_CATALOGUE.fingerprint
-    assert result.result.launcher_command_count == 23
+    assert result.result.launcher_command_count == 24
 
 
 def test_runtime_read_owners_delegate_to_bootstrap_runtime_semantics(

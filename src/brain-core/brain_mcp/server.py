@@ -25,7 +25,10 @@ from _application.registry import (  # noqa: E402
     current_application_catalogue,
     current_request_resolver,
 )
-from _command_interface.direct import compose_direct_context  # noqa: E402
+from _command_interface.direct import (  # noqa: E402
+    compose_direct_context,
+    resolve_direct_identity,
+)
 
 from ._command_adapter import (  # noqa: E402
     application_interface_header,
@@ -115,14 +118,29 @@ def _mcp_context_factory(*, command_id, catalogue, mcp_context):
 def _build_public_mcp() -> MCPServer:
     public = MCPServer(name="brain")
     catalogue = current_application_catalogue()
+    allowed_tools = None
+    if os.environ.get("BRAIN_VAULT_ROOT"):
+        identity = resolve_direct_identity(
+            vault_root=_selected_vault(),
+            catalogue=catalogue,
+            operator_key=os.environ.get("BRAIN_OPERATOR_KEY"),
+        )
+        allowed_tools = identity.allowed_tools
     register_application_tools(
         public,
         catalogue=catalogue,
         resolver=current_request_resolver(),
         context_factory=_mcp_context_factory,
         invocation_guard=_check_version_drift,
+        allowed_tools=allowed_tools,
     )
-    install_proxy_protocol_gate(public, application_interface_header(catalogue))
+    install_proxy_protocol_gate(
+        public,
+        application_interface_header(
+            catalogue,
+            allowed_tools=allowed_tools,
+        ),
+    )
     return public
 
 

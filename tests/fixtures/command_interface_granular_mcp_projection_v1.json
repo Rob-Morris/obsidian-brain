@@ -7,15 +7,33 @@
   },
   "clients": {
     "claude-code": {
-      "catalogue_hash": "sha256:21bf61c9a12625bdb5b19d97b19e535495208ce97f282711be1ad74ec9c91189",
+      "catalogue_hash": "sha256:1b023b618baa33039567e479a44bc8c752f59951f00e228b9a9a6aa033c36c9a",
       "client_version": "2.1.226",
       "maximum_tool_tokens": 1826,
       "projector": "claude-code-model-tool-declaration/2.1.226",
       "projector_source": "captured model request plus deterministic replay",
-      "raw_bytes": 36012,
-      "tokens": 7778,
-      "tool_count": 57,
+      "raw_bytes": 37843,
+      "tokens": 8161,
+      "tool_count": 60,
       "tools": {
+        "access.reduce": {
+          "projected_declaration_hash": "sha256:5990ecb94cf3027eb57c9e93eda7cbcbb13551147542f95b4fa8cdb85ecf0f02",
+          "raw_bytes": 967,
+          "source_schema_hash": "sha256:d4b23335fb7f1d8b79fe83b366fc86dbbab903de63f9119d9e95a3fba3abf972",
+          "tokens": 213
+        },
+        "access.request": {
+          "projected_declaration_hash": "sha256:99d0014449b5212bf29d1eb94a71f3dc3bec51e7a98e3950087ac5bd5bd1a900",
+          "raw_bytes": 672,
+          "source_schema_hash": "sha256:5d287321ed79cdc4823d6c391a4fd8e19ae449b0e058eadb897bc27495435e23",
+          "tokens": 131
+        },
+        "access.status": {
+          "projected_declaration_hash": "sha256:34c82d267feb28471985138e7de9fbc7dd5160e65dcef22d840b8ab9182da704",
+          "raw_bytes": 189,
+          "source_schema_hash": "sha256:99334726611ccf58a148b0814696bfa6fe08c1b2d027e946beccf5a74331c9aa",
+          "tokens": 42
+        },
         "artefact.archive": {
           "projected_declaration_hash": "sha256:50a4f107c5487da067561970b6d4440e479a06ec966fef4929e3c037913c753c",
           "raw_bytes": 293,
@@ -362,15 +380,33 @@
       "version_command": "claude --version"
     },
     "codex-cli": {
-      "catalogue_hash": "sha256:22d095f1c24b56e91880bdb8894be543b5749b30c755558208d9184afa0cf4a5",
+      "catalogue_hash": "sha256:3d63f6a93f322fd0d92703cd2cebbc2b9e1a57fbf14777b9e3e4fd778ce7ae11",
       "client_version": "0.147.0",
       "maximum_tool_tokens": 1830,
       "projector": "codex-cli-responses-function-declaration/0.147.0",
       "projector_source": "captured model request plus deterministic replay",
-      "raw_bytes": 37327,
-      "tokens": 7982,
-      "tool_count": 57,
+      "raw_bytes": 39248,
+      "tokens": 8381,
+      "tool_count": 60,
       "tools": {
+        "access.reduce": {
+          "projected_declaration_hash": "sha256:f559275383b3976d87f28b79d85cf8ab6404c70dd962c544064c97dbeced5758",
+          "raw_bytes": 1007,
+          "source_schema_hash": "sha256:d4b23335fb7f1d8b79fe83b366fc86dbbab903de63f9119d9e95a3fba3abf972",
+          "tokens": 221
+        },
+        "access.request": {
+          "projected_declaration_hash": "sha256:6c6f43b9d6677c0830632daa0cc1037455cb807d6cac105828097ba90e3bdc5b",
+          "raw_bytes": 682,
+          "source_schema_hash": "sha256:5d287321ed79cdc4823d6c391a4fd8e19ae449b0e058eadb897bc27495435e23",
+          "tokens": 131
+        },
+        "access.status": {
+          "projected_declaration_hash": "sha256:6dafd0ef94c4940beb4a851c3bbccf4df308da64df0ae93f16ffa372018a74b3",
+          "raw_bytes": 229,
+          "source_schema_hash": "sha256:99334726611ccf58a148b0814696bfa6fe08c1b2d027e946beccf5a74331c9aa",
+          "tokens": 50
+        },
         "artefact.archive": {
           "projected_declaration_hash": "sha256:38934b0c27fb537bd3158d042b27bb4499679f5a02aa93aa9061b9b6f66fed7b",
           "raw_bytes": 317,
@@ -719,10 +755,10 @@
   },
   "mcp_sdk_version": "2.0.0",
   "raw_fastmcp": {
-    "catalogue_hash": "sha256:b432c779d8f8614e69014a79b8cd433cd6eaef30fdb0d1a48e220daac939796c",
-    "raw_bytes": 35328,
-    "tokens": 7491,
-    "tool_count": 57
+    "catalogue_hash": "sha256:a3f80c5a9ab2b0a6576db583e78c5e2e96fe83c19aa45d68834495aa8619580b",
+    "raw_bytes": 37123,
+    "tokens": 7859,
+    "tool_count": 60
   },
   "schema": "brain.command-interface-granular-mcp-projection/1",
   "tokeniser": "tiktoken/0.12.0:o200k_base"

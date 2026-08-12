@@ -19,6 +19,9 @@ from .artefact import set_key as artefact_set_key
 from .artefact import set_naming_field as artefact_set_naming_field
 from .artefact import set_status as artefact_set_status
 from .artefact import unarchive as artefact_unarchive
+from .access import reduce as access_reduce
+from .access import request as access_request
+from .access import status as access_status
 from .attachment import upload as attachment_upload
 from .content import classify as content_classify
 from .content import ingest as content_ingest
@@ -73,6 +76,9 @@ from .workspace import update_metadata as workspace_update_metadata
 def current_application_catalogue():
     return build_application_catalogue(
         (
+            access_reduce.catalogue_entry(),
+            access_request.catalogue_entry(),
+            access_status.catalogue_entry(),
             artefact_archive.catalogue_entry(),
             artefact_convert.catalogue_entry(),
             artefact_create.catalogue_entry(),
@@ -145,6 +151,9 @@ def current_application_catalogue():
 def current_request_resolver():
     return build_request_resolver(
         (
+            access_reduce.resolver_entry(),
+            access_request.resolver_entry(),
+            access_status.resolver_entry(),
             artefact_archive.resolver_entry(),
             artefact_convert.resolver_entry(),
             artefact_create.resolver_entry(),

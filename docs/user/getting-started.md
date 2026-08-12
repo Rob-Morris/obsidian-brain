@@ -127,6 +127,8 @@ and Codex after the command reports a change. Installation is explicit because
 these are machine-global client
 directories, not vault-owned files.
 
+`vault.read-file` is limited to ordinary non-hidden vault files and explicit public Brain Core documentation trees such as `.brain-core/skills/`. It cannot read `.brain/`, `.brain/local/`, `.obsidian/`, Brain Core defaults/scripts or a symlink resolving into those private namespaces.
+
 ---
 
 ## Two Kinds of Things

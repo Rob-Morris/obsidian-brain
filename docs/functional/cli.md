@@ -1,6 +1,6 @@
 # Brain CLI 2
 
-The `brain` CLI is the machine-local projection of the Brain command architecture. CLI 2.0.0 replaces the former flat dispatch grammar with one predictable noun/verb grammar and one structural result contract.
+The `brain` CLI is the machine-local projection of the Brain command architecture. CLI 2 replaces the former flat dispatch grammar with one predictable noun/verb grammar and one structural result contract. CLI 2.1 adds the out-of-band external access-approval owner.
 
 ## Command grammar
 
@@ -49,6 +49,17 @@ Selection options are global and mutually constrained:
 
 Launcher commands may run without a selected Brain when their schema permits it. Application commands always execute through the selected Brain's own `.brain-core/scripts/command.py`; the machine-global CLI does not import or emulate another Brain's application semantics.
 
+### External access approval
+
+When `vault.access.elevation_policy` is `external`, an agent's `access.request` returns a pending `request_id` without activating the command. A human or separately trusted local operator approves it through the CLI-only launcher owner:
+
+```bash
+brain --vault /path/to/brain access approve \
+  --request-json '{"request_id":"access-request-…"}' --json
+```
+
+If `--operator-key` is omitted, an interactive terminal prompts without placing the secret in the request or receipt. Non-interactive use must supply `--operator-key`. The key must identify a different registered operator whose profile ceiling covers every requested command; a principal cannot approve its own request. `access.approve` is intentionally absent from MCP and selected-Brain `command.py`; agents receive only `access.status`, `access.request` and `access.reduce`.
+
 ## Dependency planes
 
 The command catalogue declares `bootstrap`, `portable` or `managed` as an ordered minimum dependency tier. The CLI runs bootstrap and portable application commands with its Python 3.12+ launcher, and resolves the selected Brain's managed runtime only for managed commands. Locality and provider requirements remain separate catalogue facts; a higher dependency tier does not imply machine-global ownership or remote transport.
@@ -82,9 +93,9 @@ CLI 2 can identify and recover an installed Brain older than 0.55.0, but it does
 
 The installer writes a versioned distribution under the selected prefix and a small platform bootloader under `bin/`:
 
-- Unix-like user install: `~/.local/bin/brain` and `~/.local/lib/brain-cli/2.0.3/`.
-- Native Windows user install: `%LOCALAPPDATA%\Programs\Brain\bin\brain.cmd` and the adjacent `lib\brain-cli\2.0.3\` distribution.
+- Unix-like user install: `~/.local/bin/brain` and `~/.local/lib/brain-cli/2.1.0/`.
+- Native Windows user install: `%LOCALAPPDATA%\Programs\Brain\bin\brain.cmd` and the adjacent `lib\brain-cli\2.1.0\` distribution.
 
 The distribution contains the launcher application plus the Brain Core payload needed for install, upgrade and selected-Brain execution. Installation and replacement verify a content manifest and executable identity; failed replacement restores the proven old binary/distribution pair or retains recovery material and reports the outcome as unverified.
 
-The bootloader requires Python 3.12 or newer. `BRAIN_CLI_VERSION` is `2.0.3`; `BRAIN_INSTALL_REF` is `v0.56.0`.
+The bootloader requires Python 3.12 or newer. `BRAIN_CLI_VERSION` is `2.1.0`; `BRAIN_INSTALL_REF` is `v0.57.0`.

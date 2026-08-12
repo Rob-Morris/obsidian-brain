@@ -5,6 +5,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import ClassVar
 
+from .access.reduce import AccessReduceRequest
+from .access.request import AccessRequestRequest
+from .access.status import AccessStatusRequest
 from .artefact.archive import ArtefactArchiveRequest
 from .artefact.convert import ArtefactConvertRequest
 from .artefact.create import ArtefactCreateRequest
@@ -334,7 +337,10 @@ class InvocationReadRequest:
 
 
 CommandRequest = (
-    CommandListRequest
+    AccessReduceRequest
+    | AccessRequestRequest
+    | AccessStatusRequest
+    | CommandListRequest
     | CommandDescribeRequest
     | InvocationReadRequest
     | ArtefactArchiveRequest
@@ -409,6 +415,9 @@ def command_identity(request: CommandRequest) -> tuple[str, int, type]:
     """Return identity owned by the concrete request type, never caller input."""
     request_type = type(request)
     if request_type not in {
+        AccessReduceRequest,
+        AccessRequestRequest,
+        AccessStatusRequest,
         CommandListRequest,
         CommandDescribeRequest,
         InvocationReadRequest,
