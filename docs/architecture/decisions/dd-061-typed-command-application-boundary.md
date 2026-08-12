@@ -1084,3 +1084,18 @@ the complete local registry, requires explicit acknowledgement of other Brains
 affected by CLI replacement, and commits Brain Core plus the versioned CLI
 distribution as one checked set. CLI 2 retains launcher recovery against an old
 Brain but refuses application discovery until that Brain reaches the cutover.
+
+## v0.55.8 MCP SDK 2 boundary port
+
+The transport adapter now uses the official Python SDK's `MCPServer` API at the
+exact admitted `mcp==2.0.0` pin. The application catalogue, request resolver,
+context composition and result projector remain unchanged; SDK-specific model
+names, handler registration and snake-case Python fields stay confined to
+`brain_mcp` and transport tests.
+
+The canonical request schema still replaces the SDK-generated schema after
+registration, and raw arguments still reach the authoritative resolver without
+a competing Pydantic interpretation. The proxy protocol gate now wraps the
+SDK's method-based `tools/call` handler while preserving its pre-lookup denial
+and initialise-extension ownership. Stdio compatibility is exercised against a
+2025-06-18 client as well as the current SDK client.

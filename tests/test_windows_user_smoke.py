@@ -100,8 +100,8 @@ async def _call_installed_environment_read(vault_root: Path, env: dict[str, str]
             assert any(tool.name == "attachment.upload" for tool in tools.tools)
 
             result = await session.call_tool("runtime.read-environment", {})
-            assert not result.isError, result.content[0].text
-            environment = _parse_environment(result.structuredContent)
+            assert not result.is_error, result.content[0].text
+            environment = _parse_environment(result.structured_content)
             upload = await session.call_tool(
                 "attachment.upload",
                 {
@@ -112,8 +112,8 @@ async def _call_installed_environment_read(vault_root: Path, env: dict[str, str]
                     ).decode("ascii"),
                 },
             )
-            assert not upload.isError, upload.content[0].text
-            upload_envelope = upload.structuredContent
+            assert not upload.is_error, upload.content[0].text
+            upload_envelope = upload.structured_content
             assert upload_envelope["status"] == "ok"
             uploaded_path = upload_envelope["result"]["path"]
             assert (vault_root / uploaded_path).read_bytes() == b"native windows attachment"

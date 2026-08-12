@@ -7,7 +7,8 @@ import os
 from typing import Mapping
 
 from mcp import types
-from mcp.server.fastmcp import FastMCP
+from mcp.server import MCPServer
+from mcp_types import CallToolRequestParams
 
 from ._interface_protocol import (
     CommandInterfaceHeader,
@@ -67,14 +68,14 @@ def inspect_running_proxy_protocol(
 
 
 def install_proxy_protocol_gate(
-    mcp: FastMCP,
+    mcp: MCPServer,
     header: CommandInterfaceHeader,
     *,
     environ: Mapping[str, str] | None = None,
 ) -> RunningProxyProtocol:
-    """Emit the interface header and intercept calls before FastMCP lookup."""
+    """Emit the interface header and intercept calls before MCPServer lookup."""
 
-    low_level = mcp._mcp_server
+    low_level = mcp._lowlevel_server
     if getattr(low_level, "_brain_proxy_protocol_gate_installed", False):
         raise RuntimeError("proxy protocol gate is already installed")
     state = inspect_running_proxy_protocol(header, environ=environ)
@@ -85,32 +86,35 @@ def install_proxy_protocol_gate(
     def create_initialization_options(
         notification_options=None,
         experimental_capabilities=None,
+        extensions=None,
     ):
         capabilities = dict(experimental_capabilities or {})
         existing = capabilities.get(INTERFACE_HEADER_EXTENSION)
         if existing is not None and existing != wire_header:
             raise RuntimeError("brainCommandInterface capability is already owned")
         capabilities[INTERFACE_HEADER_EXTENSION] = wire_header
-        return create_options(notification_options, capabilities)
+        return create_options(notification_options, capabilities, extensions)
 
-    original_call = low_level.request_handlers[types.CallToolRequest]
+    original_call = low_level.get_request_handler("tools/call")
+    if original_call is None:
+        raise RuntimeError("MCPServer tools/call handler is missing")
 
-    async def gated_call(request: types.CallToolRequest):
+    async def gated_call(context, params: CallToolRequestParams):
         if state.compatible:
-            return await original_call(request)
-        return types.ServerResult(_proxy_restart_required(request, state))
+            return await original_call.handler(context, params)
+        return _proxy_restart_required(params, state)
 
     low_level.create_initialization_options = create_initialization_options
-    low_level.request_handlers[types.CallToolRequest] = gated_call
+    low_level.add_request_handler("tools/call", CallToolRequestParams, gated_call)
     low_level._brain_proxy_protocol_gate_installed = True
     return state
 
 
 def _proxy_restart_required(
-    request: types.CallToolRequest,
+    params: CallToolRequestParams,
     state: RunningProxyProtocol,
 ) -> types.CallToolResult:
-    tool_name = request.params.name
+    tool_name = params.name
     message = (
         "Restart MCP to load the upgraded Brain proxy before calling any tool."
     )

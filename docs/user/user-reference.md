@@ -1,6 +1,6 @@
 # Brain Reference
 
-This page is the stable user-facing reference for Brain Core 0.55.7 and CLI 2.0.3. Exact command schemas, examples and availability come from the installed Brain rather than a duplicated hand-maintained inventory.
+This page is the stable user-facing reference for Brain Core 0.55.8 and CLI 2.0.3. Exact command schemas, examples and availability come from the installed Brain rather than a duplicated hand-maintained inventory.
 
 ## Vault model
 

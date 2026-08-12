@@ -969,7 +969,7 @@
       "version_command": "codex --version"
     }
   },
-  "mcp_sdk_version": "1.29.0",
+  "mcp_sdk_version": "2.0.0",
   "raw_fastmcp": {
     "catalogue_hash": "sha256:34e7479f549b057b7a546111fed4111b800c284888f0cc3fd99099c0a44d35ac",
     "raw_bytes": 39082,

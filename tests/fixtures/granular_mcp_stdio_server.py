@@ -8,7 +8,7 @@ import os
 from pathlib import Path
 import sys
 
-from mcp.server.fastmcp import FastMCP
+from mcp.server import MCPServer
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -68,7 +68,7 @@ def main() -> int:
         for entry in catalogue.entries
         if Projection.MCP in entry.eligible_projections
     )
-    mcp = FastMCP("brain")
+    mcp = MCPServer("brain")
     register_application_tools(
         mcp,
         catalogue=catalogue,

@@ -13,7 +13,8 @@ import os
 from pathlib import Path
 import sys
 
-from mcp.server.fastmcp import FastMCP
+from mcp.server import MCPServer
+from mcp.server.mcpserver import Context
 
 
 SCRIPTS_DIR = Path(__file__).resolve().parent.parent / "scripts"
@@ -66,7 +67,7 @@ def _check_version_drift() -> None:
     except OSError:
         return
     if disk_version and disk_version != _LOADED_VERSION:
-        # FastMCP/anyio can wrap SystemExit and lose its status. A direct exit
+        # MCPServer/anyio can wrap SystemExit and lose its status. A direct exit
         # preserves the proxy's distinguished, replay-safe restart signal.
         os._exit(_EXIT_VERSION_DRIFT)
 
@@ -86,17 +87,17 @@ def _invocation_id_from_metadata(metadata: object) -> str:
     return invocation_id
 
 
-def _proxy_invocation_id() -> str:
+def _proxy_invocation_id(context: Context) -> str:
     """Read the invocation identity authenticated by the local proxy."""
 
     try:
-        metadata = mcp.get_context().request_context.meta
+        metadata = context.request_context.meta
     except (LookupError, ValueError) as exc:
         raise RuntimeError("granular MCP calls require proxy invocation metadata") from exc
     return _invocation_id_from_metadata(metadata)
 
 
-def _mcp_context_factory(*, command_id, catalogue):
+def _mcp_context_factory(*, command_id, catalogue, mcp_context):
     workspace_value = os.environ.get("BRAIN_WORKSPACE_DIR")
     workspace = Path(workspace_value).expanduser() if workspace_value else None
     if workspace is not None and not workspace.is_absolute():
@@ -107,12 +108,12 @@ def _mcp_context_factory(*, command_id, catalogue):
         catalogue=catalogue,
         operator_key=os.environ.get("BRAIN_OPERATOR_KEY"),
         workspace_dir=workspace,
-        invocation_id=_proxy_invocation_id(),
+        invocation_id=_proxy_invocation_id(mcp_context),
     )
 
 
-def _build_public_mcp() -> FastMCP:
-    public = FastMCP(name="brain")
+def _build_public_mcp() -> MCPServer:
+    public = MCPServer(name="brain")
     catalogue = current_application_catalogue()
     register_application_tools(
         public,

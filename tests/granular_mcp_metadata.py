@@ -10,7 +10,7 @@ from pathlib import Path
 import sys
 
 import tiktoken
-from mcp.server.fastmcp import FastMCP
+from mcp.server import MCPServer
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -64,7 +64,7 @@ def _hash(value) -> str:
 
 
 def _registered_tools() -> list[dict[str, object]]:
-    mcp = FastMCP("brain-granular-projection-capture")
+    mcp = MCPServer("brain-granular-projection-capture")
     register_application_tools(
         mcp,
         catalogue=current_application_catalogue(),
@@ -77,7 +77,7 @@ def _registered_tools() -> list[dict[str, object]]:
         {
             "name": tool.name,
             "description": tool.description or "",
-            "input_schema": tool.inputSchema,
+            "input_schema": tool.input_schema,
         }
         for tool in registered
     ]

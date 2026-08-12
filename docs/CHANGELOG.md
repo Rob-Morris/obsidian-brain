@@ -8,6 +8,7 @@ Never edit past changelog entries. Only add new entries at the top.
 
 | Version | Date | Summary |
 |---|---|---|
+| [v0.55.8](changelog/v0.55.8.md) | 2026-08-12 | Admit MCP SDK 2 and port the server adapter |
 | [v0.55.7](changelog/v0.55.7.md) | 2026-08-12 | Restore session.start cutover and bounded read-only execution |
 | [v0.55.6](changelog/v0.55.6.md) | 2026-08-11 | Make runtime environment reads cache-independent |
 | [v0.55.5](changelog/v0.55.5.md) | 2026-08-11 | Accept vault-self project anchors in MCP context |

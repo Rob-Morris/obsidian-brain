@@ -2,6 +2,11 @@
 
 Brain Core 0.55 exposes the selected-Brain application catalogue as granular MCP tools. `server.py` is a small composition root: it registers catalogue projections, composes trusted local invocation context and installs the replacement-proxy protocol gate. Semantic logic belongs to application commands, not the MCP adapter.
 
+The transport boundary uses the official Python `MCPServer` API at the exact
+reviewed `mcp==2.0.0` pin. It continues to serve supported 2025 protocol clients;
+the dependency admission and runtime policy are recorded in
+[MCP SDK 2.0 Dependency Admission](../architecture/mcp-sdk-2-dependency-admission.md).
+
 ## Tool grammar and discovery
 
 An MCP-eligible command exposes its canonical `<noun>.<verb>` identifier directly. Examples include:

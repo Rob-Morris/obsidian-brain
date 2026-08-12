@@ -11,7 +11,7 @@ import shutil
 import subprocess
 import sys
 
-from mcp.server.fastmcp import FastMCP
+from mcp.server import MCPServer
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -98,7 +98,7 @@ def _direct(vault, payload):
 
 
 def _mcp(vault, payload):
-    mcp = FastMCP("parity")
+    mcp = MCPServer("parity")
     register_application_tools(
         mcp,
         catalogue=current_application_catalogue(),
@@ -172,7 +172,7 @@ def test_equivalent_valid_intent_has_one_result_across_all_eligible_adapters(tmp
     assert [
         dynamic.structured_content,
         json.loads(direct_stdout),
-        mcp.structuredContent,
+        mcp.structured_content,
         local.structured_content,
     ] == [python_result] * 4
 
@@ -194,7 +194,7 @@ def test_equivalent_known_invalid_intent_has_one_structural_error(tmp_path):
     expected = dynamic.structured_content
     assert direct_code == dynamic.exit_code == local.exit_code == 2
     assert direct_stderr == ""
-    assert [json.loads(direct_stdout), mcp.structuredContent, local.structured_content] == [
+    assert [json.loads(direct_stdout), mcp.structured_content, local.structured_content] == [
         expected,
         expected,
         expected,

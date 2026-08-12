@@ -6,4 +6,5 @@ How and why Obsidian Brain is structured this way. This layer covers system shap
 - [Bounded Contexts](bounded-contexts.md) — context map, responsibilities, and import policy
 - [Documentation Philosophy](documentation-philosophy.md) — documentation structure and maintenance philosophy
 - [Security](security.md) — path boundary model, privilege split, and write guards
+- [MCP SDK 2.0 Dependency Admission](mcp-sdk-2-dependency-admission.md) — exact dependency graph, provenance, licences, security review, and runtime decisions
 - [Design Decisions](decisions/README.md) — architectural decision index and per-decision records
