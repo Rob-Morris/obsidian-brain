@@ -11,8 +11,8 @@ Memories are reference cards that agents load on demand — factual context abou
 ### With MCP
 
 ```
-memory.list()                         # list all memories
-memory.read(reference="brain")       # resolve by trigger/name
+resource.list(resource="memory")                     # list all memories
+resource.read(resource="memory", reference="brain") # resolve by trigger/name
 ```
 
 Trigger matching is case-insensitive substring: "brain" matches a memory with trigger "brain core".

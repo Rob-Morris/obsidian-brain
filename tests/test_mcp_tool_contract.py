@@ -55,16 +55,16 @@ def _reachable_properties(schema):
 
 def test_every_projected_tool_has_strict_valid_described_schema():
     tools = _tools()
-    assert len(tools) == 78
+    assert len(tools) == 60
     for tool in tools:
-        Draft202012Validator.check_schema(tool.inputSchema)
-        assert tool.inputSchema.get("type") == "object"
-        assert tool.inputSchema.get("additionalProperties") is False
+        Draft202012Validator.check_schema(tool.input_schema)
+        assert tool.input_schema.get("type") == "object"
+        assert tool.input_schema.get("additionalProperties") is False
         assert not _BANNED_HEADINGS.search(tool.description or "")
         assert len((tool.description or "").strip()) <= 600
         missing = [
             path
-            for path, metadata in _reachable_properties(tool.inputSchema)
+            for path, metadata in _reachable_properties(tool.input_schema)
             if not str(metadata.get("description", "")).strip()
         ]
         assert not missing, f"{tool.name} has undocumented fields: {missing}"
@@ -74,7 +74,7 @@ def test_mcp_safety_hints_are_complete_and_closed():
     for tool in _tools():
         annotations = tool.annotations
         assert annotations is not None
-        assert isinstance(annotations.readOnlyHint, bool)
-        assert isinstance(annotations.destructiveHint, bool)
-        assert isinstance(annotations.idempotentHint, bool)
-        assert annotations.openWorldHint is False
+        assert isinstance(annotations.read_only_hint, bool)
+        assert isinstance(annotations.destructive_hint, bool)
+        assert isinstance(annotations.idempotent_hint, bool)
+        assert annotations.open_world_hint is False

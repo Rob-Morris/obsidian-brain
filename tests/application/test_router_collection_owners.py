@@ -6,12 +6,11 @@ import json
 
 import pytest
 
-from _application.memory.list import MemoryListRequest
-from _application.memory.read import MemoryReadRequest
 from _application.registry import current_request_resolver
+from _application.resource.list import ListableResource, ResourceListRequest
+from _application.resource.read import ReadableResource, ResourceReadRequest
 from _application.results import ErrorCode
-from _application.trigger.list import TriggerListRequest
-from _application.trigger.read import TriggerCategory, TriggerReadRequest
+from _application.trigger.read import TriggerCategory
 from command_application import application_for
 
 
@@ -20,8 +19,12 @@ def test_memory_read_is_exact_while_discovery_remains_separate(
 ):
     application = application_for(command_vault_baseline.vault_root)
 
-    exact = application.invoke(MemoryReadRequest("brain-core-reference"))
-    trigger_phrase = application.invoke(MemoryReadRequest("brain core"))
+    exact = application.invoke(
+        ResourceReadRequest(ReadableResource.MEMORY, "brain-core-reference")
+    )
+    trigger_phrase = application.invoke(
+        ResourceReadRequest(ReadableResource.MEMORY, "brain core")
+    )
 
     assert exact.status == "ok"
     assert exact.result.name == "brain-core-reference"
@@ -32,7 +35,7 @@ def test_memory_read_is_exact_while_discovery_remains_separate(
 
 def test_memory_list_returns_bounded_trigger_metadata(command_vault_baseline):
     result = application_for(command_vault_baseline.vault_root).invoke(
-        MemoryListRequest(query="brain-core")
+        ResourceListRequest(ListableResource.MEMORY, query="brain-core")
     )
 
     assert result.status == "ok"
@@ -49,7 +52,7 @@ def test_memory_list_returns_bounded_trigger_metadata(command_vault_baseline):
 def test_trigger_read_uses_unique_canonical_condition(command_vault_baseline):
     target = "_Config/Taxonomy/Temporal/logs"
     result = application_for(command_vault_baseline.vault_root).invoke(
-        TriggerReadRequest("After meaningful work")
+        ResourceReadRequest(ReadableResource.TRIGGER, "After meaningful work")
     )
 
     assert result.status == "ok"
@@ -60,7 +63,7 @@ def test_trigger_read_uses_unique_canonical_condition(command_vault_baseline):
 
 def test_trigger_list_query_searches_bounded_trigger_fields(command_vault_baseline):
     result = application_for(command_vault_baseline.vault_root).invoke(
-        TriggerListRequest(query="meaningful work")
+        ResourceListRequest(ListableResource.TRIGGER, query="meaningful work")
     )
 
     assert result.status == "ok"
@@ -83,7 +86,7 @@ def test_trigger_read_rejects_duplicate_condition_state(command_vault_clone):
     router_path.write_text(json.dumps(router), encoding="utf-8")
 
     result = application_for(command_vault_clone.vault_root).invoke(
-        TriggerReadRequest("After meaningful work")
+        ResourceReadRequest(ReadableResource.TRIGGER, "After meaningful work")
     )
 
     assert result.error.code is ErrorCode.CONFLICT
@@ -94,19 +97,32 @@ def test_router_collection_transport_contracts_are_strict():
     resolver = current_request_resolver()
 
     assert type(
-        resolver.resolve("memory.read", {"reference": "brain-core-reference"})
-    ) is MemoryReadRequest
-    assert type(resolver.resolve("memory.list", {})) is MemoryListRequest
+        resolver.resolve(
+            "resource.read",
+            {"resource": "memory", "reference": "brain-core-reference"},
+        )
+    ) is ResourceReadRequest
+    assert type(
+        resolver.resolve("resource.list", {"resource": "memory"})
+    ) is ResourceListRequest
     assert type(
         resolver.resolve(
-            "trigger.read",
-            {"condition": "After meaningful work"},
+            "resource.read",
+            {"resource": "trigger", "reference": "After meaningful work"},
         )
-    ) is TriggerReadRequest
-    assert type(resolver.resolve("trigger.list", {"query": "log"})) is TriggerListRequest
+    ) is ResourceReadRequest
+    assert type(
+        resolver.resolve(
+            "resource.list", {"resource": "trigger", "query": "log"}
+        )
+    ) is ResourceListRequest
 
     with pytest.raises(ValueError, match="unexpected fields"):
         resolver.resolve(
-            "trigger.read",
-            {"condition": "After meaningful work", "name": "logs"},
+            "resource.read",
+            {
+                "resource": "trigger",
+                "reference": "After meaningful work",
+                "name": "logs",
+            },
         )

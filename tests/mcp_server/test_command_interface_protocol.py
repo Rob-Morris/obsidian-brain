@@ -68,7 +68,7 @@ def test_application_header_is_exact_catalogue_derived_mcp_mapping():
         if Projection.MCP in entry.eligible_projections
     )
 
-    assert len(header.tools) == len(eligible) == 78
+    assert len(header.tools) == len(eligible) == 60
     assert header.interface_epoch == catalogue.interface_epoch
     assert header.catalogue_schema == catalogue.schema
     assert header.result_schema == catalogue.result_schema

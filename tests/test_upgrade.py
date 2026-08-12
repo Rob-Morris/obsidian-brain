@@ -20,7 +20,12 @@ from _distribution import install_distribution, verify_distribution
 from _local_cli.runtime import CLI_VERSION
 import migrate_to_0_53_0
 import upgrade
-from _command_interface.profile_migration import _LEGACY_BUILTIN_ALLOW
+from _application.registry import current_application_catalogue
+from _command_interface.profile_migration import (
+    _LEGACY_BUILTIN_ALLOW,
+    _REMOVED_GRANULAR_COMMANDS,
+)
+from _command_interface.profiles import builtin_profile_allow_lists
 from _common._yaml import dump_yaml_text, load_mapping_file
 from brain_test_support import write_executable as _write_executable
 
@@ -173,12 +178,101 @@ def test_upgrade_runner_applies_the_v055_profile_migration(tmp_path):
     assert "0.55.0" in ledger["migrations"]
     profiles = load_mapping_file(config_path)["vault"]["profiles"]
     assert {name: len(value["allow"]) for name, value in profiles.items()} == {
-        "reader": 37,
-        "contributor": 63,
-        "maintainer": 76,
-        "operator": 85,
-        "administrator": 86,
+        "reader": 26,
+        "contributor": 48,
+        "maintainer": 61,
+        "operator": 70,
+        "administrator": 71,
     }
+
+
+def _v055_granular_builtins():
+    reverse_consolidations = {}
+    for old_tool, current_tool in _REMOVED_GRANULAR_COMMANDS.items():
+        reverse_consolidations.setdefault(current_tool, set()).add(old_tool)
+    profiles = {}
+    for profile, tools in builtin_profile_allow_lists(
+        current_application_catalogue()
+    ).items():
+        previous = set(tools) - {
+            "access.reduce",
+            "access.request",
+            "access.status",
+            "runtime.status",
+            "runtime.warmup",
+        }
+        for current_tool, old_tools in reverse_consolidations.items():
+            if current_tool in previous:
+                previous.remove(current_tool)
+                previous.update(old_tools)
+        profiles[profile] = {"allow": sorted(previous)}
+    return profiles
+
+
+def test_upgrade_runner_applies_the_v056_profile_consolidation(tmp_path):
+    vault = tmp_path / "Brain"
+    scripts = vault / ".brain-core" / "scripts"
+    shutil.copytree(_REAL_SCRIPTS, scripts)
+    config_path = vault / ".brain" / "config.yaml"
+    config_path.parent.mkdir(parents=True)
+    config_path.write_text(
+        dump_yaml_text({"vault": {"profiles": _v055_granular_builtins()}}),
+        encoding="utf-8",
+    )
+
+    results, ledger = upgrade._run_migrations(
+        str(vault),
+        "0.55.8",
+        "0.56.0",
+        raise_on_error=True,
+    )
+
+    assert [(item["version"], item["status"]) for item in results] == [
+        ("0.56.0", "ok")
+    ]
+    assert "0.56.0" in ledger["migrations"]
+    profiles = load_mapping_file(config_path)["vault"]["profiles"]
+    assert {
+        name: tuple(value["allow"]) for name, value in profiles.items()
+    } == builtin_profile_allow_lists(current_application_catalogue())
+
+
+def test_upgrade_runner_applies_the_v057_access_controls(tmp_path):
+    vault = tmp_path / "Brain"
+    scripts = vault / ".brain-core" / "scripts"
+    shutil.copytree(_REAL_SCRIPTS, scripts)
+    current = builtin_profile_allow_lists(current_application_catalogue())
+    previous = {
+        name: {
+            "allow": sorted(
+                set(commands)
+                - {"access.reduce", "access.request", "access.status"}
+            )
+        }
+        for name, commands in current.items()
+    }
+    config_path = vault / ".brain" / "config.yaml"
+    config_path.parent.mkdir(parents=True)
+    config_path.write_text(
+        dump_yaml_text({"vault": {"profiles": previous}}),
+        encoding="utf-8",
+    )
+
+    results, ledger = upgrade._run_migrations(
+        str(vault),
+        "0.56.0",
+        "0.57.0",
+        raise_on_error=True,
+    )
+
+    assert [(item["version"], item["status"]) for item in results] == [
+        ("0.57.0", "ok")
+    ]
+    assert "0.57.0" in ledger["migrations"]
+    profiles = load_mapping_file(config_path)["vault"]["profiles"]
+    assert {
+        name: tuple(value["allow"]) for name, value in profiles.items()
+    } == current
 
 
 class TestShapingLifecycleMigration:

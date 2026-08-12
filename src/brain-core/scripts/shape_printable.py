@@ -8,7 +8,8 @@ The optional keep-heading-with-next header reduces orphaned headings at page
 breaks by reserving vertical space before new sections.
 
 Usage (via MCP):
-    shaping.render-printable(source="path/to/source.md", slug="my-brief")
+    shaping.render(source="path/to/source.md", slug="my-brief",
+                   output={"kind": "printable"})
 
 Usage (CLI):
     python3 shape_printable.py --source "path/to/source.md" --slug "my-brief" --vault /path/to/vault

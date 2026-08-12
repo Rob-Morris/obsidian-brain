@@ -8,7 +8,8 @@ a live-preview browser window via `marp --preview` and renders a PDF into
 while the user watches the preview update in real time.
 
 Usage (via MCP):
-    shaping.render-presentation(source="path/to/source.md", slug="my-deck")
+    shaping.render(source="path/to/source.md", slug="my-deck",
+                   output={"kind": "presentation"})
 
 Usage (CLI):
     python3 shape_presentation.py --source "path/to/source.md" --slug "my-deck" --vault /path/to/vault

@@ -1,7 +1,7 @@
 """Deterministic pre-cutover MCP metadata cost capture.
 
 This Phase 1 baseline measures the canonical client wire shapes from raw
-FastMCP registration.  It intentionally does not claim to reproduce a client's
+MCPServer registration. It intentionally does not claim to reproduce a client's
 private model-facing renderer; Phase 4 adds provenance-bearing real-client
 captures and minimal requests before applying release token ceilings.
 """
@@ -121,7 +121,7 @@ def build_metadata_capture() -> dict:
         {
             "name": tool.name,
             "description": tool.description or "",
-            "input_schema": tool.inputSchema,
+            "input_schema": tool.input_schema,
         }
         for tool in registered
     ]

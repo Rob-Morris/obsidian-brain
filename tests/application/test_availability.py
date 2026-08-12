@@ -3,6 +3,11 @@
 from __future__ import annotations
 
 from datetime import datetime
+import os
+from pathlib import Path
+import subprocess
+import sys
+import threading
 import time
 
 import pytest
@@ -110,3 +115,72 @@ def test_refresh_contract_rejects_duplicate_probes_and_overlong_deadlines():
         CapabilityRefresher((probe, probe), _Clock(), _Tokens(), 0.1)
     with pytest.raises(ValueError, match="two seconds"):
         CapabilityRefresher((probe,), _Clock(), _Tokens(), 2.1)
+
+
+def test_timed_out_probes_are_daemonised_and_globally_bounded():
+    slow = _Probe("renderer", Availability.AVAILABLE, timeout=0.01, delay=0.5)
+    refresher = CapabilityRefresher(
+        (slow,),
+        _Clock(),
+        _Tokens(),
+        aggregate_timeout_seconds=0.1,
+    )
+
+    started = time.monotonic()
+    snapshots = [refresher.refresh(("renderer",)) for _ in range(12)]
+    elapsed = time.monotonic() - started
+    workers = [
+        thread
+        for thread in threading.enumerate()
+        if thread.name == "brain-capability-probe"
+    ]
+
+    assert elapsed < 0.25
+    assert all(
+        snapshot.availability_of("renderer") is Availability.UNKNOWN
+        for snapshot in snapshots
+    )
+    assert len(workers) <= 8
+    assert workers and all(worker.daemon for worker in workers)
+
+
+def test_timed_out_probe_does_not_delay_process_exit():
+    scripts = Path(__file__).resolve().parents[2] / "src" / "brain-core" / "scripts"
+    environment = dict(os.environ)
+    environment["PYTHONPATH"] = str(scripts)
+    program = """
+from datetime import datetime
+import time
+from _application.availability import CapabilityRefresher
+from _application.types import Availability
+
+class Clock:
+    def now(self):
+        return datetime.fromisoformat("2026-08-11T12:00:00+10:00")
+
+class Tokens:
+    def next_token(self, previous_token):
+        return "snapshot"
+
+class Probe:
+    provider_id = "renderer"
+    timeout_seconds = 0.05
+    def probe(self):
+        time.sleep(2)
+        return Availability.AVAILABLE
+
+CapabilityRefresher(
+    (Probe(),), Clock(), Tokens(), aggregate_timeout_seconds=0.1
+).refresh(("renderer",))
+"""
+
+    completed = subprocess.run(
+        [sys.executable, "-c", program],
+        check=False,
+        capture_output=True,
+        text=True,
+        env=environment,
+        timeout=0.8,
+    )
+
+    assert completed.returncode == 0, completed.stderr

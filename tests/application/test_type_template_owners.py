@@ -5,14 +5,10 @@ from __future__ import annotations
 import pytest
 
 from _application.registry import current_request_resolver
+from _application.resource.list import ListableResource, ResourceListRequest
+from _application.resource.read import ReadableResource, ResourceReadRequest
 from _application.results import ErrorCode
-from _application.template.list import TemplateListRequest
-from _application.template.read import TemplateReadRequest
-from _application.type.list import ArtefactTypeListRequest
-from _application.type.read import (
-    ArtefactTypeClassification,
-    ArtefactTypeReadRequest,
-)
+from _application.type.read import ArtefactTypeClassification
 from command_application import application_for
 
 
@@ -21,8 +17,12 @@ def test_type_read_uses_the_exact_router_key_and_returns_the_definition(
 ):
     application = application_for(command_vault_baseline.vault_root)
 
-    result = application.invoke(ArtefactTypeReadRequest("designs"))
-    singular_alias = application.invoke(ArtefactTypeReadRequest("design"))
+    result = application.invoke(
+        ResourceReadRequest(ReadableResource.TYPE, "designs")
+    )
+    singular_alias = application.invoke(
+        ResourceReadRequest(ReadableResource.TYPE, "design")
+    )
 
     assert result.status == "ok"
     assert result.result.key == "designs"
@@ -37,7 +37,9 @@ def test_type_read_uses_the_exact_router_key_and_returns_the_definition(
 def test_type_list_is_bounded_sorted_and_filterable(command_vault_baseline):
     application = application_for(command_vault_baseline.vault_root)
 
-    result = application.invoke(ArtefactTypeListRequest("living/design"))
+    result = application.invoke(
+        ResourceListRequest(ListableResource.TYPE, "living/design")
+    )
 
     assert result.status == "ok"
     assert result.result.total == 1
@@ -50,9 +52,15 @@ def test_template_read_and_list_use_the_same_exact_type_identity(
 ):
     application = application_for(command_vault_baseline.vault_root)
 
-    reading = application.invoke(TemplateReadRequest("designs"))
-    singular_alias = application.invoke(TemplateReadRequest("design"))
-    listing = application.invoke(TemplateListRequest("design"))
+    reading = application.invoke(
+        ResourceReadRequest(ReadableResource.TEMPLATE, "designs")
+    )
+    singular_alias = application.invoke(
+        ResourceReadRequest(ReadableResource.TEMPLATE, "design")
+    )
+    listing = application.invoke(
+        ResourceListRequest(ListableResource.TEMPLATE, "design")
+    )
 
     assert reading.status == "ok"
     assert reading.result.type_key == "designs"
@@ -68,17 +76,26 @@ def test_type_and_template_transport_contracts_are_strict():
     resolver = current_request_resolver()
 
     assert type(
-        resolver.resolve("type.read", {"reference": "designs"})
-    ) is ArtefactTypeReadRequest
+        resolver.resolve(
+            "resource.read", {"resource": "type", "reference": "designs"}
+        )
+    ) is ResourceReadRequest
     assert type(
-        resolver.resolve("type.list", {"query": "design"})
-    ) is ArtefactTypeListRequest
+        resolver.resolve(
+            "resource.list", {"resource": "type", "query": "design"}
+        )
+    ) is ResourceListRequest
     assert type(
-        resolver.resolve("template.read", {"reference": "designs"})
-    ) is TemplateReadRequest
+        resolver.resolve(
+            "resource.read", {"resource": "template", "reference": "designs"}
+        )
+    ) is ResourceReadRequest
     assert type(
-        resolver.resolve("template.list", {})
-    ) is TemplateListRequest
+        resolver.resolve("resource.list", {"resource": "template"})
+    ) is ResourceListRequest
 
     with pytest.raises(ValueError, match="unexpected fields"):
-        resolver.resolve("template.read", {"reference": "designs", "name": "design"})
+        resolver.resolve(
+            "resource.read",
+            {"resource": "template", "reference": "designs", "name": "design"},
+        )

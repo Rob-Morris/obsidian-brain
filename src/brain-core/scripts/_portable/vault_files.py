@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+from pathlib import Path
 from datetime import datetime, timezone
 
 from _common import (
@@ -36,7 +37,53 @@ def read_vault_file(vault_root, path):
                 'location="archived" instead.'
             )
         }
+    public_error = _public_file_error(vault_root, path)
+    if public_error is not None:
+        return {"error": public_error}
     return _read_exact_file(vault_root, path)
+
+
+def _public_file_error(vault_root, path):
+    """Keep Reader exact-file access inside the documented public namespace."""
+
+    try:
+        resolved = Path(
+            resolve_and_check_bounds(
+                os.path.join(str(vault_root), path),
+                str(vault_root),
+            )
+        )
+        relative = resolved.relative_to(Path(vault_root).resolve())
+    except (ValueError, OSError):
+        return "Path escapes vault root"
+    parts = relative.parts
+    if not parts:
+        return "Path does not identify a public vault file"
+    if parts[0] == ".brain-core":
+        public_files = {
+            "colours.md",
+            "guide.md",
+            "index.md",
+            "md-bootstrap.md",
+            "session-core.md",
+        }
+        public_trees = {
+            "artefact-library",
+            "client-adapters",
+            "skills",
+            "standards",
+        }
+        permitted = (
+            len(parts) == 2 and parts[1] in public_files
+        ) or (
+            len(parts) > 2 and parts[1] in public_trees
+        )
+        if permitted and not any(part.startswith(".") for part in parts[1:]):
+            return None
+        return "Path is outside the public Brain Core documentation namespace"
+    if any(part.startswith(".") for part in parts):
+        return "Path is outside the public vault-file namespace"
+    return None
 
 
 def read_archived_artefact(vault_root, path, *, infer_markdown=False):

@@ -112,6 +112,36 @@ def test_archive_boundary_is_explicit(command_vault_baseline):
     assert archived_as_file.error.code is ErrorCode.INVALID_REQUEST
 
 
+def test_vault_read_file_blocks_private_state_and_symlink_aliases(
+    command_vault_clone,
+):
+    root = command_vault_clone.vault_root
+    secret = root / ".brain/local/config.yaml"
+    secret.parent.mkdir(parents=True, exist_ok=True)
+    secret.write_text("operator_key: secret\n", encoding="utf-8")
+    alias = root / "private-alias.yaml"
+    try:
+        alias.symlink_to(secret)
+    except OSError:
+        alias = None
+    application = application_for(root)
+
+    private = application.invoke(VaultReadFileRequest(".brain/local/config.yaml"))
+    core_private = application.invoke(
+        VaultReadFileRequest(".brain-core/defaults/config.yaml")
+    )
+    public_skill = application.invoke(
+        VaultReadFileRequest(".brain-core/skills/shaping/SKILL.md")
+    )
+
+    assert private.error.code is ErrorCode.INVALID_REQUEST
+    assert core_private.error.code is ErrorCode.INVALID_REQUEST
+    assert public_skill.status == "ok"
+    if alias is not None:
+        through_alias = application.invoke(VaultReadFileRequest(alias.name))
+        assert through_alias.error.code is ErrorCode.INVALID_REQUEST
+
+
 def test_vault_file_transport_contracts_are_strict():
     resolver = current_request_resolver()
 

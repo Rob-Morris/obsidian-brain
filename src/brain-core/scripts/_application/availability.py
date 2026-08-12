@@ -2,15 +2,19 @@
 
 from __future__ import annotations
 
-from concurrent.futures import Future, ThreadPoolExecutor, wait
+from concurrent.futures import Future, wait
 from dataclasses import dataclass, field
 from datetime import datetime
 from time import monotonic
-from threading import Lock
+from threading import BoundedSemaphore, Lock, Thread
 from typing import Callable, Protocol
 
 from .context import Capability, CapabilitySnapshot
 from .types import Availability, SnapshotFreshness
+
+
+_MAX_BACKGROUND_PROBES = 8
+_probe_slots = BoundedSemaphore(_MAX_BACKGROUND_PROBES)
 
 
 class CapabilityProbe(Protocol):
@@ -81,15 +85,20 @@ class CapabilityRefresher:
             for provider_id in requested
         }
         selected = [by_name[name] for name in requested if name in by_name]
-        executor: ThreadPoolExecutor | None = None
         if selected:
-            executor = ThreadPoolExecutor(max_workers=min(len(selected), 8))
-            futures: dict[Future, CapabilityProbe] = {
-                executor.submit(self._timed_probe, probe): probe for probe in selected
-            }
+            futures = {}
+            for probe in selected:
+                future = _submit_background_probe(
+                    lambda probe=probe: self._timed_probe(probe)
+                )
+                if future is not None:
+                    futures[future] = probe
             done, pending = wait(
                 futures,
-                timeout=self.aggregate_timeout_seconds,
+                timeout=min(
+                    self.aggregate_timeout_seconds,
+                    max(probe.timeout_seconds for probe in selected),
+                ),
             )
             for future in done:
                 probe = futures[future]
@@ -104,7 +113,6 @@ class CapabilityRefresher:
                 )
             for future in pending:
                 future.cancel()
-            executor.shutdown(wait=False, cancel_futures=True)
 
         observed_at = self.clock.now()
         if observed_at.tzinfo is None:
@@ -139,3 +147,34 @@ class CapabilityRefresher:
         if not isinstance(result, Availability):
             return Availability.UNKNOWN, elapsed
         return result, elapsed
+
+
+def _submit_background_probe(call: Callable[[], object]) -> Future | None:
+    """Run a probe behind a process-wide bounded daemon boundary."""
+
+    if not _probe_slots.acquire(blocking=False):
+        return None
+    future = Future()
+
+    def run() -> None:
+        try:
+            if not future.set_running_or_notify_cancel():
+                return
+            try:
+                future.set_result(call())
+            except BaseException as exc:
+                future.set_exception(exc)
+        finally:
+            _probe_slots.release()
+
+    thread = Thread(
+        target=run,
+        name="brain-capability-probe",
+        daemon=True,
+    )
+    try:
+        thread.start()
+    except RuntimeError:
+        _probe_slots.release()
+        return None
+    return future

@@ -57,7 +57,7 @@ def test_every_launcher_entry_has_authoritative_summary_and_discovery_contract()
 
     assert page.schema == "brain.launcher-catalogue/1"
     assert page.catalogue_fingerprint == LAUNCHER_CATALOGUE.fingerprint
-    assert len(page.entries) == len(LAUNCHER_CATALOGUE.entries) == 23
+    assert len(page.entries) == len(LAUNCHER_CATALOGUE.entries) == 24
     assert tuple(item.command_id for item in page.entries) == tuple(
         item.command_id for item in LAUNCHER_CATALOGUE.entries
     )
@@ -112,7 +112,7 @@ def test_launcher_list_filters_and_paginates_against_static_manifest():
         item.command_id
         for item in list_commands(query="generate key").entries
     ) == ("operator.generate-key",)
-    assert len(list_commands(projection="cli").entries) == 23
+    assert len(list_commands(projection="cli").entries) == 24
     assert not list_commands(projection="mcp").entries
 
     with pytest.raises(ValueError, match="fingerprint"):
@@ -138,7 +138,7 @@ def test_launcher_availability_uses_only_already_bound_provider_state():
     assert unavailable.entries
     assert all(item.missing_providers == ("caller_filesystem",) for item in unavailable.entries)
     assert all(item.availability == "available" for item in available.entries)
-    assert len(available.entries) == 23
+    assert len(available.entries) == 24
 
 
 def test_every_launcher_description_derives_from_owning_request_and_result_types():

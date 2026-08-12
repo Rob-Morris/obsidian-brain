@@ -14,7 +14,7 @@ from _launcher.context import LauncherContext, ProviderBindings
 from _launcher.contracts import OutcomeReceipt
 
 
-CLI_VERSION = "2.0.3"
+CLI_VERSION = "2.1.0"
 CUTOVER_BRAIN_VERSION = (0, 55, 0)
 
 
@@ -142,6 +142,7 @@ def compose_launcher_context(
     distribution_root: Path,
     selected: SelectedBrain | None,
     dry_run: bool,
+    operator_key: str | None = None,
 ) -> LauncherContext:
     invocation_id = f"cli-{uuid.uuid4()}"
     state_home = Path(
@@ -162,6 +163,7 @@ def compose_launcher_context(
         launcher_python=Path(sys.executable).resolve(),
         current_vault=selected.vault_root if selected else None,
         distribution_root=distribution_root.resolve(),
+        operator_key=operator_key,
         dry_run=dry_run,
     )
 

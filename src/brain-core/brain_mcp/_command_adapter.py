@@ -1,4 +1,4 @@
-"""Catalogue-derived granular FastMCP adapter registration."""
+"""Catalogue-derived granular MCPServer adapter registration."""
 
 from __future__ import annotations
 
@@ -6,8 +6,9 @@ from dataclasses import MISSING, fields
 import inspect
 from typing import Annotated, Callable, get_type_hints
 
-from mcp.server.fastmcp import FastMCP
-from mcp.server.fastmcp.utilities.func_metadata import FuncMetadata
+from mcp.server import MCPServer
+from mcp.server.mcpserver import Context
+from mcp.server.mcpserver.utilities.func_metadata import FuncMetadata
 from mcp.types import CallToolResult, TextContent, ToolAnnotations
 from pydantic import Field
 
@@ -35,10 +36,13 @@ from ._interface_protocol import (
 
 
 ContextFactory = Callable[..., InvocationContext]
+InvocationGuard = Callable[[], None]
 
 
 def application_interface_header(
     catalogue: ApplicationCatalogue,
+    *,
+    allowed_tools: frozenset[str] | None = None,
 ) -> CommandInterfaceHeader:
     """Project the authoritative MCP mapping into the proxy handshake contract."""
 
@@ -50,6 +54,10 @@ def application_interface_header(
         )
         for entry in catalogue.entries
         if Projection.MCP in entry.eligible_projections
+        and (
+            allowed_tools is None
+            or project_identity(entry.command_id).mcp_tool in allowed_tools
+        )
     }
     return command_interface_header(
         interface_epoch=catalogue.interface_epoch,
@@ -69,6 +77,7 @@ class _CanonicalInvocationMetadata(FuncMetadata):
         fn_is_async,
         arguments_to_validate,
         arguments_to_pass_directly,
+        pre_validated=None,
     ):
         arguments = dict(arguments_to_validate)
         arguments.update(arguments_to_pass_directly or {})
@@ -78,11 +87,13 @@ class _CanonicalInvocationMetadata(FuncMetadata):
 
 
 def register_application_tools(
-    mcp: FastMCP,
+    mcp: MCPServer,
     *,
     catalogue: ApplicationCatalogue,
     resolver: RequestResolver,
     context_factory: ContextFactory,
+    invocation_guard: InvocationGuard,
+    allowed_tools: frozenset[str] | None = None,
 ) -> tuple[str, ...]:
     """Register every MCP-eligible application command exactly once."""
 
@@ -92,7 +103,15 @@ def register_application_tools(
         if Projection.MCP not in entry.eligible_projections:
             continue
         name = project_identity(entry.command_id).mcp_tool
-        handler = _handler(entry, catalogue, adapter, context_factory)
+        if allowed_tools is not None and name not in allowed_tools:
+            continue
+        handler = _handler(
+            entry,
+            catalogue,
+            adapter,
+            context_factory,
+            invocation_guard,
+        )
         mcp.add_tool(
             handler,
             name=name,
@@ -102,7 +121,7 @@ def register_application_tools(
         )
         tool = mcp._tool_manager.get_tool(name)
         if tool is None:
-            raise RuntimeError(f"FastMCP did not retain registered tool: {name}")
+            raise RuntimeError(f"MCPServer did not retain registered tool: {name}")
         generated = tool.fn_metadata
         tool.fn_metadata = _CanonicalInvocationMetadata(
             arg_model=generated.arg_model,
@@ -137,12 +156,18 @@ def _handler(
     catalogue: ApplicationCatalogue,
     adapter: ApplicationAdapter,
     context_factory: ContextFactory,
+    invocation_guard: InvocationGuard,
 ):
-    def invoke(**arguments) -> CallToolResult:
+    def invoke(*, mcp_context: Context, **arguments) -> CallToolResult:
+        # This pre-effect boundary deliberately sits outside the recoverable
+        # adapter error path. The server guard exits with code 10 so the proxy
+        # can replace stale command code and replay under the new interface.
+        invocation_guard()
         try:
             context = context_factory(
                 command_id=entry.command_id,
                 catalogue=catalogue,
+                mcp_context=mcp_context,
             )
         except Exception:
             projection = _error_projection(
@@ -179,15 +204,21 @@ def _signature(entry: ApplicationEntry) -> inspect.Signature:
     schema = request_schema(entry.request_type)
     properties = schema["properties"]
     hints = get_type_hints(entry.request_type)
-    parameters = []
+    parameters = [
+        inspect.Parameter(
+            "mcp_context",
+            inspect.Parameter.KEYWORD_ONLY,
+            annotation=Context,
+        )
+    ]
     for field in fields(entry.request_type):
         if not field.init:
             continue
         default = inspect.Parameter.empty
         if field.default is not MISSING or field.default_factory is not MISSING:
-            # Runtime arguments bypass FastMCP's parallel Pydantic coercion and
+            # Runtime arguments bypass MCPServer's parallel Pydantic coercion and
             # are decoded by the canonical resolver. This default exists only
-            # so FastMCP recognises public optionality while constructing the
+            # so MCPServer recognises public optionality while constructing the
             # callable metadata that the canonical schema replaces below.
             default = None
         annotation = Annotated[

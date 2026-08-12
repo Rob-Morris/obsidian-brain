@@ -14,7 +14,7 @@ Three approaches were considered:
 
 ## Decision
 
-On every MCP tool call, `_check_version_drift()` reads `.brain-core/VERSION` from disk and compares it to `_loaded_version` (recorded at startup). If they differ, the server calls `os._exit(_EXIT_VERSION_DRIFT)` (exit code 10) after flushing logs.
+On every MCP tool call, `_check_version_drift()` reads `.brain-core/VERSION` from disk and compares it to `_LOADED_VERSION` (recorded at startup). If they differ, the server calls `os._exit(_EXIT_VERSION_DRIFT)` (exit code 10).
 
 This assumes `.brain-core/` is a version-bound unit: upgrades replace the engine as one atomic surface. The system does not attempt to support mixed-version execution where some files come from the old release and others from the new one.
 

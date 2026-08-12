@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from typing import Mapping
 
-from .catalogue import ApplicationCatalogue, ApplicationEntry
+from .catalogue import ApplicationCatalogue, ApplicationEntry, type_identity
 from .context import InvocationContext
 from .receipts import OutcomeReference, ReceiptLookupState
 from .requests import (
@@ -126,6 +126,7 @@ class _FoundationOwners:
                 candidate
                 for candidate in self._require_catalogue().entries
                 if candidate.command_id == request.target_command_id
+                and _ceiling_allows(context, candidate.command_id)
             ),
             None,
         )
@@ -171,6 +172,8 @@ class _FoundationOwners:
         context: InvocationContext,
         snapshot,
     ) -> bool:
+        if not _ceiling_allows(context, entry.command_id):
+            return False
         if request.owner is not None and request.owner is not CommandOwner.APPLICATION:
             return False
         if (
@@ -317,7 +320,7 @@ class _FoundationOwners:
             CommandOwner.APPLICATION,
             entry.summary,
             json.dumps(request_schema(entry.request_type), separators=(",", ":")),
-            f"{entry.result_type.__module__}:{entry.result_type.__qualname__}",
+            type_identity(entry.result_type),
             json.dumps(result_payload_schema(entry.request_type), separators=(",", ":")),
             tuple(result_variants),
             tuple(error_codes),
@@ -358,6 +361,13 @@ def _availability(entry: ApplicationEntry, context: InvocationContext, snapshot)
         if state is Availability.UNKNOWN:
             unknown = True
     return Availability.UNKNOWN if unknown else Availability.AVAILABLE
+
+
+def _ceiling_allows(context: InvocationContext, command_id: str) -> bool:
+    """Hide catalogue entries excluded by an authenticated profile ceiling."""
+
+    evaluator = getattr(context.authority, "ceiling_allows", None)
+    return True if not callable(evaluator) else bool(evaluator(command_id))
 
 
 def _entry(

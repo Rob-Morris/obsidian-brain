@@ -19,13 +19,9 @@ from _application.content.resolve import (
     ContentResolveRequest,
 )
 from _application.context import Capability
-from _application.memory.search import MemorySearchRequest
-from _application.plugin.search import PluginSearchRequest
 from _application.registry import current_application_catalogue, current_request_resolver
+from _application.resource.search import ResourceSearchRequest, SearchableResource
 from _application.results import ErrorCode
-from _application.skill.search import SkillSearchRequest
-from _application.style.search import StyleSearchRequest
-from _application.trigger.search import TriggerSearchRequest
 from _application.types import (
     Authority,
     Availability,
@@ -183,10 +179,13 @@ def test_content_resolve_preserves_exact_filename_decision(command_vault_baselin
 @pytest.mark.parametrize(
     ("command_request", "expected_type"),
     (
-        (SkillSearchRequest("shaping"), "skill"),
-        (StyleSearchRequest("obsidian"), "style"),
-        (MemorySearchRequest("brain-core"), "memory"),
-        (TriggerSearchRequest("meaningful work"), "trigger"),
+        (ResourceSearchRequest(SearchableResource.SKILL, "shaping"), "skill"),
+        (ResourceSearchRequest(SearchableResource.STYLE, "obsidian"), "style"),
+        (ResourceSearchRequest(SearchableResource.MEMORY, "brain-core"), "memory"),
+        (
+            ResourceSearchRequest(SearchableResource.TRIGGER, "meaningful work"),
+            "trigger",
+        ),
     ),
 )
 def test_resource_search_owners_share_typed_text_results(
@@ -210,13 +209,7 @@ def test_optional_semantic_group_has_exact_catalogue_contract():
         "content.classify",
         "content.resolve",
     }
-    lexical_resource = {
-        "memory.search",
-        "plugin.search",
-        "skill.search",
-        "style.search",
-        "trigger.search",
-    }
+    lexical_resource = {"resource.search"}
     expected = optional_semantic | lexical_resource
     entries = {
         entry.command_id: entry
@@ -259,10 +252,12 @@ def test_optional_semantic_transport_shapes_are_granular_and_strict():
         )
     ) is ContentResolveRequest
     assert type(
-        resolver.resolve("plugin.search", {"query": "example"})
-    ) is PluginSearchRequest
+        resolver.resolve(
+            "resource.search", {"resource": "plugin", "query": "example"}
+        )
+    ) is ResourceSearchRequest
     with pytest.raises(ValueError):
         resolver.resolve(
-            "skill.search",
-            {"query": "shape", "resource": "skill"},
+            "resource.search",
+            {"query": "shape", "resource": "unknown"},
         )

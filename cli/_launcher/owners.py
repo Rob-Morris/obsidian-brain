@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Callable
 
-from . import agent_skill, doctor, lifecycle, machine, managed_runtime, mcp, operator, registry, runtime, version
+from . import access, agent_skill, doctor, lifecycle, machine, managed_runtime, mcp, operator, registry, runtime, version
 from .context import LauncherContext
 from .contracts import CommandResult, validate_command_id
 
@@ -62,6 +62,7 @@ LAUNCHER_OWNERS = LauncherOwners(
     tuple(
         sorted(
             (
+                access.approve_owner(),
                 agent_skill.configure_owner(),
                 doctor.doctor_owner(),
                 lifecycle.install_owner(),

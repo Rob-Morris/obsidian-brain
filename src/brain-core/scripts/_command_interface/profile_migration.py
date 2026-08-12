@@ -76,18 +76,14 @@ _LEGACY_COMMANDS = {
         "artefact.delete",
         "artefact.reparent-children",
         "links.fix",
-        "shaping.render-presentation",
-        "shaping.render-printable",
+        "shaping.render",
         "shaping.start",
     ),
     "brain_check": ("vault.check",),
     "brain_classify": ("content.classify",),
     "brain_create": (
         "artefact.create",
-        "memory.create",
-        "skill.create",
-        "style.create",
-        "template.create",
+        "resource.create",
     ),
     "brain_define": (
         "plugin.create",
@@ -105,16 +101,16 @@ _LEGACY_COMMANDS = {
     "brain_ingest": ("content.ingest",),
     # The retired readiness aggregate's published replacements form one
     # discovery/bootstrap closure; this is migration data, not a runtime alias.
-    "brain_init": ("command.describe", "command.list", "session.start"),
+    "brain_init": (
+        "command.describe",
+        "command.list",
+        "runtime.status",
+        "runtime.warmup",
+        "session.start",
+    ),
     "brain_list": (
         "artefact.list",
-        "memory.list",
-        "plugin.list",
-        "skill.list",
-        "style.list",
-        "template.list",
-        "trigger.list",
-        "type.list",
+        "resource.list",
         "workspace.list",
     ),
     "brain_move": (
@@ -126,14 +122,8 @@ _LEGACY_COMMANDS = {
     "brain_outline": ("artefact.outline",),
     "brain_read": (
         "artefact.read",
-        "memory.read",
-        "plugin.read",
+        "resource.read",
         "runtime.read-environment",
-        "skill.read",
-        "style.read",
-        "template.read",
-        "trigger.read",
-        "type.read",
         "vault.read-file",
         "vault.read-router",
         "workspace.read",
@@ -142,11 +132,7 @@ _LEGACY_COMMANDS = {
     "brain_resolve": ("content.resolve",),
     "brain_search": (
         "artefact.search",
-        "memory.search",
-        "plugin.search",
-        "skill.search",
-        "style.search",
-        "trigger.search",
+        "resource.search",
     ),
     "brain_session": ("session.start",),
     "brain_set_key": ("artefact.set-key",),
@@ -173,6 +159,40 @@ _REMOVED_GRANULAR_COMMANDS = {
     "runtime.repair-router": "runtime.refresh-router",
     "type.install": "type.sync",
     "workspace.resolve": "workspace.read",
+    **{
+        f"{resource}.create": "resource.create"
+        for resource in ("memory", "skill", "style", "template")
+    },
+    **{
+        f"{resource}.list": "resource.list"
+        for resource in (
+            "memory",
+            "plugin",
+            "skill",
+            "style",
+            "template",
+            "trigger",
+            "type",
+        )
+    },
+    **{
+        f"{resource}.read": "resource.read"
+        for resource in (
+            "memory",
+            "plugin",
+            "skill",
+            "style",
+            "template",
+            "trigger",
+            "type",
+        )
+    },
+    **{
+        f"{resource}.search": "resource.search"
+        for resource in ("memory", "plugin", "skill", "style", "trigger")
+    },
+    "shaping.render-presentation": "shaping.render",
+    "shaping.render-printable": "shaping.render",
 }
 
 
@@ -211,6 +231,11 @@ def migrate_profile_allow_lists(
     _validate_migration_map(granular_entries)
     builtins = builtin_profile_allow_lists(catalogue)
     exact_builtin_set = _is_exact_legacy_builtin_set(profiles)
+    exact_previous_granular_set = _is_exact_previous_granular_builtin_set(
+        profiles,
+        granular_entries,
+        builtins,
+    )
     source_profiles = (
         {
             profile: profiles.get(
@@ -238,7 +263,7 @@ def migrate_profile_allow_lists(
                 f"profile '{profile}' allow-list must contain only non-empty strings"
             )
         before = tuple(before_raw)
-        if exact_builtin_set and profile in builtins:
+        if (exact_builtin_set or exact_previous_granular_set) and profile in builtins:
             after = builtins[profile]
             strategy = "builtin"
         elif profile in _LEGACY_BUILTIN_ALLOW and set(before) == set(
@@ -290,6 +315,77 @@ def _is_exact_legacy_builtin_set(profiles: Mapping[str, object]) -> bool:
         if not isinstance(allow, list) or set(allow) != set(expected):
             return False
     return True
+
+
+def _is_exact_previous_granular_builtin_set(
+    profiles: Mapping[str, object],
+    granular_entries: Mapping[str, object],
+    builtins: Mapping[str, tuple[str, ...]],
+) -> bool:
+    """Recognise the exact v0.55 shipped profiles after command consolidation.
+
+    The previous built-ins differ from the current ones only by superseded
+    target-only leaves and newly added bootstrap/access controls. Comparing
+    their projected meaning avoids embedding five large duplicate allow-lists.
+    """
+
+    if set(profiles) != set(builtins):
+        return False
+    new_access_tools = {
+        "access.reduce",
+        "access.request",
+        "access.status",
+    }
+    new_runtime_tools = {
+        "runtime.status",
+        "runtime.warmup",
+    }
+    for additions in (
+        new_access_tools,
+        new_access_tools | new_runtime_tools,
+    ):
+        matches = True
+        for profile, expected in builtins.items():
+            definition = profiles.get(profile)
+            if not isinstance(definition, Mapping):
+                return False
+            allow = definition.get("allow")
+            if not isinstance(allow, list) or any(
+                not isinstance(item, str) or not item.strip() for item in allow
+            ):
+                return False
+            try:
+                projected = _project_tool_set(allow, granular_entries)
+            except ProfileMigrationError:
+                return False
+            if projected != set(expected) - additions:
+                matches = False
+                break
+        if matches:
+            return True
+    return False
+
+
+def _project_tool_set(
+    tools: tuple[str, ...] | list[str],
+    granular_entries: Mapping[str, object],
+) -> set[str]:
+    """Project old tool names to the current command-tool vocabulary."""
+
+    projected = set()
+    for tool in tools:
+        if tool in granular_entries:
+            projected.add(tool)
+            continue
+        consolidated = _REMOVED_GRANULAR_COMMANDS.get(tool)
+        if consolidated is not None:
+            projected.add(consolidated)
+            continue
+        replacements = _LEGACY_COMMANDS.get(tool)
+        if replacements is None:
+            raise ProfileMigrationError(f"unknown tool '{tool}'")
+        projected.update(replacements)
+    return projected
 
 
 def _validate_migration_map(granular_entries: Mapping[str, object]) -> None:

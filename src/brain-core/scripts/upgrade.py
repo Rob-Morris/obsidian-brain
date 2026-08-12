@@ -1380,7 +1380,7 @@ def _prepare_cli_cutover(
         selected_vault=vault_root,
         source_brain_core_version=source_version,
         old_cli_version=old_cli_version,
-        new_cli_version="2.0.3",
+        new_cli_version="2.1.0",
         interface_epoch=epoch,
         proxy_protocol=int(protocol_match.group(1)),
         acknowledge_global_cli_cutover=acknowledge_global_cli_cutover,
@@ -1400,7 +1400,7 @@ def _commit_cli_cutover(plan: dict) -> dict:
     installed = install_distribution(
         plan["repo_root"],
         plan["target"],
-        cli_version="2.0.3",
+        cli_version="2.1.0",
         expected_brain_core_version=plan["source_version"],
     )
     return {

@@ -54,6 +54,27 @@ def execute_named_create(
     *,
     resource: str,
 ):
+    return execute_named_create_values(
+        context,
+        request,
+        resource=resource,
+        name=request.name,
+        content=request.content,
+        frontmatter=request.frontmatter,
+    )
+
+
+def execute_named_create_values(
+    context: InvocationContext,
+    request,
+    *,
+    resource: str,
+    name: str,
+    content: MutationContent,
+    frontmatter: tuple[FrontmatterField, ...] | None,
+):
+    """Create one named document from values owned by a cohesive target union."""
+
     from _common import (
         MutationLockError,
         public_mutation_error_message,
@@ -61,6 +82,7 @@ def execute_named_create(
     )
     from _lifecycle.derived_cache_state import load_fresh_compiled_router
     from _staging import finalise_staged_body
+    from pathlib import Path
     import create
 
     if context.dry_run:
@@ -79,17 +101,31 @@ def execute_named_create(
         )
     try:
         with vault_mutation_lock(vault_root):
+            if resource == "template":
+                rel_path = create.config_resource_rel_path(router, resource, name)
+                target = Path(vault_root) / rel_path
+                if target.exists() or target.is_symlink():
+                    return no_effect_error(
+                        type(request),
+                        ErrorCode.CONFLICT,
+                        f"Template '{name}' already exists at {rel_path}",
+                        "name",
+                    )
             body, staged_handle = resolve_mutation_content(
                 vault_root,
-                request.content,
+                content,
             )
             result = create.create_resource(
                 vault_root,
                 router,
                 resource=resource,
-                name=request.name,
+                name=name,
                 body=body,
-                frontmatter=frontmatter_mapping(request.frontmatter),
+                frontmatter=(
+                    None
+                    if frontmatter is None
+                    else frontmatter_mapping(frontmatter)
+                ),
             )
             staging_warning = finalise_staged_body(vault_root, staged_handle)
     except MutationLockError as exc:

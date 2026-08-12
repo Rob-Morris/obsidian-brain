@@ -2,6 +2,7 @@
 
 **Status:** Implemented (v0.55.0; foundation staged in v0.54.1–v0.54.59)
 **Extends:** DD-002, DD-003, DD-045, DD-049
+**Extended by:** DD-062
 
 ## Context
 
@@ -773,6 +774,9 @@ Default listing maps one already-composed capability snapshot and performs no
 provider probe. Explicit refresh calls one bounded refresher with the distinct
 provider set. Its small retained snapshot window gives each continuation cursor
 the same token and availability observation; expired tokens fail explicitly.
+Provider-specific and aggregate deadlines run behind a fixed process-wide
+daemon bound: timed-out work becomes unknown, cannot hold a one-shot process
+open and cannot accumulate unbounded workers across repeated MCP refreshes.
 
 `command.describe` v2 derives strict request and result-payload schemas,
 structural result branches, stable error/warning vocabularies, safety/provider
@@ -1081,3 +1085,41 @@ the complete local registry, requires explicit acknowledgement of other Brains
 affected by CLI replacement, and commits Brain Core plus the versioned CLI
 distribution as one checked set. CLI 2 retains launcher recovery against an old
 Brain but refuses application discovery until that Brain reaches the cutover.
+
+## v0.55.8 MCP SDK 2 boundary port
+
+The transport adapter now uses the official Python SDK's `MCPServer` API at the
+exact admitted `mcp==2.0.0` pin. The application catalogue, request resolver,
+context composition and result projector remain unchanged; SDK-specific model
+names, handler registration and snake-case Python fields stay confined to
+`brain_mcp` and transport tests.
+
+The canonical request schema still replaces the SDK-generated schema after
+registration, and raw arguments still reach the authoritative resolver without
+a competing Pydantic interpretation. The proxy protocol gate now wraps the
+SDK's method-based `tools/call` handler while preserving its pre-lookup denial
+and initialise-extension ownership. Stdio compatibility is exercised against a
+2025-06-18 client as well as the current SDK client.
+
+## v0.56.0 target-only consolidation and runtime readiness
+
+Five cohesive commands replace 25 leaves whose semantics differed only by
+named-resource target or rendered output: `resource.create`, `resource.list`,
+`resource.read`, `resource.search` and `shaping.render`. Their discriminated
+request and result unions remain closed, so consolidation removes catalogue
+noise without replacing useful structure with a generic invocation gateway.
+Distinct artefact lifecycle intents remain separate commands.
+
+`artefact.migrate-naming`, `retrieval.enable` and
+`workspace.repair-registry` remain available to local CLI, direct-script and
+typed-Python administrators but are intentionally absent from MCP. The current
+catalogue therefore contains 68 application commands and 57 MCP projections.
+
+Bootstrap-safe `runtime.status` observes one exact
+`brain.runtime-status/1` snapshot without probing or writing.
+`runtime.warmup` starts, joins or explicitly retries bounded background
+readiness work. Cold `session.start` starts or joins that same work and returns
+promptly with the identical snapshot and polling guidance; it creates the
+managed session only after readiness. The 0.56 migration recognises the exact
+shipped 0.55 profile set and adopts refreshed built-ins, while custom profiles
+receive only command-for-command replacements.

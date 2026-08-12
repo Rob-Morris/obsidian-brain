@@ -8,8 +8,8 @@ import pytest
 
 from _application._mutation_support import InlineContent, StagedContent
 from _application.registry import current_application_catalogue, current_request_resolver
+from _application.resource.create import ResourceCreateRequest, TemplateCreateTarget
 from _application.results import ErrorCode
-from _application.template.create import TemplateCreateRequest
 from _common import load_compiled_router
 from _staging import read_staged_body, stage_body
 from command_application import application_for
@@ -32,7 +32,10 @@ def test_template_create_writes_only_when_template_is_absent(command_vault_clone
     application = application_for(command_vault_clone.vault_root)
 
     result = application.invoke(
-        TemplateCreateRequest("projects", InlineContent(BODY))
+        ResourceCreateRequest(
+            TemplateCreateTarget("template", "projects"),
+            InlineContent(BODY),
+        )
     )
 
     assert result.status == "ok"
@@ -52,7 +55,10 @@ def test_template_create_never_overwrites_existing_content(command_vault_clone):
     application = application_for(command_vault_clone.vault_root)
 
     result = application.invoke(
-        TemplateCreateRequest("projects", StagedContent(handle))
+        ResourceCreateRequest(
+            TemplateCreateTarget("template", "projects"),
+            StagedContent(handle),
+        )
     )
 
     assert result.error.code is ErrorCode.CONFLICT
@@ -68,7 +74,10 @@ def test_template_create_rejects_body_without_full_frontmatter(
     application = application_for(command_vault_clone.vault_root)
 
     result = application.invoke(
-        TemplateCreateRequest("projects", InlineContent("# Missing frontmatter\n"))
+        ResourceCreateRequest(
+            TemplateCreateTarget("template", "projects"),
+            InlineContent("# Missing frontmatter\n"),
+        )
     )
 
     assert result.error.code is ErrorCode.INVALID_REQUEST
@@ -90,7 +99,10 @@ def test_template_create_post_commit_failure_is_honestly_unknown(
     application = application_for(command_vault_clone.vault_root)
 
     result = application.invoke(
-        TemplateCreateRequest("projects", InlineContent(BODY))
+        ResourceCreateRequest(
+            TemplateCreateTarget("template", "projects"),
+            InlineContent(BODY),
+        )
     )
 
     assert result.error.code is ErrorCode.COMMAND_OUTCOME_UNKNOWN
@@ -101,23 +113,27 @@ def test_template_create_post_commit_failure_is_honestly_unknown(
 def test_template_create_transport_excludes_separate_frontmatter():
     resolver = current_request_resolver()
     request = resolver.resolve(
-        "template.create",
+        "resource.create",
         {
-            "name": "projects",
+            "target": {"resource": "template", "name": "projects"},
             "content": {"source": "inline", "content": BODY},
         },
     )
 
-    assert type(request) is TemplateCreateRequest
+    assert type(request) is ResourceCreateRequest
+    assert type(request.target) is TemplateCreateTarget
     assert current_application_catalogue().resolve(request).command_id == (
-        "template.create"
+        "resource.create"
     )
-    with pytest.raises(ValueError, match="frontmatter"):
+    with pytest.raises(ValueError, match="unexpected template target fields"):
         resolver.resolve(
-            "template.create",
+            "resource.create",
             {
-                "name": "projects",
+                "target": {
+                    "resource": "template",
+                    "name": "projects",
+                    "frontmatter": {"audience": "agents"},
+                },
                 "content": {"source": "inline", "content": BODY},
-                "frontmatter": {"audience": "agents"},
             },
         )

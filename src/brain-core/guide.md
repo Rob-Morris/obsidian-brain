@@ -250,7 +250,7 @@ change.
 
 ## Tooling
 
-If your vault has the Brain MCP server running, every eligible catalogue command appears under its canonical dotted `<noun>.<verb>` name. Start with `session.start`, discover with `command.list`, and inspect an exact schema and minimal request with `command.describe`. The removed aggregate 1.x tools are not aliases.
+If your vault has the Brain MCP server running, every command within the authenticated MCP ceiling appears under its canonical dotted `<noun>.<verb>` name. Start with `session.start`, discover with `command.list`, and inspect an exact schema and minimal request with `command.describe`. Active access starts at Reader by default: use `access.status`, `access.request` and `access.reduce` for exact expiring within-ceiling leases. The removed aggregate 1.x tools are not aliases.
 
 Common families include `artefact.*`, `memory.*`, `skill.*`, `style.*`, `template.*`, `plugin.*`, `trigger.*`, `type.*`, `content.*`, `retrieval.*`, `links.*`, `shaping.*`, `workspace.*`, `vault.*`, `runtime.*`, `stage.*` and `attachment.upload`. Profiles authorise exact leaves rather than aggregate buckets.
 

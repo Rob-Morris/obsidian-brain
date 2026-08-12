@@ -7,13 +7,11 @@ import pytest
 from _application.context import Capability
 from _application.registry import current_application_catalogue, current_request_resolver
 from _application.results import ErrorCode
-from _application.shaping.render_presentation import (
-    PresentationRenderStatus,
-    ShapingRenderPresentationRequest,
-)
-from _application.shaping.render_printable import (
-    PrintableRenderStatus,
-    ShapingRenderPrintableRequest,
+from _application.shaping.render import (
+    PresentationOutput,
+    PrintableOutput,
+    RenderStatus,
+    ShapingRenderRequest,
 )
 from _application.types import (
     Authority,
@@ -52,14 +50,15 @@ def test_printable_dry_run_does_not_invoke_renderer(command_vault_clone, monkeyp
         command_vault_clone.vault_root,
         dry_run=True,
     ).invoke(
-        ShapingRenderPrintableRequest(
+        ShapingRenderRequest(
             "Projects/Command Fixture.md",
             "board-brief",
+            PrintableOutput("printable"),
         )
     )
 
     assert result.status == "ok"
-    assert result.result.status is PrintableRenderStatus.PLANNED
+    assert result.result.status is RenderStatus.PLANNED
     assert result.result.dry_run is True
     assert result.committed_effects == ()
 
@@ -84,15 +83,15 @@ def test_presentation_success_reports_markdown_pdf_and_preview_effects(
     )
 
     result = _managed_application(command_vault_clone.vault_root).invoke(
-        ShapingRenderPresentationRequest(
+        ShapingRenderRequest(
             "Projects/Command Fixture.md",
             "deck",
-            preview=True,
+            PresentationOutput("presentation", preview=True),
         )
     )
 
     assert result.status == "ok"
-    assert result.result.status is PresentationRenderStatus.COMPLETE
+    assert result.result.status is RenderStatus.COMPLETE
     assert result.result.preview_pid == 321
     assert tuple(effect.subject for effect in result.committed_effects) == (
         "_Temporal/Presentations/2026-08/deck.md",
@@ -118,7 +117,11 @@ def test_printable_renderer_failure_after_creation_is_known_partial(
     )
 
     result = _managed_application(command_vault_clone.vault_root).invoke(
-        ShapingRenderPrintableRequest("Projects/Command Fixture.md", "brief")
+        ShapingRenderRequest(
+            "Projects/Command Fixture.md",
+            "brief",
+            PrintableOutput("printable"),
+        )
     )
 
     assert result.status == "partial"
@@ -142,7 +145,11 @@ def test_renderer_failure_without_committed_output_is_no_effect(
     )
 
     result = _managed_application(command_vault_clone.vault_root).invoke(
-        ShapingRenderPrintableRequest("Projects/Command Fixture.md", "brief")
+        ShapingRenderRequest(
+            "Projects/Command Fixture.md",
+            "brief",
+            PrintableOutput("printable"),
+        )
     )
 
     assert result.status == "error"
@@ -153,39 +160,51 @@ def test_rendering_requires_managed_renderer_provider(command_vault_clone):
     result = application_for(
         command_vault_clone.vault_root,
         dependency_tier=DependencyTier.MANAGED,
-    ).invoke(ShapingRenderPresentationRequest("Projects/source.md", "deck"))
+    ).invoke(
+        ShapingRenderRequest(
+            "Projects/source.md",
+            "deck",
+            PresentationOutput("presentation"),
+        )
+    )
 
     assert result.error.code is ErrorCode.CAPABILITY_UNAVAILABLE
     assert "provider:document_renderer" in result.error.details.missing
 
 
 @pytest.mark.parametrize(
-    ("command_id", "request_type", "payload", "wrong_field"),
+    ("kind", "payload", "wrong_field"),
     (
         (
-            "shaping.render-presentation",
-            ShapingRenderPresentationRequest,
-            {"source": "Projects/source.md", "slug": "deck"},
+            "presentation",
+            {
+                "source": "Projects/source.md",
+                "slug": "deck",
+                "output": {"kind": "presentation"},
+            },
             "pdf_engine",
         ),
         (
-            "shaping.render-printable",
-            ShapingRenderPrintableRequest,
-            {"source": "Projects/source.md", "slug": "brief"},
+            "printable",
+            {
+                "source": "Projects/source.md",
+                "slug": "brief",
+                "output": {"kind": "printable"},
+            },
             "preview",
         ),
     ),
 )
 def test_render_transports_are_strict_managed_contributor_commands(
-    command_id,
-    request_type,
+    kind,
     payload,
     wrong_field,
 ):
-    request = current_request_resolver().resolve(command_id, payload)
+    request = current_request_resolver().resolve("shaping.render", payload)
     entry = current_application_catalogue().resolve(request)
 
-    assert type(request) is request_type
+    assert type(request) is ShapingRenderRequest
+    assert request.output.kind == kind
     assert entry.dependency_tier is DependencyTier.MANAGED
     assert entry.required_providers == ("document_renderer",)
     assert entry.authority is Authority.CONTRIBUTOR
@@ -193,6 +212,6 @@ def test_render_transports_are_strict_managed_contributor_commands(
     assert entry.retry_class is RetryClass.RECEIPT_REQUIRED
     with pytest.raises(ValueError, match="unexpected fields"):
         current_request_resolver().resolve(
-            command_id,
-            {**payload, wrong_field: True},
+            "shaping.render",
+            {**payload, "output": {**payload["output"], wrong_field: True}},
         )

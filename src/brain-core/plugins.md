@@ -19,7 +19,7 @@ Only the data folder is strictly required. The other pieces depend on whether th
 When working in a vault with plugins installed:
 
 1. Look in `_Plugins/{Name}/` for the plugin's data.
-2. Read `_Plugins/{Name}/SKILL.md` through `plugin.read(reference="{Name}")` when present; load any separate reusable skill with `skill.read`.
+2. Read `_Plugins/{Name}/SKILL.md` through `resource.read(resource="plugin", reference="{Name}")` when present; load any separate reusable skill through `resource.read(resource="skill", reference="{name}")`.
 3. Treat plugin-owned files as managed by the plugin unless its docs explicitly say they are safe to edit by hand.
 4. If the plugin should be visible to agents by default, confirm it has a router entry in `_Config/router.md`.
 

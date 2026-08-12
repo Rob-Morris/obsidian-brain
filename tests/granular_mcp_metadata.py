@@ -10,7 +10,7 @@ from pathlib import Path
 import sys
 
 import tiktoken
-from mcp.server.fastmcp import FastMCP
+from mcp.server import MCPServer
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -35,7 +35,7 @@ TOKENISER = "tiktoken/0.12.0:o200k_base"
 TOKEN_ENCODING = "o200k_base"
 COMPACT_TOOL_TOKENS = 512
 MAX_TOOL_TOKENS = 2_048
-LARGE_TOOL_ALLOWLIST = frozenset({"document.edit"})
+LARGE_TOOL_ALLOWLIST = frozenset({"document.edit", "resource.create"})
 MAX_CATALOGUE_TOKENS = 16_384
 SUPPORTED_CLIENTS = {
     "claude-code": {
@@ -64,19 +64,20 @@ def _hash(value) -> str:
 
 
 def _registered_tools() -> list[dict[str, object]]:
-    mcp = FastMCP("brain-granular-projection-capture")
+    mcp = MCPServer("brain-granular-projection-capture")
     register_application_tools(
         mcp,
         catalogue=current_application_catalogue(),
         resolver=current_request_resolver(),
         context_factory=lambda **_metadata: None,
+        invocation_guard=lambda: None,
     )
     registered = sorted(asyncio.run(mcp.list_tools()), key=lambda tool: tool.name)
     return [
         {
             "name": tool.name,
             "description": tool.description or "",
-            "input_schema": tool.inputSchema,
+            "input_schema": tool.input_schema,
         }
         for tool in registered
     ]

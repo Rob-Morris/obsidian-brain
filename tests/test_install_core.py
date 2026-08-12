@@ -20,7 +20,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
 def test_supported_mcp_major_is_shared_by_install_and_test_surfaces():
-    requirement = "mcp>=1.0.0,<2"
+    requirement = "mcp==2.0.0"
     runtime_requirements = (
         REPO_ROOT / "src" / "brain-core" / "brain_mcp" / "requirements.txt"
     ).read_text(encoding="utf-8").splitlines()

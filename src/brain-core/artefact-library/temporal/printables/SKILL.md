@@ -8,7 +8,7 @@ Create page-based PDF documents from vault content using Pandoc.
 
 ## Session Start
 
-1. Read the printables taxonomy: `type.read(reference="printable")`
+1. Read the printables taxonomy: `resource.read(resource="type", reference="printable")`
 2. Check Pandoc is installed: `pandoc --version`
 3. The renderer auto-detects `xelatex`, `lualatex`, or `pdflatex` for PDF output
 4. If the binaries are not on `PATH`, set explicit paths in `.brain/local/config.yaml` under `defaults.tool_paths` or via `BRAIN_PANDOC_PATH`, `BRAIN_XELATEX_PATH`, `BRAIN_LUALATEX_PATH`, `BRAIN_PDFLATEX_PATH`
@@ -16,7 +16,7 @@ Create page-based PDF documents from vault content using Pandoc.
 
 ## Shaping Workflow
 
-Use `shaping.render-printable(source=..., slug=...)` to create the printable artefact and render its PDF:
+Use `shaping.render(source=..., slug=..., output={"kind":"printable"})` to create the printable artefact and render its PDF:
 
 1. **Call the tool.** `source` is the vault artefact to convert (relative path). `slug` is the printable name.
 2. **The tool creates** the printable markdown file from the template if it does not already exist.

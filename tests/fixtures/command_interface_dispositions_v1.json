@@ -724,11 +724,64 @@
     }
   },
   "new_required_commands": [
+    "access.approve",
+    "access.reduce",
+    "access.request",
+    "access.status",
     "command.describe",
     "command.list",
     "invocation.read"
   ],
   "command_contract_groups": {
+    "application_access_read": {
+      "contract": {
+        "owner": "application",
+        "canonical_result_owner": "application_command",
+        "dependency_tier": "bootstrap",
+        "locality": "selected_brain_local",
+        "providers": {
+          "required": [],
+          "optional": []
+        },
+        "authority": "reader",
+        "effect_class": "none",
+        "retry_class": "safe",
+        "eligible_projections": [
+          "mcp",
+          "cli",
+          "script",
+          "python"
+        ]
+      },
+      "commands": [
+        "access.status"
+      ]
+    },
+    "application_access_mutation": {
+      "contract": {
+        "owner": "application",
+        "canonical_result_owner": "application_command",
+        "dependency_tier": "bootstrap",
+        "locality": "selected_brain_local",
+        "providers": {
+          "required": [],
+          "optional": []
+        },
+        "authority": "reader",
+        "effect_class": "selected_brain_mutation",
+        "retry_class": "safe",
+        "eligible_projections": [
+          "mcp",
+          "cli",
+          "script",
+          "python"
+        ]
+      },
+      "commands": [
+        "access.reduce",
+        "access.request"
+      ]
+    },
     "application_read_portable": {
       "contract": {
         "owner": "application",
@@ -1243,6 +1296,7 @@
         ]
       },
       "commands": [
+        "access.approve",
         "agent-skill.configure",
         "brain.backfill",
         "brain.clear-default",

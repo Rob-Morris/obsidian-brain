@@ -13,7 +13,8 @@ import os
 from pathlib import Path
 import sys
 
-from mcp.server.fastmcp import FastMCP
+from mcp.server import MCPServer
+from mcp.server.mcpserver import Context
 
 
 SCRIPTS_DIR = Path(__file__).resolve().parent.parent / "scripts"
@@ -24,13 +25,24 @@ from _application.registry import (  # noqa: E402
     current_application_catalogue,
     current_request_resolver,
 )
-from _command_interface.direct import compose_direct_context  # noqa: E402
+from _command_interface.direct import (  # noqa: E402
+    compose_direct_context,
+    resolve_direct_identity,
+)
 
 from ._command_adapter import (  # noqa: E402
     application_interface_header,
     register_application_tools,
 )
 from ._proxy_protocol_gate import install_proxy_protocol_gate  # noqa: E402
+
+
+_EXIT_VERSION_DRIFT = 10
+_LOADED_VERSION = (
+    (Path(__file__).resolve().parent.parent / "VERSION")
+    .read_text(encoding="utf-8")
+    .strip()
+)
 
 
 def _selected_vault() -> Path:
@@ -49,6 +61,20 @@ def _selected_vault() -> Path:
     return root
 
 
+def _check_version_drift() -> None:
+    """Exit for proxy replacement when the installed command code changed."""
+
+    marker = _selected_vault() / ".brain-core" / "VERSION"
+    try:
+        disk_version = marker.read_text(encoding="utf-8").strip()
+    except OSError:
+        return
+    if disk_version and disk_version != _LOADED_VERSION:
+        # MCPServer/anyio can wrap SystemExit and lose its status. A direct exit
+        # preserves the proxy's distinguished, replay-safe restart signal.
+        os._exit(_EXIT_VERSION_DRIFT)
+
+
 def _invocation_id_from_metadata(metadata: object) -> str:
     extras = getattr(metadata, "model_extra", None)
     invocation = extras.get("brainInvocation") if isinstance(extras, dict) else None
@@ -64,17 +90,17 @@ def _invocation_id_from_metadata(metadata: object) -> str:
     return invocation_id
 
 
-def _proxy_invocation_id() -> str:
+def _proxy_invocation_id(context: Context) -> str:
     """Read the invocation identity authenticated by the local proxy."""
 
     try:
-        metadata = mcp.get_context().request_context.meta
+        metadata = context.request_context.meta
     except (LookupError, ValueError) as exc:
         raise RuntimeError("granular MCP calls require proxy invocation metadata") from exc
     return _invocation_id_from_metadata(metadata)
 
 
-def _mcp_context_factory(*, command_id, catalogue):
+def _mcp_context_factory(*, command_id, catalogue, mcp_context):
     workspace_value = os.environ.get("BRAIN_WORKSPACE_DIR")
     workspace = Path(workspace_value).expanduser() if workspace_value else None
     if workspace is not None and not workspace.is_absolute():
@@ -85,20 +111,36 @@ def _mcp_context_factory(*, command_id, catalogue):
         catalogue=catalogue,
         operator_key=os.environ.get("BRAIN_OPERATOR_KEY"),
         workspace_dir=workspace,
-        invocation_id=_proxy_invocation_id(),
+        invocation_id=_proxy_invocation_id(mcp_context),
     )
 
 
-def _build_public_mcp() -> FastMCP:
-    public = FastMCP(name="brain")
+def _build_public_mcp() -> MCPServer:
+    public = MCPServer(name="brain")
     catalogue = current_application_catalogue()
+    allowed_tools = None
+    if os.environ.get("BRAIN_VAULT_ROOT"):
+        identity = resolve_direct_identity(
+            vault_root=_selected_vault(),
+            catalogue=catalogue,
+            operator_key=os.environ.get("BRAIN_OPERATOR_KEY"),
+        )
+        allowed_tools = identity.allowed_tools
     register_application_tools(
         public,
         catalogue=catalogue,
         resolver=current_request_resolver(),
         context_factory=_mcp_context_factory,
+        invocation_guard=_check_version_drift,
+        allowed_tools=allowed_tools,
     )
-    install_proxy_protocol_gate(public, application_interface_header(catalogue))
+    install_proxy_protocol_gate(
+        public,
+        application_interface_header(
+            catalogue,
+            allowed_tools=allowed_tools,
+        ),
+    )
     return public
 
 

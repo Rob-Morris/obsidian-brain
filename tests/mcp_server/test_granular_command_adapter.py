@@ -1,4 +1,4 @@
-"""Catalogue-derived granular FastMCP adapter contracts."""
+"""Catalogue-derived granular MCPServer adapter contracts."""
 
 from __future__ import annotations
 
@@ -6,9 +6,12 @@ import asyncio
 from datetime import datetime
 
 import pytest
-from mcp.server.fastmcp import FastMCP
+from mcp.server import MCPServer
 
-from brain_mcp._command_adapter import register_application_tools
+from brain_mcp._command_adapter import (
+    application_interface_header,
+    register_application_tools,
+)
 from _application.projection import minimal_request_payload, project_identity, request_schema
 from _application.receipts import MemoryReceiptStore
 from _application.registry import current_application_catalogue, current_request_resolver
@@ -83,12 +86,13 @@ def _context_factory(tmp_path, allowed_tools):
 def _registered(tmp_path, allowed_tools):
     catalogue = current_application_catalogue()
     resolver = current_request_resolver()
-    mcp = FastMCP("granular-test")
+    mcp = MCPServer("granular-test")
     names = register_application_tools(
         mcp,
         catalogue=catalogue,
         resolver=resolver,
         context_factory=_context_factory(tmp_path, allowed_tools),
+        invocation_guard=lambda: None,
     )
     return mcp, catalogue, resolver, names
 
@@ -107,13 +111,13 @@ def test_every_mcp_eligible_command_registers_one_flat_canonical_schema(tmp_path
     by_name = {tool.name: tool for tool in tools}
     for entry in eligible:
         tool = by_name[project_identity(entry.command_id).mcp_tool]
-        assert tool.inputSchema == request_schema(entry.request_type)
+        assert tool.input_schema == request_schema(entry.request_type)
         assert tool.description == entry.summary
-        assert "request" not in tool.inputSchema["properties"]
-        assert tool.annotations.readOnlyHint is (
+        assert "request" not in tool.input_schema["properties"]
+        assert tool.annotations.read_only_hint is (
             entry.effect_class is EffectClass.NONE
         )
-        assert tool.annotations.destructiveHint is (
+        assert tool.annotations.destructive_hint is (
             entry.effect_class
             in {
                 EffectClass.SELECTED_BRAIN_MUTATION,
@@ -121,13 +125,33 @@ def test_every_mcp_eligible_command_registers_one_flat_canonical_schema(tmp_path
                 EffectClass.MACHINE_MUTATION,
             }
         )
-        assert tool.annotations.idempotentHint is (
+        assert tool.annotations.idempotent_hint is (
             entry.retry_class is RetryClass.SAFE
         )
-        assert tool.annotations.openWorldHint is False
+        assert tool.annotations.open_world_hint is False
 
 
-def test_real_fastmcp_call_returns_structural_content_and_error_state(tmp_path):
+def test_registration_and_proxy_header_share_one_ceiling_projection(tmp_path):
+    catalogue = current_application_catalogue()
+    allowed = frozenset(("access.status", "command.list"))
+    mcp = MCPServer("ceiling-test")
+
+    names = register_application_tools(
+        mcp,
+        catalogue=catalogue,
+        resolver=current_request_resolver(),
+        context_factory=_context_factory(tmp_path, allowed),
+        invocation_guard=lambda: None,
+        allowed_tools=allowed,
+    )
+    header = application_interface_header(catalogue, allowed_tools=allowed)
+
+    assert names == ("access.status", "command.list")
+    assert tuple(tool.name for tool in asyncio.run(mcp.list_tools())) == names
+    assert tuple(name for name, _mapping in header.tools) == names
+
+
+def test_real_mcpserver_call_returns_structural_content_and_error_state(tmp_path):
     allowed = ("command.list",)
     mcp, _catalogue, _resolver, _names = _registered(tmp_path, allowed)
 
@@ -139,11 +163,34 @@ def test_real_fastmcp_call_returns_structural_content_and_error_state(tmp_path):
     )
     denied = asyncio.run(mcp.call_tool("artefact.list", {}))
 
-    assert ok.structuredContent["command"] == "command.list"
-    assert ok.structuredContent["status"] == "ok"
-    assert ok.isError is False
-    assert denied.structuredContent["error"]["code"] == "authority_denied"
-    assert denied.isError is True
+    assert ok.structured_content["command"] == "command.list"
+    assert ok.structured_content["status"] == "ok"
+    assert ok.is_error is False
+    assert denied.structured_content["error"]["code"] == "authority_denied"
+    assert denied.is_error is True
+
+
+def test_invocation_guard_runs_before_context_composition(tmp_path):
+    catalogue = current_application_catalogue()
+    mcp = MCPServer("guard-order-test")
+    context_calls = []
+
+    def reject_stale_process():
+        raise SystemExit(10)
+
+    register_application_tools(
+        mcp,
+        catalogue=catalogue,
+        resolver=current_request_resolver(),
+        context_factory=lambda **metadata: context_calls.append(metadata),
+        invocation_guard=reject_stale_process,
+    )
+
+    with pytest.raises(SystemExit) as exc:
+        asyncio.run(mcp.call_tool("command.list", {}))
+
+    assert exc.value.code == 10
+    assert context_calls == []
 
 
 @pytest.mark.parametrize(
@@ -154,7 +201,7 @@ def test_real_fastmcp_call_returns_structural_content_and_error_state(tmp_path):
         {"unknown": True},
     ),
 )
-def test_real_fastmcp_maps_envelopes_wrong_types_and_unknown_fields(
+def test_real_mcpserver_maps_envelopes_wrong_types_and_unknown_fields(
     tmp_path,
     payload,
 ):
@@ -165,12 +212,12 @@ def test_real_fastmcp_maps_envelopes_wrong_types_and_unknown_fields(
 
     result = asyncio.run(mcp.call_tool("command.list", payload))
 
-    assert result.structuredContent["command"] == "command.list"
-    assert result.structuredContent["error"]["code"] == "invalid_request"
-    assert result.isError is True
+    assert result.structured_content["command"] == "command.list"
+    assert result.structured_content["error"]["code"] == "invalid_request"
+    assert result.is_error is True
 
 
-def test_every_minimal_request_survives_real_fastmcp_projection(tmp_path):
+def test_every_minimal_request_survives_real_mcpserver_projection(tmp_path):
     mcp, catalogue, resolver, _names = _registered(tmp_path, ())
 
     for entry in catalogue.entries:
@@ -182,8 +229,8 @@ def test_every_minimal_request_survives_real_fastmcp_projection(tmp_path):
         result = asyncio.run(
             mcp.call_tool(project_identity(entry.command_id).mcp_tool, payload)
         )
-        assert result.structuredContent["command"] == entry.command_id
+        assert result.structured_content["command"] == entry.command_id
         assert (
-            result.structuredContent["error"]["code"] == "authority_denied"
-        ), (entry.command_id, payload, result.structuredContent)
-        assert result.isError is True
+            result.structured_content["error"]["code"] == "authority_denied"
+        ), (entry.command_id, payload, result.structured_content)
+        assert result.is_error is True

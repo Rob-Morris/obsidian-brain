@@ -25,6 +25,7 @@ import config as brain_config
 import vault_registry
 
 from .context import SystemClock, compose_local_context
+from .access import access_policy, compose_access_controller
 from .receipts import FileReceiptStore
 
 
@@ -39,6 +40,14 @@ _LOCAL_PROVIDERS = (
 
 class DirectContextError(RuntimeError):
     """Trusted direct-command context could not be resolved safely."""
+
+
+@dataclass(frozen=True, slots=True)
+class DirectIdentity:
+    config: dict
+    profile: str
+    principal: str
+    allowed_tools: frozenset[str]
 
 
 def resolve_direct_vault(
@@ -85,18 +94,22 @@ def compose_direct_context(
     clock = clock or SystemClock()
     root = _require_vault(vault_root)
     catalogue = catalogue or current_application_catalogue()
-    merged = brain_config.load_config(
-        str(root),
-        additional_valid_tools=frozenset(
-            project_identity(entry.command_id).mcp_tool
-            for entry in catalogue.entries
-        ),
+    identity = resolve_direct_identity(
+        vault_root=root,
+        catalogue=catalogue,
+        operator_key=operator_key,
     )
-    try:
-        profile, _operator_id = brain_config.authenticate_operator(operator_key, merged)
-    except ValueError as exc:
-        raise DirectContextError(str(exc)) from exc
-    allowed_tools = _profile_tools(merged, profile)
+    merged = identity.config
+    profile = identity.profile
+    allowed_tools = identity.allowed_tools
+    access = compose_access_controller(
+        vault_root=root,
+        config=merged,
+        principal=identity.principal,
+        ceiling_profile=profile,
+        ceiling_commands=allowed_tools,
+        clock=clock,
+    )
     workspace = _resolve_workspace(root, workspace_dir)
     tier = (
         DependencyTier.MANAGED
@@ -142,10 +155,43 @@ def compose_direct_context(
         correlation_id=invocation_id,
         invocation_id=invocation_id,
         receipt_store=receipt_store,
+        access=access,
         workspace_dir=workspace,
         capability_snapshots=refresher,
         dry_run=dry_run,
         clock=clock,
+    )
+
+
+def resolve_direct_identity(
+    *,
+    vault_root: Path,
+    catalogue: ApplicationCatalogue,
+    operator_key: str | None,
+) -> DirectIdentity:
+    """Authenticate one principal and return its immutable command ceiling."""
+
+    merged = brain_config.load_config(
+        str(vault_root),
+        additional_valid_tools=frozenset(
+            project_identity(entry.command_id).mcp_tool
+            for entry in catalogue.entries
+        ),
+    )
+    try:
+        profile, operator_id = brain_config.authenticate_operator(operator_key, merged)
+        access_policy(merged)
+    except ValueError as exc:
+        raise DirectContextError(str(exc)) from exc
+    return DirectIdentity(
+        merged,
+        profile,
+        (
+            f"operator:{operator_id}"
+            if operator_id is not None
+            else f"default:{profile}"
+        ),
+        _profile_tools(merged, profile),
     )
 
 

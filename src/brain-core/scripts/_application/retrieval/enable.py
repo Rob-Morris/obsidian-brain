@@ -30,7 +30,15 @@ def decode(payload: Mapping[str, object]) -> RetrievalEnableRequest:
 
 
 def catalogue_entry():
-    return semantic_catalogue_entry(RetrievalEnableRequest, execute)
+    from ..catalogue import exclude_projection
+    from ..types import Projection
+
+    return exclude_projection(
+        semantic_catalogue_entry(RetrievalEnableRequest, execute),
+        Projection.MCP,
+        "Managed semantic provisioning is reserved for deliberate CLI or "
+        "direct-script administration.",
+    )
 
 
 def resolver_entry():

@@ -74,6 +74,33 @@ def test_none_receipts_do_not_create_durable_state(tmp_path):
     assert not (root / RECEIPT_DIRECTORY).exists()
 
 
+def test_missing_receipt_read_does_not_create_durable_state(tmp_path):
+    root = _vault(tmp_path)
+    store = FileReceiptStore(root, _Clock())
+
+    assert store.read(OutcomeReference("missing")) is None
+    assert not (root / RECEIPT_DIRECTORY).exists()
+
+
+def test_expired_receipt_read_is_logically_absent_but_does_not_delete(tmp_path):
+    root = _vault(tmp_path)
+    clock = _Clock()
+    store = FileReceiptStore(
+        root,
+        clock,
+        ReceiptPolicy(retention=timedelta(minutes=5), max_records=2),
+    )
+    receipt = _receipt("expired")
+    store.write(receipt)
+    path = next((root / RECEIPT_DIRECTORY).glob("*.json"))
+    before = path.read_bytes()
+    clock.value = NOW + timedelta(minutes=6)
+
+    assert store.read(receipt.reference) is None
+    assert path.read_bytes() == before
+    assert store.cleanup() == 1
+
+
 def test_file_receipts_are_immutable_bounded_and_expire(tmp_path):
     root = _vault(tmp_path)
     clock = _Clock()
@@ -108,6 +135,8 @@ def test_file_receipts_reject_symlinked_storage_and_corrupt_records(tmp_path):
     external.mkdir()
     (local / "command-outcomes").symlink_to(external, target_is_directory=True)
     store = FileReceiptStore(root, _Clock())
+    with pytest.raises(ValueError, match="symlinked"):
+        store.read(OutcomeReference("blocked"))
     with pytest.raises(ValueError, match="symlinked"):
         store.write(_receipt("blocked"))
 

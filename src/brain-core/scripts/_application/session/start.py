@@ -6,7 +6,9 @@ from dataclasses import dataclass
 from typing import ClassVar, Mapping
 
 from ..context import InvocationContext
-from ..results import ErrorCode, Ok
+from ..results import CommandError, Error, ErrorCode, InstructionNextAction, Ok
+from ..runtime._snapshot import typed_snapshot
+from ..runtime_status import RuntimeProgressDetails, RuntimeState
 from ..types import (
     Authority,
     Availability,
@@ -158,7 +160,7 @@ class SessionStartPayload:
 @dataclass(frozen=True, slots=True)
 class SessionStartRequest:
     COMMAND_ID: ClassVar[str] = "session.start"
-    COMMAND_VERSION: ClassVar[int] = 2
+    COMMAND_VERSION: ClassVar[int] = 3
     RESULT_TYPE: ClassVar[type] = SessionStartPayload
 
 
@@ -262,6 +264,40 @@ def _payload(model):
 
 
 def execute(context: InvocationContext, _request: SessionStartRequest):
+    from _bootstrap.readiness import ensure_runtime_warmup, read_runtime_status
+
+    status = typed_snapshot(read_runtime_status(context.selected_brain.vault_root))
+    if status.state is not RuntimeState.READY:
+        outcome, value = ensure_runtime_warmup(
+            context.selected_brain.vault_root,
+            retry_failed=False,
+        )
+        status = typed_snapshot(value)
+        if status.state is RuntimeState.FAILED or outcome == "failed":
+            message = "Brain runtime warm-up failed; request an explicit retry."
+            guidance = (
+                "Call runtime.warmup to retry warm-up, then poll runtime.status "
+                "and retry session.start when state is ready."
+            )
+            retryable = False
+        else:
+            message = "Brain runtime warm-up is still in progress."
+            guidance = (
+                "Poll runtime.status, then retry session.start when state is ready."
+            )
+            retryable = True
+        return Error(
+            SessionStartRequest.COMMAND_ID,
+            SessionStartRequest.COMMAND_VERSION,
+            CommandError(
+                ErrorCode.CONFLICT,
+                message,
+                RuntimeProgressDetails(status),
+                next_action=InstructionNextAction(guidance),
+            ),
+            retryable=retryable,
+        )
+
     import config
     import session
     from _common import load_compiled_router

@@ -113,7 +113,15 @@ def decode(payload: Mapping[str, object]) -> WorkspaceRepairRegistryRequest:
 
 
 def catalogue_entry():
-    return operator_mutation_entry(WorkspaceRepairRegistryRequest, execute)
+    from ..catalogue import exclude_projection
+    from ..types import Projection
+
+    return exclude_projection(
+        operator_mutation_entry(WorkspaceRepairRegistryRequest, execute),
+        Projection.MCP,
+        "Local workspace-registry repair is reserved for deliberate CLI or "
+        "direct-script administration.",
+    )
 
 
 def resolver_entry():

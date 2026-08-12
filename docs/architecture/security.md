@@ -96,20 +96,17 @@ Five cumulative built-in profiles define what each agent can do:
 
 | Profile | Allowed tools |
 |---|---|
-| `reader` | Inspect and discover Brain content and configuration (37 application / 37 MCP commands) |
-| `contributor` | Reader access plus ordinary content creation, editing and lifecycle work (63 / 63 cumulative) |
-| `maintainer` | Contributor access plus definition, plugin and derived-index maintenance (76 / 74 cumulative) |
-| `operator` | Maintainer access plus workspace registration and runtime-operational changes (85 / 77 cumulative) |
-| `administrator` | Operator access plus irreversible artefact deletion (86 / 78 cumulative) |
+| `reader` | Inspect, discover and manage access state (26 application / 26 MCP commands) |
+| `contributor` | Reader access plus ordinary content creation, editing and lifecycle work (48 / 47 cumulative) |
+| `maintainer` | Contributor access plus definition, plugin and derived-index maintenance (61 / 58 cumulative) |
+| `operator` | Maintainer access plus workspace registration and runtime-operational changes (70 / 59 cumulative) |
+| `administrator` | Operator access plus irreversible artefact deletion (71 / 60 cumulative) |
 
 Profiles are defined in `defaults/config.yaml` under `vault.profiles` and can be
 extended or replaced in `.brain/config.yaml`. The default profile when no key is
 supplied is `operator` for single-operator local vaults.
 
-**Per-command enforcement:** The application boundary checks the catalogue command's
-authority against trusted profile state before dynamic request resolution, executor
-entry or effects. Unknown commands and profile names fail closed. The 0.55.0 upgrade
-migrates legacy aggregate allow-lists once; runtime aggregate fallback does not exist.
+**Per-command enforcement:** Authentication fixes a profile ceiling before MCP discovery. The application boundary then checks both that ceiling and the principal's Reader-default active grant before dynamic request resolution, executor entry or effects. Exact expiring leases can activate commands only within the ceiling. Unknown commands, identities, profiles and malformed access state fail closed. The 0.57.0 upgrade adds the access controls only to exact shipped profiles; custom profiles are not widened.
 
 **Design intent:** A read-only summariser gets `reader`; an agent working normally
 with content gets `contributor`; a Brain custodian gets `maintainer`; an agent managing
@@ -118,6 +115,12 @@ irreversible deletion gets `administrator`. The profiles live in the vault zone 
 config, so they are shared across all machines and cannot be overridden locally.
 
 See: [DD-033: Operator profiles](decisions/dd-033-operator-profiles.md)
+
+### Elevation boundary
+
+`automatic` elevation is an intent/audit mechanism, not a defence against the authenticated agent. `external` elevation creates a pending request and requires the CLI-only `access.approve` launcher owner to authenticate a registered operator secret that is not part of the agent's semantic request. The approver's ceiling must contain every requested command. Leases are principal-scoped, expire at an absolute time, may carry a bounded use count and are enforced on every call; cached tool definitions never confer authority.
+
+MCP discovery exposes a deterministic ceiling-visible catalogue. Active-grant changes do not alter `tools/list`, so correctness does not depend on client support for lazy loading or `tools/list_changed`. Credential or ceiling changes require reconnect/replacement.
 
 ---
 
@@ -199,6 +202,12 @@ the selected Brain, serialises cross-process updates, and retains only command
 identity, outcome state, timestamp and compact effect references. Request
 bodies, credentials and provider values are not representable in the receipt
 schema. Proven no-effect results are not persisted.
+
+`invocation.read` is a strictly non-mutating lookup. Missing receipt storage
+returns no receipt without creating directories or lock files; expired records
+are logically absent without deletion. Atomic publication lets readers avoid a
+cross-process write lock, while receipt writes and explicit maintenance retain
+serialised retention cleanup.
 
 The MCP proxy/server protocol marker is a local compatibility assertion, not an
 authentication credential. The long-lived proxy sets it only in the child

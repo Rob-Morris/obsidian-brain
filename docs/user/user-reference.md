@@ -1,6 +1,6 @@
 # Brain Reference
 
-This page is the stable user-facing reference for Brain Core 0.55.6 and CLI 2.0.3. Exact command schemas, examples and availability come from the installed Brain rather than a duplicated hand-maintained inventory.
+This page is the stable user-facing reference for Brain Core 0.57.0 and CLI 2.1.0. Exact command schemas, examples and availability come from the installed Brain rather than a duplicated hand-maintained inventory.
 
 ## Vault model
 
@@ -54,9 +54,9 @@ Each granular tool exposes its own top-level request fields. There is no generic
 
 Start with `session.start`, then use `command.list` and `command.describe` for bounded discovery. For example, inspect `artefact.create` before supplying its fields to the `artefact.create` tool.
 
-The MCP server derives all registrations, schemas, descriptions and tool hints from the selected Brain's catalogue. Profile authority is checked before dynamic request resolution and effects. The cumulative built-in profiles expose 37 reader, 63 contributor, 74 maintainer, 77 operator and 78 administrator tools; custom profiles use exact granular names.
+The MCP server derives registrations, schemas, descriptions and tool hints from the selected Brain's catalogue, then exposes only the authenticated ceiling. The cumulative built-in ceilings expose 26 reader, 47 contributor, 58 maintainer, 59 operator and 60 administrator MCP tools; custom profiles use exact command names. Active access starts at Reader by default. Use `access.status`, request exact within-ceiling leases with `access.request`, and revoke them with `access.reduce`; leases do not change the visible tool catalogue.
 
-After an upgrade, an old live proxy can return `proxy_restart_required` before tool lookup. Restart the MCP connection to load the matching proxy. Planned pre-effect drift is replayed only after positive command compatibility; an unexpectedly lost mutation is never blindly replayed. Query its durable reference with `invocation.read`.
+Every MCP call checks the installed Brain Core version before composing context or executing effects. Planned pre-effect drift exits for proxy replacement and is replayed only after positive command compatibility. An unexpectedly lost mutation is never blindly replayed; query its durable reference with `invocation.read`. Receipt lookup is read-only, including for missing or expired references.
 
 See [MCP tools](../functional/mcp-tools.md) for transport, protocol and result details.
 
@@ -80,13 +80,15 @@ Use `--request-json -` to read one object from stdin. `--vault`, `--brain` and w
 
 CLI 2 refuses application discovery against a pre-0.55 Brain. Launcher discovery and recovery remain available so the operator can run the checked upgrade. See [CLI](../functional/cli.md).
 
+With external elevation policy, `access.request` returns a pending identifier. A separately trusted local operator approves it with `brain access approve`; that launcher-only command is not exposed to MCP or the selected-Brain direct script.
+
 ## Direct script and Python projections
 
 For selected-Brain automation without the global CLI:
 
 ```bash
 python3 .brain-core/scripts/command.py artefact read \
-  --request-json '{"name":"design/brain"}' --json
+  --request-json '{"reference":"design/brain"}' --json
 ```
 
 This direct projection uses the same catalogue, resolver, invocation boundary and structural result as MCP and CLI. It is not a second command grammar. The typed Python boundary is `CommandApplication(context).invoke(request)` with sealed request types; callers compose trusted context outside `_application`.
@@ -104,6 +106,8 @@ Dependency tier, locality and providers are independent:
 - required providers block execution when absent; optional providers may enrich an otherwise complete result.
 
 Adapters never silently provision dependencies, switch Brains or elevate authority. Unavailable results state the required/current tier, missing provider or capability, freshness, recoverability and one structured next action.
+
+Explicit availability refresh respects both provider and aggregate deadlines. Timed-out probes degrade to `unknown`, run behind a fixed process-wide background bound and cannot keep a completed CLI process alive.
 
 ## Configuration and profiles
 

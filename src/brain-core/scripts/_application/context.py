@@ -7,6 +7,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Protocol
 
+from .access_contracts import AccessController
 from .receipts import ReceiptReader, ReceiptWriter
 from .types import (
     Authority,
@@ -130,6 +131,7 @@ class InvocationContext:
     receipt_writer: ReceiptWriter
     receipt_reader: ReceiptReader
     clock: Clock
+    access: AccessController | None = None
     dry_run: bool = False
     workspace_dir: Path | None = None
     capability_snapshots: CapabilitySnapshotStore | None = None

@@ -58,7 +58,7 @@ def _require_name(resource_label, name):
     if not name:
         raise ValueError(
             f"{resource_label}.read requires a reference. "
-            f"To enumerate {resource_label} resources, use {resource_label}.list."
+            "To enumerate named resources, use resource.list."
         )
 
 
@@ -80,7 +80,7 @@ def read_named_resource(router, vault_root, resource_label, name, router_key, do
 def read_type(router, vault_root, name=None):
     """Read a specific artefact type definition by key/name.
 
-    Enumeration is owned by ``type.list``.
+    Enumeration is owned publicly by ``resource.list``.
     """
     _require_name("type", name)
     return _portable_read_type(router, name)
@@ -117,7 +117,7 @@ def read_plugin(router, vault_root, name=None):
 def read_memory(router, vault_root, name=None):
     """Read a specific memory by trigger/name (case-insensitive substring).
 
-    Enumeration is owned by ``memory.list``.
+    Enumeration is owned publicly by ``resource.list``.
     """
     _require_name("memory", name)
     memories = router.get("memories", [])
