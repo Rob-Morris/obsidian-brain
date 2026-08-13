@@ -5,7 +5,7 @@ from __future__ import annotations
 from .catalogue import ApplicationCatalogue, ApplicationEntry
 from .context import InvocationContext, report_failure_safely
 from .receipts import OutcomeReceipt, OutcomeReference, ReceiptState
-from .requests import CommandRequest, command_identity
+from .identity import command_identity
 from .results import (
     AuthorityDeniedDetails,
     CapabilityUnavailableDetails,
@@ -30,12 +30,20 @@ class CommandApplication:
     def __init__(
         self,
         context: InvocationContext,
-        catalogue: ApplicationCatalogue,
+        catalogue: ApplicationCatalogue | None = None,
     ) -> None:
+        """Bind trusted context to the installed or explicitly supplied catalogue."""
+
+        if catalogue is None:
+            from .registry import current_application_catalogue
+
+            catalogue = current_application_catalogue()
         self._context = context
         self._catalogue = catalogue
 
-    def invoke(self, request: CommandRequest) -> CommandResult:
+    def invoke(self, request: object) -> CommandResult:
+        """Invoke one sealed request through authority, capability and receipt gates."""
+
         command_id, command_version, _result_type = command_identity(request)
         try:
             entry = self._catalogue.resolve(request)

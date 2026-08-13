@@ -310,6 +310,14 @@ repair command. `brain artefact repair-ownership --dry-run --json` previews the 
 authoritative move set; apply it explicitly after review. Brain never infers a
 missing parent field from folder structure.
 
+### Agents Edit Without Losing Concurrent Changes
+
+Agents first read an artefact or editable named resource, then supply that
+read's exact revision to `document.write`, `document.patch`, `document.edit`, or
+`document.update-frontmatter`. If another editor changes the file first, Brain
+rejects the stale mutation and directs the agent to re-read rather than silently
+overwriting the intervening work.
+
 ### Agents Read Your Preferences
 
 Your standing instructions and gotchas travel with the vault. Every agent session starts by reading them. Your preferences persist even when the conversation doesn't.

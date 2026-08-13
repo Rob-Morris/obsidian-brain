@@ -121,6 +121,11 @@ with pytest-xdist (`-n auto --dist loadscope`). The serial `make test` run
 remains the canonical pre-commit gate because it preserves ordering-sensitive
 pollution checks.
 
+Run `make lint` when changing Python APIs or command contracts. It composes a
+docstring ratchet for reusable scripts with explicit schema and behavioural
+documentation checks for the supported `brain_application` façade; internal
+command-owner hook counts are deliberately not treated as API quality.
+
 The `Linux test suite` GitHub Actions workflow runs the full `make test` on
 `ubuntu-latest` for every push to `main` and every pull request, so the suite
 must stay host-independent — `tests/conftest.py` pins the timezone and isolates

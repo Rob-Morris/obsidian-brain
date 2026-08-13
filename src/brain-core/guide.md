@@ -148,6 +148,12 @@ Only wikilink to targets that already exist. If the artefact doesn't exist yet, 
 
 `artefact.create` auto-disambiguates basename collisions across type folders by appending the type key (e.g. `My Page (idea).md`).
 
+For existing Markdown, read the document first and pass its returned revision to
+the mutation: `document.write` changes the complete body, `document.patch`
+replaces literal text, `document.edit` targets Markdown structures, and
+`document.update-frontmatter` changes metadata. A stale revision is rejected so
+an agent cannot silently overwrite a newer human or agent edit.
+
 ## Provenance
 
 When one artefact spins out of another, link them. Full details are in the [provenance standard](standards/provenance.md).
@@ -252,7 +258,7 @@ change.
 
 If your vault has the Brain MCP server running, every command within the authenticated MCP ceiling appears under its canonical dotted `<noun>.<verb>` name. Start with `session.start`, discover with `command.list`, and inspect an exact schema and minimal request with `command.describe`. Active access starts at Reader by default: use `access.status`, `access.request` and `access.reduce` for exact expiring within-ceiling leases. The removed aggregate 1.x tools are not aliases.
 
-Common families include `artefact.*`, `memory.*`, `skill.*`, `style.*`, `template.*`, `plugin.*`, `trigger.*`, `type.*`, `content.*`, `retrieval.*`, `links.*`, `shaping.*`, `workspace.*`, `vault.*`, `runtime.*`, `stage.*` and `attachment.upload`. Profiles authorise exact leaves rather than aggregate buckets.
+Common families include `artefact.*`, `document.*`, `resource.*` (skills, memories, styles and templates all resolve through this family), `plugin.*`, `trigger.*`, `type.*`, `content.*`, `retrieval.*`, `links.*`, `shaping.*`, `workspace.*`, `vault.*`, `runtime.*`, `stage.*`, `access.*` and `attachment.upload`. Profiles authorise exact leaves rather than aggregate buckets.
 
 The MCP server logs to `.brain/local/mcp-server.log` — startup diagnostics, tool call tracing, and errors. Set `BRAIN_LOG_LEVEL=DEBUG` for tool argument details.
 

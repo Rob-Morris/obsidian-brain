@@ -19,7 +19,7 @@ An MCP-eligible command exposes its canonical `<noun>.<verb>` identifier directl
 
 The MCP server name remains `brain`; it is not repeated inside every tool name. Clients may encode dots and hyphens internally when projecting MCP tools into a model API. That private encoding does not change the raw MCP name or the command contract.
 
-The released application catalogue owns 71 commands and marks 60 as MCP-eligible. A running server exposes only the authenticated profile ceiling, so the actual list is 26, 47, 58, 59 or 60 tools for the cumulative built-in profiles. Those numbers and every tool schema are checked from the authoritative catalogue; this document deliberately does not duplicate the full list.
+The application catalogue owns 74 commands and marks 63 as MCP-eligible. A running server exposes only the authenticated profile ceiling, so the actual list is 26, 50, 61, 62 or 63 tools for the cumulative built-in profiles. Those numbers and every tool schema are checked from the authoritative catalogue; this document deliberately does not duplicate the full list.
 
 Start a session with `session.start`. On a cold Brain it starts or joins background warm-up and returns the shared `brain.runtime-status/1` snapshot with guidance to poll `runtime.status`; retry `session.start` when ready. `runtime.status` is a cheap read-only observation, while `runtime.warmup` explicitly starts, joins or retries warm-up. Discover commands with `command.list`, and inspect one exact request/result contract with `command.describe`. Default discovery uses static catalogue facts and does not probe optional providers; request an explicit refresh only when current provider availability matters.
 
@@ -79,7 +79,7 @@ Warnings, stable error codes, typed details and next actions survive every proje
 
 ## Authority profiles
 
-Profiles authorise exact command names. The built-in `reader`, `contributor`, `maintainer`, `operator` and `administrator` application ceilings contain 26, 48, 61, 70 and 71 commands; their MCP-eligible subsets contain 26, 47, 58, 59 and 60 tools. Upgrade migrates exact shipped built-ins; custom profiles retain only their explicit grants. There is no runtime fallback or compatibility alias after cutover. Ceiling and active-grant checks both occur before dynamic request resolution.
+Profiles authorise exact command names. The built-in `reader`, `contributor`, `maintainer`, `operator` and `administrator` application ceilings contain 26, 51, 64, 73 and 74 commands; their MCP-eligible subsets contain 26, 50, 61, 62 and 63 tools. Profile migration preserves an older broad document-mutation grant by granting all four replacements; custom profiles otherwise retain only their explicit grants. There is no runtime fallback or compatibility alias after cutover. Ceiling and active-grant checks both occur before dynamic request resolution.
 
 ## Metadata and client budgets
 
@@ -90,7 +90,7 @@ Tool summaries are short and contain no parameter manuals. Every reachable reque
 - safe retry commands set `idempotentHint`;
 - `openWorldHint` is false.
 
-The supported-client gate uses real Claude Code and Codex CLI projections with pinned capture tooling. The catalogue must stay within 16,384 deterministic tokens per supported client. Ordinary tools remain within 512 tokens; the explicitly cohesive `document.edit` and `resource.create` schemas may use up to 2,048 so their strict variants remain structural rather than opaque or artificially split.
+The supported-client gate uses real Claude Code and Codex CLI projections with pinned capture tooling. The catalogue must stay within 16,384 deterministic tokens per supported client. Ordinary tools remain within 512 tokens; the explicitly cohesive `document.edit` and `resource.create` schemas may use up to 3,072 so strict structural variants remain typed rather than opaque or artificially split.
 
 ## Proxy replacement protocol
 

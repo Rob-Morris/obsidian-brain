@@ -97,6 +97,9 @@ _LEGACY_COMMANDS = {
     "brain_discard_stage": ("stage.discard",),
     "brain_edit": (
         "document.edit",
+        "document.patch",
+        "document.update-frontmatter",
+        "document.write",
     ),
     "brain_ingest": ("content.ingest",),
     # The retired readiness aggregate's published replacements form one
@@ -142,12 +145,36 @@ _LEGACY_COMMANDS = {
     "brain_upload_attachment": ("attachment.upload",),
 }
 
+_DOCUMENT_MUTATION_COMMANDS = (
+    "document.edit",
+    "document.patch",
+    "document.update-frontmatter",
+    "document.write",
+)
+
+# These names were previously broader than their spelling now implies. This is
+# one-time authority projection: granting every replacement preserves the old
+# capability without retaining a runtime alias or guessing at invocation data.
+_PROFILE_EXPANSIONS = {
+    "document.edit": _DOCUMENT_MUTATION_COMMANDS,
+    **{
+        f"{resource}.edit": _DOCUMENT_MUTATION_COMMANDS
+        for resource in ("artefact", "memory", "skill", "style", "template")
+    },
+}
+
 
 _REMOVED_GRANULAR_COMMANDS = {
     **{
-        f"{resource}.{operation}": "document.edit"
+        f"{resource}.{operation}": (
+            "document.write"
+            if operation in ("append", "prepend")
+            else "document.patch"
+            if operation == "replace-text"
+            else "document.edit"
+        )
         for resource in ("artefact", "memory", "skill", "style", "template")
-        for operation in ("append", "delete-section", "edit", "prepend", "replace-text")
+        for operation in ("append", "delete-section", "prepend", "replace-text")
     },
     "artefact.list-archived": "artefact.list",
     "artefact.read-archived": "artefact.read",
@@ -274,6 +301,10 @@ def migrate_profile_allow_lists(
         else:
             command_ids = set()
             for tool in before:
+                expansion = _PROFILE_EXPANSIONS.get(tool)
+                if expansion is not None:
+                    command_ids.update(expansion)
+                    continue
                 if tool in granular_entries:
                     command_ids.add(granular_entries[tool].command_id)
                     continue
@@ -340,9 +371,18 @@ def _is_exact_previous_granular_builtin_set(
         "runtime.status",
         "runtime.warmup",
     }
+    new_document_tools = {
+        "document.patch",
+        "document.update-frontmatter",
+        "document.write",
+    }
     for additions in (
+        set(),
+        new_document_tools,
         new_access_tools,
         new_access_tools | new_runtime_tools,
+        new_access_tools | new_document_tools,
+        new_access_tools | new_runtime_tools | new_document_tools,
     ):
         matches = True
         for profile, expected in builtins.items():
@@ -374,6 +414,10 @@ def _project_tool_set(
 
     projected = set()
     for tool in tools:
+        expansion = _PROFILE_EXPANSIONS.get(tool)
+        if expansion is not None:
+            projected.update(expansion)
+            continue
         if tool in granular_entries:
             projected.add(tool)
             continue

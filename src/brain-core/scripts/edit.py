@@ -27,6 +27,8 @@ from _common import (
     direct_child_entries,
     descendant_entries,
     descendant_payload,
+    document_revision_at,
+    DocumentRevisionConflict,
     ensure_parent_tag,
     ensure_self_tag,
     ensure_tags_list,
@@ -43,6 +45,7 @@ from _common import (
     MissingFileResult,
     MutationLockError,
     public_mutation_error_message,
+    require_document_revision,
     naming_driver_fields,
     normalize_artefact_key,
     now_iso,
@@ -52,6 +55,7 @@ from _common import (
     parse_leading_frontmatter,
     parse_frontmatter,
     prune_vacated_owner_folders,
+    read_exact_file_content,
     read_file_content,
     replace_artefact_key_references,
     reconcile_fields_for_render,
@@ -70,6 +74,7 @@ from _common import (
     RequestCycleError,
     parse_structural_anchor_line,
     unique_filename,
+    validate_document_revision,
     validate_key,
     artefact_type_prefix,
     vault_mutation_lock,
@@ -834,11 +839,41 @@ def plan_parent_projection_repair(vault_root, router, path, *, reference_index=N
     }
 
 
+def current_document_revision(vault_root, router, resource="artefact", *,
+                              path=None, name=None):
+    """Return the exact persisted revision of one editable Brain document."""
+    vault_root = str(vault_root)
+    if resource == "artefact":
+        if not path:
+            raise ValueError("path is required when resource='artefact'")
+        _resolved, abs_path, _fields, _body, _art = _open_artefact(
+            vault_root, router, path
+        )
+        return document_revision_at(abs_path)
+    if resource not in EDITABLE_RESOURCES:
+        raise ValueError(
+            f"Resource '{resource}' is not an editable Brain document. "
+            f"Editable resources: {', '.join(EDITABLE_RESOURCES)}"
+        )
+    if not name:
+        raise ValueError(f"resource '{resource}' requires a reference")
+    rel_path = config_resource_rel_path(router, resource, name)
+    check_write_allowed(rel_path)
+    abs_path = os.path.join(vault_root, rel_path)
+    try:
+        return document_revision_at(abs_path)
+    except FileNotFoundError:
+        raise FileNotFoundError(
+            f"{resource.capitalize()} '{name}' not found at {rel_path}"
+        ) from None
+
+
 def edit_resource(vault_root, router, resource="artefact", operation="edit",
                   path=None, name=None, body="", frontmatter_changes=None,
                   target=None, selector=None, scope=None, fix_links=False,
                   file_index=None, old_text=None, new_text=None,
-                  match_occurrence=None, replace_all=False):
+                  match_occurrence=None, replace_all=False,
+                  expected_revision=None):
     """Edit a vault resource. Dispatches to the appropriate handler.
 
     For artefacts: delegates to existing edit/append/prepend/delete_section functions.
@@ -872,6 +907,11 @@ def edit_resource(vault_root, router, resource="artefact", operation="edit",
             raise ValueError("path is required when resource='artefact'")
         if operation not in {"edit", "append", "prepend", "delete_section", "replace_text"}:
             raise ValueError(f"Unknown operation '{operation}'")
+        if expected_revision is not None:
+            _resolved, revision_path, _fields, _body, _art = _open_artefact(
+                vault_root, router, path
+            )
+            require_document_revision(revision_path, expected_revision)
         if operation == "replace_text":
             if frontmatter_changes:
                 raise ValueError("replace_text does not accept frontmatter changes")
@@ -919,6 +959,9 @@ def edit_resource(vault_root, router, resource="artefact", operation="edit",
                     target=target, selector=selector, scope=scope,
                 )
         _fix_links.attach_wikilink_warnings(vault_root, result, apply_fixes=fix_links, file_index=file_index)
+        result["revision"] = document_revision_at(
+            os.path.join(vault_root, result["path"])
+        )
         return result
 
     if resource not in EDITABLE_RESOURCES:
@@ -935,13 +978,20 @@ def edit_resource(vault_root, router, resource="artefact", operation="edit",
     check_write_allowed(rel_path)
     abs_path = os.path.join(vault_root, rel_path)
     try:
-        with open(abs_path, "r", encoding="utf-8") as f:
-            content = f.read()
+        content = read_exact_file_content(abs_path)
     except FileNotFoundError:
         raise FileNotFoundError(
             f"{resource.capitalize()} '{name}' not found at {rel_path}"
         ) from None
     fields, existing_body = parse_frontmatter(content)
+    if expected_revision is not None:
+        current_revision = content.revision
+        if current_revision != expected_revision:
+            validate_document_revision(expected_revision, label="expected_revision")
+            raise DocumentRevisionConflict(
+                "document changed since it was read; re-read it and retry with "
+                f"the current revision ({current_revision})"
+            )
 
     if operation == "replace_text":
         if frontmatter_changes:
@@ -972,6 +1022,7 @@ def edit_resource(vault_root, router, resource="artefact", operation="edit",
         )
         result["match_count"] = match_count
         result["replacement_count"] = replacement_count
+        result["revision"] = document_revision_at(abs_path)
         return result
 
     _validate_request_contract(
@@ -1002,7 +1053,7 @@ def edit_resource(vault_root, router, resource="artefact", operation="edit",
     safe_write(abs_path, new_content, bounds=vault_root)
 
     result_scope = "section" if operation == "delete_section" and resolved else scope
-    return _result_payload(
+    result = _result_payload(
         rel_path,
         rel_path,
         operation,
@@ -1011,6 +1062,8 @@ def edit_resource(vault_root, router, resource="artefact", operation="edit",
         resolved=resolved,
         scope=result_scope,
     )
+    result["revision"] = document_revision_at(abs_path)
+    return result
 
 
 def _replace_exact_tag(fields, old_tag, new_tag=None):

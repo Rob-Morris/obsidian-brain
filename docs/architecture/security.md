@@ -341,6 +341,12 @@ writing. MCP, CLI, direct `command.py` and typed Python therefore share the same
 precondition: stale derived state is repaired through an explicit command or
 surfaced as an actionable error, never used to drive a mutation.
 
+Document mutation owners also require the SHA-256 revision of the exact bytes
+returned by the preceding editable read. They compare it while holding the
+vault mutation lock immediately before effects; a mismatch consumes no staged
+content and returns a conflict with re-read guidance. This prevents lost updates
+across agents, humans, and adapters without relying on timestamps.
+
 See: [DD-036: Safe write pattern](decisions/dd-036-safe-write-pattern.md)
 
 ---

@@ -55,7 +55,7 @@ def test_skill_uses_granular_shaping_start_consistently():
 def test_shared_mutation_contract_names_granular_document_owner():
     assess = _read("references/assess.md")
 
-    assert "complete propagation set through `document.edit`" in assess
+    assert "complete propagation set through the document mutation commands" in assess
     assert "mechanically narrow without narrowing the semantic scope" in assess
 
 

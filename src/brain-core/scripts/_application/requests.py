@@ -30,6 +30,9 @@ from .content.classify import ContentClassifyRequest
 from .content.ingest import ContentIngestRequest
 from .content.resolve import ContentResolveRequest
 from .document.edit import DocumentEditRequest
+from .document.patch import DocumentPatchRequest
+from .document.update_frontmatter import DocumentUpdateFrontmatterRequest
+from .document.write import DocumentWriteRequest
 from .links.check import LinksCheckRequest
 from .links.fix import LinksFixRequest
 from .plugin.create import PluginCreateRequest
@@ -74,6 +77,7 @@ from .workspace.setup import WorkspaceSetupRequest
 from .workspace.unregister import WorkspaceUnregisterRequest
 from .workspace.update_metadata import WorkspaceUpdateMetadataRequest
 from .receipts import OutcomeReceipt, OutcomeReference, ReceiptLookupState
+from .identity import command_identity
 from .types import (
     Availability,
     Authority,
@@ -87,6 +91,84 @@ from .types import (
     RetryClass,
     SnapshotFreshness,
     validate_command_id,
+)
+
+__all__ = (
+    "AccessReduceRequest",
+    "AccessRequestRequest",
+    "AccessStatusRequest",
+    "ArtefactArchiveRequest",
+    "ArtefactConvertRequest",
+    "ArtefactCreateRequest",
+    "ArtefactDeleteRequest",
+    "ArtefactListRequest",
+    "ArtefactMigrateNamingRequest",
+    "ArtefactOutlineRequest",
+    "ArtefactReadRequest",
+    "ArtefactRenameRequest",
+    "ArtefactRepairRequest",
+    "ArtefactReparentChildrenRequest",
+    "ArtefactReparentRequest",
+    "ArtefactSearchRequest",
+    "ArtefactSetKeyRequest",
+    "ArtefactSetNamingFieldRequest",
+    "ArtefactSetStatusRequest",
+    "ArtefactUnarchiveRequest",
+    "AttachmentUploadRequest",
+    "CommandDescribeRequest",
+    "CommandListRequest",
+    "CommandRequest",
+    "ContentClassifyRequest",
+    "ContentIngestRequest",
+    "ContentResolveRequest",
+    "DocumentEditRequest",
+    "DocumentPatchRequest",
+    "DocumentUpdateFrontmatterRequest",
+    "DocumentWriteRequest",
+    "InvocationReadRequest",
+    "LinksCheckRequest",
+    "LinksFixRequest",
+    "PluginCreateRequest",
+    "PluginReplaceRequest",
+    "ResourceCreateRequest",
+    "ResourceListRequest",
+    "ResourceReadRequest",
+    "ResourceSearchRequest",
+    "RetrievalConstructBenchmarkRequest",
+    "RetrievalEnableRequest",
+    "RetrievalEvaluateRequest",
+    "RetrievalRebuildSemanticRequest",
+    "RetrievalRefreshLexicalRequest",
+    "RetrievalRepairSemanticRequest",
+    "RuntimeReadEnvironmentRequest",
+    "RuntimeRefreshRouterRequest",
+    "RuntimeStatusRequest",
+    "RuntimeWarmupRequest",
+    "SessionStartRequest",
+    "ShapingRenderRequest",
+    "ShapingStartRequest",
+    "StageCreateRequest",
+    "StageDiscardRequest",
+    "TriggerCreateRequest",
+    "TriggerDeleteRequest",
+    "TriggerReplaceRequest",
+    "TypeCreateRequest",
+    "TypeReplaceRequest",
+    "TypeStatusRequest",
+    "TypeSyncRequest",
+    "VaultCheckRequest",
+    "VaultReadConfigRequest",
+    "VaultReadFileRequest",
+    "VaultReadRouterRequest",
+    "WorkspaceBindRequest",
+    "WorkspaceConfigureBootstrapRequest",
+    "WorkspaceListRequest",
+    "WorkspaceReadRequest",
+    "WorkspaceRegisterRequest",
+    "WorkspaceRepairRegistryRequest",
+    "WorkspaceSetupRequest",
+    "WorkspaceUnregisterRequest",
+    "WorkspaceUpdateMetadataRequest",
 )
 
 
@@ -365,6 +447,9 @@ CommandRequest = (
     | ContentIngestRequest
     | ContentResolveRequest
     | DocumentEditRequest
+    | DocumentPatchRequest
+    | DocumentUpdateFrontmatterRequest
+    | DocumentWriteRequest
     | LinksCheckRequest
     | LinksFixRequest
     | PluginCreateRequest
@@ -409,18 +494,3 @@ CommandRequest = (
     | WorkspaceUnregisterRequest
     | WorkspaceUpdateMetadataRequest
 )
-
-
-def command_identity(request: CommandRequest) -> tuple[str, int, type]:
-    """Return identity owned by the concrete request type, never caller input."""
-    request_type = type(request)
-    try:
-        return (
-            request_type.COMMAND_ID,
-            request_type.COMMAND_VERSION,
-            request_type.RESULT_TYPE,
-        )
-    except AttributeError as exc:
-        raise TypeError(
-            f"command request type does not own identity: {request_type.__name__}"
-        ) from exc

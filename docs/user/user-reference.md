@@ -1,6 +1,14 @@
 # Brain Reference
 
-This page is the stable user-facing reference for Brain Core 0.58.0 and CLI 2.1.0. Exact command schemas, examples and availability come from the installed Brain rather than a duplicated hand-maintained inventory.
+This page is the stable user-facing reference for Brain Core 0.59.0 and CLI 2.1.0. Exact command schemas, examples and availability come from the installed Brain rather than a duplicated hand-maintained inventory.
+
+Document changes use a read–mutate loop. Read an editable artefact or named
+resource, retain its returned `revision`, then pass that value as
+`expected_revision` to `document.write`, `document.patch`, `document.edit`, or
+`document.update-frontmatter`. A conflict means the bytes changed; re-read and
+reapply the intended change. Use `write` for whole-body text, `patch` for exact
+literal replacement, `edit` for headings/callouts/document intro, and
+`update-frontmatter` for metadata only.
 
 ## Vault model
 

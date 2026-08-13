@@ -128,14 +128,16 @@ def test_every_discovery_example_resolves_through_the_real_dynamic_boundary():
         assert type(request) is entry.request_type, entry.command_id
 
 
-def test_request_schema_preserves_required_defaults_enums_and_nested_shapes():
+def test_document_mutation_schemas_preserve_typed_intents_and_revisions():
     from _application.document.edit import DocumentEditRequest
+    from _application.document.patch import DocumentPatchRequest
+    from _application.document.write import DocumentWriteRequest
 
     schema = request_schema(DocumentEditRequest)
 
-    assert schema["required"] == ["target", "change"]
+    assert schema["required"] == ["document", "expected_revision", "change"]
     assert schema["properties"]["fix_links"]["default"] is False
-    assert schema["properties"]["target"]["properties"]["resource"]["enum"] == [
+    assert schema["properties"]["document"]["properties"]["resource"]["enum"] == [
         "artefact",
         "memory",
         "skill",
@@ -148,12 +150,28 @@ def test_request_schema_preserves_required_defaults_enums_and_nested_shapes():
     }
     assert operations == {
         "replace",
+        "insert",
+        "delete",
+    }
+    encoded = json.dumps(schema)
+    assert '"target"' not in encoded
+    assert '"scope"' not in encoded
+
+    write_schema = request_schema(DocumentWriteRequest)
+    assert write_schema["properties"]["operation"]["enum"] == [
+        "replace",
         "append",
         "prepend",
-        "delete-section",
-        "replace-text",
-    }
+    ]
 
+    patch_schema = request_schema(DocumentPatchRequest)
+    assert {
+        branch["properties"]["mode"]["enum"][0]
+        for branch in patch_schema["properties"]["match"]["anyOf"]
+    } == {"unique", "occurrence", "all"}
+
+
+def test_request_schema_preserves_required_defaults_enums_and_nested_shapes():
     from _application.requests import CommandListRequest
 
     command_list_schema = request_schema(CommandListRequest)

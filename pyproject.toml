@@ -20,12 +20,13 @@ semantic = [
 
 [tool.interrogate]
 paths = ["src/brain-core/scripts"]
+exclude = ["src/brain-core/scripts/_application"]
 ignore-init-method = true
 ignore-init-module = true
 ignore-magic = true
 ignore-semiprivate = true
 ignore-private = true
-fail-under = 60
+fail-under = 79
 verbose = 1
 
 [tool.pytest.ini_options]

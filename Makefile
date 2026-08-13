@@ -3,7 +3,7 @@ PYTHON := $(VENV)/bin/python
 PIP := $(VENV)/bin/pip
 PYTEST := $(VENV)/bin/pytest
 
-.PHONY: venv install install-semantic test test-parallel lint clean hooks sync-template sync-template-check dev-link
+.PHONY: venv install install-semantic test test-parallel lint lint-docstrings lint-command-docs clean hooks sync-template sync-template-check dev-link
 
 venv:
 	python3.12 -m venv $(VENV)
@@ -27,8 +27,13 @@ test-parallel: dev-link
 test-fast: dev-link
 	$(PYTEST) -q -m "not slow"
 
-lint:
+lint: lint-docstrings lint-command-docs
+
+lint-docstrings:
 	$(PYTHON) -m interrogate src/brain-core/scripts
+
+lint-command-docs:
+	$(PYTEST) -q tests/application/test_projection_contracts.py tests/application/test_python_api.py
 
 hooks:
 	git config core.hooksPath .githooks

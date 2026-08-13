@@ -83,6 +83,7 @@ from ._artefacts import (
     parse_date_value,
     parse_artefact_key,
     prune_vacated_owner_folders,
+    read_exact_file_content,
     read_file_content,
     replace_artefact_key_references,
     resolve_artefact_definition_for_prefix,
@@ -135,6 +136,16 @@ from ._file_lock import (
     mutation_lock_error_message,
     public_mutation_error_message,
     vault_mutation_lock,
+)
+
+from ._document_revision import (
+    DocumentRevisionConflict,
+    PersistedDocumentContent,
+    decode_persisted_document,
+    document_revision,
+    document_revision_at,
+    require_document_revision,
+    validate_document_revision,
 )
 
 from ._frontmatter import (

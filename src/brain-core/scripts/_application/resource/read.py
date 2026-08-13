@@ -31,6 +31,7 @@ class MemoryReadItem:
     name: str
     triggers: tuple[str, ...]
     content: str
+    revision: str
     resource: Literal["memory"] = field(default="memory", init=False)
 
 
@@ -46,6 +47,7 @@ class SkillReadItem:
     name: str
     source: SkillSource
     content: str
+    revision: str
     resource: Literal["skill"] = field(default="skill", init=False)
 
 
@@ -53,6 +55,7 @@ class SkillReadItem:
 class StyleReadItem:
     name: str
     content: str
+    revision: str
     resource: Literal["style"] = field(default="style", init=False)
 
 
@@ -62,6 +65,7 @@ class TemplateReadItem:
     artefact_type: str
     path: str
     content: str
+    revision: str
     resource: Literal["template"] = field(default="template", init=False)
 
 
@@ -102,7 +106,7 @@ ResourceReadItem = (
 @dataclass(frozen=True, slots=True)
 class ResourceReadRequest:
     COMMAND_ID: ClassVar[str] = "resource.read"
-    COMMAND_VERSION: ClassVar[int] = 1
+    COMMAND_VERSION: ClassVar[int] = 2
     RESULT_TYPE: ClassVar[type] = ResourceReadItem
     FIELD_DESCRIPTIONS: ClassVar[dict[str, str]] = {
         "resource": "Named resource collection: memory, plugin, skill, style, template, trigger or type.",
@@ -134,6 +138,7 @@ def _error(code, message, field=None):
 
 
 def _read_memory(root, reference):
+    from _common import PersistedDocumentContent
     from _portable.router_collections import read_memory_exact_from_vault
 
     try:
@@ -143,13 +148,17 @@ def _read_memory(root, reference):
     if isinstance(result, dict):
         return _error(ErrorCode.NOT_FOUND, str(result["error"]), "reference")
     metadata, content = result
-    if not isinstance(content, str):
+    if not isinstance(content, PersistedDocumentContent):
         return _error(ErrorCode.NOT_FOUND, content.message, "reference")
     return MemoryReadItem(
-        metadata["name"], tuple(metadata.get("triggers") or ()), content
+        metadata["name"],
+        tuple(metadata.get("triggers") or ()),
+        content,
+        content.revision,
     )
 
 def _read_named(root, reference, resource, item_builder):
+    from _common import PersistedDocumentContent
     from .._named_documents import read_portable
 
     try:
@@ -159,13 +168,13 @@ def _read_named(root, reference, resource, item_builder):
     if isinstance(result, dict):
         return _error(ErrorCode.NOT_FOUND, str(result["error"]), "reference")
     metadata, content = result
-    if not isinstance(content, str):
+    if not isinstance(content, PersistedDocumentContent):
         return _error(ErrorCode.NOT_FOUND, content.message, "reference")
-    return item_builder(metadata, content)
+    return item_builder(metadata, content, content.revision)
 
 
 def _read_template(root, reference):
-    from _common import MissingFileResult
+    from _common import MissingFileResult, PersistedDocumentContent
     from _portable.type_definitions import read_template_exact_from_vault
 
     try:
@@ -177,8 +186,14 @@ def _read_template(root, reference):
     metadata, content = result
     if isinstance(content, MissingFileResult):
         return _error(ErrorCode.CONFLICT, content.message)
+    if not isinstance(content, PersistedDocumentContent):
+        raise TypeError("portable template reader returned non-persisted document text")
     return TemplateReadItem(
-        metadata["key"], metadata["frontmatter_type"], metadata["template_file"], content
+        metadata["key"],
+        metadata["frontmatter_type"],
+        metadata["template_file"],
+        content,
+        content.revision,
     )
 
 
@@ -233,21 +248,23 @@ _READERS = {
         root,
         reference,
         "plugin",
-        lambda metadata, content: PluginReadItem(metadata["name"], content),
+        lambda metadata, content, _revision: PluginReadItem(metadata["name"], content),
     ),
     ReadableResource.SKILL: lambda root, reference: _read_named(
         root,
         reference,
         "skill",
-        lambda metadata, content: SkillReadItem(
-            metadata["name"], SkillSource(metadata["source"]), content
+        lambda metadata, content, revision: SkillReadItem(
+            metadata["name"], SkillSource(metadata["source"]), content, revision
         ),
     ),
     ReadableResource.STYLE: lambda root, reference: _read_named(
         root,
         reference,
         "style",
-        lambda metadata, content: StyleReadItem(metadata["name"], content),
+        lambda metadata, content, revision: StyleReadItem(
+            metadata["name"], content, revision
+        ),
     ),
     ReadableResource.TEMPLATE: _read_template,
     ReadableResource.TRIGGER: _read_trigger,

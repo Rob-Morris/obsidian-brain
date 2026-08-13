@@ -25,6 +25,7 @@ DEFAULT_OUTPUT = (
 )
 MCP_SERVER = REPO_ROOT / "tests" / "fixtures" / "granular_mcp_stdio_server.py"
 PYTHON = REPO_ROOT / ".venv" / "bin" / "python"
+_CAPTURE_REVISION_PLACEHOLDER = "$assembled-document-revision"
 
 SUCCESSFUL_CALLS = (
     ("command.list", {"page_size": 1}),
@@ -37,18 +38,16 @@ SUCCESSFUL_CALLS = (
     ),
     ("artefact.list", {"location": "all", "page_size": 1}),
     (
-        "document.edit",
+        "document.patch",
         {
-            "target": {"resource": "memory", "reference": "brain-core-reference"},
-            "change": {
-                "operation": "replace",
-                "content": {
-                    "source": "inline",
-                    "content": "# Brain Core Reference\n\nReal-client capture.\n",
-                },
-                "target": ":body",
-                "scope": "section",
+            "document": {
+                "resource": "artefact",
+                "reference": "Designs/project~command-fixture/Command Fixture Design.md",
             },
+            "expected_revision": _CAPTURE_REVISION_PLACEHOLDER,
+            "old_text": "Second occurrence.",
+            "new_text": "Real-client capture.",
+            "match": {"mode": "unique"},
         },
     ),
     ("type.sync", {"type_key": "living/journals"}),
@@ -110,8 +109,9 @@ def _response(output: list[dict], model: str) -> dict:
 
 
 class _CaptureServer:
-    def __init__(self, client: str):
+    def __init__(self, client: str, successful_calls=SUCCESSFUL_CALLS):
         self.client = client
+        self.successful_calls = successful_calls
         self.requests: list[dict] = []
         self.review_requests: list[dict] = []
         owner = self
@@ -164,13 +164,13 @@ class _CaptureServer:
                 "status": "completed",
                 "execution": "client",
                 "arguments": {
-                    "query": " ".join(command for command, _request in SUCCESSFUL_CALLS),
+                    "query": " ".join(command for command, _request in self.successful_calls),
                     "limit": 20,
                 },
                 "call_id": "call_search",
             }
-        elif number <= len(SUCCESSFUL_CALLS) + 1:
-            command_id, request = SUCCESSFUL_CALLS[number - 2]
+        elif number <= len(self.successful_calls) + 1:
+            command_id, request = self.successful_calls[number - 2]
             item = {
                 "id": f"fc_brain_{number - 2}",
                 "type": "function_call",
@@ -266,7 +266,7 @@ class _CaptureServer:
             return b'{"input_tokens":1}', "application/json"
         number = sum(bool(request.get("tools")) for request in self.requests)
         if payload.get("tools") and number == 1:
-            command_id, request = SUCCESSFUL_CALLS[0]
+            command_id, request = self.successful_calls[0]
             content = [
                 {
                     "type": "tool_use",
@@ -276,8 +276,8 @@ class _CaptureServer:
                 }
             ]
             stop_reason = "tool_use"
-        elif payload.get("tools") and number <= len(SUCCESSFUL_CALLS):
-            command_id, request = SUCCESSFUL_CALLS[number - 1]
+        elif payload.get("tools") and number <= len(self.successful_calls):
+            command_id, request = self.successful_calls[number - 1]
             content = [
                 {
                     "type": "tool_use",
@@ -358,6 +358,7 @@ def _mcp_config(vault: Path) -> dict:
 
 
 def _capture_codex(temp: Path, vault: Path) -> dict:
+    successful_calls = _resolved_successful_calls(vault)
     codex_home = temp / "codex-home"
     codex_home.mkdir()
     server_config = _mcp_config(vault)["mcpServers"]["brain"]
@@ -365,7 +366,7 @@ def _capture_codex(temp: Path, vault: Path) -> dict:
         '{name="capture",base_url="http://127.0.0.1:%d/v1",'
         'env_key="CAPTURE_KEY",wire_api="responses"}'
     )
-    with _CaptureServer("codex-cli") as server:
+    with _CaptureServer("codex-cli", successful_calls) as server:
         command = [
             "codex",
             "exec",
@@ -398,13 +399,14 @@ def _capture_codex(temp: Path, vault: Path) -> dict:
         )
     if completed.returncode != 0:
         raise RuntimeError(completed.stderr or completed.stdout)
-    return _codex_evidence(server.requests)
+    return _codex_evidence(server.requests, successful_calls)
 
 
 def _capture_claude(temp: Path, vault: Path) -> dict:
+    successful_calls = _resolved_successful_calls(vault)
     config = temp / "claude-mcp.json"
     config.write_text(json.dumps(_mcp_config(vault)), encoding="utf-8")
-    with _CaptureServer("claude-code") as server:
+    with _CaptureServer("claude-code", successful_calls) as server:
         command = [
             "claude",
             "--bare",
@@ -414,7 +416,7 @@ def _capture_claude(temp: Path, vault: Path) -> dict:
             "--allowedTools",
             " ".join(
                 "mcp__brain__" + _claude_tool_name(command_id)
-                for command_id, _request in SUCCESSFUL_CALLS
+                for command_id, _request in successful_calls
             ),
             "--permission-mode",
             "dontAsk",
@@ -442,7 +444,24 @@ def _capture_claude(temp: Path, vault: Path) -> dict:
         )
     if completed.returncode != 0:
         raise RuntimeError(completed.stderr or completed.stdout)
-    return _claude_evidence(server.requests)
+    return _claude_evidence(server.requests, successful_calls)
+
+
+def _resolved_successful_calls(vault: Path) -> tuple[tuple[str, dict], ...]:
+    """Resolve capture-only dynamic values from one assembled disposable vault."""
+
+    from _common import document_revision_at
+
+    revision = document_revision_at(
+        vault / "Designs" / "project~command-fixture" / "Command Fixture Design.md"
+    )
+    resolved = []
+    for command_id, request in SUCCESSFUL_CALLS:
+        materialised = json.loads(json.dumps(request))
+        if command_id == "document.patch":
+            materialised["expected_revision"] = revision
+        resolved.append((command_id, materialised))
+    return tuple(resolved)
 
 
 def _toml_inline(value) -> str:
@@ -457,8 +476,8 @@ def _toml_inline(value) -> str:
     raise TypeError(f"unsupported TOML capture value: {value!r}")
 
 
-def _codex_evidence(requests: list[dict]) -> dict:
-    expected_requests = len(SUCCESSFUL_CALLS) + 2
+def _codex_evidence(requests: list[dict], successful_calls) -> dict:
+    expected_requests = len(successful_calls) + 2
     if len(requests) != expected_requests:
         summaries = [
             {
@@ -490,7 +509,7 @@ def _codex_evidence(requests: list[dict]) -> dict:
             "Codex deferred search did not encode dotted command.list: "
             + canonical_json([item.get("name") for item in namespace["tools"]])
         ) from exc
-    successes = _codex_successes(requests)
+    successes = _codex_successes(requests, successful_calls)
     return {
         "client_version": "0.147.0",
         "capture_path": "deferred client tool search",
@@ -503,7 +522,7 @@ def _codex_evidence(requests: list[dict]) -> dict:
     }
 
 
-def _codex_successes(requests: list[dict]) -> dict[str, dict]:
+def _codex_successes(requests: list[dict], successful_calls) -> dict[str, dict]:
     outputs = {
         item["call_id"]: item["output"]
         for request in requests
@@ -511,7 +530,7 @@ def _codex_successes(requests: list[dict]) -> dict[str, dict]:
         if item.get("type") == "function_call_output"
     }
     successes = {}
-    for index, (command_id, request) in enumerate(SUCCESSFUL_CALLS):
+    for index, (command_id, request) in enumerate(successful_calls):
         output = outputs.get(f"call_brain_{index}")
         if not isinstance(output, str):
             raise RuntimeError(f"Codex omitted {command_id} tool output")
@@ -521,7 +540,7 @@ def _codex_successes(requests: list[dict]) -> dict[str, dict]:
     return successes
 
 
-def _claude_evidence(requests: list[dict]) -> dict:
+def _claude_evidence(requests: list[dict], successful_calls) -> dict:
     requests = [
         request
         for request in requests
@@ -530,7 +549,7 @@ def _claude_evidence(requests: list[dict]) -> dict:
             and request.get("tools")
         )
     ]
-    expected_requests = len(SUCCESSFUL_CALLS) + 1
+    expected_requests = len(successful_calls) + 1
     if len(requests) != expected_requests:
         raise RuntimeError(
             f"Claude capture expected {expected_requests} message requests, got "
@@ -544,7 +563,7 @@ def _claude_evidence(requests: list[dict]) -> dict:
     declaration = next(
         tool for tool in declarations if tool.get("description") == "List command resources."
     )
-    successes = _claude_successes(requests)
+    successes = _claude_successes(requests, successful_calls)
     return {
         "client_version": "2.1.226",
         "capture_path": "eager model request declarations",
@@ -558,7 +577,7 @@ def _claude_evidence(requests: list[dict]) -> dict:
     }
 
 
-def _claude_successes(requests: list[dict]) -> dict[str, dict]:
+def _claude_successes(requests: list[dict], successful_calls) -> dict[str, dict]:
     result_payloads = {}
     for request in requests:
         for message in request.get("messages", []):
@@ -577,7 +596,7 @@ def _claude_successes(requests: list[dict]) -> dict[str, dict]:
                 if payload.get("status") == "ok":
                     result_payloads[payload.get("command")] = payload
     successes = {}
-    for command_id, request in SUCCESSFUL_CALLS:
+    for command_id, request in successful_calls:
         if command_id not in result_payloads:
             raise RuntimeError(f"Claude {command_id} call did not return success")
         successes[command_id] = request
@@ -593,30 +612,36 @@ def build_capture() -> dict:
         temp = Path(directory)
         from command_vault import assemble_command_vault_baseline
 
-        baseline = assemble_command_vault_baseline(
-            temp / "Brain",
-            machine_state_root=temp / "machine-state",
-            source_root=REPO_ROOT,
-        )
-        vault = baseline.vault_root
-        linked_workspace = temp / "analysis-workspace"
-        linked_workspace.mkdir()
-        workspace_registry = vault / ".brain" / "local" / "workspaces.json"
-        workspace_registry.parent.mkdir(parents=True, exist_ok=True)
-        workspace_registry.write_text(
-            json.dumps(
-                {"workspaces": {"analysis": {"path": str(linked_workspace)}}}
-            ),
-            encoding="utf-8",
-        )
+        def assemble(name: str) -> Path:
+            baseline = assemble_command_vault_baseline(
+                temp / name,
+                machine_state_root=temp / f"{name}-machine-state",
+                source_root=REPO_ROOT,
+            )
+            linked_workspace = temp / f"{name}-analysis-workspace"
+            linked_workspace.mkdir()
+            workspace_registry = (
+                baseline.vault_root / ".brain" / "local" / "workspaces.json"
+            )
+            workspace_registry.parent.mkdir(parents=True, exist_ok=True)
+            workspace_registry.write_text(
+                json.dumps(
+                    {"workspaces": {"analysis": {"path": str(linked_workspace)}}}
+                ),
+                encoding="utf-8",
+            )
+            return baseline.vault_root
+
+        codex_vault = assemble("Brain-codex")
+        claude_vault = assemble("Brain-claude")
         return {
             "schema": "brain.command-interface-real-client-evidence/1",
             "captured_at": "2026-08-11T17:00:00+10:00",
             "localhost_model_endpoint": True,
             "external_model_request": False,
             "clients": {
-                "claude-code": _capture_claude(temp, vault),
-                "codex-cli": _capture_codex(temp, vault),
+                "claude-code": _capture_claude(temp, claude_vault),
+                "codex-cli": _capture_codex(temp, codex_vault),
             },
         }
 

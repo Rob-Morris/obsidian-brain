@@ -139,17 +139,17 @@ The config system supports five cumulative built-in profiles with user-centred l
 | Profile | Intended use |
 |---------|-------------|
 | `reader` | Inspect, discover and manage access state (26 application / 26 MCP commands) |
-| `contributor` | Reader access plus ordinary content creation, editing and lifecycle work (48 / 47 cumulative) |
-| `maintainer` | Contributor access plus definition, plugin and derived-index maintenance (61 / 58 cumulative) |
-| `operator` | Maintainer access plus workspace registration and runtime-operational changes (70 / 59 cumulative) |
-| `administrator` | Operator access plus irreversible artefact deletion (71 / 60 cumulative) |
+| `contributor` | Reader access plus ordinary content creation, editing and lifecycle work (51 / 50 cumulative) |
+| `maintainer` | Contributor access plus definition, plugin and derived-index maintenance (64 / 61 cumulative) |
+| `operator` | Maintainer access plus workspace registration and runtime-operational changes (73 / 62 cumulative) |
+| `administrator` | Operator access plus irreversible artefact deletion (74 / 63 cumulative) |
 
 Each profile has a per-tool allow-list defined in the vault config. Tools not on the active profile's allow-list return an error `CallToolResult` — no silent failures.
 
 Brain Core derives its built-in lists from the authoritative catalogue's
 authority metadata: reader has 26 exact application commands, contributor
-cumulatively has 48, maintainer 61, operator 70 and administrator all 71. MCP
-projects the eligible 26, 47, 58, 59 and 60-command subsets respectively. A
+cumulatively has 51, maintainer 64, operator 73 and administrator all 74. MCP
+projects the eligible 26, 50, 61, 62 and 63-command subsets respectively. A
 known denied leaf is rejected from catalogue plus trusted profile state before
 dynamic request resolution, executor entry or effects. There is no aggregate
 name fallback.

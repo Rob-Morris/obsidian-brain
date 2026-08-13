@@ -11,6 +11,7 @@ from _common import (
     is_archived_path,
     load_compiled_router,
     parse_frontmatter,
+    read_exact_file_content,
     resolve_and_check_bounds,
 )
 
@@ -25,8 +26,7 @@ def _read_exact_file(vault_root, path):
         return {"error": "Path escapes vault root"}
     if not os.path.isfile(resolved):
         return MissingFileResult(path)
-    with open(resolved, "r", encoding="utf-8") as handle:
-        return handle.read()
+    return read_exact_file_content(resolved)
 
 
 def read_vault_file(vault_root, path):

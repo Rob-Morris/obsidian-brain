@@ -74,6 +74,15 @@ Use serial `make test` for the pre-commit gate. `make test-parallel` is a fast
 pytest-xdist feedback path while iterating, but it does not replace the serial
 run because serial ordering still catches cross-file pollution.
 
+`make lint` is an umbrella for two different documentation contracts. The
+legacy/reusable scripts retain a percentage docstring ratchet; internal
+`_application` owners are excluded because public-looking dataclass and hook
+counts are not an API-quality measure. `lint-command-docs` instead requires
+strict described schemas for every command and behavioural docstrings on the
+supported `brain_application` kernel/context/result façade. Add useful
+invariant or trust-boundary docstrings to that façade; do not add mechanical
+one-line restatements to owner `execute`, `decode`, or `catalogue_entry` hooks.
+
 The `Linux test suite` GitHub Actions workflow runs the full `make test` on
 `ubuntu-latest`, so the suite must stay host-independent (timezone, filesystem
 case-sensitivity, and the Python interpreters on `PATH` are all pinned or

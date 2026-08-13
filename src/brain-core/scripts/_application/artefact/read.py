@@ -18,6 +18,7 @@ class ArtefactReadPayload:
     reference: str
     location: "ArtefactLocation"
     content: str
+    revision: str
 
 
 class ArtefactLocation(str, Enum):
@@ -28,7 +29,7 @@ class ArtefactLocation(str, Enum):
 @dataclass(frozen=True, slots=True)
 class ArtefactReadRequest:
     COMMAND_ID: ClassVar[str] = "artefact.read"
-    COMMAND_VERSION: ClassVar[int] = 2
+    COMMAND_VERSION: ClassVar[int] = 3
     RESULT_TYPE: ClassVar[type] = ArtefactReadPayload
 
     reference: str
@@ -42,7 +43,7 @@ class ArtefactReadRequest:
 
 
 def execute(context: InvocationContext, request: ArtefactReadRequest):
-    from _common import MissingFileResult
+    from _common import MissingFileResult, PersistedDocumentContent
     from _portable.artefact_read import read_from_vault
     from _portable.vault_files import read_archived_artefact
 
@@ -67,12 +68,17 @@ def execute(context: InvocationContext, request: ArtefactReadRequest):
         if "router" in message.casefold():
             return _error(ErrorCode.CONFLICT, message)
         return _error(ErrorCode.NOT_FOUND, message)
-    if not isinstance(result, str):
-        raise TypeError("portable artefact reader returned a non-text result")
+    if not isinstance(result, PersistedDocumentContent):
+        raise TypeError("portable artefact reader returned non-persisted document text")
     return Ok(
         ArtefactReadRequest.COMMAND_ID,
         ArtefactReadRequest.COMMAND_VERSION,
-        ArtefactReadPayload(request.reference, request.location, result),
+        ArtefactReadPayload(
+            request.reference,
+            request.location,
+            result,
+            result.revision,
+        ),
     )
 
 

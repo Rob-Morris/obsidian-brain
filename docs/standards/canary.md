@@ -2,6 +2,11 @@
 
 This document describes the Canary Brief, a technique for testing subjective work by agents. Each brief specifies a list of tasks with testable instructions for logging what was done. If the log is missing or malformed, the test fails — check the receipt, not the work.
 
+Canaries may name an umbrella verification target whose component gates enforce
+different quality contracts. For example, `make lint` combines the reusable
+script docstring ratchet with explicit command API/schema checks; record the
+umbrella result without conflating the component metrics.
+
 ## How to use a canary brief
 
 1. Create a canary brief `my-canary-test.md`

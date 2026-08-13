@@ -21,10 +21,14 @@ from .types import (
 
 
 class Clock(Protocol):
+    """Provide a trusted timezone-aware wall clock to application services."""
+
     def now(self) -> datetime: ...
 
 
 class AuthorityEvaluator(Protocol):
+    """Evaluate immutable ceiling and current principal-bound command grants."""
+
     def allows(
         self,
         *,
@@ -39,6 +43,8 @@ class AuthorityEvaluator(Protocol):
 
 
 class DiagnosticReporter(Protocol):
+    """Receive best-effort internal diagnostics without changing command results."""
+
     def report_failure(
         self,
         *,
@@ -91,11 +97,15 @@ def report_failure_safely(
 
 
 class ProviderPort(Protocol):
+    """Identify one adapter-composed provider available to command executors."""
+
     @property
     def provider_id(self) -> str: ...
 
 
 class CapabilitySnapshotStore(Protocol):
+    """Read or refresh immutable provider-availability snapshots."""
+
     def refresh(
         self,
         provider_ids: tuple[str, ...],
@@ -108,6 +118,8 @@ class CapabilitySnapshotStore(Protocol):
 
 @dataclass(frozen=True, slots=True)
 class ProviderBindings:
+    """Immutable provider lookup keyed by unique provider identity."""
+
     providers: tuple[ProviderPort, ...] = ()
 
     def __post_init__(self) -> None:
@@ -132,6 +144,8 @@ class ProviderBindings:
 
 @dataclass(frozen=True, slots=True)
 class Capability:
+    """Availability of one named capability in a trusted snapshot."""
+
     name: str
     availability: Availability
 
@@ -142,6 +156,8 @@ class Capability:
 
 @dataclass(frozen=True, slots=True)
 class CapabilitySnapshot:
+    """Point-in-time capability evidence used for one invocation boundary."""
+
     token: str
     freshness: SnapshotFreshness
     observed_at: datetime
@@ -166,6 +182,8 @@ class CapabilitySnapshot:
 
 @dataclass(frozen=True, slots=True)
 class SelectedBrain:
+    """Trusted identity and absolute vault root selected by an adapter."""
+
     brain_id: str
     vault_root: Path
 
@@ -178,6 +196,8 @@ class SelectedBrain:
 
 @dataclass(frozen=True, slots=True)
 class InvocationContext:
+    """Trusted, immutable execution facts composed outside semantic requests."""
+
     selected_brain: SelectedBrain
     profile: str
     authority: AuthorityEvaluator

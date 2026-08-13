@@ -1,209 +1,332 @@
-"""Owner behaviour for cohesive artefact document edits."""
+"""Behaviour of cohesive artefact document mutation owners."""
 
 from __future__ import annotations
 
 import edit
 import pytest
 
-from _application._document_edit import EditScope, StructuralSelector
 from _application._mutation_support import FrontmatterField, InlineContent, StagedContent
+from _application.artefact.read import ArtefactReadRequest
+from _application.document._types import DocumentLocator, DocumentResource
 from _application.document.edit import (
-    AppendChange,
-    DeleteSectionChange,
+    CalloutPart,
+    CalloutSelection,
+    DeleteStructure,
     DocumentEditRequest,
-    DocumentResource,
-    DocumentTarget,
-    PrependChange,
-    ReplaceChange,
-    ReplaceTextChange,
+    HeadingBlockSelection,
+    HeadingPart,
+    HeadingSelection,
+    InsertPosition,
+    InsertStructure,
+    ReplaceStructure,
 )
-from _application.registry import current_application_catalogue, current_request_resolver
+from _application.document.patch import (
+    AllMatches,
+    DocumentPatchRequest,
+    OccurrenceMatch,
+    UniqueMatch,
+)
+from _application.document.update_frontmatter import DocumentUpdateFrontmatterRequest
+from _application.document.write import DocumentWriteOperation, DocumentWriteRequest
+from _application.registry import current_request_resolver
 from _application.results import ErrorCode
-from _application.types import Authority, EffectClass, RetryClass
+from _common import document_revision_at, parse_frontmatter
 from _staging import read_staged_body, stage_body
 from command_application import application_for
 
 
 PATH = "Designs/project~command-fixture/Command Fixture Design.md"
-TARGET = DocumentTarget(DocumentResource.ARTEFACT, PATH)
+DOCUMENT = DocumentLocator(DocumentResource.ARTEFACT, PATH)
+
+
+def _revision(vault_root):
+    return document_revision_at(vault_root / PATH)
 
 
 @pytest.mark.parametrize(
-    ("change", "present", "absent", "operation"),
+    ("operation", "content", "present"),
     (
-        (
-            ReplaceChange(
-                "replace",
-                InlineContent("Edited second occurrence.\n"),
-                target="## Repeated Target",
-                selector=StructuralSelector(occurrence=2),
-                scope=EditScope.BODY,
-            ),
-            "Edited second occurrence.",
-            "Second occurrence.",
-            "replace",
-        ),
-        (
-            AppendChange(
-                "append",
-                InlineContent("\nAppended by command.\n"),
-                target=":body",
-                scope=EditScope.SECTION,
-            ),
-            "Appended by command.",
-            None,
-            "append",
-        ),
-        (
-            PrependChange(
-                "prepend",
-                InlineContent("Preface by command.\n\n"),
-                target=":body",
-                scope=EditScope.SECTION,
-            ),
-            "Preface by command.",
-            None,
-            "prepend",
-        ),
-        (
-            DeleteSectionChange(
-                "delete-section",
-                "## Repeated Target",
-                StructuralSelector(occurrence=1),
-            ),
-            "Second occurrence.",
-            "First occurrence.",
-            "delete-section",
-        ),
-        (
-            ReplaceTextChange(
-                "replace-text",
-                "Second occurrence.",
-                "Replaced by command.",
-            ),
-            "Replaced by command.",
-            "Second occurrence.",
-            "replace-text",
-        ),
+        (DocumentWriteOperation.REPLACE, "# Replaced\n", "# Replaced"),
+        (DocumentWriteOperation.APPEND, "\nAppended.\n", "Appended."),
+        (DocumentWriteOperation.PREPEND, "Prepended.\n\n", "Prepended."),
     ),
 )
-def test_document_edit_preserves_every_artefact_change_semantic(
+def test_document_write_mutates_only_the_complete_body(
     command_vault_clone,
-    change,
-    present,
-    absent,
     operation,
+    content,
+    present,
 ):
+    path = command_vault_clone.vault_root / PATH
+    before_fields, _before_body = parse_frontmatter(path.read_text())
+
     result = application_for(command_vault_clone.vault_root).invoke(
-        DocumentEditRequest(TARGET, change)
+        DocumentWriteRequest(
+            DOCUMENT,
+            _revision(command_vault_clone.vault_root),
+            operation,
+            InlineContent(content),
+        )
     )
 
     assert result.status == "ok"
-    assert result.result.operation == operation
-    assert result.result.path == PATH
-    assert result.committed_effects[0].kind == "document.edit"
+    assert result.result.operation == operation.value
+    assert result.result.revision == _revision(command_vault_clone.vault_root)
+    after_fields, after_body = parse_frontmatter(path.read_text())
+    assert present in after_body
+    assert after_fields.keys() == before_fields.keys()
+
+
+def test_document_patch_exposes_explicit_match_policies(command_vault_clone):
+    application = application_for(command_vault_clone.vault_root)
+    ambiguous = application.invoke(
+        DocumentPatchRequest(
+            DOCUMENT,
+            _revision(command_vault_clone.vault_root),
+            "occurrence.",
+            "match.",
+            UniqueMatch(),
+        )
+    )
+    assert ambiguous.error.code is ErrorCode.INVALID_REQUEST
+
+    one = application.invoke(
+        DocumentPatchRequest(
+            DOCUMENT,
+            _revision(command_vault_clone.vault_root),
+            "occurrence.",
+            "selected.",
+            OccurrenceMatch(2),
+        )
+    )
+    assert one.status == "ok"
+    assert one.result.match_count == 2
+    assert one.result.replacement_count == 1
+
+    all_matches = application.invoke(
+        DocumentPatchRequest(
+            DOCUMENT,
+            _revision(command_vault_clone.vault_root),
+            "Repeated Target",
+            "Repeated Heading",
+            AllMatches(),
+        )
+    )
+    assert all_matches.status == "ok"
+    assert all_matches.result.replacement_count == 2
+
+
+def test_document_edit_uses_typed_markdown_selection(command_vault_clone):
+    result = application_for(command_vault_clone.vault_root).invoke(
+        DocumentEditRequest(
+            DOCUMENT,
+            _revision(command_vault_clone.vault_root),
+            ReplaceStructure(
+                HeadingSelection(
+                    "Repeated Target",
+                    HeadingPart.BODY,
+                    level=2,
+                    occurrence=2,
+                ),
+                InlineContent("Updated structurally.\n"),
+            ),
+        )
+    )
+
+    assert result.status == "ok"
+    assert result.result.operation == "replace"
+    assert result.result.structural_target.kind == "heading"
+    assert result.result.structural_target.part == "body"
     written = (command_vault_clone.vault_root / PATH).read_text()
-    assert present in written
-    if absent is not None:
-        assert absent not in written
+    assert "Updated structurally." in written
+    assert "First occurrence." in written
 
 
-def test_document_edit_returns_typed_structural_target(command_vault_clone):
-    result = application_for(command_vault_clone.vault_root).invoke(
+def test_document_edit_insert_and_delete_are_distinct_structural_changes(
+    command_vault_clone,
+):
+    application = application_for(command_vault_clone.vault_root)
+    inserted = application.invoke(
         DocumentEditRequest(
-            TARGET,
-            ReplaceChange(
-                "replace",
-                InlineContent("Updated.\n"),
-                target="## Repeated Target",
-                selector=StructuralSelector(occurrence=2),
-                scope=EditScope.BODY,
+            DOCUMENT,
+            _revision(command_vault_clone.vault_root),
+            InsertStructure(
+                HeadingSelection("Repeated Target", HeadingPart.BODY, level=2, occurrence=1),
+                InsertPosition.END,
+                InlineContent("Inserted structurally.\n"),
+            ),
+        )
+    )
+    assert inserted.status == "ok"
+
+    deleted = application.invoke(
+        DocumentEditRequest(
+            DOCUMENT,
+            _revision(command_vault_clone.vault_root),
+            DeleteStructure(HeadingBlockSelection("Repeated Target", level=2, occurrence=1)),
+        )
+    )
+    assert deleted.status == "ok"
+    assert deleted.result.operation == "delete"
+    assert "First occurrence." not in (command_vault_clone.vault_root / PATH).read_text()
+
+
+def test_document_edit_insert_rejects_non_container_header_ranges():
+    with pytest.raises(ValueError, match="content range"):
+        InsertStructure(
+            HeadingSelection("Title", HeadingPart.HEADING),
+            InsertPosition.END,
+            InlineContent("not a heading suffix"),
+        )
+    with pytest.raises(ValueError, match="content range"):
+        InsertStructure(
+            CalloutSelection("note", CalloutPart.HEADER),
+            InsertPosition.END,
+            InlineContent("not a callout header suffix"),
+        )
+
+
+def test_document_edit_exposes_callouts_as_semantic_selections(command_vault_clone):
+    vault_root = command_vault_clone.vault_root
+    path = vault_root / PATH
+    fields, body = parse_frontmatter(path.read_text())
+    body += "\n> [!note] Status\n> Original.\n"
+    from _common import serialize_frontmatter
+
+    path.write_text(serialize_frontmatter(fields) + body)
+    result = application_for(vault_root).invoke(
+        DocumentEditRequest(
+            DOCUMENT,
+            _revision(vault_root),
+            ReplaceStructure(
+                CalloutSelection("note", CalloutPart.BODY, title="Status"),
+                InlineContent("> Updated.\n"),
             ),
         )
     )
 
-    target = result.result.structural_target
-    assert target.kind == "heading"
-    assert target.raw == "## Repeated Target"
-    assert target.scope is EditScope.BODY
+    assert result.status == "ok"
+    assert result.result.structural_target.kind == "callout"
+    assert result.result.structural_target.part == "body"
+    assert "> [!note] Status\n> Updated.\n" in path.read_text()
 
 
-def test_document_edit_rejects_lifecycle_frontmatter(command_vault_clone):
-    before = (command_vault_clone.vault_root / PATH).read_bytes()
-    result = application_for(command_vault_clone.vault_root).invoke(
-        DocumentEditRequest(
-            TARGET,
-            ReplaceChange(
-                "replace",
-                frontmatter=(FrontmatterField("status", "implemented"),),
-            ),
-        )
-    )
+def test_successful_staged_write_consumes_handle_after_commit(command_vault_clone):
+    vault_root = command_vault_clone.vault_root
+    handle = stage_body(str(vault_root), "# Staged replacement\n")['handle']
 
-    assert result.error.code is ErrorCode.INVALID_REQUEST
-    assert "lifecycle-owned" in result.error.message
-    assert (command_vault_clone.vault_root / PATH).read_bytes() == before
-
-
-def test_document_edit_consumes_stage_only_after_commit(command_vault_clone):
-    vault_root = str(command_vault_clone.vault_root)
-    handle = stage_body(vault_root, "Staged replacement.\n")["handle"]
-    result = application_for(command_vault_clone.vault_root).invoke(
-        DocumentEditRequest(
-            TARGET,
-            ReplaceChange(
-                "replace",
-                StagedContent(handle),
-                target="## Repeated Target",
-                selector=StructuralSelector(occurrence=2),
-                scope=EditScope.BODY,
-            ),
+    result = application_for(vault_root).invoke(
+        DocumentWriteRequest(
+            DOCUMENT,
+            _revision(vault_root),
+            DocumentWriteOperation.REPLACE,
+            StagedContent(handle),
         )
     )
 
     assert result.status == "ok"
     assert result.result.staged_handle_consumed is True
     with pytest.raises(ValueError, match="already-consumed"):
-        read_staged_body(vault_root, handle)
+        read_staged_body(str(vault_root), handle)
 
 
-def test_document_edit_invalid_target_retains_stage(command_vault_clone):
-    vault_root = str(command_vault_clone.vault_root)
-    handle = stage_body(vault_root, "Staged replacement.\n")["handle"]
+def test_frontmatter_update_has_one_set_or_remove_policy(command_vault_clone):
+    path = command_vault_clone.vault_root / PATH
+    fields, _body = parse_frontmatter(path.read_text())
+    removable = next(name for name in fields if name not in {"status", "key", "parent"})
     result = application_for(command_vault_clone.vault_root).invoke(
-        DocumentEditRequest(
-            TARGET,
-            ReplaceChange(
-                "replace",
-                StagedContent(handle),
-                target="## Missing Target",
-                scope=EditScope.BODY,
+        DocumentUpdateFrontmatterRequest(
+            DOCUMENT,
+            _revision(command_vault_clone.vault_root),
+            (
+                FrontmatterField("reviewed", True),
+                FrontmatterField(removable, None),
+            )
+            if "reviewed" < removable
+            else (
+                FrontmatterField(removable, None),
+                FrontmatterField("reviewed", True),
             ),
         )
     )
 
-    assert result.error.code is ErrorCode.INVALID_REQUEST
-    assert read_staged_body(vault_root, handle) == "Staged replacement.\n"
+    assert result.status == "ok"
+    assert result.result.updated_fields == ("reviewed",)
+    assert result.result.removed_fields == (removable,)
+    updated, _body = parse_frontmatter(path.read_text())
+    assert updated["reviewed"] in {True, "True"}
+    assert removable not in updated
 
 
-def test_document_edit_dry_run_refuses_to_mutate(command_vault_clone):
-    before = (command_vault_clone.vault_root / PATH).read_bytes()
-    result = application_for(command_vault_clone.vault_root, dry_run=True).invoke(
-        DocumentEditRequest(
-            TARGET,
-            ReplaceTextChange(
-                "replace-text",
-                "Second occurrence.",
-                "Dry run.",
-            ),
+def test_stale_revision_fails_before_stage_consumption_or_effect(command_vault_clone):
+    vault_root = command_vault_clone.vault_root
+    path = vault_root / PATH
+    stale_revision = _revision(vault_root)
+    handle = stage_body(str(vault_root), "Staged replacement.\n")["handle"]
+    path.write_text(path.read_text() + "\nHuman change.\n")
+    before = path.read_bytes()
+
+    result = application_for(vault_root).invoke(
+        DocumentWriteRequest(
+            DOCUMENT,
+            stale_revision,
+            DocumentWriteOperation.REPLACE,
+            StagedContent(handle),
         )
     )
 
-    assert result.error.code is ErrorCode.INVALID_REQUEST
-    assert (command_vault_clone.vault_root / PATH).read_bytes() == before
+    assert result.error.code is ErrorCode.CONFLICT
+    assert result.effects == "none"
+    assert result.error.details.field == "expected_revision"
+    assert result.error.next_action.command_id == "artefact.read"
+    assert path.read_bytes() == before
+    assert read_staged_body(str(vault_root), handle) == "Staged replacement.\n"
 
 
-def test_document_edit_post_commit_failure_is_honestly_unknown(
+def test_reads_and_mutations_share_the_same_revision(command_vault_clone):
+    application = application_for(command_vault_clone.vault_root)
+    read_result = application.invoke(ArtefactReadRequest(PATH))
+    assert read_result.result.revision == _revision(command_vault_clone.vault_root)
+
+    mutation = application.invoke(
+        DocumentPatchRequest(
+            DOCUMENT,
+            read_result.result.revision,
+            "Second occurrence.",
+            "Revision checked.",
+            UniqueMatch(),
+        )
+    )
+    assert mutation.result.revision == _revision(command_vault_clone.vault_root)
+    assert mutation.result.revision != read_result.result.revision
+
+
+def test_crlf_read_revision_can_be_used_for_an_immediate_mutation(
+    command_vault_clone,
+):
+    vault_root = command_vault_clone.vault_root
+    path = vault_root / PATH
+    path.write_bytes(path.read_bytes().replace(b"\n", b"\r\n"))
+    application = application_for(vault_root)
+
+    read_result = application.invoke(ArtefactReadRequest(PATH))
+
+    assert "\r" not in read_result.result.content
+    assert read_result.result.revision == document_revision_at(path)
+    mutation = application.invoke(
+        DocumentPatchRequest(
+            DOCUMENT,
+            read_result.result.revision,
+            "Second occurrence.",
+            "CRLF revision checked.",
+            UniqueMatch(),
+        )
+    )
+    assert mutation.status == "ok"
+    assert mutation.result.revision == document_revision_at(path)
+
+
+def test_document_mutation_post_commit_failure_is_honestly_unknown(
     command_vault_clone,
     monkeypatch,
 ):
@@ -215,13 +338,12 @@ def test_document_edit_post_commit_failure_is_honestly_unknown(
 
     monkeypatch.setattr(edit, "edit_resource", commit_then_fail)
     result = application_for(command_vault_clone.vault_root).invoke(
-        DocumentEditRequest(
-            TARGET,
-            ReplaceTextChange(
-                "replace-text",
-                "Second occurrence.",
-                "Uncertain edit.",
-            ),
+        DocumentPatchRequest(
+            DOCUMENT,
+            _revision(command_vault_clone.vault_root),
+            "Second occurrence.",
+            "Uncertain edit.",
+            UniqueMatch(),
         )
     )
 
@@ -230,68 +352,13 @@ def test_document_edit_post_commit_failure_is_honestly_unknown(
     assert "Uncertain edit." in (command_vault_clone.vault_root / PATH).read_text()
 
 
-def test_document_edit_transport_is_strict_and_contributor_authorised():
+def test_document_command_transport_rejects_old_aggregate_shape():
     resolver = current_request_resolver()
-    payload = {
-        "target": {"resource": "artefact", "reference": PATH},
-        "change": {
-            "operation": "replace",
-            "content": {"source": "inline", "content": "Edited.\n"},
-            "target": "## Repeated Target",
-            "selector": {"occurrence": 2},
-            "scope": "body",
-        },
-    }
-    request = resolver.resolve("document.edit", payload)
-
-    assert type(request) is DocumentEditRequest
-    entry = current_application_catalogue().resolve(request)
-    assert entry.authority is Authority.CONTRIBUTOR
-    assert entry.effect_class is EffectClass.SELECTED_BRAIN_MUTATION
-    assert entry.retry_class is RetryClass.RECEIPT_REQUIRED
-
-    with pytest.raises(ValueError, match="source"):
+    with pytest.raises(ValueError, match="unexpected fields"):
         resolver.resolve(
             "document.edit",
             {
                 "target": {"resource": "artefact", "reference": PATH},
-                "change": {
-                    "operation": "replace",
-                    "content": {"source": "file", "path": "/tmp/body.md"},
-                },
+                "change": {"operation": "replace-text", "old_text": "old", "new_text": "new"},
             },
-        )
-    with pytest.raises(ValueError, match="unexpected change fields"):
-        resolver.resolve(
-            "document.edit",
-            {
-                "target": {"resource": "artefact", "reference": PATH},
-                "change": {
-                    "operation": "delete-section",
-                    "target": "## Repeated Target",
-                    "content": {"source": "inline", "content": "wrong mode"},
-                },
-            },
-        )
-    with pytest.raises(ValueError, match="target and scope"):
-        resolver.resolve(
-            "document.edit",
-            {
-                "target": {"resource": "artefact", "reference": PATH},
-                "change": {
-                    "operation": "replace-text",
-                    "old_text": "old",
-                    "new_text": "new",
-                    "target": ":body",
-                },
-            },
-        )
-
-
-def test_document_edit_rejects_non_artefact_link_fix_before_execution():
-    with pytest.raises(ValueError, match="only for artefacts"):
-        DocumentEditRequest(
-            DocumentTarget(DocumentResource.MEMORY, "brain-core-reference"),
-            AppendChange("append", InlineContent("text")),
-            fix_links=True,
         )

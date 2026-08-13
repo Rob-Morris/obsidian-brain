@@ -179,10 +179,10 @@ def test_upgrade_runner_applies_the_v055_profile_migration(tmp_path):
     profiles = load_mapping_file(config_path)["vault"]["profiles"]
     assert {name: len(value["allow"]) for name, value in profiles.items()} == {
         "reader": 26,
-        "contributor": 48,
-        "maintainer": 61,
-        "operator": 70,
-        "administrator": 71,
+        "contributor": 51,
+        "maintainer": 64,
+        "operator": 73,
+        "administrator": 74,
     }
 
 
@@ -269,6 +269,48 @@ def test_upgrade_runner_applies_the_v057_access_controls(tmp_path):
         ("0.57.0", "ok")
     ]
     assert "0.57.0" in ledger["migrations"]
+    profiles = load_mapping_file(config_path)["vault"]["profiles"]
+    assert {
+        name: tuple(value["allow"]) for name, value in profiles.items()
+    } == current
+
+
+def test_upgrade_runner_applies_the_v059_document_profile_expansion(tmp_path):
+    vault = tmp_path / "Brain"
+    scripts = vault / ".brain-core" / "scripts"
+    shutil.copytree(_REAL_SCRIPTS, scripts)
+    current = builtin_profile_allow_lists(current_application_catalogue())
+    previous = {
+        name: {
+            "allow": sorted(
+                set(commands)
+                - {
+                    "document.patch",
+                    "document.update-frontmatter",
+                    "document.write",
+                }
+            )
+        }
+        for name, commands in current.items()
+    }
+    config_path = vault / ".brain" / "config.yaml"
+    config_path.parent.mkdir(parents=True)
+    config_path.write_text(
+        dump_yaml_text({"vault": {"profiles": previous}}),
+        encoding="utf-8",
+    )
+
+    results, ledger = upgrade._run_migrations(
+        str(vault),
+        "0.58.0",
+        "0.59.0",
+        raise_on_error=True,
+    )
+
+    assert [(item["version"], item["status"]) for item in results] == [
+        ("0.59.0", "ok")
+    ]
+    assert "0.59.0" in ledger["migrations"]
     profiles = load_mapping_file(config_path)["vault"]["profiles"]
     assert {
         name: tuple(value["allow"]) for name, value in profiles.items()
