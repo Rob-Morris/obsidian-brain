@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from .._decoding import reject_unexpected
+
 from dataclasses import dataclass
 from typing import ClassVar, Mapping
 
@@ -14,8 +16,6 @@ from ..types import (
     DependencyTier,
     EffectClass,
     Locality,
-    Projection,
-    ProjectionEligibility,
     RetryClass,
 )
 
@@ -81,9 +81,7 @@ def execute(context: InvocationContext, request: AccessRequestRequest):
 
 
 def decode(payload: Mapping[str, object]) -> AccessRequestRequest:
-    unexpected = sorted(set(payload) - {"commands", "duration_seconds", "use_count"})
-    if unexpected:
-        raise ValueError(f"unexpected fields: {', '.join(unexpected)}")
+    reject_unexpected(payload, {"commands", "duration_seconds", "use_count"})
     commands = payload.get("commands")
     if not isinstance(commands, list) or any(not isinstance(item, str) for item in commands):
         raise ValueError("commands must be an array of strings")
@@ -93,7 +91,7 @@ def decode(payload: Mapping[str, object]) -> AccessRequestRequest:
 
 
 def catalogue_entry():
-    from ..catalogue import ApplicationEntry
+    from ..catalogue import ALL_APPLICATION_PROJECTIONS, ApplicationEntry
 
     return ApplicationEntry(
         request_type=AccessRequestRequest,
@@ -105,20 +103,6 @@ def catalogue_entry():
         authority=Authority.READER,
         effect_class=EffectClass.SELECTED_BRAIN_MUTATION,
         retry_class=RetryClass.SAFE,
-        projections=tuple(
-            ProjectionEligibility(projection, True)
-            for projection in (
-                Projection.MCP,
-                Projection.CLI,
-                Projection.SCRIPT,
-                Projection.PYTHON,
-            )
-        ),
+        projections=ALL_APPLICATION_PROJECTIONS,
         summary="Request an exact, bounded elevation lease within the ceiling.",
     )
-
-
-def resolver_entry():
-    from ..resolver import ResolverEntry
-
-    return ResolverEntry(AccessRequestRequest, decode)

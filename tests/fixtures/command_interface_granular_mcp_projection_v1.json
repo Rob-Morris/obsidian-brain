@@ -7,7 +7,7 @@
   },
   "clients": {
     "claude-code": {
-      "catalogue_hash": "sha256:1b023b618baa33039567e479a44bc8c752f59951f00e228b9a9a6aa033c36c9a",
+      "catalogue_hash": "sha256:e17c5dcb6f7b4806c40544113512eb97b2ab1881209236d684eb0b53ba9e1cf4",
       "client_version": "2.1.226",
       "maximum_tool_tokens": 1826,
       "projector": "claude-code-model-tool-declaration/2.1.226",
@@ -17,9 +17,9 @@
       "tool_count": 60,
       "tools": {
         "access.reduce": {
-          "projected_declaration_hash": "sha256:5990ecb94cf3027eb57c9e93eda7cbcbb13551147542f95b4fa8cdb85ecf0f02",
+          "projected_declaration_hash": "sha256:6df9333137fcefbcb0aedf2d7c88b28cebca950b7b31da78e64102bb85332d02",
           "raw_bytes": 967,
-          "source_schema_hash": "sha256:d4b23335fb7f1d8b79fe83b366fc86dbbab903de63f9119d9e95a3fba3abf972",
+          "source_schema_hash": "sha256:acca19fa648e13dd552b46bd133cf116256a832766fad52e23dc0830f9b3cf06",
           "tokens": 213
         },
         "access.request": {
@@ -380,7 +380,7 @@
       "version_command": "claude --version"
     },
     "codex-cli": {
-      "catalogue_hash": "sha256:3d63f6a93f322fd0d92703cd2cebbc2b9e1a57fbf14777b9e3e4fd778ce7ae11",
+      "catalogue_hash": "sha256:3e475aa406e468dee80e49952a7e038317e112e30f7030753f00a4d0f6cefc54",
       "client_version": "0.147.0",
       "maximum_tool_tokens": 1830,
       "projector": "codex-cli-responses-function-declaration/0.147.0",
@@ -390,9 +390,9 @@
       "tool_count": 60,
       "tools": {
         "access.reduce": {
-          "projected_declaration_hash": "sha256:f559275383b3976d87f28b79d85cf8ab6404c70dd962c544064c97dbeced5758",
+          "projected_declaration_hash": "sha256:750f0187541d8cfa9edf6b312a0a9df31cd31934c46956127d729c772629d328",
           "raw_bytes": 1007,
-          "source_schema_hash": "sha256:d4b23335fb7f1d8b79fe83b366fc86dbbab903de63f9119d9e95a3fba3abf972",
+          "source_schema_hash": "sha256:acca19fa648e13dd552b46bd133cf116256a832766fad52e23dc0830f9b3cf06",
           "tokens": 221
         },
         "access.request": {
@@ -755,7 +755,7 @@
   },
   "mcp_sdk_version": "2.0.0",
   "raw_fastmcp": {
-    "catalogue_hash": "sha256:a3f80c5a9ab2b0a6576db583e78c5e2e96fe83c19aa45d68834495aa8619580b",
+    "catalogue_hash": "sha256:96af35ff7ba53c85e71d5be3d23cab78963042a69fa03e51dce6198573673b51",
     "raw_bytes": 37123,
     "tokens": 7859,
     "tool_count": 60

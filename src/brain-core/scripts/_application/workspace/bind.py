@@ -8,16 +8,14 @@ from typing import ClassVar, Mapping
 from .._caller_workspace import (
     CallerWorkspacePayload,
     caller_workspace_entry,
+    decode_workspace_binding,
     execute_workspace_lifecycle,
     lifecycle_effects,
-    optional_bool,
-    reject_unexpected,
-    require_string,
+    validate_workspace_binding_request,
     workspace_dir,
 )
 from ..context import InvocationContext
 from ..results import Error
-from ..types import validate_slug
 
 
 @dataclass(frozen=True, slots=True)
@@ -31,12 +29,7 @@ class WorkspaceBindRequest:
     force: bool = False
 
     def __post_init__(self) -> None:
-        require_string(self.brain_id, "brain_id", optional=True)
-        require_string(self.slug, "slug", optional=True)
-        if self.slug is not None:
-            validate_slug(self.slug)
-        if not isinstance(self.force, bool):
-            raise ValueError("force must be a boolean")
+        validate_workspace_binding_request(self)
 
 
 def execute(context: InvocationContext, request: WorkspaceBindRequest):
@@ -65,19 +58,8 @@ def execute(context: InvocationContext, request: WorkspaceBindRequest):
 
 
 def decode(payload: Mapping[str, object]) -> WorkspaceBindRequest:
-    reject_unexpected(payload, {"brain_id", "slug", "force"})
-    return WorkspaceBindRequest(
-        require_string(payload.get("brain_id"), "brain_id", optional=True),
-        require_string(payload.get("slug"), "slug", optional=True),
-        optional_bool(payload.get("force"), "force"),
-    )
+    return decode_workspace_binding(payload, WorkspaceBindRequest)
 
 
 def catalogue_entry():
     return caller_workspace_entry(WorkspaceBindRequest, execute)
-
-
-def resolver_entry():
-    from ..resolver import ResolverEntry
-
-    return ResolverEntry(WorkspaceBindRequest, decode)

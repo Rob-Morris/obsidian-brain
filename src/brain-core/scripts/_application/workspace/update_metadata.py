@@ -117,9 +117,3 @@ def decode(payload: Mapping[str, object]) -> WorkspaceUpdateMetadataRequest:
 
 def catalogue_entry():
     return caller_workspace_entry(WorkspaceUpdateMetadataRequest, execute)
-
-
-def resolver_entry():
-    from ..resolver import ResolverEntry
-
-    return ResolverEntry(WorkspaceUpdateMetadataRequest, decode)

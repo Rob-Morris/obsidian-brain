@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from .._decoding import reject_unexpected
+
 from dataclasses import dataclass
 from typing import ClassVar, Mapping
 
@@ -229,9 +231,7 @@ def decode(payload: Mapping[str, object]) -> ArtefactCreateRequest:
         "key",
         "fix_links",
     }
-    unexpected = sorted(set(payload) - allowed)
-    if unexpected:
-        raise ValueError(f"unexpected fields: {', '.join(unexpected)}")
+    reject_unexpected(payload, allowed)
     type_key = payload.get("type")
     title = payload.get("title")
     if not isinstance(type_key, str) or not isinstance(title, str):
@@ -261,9 +261,3 @@ def decode(payload: Mapping[str, object]) -> ArtefactCreateRequest:
 
 def catalogue_entry():
     return contributor_mutation_entry(ArtefactCreateRequest, execute)
-
-
-def resolver_entry():
-    from ..resolver import ResolverEntry
-
-    return ResolverEntry(ArtefactCreateRequest, decode)

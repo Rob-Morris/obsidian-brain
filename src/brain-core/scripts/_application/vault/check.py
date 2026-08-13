@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from .._decoding import reject_unexpected
+
 from dataclasses import dataclass
 from enum import Enum
 from typing import ClassVar, Mapping
@@ -9,7 +11,6 @@ from typing import ClassVar, Mapping
 from .._read_support import (
     catalogue_entry as _catalogue_entry,
     command_error,
-    resolver_entry as _resolver_entry,
 )
 from ..context import InvocationContext
 from ..results import ErrorCode, Ok
@@ -138,9 +139,7 @@ def execute(context: InvocationContext, request: VaultCheckRequest):
 
 def decode(payload: Mapping[str, object]) -> VaultCheckRequest:
     allowed = {"severity", "check", "path", "actionable"}
-    unexpected = sorted(set(payload) - allowed)
-    if unexpected:
-        raise ValueError(f"unexpected fields: {', '.join(unexpected)}")
+    reject_unexpected(payload, allowed)
     severity = payload.get("severity")
     check_name = payload.get("check")
     path = payload.get("path")
@@ -163,7 +162,3 @@ def decode(payload: Mapping[str, object]) -> VaultCheckRequest:
 
 def catalogue_entry():
     return _catalogue_entry(VaultCheckRequest, execute)
-
-
-def resolver_entry():
-    return _resolver_entry(VaultCheckRequest, decode)

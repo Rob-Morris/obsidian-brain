@@ -5,14 +5,13 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Literal, Mapping
 
-from .results import CommandError, Error, ErrorCode, RequestErrorDetails
+from ._decoding import reject_unexpected
+from .results import request_error
 from .types import (
     Authority,
     DependencyTier,
     EffectClass,
     Locality,
-    Projection,
-    ProjectionEligibility,
     RetryClass,
 )
 
@@ -68,21 +67,13 @@ def decode_mutation_content(value: object) -> MutationContent:
         raise ValueError("content must be an object with a source discriminator")
     source = value.get("source")
     if source == "inline":
-        unexpected = sorted(set(value) - {"source", "content"})
-        if unexpected:
-            raise ValueError(
-                f"unexpected inline content fields: {', '.join(unexpected)}"
-            )
+        reject_unexpected(value, {"source", "content"}, label="inline content fields")
         content = value.get("content")
         if not isinstance(content, str):
             raise ValueError("inline content must contain a string")
         return InlineContent(content)
     if source == "stage":
-        unexpected = sorted(set(value) - {"source", "handle"})
-        if unexpected:
-            raise ValueError(
-                f"unexpected staged content fields: {', '.join(unexpected)}"
-            )
+        reject_unexpected(value, {"source", "handle"}, label="staged content fields")
         handle = value.get("handle")
         if not isinstance(handle, str):
             raise ValueError("staged content must contain a string handle")
@@ -123,20 +114,7 @@ def frontmatter_mapping(fields: tuple[FrontmatterField, ...]) -> dict:
     }
 
 
-def no_effect_error(
-    request_type,
-    code: ErrorCode,
-    message: str,
-    field: str | None = None,
-    *,
-    retryable: bool = False,
-) -> Error:
-    return Error(
-        request_type.COMMAND_ID,
-        request_type.COMMAND_VERSION,
-        CommandError(code, message, RequestErrorDetails(field, message)),
-        retryable=retryable,
-    )
+no_effect_error = request_error
 
 
 def contributor_mutation_entry(request_type, executor):
@@ -156,7 +134,7 @@ def administrator_mutation_entry(request_type, executor):
 
 
 def mutation_entry(request_type, executor, authority: Authority):
-    from .catalogue import ApplicationEntry
+    from .catalogue import ALL_APPLICATION_PROJECTIONS, ApplicationEntry
 
     return ApplicationEntry(
         request_type=request_type,
@@ -168,13 +146,5 @@ def mutation_entry(request_type, executor, authority: Authority):
         authority=authority,
         effect_class=EffectClass.SELECTED_BRAIN_MUTATION,
         retry_class=RetryClass.RECEIPT_REQUIRED,
-        projections=tuple(
-            ProjectionEligibility(projection, True)
-            for projection in (
-                Projection.MCP,
-                Projection.CLI,
-                Projection.SCRIPT,
-                Projection.PYTHON,
-            )
-        ),
+        projections=ALL_APPLICATION_PROJECTIONS,
     )

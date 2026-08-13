@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from .._decoding import reject_unexpected
+
 from dataclasses import dataclass
 from typing import ClassVar, Mapping
 
@@ -124,9 +126,7 @@ def execute(context: InvocationContext, request: LinksFixRequest):
 
 
 def decode(payload: Mapping[str, object]) -> LinksFixRequest:
-    unexpected = sorted(set(payload) - {"path", "links"})
-    if unexpected:
-        raise ValueError(f"unexpected fields: {', '.join(unexpected)}")
+    reject_unexpected(payload, {"path", "links"})
     path = payload.get("path")
     links = payload.get("links", ())
     if path is not None and not isinstance(path, str):
@@ -198,9 +198,3 @@ def _payload(result: dict, path: str | None, applied: bool) -> LinksFixPayload:
 
 def catalogue_entry():
     return contributor_mutation_entry(LinksFixRequest, execute)
-
-
-def resolver_entry():
-    from ..resolver import ResolverEntry
-
-    return ResolverEntry(LinksFixRequest, decode)

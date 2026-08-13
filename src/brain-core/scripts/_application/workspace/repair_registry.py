@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from .._decoding import decode_empty
 from dataclasses import dataclass
 from enum import Enum
 from typing import ClassVar, Mapping
@@ -50,7 +51,6 @@ def execute(context: InvocationContext, request: WorkspaceRepairRegistryRequest)
         RegistryRepairPartialError,
         repair_registry,
     )
-
     root = context.selected_brain.vault_root
     try:
         with vault_mutation_lock(root):
@@ -107,9 +107,7 @@ def execute(context: InvocationContext, request: WorkspaceRepairRegistryRequest)
 
 
 def decode(payload: Mapping[str, object]) -> WorkspaceRepairRegistryRequest:
-    if payload:
-        raise ValueError(f"unexpected fields: {', '.join(sorted(payload))}")
-    return WorkspaceRepairRegistryRequest()
+    return decode_empty(payload, WorkspaceRepairRegistryRequest)
 
 
 def catalogue_entry():
@@ -122,9 +120,3 @@ def catalogue_entry():
         "Local workspace-registry repair is reserved for deliberate CLI or "
         "direct-script administration.",
     )
-
-
-def resolver_entry():
-    from ..resolver import ResolverEntry
-
-    return ResolverEntry(WorkspaceRepairRegistryRequest, decode)

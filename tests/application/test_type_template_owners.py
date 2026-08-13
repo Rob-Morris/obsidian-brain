@@ -8,7 +8,7 @@ from _application.registry import current_request_resolver
 from _application.resource.list import ListableResource, ResourceListRequest
 from _application.resource.read import ReadableResource, ResourceReadRequest
 from _application.results import ErrorCode
-from _application.type.read import ArtefactTypeClassification
+from _application.type._classification import ArtefactTypeClassification
 from command_application import application_for
 
 

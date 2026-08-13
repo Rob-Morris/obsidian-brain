@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum
-from typing import Mapping
 
 from ._mutation_support import maintainer_mutation_entry, no_effect_error
 from .context import InvocationContext
@@ -85,12 +84,6 @@ def execute_lexical_maintenance(
         payload,
         committed_effects=effects,
     )
-
-
-def decode_empty(payload: Mapping[str, object], request_type):
-    if payload:
-        raise ValueError(f"unexpected fields: {', '.join(sorted(payload))}")
-    return request_type()
 
 
 def catalogue_entry(request_type, executor):

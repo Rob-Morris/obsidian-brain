@@ -2,20 +2,13 @@
 
 from __future__ import annotations
 
+from .._decoding import decode_empty
+from .._read_support import catalogue_entry as portable_reader_entry
 from dataclasses import dataclass
 from typing import ClassVar, Mapping
 
 from ..context import InvocationContext
 from ..results import CommandError, Error, ErrorCode, Ok
-from ..types import (
-    Authority,
-    DependencyTier,
-    EffectClass,
-    Locality,
-    Projection,
-    ProjectionEligibility,
-    RetryClass,
-)
 
 
 @dataclass(frozen=True, slots=True)
@@ -76,37 +69,8 @@ def execute(context: InvocationContext, _request: VaultReadRouterRequest):
 
 
 def decode(payload: Mapping[str, object]) -> VaultReadRouterRequest:
-    if payload:
-        raise ValueError(f"unexpected fields: {', '.join(sorted(payload))}")
-    return VaultReadRouterRequest()
+    return decode_empty(payload, VaultReadRouterRequest)
 
 
 def catalogue_entry():
-    from ..catalogue import ApplicationEntry
-
-    return ApplicationEntry(
-        request_type=VaultReadRouterRequest,
-        executor=execute,
-        dependency_tier=DependencyTier.PORTABLE,
-        locality=Locality.SELECTED_BRAIN_LOCAL,
-        required_providers=(),
-        optional_providers=(),
-        authority=Authority.READER,
-        effect_class=EffectClass.NONE,
-        retry_class=RetryClass.SAFE,
-        projections=tuple(
-            ProjectionEligibility(projection, True)
-            for projection in (
-                Projection.MCP,
-                Projection.CLI,
-                Projection.SCRIPT,
-                Projection.PYTHON,
-            )
-        ),
-    )
-
-
-def resolver_entry():
-    from ..resolver import ResolverEntry
-
-    return ResolverEntry(VaultReadRouterRequest, decode)
+    return portable_reader_entry(VaultReadRouterRequest, execute)

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from .._decoding import reject_unexpected
+
 from dataclasses import dataclass
 from typing import ClassVar, Mapping
 
@@ -76,9 +78,7 @@ def decode(payload: Mapping[str, object]) -> TypeReplaceRequest:
         "expected_sha256",
         "expected_template_sha256",
     }
-    unexpected = sorted(set(payload) - fields)
-    if unexpected:
-        raise ValueError(f"unexpected fields: {', '.join(unexpected)}")
+    reject_unexpected(payload, fields)
     for field in fields:
         if field not in payload:
             raise ValueError(f"{field} is required")
@@ -108,9 +108,3 @@ def decode(payload: Mapping[str, object]) -> TypeReplaceRequest:
 
 def catalogue_entry():
     return definition_catalogue_entry(TypeReplaceRequest, execute)
-
-
-def resolver_entry():
-    from ..resolver import ResolverEntry
-
-    return ResolverEntry(TypeReplaceRequest, decode)

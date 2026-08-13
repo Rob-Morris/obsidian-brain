@@ -66,9 +66,3 @@ def decode(payload: Mapping[str, object]) -> WorkspaceUnregisterRequest:
 
 def catalogue_entry():
     return caller_workspace_entry(WorkspaceUnregisterRequest, execute)
-
-
-def resolver_entry():
-    from ..resolver import ResolverEntry
-
-    return ResolverEntry(WorkspaceUnregisterRequest, decode)

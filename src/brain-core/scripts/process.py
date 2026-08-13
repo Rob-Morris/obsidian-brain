@@ -234,31 +234,13 @@ def resolve_content(
     query_encoder=None,
 ):
     """Determine if content should create a new artefact or update existing."""
-    try:
-        artefact = create_mod.resolve_type(router, type_key)
-    except ValueError as e:
-        return {"action": "error", "reasoning": str(e)}
+    exact = resolve_exact_content(router, vault_root, type_key, title)
+    if exact is not None:
+        return exact
 
+    artefact = create_mod.resolve_type(router, type_key)
     resolved_type = artefact["frontmatter_type"]
     resolved_key = artefact["key"]
-
-    generous_name = title_to_filename(title)
-    legacy_slug = title_to_slug(title)
-    type_path = artefact["path"]
-    abs_type_dir = os.path.join(str(vault_root), type_path)
-
-    filename_match = _find_filename_match(vault_root, artefact, generous_name, legacy_slug)
-    if filename_match:
-        rel_path = os.path.relpath(filename_match, str(vault_root))
-        return {
-            "action": "update",
-            "type": resolved_type,
-            "key": resolved_key,
-            "title": title,
-            "target_path": rel_path,
-            "candidates": [rel_path],
-            "reasoning": f"Filename match: {os.path.basename(filename_match)}",
-        }
 
     candidates = []
 
@@ -332,6 +314,36 @@ def resolve_content(
             "lexical scores are advisory candidates only"
         ),
     }
+
+
+def resolve_exact_content(router, vault_root, type_key, title):
+    """Resolve an exact same-type filename without loading retrieval state."""
+    try:
+        artefact = create_mod.resolve_type(router, type_key)
+    except ValueError as e:
+        return {"action": "error", "reasoning": str(e)}
+
+    resolved_type = artefact["frontmatter_type"]
+    resolved_key = artefact["key"]
+
+    generous_name = title_to_filename(title)
+    legacy_slug = title_to_slug(title)
+    type_path = artefact["path"]
+    abs_type_dir = os.path.join(str(vault_root), type_path)
+
+    filename_match = _find_filename_match(vault_root, artefact, generous_name, legacy_slug)
+    if filename_match:
+        rel_path = os.path.relpath(filename_match, str(vault_root))
+        return {
+            "action": "update",
+            "type": resolved_type,
+            "key": resolved_key,
+            "title": title,
+            "target_path": rel_path,
+            "candidates": [rel_path],
+            "reasoning": f"Filename match: {os.path.basename(filename_match)}",
+        }
+    return None
 
 
 def _find_filename_match(vault_root, artefact, generous_name, legacy_slug):

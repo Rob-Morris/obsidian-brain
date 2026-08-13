@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from .._decoding import reject_unexpected
+
 from dataclasses import dataclass
 from typing import ClassVar, Mapping
 
@@ -31,9 +33,7 @@ def execute(context: InvocationContext, request: RetrievalRefreshLexicalRequest)
 
 
 def decode(payload: Mapping[str, object]) -> RetrievalRefreshLexicalRequest:
-    unexpected = sorted(set(payload) - {"force"})
-    if unexpected:
-        raise ValueError(f"unexpected fields: {', '.join(unexpected)}")
+    reject_unexpected(payload, {"force"})
     force = payload.get("force", False)
     if not isinstance(force, bool):
         raise ValueError("force must be a boolean")
@@ -42,9 +42,3 @@ def decode(payload: Mapping[str, object]) -> RetrievalRefreshLexicalRequest:
 
 def catalogue_entry():
     return lexical_catalogue_entry(RetrievalRefreshLexicalRequest, execute)
-
-
-def resolver_entry():
-    from ..resolver import ResolverEntry
-
-    return ResolverEntry(RetrievalRefreshLexicalRequest, decode)

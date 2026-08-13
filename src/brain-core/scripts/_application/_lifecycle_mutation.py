@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from ._decoding import reject_unexpected
+
 from dataclasses import dataclass
 from typing import Mapping
 
@@ -46,9 +48,7 @@ def decode_lifecycle_request(
     value_field: str,
     nullable: bool,
 ):
-    unexpected = sorted(set(payload) - {"path", value_field})
-    if unexpected:
-        raise ValueError(f"unexpected fields: {', '.join(unexpected)}")
+    reject_unexpected(payload, {"path", value_field})
     if "path" not in payload:
         raise ValueError("path is required")
     if value_field not in payload:

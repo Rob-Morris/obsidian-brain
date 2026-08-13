@@ -11,7 +11,7 @@ from .application import (
     internal_error_result,
 )
 from .catalogue import ApplicationCatalogue
-from .context import InvocationContext
+from .context import InvocationContext, report_failure_safely
 from .projection import canonical_result_envelope, canonical_result_json
 from .resolver import RequestResolutionError, RequestResolver, ResolutionErrorCode
 from .results import (
@@ -86,7 +86,13 @@ class ApplicationAdapter:
         if entry is not None:
             try:
                 denied = authority_denied_result(context, entry)
-            except Exception:
+            except Exception as exc:
+                report_failure_safely(
+                    context,
+                    phase="authority.before-resolution",
+                    command_id=entry.command_id,
+                    error=exc,
+                )
                 return project_adapter_result(
                     internal_error_result(
                         context,

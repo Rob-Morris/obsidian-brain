@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from .._decoding import decode_empty
 from dataclasses import dataclass
 from typing import ClassVar, Mapping
 
@@ -15,8 +16,6 @@ from ..types import (
     DependencyTier,
     EffectClass,
     Locality,
-    Projection,
-    ProjectionEligibility,
     RetryClass,
 )
 from .._read_support import command_error
@@ -339,13 +338,11 @@ def execute(context: InvocationContext, _request: SessionStartRequest):
 
 
 def decode(payload: Mapping[str, object]) -> SessionStartRequest:
-    if payload:
-        raise ValueError(f"unexpected fields: {', '.join(sorted(payload))}")
-    return SessionStartRequest()
+    return decode_empty(payload, SessionStartRequest)
 
 
 def catalogue_entry():
-    from ..catalogue import ApplicationEntry
+    from ..catalogue import ALL_APPLICATION_PROJECTIONS, ApplicationEntry
 
     return ApplicationEntry(
         request_type=SessionStartRequest,
@@ -357,19 +354,5 @@ def catalogue_entry():
         authority=Authority.READER,
         effect_class=EffectClass.DERIVED_CACHE_WRITE,
         retry_class=RetryClass.SAFE,
-        projections=tuple(
-            ProjectionEligibility(projection, True)
-            for projection in (
-                Projection.MCP,
-                Projection.CLI,
-                Projection.SCRIPT,
-                Projection.PYTHON,
-            )
-        ),
+        projections=ALL_APPLICATION_PROJECTIONS,
     )
-
-
-def resolver_entry():
-    from ..resolver import ResolverEntry
-
-    return ResolverEntry(SessionStartRequest, decode)

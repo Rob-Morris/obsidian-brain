@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import ClassVar, Mapping
 
+from .._decoding import reject_unexpected
 from .._mutation_support import contributor_mutation_entry, no_effect_error
 from ..context import InvocationContext
 from ..receipts import CommittedEffect
@@ -153,9 +154,7 @@ def execute(context: InvocationContext, request: ShapingStartRequest):
 
 
 def decode(payload: Mapping[str, object]) -> ShapingStartRequest:
-    unexpected = sorted(set(payload) - {"target", "mode"})
-    if unexpected:
-        raise ValueError(f"unexpected fields: {', '.join(unexpected)}")
+    reject_unexpected(payload, {"target", "mode"})
     target = payload.get("target")
     mode = payload.get("mode")
     if not isinstance(target, str):
@@ -171,9 +170,3 @@ def decode(payload: Mapping[str, object]) -> ShapingStartRequest:
 
 def catalogue_entry():
     return contributor_mutation_entry(ShapingStartRequest, execute)
-
-
-def resolver_entry():
-    from ..resolver import ResolverEntry
-
-    return ResolverEntry(ShapingStartRequest, decode)

@@ -3,16 +3,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Mapping
-
 from ._mutation_support import (
     FrontmatterField,
-    InlineContent,
     MutationContent,
-    StagedContent,
-    contributor_mutation_entry,
-    decode_frontmatter,
-    decode_mutation_content,
     frontmatter_mapping,
     no_effect_error,
     resolve_mutation_content,
@@ -28,40 +21,6 @@ class NamedResourceCreatePayload:
     name: str
     path: str
     staged_handle_consumed: bool
-
-
-def validate_named_create_request(request) -> None:
-    if not isinstance(request.name, str) or not request.name.strip():
-        raise ValueError(f"{request.COMMAND_ID} name must be a non-empty string")
-    if not isinstance(request.content, (InlineContent, StagedContent)):
-        raise ValueError(f"{request.COMMAND_ID} content has an invalid variant")
-    if not isinstance(request.frontmatter, tuple) or any(
-        not isinstance(item, FrontmatterField) for item in request.frontmatter
-    ):
-        raise ValueError(f"{request.COMMAND_ID} frontmatter must be typed fields")
-    names = tuple(item.name for item in request.frontmatter)
-    if len(names) != len(set(names)):
-        raise ValueError(f"{request.COMMAND_ID} frontmatter fields must be unique")
-    if names != tuple(sorted(names)):
-        raise ValueError(
-            f"{request.COMMAND_ID} frontmatter fields must use deterministic order"
-        )
-
-
-def execute_named_create(
-    context: InvocationContext,
-    request,
-    *,
-    resource: str,
-):
-    return execute_named_create_values(
-        context,
-        request,
-        resource=resource,
-        name=request.name,
-        content=request.content,
-        frontmatter=request.frontmatter,
-    )
 
 
 def execute_named_create_values(
@@ -159,25 +118,3 @@ def execute_named_create_values(
         committed_effects=(CommittedEffect(f"{resource}.created", payload.path),),
         warnings=warnings,
     )
-
-
-def decode_named_create(
-    payload: Mapping[str, object],
-    request_type,
-):
-    allowed = {"name", "content", "frontmatter"}
-    unexpected = sorted(set(payload) - allowed)
-    if unexpected:
-        raise ValueError(f"unexpected fields: {', '.join(unexpected)}")
-    name = payload.get("name")
-    if not isinstance(name, str):
-        raise ValueError("name must be a string")
-    return request_type(
-        name=name,
-        content=decode_mutation_content(payload.get("content")),
-        frontmatter=decode_frontmatter(payload.get("frontmatter")),
-    )
-
-
-def catalogue_entry(request_type, executor):
-    return contributor_mutation_entry(request_type, executor)

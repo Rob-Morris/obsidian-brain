@@ -2,21 +2,15 @@
 
 from __future__ import annotations
 
+from .._decoding import reject_unexpected
+from .._read_support import catalogue_entry as portable_reader_entry
+
 from dataclasses import dataclass
 from enum import Enum
 from typing import ClassVar, Mapping
 
 from ..context import InvocationContext
-from ..results import CommandError, Error, ErrorCode, Ok, RequestErrorDetails
-from ..types import (
-    Authority,
-    DependencyTier,
-    EffectClass,
-    Locality,
-    Projection,
-    ProjectionEligibility,
-    RetryClass,
-)
+from ..results import Error, ErrorCode, Ok, request_error
 
 
 @dataclass(frozen=True, slots=True)
@@ -83,21 +77,11 @@ def execute(context: InvocationContext, request: ArtefactReadRequest):
 
 
 def _error(code: ErrorCode, message: str) -> Error:
-    return Error(
-        ArtefactReadRequest.COMMAND_ID,
-        ArtefactReadRequest.COMMAND_VERSION,
-        CommandError(
-            code,
-            message,
-            RequestErrorDetails("reference", message),
-        ),
-    )
+    return request_error(ArtefactReadRequest, code, message, "reference")
 
 
 def decode(payload: Mapping[str, object]) -> ArtefactReadRequest:
-    unexpected = sorted(set(payload) - {"reference", "location"})
-    if unexpected:
-        raise ValueError(f"unexpected fields: {', '.join(unexpected)}")
+    reject_unexpected(payload, {"reference", "location"})
     reference = payload.get("reference")
     if not isinstance(reference, str):
         raise ValueError("reference must be a string")
@@ -113,31 +97,4 @@ def decode(payload: Mapping[str, object]) -> ArtefactReadRequest:
 
 
 def catalogue_entry():
-    from ..catalogue import ApplicationEntry
-
-    return ApplicationEntry(
-        request_type=ArtefactReadRequest,
-        executor=execute,
-        dependency_tier=DependencyTier.PORTABLE,
-        locality=Locality.SELECTED_BRAIN_LOCAL,
-        required_providers=(),
-        optional_providers=(),
-        authority=Authority.READER,
-        effect_class=EffectClass.NONE,
-        retry_class=RetryClass.SAFE,
-        projections=tuple(
-            ProjectionEligibility(projection, True)
-            for projection in (
-                Projection.MCP,
-                Projection.CLI,
-                Projection.SCRIPT,
-                Projection.PYTHON,
-            )
-        ),
-    )
-
-
-def resolver_entry():
-    from ..resolver import ResolverEntry
-
-    return ResolverEntry(ArtefactReadRequest, decode)
+    return portable_reader_entry(ArtefactReadRequest, execute)

@@ -6,13 +6,11 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import ClassVar, Literal, Mapping
 
+from .._decoding import decode_bool, optional_string, reject_unexpected
 from .._document_edit import (
     DocumentEditPayload,
     EditScope,
     StructuralSelector,
-    _decode_bool,
-    _decode_optional_string,
-    _reject_unexpected,
     decode_scope,
     decode_selector,
     execute_document_edit,
@@ -277,11 +275,11 @@ def execute(context: InvocationContext, request: DocumentEditRequest):
 
 
 def decode(payload: Mapping[str, object]) -> DocumentEditRequest:
-    _reject_unexpected(payload, {"target", "change", "fix_links"})
+    reject_unexpected(payload, {"target", "change", "fix_links"})
     raw_target = payload.get("target")
     if not isinstance(raw_target, Mapping):
         raise ValueError("target must be an object")
-    _reject_unexpected(raw_target, {"resource", "reference"}, label="target")
+    reject_unexpected(raw_target, {"resource", "reference"}, label="target fields")
     resource = raw_target.get("resource")
     reference = raw_target.get("reference")
     if not isinstance(resource, str) or not isinstance(reference, str):
@@ -299,24 +297,24 @@ def decode(payload: Mapping[str, object]) -> DocumentEditRequest:
     return DocumentEditRequest(
         target,
         change,
-        _decode_bool(payload, "fix_links", False),
+        decode_bool(payload, "fix_links"),
     )
 
 
 def _decode_change(payload: Mapping[str, object]) -> DocumentChange:
     operation = payload.get("operation")
     if operation in {"replace", "append", "prepend"}:
-        _reject_unexpected(
+        reject_unexpected(
             payload,
             {"operation", "content", "frontmatter", "target", "selector", "scope"},
-            label="change",
+            label="change fields",
         )
         raw_content = payload.get("content")
         values = {
             "operation": operation,
             "content": None if raw_content is None else decode_mutation_content(raw_content),
             "frontmatter": decode_frontmatter(payload.get("frontmatter")),
-            "target": _decode_optional_string(payload.get("target"), "target"),
+            "target": optional_string(payload.get("target"), "target"),
             "selector": decode_selector(payload.get("selector")),
             "scope": decode_scope(payload.get("scope")),
         }
@@ -327,10 +325,10 @@ def _decode_change(payload: Mapping[str, object]) -> DocumentChange:
         }[operation]
         return request_type(**values)
     if operation == "delete-section":
-        _reject_unexpected(
+        reject_unexpected(
             payload,
             {"operation", "target", "selector", "frontmatter"},
-            label="change",
+            label="change fields",
         )
         target = payload.get("target")
         if not isinstance(target, str):
@@ -342,7 +340,7 @@ def _decode_change(payload: Mapping[str, object]) -> DocumentChange:
             decode_frontmatter(payload.get("frontmatter")),
         )
     if operation == "replace-text":
-        _reject_unexpected(
+        reject_unexpected(
             payload,
             {
                 "operation",
@@ -354,7 +352,7 @@ def _decode_change(payload: Mapping[str, object]) -> DocumentChange:
                 "match_occurrence",
                 "replace_all",
             },
-            label="change",
+            label="change fields",
         )
         old_text = payload.get("old_text")
         new_text = payload.get("new_text")
@@ -369,11 +367,11 @@ def _decode_change(payload: Mapping[str, object]) -> DocumentChange:
             operation,
             old_text,
             new_text,
-            _decode_optional_string(payload.get("target"), "target"),
+            optional_string(payload.get("target"), "target"),
             decode_selector(payload.get("selector")),
             decode_scope(payload.get("scope")),
             occurrence,
-            _decode_bool(payload, "replace_all", False),
+            decode_bool(payload, "replace_all"),
         )
     raise ValueError(
         "change operation must be replace, append, prepend, delete-section, or replace-text"
@@ -382,9 +380,3 @@ def _decode_change(payload: Mapping[str, object]) -> DocumentChange:
 
 def catalogue_entry():
     return contributor_mutation_entry(DocumentEditRequest, execute)
-
-
-def resolver_entry():
-    from ..resolver import ResolverEntry
-
-    return ResolverEntry(DocumentEditRequest, decode)

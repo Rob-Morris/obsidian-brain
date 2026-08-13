@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from ._decoding import optional_bool, reject_unexpected
+
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
@@ -19,6 +21,7 @@ from .types import (
     Projection,
     ProjectionEligibility,
     RetryClass,
+    validate_slug,
 )
 
 
@@ -184,18 +187,22 @@ def require_string(value: object, field: str, *, optional: bool = False):
     return value
 
 
-def optional_bool(value: object, field: str, *, default: bool = False) -> bool:
-    if value is None:
-        return default
-    if not isinstance(value, bool):
-        raise ValueError(f"{field} must be a boolean")
-    return value
+def validate_workspace_binding_request(request) -> None:
+    require_string(request.brain_id, "brain_id", optional=True)
+    require_string(request.slug, "slug", optional=True)
+    if request.slug is not None:
+        validate_slug(request.slug)
+    if not isinstance(request.force, bool):
+        raise ValueError("force must be a boolean")
 
 
-def reject_unexpected(payload: Mapping[str, object], allowed: set[str]) -> None:
-    unexpected = sorted(set(payload) - allowed)
-    if unexpected:
-        raise ValueError(f"unexpected fields: {', '.join(unexpected)}")
+def decode_workspace_binding(payload: Mapping[str, object], request_type):
+    reject_unexpected(payload, {"brain_id", "slug", "force"})
+    return request_type(
+        require_string(payload.get("brain_id"), "brain_id", optional=True),
+        require_string(payload.get("slug"), "slug", optional=True),
+        optional_bool(payload.get("force"), "force"),
+    )
 
 
 def caller_workspace_entry(request_type, executor):

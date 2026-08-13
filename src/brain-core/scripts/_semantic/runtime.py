@@ -5,6 +5,7 @@ from __future__ import annotations
 import importlib.util
 import json
 import os
+from typing import Literal
 
 from _common import load_compiled_router
 import _semantic.config as semantic_config
@@ -18,6 +19,7 @@ ROUTER_SOURCE_HASH_KEY = "router_source_hash"
 EMBEDDING_MODEL = semantic_model.SHIPPED_MODEL_NAME
 EMBEDDING_MODEL_REVISION = semantic_model.SHIPPED_MODEL_REVISION
 EMBEDDING_DIM = 384
+EmbeddingSelection = Literal["types", "documents", "all"]
 
 
 class SemanticEmbeddingsLoadError(RuntimeError):
@@ -191,21 +193,35 @@ def embeddings_meta_matches_current_router(vault_root, meta, *, loader=None):
     return embeddings_meta_matches_router(meta, router)
 
 
-def load_embeddings_state(vault_root):
-    """Load type+doc embeddings and shared meta from disk.
+def load_embeddings_state(
+    vault_root,
+    *,
+    selection: EmbeddingSelection = "all",
+):
+    """Load selected embedding arrays and their shared metadata from disk.
 
     Returns `(type_embeddings, doc_embeddings, meta)`. Meta is the shared
     row→entry mapping; without it the npy arrays can't be interpreted, so
-    type/doc default to `None` whenever metadata is absent. Either npy can
-    independently be `None` if its file is missing. Returns
+    type/doc default to `None` whenever metadata is absent. An unselected or
+    missing array is represented by `None`. Returns
     `(None, None, None)` when numpy is unavailable. Raises
     `SemanticEmbeddingsLoadError` when persisted metadata or arrays are
     present but unreadable.
     """
+    if selection not in {"types", "documents", "all"}:
+        raise ValueError(f"unsupported embedding selection: {selection}")
     try:
         import numpy as np
-    except ImportError:
-        return (None, None, None)
+    except ModuleNotFoundError as exc:
+        if exc.name == "numpy":
+            return (None, None, None)
+        raise SemanticEmbeddingsLoadError(
+            f"semantic NumPy dependency failed to import: {exc}"
+        ) from exc
+    except ImportError as exc:
+        raise SemanticEmbeddingsLoadError(
+            f"semantic NumPy dependency failed to import: {exc}"
+        ) from exc
 
     vault_root = str(vault_root)
     type_path = os.path.join(vault_root, TYPE_EMBEDDINGS_REL)
@@ -228,7 +244,7 @@ def load_embeddings_state(vault_root):
         meta = loaded
 
     type_embeddings = None
-    if meta is not None and os.path.isfile(type_path):
+    if selection in {"types", "all"} and meta is not None and os.path.isfile(type_path):
         try:
             type_embeddings = np.load(type_path)
         except (OSError, ValueError) as exc:
@@ -237,7 +253,7 @@ def load_embeddings_state(vault_root):
             ) from exc
 
     doc_embeddings = None
-    if meta is not None and os.path.isfile(doc_path):
+    if selection in {"documents", "all"} and meta is not None and os.path.isfile(doc_path):
         try:
             doc_embeddings = np.load(doc_path)
         except (OSError, ValueError) as exc:
@@ -254,7 +270,10 @@ def load_doc_embeddings(vault_root):
     Convenience wrapper over `load_embeddings_state` for callers that don't
     need type embeddings. Returns `(None, None)` if either is missing.
     """
-    _type, doc, meta = load_embeddings_state(vault_root)
+    _type, doc, meta = load_embeddings_state(
+        vault_root,
+        selection="documents",
+    )
     if doc is None or meta is None:
         return (None, None)
     return (doc, meta)

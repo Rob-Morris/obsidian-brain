@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from .._decoding import reject_unexpected
+
 from dataclasses import dataclass
 from enum import Enum
 from typing import ClassVar, Mapping
@@ -81,18 +83,16 @@ def execute(context: InvocationContext, request: ContentClassifyRequest):
     router = load_router(context, ContentClassifyRequest)
     if isinstance(router, Error):
         return router
-    try:
-        index = load_index(context.selected_brain.vault_root)
-    except IndexNotFoundError:
-        index = None
-    except (OSError, ValueError) as exc:
-        return error(ContentClassifyRequest, ErrorCode.CONFLICT, str(exc), None)
-
     type_embeddings = metadata = None
     if request.mode is ContentClassifyMode.EMBEDDING:
         if not semantic_provider_ready(context):
             return semantic_unavailable(ContentClassifyRequest, context)
-        semantic_state = load_semantic_state(context, ContentClassifyRequest)
+        semantic_state = load_semantic_state(
+            context,
+            ContentClassifyRequest,
+            router,
+            selection="types",
+        )
         if isinstance(semantic_state, Error):
             return semantic_state
         _config, type_embeddings, _doc_embeddings, metadata = semantic_state
@@ -107,10 +107,24 @@ def execute(context: InvocationContext, request: ContentClassifyRequest):
         request.mode is ContentClassifyMode.AUTO
         and semantic_provider_ready(context)
     ):
-        semantic_state = load_semantic_state(context, ContentClassifyRequest)
+        semantic_state = load_semantic_state(
+            context,
+            ContentClassifyRequest,
+            router,
+            selection="types",
+        )
         if isinstance(semantic_state, Error):
             return semantic_state
         _config, type_embeddings, _doc_embeddings, metadata = semantic_state
+
+    index = None
+    if request.mode in {ContentClassifyMode.AUTO, ContentClassifyMode.BM25_ONLY}:
+        try:
+            index = load_index(context.selected_brain.vault_root)
+        except IndexNotFoundError:
+            index = None
+        except (OSError, ValueError) as exc:
+            return error(ContentClassifyRequest, ErrorCode.CONFLICT, str(exc), None)
 
     try:
         result = process.classify_content(
@@ -157,9 +171,7 @@ def _payload(result) -> ContentClassifyPayload:
 
 
 def decode(payload: Mapping[str, object]) -> ContentClassifyRequest:
-    unexpected = sorted(set(payload) - {"content", "mode"})
-    if unexpected:
-        raise ValueError(f"unexpected fields: {', '.join(unexpected)}")
+    reject_unexpected(payload, {"content", "mode"})
     content = payload.get("content")
     if not isinstance(content, str):
         raise ValueError("content must be a string")
@@ -175,9 +187,3 @@ def catalogue_entry():
         execute,
         optional_semantic=True,
     )
-
-
-def resolver_entry():
-    from ..resolver import ResolverEntry
-
-    return ResolverEntry(ContentClassifyRequest, decode)

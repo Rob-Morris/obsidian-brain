@@ -79,7 +79,7 @@ def test_contract_modules_import_in_isolated_interpreter_without_runtime_depende
         f"sys.path.insert(0, {str(scripts_root)!r}); "
         "import _application.types, _application.receipts, _application.context, "
         "_application.results, _application.requests, _application.catalogue, "
-        "_application.resolver, _application.versions, _application.availability, "
+        "_application.resolver, _application.availability, "
         "_application.application, _application.foundation, _application.registry; "
         "forbidden={'argparse','mcp','pydantic','numpy','torch','transformers','brain_mcp'}; "
         "loaded=forbidden.intersection(sys.modules); "

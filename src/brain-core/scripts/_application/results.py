@@ -217,6 +217,24 @@ class Error:
 CommandResult = Ok[T] | Partial | Error
 
 
+def request_error(
+    request_type,
+    code: ErrorCode,
+    message: str,
+    field: str | None = None,
+    *,
+    retryable: bool = False,
+) -> Error:
+    """Build a no-effect request failure from request-owned identity."""
+
+    return Error(
+        request_type.COMMAND_ID,
+        request_type.COMMAND_VERSION,
+        CommandError(code, message, RequestErrorDetails(field, message)),
+        retryable=retryable,
+    )
+
+
 def _validate_identity(command_id: str, command_version: int) -> None:
     validate_command_id(command_id)
     if command_version < 1:

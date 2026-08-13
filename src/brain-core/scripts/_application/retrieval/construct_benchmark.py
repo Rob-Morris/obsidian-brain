@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from .._decoding import reject_unexpected
+
 from dataclasses import dataclass
 from enum import Enum
 from typing import ClassVar, Literal, Mapping
@@ -213,9 +215,7 @@ def decode(payload: Mapping[str, object]) -> RetrievalConstructBenchmarkRequest:
         "semantic_seed_path",
         "hybrid_seed_path",
     }
-    unexpected = sorted(set(payload) - allowed)
-    if unexpected:
-        raise ValueError(f"unexpected fields: {', '.join(unexpected)}")
+    reject_unexpected(payload, allowed)
     fixture_path = payload.get("fixture_path")
     if not isinstance(fixture_path, str):
         raise ValueError("fixture_path must be a string")
@@ -238,9 +238,3 @@ def decode(payload: Mapping[str, object]) -> RetrievalConstructBenchmarkRequest:
 
 def catalogue_entry():
     return benchmark_entry(RetrievalConstructBenchmarkRequest, execute, mutation=True)
-
-
-def resolver_entry():
-    from ..resolver import ResolverEntry
-
-    return ResolverEntry(RetrievalConstructBenchmarkRequest, decode)

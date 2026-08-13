@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from .._decoding import optional_string, reject_unexpected
+
 from dataclasses import dataclass
 from enum import Enum
 from typing import ClassVar, Mapping
@@ -77,11 +79,6 @@ def execute(context: InvocationContext, request: ArtefactSearchRequest):
                 f"unknown configured artefact type: {request.type_filter}",
                 "type_filter",
             )
-    try:
-        index = load_index(context.selected_brain.vault_root)
-    except (IndexNotFoundError, OSError, ValueError) as exc:
-        return error(ArtefactSearchRequest, ErrorCode.CONFLICT, str(exc), None)
-
     semantic_ready = semantic_provider_ready(context)
     if request.mode in {
         ArtefactSearchMode.SEMANTIC,
@@ -94,10 +91,21 @@ def execute(context: InvocationContext, request: ArtefactSearchRequest):
 
     semantic_state = (None, None, None, None)
     if resolved_mode in {"semantic", "hybrid"}:
-        semantic_state = load_semantic_state(context, ArtefactSearchRequest)
+        semantic_state = load_semantic_state(
+            context,
+            ArtefactSearchRequest,
+            router,
+            selection="documents",
+        )
         if isinstance(semantic_state, Error):
             return semantic_state
     config, _type_embeddings, doc_embeddings, metadata = semantic_state
+    index = None
+    if resolved_mode in {"lexical", "hybrid"}:
+        try:
+            index = load_index(context.selected_brain.vault_root)
+        except (IndexNotFoundError, OSError, ValueError) as exc:
+            return error(ArtefactSearchRequest, ErrorCode.CONFLICT, str(exc), None)
     filters = SearchFilters(
         type=request.type_filter,
         tag=request.tag,
@@ -132,21 +140,13 @@ def execute(context: InvocationContext, request: ArtefactSearchRequest):
         search_payload(resolved_mode, results),
     )
 
-
 def _optional_string(payload: Mapping[str, object], name: str) -> str | None:
-    value = payload.get(name)
-    if value is None:
-        return None
-    if not isinstance(value, str):
-        raise ValueError(f"{name} must be a string")
-    return value
+    return optional_string(payload.get(name), name)
 
 
 def decode(payload: Mapping[str, object]) -> ArtefactSearchRequest:
     allowed = {"query", "type_filter", "tag", "status", "mode", "top_k"}
-    unexpected = sorted(set(payload) - allowed)
-    if unexpected:
-        raise ValueError(f"unexpected fields: {', '.join(unexpected)}")
+    reject_unexpected(payload, allowed)
     query = payload.get("query")
     if not isinstance(query, str):
         raise ValueError("query must be a string")
@@ -172,9 +172,3 @@ def catalogue_entry():
         execute,
         optional_semantic=True,
     )
-
-
-def resolver_entry():
-    from ..resolver import ResolverEntry
-
-    return ResolverEntry(ArtefactSearchRequest, decode)

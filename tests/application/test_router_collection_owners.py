@@ -10,7 +10,7 @@ from _application.registry import current_request_resolver
 from _application.resource.list import ListableResource, ResourceListRequest
 from _application.resource.read import ReadableResource, ResourceReadRequest
 from _application.results import ErrorCode
-from _application.trigger.read import TriggerCategory
+from _application.resource._types import TriggerCategory
 from command_application import application_for
 
 

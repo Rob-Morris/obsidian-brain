@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from .._decoding import decode_empty
 from dataclasses import dataclass
 from enum import Enum
 from typing import ClassVar, Mapping
@@ -14,8 +15,6 @@ from ..types import (
     DependencyTier,
     EffectClass,
     Locality,
-    Projection,
-    ProjectionEligibility,
     RetryClass,
 )
 from ._snapshot import typed_snapshot
@@ -59,13 +58,11 @@ def execute(context: InvocationContext, _request: RuntimeWarmupRequest):
 
 
 def decode(payload: Mapping[str, object]) -> RuntimeWarmupRequest:
-    if payload:
-        raise ValueError(f"unexpected fields: {', '.join(sorted(payload))}")
-    return RuntimeWarmupRequest()
+    return decode_empty(payload, RuntimeWarmupRequest)
 
 
 def catalogue_entry():
-    from ..catalogue import ApplicationEntry
+    from ..catalogue import ALL_APPLICATION_PROJECTIONS, ApplicationEntry
 
     return ApplicationEntry(
         request_type=RuntimeWarmupRequest,
@@ -77,20 +74,6 @@ def catalogue_entry():
         authority=Authority.READER,
         effect_class=EffectClass.DERIVED_CACHE_WRITE,
         retry_class=RetryClass.SAFE,
-        projections=tuple(
-            ProjectionEligibility(projection, True)
-            for projection in (
-                Projection.MCP,
-                Projection.CLI,
-                Projection.SCRIPT,
-                Projection.PYTHON,
-            )
-        ),
+        projections=ALL_APPLICATION_PROJECTIONS,
         summary="Start, join or retry selected-Brain runtime warm-up.",
     )
-
-
-def resolver_entry():
-    from ..resolver import ResolverEntry
-
-    return ResolverEntry(RuntimeWarmupRequest, decode)

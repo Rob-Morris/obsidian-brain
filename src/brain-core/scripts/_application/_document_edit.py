@@ -4,15 +4,13 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum
-from typing import ClassVar, Mapping
+from typing import Mapping
 
+from ._decoding import reject_unexpected
 from ._mutation_support import (
     FrontmatterField,
     InlineContent,
-    MutationContent,
     StagedContent,
-    decode_frontmatter,
-    decode_mutation_content,
     frontmatter_mapping,
     no_effect_error,
     resolve_mutation_content,
@@ -80,63 +78,6 @@ class DocumentEditPayload:
     wikilink_fixes: tuple[WikilinkFix, ...]
     wikilink_substitutions: int
     staged_handle_consumed: bool
-
-
-@dataclass(frozen=True, slots=True)
-class NamedStructuralRequest:
-    """Inherited field contract for one named-resource structural command."""
-
-    COMMAND_ID: ClassVar[str] = ""
-    COMMAND_VERSION: ClassVar[int] = 1
-    RESULT_TYPE: ClassVar[type] = DocumentEditPayload
-
-    name: str
-    content: MutationContent | None = None
-    frontmatter: tuple[FrontmatterField, ...] = ()
-    target: str | None = None
-    selector: StructuralSelector | None = None
-    scope: EditScope | None = None
-
-    def __post_init__(self) -> None:
-        validate_structural_request(self, subject_field="name")
-
-
-@dataclass(frozen=True, slots=True)
-class NamedDeleteSectionRequest:
-    """Inherited field contract for one named-resource section deletion."""
-
-    COMMAND_ID: ClassVar[str] = ""
-    COMMAND_VERSION: ClassVar[int] = 1
-    RESULT_TYPE: ClassVar[type] = DocumentEditPayload
-
-    name: str
-    target: str
-    selector: StructuralSelector | None = None
-    frontmatter: tuple[FrontmatterField, ...] = ()
-
-    def __post_init__(self) -> None:
-        validate_delete_request(self, subject_field="name")
-
-
-@dataclass(frozen=True, slots=True)
-class NamedReplaceTextRequest:
-    """Inherited field contract for one named-resource exact replacement."""
-
-    COMMAND_ID: ClassVar[str] = ""
-    COMMAND_VERSION: ClassVar[int] = 1
-    RESULT_TYPE: ClassVar[type] = DocumentEditPayload
-
-    name: str
-    old_text: str
-    new_text: str
-    target: str | None = None
-    selector: StructuralSelector | None = None
-    scope: EditScope | None = None
-    match_occurrence: int | None = None
-    replace_all: bool = False
-
-    def __post_init__(self) -> None:
-        validate_replace_request(self, subject_field="name")
 
 
 def validate_structural_request(request, *, subject_field: str | None) -> None:
@@ -279,122 +220,12 @@ def execute_document_edit(
     )
 
 
-def decode_structural_request(
-    payload: Mapping[str, object],
-    request_type,
-    *,
-    subject_field: str,
-    allow_fix_links: bool,
-):
-    allowed = {
-        subject_field,
-        "content",
-        "frontmatter",
-        "target",
-        "selector",
-        "scope",
-    }
-    if allow_fix_links:
-        allowed.add("fix_links")
-    _reject_unexpected(payload, allowed)
-    subject = _decode_subject(payload, subject_field)
-    raw_content = payload.get("content")
-    return request_type(
-        **{subject_field: subject},
-        content=(
-            None if raw_content is None else decode_mutation_content(raw_content)
-        ),
-        frontmatter=decode_frontmatter(payload.get("frontmatter")),
-        target=_decode_optional_string(payload.get("target"), "target"),
-        selector=decode_selector(payload.get("selector")),
-        scope=decode_scope(payload.get("scope")),
-        **(
-            {"fix_links": _decode_bool(payload, "fix_links", False)}
-            if allow_fix_links
-            else {}
-        ),
-    )
-
-
-def decode_delete_request(
-    payload: Mapping[str, object],
-    request_type,
-    *,
-    subject_field: str,
-    allow_fix_links: bool,
-):
-    allowed = {subject_field, "target", "selector", "frontmatter"}
-    if allow_fix_links:
-        allowed.add("fix_links")
-    _reject_unexpected(payload, allowed)
-    target = payload.get("target")
-    if not isinstance(target, str):
-        raise ValueError("target must be a string")
-    return request_type(
-        **{subject_field: _decode_subject(payload, subject_field)},
-        target=target,
-        selector=decode_selector(payload.get("selector")),
-        frontmatter=decode_frontmatter(payload.get("frontmatter")),
-        **(
-            {"fix_links": _decode_bool(payload, "fix_links", False)}
-            if allow_fix_links
-            else {}
-        ),
-    )
-
-
-def decode_replace_request(
-    payload: Mapping[str, object],
-    request_type,
-    *,
-    subject_field: str,
-    allow_fix_links: bool,
-):
-    allowed = {
-        subject_field,
-        "old_text",
-        "new_text",
-        "target",
-        "selector",
-        "scope",
-        "match_occurrence",
-        "replace_all",
-    }
-    if allow_fix_links:
-        allowed.add("fix_links")
-    _reject_unexpected(payload, allowed)
-    old_text = payload.get("old_text")
-    new_text = payload.get("new_text")
-    if not isinstance(old_text, str) or not isinstance(new_text, str):
-        raise ValueError("old_text and new_text must be strings")
-    occurrence = payload.get("match_occurrence")
-    if occurrence is not None and (
-        not isinstance(occurrence, int) or isinstance(occurrence, bool)
-    ):
-        raise ValueError("match_occurrence must be an integer or null")
-    return request_type(
-        **{subject_field: _decode_subject(payload, subject_field)},
-        old_text=old_text,
-        new_text=new_text,
-        target=_decode_optional_string(payload.get("target"), "target"),
-        selector=decode_selector(payload.get("selector")),
-        scope=decode_scope(payload.get("scope")),
-        match_occurrence=occurrence,
-        replace_all=_decode_bool(payload, "replace_all", False),
-        **(
-            {"fix_links": _decode_bool(payload, "fix_links", False)}
-            if allow_fix_links
-            else {}
-        ),
-    )
-
-
 def decode_selector(value: object) -> StructuralSelector | None:
     if value is None:
         return None
     if not isinstance(value, Mapping):
         raise ValueError("selector must be an object")
-    _reject_unexpected(value, {"occurrence", "within"}, label="selector")
+    reject_unexpected(value, {"occurrence", "within"}, label="selector fields")
     occurrence = value.get("occurrence")
     if occurrence is not None and (
         not isinstance(occurrence, int) or isinstance(occurrence, bool)
@@ -408,8 +239,10 @@ def decode_selector(value: object) -> StructuralSelector | None:
         for item in raw_within:
             if not isinstance(item, Mapping):
                 raise ValueError("selector within steps must be objects")
-            _reject_unexpected(
-                item, {"target", "occurrence"}, label="selector within step"
+            reject_unexpected(
+                item,
+                {"target", "occurrence"},
+                label="selector within step fields",
             )
             target = item.get("target")
             step_occurrence = item.get("occurrence")
@@ -440,89 +273,6 @@ def decode_scope(value: object) -> EditScope | None:
         raise ValueError(
             "scope must be section, intro, body, heading, header, or null"
         ) from exc
-
-
-def named_structural_bindings(request_type, *, resource: str, operation: str):
-    """Return the four conventional module bindings for a named command."""
-
-    def execute(context: InvocationContext, request):
-        return execute_document_edit(
-            context,
-            request,
-            resource=resource,
-            operation=operation,
-            subject_field="name",
-        )
-
-    def decode(payload: Mapping[str, object]):
-        return decode_structural_request(
-            payload,
-            request_type,
-            subject_field="name",
-            allow_fix_links=False,
-        )
-
-    return _named_bindings(request_type, execute, decode)
-
-
-def named_delete_bindings(request_type, *, resource: str):
-    """Return conventional bindings for a named delete-section command."""
-
-    def execute(context: InvocationContext, request):
-        return execute_document_edit(
-            context,
-            request,
-            resource=resource,
-            operation="delete_section",
-            subject_field="name",
-        )
-
-    def decode(payload: Mapping[str, object]):
-        return decode_delete_request(
-            payload,
-            request_type,
-            subject_field="name",
-            allow_fix_links=False,
-        )
-
-    return _named_bindings(request_type, execute, decode)
-
-
-def named_replace_bindings(request_type, *, resource: str):
-    """Return conventional bindings for a named replace-text command."""
-
-    def execute(context: InvocationContext, request):
-        return execute_document_edit(
-            context,
-            request,
-            resource=resource,
-            operation="replace_text",
-            subject_field="name",
-        )
-
-    def decode(payload: Mapping[str, object]):
-        return decode_replace_request(
-            payload,
-            request_type,
-            subject_field="name",
-            allow_fix_links=False,
-        )
-
-    return _named_bindings(request_type, execute, decode)
-
-
-def _named_bindings(request_type, execute, decode):
-    def catalogue_entry():
-        from ._mutation_support import contributor_mutation_entry
-
-        return contributor_mutation_entry(request_type, execute)
-
-    def resolver_entry():
-        from .resolver import ResolverEntry
-
-        return ResolverEntry(request_type, decode)
-
-    return execute, decode, catalogue_entry, resolver_entry
 
 
 def _preflight_request(edit, request, operation: str) -> None:
@@ -690,38 +440,3 @@ def _validate_occurrence(value, label: str) -> None:
 def _validate_fix_links(request) -> None:
     if hasattr(request, "fix_links") and not isinstance(request.fix_links, bool):
         raise ValueError(f"{request.COMMAND_ID} fix_links must be a boolean")
-
-
-def _reject_unexpected(
-    payload: Mapping[str, object],
-    allowed: set[str],
-    *,
-    label: str = "request",
-) -> None:
-    unexpected = sorted(set(payload) - allowed)
-    if unexpected:
-        raise ValueError(
-            f"unexpected {label} fields: {', '.join(unexpected)}"
-        )
-
-
-def _decode_subject(payload: Mapping[str, object], field_name: str) -> str:
-    value = payload.get(field_name)
-    if not isinstance(value, str):
-        raise ValueError(f"{field_name} must be a string")
-    return value
-
-
-def _decode_optional_string(value: object, label: str) -> str | None:
-    if value is not None and not isinstance(value, str):
-        raise ValueError(f"{label} must be a string or null")
-    return value
-
-
-def _decode_bool(
-    payload: Mapping[str, object], field_name: str, default: bool
-) -> bool:
-    value = payload.get(field_name, default)
-    if not isinstance(value, bool):
-        raise ValueError(f"{field_name} must be a boolean")
-    return value

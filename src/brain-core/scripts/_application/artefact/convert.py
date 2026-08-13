@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import ClassVar, Mapping
 
+from .._decoding import reject_unexpected
 from .._artefact_transition import (
     ArtefactConvertPayload,
     PathChange,
@@ -55,11 +56,7 @@ def execute(context: InvocationContext, request: ArtefactConvertRequest):
 
 
 def decode(payload: Mapping[str, object]) -> ArtefactConvertRequest:
-    unexpected = sorted(
-        set(payload) - {"path", "target_type", "parent", "recursive"}
-    )
-    if unexpected:
-        raise ValueError(f"unexpected fields: {', '.join(unexpected)}")
+    reject_unexpected(payload, {"path", "target_type", "parent", "recursive"})
     for field in ("path", "target_type"):
         if field not in payload:
             raise ValueError(f"{field} is required")
@@ -94,9 +91,3 @@ def _payload(result: dict) -> ArtefactConvertPayload:
 
 def catalogue_entry():
     return transition_catalogue_entry(ArtefactConvertRequest, execute)
-
-
-def resolver_entry():
-    from ..resolver import ResolverEntry
-
-    return ResolverEntry(ArtefactConvertRequest, decode)

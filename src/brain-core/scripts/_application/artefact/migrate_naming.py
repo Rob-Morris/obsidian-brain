@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from .._decoding import decode_empty
 from dataclasses import dataclass
 from typing import ClassVar, Mapping
 
@@ -97,11 +98,8 @@ def execute(context: InvocationContext, request: ArtefactMigrateNamingRequest):
         committed_effects=effects,
     )
 
-
 def decode(payload: Mapping[str, object]) -> ArtefactMigrateNamingRequest:
-    if payload:
-        raise ValueError(f"unexpected fields: {', '.join(sorted(payload))}")
-    return ArtefactMigrateNamingRequest()
+    return decode_empty(payload, ArtefactMigrateNamingRequest)
 
 
 def _payload(result: dict) -> ArtefactMigrateNamingPayload:
@@ -138,9 +136,3 @@ def catalogue_entry():
         "Vault-wide naming migration is reserved for deliberate CLI or "
         "direct-script administration.",
     )
-
-
-def resolver_entry():
-    from ..resolver import ResolverEntry
-
-    return ResolverEntry(ArtefactMigrateNamingRequest, decode)

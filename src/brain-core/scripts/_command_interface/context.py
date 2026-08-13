@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timezone
+import logging
 from pathlib import Path
 
 from _application.context import (
@@ -11,6 +12,7 @@ from _application.context import (
     CapabilitySnapshot,
     CapabilitySnapshotStore,
     InvocationContext,
+    DiagnosticReporter,
     ProviderBindings,
     SelectedBrain,
 )
@@ -84,6 +86,27 @@ class ProfileAuthority:
         )
 
 
+@dataclass(frozen=True, slots=True)
+class LoggingDiagnosticReporter:
+    logger_name: str = "brain.command"
+
+    def report_failure(
+        self,
+        *,
+        phase: str,
+        command_id: str,
+        correlation_id: str,
+        error: BaseException,
+    ) -> None:
+        logging.getLogger(self.logger_name).error(
+            "command failure phase=%s command=%s correlation_id=%s",
+            phase,
+            command_id,
+            correlation_id,
+            exc_info=(type(error), error, error.__traceback__),
+        )
+
+
 def compose_local_context(
     *,
     vault_root: Path,
@@ -104,6 +127,7 @@ def compose_local_context(
     capability_snapshots: CapabilitySnapshotStore | None = None,
     dry_run: bool = False,
     clock=None,
+    diagnostics: DiagnosticReporter | None = None,
 ) -> InvocationContext:
     """Compose trusted state already resolved by a concrete local adapter."""
 
@@ -148,6 +172,9 @@ def compose_local_context(
         dry_run=dry_run,
         workspace_dir=resolved_workspace,
         capability_snapshots=capability_snapshots,
+        diagnostics=(
+            diagnostics if diagnostics is not None else LoggingDiagnosticReporter()
+        ),
     )
 
 

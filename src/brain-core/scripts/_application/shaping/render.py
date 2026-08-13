@@ -6,12 +6,11 @@ from dataclasses import dataclass, replace
 from enum import Enum
 from typing import ClassVar, Literal, Mapping
 
+from .._decoding import optional_bool, reject_unexpected
 from .._document_rendering import (
     catalogue_entry as rendering_catalogue_entry,
     execute_render,
-    optional_bool,
     optional_string,
-    reject_unexpected,
     require_non_empty,
 )
 from ..context import InvocationContext
@@ -150,7 +149,6 @@ def execute(context: InvocationContext, request: ShapingRenderRequest):
         build_payload=_printable_payload,
     )
 
-
 def _common(result: Mapping[str, object], dry_run: bool):
     return (
         RenderStatus.PLANNED if dry_run else RenderStatus.COMPLETE,
@@ -231,9 +229,3 @@ def catalogue_entry():
         rendering_catalogue_entry(ShapingRenderRequest, execute),
         summary="Render a presentation or printable from one shaped artefact.",
     )
-
-
-def resolver_entry():
-    from ..resolver import ResolverEntry
-
-    return ResolverEntry(ShapingRenderRequest, decode)

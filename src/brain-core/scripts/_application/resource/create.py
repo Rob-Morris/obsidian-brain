@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from .._decoding import reject_unexpected
+
 from dataclasses import dataclass
 from typing import ClassVar, Literal, Mapping
 
@@ -122,11 +124,8 @@ def execute(context: InvocationContext, request: ResourceCreateRequest):
         frontmatter=frontmatter,
     )
 
-
 def decode(payload: Mapping[str, object]) -> ResourceCreateRequest:
-    unexpected = sorted(set(payload) - {"target", "content"})
-    if unexpected:
-        raise ValueError(f"unexpected fields: {', '.join(unexpected)}")
+    reject_unexpected(payload, {"target", "content"})
     target = payload.get("target")
     if not isinstance(target, Mapping):
         raise ValueError("target must be an object")
@@ -135,20 +134,18 @@ def decode(payload: Mapping[str, object]) -> ResourceCreateRequest:
     if not isinstance(resource, str) or not isinstance(name, str):
         raise ValueError("target resource and name must be strings")
     if resource == "template":
-        unexpected_target = sorted(set(target) - {"resource", "name"})
-        if unexpected_target:
-            raise ValueError(
-                f"unexpected template target fields: {', '.join(unexpected_target)}"
-            )
+        reject_unexpected(
+            target,
+            {"resource", "name"},
+            label="template target fields",
+        )
         typed_target: ResourceCreateTarget = TemplateCreateTarget(resource, name)
     elif resource in {"memory", "skill", "style"}:
-        unexpected_target = sorted(
-            set(target) - {"resource", "name", "frontmatter"}
+        reject_unexpected(
+            target,
+            {"resource", "name", "frontmatter"},
+            label=f"{resource} target fields",
         )
-        if unexpected_target:
-            raise ValueError(
-                f"unexpected {resource} target fields: {', '.join(unexpected_target)}"
-            )
         frontmatter = decode_frontmatter(target.get("frontmatter"))
         target_type = {
             "memory": MemoryCreateTarget,
@@ -171,9 +168,3 @@ def catalogue_entry():
         contributor_mutation_entry(ResourceCreateRequest, execute),
         summary="Create one named memory, skill, style or template.",
     )
-
-
-def resolver_entry():
-    from ..resolver import ResolverEntry
-
-    return ResolverEntry(ResourceCreateRequest, decode)

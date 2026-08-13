@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from .._decoding import reject_unexpected
+
 from dataclasses import dataclass
 from enum import Enum
 from typing import ClassVar, Mapping
@@ -75,13 +77,33 @@ def execute(context: InvocationContext, request: ContentResolveRequest):
             "type_key",
         )
     try:
+        exact = process.resolve_exact_content(
+            router,
+            context.selected_brain.vault_root,
+            request.type_key,
+            request.title,
+        )
+    except (OSError, RuntimeError, ValueError) as exc:
+        return error(ContentResolveRequest, ErrorCode.CONFLICT, str(exc), None)
+    if exact is not None:
+        return Ok(
+            request.COMMAND_ID,
+            request.COMMAND_VERSION,
+            payload_from_result(exact),
+        )
+    try:
         index = load_index(context.selected_brain.vault_root)
     except (IndexNotFoundError, OSError, ValueError) as exc:
         return error(ContentResolveRequest, ErrorCode.CONFLICT, str(exc), None)
 
     doc_embeddings = metadata = None
     if semantic_provider_ready(context):
-        semantic_state = load_semantic_state(context, ContentResolveRequest)
+        semantic_state = load_semantic_state(
+            context,
+            ContentResolveRequest,
+            router,
+            selection="documents",
+        )
         if isinstance(semantic_state, Error):
             return semantic_state
         _config, _type_embeddings, doc_embeddings, metadata = semantic_state
@@ -120,12 +142,9 @@ def payload_from_result(result) -> ContentResolvePayload:
         reasoning=result["reasoning"],
     )
 
-
 def decode(payload: Mapping[str, object]) -> ContentResolveRequest:
     allowed = {"content", "type_key", "title"}
-    unexpected = sorted(set(payload) - allowed)
-    if unexpected:
-        raise ValueError(f"unexpected fields: {', '.join(unexpected)}")
+    reject_unexpected(payload, allowed)
     values = {name: payload.get(name) for name in allowed}
     if any(not isinstance(value, str) for value in values.values()):
         raise ValueError("content, type_key and title must be strings")
@@ -142,9 +161,3 @@ def catalogue_entry():
         execute,
         optional_semantic=True,
     )
-
-
-def resolver_entry():
-    from ..resolver import ResolverEntry
-
-    return ResolverEntry(ContentResolveRequest, decode)

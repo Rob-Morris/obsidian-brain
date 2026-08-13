@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from .._decoding import reject_unexpected
+
 from dataclasses import dataclass
 from enum import Enum
 from typing import ClassVar, Mapping
@@ -78,9 +80,7 @@ def execute(context: InvocationContext, request: ArtefactReparentChildrenRequest
 
 
 def decode(payload: Mapping[str, object]) -> ArtefactReparentChildrenRequest:
-    unexpected = sorted(set(payload) - {"source", "mode", "parent"})
-    if unexpected:
-        raise ValueError(f"unexpected fields: {', '.join(unexpected)}")
+    reject_unexpected(payload, {"source", "mode", "parent"})
     for field in ("source", "mode"):
         if field not in payload:
             raise ValueError(f"{field} is required")
@@ -124,9 +124,3 @@ def _payload(result: dict) -> ArtefactReparentChildrenPayload:
 
 def catalogue_entry():
     return transition_catalogue_entry(ArtefactReparentChildrenRequest, execute)
-
-
-def resolver_entry():
-    from ..resolver import ResolverEntry
-
-    return ResolverEntry(ArtefactReparentChildrenRequest, decode)

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from .._decoding import reject_unexpected
+
 from dataclasses import dataclass
 from enum import Enum
 from typing import ClassVar, Mapping
@@ -44,9 +46,7 @@ def execute(context: InvocationContext, request: ArtefactRepairRequest):
 
 
 def decode(payload: Mapping[str, object]) -> ArtefactRepairRequest:
-    unexpected = sorted(set(payload) - {"scope"})
-    if unexpected:
-        raise ValueError(f"unexpected fields: {', '.join(unexpected)}")
+    reject_unexpected(payload, {"scope"})
     scope = payload.get("scope")
     if not isinstance(scope, str):
         raise ValueError("scope must be a string")
@@ -60,9 +60,3 @@ def decode(payload: Mapping[str, object]) -> ArtefactRepairRequest:
 
 def catalogue_entry():
     return repair_catalogue_entry(ArtefactRepairRequest, execute)
-
-
-def resolver_entry():
-    from ..resolver import ResolverEntry
-
-    return ResolverEntry(ArtefactRepairRequest, decode)

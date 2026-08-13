@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from .._decoding import reject_unexpected
+
 from dataclasses import dataclass, replace
 from enum import Enum
 from typing import ClassVar, Mapping
@@ -50,9 +52,7 @@ def execute(context: InvocationContext, request: ResourceSearchRequest):
 
 
 def decode(payload: Mapping[str, object]) -> ResourceSearchRequest:
-    unexpected = sorted(set(payload) - {"resource", "query", "top_k"})
-    if unexpected:
-        raise ValueError(f"unexpected fields: {', '.join(unexpected)}")
+    reject_unexpected(payload, {"resource", "query", "top_k"})
     try:
         resource = SearchableResource(payload.get("resource"))
     except (TypeError, ValueError) as exc:
@@ -73,9 +73,3 @@ def catalogue_entry():
         search_catalogue_entry(ResourceSearchRequest, execute),
         summary="Search memories, plugins, skills, styles or triggers.",
     )
-
-
-def resolver_entry():
-    from ..resolver import ResolverEntry
-
-    return ResolverEntry(ResourceSearchRequest, decode)

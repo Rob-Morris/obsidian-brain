@@ -5,6 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
+import sys
+import traceback
 from typing import Protocol
 
 from .access_contracts import AccessController
@@ -30,6 +32,62 @@ class AuthorityEvaluator(Protocol):
         required: Authority,
         effect: EffectClass,
     ) -> bool: ...
+
+    def ceiling_allows(self, command_id: str) -> bool: ...
+
+    def consume(self, command_id: str) -> bool: ...
+
+
+class DiagnosticReporter(Protocol):
+    def report_failure(
+        self,
+        *,
+        phase: str,
+        command_id: str,
+        correlation_id: str,
+        error: BaseException,
+    ) -> None: ...
+
+
+@dataclass(frozen=True, slots=True)
+class NullDiagnosticReporter:
+    def report_failure(
+        self,
+        *,
+        phase: str,
+        command_id: str,
+        correlation_id: str,
+        error: BaseException,
+    ) -> None:
+        del phase, command_id, correlation_id, error
+
+
+def report_failure_safely(
+    context: "InvocationContext",
+    *,
+    phase: str,
+    command_id: str,
+    error: BaseException,
+) -> None:
+    """Report an invocation failure without letting diagnostics alter its outcome."""
+
+    try:
+        context.diagnostics.report_failure(
+            phase=phase,
+            command_id=command_id,
+            correlation_id=context.correlation_id,
+            error=error,
+        )
+    except Exception as reporter_error:
+        try:
+            sys.__stderr__.write(
+                "Brain command diagnostic reporter failed while handling "
+                f"{phase} for {command_id}:\n"
+            )
+            traceback.print_exception(reporter_error, file=sys.__stderr__)
+        except Exception:
+            # Diagnostic fallback must never change the command outcome.
+            pass
 
 
 class ProviderPort(Protocol):
@@ -135,6 +193,7 @@ class InvocationContext:
     dry_run: bool = False
     workspace_dir: Path | None = None
     capability_snapshots: CapabilitySnapshotStore | None = None
+    diagnostics: DiagnosticReporter = NullDiagnosticReporter()
 
     def __post_init__(self) -> None:
         if not self.profile.strip():

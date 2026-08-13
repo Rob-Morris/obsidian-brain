@@ -37,6 +37,7 @@ def _context(
     *,
     tools=frozenset(("command.list",)),
     invocation_id="inv-local",
+    diagnostics=None,
 ):
     clock = _Clock()
     receipts = MemoryReceiptStore(clock)
@@ -56,6 +57,7 @@ def _context(
         receipt_store=receipts,
         workspace_dir=(tmp_path / "workspace").resolve(),
         clock=clock,
+        diagnostics=diagnostics,
     )
 
 
@@ -68,6 +70,19 @@ def test_local_context_uses_only_explicit_resolved_state(tmp_path):
     assert context.providers.require("semantic_retrieval").provider_id == "semantic_retrieval"
     assert context.capabilities.availability_of("semantic_retrieval") is Availability.AVAILABLE
     assert context.workspace_dir == (tmp_path / "workspace").resolve()
+
+
+def test_local_context_preserves_a_falsey_diagnostic_reporter(tmp_path):
+    class _FalseyDiagnostics:
+        def __bool__(self):
+            return False
+
+        def report_failure(self, **_failure):
+            pass
+
+    diagnostics = _FalseyDiagnostics()
+
+    assert _context(tmp_path, diagnostics=diagnostics).diagnostics is diagnostics
 
 
 def test_granular_profile_denies_before_executor_and_has_no_aggregate_fallback(tmp_path):

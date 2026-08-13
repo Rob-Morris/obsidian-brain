@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from .._decoding import reject_unexpected
+
 from dataclasses import dataclass
 from typing import ClassVar, Mapping
 
@@ -48,9 +50,7 @@ def execute(context: InvocationContext, request: PluginCreateRequest):
 
 
 def decode(payload: Mapping[str, object]) -> PluginCreateRequest:
-    unexpected = sorted(set(payload) - {"name", "content"})
-    if unexpected:
-        raise ValueError(f"unexpected fields: {', '.join(unexpected)}")
+    reject_unexpected(payload, {"name", "content"})
     if "name" not in payload or "content" not in payload:
         raise ValueError("name and content are required")
     if not isinstance(payload["name"], str):
@@ -62,9 +62,3 @@ def decode(payload: Mapping[str, object]) -> PluginCreateRequest:
 
 def catalogue_entry():
     return definition_catalogue_entry(PluginCreateRequest, execute)
-
-
-def resolver_entry():
-    from ..resolver import ResolverEntry
-
-    return ResolverEntry(PluginCreateRequest, decode)

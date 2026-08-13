@@ -2,20 +2,18 @@
 
 from __future__ import annotations
 
+from .._decoding import reject_unexpected
+
 from dataclasses import dataclass, field, replace
 from enum import Enum
 from typing import ClassVar, Literal, Mapping
 
-from ..memory import read as memory_read
-from ..plugin import read as plugin_read
-from ..skill import read as skill_read
-from ..style import read as style_read
-from ..template import read as template_read
-from ..trigger import read as trigger_read
-from ..type import read as type_read
 from .._read_support import catalogue_entry as read_catalogue_entry
+from .._read_support import command_error
 from ..context import InvocationContext
-from ._result import compose_result
+from ..results import Error, ErrorCode, Ok
+from ..type._classification import ArtefactTypeClassification
+from ._types import SkillSource, TriggerCategory
 
 
 class ReadableResource(str, Enum):
@@ -46,7 +44,7 @@ class PluginReadItem:
 @dataclass(frozen=True, slots=True)
 class SkillReadItem:
     name: str
-    source: skill_read.SkillSource
+    source: SkillSource
     content: str
     resource: Literal["skill"] = field(default="skill", init=False)
 
@@ -71,7 +69,7 @@ class TemplateReadItem:
 class TriggerReadItem:
     condition: str
     target: str
-    category: trigger_read.TriggerCategory
+    category: TriggerCategory
     detail: str | None
     resource: Literal["trigger"] = field(default="trigger", init=False)
 
@@ -79,7 +77,7 @@ class TriggerReadItem:
 @dataclass(frozen=True, slots=True)
 class TypeReadItem:
     key: str
-    classification: type_read.ArtefactTypeClassification
+    classification: ArtefactTypeClassification
     frontmatter_type: str
     folder: str
     path: str
@@ -121,74 +119,144 @@ class ResourceReadRequest:
             raise ValueError("resource.read reference must be a non-empty string")
 
 
-_IMPLEMENTATIONS = {
-    ReadableResource.MEMORY: (memory_read.MemoryReadRequest, memory_read.execute),
-    ReadableResource.PLUGIN: (plugin_read.PluginReadRequest, plugin_read.execute),
-    ReadableResource.SKILL: (skill_read.SkillReadRequest, skill_read.execute),
-    ReadableResource.STYLE: (style_read.StyleReadRequest, style_read.execute),
-    ReadableResource.TEMPLATE: (
-        template_read.TemplateReadRequest,
-        template_read.execute,
-    ),
-    ReadableResource.TRIGGER: (trigger_read.TriggerReadRequest, trigger_read.execute),
-    ReadableResource.TYPE: (
-        type_read.ArtefactTypeReadRequest,
-        type_read.execute,
-    ),
-}
-
-
 def execute(context: InvocationContext, request: ResourceReadRequest):
-    request_type, executor = _IMPLEMENTATIONS[request.resource]
-    result = executor(context, request_type(request.reference))
-    aliases = {"condition": "reference"} if request.resource is ReadableResource.TRIGGER else None
-    return compose_result(
-        result,
-        type(request),
-        lambda payload: _item(request.resource, payload),
-        field_aliases=aliases,
+    result = _READERS[request.resource](
+        context.selected_brain.vault_root,
+        request.reference,
+    )
+    if isinstance(result, Error):
+        return result
+    return Ok(request.COMMAND_ID, request.COMMAND_VERSION, result)
+
+
+def _error(code, message, field=None):
+    return command_error(ResourceReadRequest, code, message, field)
+
+
+def _read_memory(root, reference):
+    from _portable.router_collections import read_memory_exact_from_vault
+
+    try:
+        result = read_memory_exact_from_vault(root, reference)
+    except FileNotFoundError as exc:
+        return _error(ErrorCode.CONFLICT, str(exc))
+    if isinstance(result, dict):
+        return _error(ErrorCode.NOT_FOUND, str(result["error"]), "reference")
+    metadata, content = result
+    if not isinstance(content, str):
+        return _error(ErrorCode.NOT_FOUND, content.message, "reference")
+    return MemoryReadItem(
+        metadata["name"], tuple(metadata.get("triggers") or ()), content
+    )
+
+def _read_named(root, reference, resource, item_builder):
+    from .._named_documents import read_portable
+
+    try:
+        result = read_portable(root, resource, reference)
+    except FileNotFoundError as exc:
+        return _error(ErrorCode.CONFLICT, str(exc))
+    if isinstance(result, dict):
+        return _error(ErrorCode.NOT_FOUND, str(result["error"]), "reference")
+    metadata, content = result
+    if not isinstance(content, str):
+        return _error(ErrorCode.NOT_FOUND, content.message, "reference")
+    return item_builder(metadata, content)
+
+
+def _read_template(root, reference):
+    from _common import MissingFileResult
+    from _portable.type_definitions import read_template_exact_from_vault
+
+    try:
+        result = read_template_exact_from_vault(root, reference)
+    except (FileNotFoundError, ValueError) as exc:
+        return _error(ErrorCode.CONFLICT, str(exc))
+    if isinstance(result, dict):
+        return _error(ErrorCode.NOT_FOUND, str(result["error"]), "reference")
+    metadata, content = result
+    if isinstance(content, MissingFileResult):
+        return _error(ErrorCode.CONFLICT, content.message)
+    return TemplateReadItem(
+        metadata["key"], metadata["frontmatter_type"], metadata["template_file"], content
     )
 
 
-def _item(resource: ReadableResource, item) -> ResourceReadItem:
-    builders = {
-        ReadableResource.MEMORY: lambda value: MemoryReadItem(
-            value.name, value.triggers, value.content
+def _read_trigger(root, reference):
+    from _portable.router_collections import read_trigger_exact_from_vault
+
+    try:
+        trigger = read_trigger_exact_from_vault(root, reference)
+    except FileNotFoundError as exc:
+        return _error(ErrorCode.CONFLICT, str(exc))
+    except ValueError as exc:
+        return _error(ErrorCode.CONFLICT, str(exc), "reference")
+    if "error" in trigger:
+        return _error(ErrorCode.NOT_FOUND, str(trigger["error"]), "reference")
+    return TriggerReadItem(
+        trigger["condition"],
+        trigger["target"],
+        TriggerCategory(trigger["category"]),
+        trigger.get("detail"),
+    )
+
+
+def _read_type(root, reference):
+    from _common import MissingFileResult
+    from _portable.type_definitions import read_type_exact_from_vault
+
+    try:
+        result = read_type_exact_from_vault(root, reference)
+    except (FileNotFoundError, ValueError) as exc:
+        return _error(ErrorCode.CONFLICT, str(exc))
+    if isinstance(result, dict):
+        return _error(ErrorCode.NOT_FOUND, str(result["error"]), "reference")
+    metadata, definition = result
+    if isinstance(definition, MissingFileResult):
+        return _error(ErrorCode.CONFLICT, definition.message)
+    return TypeReadItem(
+        metadata["key"],
+        ArtefactTypeClassification(metadata["classification"]),
+        metadata["frontmatter_type"],
+        metadata["folder"],
+        metadata["path"],
+        bool(metadata["configured"]),
+        metadata.get("taxonomy_file"),
+        metadata.get("template_file"),
+        definition,
+    )
+
+
+_READERS = {
+    ReadableResource.MEMORY: _read_memory,
+    ReadableResource.PLUGIN: lambda root, reference: _read_named(
+        root,
+        reference,
+        "plugin",
+        lambda metadata, content: PluginReadItem(metadata["name"], content),
+    ),
+    ReadableResource.SKILL: lambda root, reference: _read_named(
+        root,
+        reference,
+        "skill",
+        lambda metadata, content: SkillReadItem(
+            metadata["name"], SkillSource(metadata["source"]), content
         ),
-        ReadableResource.PLUGIN: lambda value: PluginReadItem(
-            value.name, value.content
-        ),
-        ReadableResource.SKILL: lambda value: SkillReadItem(
-            value.name, value.source, value.content
-        ),
-        ReadableResource.STYLE: lambda value: StyleReadItem(
-            value.name, value.content
-        ),
-        ReadableResource.TEMPLATE: lambda value: TemplateReadItem(
-            value.type_key, value.artefact_type, value.path, value.content
-        ),
-        ReadableResource.TRIGGER: lambda value: TriggerReadItem(
-            value.condition, value.target, value.category, value.detail
-        ),
-        ReadableResource.TYPE: lambda value: TypeReadItem(
-            value.key,
-            value.classification,
-            value.frontmatter_type,
-            value.folder,
-            value.path,
-            value.configured,
-            value.taxonomy_path,
-            value.template_path,
-            value.definition,
-        ),
-    }
-    return builders[resource](item)
+    ),
+    ReadableResource.STYLE: lambda root, reference: _read_named(
+        root,
+        reference,
+        "style",
+        lambda metadata, content: StyleReadItem(metadata["name"], content),
+    ),
+    ReadableResource.TEMPLATE: _read_template,
+    ReadableResource.TRIGGER: _read_trigger,
+    ReadableResource.TYPE: _read_type,
+}
 
 
 def decode(payload: Mapping[str, object]) -> ResourceReadRequest:
-    unexpected = sorted(set(payload) - {"resource", "reference"})
-    if unexpected:
-        raise ValueError(f"unexpected fields: {', '.join(unexpected)}")
+    reject_unexpected(payload, {"resource", "reference"})
     try:
         resource = ReadableResource(payload.get("resource"))
     except (TypeError, ValueError) as exc:
@@ -206,9 +274,3 @@ def catalogue_entry():
         read_catalogue_entry(ResourceReadRequest, execute),
         summary="Read one memory, plugin, skill, style, template, trigger or type.",
     )
-
-
-def resolver_entry():
-    from ..resolver import ResolverEntry
-
-    return ResolverEntry(ResourceReadRequest, decode)

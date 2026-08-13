@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from .._decoding import reject_unexpected
+
 from dataclasses import dataclass
 from typing import ClassVar, Mapping
 
@@ -59,9 +61,7 @@ def execute(context: InvocationContext, request: TypeCreateRequest):
 
 def decode(payload: Mapping[str, object]) -> TypeCreateRequest:
     fields = {"name", "classification", "definition", "template"}
-    unexpected = sorted(set(payload) - fields)
-    if unexpected:
-        raise ValueError(f"unexpected fields: {', '.join(unexpected)}")
+    reject_unexpected(payload, fields)
     for field in fields:
         if field not in payload:
             raise ValueError(f"{field} is required")
@@ -83,9 +83,3 @@ def decode(payload: Mapping[str, object]) -> TypeCreateRequest:
 
 def catalogue_entry():
     return definition_catalogue_entry(TypeCreateRequest, execute)
-
-
-def resolver_entry():
-    from ..resolver import ResolverEntry
-
-    return ResolverEntry(TypeCreateRequest, decode)

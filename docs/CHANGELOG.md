@@ -8,6 +8,7 @@ Never edit past changelog entries. Only add new entries at the top.
 
 | Version | Date | Summary |
 |---|---|---|
+| [v0.57.2](changelog/v0.57.2.md) | 2026-08-12 | Enforce fail-closed authority and simplify `_application` ownership |
 | [v0.57.1](changelog/v0.57.1.md) | 2026-08-12 | Accept SDK 2 mapping metadata for proxy-owned MCP invocation IDs |
 | [v0.57.0](changelog/v0.57.0.md) | 2026-08-12 | Add ceiling-visible MCP discovery and Reader-default exact access leases |
 | [v0.56.0](changelog/v0.56.0.md) | 2026-08-12 | Consolidate target-only commands and restore runtime warm-up contracts |

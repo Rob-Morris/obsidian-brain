@@ -62,6 +62,12 @@ class _Authority:
     def allows(self, *, command_id, required, effect):
         return required is Authority.READER
 
+    def ceiling_allows(self, _command_id):
+        return True
+
+    def consume(self, _command_id):
+        return True
+
 
 class _Receipts:
     def __init__(self):
@@ -92,14 +98,18 @@ def test_request_type_owns_identity_version_and_result_type():
         assert "command_id" not in request.__dataclass_fields__
 
 
-def test_dynamic_identity_rejects_unregistered_lookalike_request():
+def test_dynamic_identity_reads_the_concrete_request_contract():
     class Lookalike:
         COMMAND_ID = "command.list"
         COMMAND_VERSION = 1
         RESULT_TYPE = CommandListPayload
 
-    with pytest.raises(TypeError, match="unregistered"):
-        command_identity(Lookalike())
+    assert command_identity(Lookalike()) == ("command.list", 1, CommandListPayload)
+
+
+def test_dynamic_identity_rejects_types_without_a_request_contract():
+    with pytest.raises(TypeError, match="does not own identity"):
+        command_identity(object())
 
 
 @pytest.mark.parametrize(

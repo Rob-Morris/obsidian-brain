@@ -42,9 +42,3 @@ def decode(payload: Mapping[str, object]) -> ArtefactSetKeyRequest:
 
 def catalogue_entry():
     return lifecycle_catalogue_entry(ArtefactSetKeyRequest, execute)
-
-
-def resolver_entry():
-    from ..resolver import ResolverEntry
-
-    return ResolverEntry(ArtefactSetKeyRequest, decode)

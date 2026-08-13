@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from .._decoding import reject_unexpected
+
 from dataclasses import dataclass
 from typing import ClassVar, Mapping
 
@@ -48,9 +50,7 @@ def decode(payload: Mapping[str, object]) -> TriggerCreateRequest:
 
 
 def _decode_strings(payload, request_type, fields):
-    unexpected = sorted(set(payload) - set(fields))
-    if unexpected:
-        raise ValueError(f"unexpected fields: {', '.join(unexpected)}")
+    reject_unexpected(payload, set(fields))
     if any(field not in payload for field in fields):
         raise ValueError("condition and target are required")
     if any(not isinstance(payload[field], str) for field in fields):
@@ -60,9 +60,3 @@ def _decode_strings(payload, request_type, fields):
 
 def catalogue_entry():
     return definition_catalogue_entry(TriggerCreateRequest, execute)
-
-
-def resolver_entry():
-    from ..resolver import ResolverEntry
-
-    return ResolverEntry(TriggerCreateRequest, decode)

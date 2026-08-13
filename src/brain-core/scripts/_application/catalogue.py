@@ -9,7 +9,7 @@ from typing import Callable, get_args, get_origin
 
 from .context import InvocationContext
 from .requests import CommandRequest, command_identity
-from .results import CommandResult
+from .results import CommandResult, RESULT_SCHEMA
 from .types import (
     Authority,
     CommandLifecycle,
@@ -24,12 +24,15 @@ from .types import (
 
 
 CATALOGUE_SCHEMA = "brain.command-catalogue/1"
-RESULT_SCHEMA = "brain.command-result/1"
 APPLICATION_PROJECTIONS = (
     Projection.MCP,
     Projection.CLI,
     Projection.SCRIPT,
     Projection.PYTHON,
+)
+ALL_APPLICATION_PROJECTIONS = tuple(
+    ProjectionEligibility(projection, True)
+    for projection in APPLICATION_PROJECTIONS
 )
 Executor = Callable[[InvocationContext, CommandRequest], CommandResult]
 
