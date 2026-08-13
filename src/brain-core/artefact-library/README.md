@@ -113,6 +113,7 @@ Artefact types that have a lifecycle should include a `status` field in frontmat
 - **Workspaces:** `active` → `parked` → `completed` | `deprecated`
 - **Plans:** `draft` → `shaping` → `approved` → `implementing` → `completed` | `deprecated` | `parked`
 - **Shapeable temporal artefacts:** `shaping` → `ready` (optional status introduced when a shaping session opens)
+- **People:** `active` | `parked` | explicit `shaping` → `deprecated` (discovery sessions preserve the current non-terminal status)
 - **Idea Logs:** `open` → `graduated` | `deprecated` | `parked`
 
 `deprecated` is the unified abandonment terminal across types; the *reason* (superseded, rejected, cancelled, retired, duplicate) is captured in a `> [!info] Deprecated — <reason>` callout in the body. `parked` is a non-terminal pause. See [[Artefact Closure Status Model]] for the full model.

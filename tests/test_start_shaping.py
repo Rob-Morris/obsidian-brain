@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 import pytest
 
 import start_shaping_session
-from _common import parse_frontmatter, PartialApplyError
+from _common import build_vault_file_index, parse_frontmatter, PartialApplyError
 
 
 # ---------------------------------------------------------------------------
@@ -129,6 +129,52 @@ def _write_compiled_router(vault, router):
     (brain_local / "compiled-router.json").write_text(
         json.dumps(router, indent=2) + "\n"
     )
+
+
+def _add_preserved_person(vault, *, status="active"):
+    people = vault / "People"
+    people.mkdir(exist_ok=True)
+    folder = people
+    if status == "deprecated":
+        folder = people / "+Deprecated"
+        folder.mkdir(exist_ok=True)
+    source = folder / "Alice Smith.md"
+    source.write_text(
+        "---\ntype: living/person\nkey: alice-smith\ntags:\n"
+        "  - person/alice-smith\n"
+        f"status: {status}\n---\n\n# Alice Smith\n"
+    )
+
+    taxonomy = vault / "_Config" / "Taxonomy" / "Living" / "people.md"
+    taxonomy.write_text(
+        "# People\n\n"
+        "## Naming\n\n`{Title}.md` in `People/`.\n\n"
+        "## Frontmatter\n\n```yaml\n---\n"
+        "type: living/person\nkey: {key}\ntags:\n  - person/{key}\n"
+        "status: active  # active | shaping | parked | deprecated\n"
+        "---\n```\n\n"
+        "## Lifecycle\n\n"
+        "| Status | Meaning |\n|---|---|\n"
+        "| `active` | Active. |\n"
+        "| `shaping` | Explicit sustained shaping. |\n"
+        "| `parked` | Parked. |\n"
+        "| `deprecated` | Terminal. |\n\n"
+        "## Terminal Status\n\n"
+        "When a person reaches `deprecated` status, move it to +Deprecated/.\n\n"
+        "## Shaping\n\n"
+        "**Flavour:** Discovery\n"
+        "**Bar:** The current picture is faithful and clear.\n"
+        "**Status behaviour:** `preserve`\n"
+        "**Completion status:** `active`\n\n"
+        "## Template\n\n[[_Config/Templates/Living/People]]\n"
+    )
+    (vault / "_Config" / "Templates" / "Living" / "People.md").write_text(
+        "---\ntype: living/person\nkey: {key}\ntags: []\n"
+        "status: active\n---\n\n"
+    )
+
+    import compile_router
+    return source, compile_router.compile(str(vault))
 
 
 # ---------------------------------------------------------------------------
@@ -278,6 +324,49 @@ class TestStartShaping:
         assert result["status"] == "ok"
         assert result["set_status"] is False
 
+    @pytest.mark.parametrize("starting_status", ["active", "parked", "shaping"])
+    def test_preserved_status_is_not_changed(
+        self, vault, starting_status, monkeypatch
+    ):
+        source, router = _add_preserved_person(vault, status=starting_status)
+
+        def unexpected_lifecycle_change(*_args, **_kwargs):
+            raise AssertionError("status-preserving shaping changed lifecycle")
+
+        monkeypatch.setattr(
+            start_shaping_session.edit,
+            "update_lifecycle_field",
+            unexpected_lifecycle_change,
+        )
+
+        result = start_shaping_session.start_shaping_session(
+            str(vault), router, str(source.relative_to(vault)), mode="discover"
+        )
+
+        fields, _ = parse_frontmatter(source.read_text())
+        assert fields["status"] == starting_status
+        assert result["status_behaviour"] == "preserve"
+        assert result["status_changed"] is False
+        assert result["transcript_path"].removesuffix(".md") in source.read_text()
+
+    def test_preserved_status_rejects_terminal_target_before_writing(
+        self, vault
+    ):
+        source, router = _add_preserved_person(vault, status="deprecated")
+
+        with pytest.raises(ValueError, match="terminal status.*deprecated"):
+            start_shaping_session.start_shaping_session(
+                str(vault),
+                router,
+                str(source.relative_to(vault)),
+                mode="discover",
+            )
+
+        assert "**Transcripts:**" not in source.read_text()
+        assert not list(
+            (vault / "_Temporal" / "Shaping Transcripts").rglob("*.md")
+        )
+
     def test_type_without_shaping_contract_is_rejected(self, vault, router):
         result = start_shaping.start_shaping(
             str(vault), router, {"target": "Wiki/Brain Overview.md"}
@@ -409,6 +498,26 @@ class TestStartShaping:
         folder = os.path.dirname(transcript_path)
         transcript_files = [f for f in os.listdir(folder) if "My Design" in f]
         assert len(transcript_files) == 1
+
+    def test_legacy_dialogue_only_transcript_is_preserved_when_session_appends(
+        self, vault, router
+    ):
+        first = start_shaping.start_shaping(
+            str(vault), router, {"target": "Designs/My Design.md"}
+        )
+        transcript_path = os.path.join(str(vault), first["transcript_path"])
+        with open(transcript_path, "a", encoding="utf-8") as handle:
+            handle.write("\nQ. Which boundary?\n> A. The repository boundary.\n")
+
+        second = start_shaping.start_shaping(
+            str(vault), router, {"target": "Designs/My Design.md"}
+        )
+
+        assert second["appended"] is True
+        with open(transcript_path, encoding="utf-8") as handle:
+            content = handle.read()
+        assert "Q. Which boundary?\n> A. The repository boundary." in content
+        assert content.count("session start") == 2
 
     def test_cli_main_appends_same_day_session(self, vault, router, monkeypatch, capsys):
         _write_compiled_router(vault, router)
@@ -728,6 +837,103 @@ class TestStartShapingSessionContract:
 
         for name in names:
             assert "session start" not in (folder / name).read_text()
+
+    def test_joint_same_day_transcript_with_widest_source_set_is_continued(
+        self, vault, router
+    ):
+        folder = vault / "_Temporal" / "Shaping Transcripts" / "2026-07"
+        folder.mkdir(parents=True)
+        single = folder / "20260722-shaping-transcript~Already Shaping.md"
+        joint = folder / "20260722-shaping-transcript~My Design.md"
+        single.write_text(
+            "---\ntype: temporal/shaping-transcript\n---\n"
+            "**Source:** [[Designs/Already Shaping|Already Shaping]]\n"
+        )
+        joint.write_text(
+            "---\ntype: temporal/shaping-transcript\n---\n"
+            "**Source:** [[Designs/My Design|My Design]], "
+            "[[Designs/Already Shaping|Already Shaping]]\n"
+        )
+        source = vault / "Designs" / "Already Shaping.md"
+        source.write_text(
+            source.read_text()
+            + "\n**Transcripts:** "
+            + "[[_Temporal/Shaping Transcripts/2026-07/"
+            + "20260722-shaping-transcript~Already Shaping|Single]], "
+            + "[[_Temporal/Shaping Transcripts/2026-07/"
+            + "20260722-shaping-transcript~My Design|Joint]]\n"
+        )
+
+        result = start_shaping_session.start_shaping_session(
+            str(vault),
+            router,
+            "Designs/Already Shaping.md",
+            mode="refine",
+            _now=datetime(2026, 7, 22, 10, 0, tzinfo=timezone.utc),
+        )
+
+        assert result["transcript_path"] == str(joint.relative_to(vault))
+        assert "session start" in joint.read_text()
+        assert "session start" not in single.read_text()
+
+    def test_source_width_deduplicates_path_and_basename_links(
+        self, vault, router
+    ):
+        file_index = build_vault_file_index(str(vault))
+        transcript = (
+            "**Source:** [[Designs/Already Shaping|Path]], "
+            "[[Already Shaping|Basename]]\n"
+        )
+
+        assert (
+            start_shaping_session._transcript_source_count(
+                transcript,
+                file_index,
+            )
+            == 1
+        )
+
+    def test_archived_source_link_still_counts_towards_joint_transcript_width(
+        self, vault, router
+    ):
+        folder = vault / "_Temporal" / "Shaping Transcripts" / "2026-07"
+        folder.mkdir(parents=True)
+        archive = vault / "_Archive" / "Designs"
+        archive.mkdir(parents=True)
+        (archive / "Archived Peer.md").write_text("# Archived Peer\n")
+
+        single = folder / "20260722-shaping-transcript~Already Shaping.md"
+        joint = folder / "20260722-shaping-transcript~Archived Peer.md"
+        single.write_text(
+            "---\ntype: temporal/shaping-transcript\n---\n"
+            "**Source:** [[Designs/Already Shaping|Already Shaping]]\n"
+        )
+        joint.write_text(
+            "---\ntype: temporal/shaping-transcript\n---\n"
+            "**Source:** [[Designs/Already Shaping|Already Shaping]], "
+            "[[_Archive/Designs/Archived Peer|Archived Peer]]\n"
+        )
+        source = vault / "Designs" / "Already Shaping.md"
+        source.write_text(
+            source.read_text()
+            + "\n**Transcripts:** "
+            + "[[_Temporal/Shaping Transcripts/2026-07/"
+            + "20260722-shaping-transcript~Already Shaping|Single]], "
+            + "[[_Temporal/Shaping Transcripts/2026-07/"
+            + "20260722-shaping-transcript~Archived Peer|Joint]]\n"
+        )
+
+        result = start_shaping_session.start_shaping_session(
+            str(vault),
+            router,
+            "Designs/Already Shaping.md",
+            mode="refine",
+            _now=datetime(2026, 7, 22, 10, 0, tzinfo=timezone.utc),
+        )
+
+        assert result["transcript_path"] == str(joint.relative_to(vault))
+        assert "session start" in joint.read_text()
+        assert "session start" not in single.read_text()
 
     def test_transcript_write_failure_reports_applied_lifecycle(
         self, vault, router, monkeypatch

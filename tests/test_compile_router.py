@@ -538,6 +538,63 @@ class TestParseShaping:
         with pytest.raises(ValueError, match="Completion status"):
             cr.parse_taxonomy_file(str(f))
 
+    def test_parses_discovery_contract_that_preserves_status(self, tmp_path):
+        f = tmp_path / "people.md"
+        f.write_text(
+            "# People\n\n"
+            "## Frontmatter\n\n"
+            "```yaml\n---\nstatus: active  # active | shaping | parked\n---\n```\n\n"
+            "## Shaping\n\n"
+            "**Flavour:** Discovery\n"
+            "**Bar:** The current picture is faithful and clear.\n"
+            "**Status behaviour:** `preserve`\n"
+        )
+
+        result = cr.parse_taxonomy_file(str(f))
+
+        assert result["shaping"] == {
+            "flavour": "discovery",
+            "bar": "The current picture is faithful and clear.",
+            "status_behaviour": "preserve",
+        }
+
+    def test_preserved_status_requires_discovery_flavour(self, tmp_path):
+        f = tmp_path / "designs.md"
+        f.write_text(
+            "# Designs\n\n"
+            "## Frontmatter\n\n"
+            "```yaml\n---\nstatus: shaping  # shaping | ready\n---\n```\n\n"
+            "## Shaping\n\n"
+            "**Flavour:** Convergent\n"
+            "**Bar:** Decisions are resolved.\n"
+            "**Status behaviour:** `preserve`\n"
+        )
+
+        with pytest.raises(ValueError, match="requires.*Discovery"):
+            cr.parse_taxonomy_file(str(f))
+
+    def test_preserved_status_accepts_declared_exit_from_shaping(self, tmp_path):
+        f = tmp_path / "people.md"
+        f.write_text(
+            "# People\n\n"
+            "## Frontmatter\n\n"
+            "```yaml\n---\nstatus: active  # active | shaping\n---\n```\n\n"
+            "## Shaping\n\n"
+            "**Flavour:** Discovery\n"
+            "**Bar:** The current picture is faithful and clear.\n"
+            "**Status behaviour:** `preserve`\n"
+            "**Completion status:** `active`\n"
+        )
+
+        result = cr.parse_taxonomy_file(str(f))
+
+        assert result["shaping"] == {
+            "flavour": "discovery",
+            "bar": "The current picture is faithful and clear.",
+            "status_behaviour": "preserve",
+            "completion_status": "active",
+        }
+
     @pytest.mark.parametrize(
         ("metadata", "message"),
         [
@@ -569,6 +626,16 @@ class TestParseShaping:
                 "**Flavour:** Convergent\n**Bar:** Clear.\n"
                 "**Completion status:** approved\n",
                 "backticks",
+            ),
+            (
+                "**Flavour:** Discovery\n**Bar:** Clear.\n"
+                "**Status behaviour:** preserve\n",
+                "backticks",
+            ),
+            (
+                "**Flavour:** Discovery\n**Bar:** Clear.\n"
+                "**Status behaviour:** `temporary`\n",
+                "must be",
             ),
         ],
     )

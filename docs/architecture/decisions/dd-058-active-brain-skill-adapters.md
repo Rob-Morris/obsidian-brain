@@ -19,9 +19,9 @@ copies still call `start-shaping`, while the matching v0.53 core skill calls
 ## Decision
 
 Install a thin, version-neutral `shaping` discovery adapter for Claude and/or
-Codex. The adapter calls `brain_session`, then reads and follows
-`.brain-core/skills/shaping/SKILL.md` and its relative sub-skills through
-`brain_read(resource="file", ...)`. The active Brain therefore owns the workflow
+Codex. The adapter calls `session.start`, then reads and follows
+`.brain-core/skills/shaping/SKILL.md` and its directly linked reference workflows through
+`vault.read-file`. The active Brain therefore owns the workflow
 and MCP contract together.
 
 `configure.py agent-skills --client claude|codex|all` owns installation. Claude

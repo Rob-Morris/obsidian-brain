@@ -10,6 +10,7 @@ from _application.results import ErrorCode
 from _application.shaping.start import (
     ShapingMode,
     ShapingStartRequest,
+    StatusBehaviour,
     TranscriptOperation,
 )
 from _application.types import Authority, EffectClass, RetryClass
@@ -31,6 +32,7 @@ def test_shaping_start_creates_transcript_and_transitions_status(
 
     assert result.status == "ok"
     assert result.result.mode is ShapingMode.REFINE
+    assert result.result.status_behaviour is StatusBehaviour.TRANSITION
     assert result.result.status_changed is True
     assert result.result.transcript_operation is TranscriptOperation.CREATED
     assert (root / result.result.transcript_path).is_file()

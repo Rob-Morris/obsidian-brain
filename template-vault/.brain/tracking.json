@@ -72,11 +72,11 @@
       }
     },
     "living/people": {
-      "brain_core_version": "0.55.0",
-      "installed_at": "2026-08-11T04:57:46.142671+00:00",
+      "brain_core_version": "0.57.2",
+      "installed_at": "2026-08-13T01:43:32.059557+00:00",
       "files": {
         "taxonomy": {
-          "source_hash": "sha256:ebc9d464a4db13baace748d11e959d04eb15e3d721bcef67a7e4cc6480fce500",
+          "source_hash": "sha256:797005953c597239c84f6582bc7c823161af4e10a28ceb3ec3c493495e4461d2",
           "target": "_Config/Taxonomy/Living/people.md"
         },
         "template": {
@@ -336,11 +336,11 @@
       }
     },
     "temporal/shaping-transcripts": {
-      "brain_core_version": "0.53.2",
-      "installed_at": "2026-07-22T08:47:18.965854+00:00",
+      "brain_core_version": "0.57.2",
+      "installed_at": "2026-08-13T01:43:32.059557+00:00",
       "files": {
         "taxonomy": {
-          "source_hash": "sha256:2ef4392894a7704e7df247d77ef78b2b73545cf642fba9f3ebfb1dd4e244c2b8",
+          "source_hash": "sha256:581a87824f967024eb6387d5c42405e82733dedaf34ae0679601edf33f52973a",
           "target": "_Config/Taxonomy/Temporal/shaping-transcripts.md"
         },
         "template": {
@@ -364,11 +364,11 @@
       }
     },
     "temporal/thoughts": {
-      "brain_core_version": "0.53.2",
-      "installed_at": "2026-07-22T09:03:12.736165+00:00",
+      "brain_core_version": "0.57.2",
+      "installed_at": "2026-08-13T01:43:32.059557+00:00",
       "files": {
         "taxonomy": {
-          "source_hash": "sha256:d1a948e70ea9132dbd801221a24c56a4010ab6e2d57464f66ee7240876180937",
+          "source_hash": "sha256:441361981877361777de153c9744e706449d9eba608c4a7015bff2820fb74290",
           "target": "_Config/Taxonomy/Temporal/thoughts.md"
         },
         "template": {

@@ -42,7 +42,7 @@ Optional sections:
 - **`## When To Use`** — orienting cue separate from `## Purpose`. Convention only; not parsed.
 - **`## Trigger`** — first non-blank line is the *condition* (used to infer category: `before` / `after` / `ongoing`); the rest is *detail* shown to agents. Almost always present for temporal types; the compiler merges this with the matching conditional in `_Config/router.md`.
 - **`## On Status Change`** — per-status hooks of the form: `When `status` transitions to `{value}`, set `{field}` to {expr}.` Rare for temporal types.
-- **`## Shaping`** — opts the type into shaping and declares the parsed contract: `**Flavour:**` (`Convergent` or `Discovery`), `**Bar:**`, and a backtick-delimited `**Completion status:**`. The compiler exposes this metadata to shaping skills and requires both `shaping` and the completion status to exist in the taxonomy's explicit lifecycle enum.
+- **`## Shaping`** — opts the type into shaping and declares the parsed contract: `**Flavour:**` (`Convergent` or `Discovery`) and `**Bar:**`. Status behaviour defaults to `transition`, which requires a backtick-delimited `**Completion status:**`. A discovery type whose lifecycle represents an enduring domain state may instead declare `**Status behaviour:** \`preserve\``; it may omit completion status or declare one solely as the explicit exit for an artefact already in `shaping`. The compiler exposes this metadata to shaping skills. Both behaviours require `shaping` in the explicit lifecycle enum, and every declared completion status must also appear there.
 
 ## Hub Relationships
 

@@ -30,6 +30,11 @@ class TranscriptOperation(str, Enum):
     APPENDED = "appended"
 
 
+class StatusBehaviour(str, Enum):
+    TRANSITION = "transition"
+    PRESERVE = "preserve"
+
+
 @dataclass(frozen=True, slots=True)
 class ShapingStartPayload:
     resolved_target_path: str
@@ -38,6 +43,7 @@ class ShapingStartPayload:
     transcript_path: str
     transcript_type: str
     mode: ShapingMode
+    status_behaviour: StatusBehaviour
     status_changed: bool
     transcript_operation: TranscriptOperation
     changed_paths: tuple[str, ...]
@@ -138,6 +144,7 @@ def execute(context: InvocationContext, request: ShapingStartRequest):
         result["transcript_path"],
         result["type"],
         ShapingMode(result["mode"]),
+        StatusBehaviour(result["status_behaviour"]),
         result["status_changed"],
         TranscriptOperation(result["transcript_operation"]),
         tuple(result["changed_paths"]),

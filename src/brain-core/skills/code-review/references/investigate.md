@@ -1,13 +1,6 @@
----
-name: code-review:investigate
-description: >
-  Identify changed code and dispatch reuse, quality, and efficiency reviewer
-  agents in parallel; return the raw findings list.
----
-
 # Code Review: Investigate
 
-Run a code review and return the raw findings list — no triage, no edits. Run all reviewers in parallel using subagents. Used by `code-review` and `code-review:fix`; can also be called directly.
+Run a code review and return the raw findings list — no triage, no edits. Run all reviewers in parallel using subagents. Used by both review-only and review-with-fixes routes from the public `code-review` skill.
 
 ## Phase 1: Identify Changes
 

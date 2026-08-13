@@ -136,7 +136,7 @@ In-depth investigation into a subject, capturing what was found. Use research wh
 
 ### Shaping Transcripts
 
-Q&A refinement transcripts tied to a specific source artefact. Use shaping transcripts to capture the raw Q&A from shaping a design, idea, or other artefact. Each transcript is bound to one source document; if the conversation pivots to a different artefact, start a new transcript.
+Q&A refinement transcripts tied to one or more source artefacts. Use shaping transcripts to preserve verbatim dialogue plus the authoritative chronological log of material decision, work, body, thread, and possible-question changes. Reconciliation events record what was added, narrowed, resolved, reopened, retired, or propagated and why; source artefacts retain the resulting current state. Add related in-scope artefacts to the source line rather than creating a second audit artefact when shaping expands across them. Older transcript styles—including `Q.` / `> A.` and Agent/User turns—remain valid without reconciliation events and begin the forward-only log when next used; no user-data migration or historical backfill is required.
 
 ### Snippets
 

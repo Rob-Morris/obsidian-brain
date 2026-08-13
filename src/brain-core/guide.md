@@ -129,7 +129,7 @@ Some types have a lifecycle. Status values are defined per type:
 - **Documentation:** `new` → `shaping` → `ready` → `active` → `deprecated`
 - **Ideas:** `new` → `shaping` → `ready` → `adopted` | `deprecated` | `parked`
 - **Idea Logs:** `open` → `graduated` | `deprecated` | `parked`
-- **People:** `active` → `shaping` → `parked` | `deprecated`
+- **People:** `active` | `parked` | explicit `shaping` → `deprecated` (discovery preserves the current non-terminal status)
 - **Releases:** `planned` → `active` → `shipped` | `deprecated`
 - **Tasks:** `open` → `shaping` → `in-progress` → `done` | `parked` | `deprecated`
 - **Writing:** `draft` → `editing` → `review` → `published` | `deprecated` | `parked`

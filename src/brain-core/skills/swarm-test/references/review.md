@@ -1,12 +1,3 @@
----
-name: swarm-test:review
-description: >
-  Quick quality check using a swarm of small agents. Each agent tries to
-  accomplish a real task using the work product and reports where it got stuck.
-  Gaps are identified, proposed to the user, and fixed. Use after completing a
-  body of work, to tighten quality, or find what you missed.
----
-
 # Swarm Test: Review
 
 ## Purpose

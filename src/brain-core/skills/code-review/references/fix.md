@@ -1,17 +1,10 @@
----
-name: code-review:fix
-description: >
-  Review changed code for reuse, quality, and efficiency, then fix any issues
-  found.
----
-
 # Code Review: Fix
 
 Run a code review and fix the issues found.
 
 ## Phase 1: Investigate
 
-Read and follow `code-review/investigate/SKILL.md` to get the raw findings list. Dispatch reviewers as parallel subagents; do not inline.
+Read and follow [investigate.md](investigate.md) completely to get the raw findings list. Dispatch reviewers as parallel subagents; do not inline.
 
 ## Phase 2: Triage and Report
 

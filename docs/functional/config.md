@@ -252,9 +252,14 @@ authoritative shaping workflow itself need no client update and produce no promp
 
 ### Current core skills
 
-- `shaping` — parent router plus `assess`, `brainstorm`, `discover`, and `refine` sub-skills for artefact shaping workflows
-- `swarm-test` — parent router plus `review` and `evaluate` sub-skills for multi-agent test workflows
-- `code-review` — parent router plus `investigate` and `fix` sub-skills for review-only and review-with-fixes workflows
+Portable multi-workflow families expose exactly one public `<family>/SKILL.md`.
+That root routes directly to frontmatter-free, one-level
+`<family>/references/*.md` workflow files so Agent Skills clients do not
+rediscover colon-named nested skills.
+
+- `shaping` — one portable public skill with directly linked `references/assess.md`, `brainstorm.md`, `discover.md`, `refine.md`, and optional `review.md` workflows; the reference files deliberately have no skill frontmatter
+- `swarm-test` — one portable public skill routing directly to frontmatter-free `references/review.md` and `references/evaluate.md` multi-agent test workflows
+- `code-review` — one portable public skill routing review-only and review-with-fixes requests through frontmatter-free `references/investigate.md` and `references/fix.md` workflows
 - `software-design-principles` — lightweight reference skill for in-the-moment design decisions and trivial code evaluation
 - `software-design-review` — multi-agent design review skill for complex code, diffs, and proposed technical changes
 

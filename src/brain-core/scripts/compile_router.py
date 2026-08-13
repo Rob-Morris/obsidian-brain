@@ -439,6 +439,40 @@ def _parse_naming_section(content):
     }
 
 
+def _parse_backtick_shaping_field(section, label, *, required):
+    """Parse one optional or required backtick-delimited shaping field."""
+    line = re.search(
+        rf"^\*\*{re.escape(label)}:\*\*.*$",
+        section,
+        re.MULTILINE | re.IGNORECASE,
+    )
+    if line is None:
+        if required:
+            raise ValueError(
+                f"{SHAPING_METADATA_ERROR_CODE}: "
+                f"## Shaping requires **{label}:** metadata in backticks"
+            )
+        return None
+
+    match = re.search(
+        rf"^\*\*{re.escape(label)}:\*\*[ \t]*`([^`]*)`[ \t]*$",
+        section,
+        re.MULTILINE | re.IGNORECASE,
+    )
+    if match is None:
+        raise ValueError(
+            f"{SHAPING_METADATA_ERROR_CODE}: "
+            f"## Shaping **{label}:** must be in backticks"
+        )
+    value = match.group(1).strip()
+    if not value:
+        raise ValueError(
+            f"{SHAPING_METADATA_ERROR_CODE}: "
+            f"## Shaping requires non-empty **{label}:** metadata"
+        )
+    return value
+
+
 def _parse_shaping_section(content):
     """Parse the domain contract declared by an optional ``## Shaping`` section."""
     section_match = re.search(
@@ -451,25 +485,20 @@ def _parse_shaping_section(content):
 
     section = section_match.group(1)
     fields = {}
-    patterns = {
+    required_patterns = {
         "flavour": r"^\*\*Flavour:\*\*[ \t]*([^\r\n]+?)[ \t]*$",
         "bar": r"^\*\*Bar:\*\*[ \t]*([^\r\n]+?)[ \t]*$",
-        "completion_status": (
-            r"^\*\*Completion status:\*\*[ \t]*`([^`]+)`[ \t]*$"
-        ),
     }
     labels = {
         "flavour": "Flavour",
         "bar": "Bar",
-        "completion_status": "Completion status",
     }
-    for field, pattern in patterns.items():
+    for field, pattern in required_patterns.items():
         match = re.search(pattern, section, re.MULTILINE | re.IGNORECASE)
         if not match:
             raise ValueError(
                 f"{SHAPING_METADATA_ERROR_CODE}: "
                 f"## Shaping requires **{labels[field]}:** metadata"
-                + (" in backticks" if field == "completion_status" else "")
             )
         fields[field] = match.group(1).strip()
         if not fields[field]:
@@ -485,7 +514,45 @@ def _parse_shaping_section(content):
             "## Shaping **Flavour:** must be `Convergent` or `Discovery`"
         )
     fields["flavour"] = flavour
+
+    declared_status_behaviour = _parse_backtick_shaping_field(
+        section, "Status behaviour", required=False
+    )
+    status_behaviour = (declared_status_behaviour or "transition").lower()
+    if status_behaviour not in {"transition", "preserve"}:
+        raise ValueError(
+            f"{SHAPING_METADATA_ERROR_CODE}: "
+            "## Shaping **Status behaviour:** must be `transition` or `preserve`"
+        )
+    if status_behaviour == "preserve" and flavour != "discovery":
+        raise ValueError(
+            f"{SHAPING_METADATA_ERROR_CODE}: "
+            "## Shaping **Status behaviour:** `preserve` requires "
+            "**Flavour:** Discovery"
+        )
+    if declared_status_behaviour is not None:
+        fields["status_behaviour"] = status_behaviour
+
+    completion_status = _parse_backtick_shaping_field(
+        section,
+        "Completion status",
+        required=status_behaviour == "transition",
+    )
+    if completion_status is not None:
+        fields["completion_status"] = completion_status
     return fields
+
+
+def required_shaping_lifecycle_statuses(shaping):
+    """Return lifecycle values that must support a compiled shaping contract."""
+    return [
+        "shaping",
+        *(
+            [shaping["completion_status"]]
+            if shaping.get("completion_status")
+            else []
+        ),
+    ]
 
 
 def finalize_naming_date_sources(naming, classification, type_key):
@@ -572,7 +639,7 @@ def parse_taxonomy_content(content):
         )
         missing_statuses = [
             status
-            for status in ("shaping", shaping["completion_status"])
+            for status in required_shaping_lifecycle_statuses(shaping)
             if status not in statuses
         ]
         if missing_statuses:

@@ -162,7 +162,9 @@ def _patch_taxonomy(content: str) -> tuple[str, list[str]]:
     if not shaping:
         return content, []
     statuses = compile_router.parse_status_enum(normalized) or []
-    required = _unique_statuses(["shaping", shaping["completion_status"]])
+    required = _unique_statuses(
+        compile_router.required_shaping_lifecycle_statuses(shaping)
+    )
     missing = [
         status
         for status in required

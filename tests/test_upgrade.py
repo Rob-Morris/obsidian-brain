@@ -388,6 +388,25 @@ class TestShapingLifecycleMigration:
         assert added == ["shaping"]
         assert patched.count("draft | shaping") == 1
 
+    def test_preserved_status_contract_still_adds_shaping_compatibility(self):
+        content = (
+            "# People\n\n"
+            "## Frontmatter\n\n```yaml\n---\n"
+            "type: living/person\nstatus: active  # active | parked\n---\n```\n\n"
+            "## Shaping\n\n"
+            "**Flavour:** Discovery\n"
+            "**Bar:** The current picture is faithful and clear.\n"
+            "**Status behaviour:** `preserve`\n"
+        )
+
+        patched, added = migrate_to_0_53_0._patch_taxonomy(content)
+
+        assert added == ["shaping"]
+        assert "status: active  # active | parked | shaping" in patched
+        assert migrate_to_0_53_0.compile_router.parse_taxonomy_content(
+            patched
+        )["shaping"]["status_behaviour"] == "preserve"
+
     def test_postcondition_rejects_a_lossy_lifecycle_patch(self, monkeypatch):
         content = (
             "# Designs\n\n"
@@ -624,6 +643,47 @@ def source_and_vault(tmp_path):
 
 
 class TestAgentSkillUpgradeFollowup:
+    def test_core_copy_removes_retired_nested_skill_files_without_migration(
+        self, source_and_vault
+    ):
+        source, vault = source_and_vault
+        source_skills = source / "skills"
+        installed_skills = vault / ".brain-core" / "skills"
+        families = {
+            "code-review": ("investigate", "fix"),
+            "shaping": ("assess", "brainstorm", "discover", "refine"),
+            "swarm-test": ("review", "evaluate"),
+        }
+
+        for family, workflows in families.items():
+            family_source = source_skills / family
+            references = family_source / "references"
+            references.mkdir(parents=True)
+            (family_source / "SKILL.md").write_text(f"---\nname: {family}\n---\n")
+            for workflow in workflows:
+                (references / f"{workflow}.md").write_text(f"# {workflow}\n")
+                legacy = installed_skills / family / workflow / "SKILL.md"
+                legacy.parent.mkdir(parents=True)
+                legacy.write_text(f"---\nname: {family}:{workflow}\n---\n")
+
+        result = upgrade.upgrade(
+            str(vault),
+            str(source),
+            sync=False,
+            sync_deps=False,
+        )
+
+        assert result["status"] == "ok"
+        for family, workflows in families.items():
+            installed_family = installed_skills / family
+            assert (installed_family / "SKILL.md").is_file()
+            for workflow in workflows:
+                assert (installed_family / "references" / f"{workflow}.md").is_file()
+                assert not (installed_family / workflow).exists()
+                assert str(
+                    Path("skills") / family / workflow / "SKILL.md"
+                ) in result["files_removed"]
+
     def test_adapter_introduction_adds_structured_followup_and_log(
         self, source_and_vault
     ):

@@ -17,7 +17,7 @@ Quick quality gate. Dispatches 8-12 haiku agents, each trying to accomplish a
 real task using the work product. Agents report where they got stuck. Gaps are
 identified, proposed to the user, and fixed. Use after completing a body of work.
 
-**Skill:** `src/brain-core/skills/swarm-test/review/SKILL.md`
+**Skill:** `src/brain-core/skills/swarm-test/references/review.md`
 
 ### evaluate
 
@@ -26,7 +26,7 @@ designs a test plan mixing comprehension, factual, and counter-factual scenarios
 proposes it for approval, dispatches agents, and synthesises scored results with
 findings and recommendations.
 
-**Skill:** `src/brain-core/skills/swarm-test/evaluate/SKILL.md`
+**Skill:** `src/brain-core/skills/swarm-test/references/evaluate.md`
 
 ## Routing
 

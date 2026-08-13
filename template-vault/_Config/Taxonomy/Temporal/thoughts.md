@@ -36,7 +36,7 @@ tags:
 ## Shaping
 
 **Flavour:** Discovery
-**Bar:** The thinking has been fully expressed.
+**Bar:** The thought is captured faithfully enough to preserve what surfaced; uncertainty or incompleteness may remain when represented honestly.
 **Completion status:** `ready`
 
 See [[.brain-core/standards/shaping]] for the shaping process.

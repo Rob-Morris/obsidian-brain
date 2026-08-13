@@ -18,7 +18,7 @@ Quick quality gate. Dispatches 8-12 haiku agents, each trying to accomplish a
 real task using the work product. Agents report where they got stuck. Gaps are
 identified, proposed to the user, and fixed. Use after completing a body of work.
 
-**Skill:** `swarm-test:review`
+**Workflow:** Read [references/review.md](references/review.md).
 
 ### evaluate
 
@@ -27,7 +27,7 @@ designs a test plan mixing comprehension, factual, and counter-factual scenarios
 proposes it for approval, dispatches agents, and synthesises scored results with
 findings and recommendations.
 
-**Skill:** `swarm-test:evaluate`
+**Workflow:** Read [references/evaluate.md](references/evaluate.md).
 
 ## Routing
 
@@ -37,4 +37,4 @@ findings and recommendations.
 - "Smoke test this" → **review**
 - "How good are these docs?" → **evaluate**
 
-When a mode is selected, read and follow the full skill file for that subskill.
+When a mode is selected, read and follow its referenced workflow file completely. All paths are relative to this skill's root. The reference files are workflow instructions, not independently discoverable skills.

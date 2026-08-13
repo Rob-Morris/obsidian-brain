@@ -1,12 +1,3 @@
----
-name: swarm-test:evaluate
-description: >
-  Structured evaluation using a swarm of small agents. The orchestrator assesses
-  the target, designs a test plan mixing verifiable questions, trick questions,
-  and navigation tasks, proposes it for user approval, then dispatches and
-  synthesises scored results.
----
-
 # Swarm Test: Evaluate
 
 ## Purpose

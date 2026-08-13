@@ -1,6 +1,6 @@
 # Brain Reference
 
-This page is the stable user-facing reference for Brain Core 0.57.2 and CLI 2.1.0. Exact command schemas, examples and availability come from the installed Brain rather than a duplicated hand-maintained inventory.
+This page is the stable user-facing reference for Brain Core 0.58.0 and CLI 2.1.0. Exact command schemas, examples and availability come from the installed Brain rather than a duplicated hand-maintained inventory.
 
 ## Vault model
 
@@ -53,6 +53,11 @@ MCP names preserve the canonical dotted command ID exactly:
 Each granular tool exposes its own top-level request fields. There is no generic `request` envelope and no compatibility aggregate. The removed 1.x tools—including `brain_session`, `brain_read`, `brain_create`, `brain_edit`, `brain_define`, `brain_move`, `brain_action` and `brain_process`—are not aliases.
 
 Start with `session.start`, then use `command.list` and `command.describe` for bounded discovery. For example, inspect `artefact.create` before supplying its fields to the `artefact.create` tool.
+
+`shaping.start` opens or continues a taxonomy-declared shaping session after
+the shaping skill selects its mode. It applies the taxonomy's status behaviour:
+ordinary contracts enter `shaping`, while discovery-only preserving contracts
+leave an enduring non-terminal status unchanged and refuse terminal targets.
 
 The MCP server derives registrations, schemas, descriptions and tool hints from the selected Brain's catalogue, then exposes only the authenticated ceiling. The cumulative built-in ceilings expose 26 reader, 47 contributor, 58 maintainer, 59 operator and 60 administrator MCP tools; custom profiles use exact command names. Active access starts at Reader by default. Use `access.status`, request exact within-ceiling leases with `access.request`, and revoke them with `access.reduce`; leases do not change the visible tool catalogue.
 

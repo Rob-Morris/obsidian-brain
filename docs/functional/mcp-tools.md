@@ -25,6 +25,14 @@ Start a session with `session.start`. On a cold Brain it starts or joins backgro
 
 Related named resources share the strict `resource.create`, `resource.list`, `resource.read` and `resource.search` tools. Each has a shallow resource or target discriminator and a closed resource-specific result union. Presentation and printable output similarly share `shaping.render` with a strict `output.kind` branch. These commands replace target-only leaves without introducing a generic invocation gateway.
 
+`shaping.start` opens or continues a taxonomy-declared shaping session. The
+default `transition` behaviour enters `status: shaping`; discovery-only
+`preserve` leaves an enduring non-terminal status unchanged and rejects
+terminal targets before mutation. Its result reports the effective status
+behaviour and whether status changed. When several linked same-day transcripts
+name the source, it continues the one with the widest distinct resolved source
+set and rejects ties; path and basename spellings of the same file count once.
+
 `artefact.migrate-naming`, `retrieval.enable` and `workspace.repair-registry` remain available through the CLI, direct script and typed Python interfaces but are deliberately not registered in agent-facing MCP. Their catalogue records state the local-administration reason.
 
 Explicit refresh enforces provider-specific and aggregate deadlines. Timed-out probes report `unknown`; a fixed process-wide daemon bound prevents repeated MCP calls from accumulating unbounded stuck probes or delaying CLI process exit.
