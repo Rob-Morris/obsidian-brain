@@ -6,7 +6,11 @@ Guide for anyone working on brain-core. For the pre-commit checklist, see [pre-c
 
 ## Canary Hook
 
-A git pre-commit hook verifies the [pre-commit canary](../.canaries/pre-commit.md) was followed. It checks that `.canary--pre-commit` exists and covers all numbered items. The hook deletes the file after a successful commit so it can't go stale.
+A git pre-commit hook first runs deterministic repository-contract checks against
+the exact staged snapshot, then verifies the subjective
+[pre-commit canary](../.canaries/pre-commit.md) was followed. It checks that
+`.canary--pre-commit` exists and covers all remaining numbered items. The hook
+deletes the file after a successful commit so it can't go stale.
 
 The hook source is tracked at `.githooks/pre-commit`. To activate:
 
@@ -14,13 +18,29 @@ The hook source is tracked at `.githooks/pre-commit`. To activate:
 make hooks      # sets git to use .githooks/ directory
 ```
 
-Adding a new numbered item to the canary file automatically enforces it — no hook changes needed. See [canary.md](standards/canary.md) for how canaries work generally.
+`.venv/bin/python src/scripts/check_repository_contracts.py` runs the same
+deterministic checks against the working tree; `--staged` reads from the Git
+index. It owns brain-core VERSION and README badge coupling, current-version
+changelog Summary coupling, decision-file/index parity and permanent numbering,
+artefact-library metadata/catalogue/count invariants, and documentation
+reachability. These predicates are also exercised by
+`tests/test_repository_contracts.py` under `make test`.
+
+Adding a new subjective numbered item to the canary file automatically enforces
+its receipt — no hook changes needed. Deterministic requirements belong in the
+repository-contract checker or another test/linter instead. See
+[canary.md](standards/canary.md) for how canaries work generally.
 
 ### When to update a canary
 
-**Add a sub-item** when you introduce a new doc file or cross-cutting concern that needs maintaining. For example, `docs/architecture/security.md` was added as `[4l]` because changes to the security model should be reflected there. If you add a doc that agents need to keep in sync, add it to the relevant `[4x]` item — or create a new one if no existing category fits.
+**Add a sub-item** when you introduce a new cross-cutting concern whose impact
+requires judgement. For example, `docs/architecture/security.md` is `[4l]`
+because code cannot determine whether a change alters the security model. Do
+not add a checklist item for file/index equality or another predicate code can
+decide.
 
-**Update file paths** when you move or rename a doc file. Stale paths in the canary mean agents check the wrong file (or skip the check entirely because the file doesn't exist).
+**Update file paths** when you move or rename a document named by a subjective
+review item. Documentation link reachability itself is machine-checked.
 
 **Create a new canary brief** (in `.canaries/`) when you introduce a workflow with subjective steps that can't be tested deterministically. The pre-commit canary covers commit hygiene; a different workflow (deployment, vault propagation, release) would get its own brief. Each canary is self-contained — the hook tests any brief that follows the format.
 
@@ -103,13 +123,19 @@ For each shipped version:
 
 Never rewrite older per-version files to “fix history”. Add any correction in the current version's entry instead.
 
+The repository-contract checker enforces the current VERSION entry and index
+row as one canonical Summary, rejects trailing periods and version suffixes,
+and requires the VERSION row to be newest. Judgement about wording quality,
+release scope, and whether a milestone note is warranted remains contributor
+work.
+
 ## Commit Messages
 
 Every commit in this repo should have a scannable subject and a body that explains *why* the change exists, not just what the diff already shows. See [standards/commit-messages.md](standards/commit-messages.md) for the subject-line template, body structure, worked example, and drafting rules. For release commits, the subject is `<Summary> (vX.Y.Z)` where `<Summary>` is the canonical Summary text — the per-version file's top-line Summary, also filled into the matching `docs/CHANGELOG.md` index row — verbatim, parenthesised version suffix, never `as vX.Y.Z`. Release commits stay prefix-free. Non-versioned support commits must use exactly one of the prefixes `docs:`, `test:`, or `chore:`. Read `git diff` and `git diff --stat`, the matching index row, the corresponding `docs/changelog/vX.Y.Z.md` entry (if any), and recent `git log --oneline` output before drafting. Use only public-safe references in the message body — anything a stranger can verify using only `git log` and the public web.
 
 ## Testing
 
-Run `make test` before committing. Uses `.venv` with Python 3.12.
+Run `make test` before committing, after your final edit. Uses `.venv` with Python 3.12. A green run that precedes a later edit — a VERSION bump, a `make sync-template` — says nothing about what you are committing; re-run it.
 
 ```bash
 make install   # first time — creates venv, installs dependencies
@@ -130,6 +156,10 @@ The `Linux test suite` GitHub Actions workflow runs the full `make test` on
 `ubuntu-latest` for every push to `main` and every pull request, so the suite
 must stay host-independent — `tests/conftest.py` pins the timezone and isolates
 launcher Python discovery so it passes regardless of what the runner ships.
+
+`make test` also runs the deterministic checkout-level repository contracts.
+The pre-commit hook reruns those fast predicates against staged content so a
+partially staged commit cannot bypass them.
 
 The `Windows user smoke` GitHub Actions workflow runs only
 `tests/test_windows_user_smoke.py` on `windows-latest`. It protects the native
@@ -210,7 +240,7 @@ obsidian-brain/
 │       ├── plugins.md           # shipped plugin overview and vault-side plugin workflow
 │       ├── scripts/             # brain-core tooling and vault-operation scripts
 │       └── mcp/                 # MCP server and tool surface
-├── src/scripts/                 # repo-maintenance helpers (e.g. template-vault sync)
+├── src/scripts/                 # repo-maintenance helpers (contract checks, template-vault sync)
 ├── tests/                       # test suite (make test)
 ├── docs/
 │   ├── contributor/             # contributor-facing product docs and workflow guidance

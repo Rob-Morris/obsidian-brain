@@ -35,6 +35,7 @@ The system is self-extending. When content has no appropriate home, add a new ar
 ## Standards
 
 - [Apply artefact naming conventions](standards/naming-conventions.md)
+- [Give every living artefact a canonical key](standards/keys.md)
 - [Only wikilink to artefacts that exist in the vault](standards/wikilinks.md)
 - [Keep links resolvable and maintainable](standards/linking.md)
 - [Track provenance and lineage between artefacts](standards/provenance.md)

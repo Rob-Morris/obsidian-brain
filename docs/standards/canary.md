@@ -21,7 +21,12 @@ umbrella result without conflating the component metrics.
 
 ## When to use and not to use
 
-Use a canary brief to provide an agent with a testable list of tasks, especially when task completion is subjective. If work can be tested deterministically, that is more reliable. For everything else, there's canary.md. A canary brief can be used as a task list and supplemented by deterministic tests.
+Use a canary brief to provide an agent with a testable list of tasks when task
+completion is subjective. If work can be tested deterministically, move the
+requirement into a test, linter, or hook and remove it from the canary receipt.
+Do not keep deterministic requirements as belt-and-braces attestations: that
+preserves two enforcement sources and still asks the agent to self-report a
+fact the machine already knows.
 
 ## Why it scales
 

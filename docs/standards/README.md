@@ -7,3 +7,4 @@ Shared contributor standards used across the repo documentation and workflow sur
 - [Canary](canary.md) — canary system standard
 - [Changelog](changelog.md) — tiered public release-history standard
 - [Commit Messages](commit-messages.md) — contributor commit message standard
+- [Naive Agent Bootstrap](naive-agent-bootstrap.md) — how the shipped markdown fallback layer is authored

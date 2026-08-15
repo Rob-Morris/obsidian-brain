@@ -8,7 +8,7 @@ from typing import ClassVar, Mapping
 from .._decoding import reject_unexpected
 from .._document_mutation import (
     DocumentFrontmatterUpdatePayload,
-    DocumentMutationIntent,
+    DocumentFrontmatterIntent,
     execute_document_mutation,
 )
 from .._mutation_support import (
@@ -57,12 +57,10 @@ def execute(context: InvocationContext, request: DocumentUpdateFrontmatterReques
     return execute_document_mutation(
         context,
         request,
-        DocumentMutationIntent(
+        DocumentFrontmatterIntent(
             resource=request.document.resource.value,
             reference=request.document.reference,
             expected_revision=request.expected_revision,
-            operation="edit",
-            result_operation="update-frontmatter",
             frontmatter=request.updates,
         ),
     )

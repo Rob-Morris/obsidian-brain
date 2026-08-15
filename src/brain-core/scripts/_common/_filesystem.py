@@ -2,12 +2,37 @@
 
 import json
 import os
+import re
 import sys
 import tempfile
 from pathlib import Path
 
 
 _WRITE_ALLOWED_UNDERSCORE = {"_Temporal", "_Config"}
+
+
+def validate_portable_relative_path(path, *, allow_trailing_slash=False):
+    """Return *path* when it is a normalised portable relative path.
+
+    Manifest paths ship across operating systems and later become filesystem
+    write targets. Reject platform-specific separators and traversal before a
+    caller joins the value to any trusted root.
+    """
+    if not isinstance(path, str) or not path:
+        raise ValueError("path must be a non-empty string")
+    if "\\" in path or path.startswith("/") or re.match(r"^[A-Za-z]:", path):
+        raise ValueError(f"path must be portable and relative: {path!r}")
+
+    trailing_slash = path.endswith("/")
+    if trailing_slash and not allow_trailing_slash:
+        raise ValueError(f"path must not end with '/': {path!r}")
+    candidate = path[:-1] if trailing_slash else path
+    parts = candidate.split("/")
+    if not candidate or any(part in {"", ".", ".."} for part in parts):
+        raise ValueError(
+            f"path must be normalised without empty or dot segments: {path!r}"
+        )
+    return path
 
 
 def resolve_and_check_bounds(path, bounds, *, follow_symlinks=True):

@@ -8,6 +8,7 @@ Never edit past changelog entries. Only add new entries at the top.
 
 | Version | Date | Summary |
 |---|---|---|
+| [v0.59.1](changelog/v0.59.1.md) | 2026-08-15 | Restore and enforce the naive-agent bootstrap contract |
 | [v0.59.0](changelog/v0.59.0.md) | 2026-08-13 | BREAKING — Split document mutations and require exact revisions |
 | [v0.58.0](changelog/v0.58.0.md) | 2026-08-13 | Make `shaping.start` adaptive, auditable and status-aware |
 | [v0.57.2](changelog/v0.57.2.md) | 2026-08-12 | Enforce fail-closed authority and simplify `_application` ownership |

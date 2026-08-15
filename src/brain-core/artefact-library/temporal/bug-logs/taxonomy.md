@@ -22,7 +22,12 @@ If you're unsure, it's probably friction. Bugs should be clearly identifiable as
 
 ## Lifecycle
 
-Bug logs track status in frontmatter: `open` → `resolved`. When you fix a bug, update the status and fill in the Resolution section.
+| Status | Meaning |
+|---|---|
+| `open` | The broken behaviour is unresolved. |
+| `resolved` | The fix is complete and the Resolution section records it. |
+
+When you fix a bug, update the status and fill in the Resolution section.
 
 ## Naming
 
@@ -40,6 +45,8 @@ tags:
   - bug
 ---
 ```
+
+**Optional:** `status`
 
 ## Trigger
 

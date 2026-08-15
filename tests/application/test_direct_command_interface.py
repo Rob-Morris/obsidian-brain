@@ -11,6 +11,7 @@ from _application.registry import current_application_catalogue
 from _application.types import Availability, DependencyTier, SnapshotFreshness
 from _command_interface.context import compose_local_context
 import _command_interface.direct as direct_context
+import _command_interface.script as direct_script
 from _command_interface.direct import resolve_direct_vault
 from _command_interface.script import run
 
@@ -90,6 +91,20 @@ def test_direct_json_stdout_is_only_the_canonical_envelope(tmp_path):
     assert payload["schema"] == "brain.command-result/1"
     assert payload["command"] == "command.list"
     assert payload["status"] == "ok"
+
+
+def test_direct_internal_failure_preserves_the_diagnostic(monkeypatch):
+    def fail():
+        raise RuntimeError("catalogue diagnostic")
+
+    monkeypatch.setattr(direct_script, "current_application_catalogue", fail)
+    stderr = StringIO()
+
+    code = run([], stdout=StringIO(), stderr=stderr)
+
+    assert code == 4
+    assert "command catalogue failed to load" in stderr.getvalue()
+    assert "RuntimeError: catalogue diagnostic" in stderr.getvalue()
 
 
 def test_direct_human_output_and_authority_exit_are_structural(tmp_path):

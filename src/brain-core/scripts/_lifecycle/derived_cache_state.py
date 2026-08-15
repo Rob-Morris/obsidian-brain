@@ -15,7 +15,14 @@ from datetime import datetime
 import json
 import os
 from pathlib import Path
+import stat
 from typing import Any, Mapping
+
+
+_router_resource_signatures: dict[
+    Path,
+    tuple[str, tuple[tuple[str, int | None, int | None], ...]],
+] = {}
 
 
 @dataclass(frozen=True)
@@ -68,23 +75,36 @@ def inspect_router_cache(vault_root: str | Path) -> CacheState:
     artefact_index_source_paths = set(artefact_index_sources or [])
 
     expected_index_source_count = meta.get("artefact_index_source_count")
-    if expected_index_source_count is not None:
-        current_index_source_count = compile_router.count_living_artefact_index_entries(
-            str(vault_root), artefacts
+    resource_signature = _resource_mtime_signature(vault_root, compile_router)
+    source_hash = str(meta.get("source_hash") or "")
+    cached_resource_state = _router_resource_signatures.get(vault_root)
+    resources_changed = cached_resource_state != (source_hash, resource_signature)
+    current_index_sources = None
+    if resources_changed and expected_index_source_count is not None:
+        current_index_source_count, current_index_sources = (
+            compile_router.living_artefact_source_state(
+                str(vault_root), artefacts
+            )
         )
         if current_index_source_count != expected_index_source_count:
             return CacheState(True, "artefact-index-count-drift", rel_path, data)
 
-    for key, fs_count in compile_router.resource_counts(str(vault_root)).items():
-        if fs_count != len(data.get(key, [])):
-            return CacheState(True, f"{key}-count-drift", rel_path, data)
+    if resources_changed:
+        for key, fs_count in compile_router.resource_counts(str(vault_root)).items():
+            if fs_count != len(data.get(key, [])):
+                return CacheState(True, f"{key}-count-drift", rel_path, data)
 
     for source_rel_path, expected_hash in sources.items():
         abs_path = vault_root / source_rel_path
         if source_rel_path in artefact_index_source_paths:
-            try:
-                current_hash = compile_router.hash_living_artefact_source(str(abs_path))
-            except (OSError, UnicodeDecodeError):
+            if not resources_changed:
+                continue
+            if current_index_sources is None:
+                _count, current_index_sources = compile_router.living_artefact_source_state(
+                    str(vault_root), artefacts
+                )
+            current_hash = current_index_sources.get(source_rel_path)
+            if current_hash is None:
                 return CacheState(True, "artefact-index-source-unreadable", rel_path, data)
             if current_hash != expected_hash:
                 return CacheState(True, "artefact-index-source-drift", rel_path, data)
@@ -96,7 +116,45 @@ def inspect_router_cache(vault_root: str | Path) -> CacheState:
         except OSError:
             return CacheState(True, "missing-source", rel_path, data)
 
+    if resources_changed:
+        _router_resource_signatures[vault_root] = (source_hash, resource_signature)
     return CacheState(False, "fresh", rel_path, data)
+
+
+def _resource_mtime_signature(vault_root: Path, compile_router):
+    """Return cheap file-presence/mtime evidence for router-count inputs."""
+    signature = []
+    root_text = str(vault_root)
+    for relative, descend in compile_router.resource_source_dirs(root_text):
+        absolute = vault_root / relative if relative else vault_root
+        if descend:
+            _append_filtered_tree(absolute, vault_root, signature)
+            continue
+        try:
+            stat = absolute.stat()
+            signature.append((relative, stat.st_mtime_ns, stat.st_size))
+        except OSError:
+            signature.append((relative, None, None))
+    return tuple(signature)
+
+
+def _append_filtered_tree(path: Path, vault_root: Path, signature: list) -> None:
+    try:
+        entries = sorted(path.iterdir(), key=lambda item: item.name)
+    except OSError:
+        signature.append((path.relative_to(vault_root).as_posix(), None, None))
+        return
+    for entry in entries:
+        if entry.name.startswith((".", "_")):
+            continue
+        try:
+            file_stat = entry.stat(follow_symlinks=False)
+            relative = entry.relative_to(vault_root).as_posix()
+            signature.append((relative, file_stat.st_mtime_ns, file_stat.st_size))
+            if stat.S_ISDIR(file_stat.st_mode):
+                _append_filtered_tree(entry, vault_root, signature)
+        except OSError:
+            continue
 
 
 def load_fresh_compiled_router(vault_root: str | Path) -> dict[str, Any]:

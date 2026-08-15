@@ -24,6 +24,7 @@ from _bootstrap.runtime import (
 from _lifecycle.derived_cache_state import inspect_lexical_cache, inspect_router_cache
 from _portable.links import check_broken_wikilinks as _portable_check_broken_wikilinks
 from _common import (
+    AGENT_INSTRUCTION_RE,
     BOOTSTRAP_VARIANTS,
     LOCAL_OVERRIDE_VARIANTS,
     STATUS_FOLDER_PREFIX,
@@ -105,7 +106,11 @@ class CheckContext:
         duplicate = inspect_duplicate_frontmatter_document(text)
         if duplicate is not None:
             fields = duplicate["merged_fields"]
-        state = {"fields": fields, "duplicate": duplicate}
+        state = {
+            "fields": fields,
+            "duplicate": duplicate,
+            "has_authoring_hint": bool(AGENT_INSTRUCTION_RE.search(text)),
+        }
         cache[path] = state
         return state
 
@@ -114,6 +119,10 @@ class CheckContext:
 
     def duplicate_frontmatter(self, path):
         return self._document_state(path)["duplicate"]
+
+    def has_authoring_hint(self, path):
+        """Return whether the document contains an authoring-time hint."""
+        return self._document_state(path)["has_authoring_hint"]
 
     @property
     def file_index(self):
@@ -323,6 +332,12 @@ def check_frontmatter_type(vault_root, router, *, ctx=None):
     return findings
 
 
+# `parent` is deliberately absent. check_parent_contract only reports a missing
+# parent when the artefact's folder implies an owner; a release sitting in
+# `Releases/` root has nothing to infer from, so it reports nothing and
+# check_frontmatter_required is the only check that catches it. Deferring there
+# would leave an unparented release entirely unreported, so the duplicate in the
+# folder-implied case is accepted in exchange for keeping that coverage.
 def check_frontmatter_required(vault_root, router, *, ctx=None):
     """Check that required frontmatter fields are present."""
     findings = []
@@ -344,6 +359,8 @@ def check_frontmatter_required(vault_root, router, *, ctx=None):
                 continue  # no frontmatter — skip silently
 
             for field in required:
+                if art.get("classification") == "living" and field == "key":
+                    continue
                 if field not in fields:
                     findings.append({
                         "check": "frontmatter_required",
@@ -421,7 +438,9 @@ def check_living_key_fields(vault_root, router, *, ctx=None):
     """
     findings = []
     read_fm = ctx.read_frontmatter if ctx is not None else read_frontmatter
-    for rel_path in iter_living_markdown_files(vault_root, router):
+    for rel_path in iter_living_markdown_files(
+        vault_root, router, include_status_folders=True
+    ):
         abs_path = os.path.join(vault_root, rel_path)
         try:
             fields = read_fm(abs_path)
@@ -436,6 +455,47 @@ def check_living_key_fields(vault_root, router, *, ctx=None):
             "file": rel_path,
             "message": "Living artefact missing a valid key field",
             "fix": "Run `migrate_to_0_31_0.py` (or backfill a canonical key by hand) and recompile the router",
+        })
+    return findings
+
+
+def _document_has_authoring_hint(path):
+    """Read a document and report whether it contains an authoring hint."""
+    with open(path, "r", encoding="utf-8") as handle:
+        return bool(AGENT_INSTRUCTION_RE.search(handle.read()))
+
+
+def check_authoring_hint_tokens(vault_root, router, *, ctx=None):
+    """Flag template authoring hints that survived into a finished artefact.
+
+    ``{{agent: ...}}`` tokens instruct an agent authoring without
+    ``artefact.create``. Tooling strips them at create time and the hint itself
+    asks a naive agent to delete it, so one reaching an artefact means neither
+    happened — and usually that the instruction inside it went unapplied too.
+    """
+    findings = []
+    has_authoring_hint = (
+        ctx.has_authoring_hint if ctx is not None else _document_has_authoring_hint
+    )
+    for rel_path in iter_artefact_markdown_files(
+        vault_root,
+        router,
+        classifications={"living", "temporal"},
+        include_status_folders=True,
+    ):
+        abs_path = os.path.join(vault_root, rel_path)
+        try:
+            contains_hint = has_authoring_hint(abs_path)
+        except (OSError, UnicodeDecodeError):
+            continue
+        if not contains_hint:
+            continue
+        findings.append({
+            "check": "authoring_hint_tokens",
+            "severity": "warning",
+            "file": rel_path,
+            "message": "Template authoring hint left in artefact body",
+            "fix": "Apply the instruction inside the `{{agent: ...}}` hint, then delete the line",
         })
     return findings
 
@@ -849,6 +909,7 @@ ALL_CHECKS = [
     check_frontmatter_required,
     check_missing_timestamps,
     check_living_key_fields,
+    check_authoring_hint_tokens,
     check_parent_contract,
     check_month_folders,
     check_status_folders,

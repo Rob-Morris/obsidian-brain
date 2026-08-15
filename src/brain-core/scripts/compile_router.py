@@ -244,6 +244,36 @@ def _unwrap_backticks(cell):
     return m.group(1) if m else cell
 
 
+def _parse_optional_frontmatter_fields(section, documented):
+    """Return the fields a ``## Frontmatter`` section declares optional.
+
+    The frontmatter example documents shape, not requiredness — a defaulted
+    ``status:`` or a blank ``version:`` is shown so an agent knows the field
+    exists. An explicit ``**Optional:**`` line names those fields, and
+    everything else the example shows stays required. Absent the line, every
+    documented key is required, which is the historical behaviour.
+
+    Declaring a field the example does not show is a compile error: the
+    subtraction would silently do nothing, which is the failure the explicit
+    declaration exists to prevent.
+    """
+    line = re.search(
+        r"^\*\*Optional:\*\*[ \t]*([^\r\n]+?)[ \t]*$",
+        section,
+        re.MULTILINE,
+    )
+    if not line:
+        return frozenset()
+    fields = _split_backticked_values(line.group(1))
+    undocumented = [field for field in fields if field not in documented]
+    if undocumented:
+        raise ValueError(
+            "## Frontmatter **Optional:** names field(s) absent from the example: "
+            + ", ".join(undocumented)
+        )
+    return frozenset(fields)
+
+
 def _split_backticked_values(cell):
     """Parse a value cell: '`a`, `b`, `c`' → ['a','b','c']; '`*`' or '*' → ['*'].
 
@@ -439,6 +469,20 @@ def _parse_naming_section(content):
     }
 
 
+def naming_storage_root(folder):
+    """Return the static directory prefix of a compiled naming folder."""
+    if not isinstance(folder, str) or not folder.strip("/"):
+        return None
+    static_parts = []
+    for part in folder.strip("/").split("/"):
+        if "{" in part or part == "yyyy-mm":
+            break
+        static_parts.append(part)
+    if not static_parts:
+        return None
+    return "/".join(static_parts) + "/"
+
+
 def _parse_backtick_shaping_field(section, label, *, required):
     """Parse one optional or required backtick-delimited shaping field."""
     line = re.search(
@@ -600,21 +644,44 @@ def parse_taxonomy_content(content):
     result["naming"] = _parse_naming_section(content)
 
     # Parse ## Frontmatter — extract YAML code block
-    fm_match = re.search(
-        r"^## Frontmatter\s*\n.*?```ya?ml\s*\n---\s*\n(.*?)---\s*\n```",
+    fm_section = re.search(
+        r"^## Frontmatter\s*$\n(.*?)(?=^## |\Z)",
         content,
         re.MULTILINE | re.DOTALL,
+    )
+    fm_match = (
+        re.search(
+            r"```ya?ml\s*\n---\s*\n(.*?)---\s*\n```",
+            fm_section.group(1),
+            re.MULTILINE | re.DOTALL,
+        )
+        if fm_section
+        else None
     )
     if fm_match:
         yaml_text = fm_match.group(1).strip()
         # Extract type field
         type_match = re.search(r"^type:\s*(.+)$", yaml_text, re.MULTILINE)
-        # Extract required fields (all top-level keys)
-        required = re.findall(r"^(\w[\w-]*):", yaml_text, re.MULTILINE)
+        # The example documents the artefact's shape: every top-level key it
+        # shows is required unless the section declares it optional.
+        documented = re.findall(r"^(\w[\w-]*):", yaml_text, re.MULTILINE)
+        optional = _parse_optional_frontmatter_fields(fm_section.group(1), documented)
+        naming_fields = {
+            rule.get("match_field")
+            for rule in (result["naming"] or {}).get("rules", [])
+            if isinstance(rule, dict) and rule.get("match_field")
+        }
+        naming_conflicts = sorted(optional & naming_fields)
+        if naming_conflicts:
+            raise ValueError(
+                "## Frontmatter **Optional:** cannot name field(s) used by "
+                "## Naming rules: " + ", ".join(naming_conflicts)
+            )
+        required = [field for field in documented if field not in optional]
         if type_match or required:
             result["frontmatter"] = {
                 "type": type_match.group(1).strip() if type_match else None,
-                "required": required if required else [],
+                "required": required,
             }
 
     # Extract status enum and terminal statuses from full content
@@ -1015,7 +1082,13 @@ def hash_living_artefact_source(abs_path):
 
 def count_living_artefact_index_entries(vault_root, artefacts):
     """Return the number of living markdown files with a valid artefact key."""
-    count = 0
+    count, _sources = living_artefact_source_state(vault_root, artefacts)
+    return count
+
+
+def living_artefact_source_state(vault_root, artefacts):
+    """Collect living index count and source fingerprints in one file pass."""
+    sources = {}
     for artefact in artefacts:
         if artefact.get("classification") != "living":
             continue
@@ -1026,8 +1099,8 @@ def count_living_artefact_index_entries(vault_root, artefacts):
             except (OSError, UnicodeDecodeError):
                 continue
             if is_valid_key(fields.get("key")):
-                count += 1
-    return count
+                sources[rel_path] = _hash_index_payload(fields)
+    return len(sources), sources
 
 
 def build_living_artefact_index(vault_root, artefacts, *, return_sources=False):

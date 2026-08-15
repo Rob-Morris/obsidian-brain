@@ -104,6 +104,7 @@ Each DD captures the reasoning behind an architectural decision at the time it w
 | DD-062 | Ceiling-visible catalogue with independent exact access leases | Implemented (v0.57.0) | [dd-062](dd-062-ceiling-visible-catalogue-and-access-leases.md) |
 | DD-063 | Discovery shaping may preserve enduring lifecycle status | Implemented (v0.58.0) | [dd-063](dd-063-taxonomy-declared-shaping-status-behaviour.md) |
 | DD-064 | Document mutations use intent-specific commands and exact revisions | Implemented (v0.59.0) | [dd-064](dd-064-document-mutation-intents-and-revisions.md) |
+| DD-065 | Naive agent bootstrap is correctness-scoped, policied and enforced | Implemented (v0.59.1) | [dd-065](dd-065-naive-agent-bootstrap-policy.md) |
 
 ---
 

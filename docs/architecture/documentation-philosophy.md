@@ -73,7 +73,12 @@ That matters here because Brain's behaviour is expressed across several surfaces
 - docs describe the intended contracts, workflows, and rationale
 - tests assert the behavioural claims
 
-Most documentation bugs in this repo are drift bugs: one of those views changes while another does not. The pre-commit canary and contributor guidance exist largely to catch that failure mode.
+Most documentation bugs in this repo are drift bugs: one of those views changes
+while another does not. Deterministic repository contracts catch exact
+relationships such as index reachability, current changelog Summary equality,
+decision-index parity, and artefact-library catalogue/count consistency. The
+pre-commit canary and contributor guidance cover only impact judgements and
+shared facts without a reliable canonical representation.
 
 ## No Duplication, Cross-Reference Instead
 

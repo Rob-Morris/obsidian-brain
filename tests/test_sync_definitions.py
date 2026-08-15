@@ -203,6 +203,27 @@ class TestParseManifest:
         _write(path, "folders:\n  - Foo/\n")
         assert sync.parse_manifest(path) is None
 
+    @pytest.mark.parametrize(
+        "manifest",
+        (
+            MANIFEST_TAXONOMY_TEMPLATE.replace(
+                "target: _Config/Taxonomy/Temporal/cookies.md",
+                "target: ../../outside.md",
+            ),
+            MANIFEST_TAXONOMY_TEMPLATE.replace(
+                "source: taxonomy.md", "source: ../taxonomy.md"
+            ),
+            MANIFEST_TAXONOMY_TEMPLATE.replace(
+                "  - _Temporal/Cookies/", "  - ../Outside/"
+            ),
+        ),
+    )
+    def test_unsafe_paths_make_manifest_uninstallable(self, tmp_path, manifest):
+        path = str(tmp_path / "manifest.yaml")
+        _write(path, manifest)
+
+        assert sync.parse_manifest(path) is None
+
 
 # ---------------------------------------------------------------------------
 # discover_library_types
@@ -682,6 +703,19 @@ class TestSyncDefinitions:
         assert not folder.exists()
         sync.sync_definitions(str(vault))
         assert folder.is_dir()
+
+    def test_sync_rejects_target_resolving_outside_vault(self, vault):
+        outside = vault.parent / "outside"
+        outside.mkdir()
+        temporal = vault / "_Config" / "Taxonomy" / "Temporal"
+        shutil.rmtree(temporal)
+        temporal.symlink_to(outside, target_is_directory=True)
+
+        with pytest.raises(ValueError, match="outside allowed boundary"):
+            sync.sync_definitions(
+                str(vault), types=["temporal/cookies"], force=True
+            )
+        assert list(outside.iterdir()) == []
 
     def test_folders_not_created_for_uninstalled_type(self, vault):
         """Manifest folders are NOT created for uninstalled types."""

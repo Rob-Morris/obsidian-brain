@@ -16,6 +16,14 @@ from _common import (
 )
 
 
+PUBLIC_BRAIN_CORE_FILES = frozenset(
+    {"colours.md", "guide.md", "index.md", "md-bootstrap.md", "session-core.md"}
+)
+PUBLIC_BRAIN_CORE_TREES = frozenset(
+    {"artefact-library", "client-adapters", "skills", "standards"}
+)
+
+
 def _read_exact_file(vault_root, path):
     try:
         resolved = resolve_and_check_bounds(
@@ -60,23 +68,10 @@ def _public_file_error(vault_root, path):
     if not parts:
         return "Path does not identify a public vault file"
     if parts[0] == ".brain-core":
-        public_files = {
-            "colours.md",
-            "guide.md",
-            "index.md",
-            "md-bootstrap.md",
-            "session-core.md",
-        }
-        public_trees = {
-            "artefact-library",
-            "client-adapters",
-            "skills",
-            "standards",
-        }
         permitted = (
-            len(parts) == 2 and parts[1] in public_files
+            len(parts) == 2 and parts[1] in PUBLIC_BRAIN_CORE_FILES
         ) or (
-            len(parts) > 2 and parts[1] in public_trees
+            len(parts) > 2 and parts[1] in PUBLIC_BRAIN_CORE_TREES
         )
         if permitted and not any(part.startswith(".") for part in parts[1:]):
             return None

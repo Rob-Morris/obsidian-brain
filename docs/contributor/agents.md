@@ -121,11 +121,28 @@ Why this matters:
 - Agent sandboxes commonly block package index access even when local file operations succeed.
 - Repo guidance belongs here and in `AGENTS.md`, not in shipped `.brain-core/` bootstrap files.
 
+## Deterministic repository contracts
+
+The pre-commit hook runs
+`.venv/bin/python src/scripts/check_repository_contracts.py --staged` before
+reading the canary receipt. The checker reads the Git index, not the working
+tree, and owns facts that code can decide: VERSION/README badge/changelog
+coupling, DD/index parity and number permanence, artefact-library
+metadata/catalogue/count consistency, and documentation reachability. `make
+test` exercises the same predicates against the checkout plus focused failure
+cases.
+
+Keep subjective review in `.canaries/pre-commit.md`. When a checklist statement
+can be expressed as an equality, set comparison, graph reachability rule, or
+Git predicate, add it to the checker/tests instead of requiring self-attestation.
+
 ## Why Drift Happens
 
 The same fact often appears in multiple files. For example, "Plans lifecycle is `draft` → `approved` → `implementing` → `completed`" appears in the Plans taxonomy, `docs/user/system-guide.md`, `src/brain-core/guide.md`, and `src/brain-core/artefact-library/README.md`. When a commit updates some but not all, the docs drift.
 
-The pre-commit canary's cross-check tasks exist specifically to catch this. Follow them carefully — grep for the values you changed and verify every occurrence.
+Deterministic repository contracts catch exact drift. The pre-commit canary
+retains the remaining impact review: grep for shared values that do not yet
+have a reliable canonical representation and verify every affected occurrence.
 
 ## Multi-Repo Workflow
 

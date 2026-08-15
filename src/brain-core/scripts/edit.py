@@ -8,6 +8,7 @@ parser retained here is an internal maintenance and repository-test entry point.
 """
 
 import argparse
+from dataclasses import dataclass
 import json
 import os
 import re
@@ -45,7 +46,6 @@ from _common import (
     MissingFileResult,
     MutationLockError,
     public_mutation_error_message,
-    require_document_revision,
     naming_driver_fields,
     normalize_artefact_key,
     now_iso,
@@ -98,6 +98,18 @@ OPERATION_LABELS = {
 
 BODY_TARGET = ":body"
 
+
+@dataclass(frozen=True, slots=True)
+class OpenDocument:
+    resource: str
+    reference: str
+    path: str
+    abs_path: str
+    fields: dict
+    body: str
+    artefact: dict | None
+    revision: str
+
 _VALID_SCOPES = {
     "body": {
         "edit": {"section", "intro"},
@@ -133,10 +145,59 @@ def _reject_leading_body_frontmatter(body, *, resource_label):
 
 def _open_artefact(vault_root, router, path):
     """Validate, read, and parse an artefact. Returns (path, abs_path, fields, body, artefact)."""
+    opened = open_document(vault_root, router, "artefact", path)
+    return opened.path, opened.abs_path, opened.fields, opened.body, opened.artefact
+
+
+def open_document(vault_root, router, resource, reference):
+    """Open and parse one editable document with its exact persisted revision."""
     vault_root = str(vault_root)
-    path, abs_path, fields, body, art = _read_open_path(vault_root, router, path)
-    check_write_allowed(path)
-    return path, abs_path, fields, body, art
+    if resource == "artefact":
+        resolved_path, artefact = resolve_and_validate_folder(
+            vault_root, router, reference
+        )
+        check_write_allowed(resolved_path)
+        abs_path = os.path.join(vault_root, resolved_path)
+        try:
+            content = read_exact_file_content(abs_path)
+        except FileNotFoundError:
+            raise FileNotFoundError(f"File not found: {resolved_path}") from None
+        fields, body = parse_frontmatter(content)
+        return OpenDocument(
+            resource,
+            reference,
+            resolved_path,
+            abs_path,
+            fields,
+            body,
+            artefact,
+            content.revision,
+        )
+    if resource not in EDITABLE_RESOURCES:
+        raise ValueError(
+            f"Resource '{resource}' is not an editable Brain document. "
+            f"Editable resources: {', '.join(EDITABLE_RESOURCES)}"
+        )
+    rel_path = config_resource_rel_path(router, resource, reference)
+    check_write_allowed(rel_path)
+    abs_path = os.path.join(vault_root, rel_path)
+    try:
+        content = read_exact_file_content(abs_path)
+    except FileNotFoundError:
+        raise FileNotFoundError(
+            f"{resource.capitalize()} '{reference}' not found at {rel_path}"
+        ) from None
+    fields, body = parse_frontmatter(content)
+    return OpenDocument(
+        resource,
+        reference,
+        rel_path,
+        abs_path,
+        fields,
+        body,
+        None,
+        content.revision,
+    )
 
 
 def _line_count(text):
@@ -873,7 +934,7 @@ def edit_resource(vault_root, router, resource="artefact", operation="edit",
                   target=None, selector=None, scope=None, fix_links=False,
                   file_index=None, old_text=None, new_text=None,
                   match_occurrence=None, replace_all=False,
-                  expected_revision=None):
+                  expected_revision=None, opened=None):
     """Edit a vault resource. Dispatches to the appropriate handler.
 
     For artefacts: delegates to existing edit/append/prepend/delete_section functions.
@@ -907,18 +968,74 @@ def edit_resource(vault_root, router, resource="artefact", operation="edit",
             raise ValueError("path is required when resource='artefact'")
         if operation not in {"edit", "append", "prepend", "delete_section", "replace_text"}:
             raise ValueError(f"Unknown operation '{operation}'")
-        if expected_revision is not None:
-            _resolved, revision_path, _fields, _body, _art = _open_artefact(
-                vault_root, router, path
-            )
-            require_document_revision(revision_path, expected_revision)
-        if operation == "replace_text":
-            if frontmatter_changes:
-                raise ValueError("replace_text does not accept frontmatter changes")
-            result = replace_text_in_artefact(
+        if (
+            opened is None
+            and expected_revision is None
+            and operation != "replace_text"
+            and not frontmatter_changes
+        ):
+            result = apply_to_artefact(
+                operation,
                 vault_root,
                 router,
                 path,
+                body,
+                target=target,
+                selector=selector,
+                scope=scope,
+            )
+            _fix_links.attach_wikilink_warnings(
+                vault_root,
+                result,
+                apply_fixes=fix_links,
+                file_index=file_index,
+            )
+            result["revision"] = document_revision_at(
+                os.path.join(vault_root, result["path"])
+            )
+            return result
+        if opened is None:
+            resolved, abs_path, fields, existing_body, artefact = _open_artefact(
+                vault_root, router, path
+            )
+            document = OpenDocument(
+                resource,
+                path,
+                resolved,
+                abs_path,
+                fields,
+                existing_body,
+                artefact,
+                (
+                    document_revision_at(abs_path)
+                    if expected_revision is not None
+                    else ""
+                ),
+            )
+        else:
+            document = opened
+        _validate_open_document(document, resource, path)
+        if expected_revision is not None:
+            validate_document_revision(expected_revision, label="expected_revision")
+            if document.revision != expected_revision:
+                raise DocumentRevisionConflict(
+                    "document changed since it was read; re-read it and retry with "
+                    f"the current revision ({document.revision})"
+                )
+        opened_artefact = (
+            document.path,
+            document.abs_path,
+            dict(document.fields),
+            document.body,
+            document.artefact,
+        )
+        if operation == "replace_text":
+            if frontmatter_changes:
+                raise ValueError("replace_text does not accept frontmatter changes")
+            result = _replace_text_in_open_artefact(
+                vault_root,
+                router,
+                opened_artefact,
                 old_text=old_text,
                 new_text=new_text,
                 target=target,
@@ -937,16 +1054,13 @@ def edit_resource(vault_root, router, resource="artefact", operation="edit",
                     selector,
                     scope,
                 )
-                opened = _open_artefact(
-                    vault_root, router, path
-                )
-                art = opened[4]
+                art = opened_artefact[4]
                 _reject_handler_owned_frontmatter(art, frontmatter_changes)
                 result = _apply_to_open_artefact(
                     operation,
                     vault_root,
                     router,
-                    opened,
+                    opened_artefact,
                     body,
                     frontmatter_changes=frontmatter_changes,
                     target=target,
@@ -954,9 +1068,18 @@ def edit_resource(vault_root, router, resource="artefact", operation="edit",
                     scope=scope,
                 )
             else:
-                result = apply_to_artefact(
-                    operation, vault_root, router, path, body,
-                    target=target, selector=selector, scope=scope,
+                body, scope = _prepare_artefact_operation(
+                    operation, body, None, target, selector, scope
+                )
+                result = _apply_to_open_artefact(
+                    operation,
+                    vault_root,
+                    router,
+                    opened_artefact,
+                    body,
+                    target=target,
+                    selector=selector,
+                    scope=scope,
                 )
         _fix_links.attach_wikilink_warnings(vault_root, result, apply_fixes=fix_links, file_index=file_index)
         result["revision"] = document_revision_at(
@@ -973,19 +1096,14 @@ def edit_resource(vault_root, router, resource="artefact", operation="edit",
     if not name:
         raise ValueError(f"document.edit for resource '{resource}' requires a reference.")
 
-    # Resolve and read config resource
-    rel_path = config_resource_rel_path(router, resource, name)
-    check_write_allowed(rel_path)
-    abs_path = os.path.join(vault_root, rel_path)
-    try:
-        content = read_exact_file_content(abs_path)
-    except FileNotFoundError:
-        raise FileNotFoundError(
-            f"{resource.capitalize()} '{name}' not found at {rel_path}"
-        ) from None
-    fields, existing_body = parse_frontmatter(content)
+    document = opened or open_document(vault_root, router, resource, name)
+    _validate_open_document(document, resource, name)
+    rel_path = document.path
+    abs_path = document.abs_path
+    fields = dict(document.fields)
+    existing_body = document.body
     if expected_revision is not None:
-        current_revision = content.revision
+        current_revision = document.revision
         if current_revision != expected_revision:
             validate_document_revision(expected_revision, label="expected_revision")
             raise DocumentRevisionConflict(
@@ -1064,6 +1182,13 @@ def edit_resource(vault_root, router, resource="artefact", operation="edit",
     )
     result["revision"] = document_revision_at(abs_path)
     return result
+
+
+def _validate_open_document(opened, resource, reference):
+    if not isinstance(opened, OpenDocument):
+        raise TypeError("opened document must be an OpenDocument")
+    if opened.resource != resource or opened.reference != reference:
+        raise ValueError("opened document does not match the mutation target")
 
 
 def _replace_exact_tag(fields, old_tag, new_tag=None):
@@ -1811,7 +1936,35 @@ def replace_text_in_artefact(vault_root, router, path, *, old_text, new_text,
                              target=None, selector=None, scope=None,
                              match_occurrence=None, replace_all=False):
     """Replace exact text in an artefact body without rewriting its surroundings."""
-    path, abs_path, fields, existing_body, art = _open_artefact(vault_root, router, path)
+    opened = _open_artefact(vault_root, router, path)
+    return _replace_text_in_open_artefact(
+        vault_root,
+        router,
+        opened,
+        old_text=old_text,
+        new_text=new_text,
+        target=target,
+        selector=selector,
+        scope=scope,
+        match_occurrence=match_occurrence,
+        replace_all=replace_all,
+    )
+
+
+def _replace_text_in_open_artefact(
+    vault_root,
+    router,
+    opened,
+    *,
+    old_text,
+    new_text,
+    target=None,
+    selector=None,
+    scope=None,
+    match_occurrence=None,
+    replace_all=False,
+):
+    path, abs_path, fields, existing_body, art = opened
     old_fields = dict(fields)
     new_body, resolved, replacement_count, match_count = _apply_replace_text(
         existing_body,

@@ -907,6 +907,68 @@ class TestPostUpgradeSync:
         # Verify file was actually updated
         assert "v2" in _read(str(vault / "_Config" / "Taxonomy" / "Living" / "docs.md"))
 
+    def test_upgrade_recompiles_after_taxonomy_sync(
+        self, source_and_vault, monkeypatch
+    ):
+        source, vault = source_and_vault
+        (vault / ".brain" / "preferences.json").write_text(
+            json.dumps({"artefact_sync": "auto"})
+        )
+        observed_taxonomies = []
+
+        def observe_compile(vault_root):
+            observed_taxonomies.append(
+                _read(
+                    str(
+                        Path(vault_root)
+                        / "_Config"
+                        / "Taxonomy"
+                        / "Living"
+                        / "docs.md"
+                    )
+                )
+            )
+            return None
+
+        monkeypatch.setattr(upgrade, "_validate_compile", observe_compile)
+
+        result = upgrade.upgrade(str(vault), str(source))
+
+        assert result["status"] == "ok"
+        assert "v1" in observed_taxonomies[0]
+        assert "v2" in observed_taxonomies[-1]
+        assert len(observed_taxonomies) >= 2
+
+    def test_upgrade_surfaces_post_sync_compile_failure(
+        self, source_and_vault, monkeypatch
+    ):
+        source, vault = source_and_vault
+        (vault / ".brain" / "preferences.json").write_text(
+            json.dumps({"artefact_sync": "auto"})
+        )
+
+        def fail_only_after_sync(vault_root):
+            taxonomy = _read(
+                str(
+                    Path(vault_root)
+                    / "_Config"
+                    / "Taxonomy"
+                    / "Living"
+                    / "docs.md"
+                )
+            )
+            return "new taxonomy is invalid" if "v2" in taxonomy else None
+
+        monkeypatch.setattr(upgrade, "_validate_compile", fail_only_after_sync)
+
+        result = upgrade.upgrade(str(vault), str(source))
+
+        assert result["status"] == "ok"
+        assert result["sync_compile_error"] == (
+            "Definitions were updated but router recompilation failed: "
+            "new taxonomy is invalid"
+        )
+
     def test_upgrade_with_ask_preference_applies_safe_updates(self, source_and_vault):
         """artefact_sync: ask (default) → safe updates auto-applied."""
         source, vault = source_and_vault

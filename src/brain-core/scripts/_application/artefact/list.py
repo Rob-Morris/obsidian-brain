@@ -165,10 +165,6 @@ def _error(code: ErrorCode, message: str, field: str | None) -> Error:
     return request_error(ArtefactListRequest, code, message, field)
 
 
-def _optional_string(payload: Mapping[str, object], name: str) -> str | None:
-    return optional_string(payload.get(name), name)
-
-
 def decode(payload: Mapping[str, object]) -> ArtefactListRequest:
     allowed = {
         "location",
@@ -199,15 +195,19 @@ def decode(payload: Mapping[str, object]) -> ArtefactListRequest:
         raise ValueError("location must be active, archived, or all") from exc
     return ArtefactListRequest(
         location=location_value,
-        type_filter=_optional_string(payload, "type_filter"),
-        since=_optional_string(payload, "since"),
-        until=_optional_string(payload, "until"),
-        modified_since=_optional_string(payload, "modified_since"),
-        modified_until=_optional_string(payload, "modified_until"),
-        tag=_optional_string(payload, "tag"),
-        parent=_optional_string(payload, "parent"),
+        type_filter=optional_string(payload.get("type_filter"), "type_filter"),
+        since=optional_string(payload.get("since"), "since"),
+        until=optional_string(payload.get("until"), "until"),
+        modified_since=optional_string(
+            payload.get("modified_since"), "modified_since"
+        ),
+        modified_until=optional_string(
+            payload.get("modified_until"), "modified_until"
+        ),
+        tag=optional_string(payload.get("tag"), "tag"),
+        parent=optional_string(payload.get("parent"), "parent"),
         sort=ArtefactSort(sort),
-        cursor=_optional_string(payload, "cursor"),
+        cursor=optional_string(payload.get("cursor"), "cursor"),
         page_size=page_size,
     )
 

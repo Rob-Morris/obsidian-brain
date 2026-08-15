@@ -55,6 +55,27 @@ def test_cache_overlays_create_real_derived_state_staleness(
     assert inspect_lexical_cache(index_clone.vault_root).stale is True
 
 
+def test_router_freshness_reuses_unchanged_resource_inventory(
+    command_vault_clone,
+    monkeypatch,
+):
+    import compile_router
+
+    assert inspect_router_cache(command_vault_clone.vault_root).stale is False
+
+    def repeated_inventory(*_args, **_kwargs):
+        raise AssertionError("unchanged resource inventory should be reused")
+
+    monkeypatch.setattr(
+        compile_router,
+        "living_artefact_source_state",
+        repeated_inventory,
+    )
+    monkeypatch.setattr(compile_router, "resource_counts", repeated_inventory)
+
+    assert inspect_router_cache(command_vault_clone.vault_root).stale is False
+
+
 @pytest.mark.parametrize(
     ("overlay_name", "blocked", "malformed", "stale_count"),
     [

@@ -34,6 +34,8 @@ The following section headings are parsed by `compile_router.py` and must use th
   - `type: temporal/{singular}` (always)
   - `tags: [{singular}]` or topical tags (always)
   - `status: {default}` (when the type has a lifecycle — most don't)
+
+  Every top-level key the example shows is treated as **required** — the example is what an agent authoring without tooling reproduces. To document a genuinely optional field, add an `**Optional:**` line after the code block naming those fields (for example ``**Optional:** `status``). Omit the line when every documented field is required. Naming a field the example does not show is a compile error, and a field the `## Naming` rules match on cannot be optional.
 - **`## Lifecycle`** *(when the type has a status enum)* — a Markdown table with one row per state. Examples: plans (`draft | shaping | approved | implementing | completed | deprecated | parked`), idea-logs (`open | graduated | deprecated | parked`).
 - **`## Template`** — a single wikilink to the template, e.g. `[[_Config/Templates/Temporal/Reports]]` (no `.md` extension). Required for the compiler to record the template pointer.
 

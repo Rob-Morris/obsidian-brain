@@ -7,7 +7,7 @@ from typing import ClassVar, Literal, Mapping
 
 from .._decoding import decode_bool, reject_unexpected
 from .._document_mutation import (
-    DocumentMutationIntent,
+    DocumentPatchIntent,
     DocumentPatchPayload,
     execute_document_mutation,
 )
@@ -82,12 +82,10 @@ def execute(context: InvocationContext, request: DocumentPatchRequest):
     return execute_document_mutation(
         context,
         request,
-        DocumentMutationIntent(
+        DocumentPatchIntent(
             resource=request.document.resource.value,
             reference=request.document.reference,
             expected_revision=request.expected_revision,
-            operation="replace_text",
-            result_operation="patch",
             old_text=request.old_text,
             new_text=request.new_text,
             match_occurrence=occurrence,

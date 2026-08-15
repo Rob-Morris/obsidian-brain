@@ -33,6 +33,14 @@ The following section headings are parsed by `compile_router.py` and must use th
   - `key: {key}` (for hub-style types — see [keys.md](../keys.md))
   - `tags: [{singular}/{key}]` (for hub-style types — see Tag Convention)
   - `status: {default}` (when the type has a lifecycle)
+
+  Every top-level key the example shows is treated as **required** — the example is what an agent authoring without tooling reproduces. To document a genuinely optional field, add an `**Optional:**` line after the code block naming those fields:
+
+  ```markdown
+  **Optional:** `version`, `tag`, `commit`, `shipped`
+  ```
+
+  Omit the line when every documented field is required. Naming a field the example does not show is a compile error. A field the `## Naming` rules match on cannot be optional — the compiler needs a value to select a pattern — so `Releases` and `Writing` keep `status` required even though it carries a default. Keep the line consistent with the type's `schema.yaml`: it may promote a schema-optional field to required, never the reverse.
 - **`## Lifecycle`** *(when the type has a status enum)* — a Markdown table with one row per state, including the default and any terminal states. The compiler extracts the status enum and terminal states from this section. See [archiving.md](../archiving.md) for `+Done/`, `+Shipped/`, `+Published/` conventions.
 - **`## Template`** — a single wikilink to the template, e.g. `[[_Config/Templates/Living/People]]` (no `.md` extension). Required for the compiler to record the template pointer.
 
@@ -100,7 +108,7 @@ To add a new type to brain-core for distribution, create a bundle at `artefact-l
       const: "living/{singular}"
     key:
       type: string
-      pattern: "^[a-z0-9]+(-[a-z0-9]+)*$"
+      pattern: "^(?=.{1,64}$)(?=.*[a-z])[a-z0-9]+(?:-[a-z0-9]+)*$"
     tags:
       type: array
       contains: "{singular}/{key}"

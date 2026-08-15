@@ -68,11 +68,14 @@ Example: `Ideas/voice-controlled-task-manager.md`
 ```yaml
 ---
 type: living/idea
+key: {key}
 tags:
   - idea
 status: new                 # new | shaping | ready | adopted | deprecated | parked
 ---
 ```
+
+**Optional:** `status`
 
 ## Template
 

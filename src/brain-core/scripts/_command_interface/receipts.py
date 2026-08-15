@@ -53,9 +53,13 @@ class FileReceiptStore:
             return
         with self._locked_directory():
             now = self._clock.now()
-            self._cleanup_locked(now)
+            records = self._records_locked()
+            records, _expired = self._expire_records_locked(records, now)
             path = self._path(receipt.reference)
-            existing = self._read_path(path)
+            existing = next(
+                (stored for stored_path, stored in records if stored_path == path),
+                None,
+            )
             if existing is not None:
                 if existing != receipt:
                     raise ValueError("invocation receipt is immutable once recorded")
@@ -66,7 +70,8 @@ class FileReceiptStore:
                 bounds=self._root,
                 follow_symlinks=False,
             )
-            self._trim_locked()
+            records.append((path, receipt))
+            self._trim_locked(records)
 
     def read(self, reference: OutcomeReference) -> OutcomeReceipt | None:
         with self._lock:
@@ -133,20 +138,31 @@ class FileReceiptStore:
         return records
 
     def _cleanup_locked(self, now: datetime) -> int:
+        _records, expired = self._expire_records_locked(
+            self._records_locked(),
+            now,
+        )
+        return expired
+
+    def _expire_records_locked(
+        self,
+        records: list[tuple[Path, OutcomeReceipt]],
+        now: datetime,
+    ) -> tuple[list[tuple[Path, OutcomeReceipt]], int]:
         if now.tzinfo is None:
             raise ValueError("receipt cleanup clock must be timezone-aware")
         cutoff = now - self._policy.retention
-        expired = [
-            path
-            for path, receipt in self._records_locked()
-            if receipt.recorded_at < cutoff
-        ]
-        for path in expired:
-            path.unlink()
-        return len(expired)
+        retained = []
+        expired = 0
+        for path, receipt in records:
+            if receipt.recorded_at < cutoff:
+                path.unlink()
+                expired += 1
+            else:
+                retained.append((path, receipt))
+        return retained, expired
 
-    def _trim_locked(self) -> None:
-        records = self._records_locked()
+    def _trim_locked(self, records: list[tuple[Path, OutcomeReceipt]]) -> None:
         overflow = len(records) - self._policy.max_records
         if overflow <= 0:
             return

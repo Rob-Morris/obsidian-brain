@@ -216,6 +216,7 @@ Full details in the [Template Library Guide — Extending Your Vault](https://gi
 | Workflow triggers | `_Config/router.md` |
 | Type definitions | `_Config/Taxonomy/` |
 | Templates | `_Config/Templates/` |
+| Skills (reusable procedures) | `_Config/Skills/` |
 | Writing style | `_Config/Styles/writing.md` |
 | Folder colours | `_Config/Styles/obsidian.md` |
 | Memories | `_Config/Memories/` |

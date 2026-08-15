@@ -8,7 +8,7 @@ from typing import ClassVar, Mapping
 
 from .._decoding import decode_bool, reject_unexpected
 from .._document_mutation import (
-    DocumentMutationIntent,
+    DocumentWriteIntent,
     DocumentWritePayload,
     execute_document_mutation,
 )
@@ -77,15 +77,13 @@ def execute(context: InvocationContext, request: DocumentWriteRequest):
     return execute_document_mutation(
         context,
         request,
-        DocumentMutationIntent(
+        DocumentWriteIntent(
             resource=request.document.resource.value,
             reference=request.document.reference,
             expected_revision=request.expected_revision,
             operation=operation,
             result_operation=request.operation.value,
             content=request.content,
-            target=":body",
-            scope="section",
             fix_links=request.fix_links,
         ),
     )

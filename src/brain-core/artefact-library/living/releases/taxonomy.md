@@ -62,6 +62,8 @@ Examples:
 ```yaml
 ---
 type: living/release
+key: {key}
+parent: project/{owner-key}
 tags:
   - release
 status: planned
@@ -71,6 +73,10 @@ commit:
 shipped:
 ---
 ```
+
+**Optional:** `version`, `tag`, `commit`, `shipped`
+
+`status` is required because the naming rules select a filename pattern from it.
 
 `parent` is required and uses a canonical artefact key such as `project/brain` (any owning living artefact type is valid — projects are the canonical case but not the only one). Tooling keeps the `Releases/{scope}/` path and matching relationship tag aligned. `version`, `tag`, `commit`, and `shipped` become load-bearing at ship time; until then they may stay blank.
 

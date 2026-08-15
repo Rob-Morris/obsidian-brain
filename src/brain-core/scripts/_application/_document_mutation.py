@@ -22,6 +22,7 @@ from .results import (
     Error,
     ErrorCode,
     Ok,
+    Partial,
     RequestErrorDetails,
     WarningCode,
 )
@@ -88,22 +89,56 @@ class DocumentFrontmatterUpdatePayload:
 
 
 @dataclass(frozen=True, slots=True)
-class DocumentMutationIntent:
+class DocumentWriteIntent:
     resource: str
     reference: str
     expected_revision: str
     operation: str
     result_operation: str
-    content: MutationContent | None = None
-    frontmatter: tuple[FrontmatterField, ...] = ()
-    target: str | None = None
-    selector: dict | None = None
-    scope: str | None = None
-    old_text: str = ""
-    new_text: str = ""
-    match_occurrence: int | None = None
-    replace_all: bool = False
+    content: MutationContent
     fix_links: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class DocumentPatchIntent:
+    resource: str
+    reference: str
+    expected_revision: str
+    old_text: str
+    new_text: str
+    match_occurrence: int | None
+    replace_all: bool
+    fix_links: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class DocumentEditIntent:
+    resource: str
+    reference: str
+    expected_revision: str
+    operation: str
+    result_operation: str
+    content: MutationContent | None
+    target: str
+    selector: dict | None
+    scope: str | None
+    fix_links: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class DocumentFrontmatterIntent:
+    resource: str
+    reference: str
+    expected_revision: str
+    frontmatter: tuple[FrontmatterField, ...]
+
+
+DocumentMutationIntent = (
+    DocumentWriteIntent
+    | DocumentPatchIntent
+    | DocumentEditIntent
+    | DocumentFrontmatterIntent
+)
 
 
 def execute_document_mutation(
@@ -121,6 +156,7 @@ def execute_document_mutation(
     from _lifecycle.derived_cache_state import load_fresh_compiled_router
     from _staging import finalise_staged_body
     import edit
+    import fix_links
 
     if context.dry_run:
         return no_effect_error(
@@ -128,6 +164,7 @@ def execute_document_mutation(
             ErrorCode.INVALID_REQUEST,
             f"{request.COMMAND_ID} does not support dry-run",
         )
+    mutation_started = False
     try:
         _preflight_request(edit, intent)
     except ValueError as exc:
@@ -142,12 +179,10 @@ def execute_document_mutation(
     subject_kwargs = {subject_field: intent.reference}
     try:
         with vault_mutation_lock(vault_root):
-            current_revision = edit.current_document_revision(
-                vault_root,
-                router,
-                intent.resource,
-                **subject_kwargs,
+            opened = edit.open_document(
+                vault_root, router, intent.resource, intent.reference
             )
+            current_revision = opened.revision
             validate_document_revision(
                 intent.expected_revision,
                 label="expected_revision",
@@ -157,23 +192,16 @@ def execute_document_mutation(
                     "document changed since it was read; re-read it and retry "
                     f"with the current revision ({current_revision})"
                 )
-            body, staged_handle = _resolve_body(vault_root, intent.content)
+            body, staged_handle = _resolve_body(vault_root, intent)
+            mutation_started = True
             result = edit.edit_resource(
                 vault_root,
                 router,
                 resource=intent.resource,
-                operation=intent.operation,
                 body=body,
-                frontmatter_changes=frontmatter_mapping(intent.frontmatter),
-                target=intent.target,
-                selector=intent.selector,
-                scope=intent.scope,
-                old_text=intent.old_text,
-                new_text=intent.new_text,
-                match_occurrence=intent.match_occurrence,
-                replace_all=intent.replace_all,
-                fix_links=intent.fix_links,
                 expected_revision=intent.expected_revision,
+                opened=opened,
+                **_edit_arguments(intent),
                 **subject_kwargs,
             )
             staging_warning = finalise_staged_body(vault_root, staged_handle)
@@ -186,11 +214,44 @@ def execute_document_mutation(
             public_mutation_error_message(exc),
             retryable=True,
         )
+    except fix_links.WikilinkProcessingError as exc:
+        message = str(exc)
+        return Partial(
+            request.COMMAND_ID,
+            request.COMMAND_VERSION,
+            CommandError(
+                ErrorCode.CONFLICT,
+                message,
+                RequestErrorDetails(None, message),
+                next_action=CommandNextAction(
+                    "artefact.read",
+                    (CommandArgument("reference", exc.path),),
+                ),
+            ),
+            (CommittedEffect(request.COMMAND_ID, exc.path),),
+            warnings=(
+                CommandWarning(
+                    WarningCode.FOLLOW_UP_REQUIRED,
+                    "The document edit committed, but requested wikilink processing did not complete.",
+                ),
+            ),
+        )
     except FileNotFoundError as exc:
+        if mutation_started:
+            raise
         return no_effect_error(
             type(request), ErrorCode.NOT_FOUND, str(exc), "document"
         )
     except ValueError as exc:
+        if mutation_started:
+            revision_after_failure = edit.current_document_revision(
+                vault_root,
+                router,
+                intent.resource,
+                **subject_kwargs,
+            )
+            if revision_after_failure != intent.expected_revision:
+                raise
         return no_effect_error(type(request), ErrorCode.INVALID_REQUEST, str(exc))
 
     payload = _payload(request, intent, result, staged_handle, staging_warning)
@@ -215,31 +276,72 @@ def execute_document_mutation(
 
 
 def _preflight_request(edit, intent: DocumentMutationIntent) -> None:
-    if intent.operation in {"edit", "append", "prepend"}:
+    if isinstance(intent, DocumentWriteIntent):
+        edit.preflight_request_contract(
+            intent.operation,
+            has_body=True,
+            target=":body",
+            scope="section",
+        )
+    elif isinstance(intent, DocumentEditIntent):
         edit.preflight_request_contract(
             intent.operation,
             has_body=intent.content is not None,
-            frontmatter_changes=frontmatter_mapping(intent.frontmatter),
             target=intent.target,
             selector=intent.selector,
             scope=intent.scope,
         )
-    elif intent.operation == "delete_section":
+    elif isinstance(intent, DocumentFrontmatterIntent):
         edit.preflight_request_contract(
-            intent.operation,
+            "edit",
+            has_body=False,
             frontmatter_changes=frontmatter_mapping(intent.frontmatter),
-            target=intent.target,
-            selector=intent.selector,
         )
 
 
 def _resolve_body(
     vault_root: str,
-    content: MutationContent | None,
+    intent: DocumentMutationIntent,
 ) -> tuple[str, str | None]:
+    content = (
+        intent.content
+        if isinstance(intent, (DocumentWriteIntent, DocumentEditIntent))
+        else None
+    )
     if content is None:
         return "", None
     return resolve_mutation_content(vault_root, content)
+
+
+def _edit_arguments(intent: DocumentMutationIntent) -> dict:
+    if isinstance(intent, DocumentWriteIntent):
+        return {
+            "operation": intent.operation,
+            "target": ":body",
+            "scope": "section",
+            "fix_links": intent.fix_links,
+        }
+    if isinstance(intent, DocumentPatchIntent):
+        return {
+            "operation": "replace_text",
+            "old_text": intent.old_text,
+            "new_text": intent.new_text,
+            "match_occurrence": intent.match_occurrence,
+            "replace_all": intent.replace_all,
+            "fix_links": intent.fix_links,
+        }
+    if isinstance(intent, DocumentEditIntent):
+        return {
+            "operation": intent.operation,
+            "target": intent.target,
+            "selector": intent.selector,
+            "scope": intent.scope,
+            "fix_links": intent.fix_links,
+        }
+    return {
+        "operation": "edit",
+        "frontmatter_changes": frontmatter_mapping(intent.frontmatter),
+    }
 
 
 def _payload(request, intent, result, staged_handle, staging_warning):
@@ -249,7 +351,7 @@ def _payload(request, intent, result, staged_handle, staging_warning):
         "resolved_path": result["resolved_path"],
         "revision": result["revision"],
     }
-    if request.RESULT_TYPE is DocumentWritePayload:
+    if isinstance(intent, DocumentWriteIntent):
         return DocumentWritePayload(
             **common,
             operation=intent.result_operation,
@@ -260,7 +362,7 @@ def _payload(request, intent, result, staged_handle, staging_warning):
             wikilink_substitutions=substitutions,
             staged_handle_consumed=staged_handle is not None and staging_warning is None,
         )
-    if request.RESULT_TYPE is DocumentPatchPayload:
+    if isinstance(intent, DocumentPatchIntent):
         return DocumentPatchPayload(
             **common,
             match_count=int(result["match_count"]),
@@ -271,7 +373,7 @@ def _payload(request, intent, result, staged_handle, staging_warning):
             wikilink_fixes=fixes,
             wikilink_substitutions=substitutions,
         )
-    if request.RESULT_TYPE is DocumentEditPayload:
+    if isinstance(intent, DocumentEditIntent):
         raw_target = result.get("structural_target")
         if raw_target is None:
             raise RuntimeError("semantic document edit did not resolve a structural target")
@@ -291,7 +393,7 @@ def _payload(request, intent, result, staged_handle, staging_warning):
             wikilink_substitutions=substitutions,
             staged_handle_consumed=staged_handle is not None and staging_warning is None,
         )
-    if request.RESULT_TYPE is DocumentFrontmatterUpdatePayload:
+    if isinstance(intent, DocumentFrontmatterIntent):
         updated = tuple(item.name for item in intent.frontmatter if item.value is not None)
         removed = tuple(item.name for item in intent.frontmatter if item.value is None)
         return DocumentFrontmatterUpdatePayload(
@@ -299,7 +401,7 @@ def _payload(request, intent, result, staged_handle, staging_warning):
             updated_fields=updated,
             removed_fields=removed,
         )
-    raise TypeError(f"unsupported document mutation result type: {request.RESULT_TYPE!r}")
+    raise TypeError(f"unsupported document mutation intent: {type(intent)!r}")
 
 
 def _revision_conflict(request_type, request, message: str) -> Error:

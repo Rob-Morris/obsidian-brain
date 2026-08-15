@@ -29,6 +29,7 @@ from _application.document.patch import (
 )
 from _application.document.update_frontmatter import DocumentUpdateFrontmatterRequest
 from _application.document.write import DocumentWriteOperation, DocumentWriteRequest
+from _application._mutation_support import FrontmatterField, InlineContent, StagedContent
 
 __all__ = (
     "AllMatches",
@@ -45,13 +46,16 @@ __all__ = (
     "DocumentUpdateFrontmatterRequest",
     "DocumentWriteOperation",
     "DocumentWriteRequest",
+    "FrontmatterField",
     "HeadingAncestor",
     "HeadingBlockSelection",
     "HeadingPart",
     "HeadingSelection",
     "InsertPosition",
     "InsertStructure",
+    "InlineContent",
     "OccurrenceMatch",
     "ReplaceStructure",
+    "StagedContent",
     "UniqueMatch",
 )

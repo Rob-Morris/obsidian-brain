@@ -55,11 +55,14 @@ Example: `Documentation/ai-writing-style-guide.md`
 ```yaml
 ---
 type: living/documentation
+key: {key}
 tags:
   - documentation
 status: active              # new | shaping | ready | active | deprecated
 ---
 ```
+
+**Optional:** `status`
 
 ## Template
 

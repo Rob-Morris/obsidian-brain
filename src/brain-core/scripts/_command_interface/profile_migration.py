@@ -71,6 +71,13 @@ _LEGACY_BUILTIN_ALLOW = {
     ),
 }
 
+_DOCUMENT_MUTATION_COMMANDS = (
+    "document.edit",
+    "document.patch",
+    "document.update-frontmatter",
+    "document.write",
+)
+
 _LEGACY_COMMANDS = {
     "brain_action": (
         "artefact.delete",
@@ -95,12 +102,7 @@ _LEGACY_COMMANDS = {
         "type.replace",
     ),
     "brain_discard_stage": ("stage.discard",),
-    "brain_edit": (
-        "document.edit",
-        "document.patch",
-        "document.update-frontmatter",
-        "document.write",
-    ),
+    "brain_edit": _DOCUMENT_MUTATION_COMMANDS,
     "brain_ingest": ("content.ingest",),
     # The retired readiness aggregate's published replacements form one
     # discovery/bootstrap closure; this is migration data, not a runtime alias.
@@ -144,13 +146,6 @@ _LEGACY_COMMANDS = {
     "brain_stage": ("stage.create",),
     "brain_upload_attachment": ("attachment.upload",),
 }
-
-_DOCUMENT_MUTATION_COMMANDS = (
-    "document.edit",
-    "document.patch",
-    "document.update-frontmatter",
-    "document.write",
-)
 
 # These names were previously broader than their spelling now implies. This is
 # one-time authority projection: granting every replacement preserves the old

@@ -49,6 +49,8 @@ status: open              # open | graduated | deprecated | parked
 ---
 ```
 
+**Optional:** `status`
+
 ## Trigger
 
 When a new idea strikes during a session, capture it as an idea log entry before it slips away.

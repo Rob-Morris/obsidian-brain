@@ -128,6 +128,7 @@ from ._filesystem import (
     safe_write_via,
     safe_write_json,
     temp_body_file_cleanup_path,
+    validate_portable_relative_path,
 )
 
 from ._file_lock import (
@@ -217,6 +218,7 @@ from ._selector import (
 )
 
 from ._slugs import (
+    CANONICAL_KEY_PATTERN,
     SLUG_TITLE_KEY_LIMIT,
     derive_distinctive_slug,
     extract_slug_keywords,
@@ -242,10 +244,15 @@ from ._cli import (
 )
 
 from ._templates import (
+    AGENT_INSTRUCTION_RE,
     now_iso,
     random_short_suffix,
     substitute_template_vars,
     unique_filename,
+)
+
+from ._definition_manifest import (
+    decode_definition_manifest,
 )
 
 from ._reconcile import (

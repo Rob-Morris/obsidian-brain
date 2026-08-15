@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import edit
+import fix_links
 import pytest
 
 from _application._mutation_support import FrontmatterField, InlineContent, StagedContent
@@ -301,6 +302,36 @@ def test_reads_and_mutations_share_the_same_revision(command_vault_clone):
     assert mutation.result.revision != read_result.result.revision
 
 
+def test_document_mutation_reuses_one_prewrite_snapshot(
+    command_vault_clone,
+    monkeypatch,
+):
+    vault_root = command_vault_clone.vault_root
+    target = str(vault_root / PATH)
+    reads = 0
+    original = edit.read_exact_file_content
+
+    def count_target_read(path):
+        nonlocal reads
+        if str(path) == target:
+            reads += 1
+        return original(path)
+
+    monkeypatch.setattr(edit, "read_exact_file_content", count_target_read)
+    result = application_for(vault_root).invoke(
+        DocumentPatchRequest(
+            DOCUMENT,
+            _revision(vault_root),
+            "Second occurrence.",
+            "Snapshot reused.",
+            UniqueMatch(),
+        )
+    )
+
+    assert result.status == "ok"
+    assert reads == 1
+
+
 def test_crlf_read_revision_can_be_used_for_an_immediate_mutation(
     command_vault_clone,
 ):
@@ -326,15 +357,17 @@ def test_crlf_read_revision_can_be_used_for_an_immediate_mutation(
     assert mutation.result.revision == document_revision_at(path)
 
 
+@pytest.mark.parametrize("failure_type", (OSError, ValueError, FileNotFoundError))
 def test_document_mutation_post_commit_failure_is_honestly_unknown(
     command_vault_clone,
     monkeypatch,
+    failure_type,
 ):
     real_edit = edit.edit_resource
 
     def commit_then_fail(*args, **kwargs):
         real_edit(*args, **kwargs)
-        raise OSError("response failed after edit commit")
+        raise failure_type("response failed after edit commit")
 
     monkeypatch.setattr(edit, "edit_resource", commit_then_fail)
     result = application_for(command_vault_clone.vault_root).invoke(
@@ -350,6 +383,33 @@ def test_document_mutation_post_commit_failure_is_honestly_unknown(
     assert result.error.code is ErrorCode.COMMAND_OUTCOME_UNKNOWN
     assert result.effects == "unknown"
     assert "Uncertain edit." in (command_vault_clone.vault_root / PATH).read_text()
+
+
+def test_requested_wikilink_failure_reports_known_partial_commit(
+    command_vault_clone,
+    monkeypatch,
+):
+    def fail_processing(*_args, **_kwargs):
+        raise ValueError("link index unavailable")
+
+    monkeypatch.setattr(fix_links, "check_wikilinks_in_file", fail_processing)
+    result = application_for(command_vault_clone.vault_root).invoke(
+        DocumentWriteRequest(
+            DOCUMENT,
+            _revision(command_vault_clone.vault_root),
+            DocumentWriteOperation.APPEND,
+            InlineContent("\nCommitted with [[missing-link]].\n"),
+            fix_links=True,
+        )
+    )
+
+    assert result.status == "partial"
+    assert result.committed_effects[0].subject == PATH
+    assert result.error.code is ErrorCode.CONFLICT
+    assert "wikilink processing failed" in result.error.message
+    assert "Committed with [[missing-link]]." in (
+        command_vault_clone.vault_root / PATH
+    ).read_text()
 
 
 def test_document_command_transport_rejects_old_aggregate_shape():

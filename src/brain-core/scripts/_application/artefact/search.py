@@ -140,10 +140,6 @@ def execute(context: InvocationContext, request: ArtefactSearchRequest):
         search_payload(resolved_mode, results),
     )
 
-def _optional_string(payload: Mapping[str, object], name: str) -> str | None:
-    return optional_string(payload.get(name), name)
-
-
 def decode(payload: Mapping[str, object]) -> ArtefactSearchRequest:
     allowed = {"query", "type_filter", "tag", "status", "mode", "top_k"}
     reject_unexpected(payload, allowed)
@@ -158,9 +154,9 @@ def decode(payload: Mapping[str, object]) -> ArtefactSearchRequest:
         raise ValueError("top_k must be an integer")
     return ArtefactSearchRequest(
         query=query,
-        type_filter=_optional_string(payload, "type_filter"),
-        tag=_optional_string(payload, "tag"),
-        status=_optional_string(payload, "status"),
+        type_filter=optional_string(payload.get("type_filter"), "type_filter"),
+        tag=optional_string(payload.get("tag"), "tag"),
+        status=optional_string(payload.get("status"), "status"),
         mode=ArtefactSearchMode(mode),
         top_k=top_k,
     )

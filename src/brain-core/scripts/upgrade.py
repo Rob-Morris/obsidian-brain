@@ -1924,6 +1924,17 @@ def upgrade(
     sync_info = _post_upgrade_sync(vault_root, sync=sync)
     if sync_info is not None:
         result.update(sync_info)
+        sync_result = sync_info.get("sync_result")
+        if sync_result and any(
+            item.get("target", "").startswith("_Config/Taxonomy/")
+            for item in sync_result.get("updated", [])
+        ):
+            compile_error = _validate_compile(vault_root)
+            if compile_error is not None:
+                result["sync_compile_error"] = (
+                    "Definitions were updated but router recompilation failed: "
+                    f"{compile_error}"
+                )
 
     requirements_changed = REQ_FILE_REL in (
         result.get("files_added", []) + result.get("files_modified", [])
@@ -2250,6 +2261,9 @@ def main() -> None:
         if "sync_error" in result:
             info(f"Definition sync failed: {result['sync_error']}")
             info("Run sync_definitions.py manually after investigating.")
+        elif "sync_compile_error" in result:
+            info(result["sync_compile_error"])
+            info("Run compile_router.py manually after investigating.")
         elif "sync_result" in result:
             sr = result["sync_result"]
             if sr.get("updated"):

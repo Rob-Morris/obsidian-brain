@@ -11,6 +11,7 @@ from _application.registry import (
     current_request_resolver,
 )
 from _application.requests import CommandRequest
+from _application import requests
 
 
 APPLICATION_ROOT = (
@@ -31,6 +32,13 @@ def test_static_request_union_matches_the_registered_application_surface():
     resolver_types = frozenset(entry.request_type for entry in resolver.entries)
 
     assert union_types == catalogue_types == resolver_types
+
+    exported_types = frozenset(
+        getattr(requests, name)
+        for name in requests.__all__
+        if name != "CommandRequest"
+    )
+    assert exported_types == union_types
 
 
 def test_no_retired_command_identity_remains_in_application_modules():

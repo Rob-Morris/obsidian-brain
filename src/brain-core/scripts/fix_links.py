@@ -35,6 +35,14 @@ from _common import (
 )
 
 
+class WikilinkProcessingError(RuntimeError):
+    """A requested post-write wikilink phase failed for a known document."""
+
+    def __init__(self, path, cause):
+        self.path = path
+        super().__init__(f"wikilink processing failed for {path}: {cause}")
+
+
 def _resolvable_fixes(findings):
     """Extract fix-ready entries from wikilink findings."""
     return [
@@ -67,13 +75,27 @@ def attach_wikilink_warnings(vault_root, result, apply_fixes=False, file_index=N
     path = result.get("path")
     if not path:
         return
+    try:
+        _attach_wikilink_warnings(
+            vault_root,
+            result,
+            apply_fixes=apply_fixes,
+            file_index=file_index,
+        )
+    except Exception as exc:
+        if apply_fixes:
+            raise WikilinkProcessingError(path, exc) from exc
+
+
+def _attach_wikilink_warnings(vault_root, result, apply_fixes=False, file_index=None):
+    path = result["path"]
     vault_root = str(vault_root)
     try:
         with open(os.path.join(vault_root, path), "r", encoding="utf-8") as handle:
             if "[[" not in handle.read():
                 return
     except OSError:
-        return
+        raise
     if callable(file_index):
         file_index = file_index()
     if file_index is None:

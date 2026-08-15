@@ -4,6 +4,7 @@ Operational standards for working in a Brain vault. These documents define the
 shared conventions that shipped brain-core docs refer to.
 
 - [Naming conventions](naming-conventions.md) — artefact naming rules and the compiled naming contract
+- [Keys](keys.md) — the canonical key every living artefact carries, and how parent and scope derive from it
 - [Wikilinks](wikilinks.md) — how links resolve and how to keep them healthy
 - [Linking](linking.md) — doc link policy and link-maintenance rules
 - [Provenance](provenance.md) — origin, supersession, and transcript-linking patterns

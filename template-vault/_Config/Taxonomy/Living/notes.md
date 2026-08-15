@@ -31,6 +31,7 @@ The `yyyymmdd` prefix is rendered from `created`. Backdate a note by setting `cr
 ```yaml
 ---
 type: living/note
+key: {key}
 tags:
   - topic-tag
 ---

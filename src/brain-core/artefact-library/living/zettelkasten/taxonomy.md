@@ -91,11 +91,12 @@ Example: `Zettelkasten/Ownership.md`
 
 ## Frontmatter
 
-Maintenance populates relationship fields as links become known. A hand-written zettel can start with only `type` and `tags`; add `follows` and `sequence` only when you need an explicit sequence chain.
+Maintenance populates relationship fields as links become known. A hand-written zettel can start with only `type`, `key` and `tags`; add `follows` and `sequence` only when you need an explicit sequence chain.
 
 ```yaml
 ---
 type: living/zettelkasten
+key: {key}
 tags:
   - topic-tag
 sources:
@@ -106,6 +107,8 @@ follows: "[[Ownership]]"  # optional
 sequence: 2                            # optional
 ---
 ```
+
+**Optional:** `sources`, `related`, `follows`, `sequence`
 
 ## Template
 

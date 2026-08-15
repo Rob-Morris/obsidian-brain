@@ -9,7 +9,7 @@ from typing import ClassVar, Literal, Mapping
 from .._decoding import decode_bool, reject_unexpected
 from .._document_mutation import (
     DocumentEditPayload,
-    DocumentMutationIntent,
+    DocumentEditIntent,
     execute_document_mutation,
 )
 from .._mutation_support import (
@@ -239,7 +239,7 @@ def execute(context: InvocationContext, request: DocumentEditRequest):
     return execute_document_mutation(
         context,
         request,
-        DocumentMutationIntent(
+        DocumentEditIntent(
             resource=request.document.resource.value,
             reference=request.document.reference,
             expected_revision=request.expected_revision,
@@ -277,7 +277,7 @@ def _decode_change(value: Mapping[str, object]) -> DocumentStructuralChange:
         if operation == "insert":
             allowed.add("position")
         reject_unexpected(value, allowed, label=f"{operation} change fields")
-        selection = _decode_selection(value.get("selection"), deletable=False)
+        selection = _decode_editable_selection(value.get("selection"))
         content = decode_mutation_content(value.get("content"))
         if operation == "replace":
             return ReplaceStructure(selection, content)
@@ -292,73 +292,102 @@ def _decode_change(value: Mapping[str, object]) -> DocumentStructuralChange:
             raise
     if operation == "delete":
         reject_unexpected(value, {"operation", "selection"}, label="delete change fields")
-        return DeleteStructure(_decode_selection(value.get("selection"), deletable=True))
+        return DeleteStructure(_decode_deletable_selection(value.get("selection")))
     raise ValueError("change operation must be replace, insert, or delete")
 
 
-def _decode_selection(value: object, *, deletable: bool):
+def _decode_editable_selection(value: object):
     if not isinstance(value, Mapping):
         raise ValueError("selection must be an object")
     kind = value.get("kind")
     if kind == "document":
-        if deletable:
-            raise ValueError("a complete document is not a deletable structure")
         reject_unexpected(value, {"kind", "part"}, label="document selection fields")
         if value.get("part") != "intro":
             raise ValueError("document selection part must be intro")
         return DocumentIntroSelection()
     if kind == "heading":
-        allowed = {"kind", "text", "level", "occurrence", "ancestors"}
-        if not deletable:
-            allowed.add("part")
-        reject_unexpected(value, allowed, label="heading selection fields")
-        text = value.get("text")
-        if not isinstance(text, str):
-            raise ValueError("heading selection text must be a string")
-        common = {
-            "text": text,
-            "level": _optional_int(value.get("level"), "heading level"),
-            "occurrence": _optional_int(value.get("occurrence"), "heading occurrence"),
-            "ancestors": _decode_ancestors(value.get("ancestors")),
-        }
-        if deletable:
-            return HeadingBlockSelection(**common)
+        reject_unexpected(
+            value,
+            {"kind", "text", "level", "occurrence", "ancestors", "part"},
+            label="heading selection fields",
+        )
         part = value.get("part")
         if not isinstance(part, str):
             raise ValueError("heading selection part must be a string")
         try:
-            return HeadingSelection(part=HeadingPart(part), **common)
+            return HeadingSelection(part=HeadingPart(part), **_heading_selection_fields(value))
         except ValueError as exc:
             if part not in {item.value for item in HeadingPart}:
                 raise ValueError("heading part must be section, body, intro, or heading") from exc
             raise
     if kind == "callout":
-        allowed = {"kind", "callout_type", "title", "occurrence", "ancestors"}
-        if not deletable:
-            allowed.add("part")
-        reject_unexpected(value, allowed, label="callout selection fields")
-        callout_type = value.get("callout_type")
-        title = value.get("title")
-        if not isinstance(callout_type, str) or (title is not None and not isinstance(title, str)):
-            raise ValueError("callout selection requires a string callout_type and optional title")
-        common = {
-            "callout_type": callout_type,
-            "title": title,
-            "occurrence": _optional_int(value.get("occurrence"), "callout occurrence"),
-            "ancestors": _decode_ancestors(value.get("ancestors")),
-        }
-        if deletable:
-            return CalloutBlockSelection(**common)
+        reject_unexpected(
+            value,
+            {"kind", "callout_type", "title", "occurrence", "ancestors", "part"},
+            label="callout selection fields",
+        )
         part = value.get("part")
         if not isinstance(part, str):
             raise ValueError("callout selection part must be a string")
         try:
-            return CalloutSelection(part=CalloutPart(part), **common)
+            return CalloutSelection(part=CalloutPart(part), **_callout_selection_fields(value))
         except ValueError as exc:
             if part not in {item.value for item in CalloutPart}:
                 raise ValueError("callout part must be section, body, or header") from exc
             raise
     raise ValueError("selection kind must be document, heading, or callout")
+
+
+def _decode_deletable_selection(value: object):
+    if not isinstance(value, Mapping):
+        raise ValueError("selection must be an object")
+    kind = value.get("kind")
+    if kind == "document":
+        raise ValueError("a complete document is not a deletable structure")
+    if kind == "heading":
+        reject_unexpected(
+            value,
+            {"kind", "text", "level", "occurrence", "ancestors"},
+            label="heading selection fields",
+        )
+        return HeadingBlockSelection(**_heading_selection_fields(value))
+    if kind == "callout":
+        reject_unexpected(
+            value,
+            {"kind", "callout_type", "title", "occurrence", "ancestors"},
+            label="callout selection fields",
+        )
+        return CalloutBlockSelection(**_callout_selection_fields(value))
+    raise ValueError("selection kind must be heading or callout")
+
+
+def _heading_selection_fields(value: Mapping[str, object]) -> dict[str, object]:
+    text = value.get("text")
+    if not isinstance(text, str):
+        raise ValueError("heading selection text must be a string")
+    return {
+        "text": text,
+        "level": _optional_int(value.get("level"), "heading level"),
+        "occurrence": _optional_int(value.get("occurrence"), "heading occurrence"),
+        "ancestors": _decode_ancestors(value.get("ancestors")),
+    }
+
+
+def _callout_selection_fields(value: Mapping[str, object]) -> dict[str, object]:
+    callout_type = value.get("callout_type")
+    title = value.get("title")
+    if not isinstance(callout_type, str) or (
+        title is not None and not isinstance(title, str)
+    ):
+        raise ValueError(
+            "callout selection requires a string callout_type and optional title"
+        )
+    return {
+        "callout_type": callout_type,
+        "title": title,
+        "occurrence": _optional_int(value.get("occurrence"), "callout occurrence"),
+        "ancestors": _decode_ancestors(value.get("ancestors")),
+    }
 
 
 def _decode_ancestors(value: object) -> tuple[StructuralAncestor, ...]:

@@ -5,8 +5,6 @@ import re
 import unicodedata
 
 _SLUG_RE = re.compile(r"[^a-z0-9]+")
-_VALID_SLUG_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
-_HAS_ALPHA_RE = re.compile(r"[a-z]")
 _CLEAN_CHARS_RE = re.compile(r"[^a-z0-9\s]+")
 
 # Characters unsafe in filenames across macOS, Windows, and Linux
@@ -18,6 +16,11 @@ SLUG_SUFFIX_LENGTH = 3
 SLUG_SUFFIX_MAX_RETRIES = 100
 SLUG_KEYWORD_BUDGET = 20
 SLUG_KEY_MAX_LENGTH = 64
+CANONICAL_KEY_PATTERN = (
+    rf"^(?=.{{1,{SLUG_KEY_MAX_LENGTH}}}$)(?=.*[a-z])"
+    r"[a-z0-9]+(?:-[a-z0-9]+)*$"
+)
+_VALID_KEY_RE = re.compile(CANONICAL_KEY_PATTERN)
 SLUG_TITLE_KEY_LIMIT = 20
 SLUG_SENTINEL = "husk"
 SLUG_STOPWORDS = frozenset(
@@ -53,13 +56,7 @@ def title_to_slug(title):
 
 def is_valid_key(key):
     """Return whether *key* matches the canonical artefact key contract."""
-    if not isinstance(key, str):
-        return False
-    if not (1 <= len(key) <= SLUG_KEY_MAX_LENGTH):
-        return False
-    if not _VALID_SLUG_RE.fullmatch(key):
-        return False
-    return bool(_HAS_ALPHA_RE.search(key))
+    return isinstance(key, str) and _VALID_KEY_RE.fullmatch(key) is not None
 
 
 def validate_key(key):

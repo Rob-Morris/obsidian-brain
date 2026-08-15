@@ -88,11 +88,14 @@ Example: `Designs/pistols-at-dawn-discord-bot.md`
 ```yaml
 ---
 type: living/design
+key: {key}
 tags:
   - design
 status: shaping             # proposed | shaping | ready | active | implemented | deprecated | parked
 ---
 ```
+
+**Optional:** `status`
 
 ## Template
 

@@ -127,6 +127,26 @@ def test_file_receipts_are_immutable_bounded_and_expire(tmp_path):
     assert store.read(third.reference) == third
 
 
+def test_receipt_write_inventories_existing_records_once(tmp_path, monkeypatch):
+    root = _vault(tmp_path)
+    store = FileReceiptStore(root, _Clock())
+    for index in range(4):
+        store.write(_receipt(f"existing-{index}"))
+
+    reads = 0
+    original = store._read_path
+
+    def count_read(path):
+        nonlocal reads
+        reads += 1
+        return original(path)
+
+    monkeypatch.setattr(store, "_read_path", count_read)
+    store.write(_receipt("new"))
+
+    assert reads == 4
+
+
 def test_file_receipts_reject_symlinked_storage_and_corrupt_records(tmp_path):
     root = _vault(tmp_path)
     local = root / ".brain" / "local"

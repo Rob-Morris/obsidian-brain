@@ -6,6 +6,7 @@ import argparse
 import json
 from pathlib import Path
 import sys
+import traceback
 from typing import TextIO
 
 from _application.adapter import AdapterRequestError, ApplicationAdapter
@@ -64,8 +65,12 @@ def run(
     try:
         catalogue = current_application_catalogue()
         resolver = current_request_resolver()
-    except Exception:
-        print("command.py: internal_error — command catalogue failed to load", file=stderr)
+    except Exception as exc:
+        _report_internal_failure(
+            "command catalogue failed to load",
+            exc,
+            stderr,
+        )
         return 4
     try:
         args = build_parser().parse_args(argv)
@@ -103,8 +108,8 @@ def run(
     except AdapterRequestError as exc:
         print(f"{command_id}: {exc.code.value} — {exc}", file=stderr)
         return 2
-    except Exception:
-        print("command.py: internal_error — direct command setup failed", file=stderr)
+    except Exception as exc:
+        _report_internal_failure("direct command setup failed", exc, stderr)
         return 4
     if args.json:
         print(projection.json_text, file=stdout)
@@ -121,3 +126,13 @@ def _request_payload(value: str, stdin: TextIO) -> dict[str, object]:
     if not isinstance(decoded, dict):
         raise ScriptUsageError("--request-json must decode to an object")
     return decoded
+
+
+def _report_internal_failure(message: str, error: Exception, stderr: TextIO) -> None:
+    print(f"command.py: internal_error — {message}", file=stderr)
+    traceback.print_exception(
+        type(error),
+        error,
+        error.__traceback__,
+        file=stderr,
+    )

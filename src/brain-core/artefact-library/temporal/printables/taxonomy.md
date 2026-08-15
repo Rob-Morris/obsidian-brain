@@ -33,6 +33,8 @@ keep_heading_with_next: true
 ---
 ```
 
+**Optional:** `keep_heading_with_next`
+
 No lifecycle. Optional `status: shaping` or `status: ready` when shaping is active or complete.
 
 ## Lifecycle

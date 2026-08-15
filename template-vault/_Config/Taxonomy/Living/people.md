@@ -28,6 +28,8 @@ status: active
 ---
 ```
 
+**Optional:** `status`
+
 `key` is the canonical identifier (see [[.brain-core/standards/keys]]). The platform generates it at create time.
 
 Every file related to a person should use the nested person tag, e.g. `person/alice-smith`.
