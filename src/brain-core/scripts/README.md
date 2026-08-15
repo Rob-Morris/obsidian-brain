@@ -94,7 +94,7 @@ Locality and providers are orthogonal. A selected-Brain command never becomes ma
 ## Other projections
 
 - `brain_mcp/` registers every MCP-eligible catalogue entry under its canonical `<noun>.<verb>` identifier.
-- CLI 2 resolves application discovery from the selected Brain and invokes that Brain's `command.py` process.
+- The installed CLI resolves application discovery from the selected Brain and invokes that Brain's `command.py` process.
 - Typed Python callers construct a sealed request and invoke `CommandApplication` with trusted context.
 
 These are adapters over one application owner, not separate implementations.

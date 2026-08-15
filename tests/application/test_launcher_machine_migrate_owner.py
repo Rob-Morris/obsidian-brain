@@ -26,7 +26,7 @@ from _launcher.machine import (
     LegacyMigrationStepStatus,
     LegacyMigrationStatus,
     LegacyMigrationTarget,
-    MachineMigrateLegacyRequest,
+    BrainMigrateLegacyInstallationsRequest,
 )
 from _launcher.owners import LAUNCHER_OWNERS
 from _machine import maintenance
@@ -139,19 +139,19 @@ def _patch_action(monkeypatch, result, calls=None):
     )
 
 
-def test_machine_migrate_owner_matches_machine_global_contract():
+def test_migrate_legacy_installations_owner_matches_machine_global_contract():
     entry = next(
         item
         for item in LAUNCHER_CATALOGUE.entries
-        if item.command_id == "machine.migrate-legacy"
+        if item.command_id == "brain.migrate-legacy-installations"
     )
     owner = next(
         item
         for item in LAUNCHER_OWNERS.entries
-        if item.command_id == "machine.migrate-legacy"
+        if item.command_id == "brain.migrate-legacy-installations"
     )
 
-    assert entry.owner_ref == owner.owner_ref == "_launcher.machine:migrate_legacy"
+    assert entry.owner_ref == owner.owner_ref == "_launcher.machine:migrate_legacy_installations"
     assert entry.authority == "operator"
     assert entry.effect_class == "machine_mutation"
     assert entry.retry_class == "receipt_required"
@@ -165,9 +165,9 @@ def test_machine_migrate_owner_matches_machine_global_contract():
     }
 
 
-def test_machine_migrate_request_requires_a_typed_selector(tmp_path):
+def test_migrate_legacy_installations_request_requires_a_typed_selector(tmp_path):
     with pytest.raises(ValueError, match="target must be typed"):
-        MachineMigrateLegacyRequest(target="legacy-brain")
+        BrainMigrateLegacyInstallationsRequest(target="legacy-brain")
     with pytest.raises(ValueError, match="canonical slug"):
         LegacyBrainIdTarget("Legacy Brain")
     with pytest.raises(ValueError, match="absolute Path"):
@@ -177,7 +177,7 @@ def test_machine_migrate_request_requires_a_typed_selector(tmp_path):
     assert LegacyBrainPathTarget(tmp_path.resolve()).vault_root == tmp_path.resolve()
 
 
-def test_machine_migrate_result_rejects_a_non_string_brain_id(tmp_path):
+def test_migrate_legacy_installations_result_rejects_a_non_string_brain_id(tmp_path):
     with pytest.raises(ValueError, match="canonical slug"):
         LegacyMigrationTarget(
             brain_id=7,
@@ -193,8 +193,8 @@ def test_machine_migrate_result_rejects_a_non_string_brain_id(tmp_path):
         )
 
 
-def test_machine_migrate_requires_an_available_caller_filesystem(tmp_path):
-    request = MachineMigrateLegacyRequest()
+def test_migrate_legacy_installations_requires_an_available_caller_filesystem(tmp_path):
+    request = BrainMigrateLegacyInstallationsRequest()
 
     missing = _invocation(tmp_path, provider=False).invoke(request)
     unavailable = _invocation(
@@ -208,7 +208,7 @@ def test_machine_migrate_requires_an_available_caller_filesystem(tmp_path):
     assert unavailable.error.details.missing == ("capability:caller_filesystem",)
 
 
-def test_machine_migrate_uses_typed_selector_and_trusted_current_vault(
+def test_migrate_legacy_installations_uses_typed_selector_and_trusted_current_vault(
     tmp_path,
     monkeypatch,
 ):
@@ -225,7 +225,7 @@ def test_machine_migrate_uses_typed_selector_and_trusted_current_vault(
         tmp_path,
         current_vault=current_vault,
     ).invoke(
-        MachineMigrateLegacyRequest(LegacyBrainIdTarget("legacy-brain"))
+        BrainMigrateLegacyInstallationsRequest(LegacyBrainIdTarget("legacy-brain"))
     )
 
     assert result.result.status is LegacyMigrationStatus.NOOP
@@ -234,7 +234,7 @@ def test_machine_migrate_uses_typed_selector_and_trusted_current_vault(
     assert calls[1][1]["selector"] == "legacy-brain"
 
 
-def test_machine_migrate_dry_run_returns_typed_plan_without_effects(
+def test_migrate_legacy_installations_dry_run_returns_typed_plan_without_effects(
     tmp_path,
     monkeypatch,
 ):
@@ -253,7 +253,7 @@ def test_machine_migrate_dry_run_returns_typed_plan_without_effects(
         tmp_path,
         dry_run=True,
         receipts=receipts,
-    ).invoke(MachineMigrateLegacyRequest())
+    ).invoke(BrainMigrateLegacyInstallationsRequest())
 
     assert result.result.status is LegacyMigrationStatus.PLANNED
     assert result.result.targets[0].status is LegacyMigrationStatus.PLANNED
@@ -265,7 +265,7 @@ def test_machine_migrate_dry_run_returns_typed_plan_without_effects(
     assert receipts.values[-1].state is ReceiptState.COMMITTED
 
 
-def test_machine_migrate_success_reports_each_committed_effect(
+def test_migrate_legacy_installations_success_reports_each_committed_effect(
     tmp_path,
     monkeypatch,
 ):
@@ -283,7 +283,7 @@ def test_machine_migrate_success_reports_each_committed_effect(
         _result(vault, status="ok", target_status="ok", steps=steps),
     )
 
-    result = _invocation(tmp_path).invoke(MachineMigrateLegacyRequest())
+    result = _invocation(tmp_path).invoke(BrainMigrateLegacyInstallationsRequest())
 
     assert result.result.status is LegacyMigrationStatus.CHANGED
     assert tuple(effect.subject for effect in result.committed_effects) == (
@@ -293,7 +293,7 @@ def test_machine_migrate_success_reports_each_committed_effect(
     )
 
 
-def test_machine_migrate_known_partial_enumerates_committed_scopes(
+def test_migrate_legacy_installations_known_partial_enumerates_committed_scopes(
     tmp_path,
     monkeypatch,
 ):
@@ -309,7 +309,7 @@ def test_machine_migrate_known_partial_enumerates_committed_scopes(
     receipts = _Receipts()
 
     result = _invocation(tmp_path, receipts=receipts).invoke(
-        MachineMigrateLegacyRequest()
+        BrainMigrateLegacyInstallationsRequest()
     )
 
     assert result.status == "partial"
@@ -320,7 +320,7 @@ def test_machine_migrate_known_partial_enumerates_committed_scopes(
     assert receipts.values[-1].state is ReceiptState.KNOWN_PARTIAL
 
 
-def test_machine_migrate_delegated_partial_is_a_known_scope_effect(
+def test_migrate_legacy_installations_delegated_partial_is_a_known_scope_effect(
     tmp_path,
     monkeypatch,
 ):
@@ -334,7 +334,7 @@ def test_machine_migrate_delegated_partial_is_a_known_scope_effect(
         _result(vault, status="partial", target_status="partial", steps=steps),
     )
 
-    result = _invocation(tmp_path).invoke(MachineMigrateLegacyRequest())
+    result = _invocation(tmp_path).invoke(BrainMigrateLegacyInstallationsRequest())
 
     assert result.status == "partial"
     assert tuple(effect.subject for effect in result.committed_effects) == (
@@ -342,7 +342,7 @@ def test_machine_migrate_delegated_partial_is_a_known_scope_effect(
     )
 
 
-def test_machine_migrate_unknown_child_outcome_is_non_retryable(
+def test_migrate_legacy_installations_unknown_child_outcome_is_non_retryable(
     tmp_path,
     monkeypatch,
 ):
@@ -358,7 +358,7 @@ def test_machine_migrate_unknown_child_outcome_is_non_retryable(
     receipts = _Receipts()
 
     result = _invocation(tmp_path, receipts=receipts).invoke(
-        MachineMigrateLegacyRequest()
+        BrainMigrateLegacyInstallationsRequest()
     )
 
     assert result.error.code is ErrorCode.COMMAND_OUTCOME_UNKNOWN
@@ -367,7 +367,7 @@ def test_machine_migrate_unknown_child_outcome_is_non_retryable(
     assert receipts.values[-1].state is ReceiptState.UNKNOWN
 
 
-def test_machine_migrate_missing_selector_is_known_not_found(
+def test_migrate_legacy_installations_missing_selector_is_known_not_found(
     tmp_path,
     monkeypatch,
 ):
@@ -377,7 +377,7 @@ def test_machine_migrate_missing_selector_is_known_not_found(
     _patch_action(monkeypatch, raw)
 
     result = _invocation(tmp_path).invoke(
-        MachineMigrateLegacyRequest(LegacyBrainIdTarget("missing-brain"))
+        BrainMigrateLegacyInstallationsRequest(LegacyBrainIdTarget("missing-brain"))
     )
 
     assert result.error.code is ErrorCode.NOT_FOUND

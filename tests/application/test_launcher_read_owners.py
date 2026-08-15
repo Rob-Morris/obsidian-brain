@@ -30,8 +30,8 @@ from _launcher.contracts import (
 )
 from _launcher.invocation import LauncherInvocation
 from _launcher.managed_runtime import (
-    RuntimeResolveRequest,
-    RuntimeResolveRunnableRequest,
+    RuntimeInspectRequest,
+    RuntimePythonSource,
 )
 from _launcher.owners import LAUNCHER_OWNERS
 from _launcher.registry import (
@@ -71,7 +71,7 @@ class _Clock:
         return NOW
 
 
-def _invocation(tmp_path, *, authority=None, receipts=None):
+def _invocation(tmp_path, *, authority=None, receipts=None, current_vault=None):
     context = LauncherContext(
         profile="reader",
         authority=authority or _Authority(),
@@ -85,6 +85,7 @@ def _invocation(tmp_path, *, authority=None, receipts=None):
         cli_version="1.2.0",
         cli_binary=(tmp_path / "bin" / "brain").resolve(),
         launcher_python=Path(sys.executable).resolve(),
+        current_vault=current_vault,
     )
     return LauncherInvocation(context, LAUNCHER_CATALOGUE, LAUNCHER_OWNERS)
 
@@ -104,8 +105,7 @@ def test_launcher_read_owners_match_their_authoritative_catalogue_entries():
         "brain.resolve",
         "brain.version",
         "operator.generate-key",
-        "runtime.resolve",
-        "runtime.resolve-runnable",
+        "runtime.inspect",
     ]
     for owner in read_owners:
         entry = entries[owner.command_id]
@@ -168,10 +168,10 @@ def test_launcher_version_returns_static_manifest_identity(tmp_path):
     assert result.result.cli_version == "1.2.0"
     assert result.result.launcher_catalogue_schema == "brain.launcher-catalogue/1"
     assert result.result.launcher_catalogue_fingerprint == LAUNCHER_CATALOGUE.fingerprint
-    assert result.result.launcher_command_count == 24
+    assert result.result.launcher_command_count == 22
 
 
-def test_runtime_read_owners_delegate_to_bootstrap_runtime_semantics(
+def test_runtime_inspect_reports_expected_and_selected_runtime_semantics(
     vault,
     tmp_path,
     monkeypatch,
@@ -181,29 +181,72 @@ def test_runtime_read_owners_delegate_to_bootstrap_runtime_semantics(
     expected = tmp_path / "managed" / "bin" / "python"
     runnable = Path(sys.executable).resolve()
     monkeypatch.setattr(_venv, "resolve_vault_venv_python", lambda *_a, **_k: expected)
+    monkeypatch.setattr(_venv, "find_existing_central_venv", lambda *_a, **_k: None)
     monkeypatch.setattr(_venv, "find_runnable_python", lambda *_a, **_k: runnable)
-    invocation = _invocation(tmp_path)
+    invocation = _invocation(tmp_path, current_vault=vault.resolve())
 
-    resolved = invocation.invoke(RuntimeResolveRequest(vault.resolve()))
-    available = invocation.invoke(RuntimeResolveRunnableRequest(vault.resolve()))
+    inspected = invocation.invoke(RuntimeInspectRequest())
 
-    assert resolved.status == "ok"
-    assert resolved.result.python == str(expected)
-    assert resolved.result.exists is False
-    assert available.status == "ok"
-    assert available.result.python == str(runnable)
+    assert inspected.status == "ok"
+    assert inspected.result.managed_runtime.python == str(expected)
+    assert inspected.result.managed_runtime.exists is False
+    assert inspected.result.selected_python.path == str(runnable)
+    assert inspected.result.selected_python.source is RuntimePythonSource.LAUNCHER
 
 
-def test_runtime_runnable_absence_is_a_known_no_effect(tmp_path, vault, monkeypatch):
+def test_runtime_inspect_reports_runnable_absence_without_losing_expected_path(
+    tmp_path,
+    vault,
+    monkeypatch,
+):
     from _common import _venv
 
+    expected = tmp_path / "managed" / "bin" / "python"
+    monkeypatch.setattr(_venv, "resolve_vault_venv_python", lambda *_a, **_k: expected)
+    monkeypatch.setattr(_venv, "find_existing_central_venv", lambda *_a, **_k: None)
     monkeypatch.setattr(_venv, "find_runnable_python", lambda *_a, **_k: None)
 
-    result = _invocation(tmp_path).invoke(
-        RuntimeResolveRunnableRequest(vault.resolve())
+    result = _invocation(tmp_path, current_vault=vault.resolve()).invoke(
+        RuntimeInspectRequest()
     )
 
-    assert result.status == "error"
+    assert result.status == "ok"
+    assert result.result.managed_runtime.python == str(expected)
+    assert result.result.selected_python.path is None
+    assert result.result.selected_python.source is RuntimePythonSource.UNAVAILABLE
+
+
+def test_runtime_inspect_identifies_an_existing_managed_runtime(
+    tmp_path,
+    vault,
+    monkeypatch,
+):
+    from _common import _venv
+
+    managed = (tmp_path / "managed" / "bin" / "python").resolve()
+    managed.parent.mkdir(parents=True)
+    managed.write_text("python")
+    monkeypatch.setattr(_venv, "resolve_vault_venv_python", lambda *_a, **_k: managed)
+    monkeypatch.setattr(
+        _venv,
+        "find_existing_central_venv",
+        lambda *_a, **_k: managed,
+    )
+    monkeypatch.setattr(_venv, "find_runnable_python", lambda *_a, **_k: managed)
+
+    result = _invocation(tmp_path, current_vault=vault.resolve()).invoke(
+        RuntimeInspectRequest()
+    )
+
+    assert result.status == "ok"
+    assert result.result.managed_runtime.exists is True
+    assert result.result.selected_python.path == str(managed)
+    assert result.result.selected_python.source is RuntimePythonSource.MANAGED
+
+
+def test_runtime_inspect_requires_a_selected_brain(tmp_path):
+    result = _invocation(tmp_path).invoke(RuntimeInspectRequest())
+
     assert result.error.code is ErrorCode.NOT_FOUND
     assert result.effects == "none"
 
@@ -288,8 +331,6 @@ def test_launcher_owner_package_preserves_bootstrap_import_ceiling():
         lambda: BrainResolveRequest(""),
         lambda: BrainResolveRequest(" spaced "),
         lambda: BrainResolveRequest("Not-Canonical"),
-        lambda: RuntimeResolveRequest(Path("relative")),
-        lambda: RuntimeResolveRunnableRequest(Path("relative")),
     ),
 )
 def test_launcher_read_requests_reject_invalid_intent(request_factory):

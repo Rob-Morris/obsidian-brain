@@ -311,7 +311,7 @@ restores the pinned runtime packages, local model snapshot/manifest, and
 embeddings sidecars together. `router`, `lexical`, and `registry` are narrower
 generated-state repairs and are usually best run when `vault.check` tells you to.
 
-CLI 2's launcher recovery stays bootstrap-safe and converges packageful work
+The CLI's launcher recovery stays bootstrap-safe and converges packageful work
 into the central managed runtime under `~/.brain/venvs/`; it does not install
 packages into your wider Python environment. Use `brain vault check`,
 `brain runtime refresh-router`, `brain retrieval refresh-lexical`,

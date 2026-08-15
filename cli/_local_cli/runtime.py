@@ -1,4 +1,4 @@
-"""Concrete machine-local composition for the Brain CLI 2 application."""
+"""Concrete machine-local composition for the Brain CLI application."""
 
 from __future__ import annotations
 
@@ -14,7 +14,7 @@ from _launcher.context import LauncherContext, ProviderBindings
 from _launcher.contracts import OutcomeReceipt
 
 
-CLI_VERSION = "2.1.0"
+CLI_VERSION = "3.0.0"
 CUTOVER_BRAIN_VERSION = (0, 55, 0)
 
 

@@ -344,11 +344,11 @@
       "mappings": {
         "migrate-legacy": {
           "owner": "launcher",
-          "target": "machine.migrate-legacy"
+          "target": "brain.migrate-legacy-installations"
         },
         "prune-runtimes": {
           "owner": "launcher",
-          "target": "machine.prune-runtimes"
+          "target": "runtime.remove-orphans"
         }
       }
     },
@@ -568,8 +568,7 @@
         "owner": "launcher",
         "targets": [
           "runtime.repair",
-          "runtime.resolve",
-          "runtime.resolve-runnable"
+          "runtime.inspect"
         ]
       },
       "configure.py": {
@@ -635,15 +634,14 @@
       "vault_registry.py": {
         "owner": "launcher",
         "targets": [
-          "brain.backfill",
           "brain.clear-default",
           "brain.get-default",
           "brain.list",
-          "brain.prune",
           "brain.register",
           "brain.resolve",
           "brain.set-default",
-          "brain.unregister"
+          "brain.unregister",
+          "registry.remove-stale"
         ]
       },
       "workspace_registry.py": {
@@ -1271,8 +1269,7 @@
         "brain.list",
         "brain.resolve",
         "brain.version",
-        "runtime.resolve",
-        "runtime.resolve-runnable"
+        "runtime.inspect"
       ]
     },
     "launcher_mutation": {
@@ -1298,19 +1295,18 @@
       "commands": [
         "access.approve",
         "agent-skill.configure",
-        "brain.backfill",
         "brain.clear-default",
         "brain.install",
-        "brain.prune",
+        "brain.migrate-legacy-installations",
         "brain.register",
         "brain.set-default",
         "brain.uninstall",
         "brain.unregister",
         "brain.upgrade",
-        "machine.migrate-legacy",
-        "machine.prune-runtimes",
         "mcp.configure",
         "mcp.repair",
+        "registry.remove-stale",
+        "runtime.remove-orphans",
         "runtime.repair"
       ]
     },

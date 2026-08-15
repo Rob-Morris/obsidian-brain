@@ -114,16 +114,6 @@ class BrainRegisterPayload:
 
 
 @dataclass(frozen=True, slots=True)
-class BrainBackfillPayload:
-    status: RegistryMutationStatus
-    brain_id: str
-
-    def __post_init__(self) -> None:
-        _validate_mutation_status(self.status)
-        _validate_brain_id(self.brain_id)
-
-
-@dataclass(frozen=True, slots=True)
 class BrainUnregisterPayload:
     status: RegistryMutationStatus
     removed_brain_ids: tuple[str, ...]
@@ -158,7 +148,7 @@ class BrainClearDefaultPayload:
 
 
 @dataclass(frozen=True, slots=True)
-class BrainPrunePayload:
+class RegistryRemoveStalePayload:
     status: RegistryMutationStatus
     removed_brain_ids: tuple[str, ...]
     default_pointer_affected: bool
@@ -212,18 +202,6 @@ class BrainRegisterRequest:
 
 
 @dataclass(frozen=True, slots=True)
-class BrainBackfillRequest:
-    COMMAND_ID: ClassVar[str] = "brain.backfill"
-    COMMAND_VERSION: ClassVar[int] = 1
-    RESULT_TYPE: ClassVar[type] = BrainBackfillPayload
-
-    vault_root: Path
-
-    def __post_init__(self) -> None:
-        _validate_absolute_path(self.vault_root)
-
-
-@dataclass(frozen=True, slots=True)
 class BrainUnregisterRequest:
     COMMAND_ID: ClassVar[str] = "brain.unregister"
     COMMAND_VERSION: ClassVar[int] = 1
@@ -255,10 +233,10 @@ class BrainClearDefaultRequest:
 
 
 @dataclass(frozen=True, slots=True)
-class BrainPruneRequest:
-    COMMAND_ID: ClassVar[str] = "brain.prune"
+class RegistryRemoveStaleRequest:
+    COMMAND_ID: ClassVar[str] = "registry.remove-stale"
     COMMAND_VERSION: ClassVar[int] = 1
-    RESULT_TYPE: ClassVar[type] = BrainPrunePayload
+    RESULT_TYPE: ClassVar[type] = RegistryRemoveStalePayload
 
 
 def _validate_absolute_path(value: object) -> None:
@@ -399,35 +377,6 @@ def execute_register(context: LauncherContext, request: BrainRegisterRequest):
     )
 
 
-def execute_backfill(context: LauncherContext, request: BrainBackfillRequest):
-    import vault_registry
-
-    if not vault_registry.is_vault_root(request.vault_root):
-        return no_effect_error(
-            type(request),
-            ErrorCode.INVALID_REQUEST,
-            "vault_root must identify an installed local Brain.",
-            "vault_root",
-        )
-    try:
-        result = vault_registry.backfill_action(
-            request.vault_root,
-            dry_run=context.dry_run,
-        )
-    except (vault_registry.RegistryReadError, ValueError) as exc:
-        return _registry_error(request, exc)
-    return Ok(
-        request.COMMAND_ID,
-        request.COMMAND_VERSION,
-        BrainBackfillPayload(_mutation_status(context, result.changed), result.brain_id),
-        _committed_effects(
-            request,
-            brain_ids=(result.brain_id,),
-            registry_affected=result.changed and not context.dry_run,
-        ),
-    )
-
-
 def execute_unregister(context: LauncherContext, request: BrainUnregisterRequest):
     import vault_registry
 
@@ -503,7 +452,7 @@ def execute_clear_default(context: LauncherContext, request: BrainClearDefaultRe
     )
 
 
-def execute_prune(context: LauncherContext, request: BrainPruneRequest):
+def execute_remove_stale(context: LauncherContext, request: RegistryRemoveStaleRequest):
     import vault_registry
 
     try:
@@ -515,7 +464,7 @@ def execute_prune(context: LauncherContext, request: BrainPruneRequest):
     return Ok(
         request.COMMAND_ID,
         request.COMMAND_VERSION,
-        BrainPrunePayload(
+        RegistryRemoveStalePayload(
             _mutation_status(context, result.changed),
             result.removed_brain_ids,
             result.default_cleared,
@@ -573,17 +522,6 @@ def register_owner():
     )
 
 
-def backfill_owner():
-    from .owners import LauncherOwner
-
-    return LauncherOwner(
-        BrainBackfillRequest,
-        BrainBackfillPayload,
-        "_launcher.registry:backfill",
-        execute_backfill,
-    )
-
-
 def unregister_owner():
     from .owners import LauncherOwner
 
@@ -617,12 +555,12 @@ def clear_default_owner():
     )
 
 
-def prune_owner():
+def remove_stale_owner():
     from .owners import LauncherOwner
 
     return LauncherOwner(
-        BrainPruneRequest,
-        BrainPrunePayload,
-        "_launcher.registry:prune",
-        execute_prune,
+        RegistryRemoveStaleRequest,
+        RegistryRemoveStalePayload,
+        "_launcher.registry:remove_stale",
+        execute_remove_stale,
     )

@@ -1,6 +1,6 @@
 # Obsidian Brain
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE) ![Version](https://img.shields.io/badge/version-0.59.2-blue) ![Platform](https://img.shields.io/badge/platform-Obsidian-7C3AED) ![Python](https://img.shields.io/badge/python-≥3.12-3776AB?logo=python&logoColor=white) ![MCP](https://img.shields.io/badge/MCP-server-green)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE) ![Version](https://img.shields.io/badge/version-0.60.0-blue) ![Platform](https://img.shields.io/badge/platform-Obsidian-7C3AED) ![Python](https://img.shields.io/badge/python-≥3.12-3776AB?logo=python&logoColor=white) ![MCP](https://img.shields.io/badge/MCP-server-green)
 
 A self-evolving knowledge base for agents and humans working together on what matters.
 
@@ -64,17 +64,17 @@ sidecars so ordinary semantic search stays fully local.
 
 **Start talking:** Open your agent in the vault folder (for example `cd /path/to/brain && claude` or `cd /path/to/brain && codex`). It reads the vault structure and knows what to do. See [Workflows](docs/user/workflows.md) for what working with the brain looks like in practice.
 
-**Command-line usage:** the installed [`brain` CLI](docs/functional/cli.md) uses one noun/verb grammar across application and machine operations. For example, `brain vault check`, `brain artefact read`, and `brain brain doctor`. Every semantic request is supplied as strict JSON; `brain command list --json` and `brain command describe <noun.verb> --json` are authoritative discovery. Selected-Brain automation can invoke the same command through `python3 .brain-core/scripts/command.py <noun> <verb>` or the typed Python application. See [Getting Started](docs/user/getting-started.md#command-line-usage), [User Reference](docs/user/user-reference.md), and the [Script Reference](docs/functional/scripts.md).
+**Command-line usage:** the installed [`brain` CLI](docs/functional/cli.md) uses canonical noun/verb command IDs with domain-explicit CLI entry points. For example, `brain vault check`, `brain artefact read`, `brain doctor`, and `brain runtime inspect`. Every semantic request is supplied as strict JSON; `brain command list --json` and `brain command describe <noun.verb> --json` are authoritative discovery. Selected-Brain automation can invoke eligible commands through `python3 .brain-core/scripts/command.py <noun> <verb>` or the typed Python application. See [Getting Started](docs/user/getting-started.md#command-line-usage), [User Reference](docs/user/user-reference.md), and the [Script Reference](docs/functional/scripts.md).
 
 #### Upgrade
 
-The canonical upgrade path after CLI 2 installation is the checked launcher transaction:
+The canonical upgrade path after CLI installation is the checked launcher transaction:
 
 ```bash
-brain brain upgrade --vault /path/to/brain --request-json '{"acknowledge_global_cli_cutover":true}' --json
+brain upgrade --vault /path/to/brain --request-json '{"acknowledge_global_cli_cutover":true}' --json
 ```
 
-For the 0.55.0 cutover itself, or when recovering without CLI 2, run the source upgrade wrapper:
+For the 0.55.0 cutover itself, or when recovering without the installed CLI, run the source upgrade wrapper:
 
 ```bash
 bash install.sh /path/to/brain --acknowledge-global-cli-cutover
@@ -109,7 +109,7 @@ registry.
 If you do not know what is broken, start with:
 
 ```bash
-brain brain doctor --vault /path/to/brain --json
+brain doctor --vault /path/to/brain --json
 brain vault check --vault /path/to/brain --json
 ```
 
@@ -156,7 +156,7 @@ If you prefer to do it yourself:
 1. Clone this repo: `git clone https://github.com/rob-morris/obsidian-brain.git`
 2. Copy `template-vault/` to your preferred location: `cp -R template-vault /path/to/brain`
 3. Copy brain-core into the vault: `cp -R src/brain-core /path/to/brain/.brain-core`
-4. Install CLI 2 and its versioned distribution: `python3.12 cli/_distribution.py . ~/.local/bin/brain` (choose an equivalent user bin path on other platforms).
+4. Install the CLI and its versioned distribution: `python3.12 cli/_distribution.py . ~/.local/bin/brain` (choose an equivalent user bin path on other platforms).
 5. Provision the central managed runtime: `cd /path/to/brain && python3.12 .brain-core/scripts/_common/_venv.py ensure --vault . --launcher python3.12`. This creates `~/.brain/venvs/py3.12-<sha16>/` if missing and installs `requirements.txt` into it.
 6. Optionally configure MCP transport with `brain mcp configure --vault /path/to/brain --request-json '{"scope":"project","client":"all"}'`. This launcher command and the installer share the same launcher-safe transport owner.
    For project scope, the file write is not the whole story: Claude still needs `/mcp` approval for `brain`, and Codex still needs the project trusted with `brain` enabled.

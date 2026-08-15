@@ -147,7 +147,7 @@ brain type sync --request-json '{"type_key":"living/releases"}' --json
 ```
 
 Use `type.status` to choose the type keys that need attention, then call
-`type.sync` once per selected type. After a CLI upgrade (`brain brain upgrade`),
+`type.sync` once per selected type. After a CLI upgrade (`brain upgrade`),
 definition sync runs automatically under the `artefact_sync` preference in
 `.brain/preferences.json`: `auto` applies safe updates, `ask` (default) returns
 a preview, and `skip` does nothing. Upgrade request fields can override that

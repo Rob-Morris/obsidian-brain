@@ -209,22 +209,25 @@ def test_every_recursive_direct_script_has_one_disposition() -> None:
         assert entry["rationale"]
 
 
-def test_every_multiplexed_direct_script_operation_has_a_target() -> None:
+def test_multiplexed_direct_scripts_preserve_intended_target_cardinality() -> None:
     observation = _load("command_interface_current_surface_v1.json")
     dispositions = _load("command_interface_dispositions_v1.json")
     observed = observation["observed_surfaces"]["direct_script_operation_axes"]
     split = dispositions["direct_script_dispositions"]["split"]
 
     expected_counts = {
-        "_common/_venv.py": 3,
-        "fix_links.py": 2,
-        "sync_definitions.py": 3,
-        "vault_registry.py": 9,
-        "workspace_registry.py": 4,
+        "_common/_venv.py": (3, 2),
+        "fix_links.py": (2, 2),
+        "sync_definitions.py": (3, 3),
+        "vault_registry.py": (9, 8),
+        "workspace_registry.py": (4, 4),
     }
-    assert {name: len(operations) for name, operations in observed.items()} == expected_counts
-    for script_name, count in expected_counts.items():
-        assert len(split[script_name]["targets"]) == count
+    assert {name: len(operations) for name, operations in observed.items()} == {
+        name: operation_count
+        for name, (operation_count, _target_count) in expected_counts.items()
+    }
+    for script_name, (_operation_count, target_count) in expected_counts.items():
+        assert len(split[script_name]["targets"]) == target_count
 
 
 def test_every_install_upgrade_mode_is_launcher_owned() -> None:

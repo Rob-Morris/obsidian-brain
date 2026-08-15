@@ -105,6 +105,7 @@ Each DD captures the reasoning behind an architectural decision at the time it w
 | DD-063 | Discovery shaping may preserve enduring lifecycle status | Implemented (v0.58.0) | [dd-063](dd-063-taxonomy-declared-shaping-status-behaviour.md) |
 | DD-064 | Document mutations use intent-specific commands and exact revisions | Implemented (v0.59.0) | [dd-064](dd-064-document-mutation-intents-and-revisions.md) |
 | DD-065 | Naive agent bootstrap is correctness-scoped, policied and enforced | Implemented (v0.59.1) | [dd-065](dd-065-naive-agent-bootstrap-policy.md) |
+| DD-066 | Domain language for launcher commands | Implemented (v0.60.0) | [dd-066](dd-066-domain-language-for-launcher-commands.md) |
 
 ---
 
@@ -120,4 +121,4 @@ Related decisions grouped by domain. Arrows show supersede/extend chains.
 - **Agent methodology:** DD-024 → DD-057 → DD-058, DD-057 → DD-063, DD-035
 - **Workspaces:** DD-040 → DD-051 → DD-052 → DD-053 → DD-054 (DD-051 extends DD-023, DD-039, DD-040; DD-052 adds the runtime resolution ladder; DD-053 adds the explicit vault-self flag + the unified vault predicate single-sourced in `_common`, and — extending DD-049 — its sign-off refinements add the Decision-#2 anchor hard-error and record that the `brain` dispatch surface includes `setup`; DD-054 carries that ladder into no-MCP `brain session` through machine-owned resolution infrastructure; DD-055 retires the legacy `init.py` shell and consolidates transport CLI onto `configure`)
 - **Artefact lifecycle & folder convention:** DD-029, DD-030 → DD-050 → DD-056 → DD-057 → DD-063, DD-041 → DD-056
-- **Command application architecture:** DD-002 → DD-003 → DD-049 → DD-061 → DD-062, DD-045 → DD-061
+- **Command application architecture:** DD-002 → DD-003 → DD-049 → DD-061 → DD-062, DD-049/DD-061 → DD-066, DD-045 → DD-061

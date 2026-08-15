@@ -81,13 +81,12 @@ def test_command_list_projects_only_each_authoritative_owner_fields():
     assert tuple(
         entry.command_id for entry in list_commands(**launcher.launcher_filters()).entries
     ) == (
-        "brain.backfill",
         "brain.clear-default",
         "brain.doctor",
         "brain.get-default",
         "brain.install",
         "brain.list",
-        "brain.prune",
+        "brain.migrate-legacy-installations",
         "brain.register",
         "brain.resolve",
         "brain.set-default",
