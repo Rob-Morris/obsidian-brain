@@ -125,8 +125,9 @@ Why this matters:
 
 The pre-commit hook runs
 `.venv/bin/python src/scripts/check_repository_contracts.py --staged` before
-reading the canary receipt. The checker reads the Git index, not the working
-tree, and owns facts that code can decide: VERSION/README badge/changelog
+reading the canary receipt. The checker materialises the Git index and executes
+that snapshot's checker and parser imports, so neither staged data nor staged
+semantics can be validated by unstaged code. It owns facts that code can decide: VERSION/README badge/changelog
 coupling, DD/index parity and number permanence, artefact-library
 metadata/catalogue/count consistency, and documentation reachability. `make
 test` exercises the same predicates against the checkout plus focused failure

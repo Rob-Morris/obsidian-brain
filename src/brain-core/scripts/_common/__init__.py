@@ -129,6 +129,7 @@ from ._filesystem import (
     safe_write_json,
     temp_body_file_cleanup_path,
     validate_portable_relative_path,
+    validate_windows_portable_filename_segment,
 )
 
 from ._file_lock import (

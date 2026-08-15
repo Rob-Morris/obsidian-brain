@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import datetime
 from io import StringIO
 import json
@@ -93,7 +94,7 @@ def test_direct_json_stdout_is_only_the_canonical_envelope(tmp_path):
     assert payload["status"] == "ok"
 
 
-def test_direct_internal_failure_preserves_the_diagnostic(monkeypatch):
+def test_direct_pre_context_failure_is_privacy_bounded(monkeypatch):
     def fail():
         raise RuntimeError("catalogue diagnostic")
 
@@ -104,7 +105,46 @@ def test_direct_internal_failure_preserves_the_diagnostic(monkeypatch):
 
     assert code == 4
     assert "command catalogue failed to load" in stderr.getvalue()
-    assert "RuntimeError: catalogue diagnostic" in stderr.getvalue()
+    assert "catalogue diagnostic" not in stderr.getvalue()
+    assert "Traceback" not in stderr.getvalue()
+
+
+def test_direct_invoke_failure_reports_trusted_diagnostic_without_public_detail(
+    tmp_path,
+    monkeypatch,
+):
+    failures = []
+
+    class Diagnostics:
+        def report_failure(self, **failure):
+            failures.append(failure)
+
+    base_factory = _context_factory(tmp_path, ("command.list",))
+
+    def context_factory(**options):
+        return replace(base_factory(**options), diagnostics=Diagnostics())
+
+    def fail_invoke(*_args, **_kwargs):
+        raise RuntimeError("private vault/provider detail")
+
+    monkeypatch.setattr(direct_script.ApplicationAdapter, "invoke", fail_invoke)
+    stderr = StringIO()
+
+    code = run(
+        ["command", "list", "--vault", str(_vault(tmp_path))],
+        stdout=StringIO(),
+        stderr=stderr,
+        context_factory=context_factory,
+    )
+
+    assert code == 4
+    assert stderr.getvalue() == (
+        "command.py: internal_error — direct command setup failed\n"
+    )
+    assert failures[0]["phase"] == "direct-script.invoke"
+    assert failures[0]["command_id"] == "command.list"
+    assert failures[0]["correlation_id"] == "corr-1"
+    assert str(failures[0]["error"]) == "private vault/provider detail"
 
 
 def test_direct_human_output_and_authority_exit_are_structural(tmp_path):

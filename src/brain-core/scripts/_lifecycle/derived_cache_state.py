@@ -35,8 +35,17 @@ class CacheState:
     payload: Mapping[str, Any] | None = None
 
 
-def inspect_router_cache(vault_root: str | Path) -> CacheState:
-    """Inspect the compiled router cache without mutating it."""
+def inspect_router_cache(
+    vault_root: str | Path,
+    *,
+    verify_content: bool = False,
+) -> CacheState:
+    """Inspect the compiled router cache without mutating it.
+
+    ``verify_content`` is required before mutation admission. The default
+    status path may reuse unchanged filesystem metadata, but metadata alone is
+    not authoritative evidence that source content still matches the router.
+    """
     import compile_router
 
     vault_root = Path(vault_root)
@@ -79,8 +88,9 @@ def inspect_router_cache(vault_root: str | Path) -> CacheState:
     source_hash = str(meta.get("source_hash") or "")
     cached_resource_state = _router_resource_signatures.get(vault_root)
     resources_changed = cached_resource_state != (source_hash, resource_signature)
+    inventory_required = resources_changed or verify_content
     current_index_sources = None
-    if resources_changed and expected_index_source_count is not None:
+    if inventory_required and expected_index_source_count is not None:
         current_index_source_count, current_index_sources = (
             compile_router.living_artefact_source_state(
                 str(vault_root), artefacts
@@ -89,7 +99,7 @@ def inspect_router_cache(vault_root: str | Path) -> CacheState:
         if current_index_source_count != expected_index_source_count:
             return CacheState(True, "artefact-index-count-drift", rel_path, data)
 
-    if resources_changed:
+    if inventory_required:
         for key, fs_count in compile_router.resource_counts(str(vault_root)).items():
             if fs_count != len(data.get(key, [])):
                 return CacheState(True, f"{key}-count-drift", rel_path, data)
@@ -97,7 +107,7 @@ def inspect_router_cache(vault_root: str | Path) -> CacheState:
     for source_rel_path, expected_hash in sources.items():
         abs_path = vault_root / source_rel_path
         if source_rel_path in artefact_index_source_paths:
-            if not resources_changed:
+            if not inventory_required:
                 continue
             if current_index_sources is None:
                 _count, current_index_sources = compile_router.living_artefact_source_state(
@@ -108,6 +118,15 @@ def inspect_router_cache(vault_root: str | Path) -> CacheState:
                 return CacheState(True, "artefact-index-source-unreadable", rel_path, data)
             if current_hash != expected_hash:
                 return CacheState(True, "artefact-index-source-drift", rel_path, data)
+            continue
+
+        if verify_content:
+            try:
+                current_hash = compile_router.hash_file(abs_path)
+            except OSError:
+                return CacheState(True, "missing-source", rel_path, data)
+            if current_hash != expected_hash:
+                return CacheState(True, "source-content-drift", rel_path, data)
             continue
 
         try:
@@ -159,7 +178,7 @@ def _append_filtered_tree(path: Path, vault_root: Path, signature: list) -> None
 
 def load_fresh_compiled_router(vault_root: str | Path) -> dict[str, Any]:
     """Load the compiled router only when the cache is fresh enough to mutate."""
-    state = inspect_router_cache(vault_root)
+    state = inspect_router_cache(vault_root, verify_content=True)
     if state.stale:
         return {
             "error": (

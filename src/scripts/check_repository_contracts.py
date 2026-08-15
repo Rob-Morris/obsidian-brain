@@ -782,9 +782,14 @@ def _head_version(root: Path) -> str | None:
     return _git_text(root, "show", f"HEAD:{VERSION_PATH}").strip()
 
 
-def validate_staged_version_bump(root: Path, view: GitIndexView) -> list[str]:
+def validate_staged_version_bump(
+    root: Path,
+    view: GitIndexView,
+    changes: list[GitChange] | None = None,
+) -> list[str]:
     """Require a staged VERSION change whenever staged brain-core content changes."""
-    paths = {path for change in _staged_changes(root) for path in change.paths}
+    staged_changes = _staged_changes(root) if changes is None else changes
+    paths = {path for change in staged_changes for path in change.paths}
     core_changes = {
         path
         for path in paths
@@ -812,11 +817,15 @@ def _version_tuple(version: str) -> tuple[int, int, int]:
     return tuple(int(part) for part in version.split("."))  # type: ignore[return-value]
 
 
-def validate_staged_decision_history(root: Path) -> list[str]:
+def validate_staged_decision_history(
+    root: Path,
+    changes: list[GitChange] | None = None,
+) -> list[str]:
     """Prevent deletion or reuse of an established DD number."""
+    staged_changes = _staged_changes(root) if changes is None else changes
     changes = [
         change
-        for change in _staged_changes(root)
+        for change in staged_changes
         if any(path.startswith(f"{DECISIONS_ROOT}/") for path in change.paths)
     ]
     errors: list[str] = []
@@ -884,14 +893,28 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="validate the Git index and staged-change predicates",
     )
+    parser.add_argument(
+        "--materialized-index-of",
+        type=Path,
+        help=argparse.SUPPRESS,
+    )
     args = parser.parse_args(argv)
+
+    if args.staged and args.materialized_index_of is None:
+        from _staged_contract_runner import run_staged_checker
+
+        return run_staged_checker(REPO_ROOT, sys.executable)
+    if args.materialized_index_of is not None and not args.staged:
+        parser.error("--materialized-index-of requires --staged")
 
     view: RepositoryView
     if args.staged:
-        staged_view = GitIndexView(REPO_ROOT)
-        view = staged_view
-        errors = validate_staged_version_bump(REPO_ROOT, staged_view)
-        errors.extend(validate_staged_decision_history(REPO_ROOT))
+        staged_root = args.materialized_index_of.resolve()
+        staged_view = GitIndexView(staged_root)
+        view = WorkingTreeView(REPO_ROOT)
+        changes = _staged_changes(staged_root)
+        errors = validate_staged_version_bump(staged_root, staged_view, changes)
+        errors.extend(validate_staged_decision_history(staged_root, changes))
     else:
         view = WorkingTreeView(REPO_ROOT)
         errors = []

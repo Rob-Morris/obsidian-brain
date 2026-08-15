@@ -141,6 +141,10 @@ DocumentMutationIntent = (
 )
 
 
+class MutationOutcomeUncertain(RuntimeError):
+    """A document mutation may have committed before its owner failed."""
+
+
 def execute_document_mutation(
     context: InvocationContext,
     request,
@@ -164,7 +168,6 @@ def execute_document_mutation(
             ErrorCode.INVALID_REQUEST,
             f"{request.COMMAND_ID} does not support dry-run",
         )
-    mutation_started = False
     try:
         _preflight_request(edit, intent)
     except ValueError as exc:
@@ -193,18 +196,39 @@ def execute_document_mutation(
                     f"with the current revision ({current_revision})"
                 )
             body, staged_handle = _resolve_body(vault_root, intent)
-            mutation_started = True
-            result = edit.edit_resource(
-                vault_root,
-                router,
-                resource=intent.resource,
-                body=body,
-                expected_revision=intent.expected_revision,
-                opened=opened,
-                **_edit_arguments(intent),
-                **subject_kwargs,
-            )
-            staging_warning = finalise_staged_body(vault_root, staged_handle)
+            try:
+                result = edit.edit_resource(
+                    vault_root,
+                    router,
+                    resource=intent.resource,
+                    body=body,
+                    expected_revision=intent.expected_revision,
+                    opened=opened,
+                    **_edit_arguments(intent),
+                    **subject_kwargs,
+                )
+                staging_warning = finalise_staged_body(vault_root, staged_handle)
+            except FileNotFoundError as exc:
+                raise MutationOutcomeUncertain(
+                    "document mutation outcome could not be classified"
+                ) from exc
+            except ValueError as exc:
+                try:
+                    revision_after_failure = edit.current_document_revision(
+                        vault_root,
+                        router,
+                        intent.resource,
+                        **subject_kwargs,
+                    )
+                except (OSError, ValueError) as probe_error:
+                    raise MutationOutcomeUncertain(
+                        "document mutation outcome could not be classified"
+                    ) from probe_error
+                if revision_after_failure != intent.expected_revision:
+                    raise MutationOutcomeUncertain(
+                        "document mutation outcome could not be classified"
+                    ) from exc
+                raise
     except DocumentRevisionConflict as exc:
         return _revision_conflict(type(request), request, str(exc))
     except MutationLockError as exc:
@@ -237,24 +261,13 @@ def execute_document_mutation(
             ),
         )
     except FileNotFoundError as exc:
-        if mutation_started:
-            raise
         return no_effect_error(
             type(request), ErrorCode.NOT_FOUND, str(exc), "document"
         )
     except ValueError as exc:
-        if mutation_started:
-            revision_after_failure = edit.current_document_revision(
-                vault_root,
-                router,
-                intent.resource,
-                **subject_kwargs,
-            )
-            if revision_after_failure != intent.expected_revision:
-                raise
         return no_effect_error(type(request), ErrorCode.INVALID_REQUEST, str(exc))
 
-    payload = _payload(request, intent, result, staged_handle, staging_warning)
+    payload = _payload(intent, result, staged_handle, staging_warning)
     warnings = []
     if staging_warning:
         warnings.append(CommandWarning(WarningCode.FOLLOW_UP_REQUIRED, staging_warning))
@@ -344,7 +357,7 @@ def _edit_arguments(intent: DocumentMutationIntent) -> dict:
     }
 
 
-def _payload(request, intent, result, staged_handle, staging_warning):
+def _payload(intent, result, staged_handle, staging_warning):
     findings, fixes, substitutions = wikilink_result_values(result)
     common = {
         "path": result["path"],

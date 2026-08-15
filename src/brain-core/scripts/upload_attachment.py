@@ -24,23 +24,14 @@ from _common import (
     safe_write_via,
     validate_key,
     vault_mutation_lock,
+    validate_windows_portable_filename_segment,
 )
 from _lifecycle.derived_cache_state import load_fresh_compiled_router
 
 
 ATTACHMENTS_REL_DIR = Path("_Assets") / "Attachments"
 MAX_ATTACHMENT_BYTES = 16 * 1024 * 1024
-_PORTABLE_UNSAFE_NON_PATH_CHARS = frozenset('<>:"|?*#[]')
-_WINDOWS_RESERVED_NAMES = frozenset({
-    "CON",
-    "PRN",
-    "AUX",
-    "NUL",
-    "CONIN$",
-    "CONOUT$",
-    *(f"COM{number}" for number in range(1, 10)),
-    *(f"LPT{number}" for number in range(1, 10)),
-})
+_OBSIDIAN_UNSAFE_FILENAME_CHARS = frozenset("#[]")
 _COMPARE_CHUNK_BYTES = 64 * 1024
 
 
@@ -248,20 +239,16 @@ def validate_attachment_name(name: str) -> str:
         raise ValueError("Attachment name must be a filename, not a path")
     if name.startswith("."):
         raise ValueError("Attachment name must not be dot-prefixed")
-    if name.endswith("."):
-        raise ValueError("Attachment name must not end with a period")
-    if any(ord(char) < 32 or ord(char) == 127 for char in name):
-        raise ValueError("Attachment name must not contain control characters")
-    unsafe = sorted(set(name) & _PORTABLE_UNSAFE_NON_PATH_CHARS)
+    try:
+        validate_windows_portable_filename_segment(name)
+    except ValueError as exc:
+        raise ValueError(f"Attachment name is not portable: {exc}") from exc
+    unsafe = sorted(set(name) & _OBSIDIAN_UNSAFE_FILENAME_CHARS)
     if unsafe:
         raise ValueError(
-            "Attachment name contains characters that are unsafe in portable "
-            "filenames or Obsidian embeds: "
+            "Attachment name contains characters that are unsafe in Obsidian embeds: "
             + "".join(unsafe)
         )
-    device_name = name.split(".", 1)[0].upper()
-    if device_name in _WINDOWS_RESERVED_NAMES:
-        raise ValueError(f"Attachment name is reserved on Windows: {name}")
     if name.casefold().endswith(".md"):
         raise ValueError("Markdown files are artefacts, not attachments")
     if len(name.encode("utf-8")) > 255:

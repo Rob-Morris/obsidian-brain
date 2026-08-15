@@ -6,10 +6,10 @@ import argparse
 import json
 from pathlib import Path
 import sys
-import traceback
 from typing import TextIO
 
 from _application.adapter import AdapterRequestError, ApplicationAdapter
+from _application.context import report_failure_safely
 from _application.projection import command_id_from_argv
 from _application.registry import current_application_catalogue, current_request_resolver
 
@@ -65,12 +65,8 @@ def run(
     try:
         catalogue = current_application_catalogue()
         resolver = current_request_resolver()
-    except Exception as exc:
-        _report_internal_failure(
-            "command catalogue failed to load",
-            exc,
-            stderr,
-        )
+    except Exception:
+        _report_internal_failure("command catalogue failed to load", stderr)
         return 4
     try:
         args = build_parser().parse_args(argv)
@@ -109,7 +105,13 @@ def run(
         print(f"{command_id}: {exc.code.value} — {exc}", file=stderr)
         return 2
     except Exception as exc:
-        _report_internal_failure("direct command setup failed", exc, stderr)
+        report_failure_safely(
+            context,
+            phase="direct-script.invoke",
+            command_id=command_id,
+            error=exc,
+        )
+        _report_internal_failure("direct command setup failed", stderr)
         return 4
     if args.json:
         print(projection.json_text, file=stdout)
@@ -128,11 +130,5 @@ def _request_payload(value: str, stdin: TextIO) -> dict[str, object]:
     return decoded
 
 
-def _report_internal_failure(message: str, error: Exception, stderr: TextIO) -> None:
+def _report_internal_failure(message: str, stderr: TextIO) -> None:
     print(f"command.py: internal_error — {message}", file=stderr)
-    traceback.print_exception(
-        type(error),
-        error,
-        error.__traceback__,
-        file=stderr,
-    )

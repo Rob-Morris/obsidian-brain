@@ -50,7 +50,7 @@ The direct projection honours the same ceiling and Reader-default active grant a
 | 3 | authority, dependency or provider unavailable |
 | 4 | infrastructure failure or unknown outcome |
 
-Human output and JSON output are projections of the same result. Diagnostics never replace the structural envelope in JSON mode.
+Human output and JSON output are projections of the same result. Diagnostics never replace the structural envelope in JSON mode. Unexpected failures produce bounded public stderr without a traceback or raw exception detail. Once trusted context exists, its diagnostic sink receives the full failure with command and correlation metadata.
 
 ## Typed Python
 

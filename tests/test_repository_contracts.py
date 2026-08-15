@@ -9,7 +9,9 @@ import subprocess
 import sys
 
 import check_repository_contracts as contracts
+import _staged_contract_runner as staged_runner
 import pytest
+from _common import validate_portable_relative_path
 
 
 @dataclass
@@ -446,6 +448,24 @@ def test_manifest_paths_must_be_portable_and_relative(old, new, expected):
     )
 
 
+@pytest.mark.parametrize(
+    "path",
+    (
+        "NUL.md",
+        "nested/aux.txt",
+        "nested/COM1.log",
+        "foo:bar.md",
+        "name?bad.md",
+        "name.",
+        "name ",
+        "bad\x01name.md",
+    ),
+)
+def test_portable_manifest_paths_reject_windows_invalid_segments(path):
+    with pytest.raises(ValueError):
+        validate_portable_relative_path(path)
+
+
 def test_pre_commit_uses_project_python_when_path_python3_is_incompatible(tmp_path):
     _initialise_git_repo(tmp_path)
     hook = tmp_path / ".githooks/pre-commit"
@@ -479,6 +499,43 @@ def test_pre_commit_uses_project_python_when_path_python3_is_incompatible(tmp_pa
 
     assert result.returncode == 0, result.stderr
     assert (tmp_path / "checker-ran").read_text(encoding="utf-8") == "yes"
+
+
+@pytest.mark.parametrize(
+    ("staged_allows", "working_allows", "expected_code"),
+    ((True, False, 0), (False, True, 7)),
+)
+def test_staged_checker_uses_staged_parser_semantics(
+    tmp_path,
+    staged_allows,
+    working_allows,
+    expected_code,
+):
+    _initialise_git_repo(tmp_path)
+    checker = tmp_path / "src/scripts/check_repository_contracts.py"
+    parser = tmp_path / "src/brain-core/scripts/parser_semantics.py"
+    checker.parent.mkdir(parents=True)
+    parser.parent.mkdir(parents=True)
+    checker.write_text(
+        "from pathlib import Path\n"
+        "import sys\n"
+        "root = Path(__file__).resolve().parents[2]\n"
+        "sys.path.insert(0, str(root / 'src/brain-core/scripts'))\n"
+        "from parser_semantics import ALLOW\n"
+        "raise SystemExit(0 if ALLOW else 7)\n",
+        encoding="utf-8",
+    )
+    parser.write_text("ALLOW = True\n", encoding="utf-8")
+    _git(tmp_path, "add", ".")
+    _git(tmp_path, "commit", "-m", "initial")
+
+    parser.write_text(f"ALLOW = {staged_allows!r}\n", encoding="utf-8")
+    _git(tmp_path, "add", str(parser.relative_to(tmp_path)))
+    parser.write_text(f"ALLOW = {working_allows!r}\n", encoding="utf-8")
+
+    result = staged_runner.run_staged_checker(tmp_path, sys.executable)
+
+    assert result == expected_code
 
 
 def test_type_status_enum_must_match_taxonomy_lifecycle():

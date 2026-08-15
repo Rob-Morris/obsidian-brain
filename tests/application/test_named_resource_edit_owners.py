@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 
+import compile_router
 import pytest
 
 from _application._mutation_support import FrontmatterField, InlineContent
@@ -122,6 +123,8 @@ def test_crlf_named_resource_revision_can_be_used_for_an_immediate_mutation(
     source_stat = path.stat()
     path.write_bytes(path.read_bytes().replace(b"\n", b"\r\n"))
     os.utime(path, ns=(source_stat.st_atime_ns, source_stat.st_mtime_ns))
+    refreshed_router = compile_router.compile(str(vault_root))
+    compile_router.persist_compiled_router(str(vault_root), refreshed_router)
     application = application_for(vault_root)
 
     initial = _read(

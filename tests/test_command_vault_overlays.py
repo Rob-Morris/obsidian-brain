@@ -3,11 +3,16 @@
 from __future__ import annotations
 
 import json
+import os
 
 import pytest
 
 from _common._file_lock import MutationLockError, vault_mutation_lock
-from _lifecycle.derived_cache_state import inspect_lexical_cache, inspect_router_cache
+from _lifecycle.derived_cache_state import (
+    inspect_lexical_cache,
+    inspect_router_cache,
+    load_fresh_compiled_router,
+)
 from _machine import discovery
 
 from command_vault import (
@@ -74,6 +79,32 @@ def test_router_freshness_reuses_unchanged_resource_inventory(
     monkeypatch.setattr(compile_router, "resource_counts", repeated_inventory)
 
     assert inspect_router_cache(command_vault_clone.vault_root).stale is False
+
+
+def test_mutation_router_admission_detects_same_stat_frontmatter_drift(
+    command_vault_clone,
+):
+    vault_root = command_vault_clone.vault_root
+    router = load_fresh_compiled_router(vault_root)
+    assert "error" not in router
+    source_rel = next(iter(router["meta"]["artefact_index_sources"]))
+    source = vault_root / source_rel
+    original_stat = source.stat()
+    original = source.read_text(encoding="utf-8")
+    changed = original.replace("key: ", "key: x", 1)
+    changed = changed[:-1]
+    assert len(changed.encode()) == len(original.encode())
+
+    source.write_text(changed, encoding="utf-8")
+    os.utime(
+        source,
+        ns=(original_stat.st_atime_ns, original_stat.st_mtime_ns),
+    )
+
+    result = load_fresh_compiled_router(vault_root)
+
+    assert "error" in result
+    assert "artefact-index-source-drift" in result["error"]
 
 
 @pytest.mark.parametrize(

@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+from contextlib import contextmanager
+
 import edit
 import fix_links
 import pytest
+import _common
 
 from _application._mutation_support import FrontmatterField, InlineContent, StagedContent
 from _application.artefact.read import ArtefactReadRequest
@@ -383,6 +386,48 @@ def test_document_mutation_post_commit_failure_is_honestly_unknown(
     assert result.error.code is ErrorCode.COMMAND_OUTCOME_UNKNOWN
     assert result.effects == "unknown"
     assert "Uncertain edit." in (command_vault_clone.vault_root / PATH).read_text()
+
+
+def test_post_failure_revision_classification_occurs_under_mutation_lock(
+    command_vault_clone,
+    monkeypatch,
+):
+    lock_active = False
+    real_edit = edit.edit_resource
+    real_revision = edit.current_document_revision
+
+    @contextmanager
+    def tracked_lock(*_args, **_kwargs):
+        nonlocal lock_active
+        lock_active = True
+        try:
+            yield
+        finally:
+            lock_active = False
+
+    def commit_then_fail(*args, **kwargs):
+        real_edit(*args, **kwargs)
+        raise ValueError("response failed after edit commit")
+
+    def classify_revision(*args, **kwargs):
+        assert lock_active is True
+        return real_revision(*args, **kwargs)
+
+    monkeypatch.setattr(_common, "vault_mutation_lock", tracked_lock)
+    monkeypatch.setattr(edit, "edit_resource", commit_then_fail)
+    monkeypatch.setattr(edit, "current_document_revision", classify_revision)
+
+    result = application_for(command_vault_clone.vault_root).invoke(
+        DocumentPatchRequest(
+            DOCUMENT,
+            _revision(command_vault_clone.vault_root),
+            "Second occurrence.",
+            "Classified under lock.",
+            UniqueMatch(),
+        )
+    )
+
+    assert result.error.code is ErrorCode.COMMAND_OUTCOME_UNKNOWN
 
 
 def test_requested_wikilink_failure_reports_known_partial_commit(

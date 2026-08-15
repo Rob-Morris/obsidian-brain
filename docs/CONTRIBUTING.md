@@ -19,8 +19,8 @@ make hooks      # sets git to use .githooks/ directory
 ```
 
 `.venv/bin/python src/scripts/check_repository_contracts.py` runs the same
-deterministic checks against the working tree; `--staged` reads from the Git
-index. It owns brain-core VERSION and README badge coupling, current-version
+deterministic checks against the working tree; `--staged` materialises the Git
+index and executes that snapshot's checker and parser imports. It owns brain-core VERSION and README badge coupling, current-version
 changelog Summary coupling, decision-file/index parity and permanent numbering,
 artefact-library metadata/catalogue/count invariants, and documentation
 reachability. These predicates are also exercised by

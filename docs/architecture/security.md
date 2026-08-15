@@ -368,6 +368,12 @@ acquisition and owner diagnostics. It coordinates processes sharing one vault;
 machine-global launcher transactions use their own fixed-state locking and
 checked rollback boundaries.
 
+Mutation outcome classification also occurs while that lock is held. A
+post-effect failure whose commit state cannot be proven is reported as
+`command_outcome_unknown`; public command adapters keep stderr bounded and send
+full exception diagnostics through the trusted diagnostic sink with correlation
+metadata once trusted invocation context exists.
+
 ---
 
 ## Cross-references

@@ -28,6 +28,14 @@ if [[ ! -x "$PROJECT_PYTHON" ]]; then
   echo "pre-commit: $PROJECT_PYTHON not found — run 'make install' first"
   exit 1
 fi
+if ! git diff --quiet -- \
+  .githooks/pre-commit \
+  src/scripts/_staged_contract_runner.py \
+  src/scripts/check_repository_contracts.py; then
+  echo "pre-commit: staged-validator bootstrap differs from the working tree"
+  echo "Stage the hook and staged-contract runner together before committing."
+  exit 1
+fi
 "$PROJECT_PYTHON" "$REPO_ROOT/src/scripts/check_repository_contracts.py" --staged
 
 CANARY_DEF="$REPO_ROOT/.canaries/pre-commit.md"
