@@ -20,8 +20,11 @@ from urllib.parse import unquote
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 BRAIN_SCRIPTS = REPO_ROOT / "src" / "brain-core" / "scripts"
+CLI_ROOT = REPO_ROOT / "cli"
 if str(BRAIN_SCRIPTS) not in sys.path:
     sys.path.insert(0, str(BRAIN_SCRIPTS))
+if str(CLI_ROOT) not in sys.path:
+    sys.path.insert(0, str(CLI_ROOT))
 
 from _common import (  # noqa: E402
     AGENT_INSTRUCTION_RE,
@@ -33,15 +36,21 @@ from _common import (  # noqa: E402
 from _common._yaml import YamlError, load_mapping_text  # noqa: E402
 from _common._frontmatter import parse_frontmatter  # noqa: E402
 from compile_router import naming_storage_root, parse_taxonomy_content  # noqa: E402
+from _version_contract import (  # noqa: E402
+    SEMVER_PATTERN,
+    parse_version_contract,
+)
 
 
 VERSION_PATH = "src/brain-core/VERSION"
 README_PATH = "README.md"
+CLI_BOOTLOADER_PATHS = ("cli/brain", "cli/brain.cmd")
+PROXY_PATH = "src/brain-core/brain_mcp/proxy.py"
+FUNCTIONAL_CLI_PATH = "docs/functional/cli.md"
+USER_REFERENCE_PATH = "docs/user/user-reference.md"
 LIBRARY_ROOT = "src/brain-core/artefact-library"
 DECISIONS_ROOT = "docs/architecture/decisions"
-VERSION_RE = re.compile(
-    r"(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)"
-)
+VERSION_RE = re.compile(SEMVER_PATTERN)
 DD_PATH_RE = re.compile(r"docs/architecture/decisions/dd-(\d{3})-[^/]+\.md")
 DD_ROW_LINK_RE = re.compile(r"\[dd-(\d{3})\]\((dd-(\d{3})-[^)]+\.md)\)")
 MARKDOWN_LINK_RE = re.compile(r"(?<!!)\[[^\]]*\]\(([^)]+)\)")
@@ -265,6 +274,81 @@ def validate_readme_version_badge(view: RepositoryView) -> list[str]:
             f"{README_PATH}: version badge is {badges[0]}, expected VERSION {version}"
         ]
     return []
+
+
+def validate_component_version_contract(view: RepositoryView) -> list[str]:
+    """Validate platform CLI parity, canonical docs and proxy syntax."""
+
+    errors: list[str] = []
+    raw_core = _read(view, VERSION_PATH, errors)
+    declarations = [_read(view, path, errors) for path in CLI_BOOTLOADER_PATHS]
+    proxy = _read(view, PROXY_PATH, errors)
+    functional_cli = _read(view, FUNCTIONAL_CLI_PATH, errors)
+    user_reference = _read(view, USER_REFERENCE_PATH, errors)
+    if raw_core is None or any(text is None for text in declarations):
+        return errors
+    core_version = raw_core.strip()
+    parsed = parse_version_contract(
+        core=raw_core,
+        unix_cli=declarations[0],
+        windows_cli=declarations[1],
+        proxy=proxy,
+        functional_cli=functional_cli,
+        user_reference=user_reference,
+    )
+    cli_fields = ("cli_unix", "cli_windows")
+    ref_fields = ("install_ref_unix", "install_ref_windows")
+    for path, cli_field, ref_field in zip(
+        CLI_BOOTLOADER_PATHS, cli_fields, ref_fields, strict=True
+    ):
+        if parsed.count(cli_field) != 1:
+            errors.append(f"{path}: expected one BRAIN_CLI_VERSION declaration")
+        if parsed.count(ref_field) != 1:
+            errors.append(f"{path}: expected one BRAIN_INSTALL_REF declaration")
+    cli_versions = tuple(getattr(parsed, name) for name in cli_fields)
+    install_refs = tuple(getattr(parsed, name) for name in ref_fields)
+    if all(cli_versions) and cli_versions[0] != cli_versions[1]:
+        errors.append(
+            "platform CLI version drift: "
+            f"{CLI_BOOTLOADER_PATHS[0]} has {cli_versions[0]}, "
+            f"{CLI_BOOTLOADER_PATHS[1]} has {cli_versions[1]}"
+        )
+    observed_refs = tuple(ref for ref in install_refs if ref is not None)
+    if observed_refs and any(ref != core_version for ref in observed_refs):
+        errors.append(
+            "platform CLI install refs must match Brain Core VERSION "
+            f"{core_version}: found {', '.join(observed_refs)}"
+        )
+    if proxy is not None and parsed.count("proxy") != 1:
+        errors.append(f"{PROXY_PATH}: expected one semantic PROXY_VERSION")
+    expected_cli = (
+        parsed.cli_unix
+        if parsed.cli_unix is not None and parsed.cli_unix == parsed.cli_windows
+        else None
+    )
+    if functional_cli is not None and expected_cli is not None:
+        documented = {
+            "Unix distribution": ("documented_cli_unix", expected_cli),
+            "Windows distribution": ("documented_cli_windows", expected_cli),
+            "CLI declaration": ("documented_cli_declaration", expected_cli),
+            "install ref": ("documented_install_ref", core_version),
+        }
+        for label, (field, expected) in documented.items():
+            if parsed.count(field) != 1 or getattr(parsed, field) != expected:
+                errors.append(
+                    f"{FUNCTIONAL_CLI_PATH}: {label} must declare {expected} exactly once"
+                )
+    if user_reference is not None and expected_cli is not None:
+        if (
+            parsed.count("user_reference") != 1
+            or parsed.user_reference_core != core_version
+            or parsed.user_reference_cli != expected_cli
+        ):
+            errors.append(
+                f"{USER_REFERENCE_PATH}: must identify Brain Core {core_version} "
+                f"and CLI {expected_cli} exactly once"
+            )
+    return errors
 
 
 def _version_summary(entry: str, version: str) -> str | None:
@@ -879,6 +963,7 @@ def validate_repository(view: RepositoryView) -> list[str]:
     validators = (
         validate_release_contract,
         validate_readme_version_badge,
+        validate_component_version_contract,
         validate_decision_index,
         validate_type_library,
         validate_docs_reachability,

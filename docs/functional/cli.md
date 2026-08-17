@@ -107,9 +107,9 @@ CLI 3 can identify and recover an installed Brain older than 0.55.0, but it does
 
 The installer writes a versioned distribution under the selected prefix and a small platform bootloader under `bin/`:
 
-- Unix-like user install: `~/.local/bin/brain` and `~/.local/lib/brain-cli/3.0.0/`.
-- Native Windows user install: `%LOCALAPPDATA%\Programs\Brain\bin\brain.cmd` and the adjacent `lib\brain-cli\3.0.0\` distribution.
+- Unix-like user install: `~/.local/bin/brain` and `~/.local/lib/brain-cli/3.0.1/`.
+- Native Windows user install: `%LOCALAPPDATA%\Programs\Brain\bin\brain.cmd` and the adjacent `lib\brain-cli\3.0.1\` distribution.
 
 The distribution contains the launcher application plus the Brain Core payload needed for install, upgrade and selected-Brain execution. Installation and replacement verify a content manifest and executable identity; failed replacement restores the proven old binary/distribution pair or retains recovery material and reports the outcome as unverified.
 
-The bootloader requires Python 3.12 or newer. `BRAIN_CLI_VERSION` is `3.0.0`; `BRAIN_INSTALL_REF` is `v0.60.0`.
+The bootloader requires Python 3.12 or newer. `BRAIN_CLI_VERSION` is `3.0.1`; `BRAIN_INSTALL_REF` is `v0.61.0`.

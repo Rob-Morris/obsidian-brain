@@ -3,7 +3,7 @@ PYTHON := $(VENV)/bin/python
 PIP := $(VENV)/bin/pip
 PYTEST := $(VENV)/bin/pytest
 
-.PHONY: venv install install-semantic test test-parallel lint lint-docstrings lint-command-docs clean hooks sync-template sync-template-check dev-link
+.PHONY: venv install install-semantic test test-parallel lint lint-docstrings lint-command-docs clean hooks sync-template sync-template-check dev-link precommit-check release-status
 
 venv:
 	python3.12 -m venv $(VENV)
@@ -37,6 +37,13 @@ lint-command-docs:
 
 hooks:
 	git config core.hooksPath .githooks
+
+precommit-check:
+	$(PYTHON) src/scripts/check_repository_contracts.py --staged
+	$(PYTHON) src/scripts/release.py status --check index
+
+release-status:
+	$(PYTHON) src/scripts/release.py status
 
 sync-template: dev-link
 	PYTHON_BIN=$(abspath $(PYTHON)) bash src/scripts/sync-template-vault.sh --apply

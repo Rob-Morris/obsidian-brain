@@ -27,6 +27,7 @@ from _application.types import (
     SnapshotFreshness,
     validate_command_id,
 )
+from _common import _operational_log
 
 
 @dataclass(frozen=True, slots=True)
@@ -87,8 +88,11 @@ class ProfileAuthority:
 
 
 @dataclass(frozen=True, slots=True)
-class LoggingDiagnosticReporter:
-    logger_name: str = "brain.command"
+class OperationalDiagnosticReporter:
+    """Submit command failures to the best-effort content-free operational log."""
+
+    vault_root: Path
+    process: str = "script"
 
     def report_failure(
         self,
@@ -98,13 +102,27 @@ class LoggingDiagnosticReporter:
         correlation_id: str,
         error: BaseException,
     ) -> None:
-        logging.getLogger(self.logger_name).error(
+        logging.getLogger("brain.command").error(
             "command failure phase=%s command=%s correlation_id=%s",
             phase,
             command_id,
             correlation_id,
             exc_info=(type(error), error, error.__traceback__),
         )
+        fields = {
+            "phase": phase,
+            "command_id": command_id,
+            "correlation_id": correlation_id,
+            "error_class": _operational_log.classify_error(error),
+            "exception_type": type(error).__name__,
+        }
+        logger = _operational_log.current_logger()
+        if logger is not None:
+            logger.record("command.failed", **fields)
+        else:
+            _operational_log.append_record(
+                self.vault_root, self.process, "command.failed", **fields
+            )
 
 
 def compose_local_context(
@@ -173,7 +191,9 @@ def compose_local_context(
         workspace_dir=resolved_workspace,
         capability_snapshots=capability_snapshots,
         diagnostics=(
-            diagnostics if diagnostics is not None else LoggingDiagnosticReporter()
+            diagnostics
+            if diagnostics is not None
+            else OperationalDiagnosticReporter(root)
         ),
     )
 

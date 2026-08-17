@@ -209,6 +209,22 @@ are logically absent without deletion. Atomic publication lets readers avoid a
 cross-process write lock, while receipt writes and explicit maintenance retain
 serialised retention cleanup.
 
+Operational diagnostics are another fixed internal write capability, under
+`.brain/local/diagnostics/` (0700 directory, 0600 files, per-family sidecar
+locks). The stream is content-free by construction: its record schema has no
+message field, rejects unknown events/fields, projects protocol methods into a
+closed vocabulary, and reduces errors to a closed class vocabulary plus the
+exception type name — request bodies, vault content, paths and exception text
+are unrepresentable. Directory components reject symlinks; lock and log
+endpoints use no-follow, same-regular-file verification before append,
+truncation or export.
+Callers pass typed records, never paths; storage is hard-capped per family by
+rotation; writers never block or unwind a command. The only content-bearing
+surface is the opt-in `BRAIN_LOG_BODIES` wire capture, which is confined to
+its own `debug-bodies.log` family and flagged on the operational stream. See
+[DD-067](decisions/dd-067-operational-diagnostics-logging.md) and
+[Diagnostics](../functional/diagnostics.md).
+
 The MCP proxy/server protocol marker is a local compatibility assertion, not an
 authentication credential. The long-lived proxy sets it only in the child
 environment; a replacement server with a missing, malformed or incompatible

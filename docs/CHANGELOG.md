@@ -8,6 +8,7 @@ Never edit past changelog entries. Only add new entries at the top.
 
 | Version | Date | Summary |
 |---|---|---|
+| [v0.61.0](changelog/v0.61.0.md) | 2026-08-16 | BREAKING — Add always-on content-free operational diagnostics |
 | [v0.60.0](changelog/v0.60.0.md) | 2026-08-16 | BREAKING — Replace machine-shaped launcher commands with domain language |
 | [v0.59.2](changelog/v0.59.2.md) | 2026-08-15 | Make mutation admission and staged contracts content-exact |
 | [v0.59.1](changelog/v0.59.1.md) | 2026-08-15 | Restore and enforce the naive-agent bootstrap contract |

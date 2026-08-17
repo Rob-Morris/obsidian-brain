@@ -13,6 +13,13 @@ template-vault drift, naive-bootstrap coverage, and the test suite itself.
 
 ## Tasks
 
+Before writing the receipt or attempting `git commit`, stage the intended
+snapshot and run `make precommit-check`. Fix deterministic findings before the
+commit attempt. This is preparation guidance, not a numbered self-attestation:
+the hook independently reruns the same exact-index contracts.
+
+[1] **Release intent.** If the staged snapshot changes any release or version surface, identify whether it amends an unreleased version or creates a new release; state the intended Brain Core, CLI and proxy versions; and confirm successor work is not staged. Use `python src/scripts/release.py status` to compare `HEAD`, index and working-tree state. Semantic bump selection remains agent/user judgement; `release.py prepare` owns only the explicitly authorised mechanical edits.
+
 [2] **External version surfaces.** If an end-user install or upgrade contract changed outside `src/brain-core/` (`install.sh`, installer docs, upgrade entry-point guidance), decide whether `src/brain-core/VERSION` must bump. Use the repo's pre-1.0 semver policy: patch = bug fixes, doc clarifications, additive, backward-compatible changes, including backward-compatible install/upgrade contract changes; minor = breaking Brain changes that preserve the core model, including vault-structure or tool/script/MCP contract changes; major = fundamental model changes to the artefact model, router contract, or agent bootstrap/entry flow. Changes inside `src/brain-core/` are checked mechanically and do not need attestation here.
 
     [2a] **Proxy version surface** — if `src/brain-core/brain_mcp/proxy.py` changed, decide whether `PROXY_VERSION` must bump. Any shipped proxy behaviour change that would otherwise trip the runtime drift note on upgrade should bump it.
@@ -65,6 +72,7 @@ Note: `skip` uses a comma separator (not colon) to avoid ambiguity with the labe
 ### Example
 
 ```
+[1] Release intent: done, preparing new Core 0.61.0 / CLI 3.0.1 / proxy 0.8.0 with no successor work staged
 [2] External version surfaces: skip, no external install or upgrade contract changes
     [2a] Proxy version surface: done
     [2b] CLI version surfaces: done

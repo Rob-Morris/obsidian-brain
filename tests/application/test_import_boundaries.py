@@ -61,6 +61,25 @@ def test_package_initializer_does_not_eagerly_collapse_dependency_tiers():
     assert offenders == []
 
 
+def test_operational_log_stays_stdlib_only_below_common():
+    """The diagnostics writer must stay importable from every tier, launcher included."""
+    path = APPLICATION_ROOT.parent / "_common" / "_operational_log.py"
+    stdlib = set(sys.stdlib_module_names)
+    offenders = {
+        name for name in _imports(path) if name not in stdlib and name != "_common"
+    }
+
+    assert offenders == set()
+
+
+def test_version_contract_stays_stdlib_only_for_launcher_and_repository_tools():
+    """The shared release grammar must remain usable below managed-runtime code."""
+    path = REPO_ROOT / "cli" / "_version_contract.py"
+    offenders = _imports(path) - set(sys.stdlib_module_names)
+
+    assert offenders == set()
+
+
 def test_lower_level_packages_do_not_import_back_into_application():
     offenders = []
     scripts_root = APPLICATION_ROOT.parent

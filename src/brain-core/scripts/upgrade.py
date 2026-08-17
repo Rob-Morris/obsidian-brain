@@ -1348,6 +1348,7 @@ def _prepare_cli_cutover(
         raise ValueError("breaking Brain upgrade requires the complete Brain CLI distribution")
     if str(cli_root) not in sys.path:
         sys.path.insert(0, str(cli_root))
+    from _distribution import source_versions
     from _launcher.cutover import preflight
 
     catalogue = json.loads((source / "command-catalogue.json").read_text(encoding="utf-8"))
@@ -1365,6 +1366,7 @@ def _prepare_cli_cutover(
     source_version = _read_version(str(source))
     if source_version is None:
         raise ValueError("source Brain Core version is missing")
+    new_cli_version = source_versions(repo_root).cli_version
     cli_text = target.read_text(encoding="utf-8")
     version_match = re.search(
         r'^BRAIN_CLI_VERSION="([0-9]+\.[0-9]+\.[0-9]+)"$',
@@ -1380,7 +1382,7 @@ def _prepare_cli_cutover(
         selected_vault=vault_root,
         source_brain_core_version=source_version,
         old_cli_version=old_cli_version,
-        new_cli_version="3.0.0",
+        new_cli_version=new_cli_version,
         interface_epoch=epoch,
         proxy_protocol=int(protocol_match.group(1)),
         acknowledge_global_cli_cutover=acknowledge_global_cli_cutover,
@@ -1390,6 +1392,7 @@ def _prepare_cli_cutover(
         "target": target,
         "repo_root": repo_root,
         "source_version": source_version,
+        "cli_version": new_cli_version,
         "preflight": report,
     }
 
@@ -1400,7 +1403,7 @@ def _commit_cli_cutover(plan: dict) -> dict:
     installed = install_distribution(
         plan["repo_root"],
         plan["target"],
-        cli_version="3.0.0",
+        cli_version=plan["cli_version"],
         expected_brain_core_version=plan["source_version"],
     )
     return {

@@ -139,6 +139,61 @@ def test_readme_badge_version_read_failure_is_not_reported_as_success():
     ]
 
 
+def test_platform_cli_versions_and_install_refs_must_match():
+    view = MemoryView(
+        {
+            contracts.VERSION_PATH: "1.2.3\n",
+            "cli/brain": (
+                'BRAIN_CLI_VERSION="4.5.6"\nBRAIN_INSTALL_REF="v1.2.3"\n'
+            ),
+            "cli/brain.cmd": (
+                'set "BRAIN_CLI_VERSION=4.5.7"\n'
+                'set "BRAIN_INSTALL_REF=v1.2.2"\n'
+            ),
+            contracts.PROXY_PATH: 'PROXY_VERSION = "0.8.0"\n',
+            contracts.FUNCTIONAL_CLI_PATH: (
+                "Unix lib/brain-cli/4.5.6/ and Windows lib\\brain-cli\\4.5.6\\.\n"
+                "`BRAIN_CLI_VERSION` is `4.5.6`; "
+                "`BRAIN_INSTALL_REF` is `v1.2.3`.\n"
+            ),
+            contracts.USER_REFERENCE_PATH: "Brain Core 1.2.3 and CLI 4.5.6\n",
+        }
+    )
+
+    assert contracts.validate_component_version_contract(view) == [
+        "platform CLI version drift: cli/brain has 4.5.6, cli/brain.cmd has 4.5.7",
+        "platform CLI install refs must match Brain Core VERSION 1.2.3: found 1.2.3, 1.2.2",
+    ]
+
+
+def test_canonical_cli_docs_must_match_platform_declarations():
+    view = MemoryView(
+        {
+            contracts.VERSION_PATH: "1.2.3\n",
+            "cli/brain": (
+                'BRAIN_CLI_VERSION="4.5.6"\nBRAIN_INSTALL_REF="v1.2.3"\n'
+            ),
+            "cli/brain.cmd": (
+                'set "BRAIN_CLI_VERSION=4.5.6"\n'
+                'set "BRAIN_INSTALL_REF=v1.2.3"\n'
+            ),
+            contracts.PROXY_PATH: 'PROXY_VERSION = "0.8.0"\n',
+            contracts.FUNCTIONAL_CLI_PATH: (
+                "Unix lib/brain-cli/4.5.5/ and Windows lib\\brain-cli\\4.5.6\\.\n"
+                "`BRAIN_CLI_VERSION` is `4.5.6`; "
+                "`BRAIN_INSTALL_REF` is `v1.2.2`.\n"
+            ),
+            contracts.USER_REFERENCE_PATH: "Brain Core 1.2.2 and CLI 4.5.5\n",
+        }
+    )
+
+    assert contracts.validate_component_version_contract(view) == [
+        f"{contracts.FUNCTIONAL_CLI_PATH}: Unix distribution must declare 4.5.6 exactly once",
+        f"{contracts.FUNCTIONAL_CLI_PATH}: install ref must declare 1.2.3 exactly once",
+        f"{contracts.USER_REFERENCE_PATH}: must identify Brain Core 1.2.3 and CLI 4.5.6 exactly once",
+    ]
+
+
 def test_release_version_must_have_entry_row_and_newest_position():
     missing_entry = MemoryView(
         {
@@ -499,6 +554,45 @@ def test_pre_commit_uses_project_python_when_path_python3_is_incompatible(tmp_pa
 
     assert result.returncode == 0, result.stderr
     assert (tmp_path / "checker-ran").read_text(encoding="utf-8") == "yes"
+
+
+def test_pre_commit_does_not_stage_newer_worktree_release_metadata(tmp_path):
+    _initialise_git_repo(tmp_path)
+    hook = tmp_path / ".githooks/pre-commit"
+    hook.parent.mkdir(parents=True)
+    hook.write_text(
+        (contracts.REPO_ROOT / ".githooks/pre-commit").read_text(encoding="utf-8"),
+        encoding="utf-8",
+    )
+    hook.chmod(0o755)
+    project_python = tmp_path / ".venv/bin/python"
+    project_python.parent.mkdir(parents=True)
+    project_python.symlink_to(sys.executable)
+    checker = tmp_path / "src/scripts/check_repository_contracts.py"
+    checker.parent.mkdir(parents=True)
+    checker.write_text("raise SystemExit(0)\n", encoding="utf-8")
+    version = tmp_path / contracts.VERSION_PATH
+    version.parent.mkdir(parents=True, exist_ok=True)
+    version.write_text("1.0.0\n", encoding="utf-8")
+    readme = tmp_path / "README.md"
+    readme.write_text("![Version](version-1.0.0-blue)\n", encoding="utf-8")
+    staged = tmp_path / "fix.py"
+    staged.write_text("old\n", encoding="utf-8")
+    _git(tmp_path, "add", ".")
+    _git(tmp_path, "commit", "-m", "initial")
+
+    staged.write_text("fixed\n", encoding="utf-8")
+    _git(tmp_path, "add", "fix.py")
+    version.write_text("1.1.0\n", encoding="utf-8")
+    readme.write_text("![Version](version-1.1.0-blue)\n", encoding="utf-8")
+    before = _git_output(tmp_path, "diff", "--cached", "--binary")
+
+    result = subprocess.run([str(hook)], cwd=tmp_path, capture_output=True, text=True)
+
+    assert result.returncode == 0, result.stderr
+    assert _git_output(tmp_path, "diff", "--cached", "--binary") == before
+    assert version.read_text(encoding="utf-8") == "1.1.0\n"
+    assert readme.read_text(encoding="utf-8") == "![Version](version-1.1.0-blue)\n"
 
 
 @pytest.mark.parametrize(
@@ -877,3 +971,13 @@ def _git(root: Path, *args: str) -> None:
         capture_output=True,
         text=True,
     )
+
+
+def _git_output(root: Path, *args: str) -> str:
+    return subprocess.run(
+        ["git", *args],
+        cwd=root,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout

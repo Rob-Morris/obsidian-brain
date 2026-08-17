@@ -11,6 +11,7 @@ import json
 import os
 import subprocess
 import sys
+import threading
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -154,7 +155,7 @@ def test_main_uses_filesystem_guidance_for_wrapped_binding_filesystem_error(monk
     assert "binding or machine default" not in kwargs["guidance"]
 
 
-def test_main_enters_degraded_mode_on_logging_oserror(monkeypatch, tmp_path):
+def test_main_enters_degraded_mode_on_unwritable_local_state(monkeypatch, tmp_path):
     calls = []
     target = SimpleNamespace(vault_root=str(tmp_path), workspace_dir=None, source="vault_self")
 
@@ -162,15 +163,60 @@ def test_main_enters_degraded_mode_on_logging_oserror(monkeypatch, tmp_path):
     monkeypatch.setenv("BRAIN_VAULT_ROOT", "sentinel-vault")
     monkeypatch.setenv("PYTHONPATH", "sentinel-pythonpath")
     monkeypatch.setattr(proxy, "resolve_and_heal", lambda **_kwargs: target)
-    monkeypatch.setattr(proxy, "_setup_logging", lambda _vault_root: (_ for _ in ()).throw(PermissionError("read-only")))
+    monkeypatch.setattr(proxy, "_probe_local_state", lambda _vault_root: (_ for _ in ()).throw(PermissionError("read-only")))
     monkeypatch.setattr(proxy, "_run_degraded_server", lambda reason, **kwargs: calls.append((reason, kwargs)))
 
     proxy.main()
 
     assert len(calls) == 1
     reason, kwargs = calls[0]
-    assert "filesystem access failed while opening proxy log" in reason
+    assert "filesystem access failed while preparing vault-local state" in reason
     assert "vault filesystem permissions" in kwargs["guidance"]
+
+
+def test_writable_probe_is_unique_and_preserves_preexisting_state(tmp_path):
+    local = tmp_path / ".brain" / "local"
+    local.mkdir(parents=True)
+    sentinel = local / ".writable-probe"
+    sentinel.write_text("owned by another process\n", encoding="utf-8")
+    errors = []
+
+    def _probe():
+        try:
+            proxy._probe_local_state(str(tmp_path))
+        except BaseException as exc:  # noqa: BLE001 — concurrent failures are asserted
+            errors.append(exc)
+
+    workers = [threading.Thread(target=_probe) for _ in range(16)]
+    for worker in workers:
+        worker.start()
+    for worker in workers:
+        worker.join(timeout=10)
+
+    assert errors == []
+    assert sentinel.read_text(encoding="utf-8") == "owned by another process\n"
+    assert sorted(path.name for path in local.glob(".writable-probe-*")) == []
+
+
+def test_writable_probe_does_not_remove_a_unique_name_it_did_not_create(
+    tmp_path,
+    monkeypatch,
+):
+    local = tmp_path / ".brain" / "local"
+    local.mkdir(parents=True)
+    monkeypatch.setattr(proxy.os, "getpid", lambda: 123)
+    monkeypatch.setattr(
+        proxy.uuid,
+        "uuid4",
+        lambda: SimpleNamespace(hex="fixed"),
+    )
+    sentinel = local / ".writable-probe-123-fixed"
+    sentinel.write_text("pre-existing\n", encoding="utf-8")
+
+    with pytest.raises(FileExistsError):
+        proxy._probe_local_state(str(tmp_path))
+
+    assert sentinel.read_text(encoding="utf-8") == "pre-existing\n"
 
 
 def test_main_enters_degraded_mode_on_noncanonical_python(monkeypatch, tmp_path):

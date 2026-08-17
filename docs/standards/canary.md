@@ -161,6 +161,10 @@ At runtime:
 3. Parse the log file, ensuring each task ID is matched by a correctly formatted log line. If anything is malformed, the test fails.
 4. Delete the log file to prevent staleness.
 
+Validation hooks may consume their ignored canary receipt, but must not rewrite
+tracked files or alter the Git index. Deterministic repair belongs to an
+explicit preparation command that can preview its changes before writing.
+
 Note: You may optionally bundle additional tests. For example, if a task specifies touching a particular file, check that the file has changes.
 
 ## Example git pre-commit hook

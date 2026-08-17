@@ -12,8 +12,8 @@ Usage:
 Env:
     BRAIN_VAULT_ROOT        — vault path (passed through to child)
     BRAIN_WORKSPACE_DIR     — optional active workspace path (passed through to child)
-    BRAIN_LOG_LEVEL         — file handler log level (default INFO)
-    BRAIN_LOG_BODIES        — when "1", log full JSON bodies of every forwarded message
+    BRAIN_LOG_BODIES        — when "1" or "true", capture raw JSON bodies of every
+                              forwarded message to .brain/local/diagnostics/debug-bodies.log
     BRAIN_PROXY_BACKOFF     — comma-separated int seconds (default: 0,4,8,16,32)
     BRAIN_PROXY_INIT_TIMEOUT — seconds to wait for child initialize response (default 60)
     BRAIN_PROXY_VERSION_CHECK_INTERVAL — rate-limit for version-reset checks (default 5)
@@ -23,9 +23,9 @@ Env:
 from dataclasses import replace
 from datetime import datetime, timezone
 import hashlib
+import itertools
 import json
 import logging
-import logging.handlers
 import os
 import queue
 import re
@@ -48,6 +48,7 @@ from _bootstrap.workspace_binding import (
     resolve_and_heal,
 )
 from _common import resolve_vault_venv_python
+from _common import _operational_log
 from _repair_common import build_repair_command
 from ._interface_protocol import (
     PROXY_PROTOCOL,
@@ -63,11 +64,7 @@ from ._interface_protocol import (
 # Constants
 # ---------------------------------------------------------------------------
 
-PROXY_VERSION = "0.7.0"
-
-_LOG_REL = os.path.join(".brain", "local", "mcp-proxy.log")
-_LOG_MAX_BYTES = 2 * 1024 * 1024  # 2 MB
-_LOG_BACKUP_COUNT = 1
+PROXY_VERSION = "0.8.0"
 
 _DEFAULT_BACKOFF = [0, 4, 8, 16, 32]
 _CHILD_ALIVE_RESET_SECS = 60  # reset backoff if child lives this long
@@ -141,25 +138,17 @@ _logger: logging.Logger | None = None
 
 
 def _setup_logging(vault_root: str) -> logging.Logger:
-    """Configure file + stderr logging for the proxy."""
-    log_path = os.path.join(vault_root, _LOG_REL)
-    os.makedirs(os.path.dirname(log_path), exist_ok=True)
+    """Configure human-readable stderr logging for the proxy.
 
+    Persistent diagnostics use the structured operational log instead
+    (`_common._operational_log`); the prose logger keeps only its
+    WARNING-and-above stderr surface.
+    """
+    del vault_root
     logger = logging.getLogger("brain-proxy")
     if logger.handlers:
         return logger
     logger.setLevel(logging.DEBUG)
-
-    env_level = os.environ.get("BRAIN_LOG_LEVEL", "INFO").upper()
-    file_level = getattr(logging, env_level, logging.INFO)
-    file_handler = logging.handlers.RotatingFileHandler(
-        log_path, maxBytes=_LOG_MAX_BYTES, backupCount=_LOG_BACKUP_COUNT,
-    )
-    file_handler.setLevel(file_level)
-    file_handler.setFormatter(logging.Formatter(
-        "%(asctime)s [pid=%(process)d] [%(levelname)s] %(message)s",
-    ))
-    logger.addHandler(file_handler)
 
     stderr_handler = logging.StreamHandler(sys.stderr)
     stderr_handler.setLevel(logging.WARNING)
@@ -167,6 +156,58 @@ def _setup_logging(vault_root: str) -> logging.Logger:
     logger.addHandler(stderr_handler)
 
     return logger
+
+
+def _probe_local_state(vault_root: str) -> None:
+    """Prove `.brain/local` is writable before serving.
+
+    The old file-logging setup doubled as this health gate; the gate outlives
+    it because an unwritable local state directory breaks receipts, access
+    state and runtime status — not just diagnostics.
+    """
+    local_dir = os.path.join(vault_root, ".brain", "local")
+    os.makedirs(local_dir, exist_ok=True)
+    probe = os.path.join(
+        local_dir,
+        f".writable-probe-{os.getpid()}-{uuid.uuid4().hex}",
+    )
+    descriptor = -1
+    created = False
+    try:
+        descriptor = os.open(probe, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        created = True
+    finally:
+        if descriptor >= 0:
+            os.close(descriptor)
+        if created:
+            try:
+                os.unlink(probe)
+            except FileNotFoundError:
+                pass
+
+
+def _op_event(event: str, *, family: str | None = None, **fields) -> None:
+    """Emit one operational record when the proxy logger is installed."""
+    logger = _operational_log.current_logger()
+    if logger is not None:
+        logger.record(event, family=family, **fields)
+
+
+def _capture_body(direction: str, method: object, raw: bytes) -> None:
+    """Capture one raw wire body to the opt-in debug-bodies family."""
+    logger = _operational_log.current_logger()
+    if logger is None:
+        return
+    name = method if isinstance(method, str) and method else "response"
+    logger.record_raw(
+        "debug-bodies",
+        _operational_log.encode_bodies_line(
+            run_id=logger.run_id,
+            direction=direction,
+            method=name.replace("/", "."),
+            body=raw.decode("utf-8", "replace").strip(),
+        ),
+    )
 
 
 def _log() -> logging.Logger:
@@ -586,7 +627,7 @@ def _get_version_check_interval() -> float:
         return float(_VERSION_CHECK_INTERVAL)
 
 
-_LOG_BODIES = os.environ.get("BRAIN_LOG_BODIES", "").strip() == "1"
+_LOG_BODIES = os.environ.get("BRAIN_LOG_BODIES", "").strip().lower() in {"1", "true"}
 
 
 # ---------------------------------------------------------------------------
@@ -626,6 +667,7 @@ class ChildProcess:
             "child started: pid=%d cmd=%s",
             self._proc.pid, cmd,
         )
+        _op_event("child.spawned", child_pid=self._proc.pid)
 
     def _relay_stderr(self) -> None:
         """Read child stderr and write to proxy stderr."""
@@ -725,6 +767,10 @@ class Proxy:
         self._inflight_requests: dict[int | str, tuple[dict, float]] = {}
         self._accepted_calls: dict[int | str, AcceptedCallRecord] = {}
         self._inflight_lock = threading.Lock()
+        # Frame pairing uses a per-run surrogate: client-chosen JSON-RPC ids can
+        # be arbitrary strings and are never logged. Protected by _inflight_lock.
+        self._frame_counter = itertools.count(1)
+        self._frame_seqs: dict[int | str, int] = {}
         # _pending_replay holds drained-but-not-yet-replayed requests across
         # the wake/sleep boundary on a drift restart. Protected by
         # _restart_lock (NOT _inflight_lock — drain copies under _inflight_lock,
@@ -880,6 +926,7 @@ class Proxy:
             with self._inflight_lock:
                 was_tracked = self._inflight_requests.pop(msg_id, None) is not None
                 accepted = self._accepted_calls.pop(msg_id, None)
+                self._frame_seqs.pop(msg_id, None)
             if was_tracked:
                 if accepted is None:
                     self._send_to_client(self._error_response_for_dead_child(msg_id))
@@ -954,6 +1001,7 @@ class Proxy:
                 self._interface_header = None
                 self._interface_header_error = str(exc)
             _log().error("child command-interface header rejected: %s", exc)
+            _op_event("interface.rejected")
             return
         with self._interface_lock:
             self._interface_header = header
@@ -963,6 +1011,7 @@ class Proxy:
             header.interface_epoch,
             header.fingerprint,
         )
+        _op_event("interface.accepted", interface_epoch=header.interface_epoch)
 
     def _compute_proxy_hash(self, content: bytes | None = None) -> str | None:
         """Compute SHA-256 hash prefix of proxy.py. Uses provided content or reads from disk."""
@@ -1125,6 +1174,15 @@ class Proxy:
         with self._inflight_lock:
             self._inflight_requests[record.request_id] = (request, time.monotonic())
             self._accepted_calls[record.request_id] = retried
+            frame_seq = next(self._frame_counter)
+            self._frame_seqs[record.request_id] = frame_seq
+        _op_event(
+            "frame.forwarded",
+            family="proxy-rpc",
+            frame_seq=frame_seq,
+            method=_operational_log.normalise_rpc_method(request.get("method")),
+            replayed=True,
+        )
         _log().info("retried read-only orphan id=%s once", record.request_id)
 
     def _resolve_mutation_orphan(
@@ -1353,6 +1411,7 @@ class Proxy:
         Detection paths only populate recovery state and wake this loop.
         """
         _log().info("child exited with code %d", exit_code)
+        _op_event("child.exited", exit_code=exit_code)
 
         if exit_code == _EXIT_CODE_CLEAN:
             _log().info("clean child exit — proxy shutting down")
@@ -1398,6 +1457,7 @@ class Proxy:
                 "child restart — backoff slot %d/%d, waiting %ds",
                 slot, len(self._backoff_schedule) - 1, delay,
             )
+            _op_event("child.restart_scheduled", backoff_slot=slot, delay_s=delay)
             if delay > 0 and self._recovery_trigger.wait(timeout=delay):
                 self._recovery_trigger.clear()
                 if self._shutdown:
@@ -1476,6 +1536,7 @@ class Proxy:
                 if request_id in self._inflight_requests
             }
             self._inflight_requests.clear()
+            self._frame_seqs.clear()
         return orphans, accepted
 
     def _send_client_errors(self, requests: list[dict], message: str) -> None:
@@ -1500,6 +1561,7 @@ class Proxy:
             request_id,
             resolved_reason,
         )
+        _op_event("replay.refused", reason=resolved_reason)
         self._send_to_client(
             _interface_changed_response(
                 request_id,
@@ -1568,6 +1630,15 @@ class Proxy:
                     self._inflight_requests[req_id] = (req, time.monotonic())
                     if accepted is not None:
                         self._accepted_calls[req_id] = accepted
+                    frame_seq = next(self._frame_counter)
+                    self._frame_seqs[req_id] = frame_seq
+                _op_event(
+                    "frame.forwarded",
+                    family="proxy-rpc",
+                    frame_seq=frame_seq,
+                    method=_operational_log.normalise_rpc_method(req.get("method")),
+                    replayed=True,
+                )
                 replayed_any = True
             except Exception as e:
                 _log().error("replay failed for request id=%s: %s", req_id, e)
@@ -1666,10 +1737,12 @@ class Proxy:
                 # compute round-trip latency so we can attribute slow calls
                 # to the child rather than the proxy.
                 latency_s: float | None = None
+                frame_seq: int | None = None
                 if msg_id is not None:
                     with self._inflight_lock:
                         entry = self._inflight_requests.pop(msg_id, None)
                         self._accepted_calls.pop(msg_id, None)
+                        frame_seq = self._frame_seqs.pop(msg_id, None)
                     if entry is not None:
                         _, sent_at = entry
                         latency_s = time.monotonic() - sent_at
@@ -1682,8 +1755,18 @@ class Proxy:
                     )
                 else:
                     _log().debug("child→client: id=%s method=%s", msg_id, method)
+                if frame_seq is not None:
+                    _op_event(
+                        "frame.completed",
+                        family="proxy-rpc",
+                        frame_seq=frame_seq,
+                        duration_ms=(
+                            None if latency_s is None else int(latency_s * 1000)
+                        ),
+                        outcome="error" if "error" in obj else "ok",
+                    )
                 if _LOG_BODIES:
-                    _log().debug("child→client body: %s", line.decode("utf-8").strip())
+                    _capture_body("child_to_client", method, line)
 
                 # Capture initialize response (first time only)
                 if (
@@ -1782,7 +1865,7 @@ class Proxy:
 
             _log().debug("client→child: id=%s method=%s", msg_id, method)
             if _LOG_BODIES:
-                _log().debug("client→child body: %s", line.decode("utf-8").strip())
+                _capture_body("client_to_child", method, line)
 
             # Keep the latest initialize request until we capture a matching
             # initialize response from a live child.
@@ -1828,11 +1911,14 @@ class Proxy:
                     continue
 
             # Forward to child
+            frame_seq: int | None = None
             if is_request:
                 with self._inflight_lock:
                     self._inflight_requests[msg_id] = (obj, time.monotonic())
                     if accepted_call is not None:
                         self._accepted_calls[msg_id] = accepted_call
+                    frame_seq = next(self._frame_counter)
+                    self._frame_seqs[msg_id] = frame_seq
             try:
                 child.send(obj)
             except BrokenPipeError:
@@ -1856,6 +1942,14 @@ class Proxy:
                 self._recover_owed_client(msg_id, child, exit_code, is_request)
                 continue
 
+            if frame_seq is not None:
+                _op_event(
+                    "frame.forwarded",
+                    family="proxy-rpc",
+                    frame_seq=frame_seq,
+                    method=_operational_log.normalise_rpc_method(method),
+                )
+
         # Shutdown — kill child if still running
         self._initiate_shutdown()
         child = self._get_child()
@@ -1877,6 +1971,9 @@ class Proxy:
         if writer is not None and writer.is_alive():
             writer.join(timeout=5.0)
 
+        logger = _operational_log.current_logger()
+        if logger is not None:
+            logger.close(exit_code=0)
         _log().info("proxy exited")
 
 
@@ -2040,15 +2137,27 @@ def main() -> None:
 
     global _logger
     try:
-        _logger = _setup_logging(vault_root)
+        _probe_local_state(vault_root)
     except OSError as exc:
-        print(f"brain-proxy: filesystem access failed while opening proxy log: {exc}", file=sys.stderr)
+        print(
+            f"brain-proxy: filesystem access failed while preparing vault-local state: {exc}",
+            file=sys.stderr,
+        )
         _run_degraded_server(
-            f"filesystem access failed while opening proxy log for {vault_root}: {exc}",
+            f"filesystem access failed while preparing vault-local state for {vault_root}: {exc}",
             guidance=_GUIDANCE_VAULT_FILESYSTEM,
             lead="Brain MCP resolved the target vault but could not start.",
         )
         return
+    _logger = _setup_logging(vault_root)
+
+    # Operational diagnostics are best-effort by contract: a failure here
+    # degrades to a no-op stream and never blocks serving.
+    try:
+        op_logger = _operational_log.install(Path(vault_root), "proxy")
+    except Exception as exc:
+        op_logger = None
+        _log().warning("operational diagnostics unavailable: %s", exc)
 
     try:
         expected_python = str(resolve_vault_venv_python(Path(vault_root)))
@@ -2076,6 +2185,12 @@ def main() -> None:
         "proxy starting: version=%s python=%s target=%s vault=%s workspace=%s source=%s",
         PROXY_VERSION, python_path, server_target, vault_root, workspace_dir, target.source,
     )
+    if op_logger is not None:
+        op_logger.record(
+            "process.started",
+            bodies_enabled=_LOG_BODIES or None,
+            resolution_source=target.source,
+        )
 
     proxy._start_writer_loop()
     proxy._start_recovery_loop()

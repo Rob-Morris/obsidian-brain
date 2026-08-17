@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from dataclasses import replace
 import json
 from pathlib import Path
 import subprocess
@@ -20,6 +21,7 @@ if str(CLI_DIR) not in sys.path:
 from launcher_catalogue import LAUNCHER_CATALOGUE
 from _launcher.adapter import LauncherAdapter, LauncherRequestError, project_launcher_result
 from _launcher.context import LauncherContext, ProviderBindings
+from _launcher.invocation import LauncherInvocation
 from _launcher.contracts import (
     CommandError,
     CommittedEffect,
@@ -29,6 +31,8 @@ from _launcher.contracts import (
     Partial,
 )
 from _launcher.owners import LAUNCHER_OWNERS
+from _launcher.owners import LauncherOwners
+from _launcher.version import BrainVersionRequest
 from _local_cli.discovery import ComposedCommandEntry
 from _local_cli.execution import (
     ApplicationProcessInvoker,
@@ -38,7 +42,8 @@ from _local_cli.execution import (
     render_local_result,
 )
 from _local_cli.main import CliError, _trusted_distribution
-from _local_cli.runtime import resolve_selected_brain
+from _local_cli.runtime import LauncherDiagnosticReporter, resolve_selected_brain
+from _common import _operational_log
 from _application.projection import canonical_result_envelope
 from _application.receipts import CommittedEffect as ApplicationCommittedEffect
 from _application.results import (
@@ -132,6 +137,45 @@ def test_launcher_dynamic_adapter_rejects_unknown_identity_and_fields(tmp_path):
         adapter.invoke(_context(tmp_path), "artefact.read", {})
     with pytest.raises(LauncherRequestError, match="unknown fields"):
         adapter.invoke(_context(tmp_path), "brain.version", {"extra": True})
+
+
+def test_real_launcher_failure_persists_the_returned_correlation_id(tmp_path):
+    vault = (tmp_path / "Brain").resolve()
+    (vault / ".brain-core").mkdir(parents=True)
+    (vault / ".brain-core" / "VERSION").write_text("0.61.0\n", encoding="utf-8")
+    context = replace(
+        _context(tmp_path),
+        current_vault=vault,
+        diagnostics=LauncherDiagnosticReporter(vault),
+    )
+
+    def _fail(_context, _request):
+        raise RuntimeError("private failure detail")
+
+    owners = LauncherOwners(
+        tuple(
+            replace(owner, executor=_fail)
+            if owner.command_id == "brain.version"
+            else owner
+            for owner in LAUNCHER_OWNERS.entries
+        )
+    )
+    result = LauncherInvocation(context, LAUNCHER_CATALOGUE, owners).invoke(
+        BrainVersionRequest()
+    )
+
+    assert result.error.details.correlation_id == "corr-local-cli"
+    records = [
+        json.loads(line)
+        for line in (
+            _operational_log.diagnostics_directory(vault) / "command.log"
+        ).read_text(encoding="utf-8").splitlines()
+    ]
+    assert records[-1]["event"] == "command.failed"
+    assert records[-1]["phase"] == "execute"
+    assert records[-1]["command_id"] == "brain.version"
+    assert records[-1]["correlation_id"] == result.error.details.correlation_id
+    assert "private failure detail" not in json.dumps(records[-1])
 
 
 def test_launcher_projection_matches_application_structural_wire_vocabulary():

@@ -484,6 +484,31 @@ def _make_inprocess_proxy(tmp_path, monkeypatch, stdin_lines: list[bytes]) -> tu
     return proxy, sent_to_client
 
 
+def test_non_string_jsonrpc_method_is_forwarded_without_crashing_diagnostics(
+    tmp_path,
+    monkeypatch,
+):
+    raw = json.dumps(
+        {"jsonrpc": "2.0", "id": 7, "method": {"PatientSSN123": "secret"}}
+    ).encode("utf-8")
+    proxy, _sent_to_client = _make_inprocess_proxy(tmp_path, monkeypatch, [raw])
+    child = _FakeChild()
+    with proxy._child_lock:
+        proxy._child = child
+    events = []
+    monkeypatch.setattr(proxy_mod, "_op_event", lambda event, **fields: events.append((event, fields)))
+
+    proxy.run()
+
+    assert child.sent == [json.loads(raw)]
+    assert events == [
+        (
+            "frame.forwarded",
+            {"family": "proxy-rpc", "frame_seq": 1, "method": "other"},
+        )
+    ]
+
+
 def _make_inprocess_proxy_with_real_threads(
     tmp_path, monkeypatch, stdin=None,
 ) -> tuple[proxy_mod.Proxy, list[dict]]:

@@ -561,8 +561,13 @@ def _load_upgrade(core: Path):
     return module
 
 
-def _source_interface_contract(source_root: Path, core: Path) -> tuple[str, int, int]:
+def _source_interface_contract(
+    source_root: Path, core: Path
+) -> tuple[str, str, int, int]:
+    from _distribution import source_versions
+
     version = _source_version(core)
+    cli_version = source_versions(source_root).cli_version
     catalogue = json.loads(
         (core / "command-catalogue.json").read_text(encoding="utf-8")
     )
@@ -575,7 +580,7 @@ def _source_interface_contract(source_root: Path, core: Path) -> tuple[str, int,
     match = re.search(r"^PROXY_PROTOCOL = ([0-9]+)$", protocol_text, re.MULTILINE)
     if match is None:
         raise ValueError("source proxy protocol declaration is invalid")
-    return version, epoch, int(match.group(1))
+    return version, cli_version, epoch, int(match.group(1))
 
 
 def _checked_preflight(
@@ -584,13 +589,15 @@ def _checked_preflight(
     source_root: Path,
     core: Path,
 ) -> CutoverPreflight:
-    version, epoch, protocol = _source_interface_contract(source_root, core)
+    version, cli_version, epoch, protocol = _source_interface_contract(
+        source_root, core
+    )
     assert context.current_vault is not None
     return cutover_preflight(
         selected_vault=context.current_vault,
         source_brain_core_version=version,
         old_cli_version=context.cli_version,
-        new_cli_version="3.0.0",
+        new_cli_version=cli_version,
         interface_epoch=epoch,
         proxy_protocol=protocol,
         acknowledge_global_cli_cutover=request.acknowledge_global_cli_cutover,
@@ -666,14 +673,9 @@ def execute_upgrade(context: LauncherContext, request: BrainUpgradeRequest):
 
     def commit_cutover(_upgrade_result):
         nonlocal installed_distribution
-        from _distribution import install_distribution
+        from _distribution import install_from_source
 
-        installed_distribution = install_distribution(
-            source_root,
-            context.cli_binary,
-            cli_version="3.0.0",
-            expected_brain_core_version=preflight.source_brain_core_version,
-        )
+        installed_distribution = install_from_source(source_root, context.cli_binary)
         return {
             "cli_binary": str(installed_distribution.cli_binary),
             "distribution_root": str(installed_distribution.distribution_root),

@@ -11,6 +11,7 @@ import base64
 import json
 import os
 from pathlib import Path
+import re
 import subprocess
 import sys
 
@@ -27,6 +28,11 @@ native_windows = pytest.mark.skipif(
 REPO_ROOT = Path(__file__).resolve().parents[1]
 BRAIN_CORE = REPO_ROOT / "src" / "brain-core"
 SCRIPTS = BRAIN_CORE / "scripts"
+CLI_VERSION = re.search(
+    r'^BRAIN_CLI_VERSION="(\d+\.\d+\.\d+)"$',
+    (REPO_ROOT / "cli" / "brain").read_text(encoding="utf-8"),
+    re.MULTILINE,
+).group(1)
 
 
 def _windows_smoke_env(tmp_path: Path) -> dict[str, str]:
@@ -119,7 +125,7 @@ async def _call_installed_environment_read(vault_root: Path, env: dict[str, str]
                     text=True,
                     timeout=60,
                 )
-                proxy_log = vault_root / ".brain" / "local" / "mcp-proxy.log"
+                proxy_log = vault_root / ".brain" / "local" / "diagnostics" / "proxy.log"
                 diagnostics = (
                     f"\ndirect exit={direct.returncode}"
                     f"\ndirect stdout={direct.stdout}"
@@ -220,7 +226,7 @@ def test_native_windows_install_and_granular_mcp_round_trip(tmp_path):
         timeout=60,
     )
     assert cli_version.returncode == 0, cli_version.stderr
-    assert cli_version.stdout.strip() == "brain 3.0.0"
+    assert cli_version.stdout.strip() == f"brain {CLI_VERSION}"
 
     environment = asyncio.run(_call_installed_environment_read(vault, env))
     assert Path(environment["vault_root"]) == vault

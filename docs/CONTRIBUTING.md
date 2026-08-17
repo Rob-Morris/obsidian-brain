@@ -18,6 +18,12 @@ The hook source is tracked at `.githooks/pre-commit`. To activate:
 make hooks      # sets git to use .githooks/ directory
 ```
 
+The hook is read-only with respect to tracked files and the Git index. It
+reports deterministic drift but never rewrites or stages a correction. Use
+`python src/scripts/release.py prepare ...` for explicit dry-run-first release
+mechanics, and run `make precommit-check` after staging to validate the exact
+snapshot before attempting a commit.
+
 `.venv/bin/python src/scripts/check_repository_contracts.py` runs the same
 deterministic checks against the working tree; `--staged` materialises the Git
 index and executes that snapshot's checker and parser imports. It owns brain-core VERSION and README badge coupling, current-version
@@ -103,7 +109,39 @@ Bump `src/brain-core/VERSION` for any change to files under `src/brain-core/`, i
 When a change touches versioned helper surfaces outside `src/brain-core/VERSION`, check them explicitly before commit:
 
 - `src/brain-core/brain_mcp/proxy.py` — bump `PROXY_VERSION` when the shipped proxy behaviour changes, so upgraded vaults do not report the new proxy as `+modified`.
-- `cli/brain` — keep `BRAIN_INSTALL_REF` pinned to `v<src/brain-core/VERSION>` and bump `BRAIN_CLI_VERSION` when the CLI's own dispatch or CLI-only behaviour changes.
+- `cli/brain` and `cli/brain.cmd` — keep both `BRAIN_INSTALL_REF`
+  declarations pinned to `v<src/brain-core/VERSION>` and both
+  `BRAIN_CLI_VERSION` declarations equal; bump the CLI version when dispatch or
+  CLI-only behaviour changes.
+
+### Release preparation
+
+Release intent remains a contributor decision: decide whether work amends an
+unreleased version or creates a new release, then choose the Brain Core, CLI
+and proxy versions under the policies above. Tooling handles only the mechanics:
+
+```bash
+python src/scripts/release.py status
+python src/scripts/release.py prepare \
+  --core-version 0.61.0 \
+  --cli-version 3.0.1 \
+  --proxy-version 0.8.0 \
+  --summary "Add bounded operational diagnostics" \
+  --release-type "Breaking Brain Core minor; diagnostics contract" \
+  --change "Describe the user-observable change."
+# Repeat with --apply after reviewing the dry-run diff.
+```
+
+`status` compares `HEAD`, the Git index and the working tree. `prepare` is a
+dry run unless `--apply` is explicit; it synchronises canonical version
+declarations and creates the changelog row/entry from the supplied intent. It
+does not infer semantic-version policy or author release prose. Use `--amend`
+only when the target changelog entry already exists and its Summary is unchanged.
+
+Before committing, stage only the intended release and run `make
+precommit-check`. A correction made before integration/publication amends that
+unreleased release without another bump; a correction to a released version
+requires a new patch release.
 
 ## Changelog
 
@@ -128,6 +166,16 @@ row as one canonical Summary, rejects trailing periods and version suffixes,
 and requires the VERSION row to be newest. Judgement about wording quality,
 release scope, and whether a milestone note is warranted remains contributor
 work.
+
+To propagate or rehearse an immutable commit while later work remains dirty,
+materialise the committed source first:
+
+```bash
+python src/scripts/release.py export --ref HEAD --destination /new/path
+```
+
+The destination must not already exist. The export contains the selected Git
+tree only, so working-tree and index changes cannot leak into an upgrade source.
 
 ## Commit Messages
 

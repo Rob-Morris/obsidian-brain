@@ -8,14 +8,20 @@ import json
 import os
 from pathlib import Path
 import sys
+import time
 import uuid
 
 from _launcher.context import LauncherContext, ProviderBindings
 from _launcher.contracts import OutcomeReceipt
+from _distribution import source_versions
 
 
-CLI_VERSION = "3.0.0"
+CLI_VERSION = source_versions(Path(__file__).resolve().parents[2]).cli_version
 CUTOVER_BRAIN_VERSION = (0, 55, 0)
+
+# Mirrors the vault receipt store's ReceiptPolicy bounds.
+_RECEIPT_RETENTION_SECONDS = 7 * 24 * 3600
+_RECEIPT_MAX_RECORDS = 10_000
 
 
 @dataclass(frozen=True, slots=True)
@@ -61,6 +67,40 @@ class SelectedBrain:
         return parsed is not None and parsed >= CUTOVER_BRAIN_VERSION
 
 
+@dataclass(frozen=True, slots=True)
+class LauncherDiagnosticReporter:
+    """Persist launcher command failures into the selected Brain's diagnostics.
+
+    Machine-global invocations with no selected Brain have no diagnostics
+    destination; reporting is skipped rather than invented elsewhere.
+    """
+
+    vault_root: Path | None
+
+    def report_failure(
+        self,
+        *,
+        phase: str,
+        command_id: str,
+        correlation_id: str,
+        error: BaseException,
+    ) -> None:
+        if self.vault_root is None:
+            return
+        from _common import _operational_log
+
+        _operational_log.append_record(
+            self.vault_root,
+            "cli",
+            "command.failed",
+            phase=phase,
+            command_id=command_id,
+            correlation_id=correlation_id,
+            error_class=_operational_log.classify_error(error),
+            exception_type=type(error).__name__,
+        )
+
+
 class LauncherReceiptStore:
     """Privacy-minimal durable machine receipt writer."""
 
@@ -96,6 +136,27 @@ class LauncherReceiptStore:
                 temporary.unlink()
             except FileNotFoundError:
                 pass
+        self._trim()
+
+    def _trim(self) -> None:
+        """Best-effort retention so the machine store cannot grow unbounded."""
+        try:
+            entries = sorted(
+                (path for path in self._root.glob("*.json") if path.is_file()),
+                key=lambda path: path.stat().st_mtime,
+            )
+            cutoff = time.time() - _RECEIPT_RETENTION_SECONDS
+            retained = []
+            for path in entries:
+                if path.stat().st_mtime < cutoff:
+                    path.unlink(missing_ok=True)
+                else:
+                    retained.append(path)
+            overflow = len(retained) - _RECEIPT_MAX_RECORDS
+            for path in retained[: max(0, overflow)]:
+                path.unlink(missing_ok=True)
+        except OSError:
+            pass
 
 
 def resolve_selected_brain(
@@ -165,6 +226,9 @@ def compose_launcher_context(
         distribution_root=distribution_root.resolve(),
         operator_key=operator_key,
         dry_run=dry_run,
+        diagnostics=LauncherDiagnosticReporter(
+            selected.vault_root if selected else None
+        ),
     )
 
 

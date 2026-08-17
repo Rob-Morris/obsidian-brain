@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from datetime import datetime
+import json
 
 import pytest
 from mcp.server import MCPServer
@@ -24,6 +25,7 @@ from _application.types import (
     SnapshotFreshness,
 )
 from _command_interface.context import compose_local_context
+from _common import _operational_log
 
 
 NOW = datetime.fromisoformat("2026-08-10T11:00:00+10:00")
@@ -168,6 +170,39 @@ def test_real_mcpserver_call_returns_structural_content_and_error_state(tmp_path
     assert ok.is_error is False
     assert denied.structured_content["error"]["code"] == "authority_denied"
     assert denied.is_error is True
+
+
+def test_real_mcpserver_call_writes_paired_tool_diagnostics(
+    tmp_path,
+    monkeypatch,
+):
+    vault = _vault(tmp_path)
+    logger = _operational_log.OperationalLogger(vault, "server")
+    monkeypatch.setattr(_operational_log, "_INSTALLED", logger)
+    mcp, _catalogue, _resolver, _names = _registered(
+        tmp_path,
+        ("command.list",),
+    )
+
+    result = asyncio.run(
+        mcp.call_tool("command.list", {"dependency_tier": "managed", "page_size": 1})
+    )
+    logger.close(exit_code=0)
+
+    assert result.is_error is False
+    records = [
+        json.loads(line)
+        for line in (
+            _operational_log.diagnostics_directory(vault) / "server.log"
+        ).read_text(encoding="utf-8").splitlines()
+    ]
+    tool_records = [record for record in records if record["event"].startswith("tool.")]
+    assert [record["event"] for record in tool_records] == [
+        "tool.started",
+        "tool.handled",
+    ]
+    assert {record["command_id"] for record in tool_records} == {"command.list"}
+    assert {record.get("invocation_id") for record in tool_records} == {"inv-1"}
 
 
 def test_invocation_guard_runs_before_context_composition(tmp_path):

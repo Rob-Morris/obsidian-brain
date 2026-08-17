@@ -261,7 +261,7 @@ If your vault has the Brain MCP server running, every command within the authent
 
 Common families include `artefact.*`, `document.*`, `resource.*` (skills, memories, styles and templates all resolve through this family), `plugin.*`, `trigger.*`, `type.*`, `content.*`, `retrieval.*`, `links.*`, `shaping.*`, `workspace.*`, `vault.*`, `runtime.*`, `stage.*`, `access.*` and `attachment.upload`. Profiles authorise exact leaves rather than aggregate buckets.
 
-The MCP server logs to `.brain/local/mcp-server.log` — startup diagnostics, tool call tracing, and errors. Set `BRAIN_LOG_LEVEL=DEBUG` for tool argument details.
+Brain's MCP processes keep an always-on, content-free operational log under `.brain/local/diagnostics/` (bounded NDJSON: lifecycle, tool spans, command failures). On a development machine, set `BRAIN_LOG_BODIES=1` (or `true`) before starting MCP to additionally capture raw request/response bodies to `diagnostics/debug-bodies.log`.
 
 For structural compliance, run `brain vault check --json`.
 

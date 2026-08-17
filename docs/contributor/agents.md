@@ -137,6 +137,12 @@ Keep subjective review in `.canaries/pre-commit.md`. When a checklist statement
 can be expressed as an equality, set comparison, graph reachability rule, or
 Git predicate, add it to the checker/tests instead of requiring self-attestation.
 
+Before committing, use `python src/scripts/release.py status` to distinguish
+the release facts in `HEAD`, the index and the working tree, then run `make
+precommit-check` after staging. The hook never fixes or stages files. For a new
+release, provide the chosen Core/CLI/proxy versions and authored changelog facts
+to `release.py prepare`; review its dry-run diff before passing `--apply`.
+
 ## Why Drift Happens
 
 The same fact often appears in multiple files. For example, "Plans lifecycle is `draft` → `approved` → `implementing` → `completed`" appears in the Plans taxonomy, `docs/user/system-guide.md`, `src/brain-core/guide.md`, and `src/brain-core/artefact-library/README.md`. When a commit updates some but not all, the docs drift.
