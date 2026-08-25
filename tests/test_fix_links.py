@@ -7,6 +7,7 @@ import pytest
 
 import fix_links
 from _common import file_index_from_documents
+from _lifecycle.derived_cache_state import CacheState
 from brain_test_support import make_router, write_md
 
 
@@ -325,6 +326,30 @@ class TestApplyFixesToFile:
 
 
 class TestAttachWikilinkWarnings:
+    def test_fresh_retrieval_documents_supply_mutation_index(
+        self, vault, monkeypatch
+    ):
+        documents = [{"path": "Wiki/Existing.md"}]
+        monkeypatch.setattr(
+            fix_links,
+            "inspect_lexical_cache",
+            lambda _root: CacheState(
+                False,
+                "fresh",
+                ".brain/local/retrieval-index.json",
+                {"documents": documents},
+            ),
+        )
+
+        def fail_walk(*_args, **_kwargs):
+            raise AssertionError("fresh retrieval state must avoid a vault walk")
+
+        monkeypatch.setattr(fix_links, "build_vault_file_index", fail_walk)
+
+        index = fix_links.file_index_for_mutation(str(vault))
+
+        assert index["md_basenames"] == {"existing": ["Wiki/Existing.md"]}
+
     def test_supplied_index_is_used_directly_without_vault_walk(
         self, vault, monkeypatch
     ):
@@ -363,6 +388,36 @@ class TestAttachWikilinkWarnings:
             "candidates": [],
         }]
         assert "wikilink_fixes" not in result
+
+    def test_warning_scan_reads_link_bearing_document_once(self, vault, monkeypatch):
+        import builtins
+
+        rel_path = "Wiki/linker.md"
+        write_md(
+            vault / rel_path,
+            {"type": "living/wiki", "tags": ["test"]},
+            "See [[definitely-missing]].",
+        )
+        file_index = file_index_from_documents(
+            [{"path": rel_path}],
+            vault_root=str(vault),
+        )
+        real_open = builtins.open
+        reads = 0
+
+        def count_open(path, *args, **kwargs):
+            nonlocal reads
+            if os.fspath(path) == os.fspath(vault / rel_path):
+                reads += 1
+            return real_open(path, *args, **kwargs)
+
+        monkeypatch.setattr(builtins, "open", count_open)
+
+        fix_links.attach_wikilink_warnings(
+            str(vault), {"path": rel_path}, file_index=file_index
+        )
+
+        assert reads == 1
 
     def test_apply_fixes_reuses_lazy_asset_cache_on_rescan(self, vault, monkeypatch):
         import _common._wikilinks as wikilinks

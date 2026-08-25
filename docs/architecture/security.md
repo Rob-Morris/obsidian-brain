@@ -201,7 +201,12 @@ symlinked directory components and non-regular records, bounds atomic writes to
 the selected Brain, serialises cross-process updates, and retains only command
 identity, outcome state, timestamp and compact effect references. Request
 bodies, credentials and provider values are not representable in the receipt
-schema. Proven no-effect results are not persisted.
+schema. A privacy-minimal compact index maps only hashed receipt filenames to
+timestamps, so ordinary writes do not inventory every durable record. Index
+publication is atomic, its endpoint must be a regular non-symlink file, and a
+missing or malformed index is rebuilt from the authoritative receipt files;
+explicit maintenance remains the full-inventory repair path. Proven no-effect
+results are not persisted.
 
 `invocation.read` is a strictly non-mutating lookup. Missing receipt storage
 returns no receipt without creating directories or lock files; expired records

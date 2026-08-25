@@ -349,3 +349,13 @@ def test_optional_semantic_transport_shapes_are_granular_and_strict():
             "resource.search",
             {"query": "shape", "resource": "unknown"},
         )
+    with pytest.raises(ValueError, match="query must be a non-empty string"):
+        resolver.resolve(
+            "resource.search",
+            {"query": None, "resource": "plugin"},
+        )
+    with pytest.raises(ValueError, match="top_k must be between"):
+        resolver.resolve(
+            "resource.search",
+            {"query": "shape", "resource": "plugin", "top_k": "ten"},
+        )

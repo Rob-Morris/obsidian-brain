@@ -188,3 +188,23 @@ def test_benchmark_transports_are_non_mcp_managed_maintainer_commands(
     assert entry.projections[0].projection is Projection.MCP
     assert entry.projections[0].supported is False
     assert entry.projections[0].reason
+
+
+def test_construct_benchmark_constructor_owns_count_normalisation():
+    request = current_request_resolver().resolve(
+        "retrieval.construct-benchmark",
+        {
+            "fixture_path": "_Temporal/benchmark.json",
+            "target_lexical": None,
+        },
+    )
+
+    assert request.target_lexical == 8
+    with pytest.raises(ValueError, match="target_lexical must be a non-negative integer"):
+        current_request_resolver().resolve(
+            "retrieval.construct-benchmark",
+            {
+                "fixture_path": "_Temporal/benchmark.json",
+                "target_lexical": "eight",
+            },
+        )

@@ -466,4 +466,68 @@ def test_document_command_transport_rejects_old_aggregate_shape():
                 "target": {"resource": "artefact", "reference": PATH},
                 "change": {"operation": "replace-text", "old_text": "old", "new_text": "new"},
             },
+    )
+
+
+def test_link_bearing_document_mutation_supplies_a_prewrite_file_index(
+    command_vault_clone,
+    monkeypatch,
+):
+    supplied = []
+
+    def file_index(vault_root):
+        supplied.append(vault_root)
+        return _common.file_index_from_documents(
+            [{"path": PATH}],
+            vault_root=vault_root,
         )
+
+    monkeypatch.setattr(fix_links, "file_index_for_mutation", file_index)
+
+    result = application_for(command_vault_clone.vault_root).invoke(
+        DocumentWriteRequest(
+            DOCUMENT,
+            _revision(command_vault_clone.vault_root),
+            DocumentWriteOperation.APPEND,
+            InlineContent("\nSee [[missing-link]].\n"),
+        )
+    )
+
+    assert result.status == "ok"
+    assert supplied == [str(command_vault_clone.vault_root)]
+
+
+def test_existing_frontmatter_link_supplies_a_prewrite_file_index(
+    command_vault_clone,
+    monkeypatch,
+):
+    vault_root = command_vault_clone.vault_root
+    path = vault_root / PATH
+    path.write_text(
+        path.read_text().replace(
+            "\n---\n",
+            '\nrelated: "[[missing-link]]"\n---\n',
+            1,
+        )
+    )
+    supplied = []
+
+    def file_index(root):
+        supplied.append(root)
+        return _common.file_index_from_documents(
+            [{"path": PATH}],
+            vault_root=root,
+        )
+
+    monkeypatch.setattr(fix_links, "file_index_for_mutation", file_index)
+
+    result = application_for(vault_root).invoke(
+        DocumentUpdateFrontmatterRequest(
+            DOCUMENT,
+            _revision(vault_root),
+            (FrontmatterField("reviewed", True),),
+        )
+    )
+
+    assert result.status == "ok"
+    assert supplied == [str(vault_root)]

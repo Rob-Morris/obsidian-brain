@@ -556,6 +556,14 @@ def test_pre_commit_uses_project_python_when_path_python3_is_incompatible(tmp_pa
     assert (tmp_path / "checker-ran").read_text(encoding="utf-8") == "yes"
 
 
+def test_pre_commit_bootstrap_guard_includes_repository_policy_modules():
+    hook = (contracts.REPO_ROOT / ".githooks/pre-commit").read_text(
+        encoding="utf-8"
+    )
+
+    assert "src/scripts/_repository_contracts" in hook
+
+
 def test_pre_commit_does_not_stage_newer_worktree_release_metadata(tmp_path):
     _initialise_git_repo(tmp_path)
     hook = tmp_path / ".githooks/pre-commit"

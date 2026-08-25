@@ -59,13 +59,11 @@ def decode(payload: Mapping[str, object]) -> ResourceSearchRequest:
         raise ValueError(
             "resource must be memory, plugin, skill, style or trigger"
         ) from exc
-    query = payload.get("query")
-    top_k = payload.get("top_k", DEFAULT_TOP_K)
-    if not isinstance(query, str):
-        raise ValueError("query must be a string")
-    if not isinstance(top_k, int) or isinstance(top_k, bool):
-        raise ValueError("top_k must be an integer")
-    return ResourceSearchRequest(resource, query, top_k)
+    return ResourceSearchRequest(
+        resource,
+        payload.get("query"),
+        payload.get("top_k", DEFAULT_TOP_K),
+    )
 
 
 def catalogue_entry():

@@ -196,13 +196,16 @@ def execute_document_mutation(
                     f"with the current revision ({current_revision})"
                 )
             body, staged_handle = _resolve_body(vault_root, intent)
+            file_index = None
+            if _may_contain_wikilinks(opened, intent, body):
+                file_index = fix_links.file_index_for_mutation(vault_root)
             try:
                 result = edit.edit_resource(
                     vault_root,
                     router,
                     resource=intent.resource,
                     body=body,
-                    expected_revision=intent.expected_revision,
+                    file_index=file_index,
                     opened=opened,
                     **_edit_arguments(intent),
                     **subject_kwargs,
@@ -324,6 +327,16 @@ def _resolve_body(
     if content is None:
         return "", None
     return resolve_mutation_content(vault_root, content)
+
+
+def _may_contain_wikilinks(opened, intent: DocumentMutationIntent, body: str) -> bool:
+    if "[[" in opened.body or "[[" in repr(opened.fields) or "[[" in body:
+        return True
+    if isinstance(intent, DocumentPatchIntent):
+        return "[[" in intent.new_text
+    if isinstance(intent, DocumentFrontmatterIntent):
+        return "[[" in repr(frontmatter_mapping(intent.frontmatter))
+    return False
 
 
 def _edit_arguments(intent: DocumentMutationIntent) -> dict:

@@ -26,10 +26,11 @@ snapshot before attempting a commit.
 
 `.venv/bin/python src/scripts/check_repository_contracts.py` runs the same
 deterministic checks against the working tree; `--staged` materialises the Git
-index and executes that snapshot's checker and parser imports. It owns brain-core VERSION and README badge coupling, current-version
-changelog Summary coupling, decision-file/index parity and permanent numbering,
-artefact-library metadata/catalogue/count invariants, and documentation
-reachability. These predicates are also exercised by
+index and executes that snapshot's checker, purpose-owned policy modules under
+`src/scripts/_repository_contracts/`, and parser imports. It owns brain-core
+VERSION and README badge coupling, current-version changelog Summary coupling,
+decision-file/index parity and permanent numbering, artefact-library
+metadata/catalogue/count invariants, and documentation reachability. These predicates are also exercised by
 `tests/test_repository_contracts.py` under `make test`.
 
 Adding a new subjective numbered item to the canary file automatically enforces

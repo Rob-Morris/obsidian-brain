@@ -29,7 +29,6 @@ from _common import (
     descendant_entries,
     descendant_payload,
     document_revision_at,
-    DocumentRevisionConflict,
     ensure_parent_tag,
     ensure_self_tag,
     ensure_tags_list,
@@ -74,7 +73,6 @@ from _common import (
     RequestCycleError,
     parse_structural_anchor_line,
     unique_filename,
-    validate_document_revision,
     validate_key,
     artefact_type_prefix,
     vault_mutation_lock,
@@ -934,7 +932,7 @@ def edit_resource(vault_root, router, resource="artefact", operation="edit",
                   target=None, selector=None, scope=None, fix_links=False,
                   file_index=None, old_text=None, new_text=None,
                   match_occurrence=None, replace_all=False,
-                  expected_revision=None, opened=None):
+                  opened=None):
     """Edit a vault resource. Dispatches to the appropriate handler.
 
     For artefacts: delegates to existing edit/append/prepend/delete_section functions.
@@ -970,7 +968,6 @@ def edit_resource(vault_root, router, resource="artefact", operation="edit",
             raise ValueError(f"Unknown operation '{operation}'")
         if (
             opened is None
-            and expected_revision is None
             and operation != "replace_text"
             and not frontmatter_changes
         ):
@@ -1006,22 +1003,11 @@ def edit_resource(vault_root, router, resource="artefact", operation="edit",
                 fields,
                 existing_body,
                 artefact,
-                (
-                    document_revision_at(abs_path)
-                    if expected_revision is not None
-                    else ""
-                ),
+                "",
             )
         else:
             document = opened
         _validate_open_document(document, resource, path)
-        if expected_revision is not None:
-            validate_document_revision(expected_revision, label="expected_revision")
-            if document.revision != expected_revision:
-                raise DocumentRevisionConflict(
-                    "document changed since it was read; re-read it and retry with "
-                    f"the current revision ({document.revision})"
-                )
         opened_artefact = (
             document.path,
             document.abs_path,
@@ -1102,14 +1088,6 @@ def edit_resource(vault_root, router, resource="artefact", operation="edit",
     abs_path = document.abs_path
     fields = dict(document.fields)
     existing_body = document.body
-    if expected_revision is not None:
-        current_revision = document.revision
-        if current_revision != expected_revision:
-            validate_document_revision(expected_revision, label="expected_revision")
-            raise DocumentRevisionConflict(
-                "document changed since it was read; re-read it and retry with "
-                f"the current revision ({current_revision})"
-            )
 
     if operation == "replace_text":
         if frontmatter_changes:

@@ -20,6 +20,7 @@ if [[ ! -x "$PROJECT_PYTHON" ]]; then
 fi
 if ! git diff --quiet -- \
   .githooks/pre-commit \
+  src/scripts/_repository_contracts \
   src/scripts/_staged_contract_runner.py \
   src/scripts/check_repository_contracts.py; then
   echo "pre-commit: staged-validator bootstrap differs from the working tree"

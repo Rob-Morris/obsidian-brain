@@ -127,11 +127,13 @@ The pre-commit hook runs
 `.venv/bin/python src/scripts/check_repository_contracts.py --staged` before
 reading the canary receipt. The checker materialises the Git index and executes
 that snapshot's checker and parser imports, so neither staged data nor staged
-semantics can be validated by unstaged code. It owns facts that code can decide: VERSION/README badge/changelog
-coupling, DD/index parity and number permanence, artefact-library
-metadata/catalogue/count consistency, and documentation reachability. `make
-test` exercises the same predicates against the checkout plus focused failure
-cases.
+semantics can be validated by unstaged code. The runner composes purpose-owned
+policies under `src/scripts/_repository_contracts/`; both belong to the staged
+bootstrap closure. Together they own facts that code can decide:
+VERSION/README badge/changelog coupling, DD/index parity and number permanence,
+artefact-library metadata/catalogue/count consistency, and documentation
+reachability. `make test` exercises the same predicates against the checkout
+plus focused failure cases.
 
 Keep subjective review in `.canaries/pre-commit.md`. When a checklist statement
 can be expressed as an equality, set comparison, graph reachability rule, or
