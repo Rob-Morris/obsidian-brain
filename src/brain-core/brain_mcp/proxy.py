@@ -64,7 +64,7 @@ from ._interface_protocol import (
 # Constants
 # ---------------------------------------------------------------------------
 
-PROXY_VERSION = "0.8.0"
+PROXY_VERSION = "0.8.1"
 
 _DEFAULT_BACKOFF = [0, 4, 8, 16, 32]
 _CHILD_ALIVE_RESET_SECS = 60  # reset backoff if child lives this long
@@ -550,6 +550,10 @@ def _parse_jsonrpc_line(line: bytes, *, log_warning: bool) -> dict | None:
             _log().warning("ignored non-object JSON-RPC message: %r", obj)
         return None
     return obj
+
+
+def _is_jsonrpc_request_id(value: object) -> bool:
+    return isinstance(value, (int, str)) and not isinstance(value, bool)
 
 
 def _restart_guidance_for_binding_error(exc: WorkspaceBindingError) -> str:
@@ -1858,10 +1862,26 @@ class Proxy:
             if obj is None:
                 continue
 
+            has_request_id = "id" in obj
             msg_id = obj.get("id")
+            if has_request_id and not _is_jsonrpc_request_id(msg_id):
+                _log().warning("rejected JSON-RPC frame with an invalid request id")
+                self._send_to_client(
+                    _make_error_response(
+                        None,
+                        -32600,
+                        "Invalid Request: JSON-RPC id must be a string or integer",
+                    )
+                )
+                continue
+
             method = obj.get("method", "")
-            is_notification = msg_id is None and method
-            is_request = msg_id is not None
+            is_notification = not has_request_id and bool(method)
+            is_request = has_request_id
+
+            if method == "tools/call" and not is_request:
+                _log().warning("rejected tools/call notification without a request id")
+                continue
 
             _log().debug("client→child: id=%s method=%s", msg_id, method)
             if _LOG_BODIES:
