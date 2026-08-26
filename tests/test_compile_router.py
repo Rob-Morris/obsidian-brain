@@ -1017,10 +1017,10 @@ class TestCompile:
         assert triggers[0]["category"] == "after"
         assert "meaningful work" in triggers[0]["condition"].lower()
 
-    def test_core_skills_before_user_skills(self, vault):
+    def test_user_skills_precede_core_skills_for_default_resolution(self, vault):
         result = cr.compile(vault)
         sources = [s["source"] for s in result["skills"]]
-        assert sources == ["core", "user"]
+        assert sources == ["user", "core"]
 
     def test_skills_have_source_tag(self, vault):
         result = cr.compile(vault)

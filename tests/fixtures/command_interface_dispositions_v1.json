@@ -730,6 +730,14 @@
     "command.list",
     "invocation.read"
   ],
+  "new_command_dispositions": {
+    "skill.add-git": "skill.add-git",
+    "skill.detach": "skill.detach",
+    "skill.status": "skill.status",
+    "skill.update": "skill.update",
+    "skill.expose": "skill.expose",
+    "skill.unexpose": "skill.unexpose"
+  },
   "command_contract_groups": {
     "application_access_read": {
       "contract": {
@@ -951,7 +959,11 @@
         "links.fix",
         "memory.create",
         "shaping.start",
+        "skill.add-git",
         "skill.create",
+        "skill.detach",
+        "skill.status",
+        "skill.update",
         "stage.create",
         "stage.discard",
         "style.create",
@@ -1307,7 +1319,9 @@
         "mcp.repair",
         "registry.remove-stale",
         "runtime.remove-orphans",
-        "runtime.repair"
+        "runtime.repair",
+        "skill.expose",
+        "skill.unexpose"
       ]
     },
     "launcher_operator_key": {

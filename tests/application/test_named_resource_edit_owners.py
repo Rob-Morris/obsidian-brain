@@ -19,6 +19,7 @@ from _application.document.patch import DocumentPatchRequest, UniqueMatch
 from _application.document.update_frontmatter import DocumentUpdateFrontmatterRequest
 from _application.document.write import DocumentWriteOperation, DocumentWriteRequest
 from _application.resource.read import ReadableResource, ResourceReadRequest
+from _application.results import ErrorCode
 from _common import document_revision_at, load_compiled_router, parse_frontmatter
 from command_application import application_for
 
@@ -33,7 +34,7 @@ RESOURCE_CASES = {
 
 def _read(application, resource, reference):
     result = application.invoke(ResourceReadRequest(ReadableResource(resource.value), reference))
-    assert result.status == "ok"
+    assert result.status == "ok", result.error.message
     return result.result
 
 
@@ -108,6 +109,58 @@ def test_named_frontmatter_update_overwrites_lists_instead_of_inheriting_body_mo
     assert result.result.revision == document_revision_at(
         command_vault_clone.vault_root / result.result.path
     )
+
+
+def test_editing_core_only_skill_materialises_user_copy_without_mutating_core(
+    command_vault_clone,
+):
+    vault = command_vault_clone.vault_root
+    application = application_for(vault)
+    initial = _read(application, DocumentResource.SKILL, "shaping")
+    core_path = vault / ".brain-core" / "skills" / "shaping" / "SKILL.md"
+    core_before = core_path.read_text(encoding="utf-8")
+
+    result = application.invoke(
+        DocumentWriteRequest(
+            DocumentLocator(DocumentResource.SKILL, "shaping"),
+            initial.revision,
+            DocumentWriteOperation.APPEND,
+            InlineContent("\nUser-owned addition.\n"),
+        )
+    )
+
+    user_path = vault / "_Config" / "Skills" / "shaping" / "SKILL.md"
+    assert result.status == "ok", result.error.message
+    assert core_path.read_text(encoding="utf-8") == core_before
+    assert "User-owned addition." in user_path.read_text(encoding="utf-8")
+    assert result.result.path == "_Config/Skills/shaping/SKILL.md"
+    assert {effect.subject for effect in result.committed_effects} >= {
+        "_Config/Skills/shaping/SKILL.md",
+        ".brain/skill-sources.json",
+    }
+
+
+def test_stale_core_skill_edit_does_not_materialise_user_override(
+    command_vault_clone,
+):
+    vault = command_vault_clone.vault_root
+    application = application_for(vault)
+    document = DocumentLocator(DocumentResource.SKILL, "shaping")
+
+    result = application.invoke(
+        DocumentWriteRequest(
+            document,
+            "sha256:" + "0" * 64,
+            DocumentWriteOperation.APPEND,
+            InlineContent("\nShould not be written.\n"),
+        )
+    )
+
+    assert result.error.code is ErrorCode.CONFLICT
+    assert not (vault / "_Config/Skills/shaping").exists()
+    tracking_path = vault / ".brain/skill-sources.json"
+    if tracking_path.exists():
+        assert "shaping" not in tracking_path.read_text(encoding="utf-8")
 
 
 def test_crlf_named_resource_revision_can_be_used_for_an_immediate_mutation(

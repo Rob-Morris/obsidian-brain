@@ -184,6 +184,8 @@ LAUNCHER_CATALOGUE = LauncherCatalogue(
             (
                 _mutation("access.approve", "_launcher.access:approve", "brain", "access", "approve"),
                 _mutation("agent-skill.configure", "_launcher.agent_skill:configure", "brain", "agent-skill", "configure"),
+                _mutation("skill.expose", "_launcher.agent_skill:expose", "brain", "skill", "expose"),
+                _mutation("skill.unexpose", "_launcher.agent_skill:unexpose", "brain", "skill", "unexpose"),
                 _mutation("brain.clear-default", "_launcher.registry:clear_default", "brain", "clear-default"),
                 _read("brain.doctor", "_launcher.doctor:doctor", "brain", "doctor"),
                 _read("brain.get-default", "_launcher.registry:get_default", "brain", "get-default"),

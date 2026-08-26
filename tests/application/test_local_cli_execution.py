@@ -41,8 +41,12 @@ from _local_cli.execution import (
     SelectedBrainProcess,
     render_local_result,
 )
-from _local_cli.main import CliError, _trusted_distribution
-from _local_cli.runtime import LauncherDiagnosticReporter, resolve_selected_brain
+from _local_cli.main import CliError, _trusted_distribution, run
+from _local_cli.runtime import (
+    LauncherDiagnosticReporter,
+    resolve_project_exposure_brain,
+    resolve_selected_brain,
+)
 from _common import _operational_log
 from _application.projection import canonical_result_envelope
 from _application.receipts import CommittedEffect as ApplicationCommittedEffect
@@ -334,6 +338,71 @@ def test_local_cli_rejects_symlinked_selected_brain(tmp_path):
 
     with pytest.raises(ValueError, match="not an installed local Brain"):
         resolve_selected_brain(vault=str(link), brain_id=None, workspace=None)
+
+
+def test_real_local_cli_project_exposure_uses_default_and_preserves_project(
+    tmp_path,
+    monkeypatch,
+):
+    import vault_registry
+
+    home = tmp_path / "home"
+    project = tmp_path / "project"
+    project.mkdir()
+    vault = tmp_path / "Brain"
+    skill = vault / ".brain-core/skills/example"
+    skill.mkdir(parents=True)
+    (vault / ".brain-core/VERSION").write_text("0.62.0\n", encoding="utf-8")
+    (skill / "SKILL.md").write_text(
+        "---\nname: example\ndescription: Example\n---\n\nExample.\n",
+        encoding="utf-8",
+    )
+    binary = tmp_path / "brain-cli"
+    binary.write_text("#!/bin/sh\n", encoding="utf-8")
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "state"))
+    monkeypatch.setenv("BRAIN_CLI_BINARY", str(binary))
+    monkeypatch.setenv("BRAIN_CLI_DISTRIBUTION_ROOT", str(REPO_ROOT))
+    monkeypatch.delenv("BRAIN_WORKSPACE_DIR", raising=False)
+    monkeypatch.delenv("BRAIN_VAULT_ROOT", raising=False)
+    vault_registry.register(str(vault), "default-brain")
+    vault_registry.set_default("default-brain")
+
+    selected = resolve_project_exposure_brain(
+        vault=None,
+        brain_id=None,
+        workspace=str(project),
+    )
+    code = run(
+        [
+            "--workspace",
+            str(project),
+            "--request-json",
+            json.dumps({"name": "example", "client": "codex", "scope": "project"}),
+            "--json",
+            "skill",
+            "expose",
+        ]
+    )
+
+    assert selected.vault_root == vault.resolve()
+    assert selected.workspace == project.resolve()
+    assert code == 0
+    assert (project / ".codex/skills/example/SKILL.md").is_file()
+    assert not (project / ".brain/local/workspace.yaml").exists()
+
+    monkeypatch.chdir(project)
+    removed = run(
+        [
+            "--request-json",
+            json.dumps({"name": "example", "client": "codex", "scope": "project"}),
+            "--json",
+            "skill",
+            "unexpose",
+        ]
+    )
+    assert removed == 0
+    assert not (project / ".codex/skills/example").exists()
 
 
 def test_local_cli_rejects_symlinked_distribution_identity(tmp_path, monkeypatch):

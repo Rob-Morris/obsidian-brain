@@ -107,6 +107,7 @@ Each DD captures the reasoning behind an architectural decision at the time it w
 | DD-065 | Naive agent bootstrap is correctness-scoped, policied and enforced | Implemented (v0.59.1) | [dd-065](dd-065-naive-agent-bootstrap-policy.md) |
 | DD-066 | Domain language for launcher commands | Implemented (v0.60.0) | [dd-066](dd-066-domain-language-for-launcher-commands.md) |
 | DD-067 | Always-on content-free operational diagnostics logging | Implemented (v0.61.0) | [dd-067](dd-067-operational-diagnostics-logging.md) |
+| DD-068 | Skill ownership is separate from source and client exposure | Implemented (v0.62.0) | [dd-068](dd-068-git-backed-skill-sources-and-managed-exposure.md) |
 
 ---
 
@@ -115,11 +116,11 @@ Each DD captures the reasoning behind an architectural decision at the time it w
 Related decisions grouped by domain. Arrows show supersede/extend chains.
 
 - **MCP tool surface:** DD-010 → DD-044 → DD-060 → DD-061 → DD-062, DD-010 → DD-045 → DD-046 → DD-047, DD-045 → DD-057, DD-045 → DD-059, DD-011 → DD-020 → DD-025 → DD-045 → DD-061, DD-026, DD-027, DD-028
-- **Config & install:** DD-003 → DD-049 → DD-054, DD-049 → DD-055 → DD-058, DD-015, DD-023 → DD-039 → DD-043 → DD-048 → DD-049 → DD-054, DD-023 → DD-055, DD-023/DD-039 → DD-051 → DD-055, DD-032, DD-033
+- **Config & install:** DD-003 → DD-049 → DD-054, DD-049 → DD-055 → DD-058 → DD-068, DD-015, DD-023 → DD-039 → DD-043 → DD-048 → DD-049 → DD-054, DD-023 → DD-055, DD-023/DD-039 → DD-051 → DD-055, DD-032, DD-033
 - **Router & bootstrap:** DD-008, DD-009, DD-012, DD-013, DD-014, DD-017, DD-019, DD-038, DD-042, DD-054
 - **Security & integrity:** DD-031 → DD-059, DD-033 → DD-062, DD-036, DD-043, DD-067
 - **Plugins & platforms:** DD-004, DD-005, DD-006, DD-007, DD-021, DD-022
-- **Agent methodology:** DD-024 → DD-057 → DD-058, DD-057 → DD-063, DD-035
+- **Agent methodology:** DD-024 → DD-057 → DD-058 → DD-068, DD-057 → DD-063, DD-035
 - **Workspaces:** DD-040 → DD-051 → DD-052 → DD-053 → DD-054 (DD-051 extends DD-023, DD-039, DD-040; DD-052 adds the runtime resolution ladder; DD-053 adds the explicit vault-self flag + the unified vault predicate single-sourced in `_common`, and — extending DD-049 — its sign-off refinements add the Decision-#2 anchor hard-error and record that the `brain` dispatch surface includes `setup`; DD-054 carries that ladder into no-MCP `brain session` through machine-owned resolution infrastructure; DD-055 retires the legacy `init.py` shell and consolidates transport CLI onto `configure`)
 - **Artefact lifecycle & folder convention:** DD-029, DD-030 → DD-050 → DD-056 → DD-057 → DD-063, DD-041 → DD-056
 - **Command application architecture:** DD-002 → DD-003 → DD-049 → DD-061 → DD-062, DD-049/DD-061 → DD-066, DD-045 → DD-061

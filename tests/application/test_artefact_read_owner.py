@@ -65,6 +65,11 @@ FINAL_COMMAND_IDS = (
     "session.start",
     "shaping.render",
     "shaping.start",
+    "skill.add-git",
+    "skill.detach",
+    "skill.list",
+    "skill.status",
+    "skill.update",
     "stage.create",
     "stage.discard",
     "trigger.create",
@@ -114,7 +119,7 @@ def test_artefact_read_maps_missing_and_escape_errors_before_effects(
     assert escaped.effects == "none"
 
 
-def test_catalogue_identity_is_the_exact_final_74_command_surface():
+def test_catalogue_identity_is_the_exact_final_79_command_surface():
     resolver = current_request_resolver()
     request = resolver.resolve(
         "artefact.read",

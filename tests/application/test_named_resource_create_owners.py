@@ -100,6 +100,25 @@ def test_memory_create_preserves_typed_frontmatter(command_vault_clone):
     assert "Typed memory body." in body
 
 
+def test_user_skill_can_be_created_with_same_name_as_core(command_vault_clone):
+    vault = command_vault_clone.vault_root
+    core = vault / ".brain-core/skills/shaping/SKILL.md"
+    core_before = core.read_text(encoding="utf-8")
+    application = application_for(vault)
+
+    result = application.invoke(
+        ResourceCreateRequest(
+            SkillCreateTarget("skill", "shaping"),
+            InlineContent("# User Shaping\n\nLocal workflow.\n"),
+        )
+    )
+
+    assert result.status == "ok"
+    assert result.result.path == "_Config/Skills/shaping/SKILL.md"
+    assert core.read_text(encoding="utf-8") == core_before
+    assert "Local workflow." in (vault / result.result.path).read_text()
+
+
 def test_named_create_consumes_stage_only_after_success(command_vault_clone):
     vault_root = str(command_vault_clone.vault_root)
     handle = stage_body(vault_root, "# Staged Skill\n\nBody.\n")["handle"]

@@ -23,6 +23,7 @@ from _bootstrap.runtime import (
     handoff_current_script_to_managed_runtime,
     required_modules_for_scope,
 )
+from _portable.skill_resolution import order_skill_records, skill_record
 from _common import (
     PLACEHOLDER_TOKEN_RE,
     PLUGINS_DIR,
@@ -892,7 +893,7 @@ def discover_skills(vault_root):
         skill_doc = os.path.join(skills_dir, entry, "SKILL.md")
         if os.path.isfile(skill_doc):
             rel = os.path.relpath(skill_doc, vault_root)
-            skills.append({"name": entry, "skill_doc": rel, "source": "user"})
+            skills.append(skill_record(entry, rel, "user"))
     return skills
 
 
@@ -906,7 +907,7 @@ def discover_core_skills(vault_root):
         skill_doc = os.path.join(skills_dir, entry, "SKILL.md")
         if os.path.isfile(skill_doc):
             rel = os.path.relpath(skill_doc, vault_root)
-            skills.append({"name": entry, "skill_doc": rel, "source": "core"})
+            skills.append(skill_record(entry, rel, "core"))
     return skills
 
 
@@ -1254,7 +1255,7 @@ def compile(vault_root):
     core_skills = discover_core_skills(vault_root)
     for s in core_skills:
         track(s["skill_doc"])
-    skills = core_skills + skills
+    skills = order_skill_records([*skills, *core_skills])
 
     plugins = discover_plugins(vault_root)
     for p in plugins:

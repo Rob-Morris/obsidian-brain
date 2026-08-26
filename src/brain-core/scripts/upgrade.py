@@ -1669,6 +1669,25 @@ def upgrade(
     if dry_run:
         result["message"] = f"Dry run: {old_version or '(none)'} → {new_version}"
 
+        try:
+            from _skill_library import preview_core_override_reconciliation
+
+            collapse = preview_core_override_reconciliation(
+                vault_root,
+                core_root=source,
+            )
+        except (OSError, ValueError, RuntimeError) as exc:
+            result.setdefault("warnings", []).append({
+                "stage": "skill_reconciliation_preview",
+                "message": str(exc),
+            })
+        else:
+            if collapse:
+                result["skill_reconciliation_preview"] = [
+                    {"name": name, "action": "collapse_to_core"}
+                    for name in collapse
+                ]
+
         # Preview migrations and definition sync that would run after the
         # version copy. Without this, dry-run reports only file-copy changes
         # and silently hides the migration + sync side effects (Bug B). The
@@ -1898,6 +1917,39 @@ def upgrade(
         result["migrations"] = migrations
     if _all_migrations_recorded(vault_root, new_version, ledger=ledger):
         _write_migrated_version_marker(vault_root, new_version)
+
+    try:
+        from _skill_library import (
+            preview_core_override_reconciliation,
+            reconcile_core_overrides,
+        )
+
+        for skill_name in preview_core_override_reconciliation(vault_root):
+            _snapshot_tree(
+                os.path.join(vault_root, "_Config", "Skills", skill_name),
+                postcompile_snapshots,
+                roots=postcompile_snapshot_roots,
+            )
+
+        reconciled_skills = reconcile_core_overrides(vault_root)
+        if reconciled_skills:
+            result["skill_reconciliation"] = [
+                {
+                    "name": item.name,
+                    "action": item.action,
+                    "archived_path": item.archived_path,
+                    "detail": item.detail,
+                }
+                for item in reconciled_skills
+            ]
+            compile_error = _validate_compile(vault_root)
+            if compile_error is not None:
+                return _rollback(
+                    "skill override reconciliation could not refresh the router: "
+                    f"{compile_error}"
+                )
+    except (OSError, ValueError, RuntimeError) as exc:
+        return _rollback(f"skill override reconciliation failed: {exc}")
 
     if commit_callback is not None:
         try:

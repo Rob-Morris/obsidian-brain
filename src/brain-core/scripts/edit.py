@@ -80,6 +80,7 @@ from _common import (
 from rename import move_and_update_links, preflight_move_set, rename_and_update_links
 import fix_links as _fix_links
 from _staging import finalise_staged_body, resolve_mutation_body
+from _portable.named_documents import resolve_named_document_path
 
 
 # ---------------------------------------------------------------------------
@@ -147,7 +148,14 @@ def _open_artefact(vault_root, router, path):
     return opened.path, opened.abs_path, opened.fields, opened.body, opened.artefact
 
 
-def open_document(vault_root, router, resource, reference):
+def open_document(
+    vault_root,
+    router,
+    resource,
+    reference,
+    *,
+    allow_core_skill_read=False,
+):
     """Open and parse one editable document with its exact persisted revision."""
     vault_root = str(vault_root)
     if resource == "artefact":
@@ -176,8 +184,24 @@ def open_document(vault_root, router, resource, reference):
             f"Resource '{resource}' is not an editable Brain document. "
             f"Editable resources: {', '.join(EDITABLE_RESOURCES)}"
         )
-    rel_path = config_resource_rel_path(router, resource, reference)
-    check_write_allowed(rel_path)
+    if resource == "skill":
+        try:
+            rel_path = resolve_named_document_path(router, resource, reference)
+        except FileNotFoundError:
+            if ":" in reference:
+                raise
+            # Legacy internal callers can create a user skill after compiling
+            # their router fixture. The canonical fallback remains user-only;
+            # core paths must always come from an explicit registry entry.
+            rel_path = config_resource_rel_path(router, resource, reference)
+    else:
+        rel_path = config_resource_rel_path(router, resource, reference)
+    if not (
+        allow_core_skill_read
+        and resource == "skill"
+        and rel_path.startswith(".brain-core/skills/")
+    ):
+        check_write_allowed(rel_path)
     abs_path = os.path.join(vault_root, rel_path)
     try:
         content = read_exact_file_content(abs_path)
@@ -916,7 +940,11 @@ def current_document_revision(vault_root, router, resource="artefact", *,
         )
     if not name:
         raise ValueError(f"resource '{resource}' requires a reference")
-    rel_path = config_resource_rel_path(router, resource, name)
+    rel_path = (
+        resolve_named_document_path(router, resource, name)
+        if resource == "skill"
+        else config_resource_rel_path(router, resource, name)
+    )
     check_write_allowed(rel_path)
     abs_path = os.path.join(vault_root, rel_path)
     try:

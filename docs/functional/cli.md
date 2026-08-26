@@ -63,6 +63,25 @@ Selection options are global and mutually constrained:
 
 Launcher commands may run without a selected Brain when their schema permits it. Application commands always execute through the selected Brain's own `.brain-core/scripts/command.py`; the machine-global CLI does not import or emulate another Brain's application semantics.
 
+### Skill sources and exposure
+
+Selected-Brain commands `skill.list`, `skill.status`, `skill.add-git`,
+`skill.update` and `skill.detach` own package source state. Launcher commands
+`skill.expose` and `skill.unexpose` own explicit writes to Claude and Codex
+discovery directories. For example:
+
+```bash
+brain skill update --request-json '{"name":"shaping"}' --json
+brain skill expose --request-json \
+  '{"name":"shaping","client":"all","scope":"global"}' --json
+```
+
+The exposure launcher still requires an active Brain so it can validate the
+effective skill. With no explicit selector, normal resolution includes the
+machine's default Brain. Project exposure resolves an existing canonical binding
+for `--workspace` first and otherwise uses the machine default; it never creates
+or changes a binding.
+
 ### External access approval
 
 When `vault.access.elevation_policy` is `external`, an agent's `access.request` returns a pending `request_id` without activating the command. A human or separately trusted local operator approves it through the CLI-only launcher owner:
@@ -107,9 +126,9 @@ CLI 3 can identify and recover an installed Brain older than 0.55.0, but it does
 
 The installer writes a versioned distribution under the selected prefix and a small platform bootloader under `bin/`:
 
-- Unix-like user install: `~/.local/bin/brain` and `~/.local/lib/brain-cli/3.0.1/`.
-- Native Windows user install: `%LOCALAPPDATA%\Programs\Brain\bin\brain.cmd` and the adjacent `lib\brain-cli\3.0.1\` distribution.
+- Unix-like user install: `~/.local/bin/brain` and `~/.local/lib/brain-cli/3.1.0/`.
+- Native Windows user install: `%LOCALAPPDATA%\Programs\Brain\bin\brain.cmd` and the adjacent `lib\brain-cli\3.1.0\` distribution.
 
 The distribution contains the launcher application plus the Brain Core payload needed for install, upgrade and selected-Brain execution. Installation and replacement verify a content manifest and executable identity; failed replacement restores the proven old binary/distribution pair or retains recovery material and reports the outcome as unverified.
 
-The bootloader requires Python 3.12 or newer. `BRAIN_CLI_VERSION` is `3.0.1`; `BRAIN_INSTALL_REF` is `v0.61.2`.
+The bootloader requires Python 3.12 or newer. `BRAIN_CLI_VERSION` is `3.1.0`; `BRAIN_INSTALL_REF` is `v0.62.0`.

@@ -38,7 +38,7 @@ def test_launcher_catalogue_is_complete_against_the_closed_disposition_evidence(
     catalogue = _module().LAUNCHER_CATALOGUE
 
     assert [entry.command_id for entry in catalogue.entries] == _expected_launcher_commands()
-    assert len(catalogue.entries) == 22
+    assert len(catalogue.entries) == 24
     from _application.requests import (
         CommandDescribeRequest,
         CommandListRequest,

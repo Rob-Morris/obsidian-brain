@@ -72,6 +72,7 @@ class LauncherContext:
     cli_binary: Path
     launcher_python: Path | None = None
     current_vault: Path | None = None
+    workspace_dir: Path | None = None
     distribution_root: Path | None = None
     operator_key: str | None = field(default=None, repr=False)
     dry_run: bool = False
@@ -92,6 +93,8 @@ class LauncherContext:
             raise ValueError("launcher_python must be absolute")
         if self.current_vault is not None and not self.current_vault.is_absolute():
             raise ValueError("launcher current_vault must be absolute")
+        if self.workspace_dir is not None and not self.workspace_dir.is_absolute():
+            raise ValueError("launcher workspace_dir must be absolute")
         if self.distribution_root is not None and not self.distribution_root.is_absolute():
             raise ValueError("launcher distribution_root must be absolute")
         if self.operator_key is not None and not self.operator_key.strip():

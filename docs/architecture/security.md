@@ -276,9 +276,10 @@ may still be live. Runtime creation or dependency-sync interruption is
 outcome-unknown; a completed dependency mutation followed by failed verification
 is known partial at the managed-runtime scope.
 
-Client skill adapters are an explicit machine-global exception to ordinary
-vault write bounds. `configure.py agent-skills` writes only the fixed
-`~/.claude/skills/shaping/` and/or `~/.codex/skills/shaping/` destinations. It
+Client skill adapters are an explicit global or canonically resolved project
+exception to ordinary vault write bounds. `skill.expose` writes only the named
+skill beneath the selected client's `.claude/skills/` or `.codex/skills/`
+directory. It
 uses atomic writes with the skill directory as the bound, refuses symlinked
 targets, and records an expected content hash in a Brain ownership marker.
 Unmanaged or modified content is preserved; `--replace` archives an unmanaged
@@ -286,11 +287,18 @@ directory under the client-root `.brain-skill-backups/` directory before
 installing, keeping executable skill discovery separate from recoverable data.
 The backup root is also symlink-refused, and removal applies only to an
 unmodified managed adapter. Vault upgrades never mutate these client-global
-locations implicitly. See [DD-058](decisions/dd-058-active-brain-skill-adapters.md).
+locations implicitly. See [DD-058](decisions/dd-058-active-brain-skill-adapters.md)
+and [DD-068](decisions/dd-068-git-backed-skill-sources-and-managed-exposure.md).
 The canonical launcher owner receives the home directory as trusted context,
 not request data, and preflights every selected client through a no-write path
 before applying the first change. Dry-run therefore exercises the real
 ownership and destination checks without creating client directories.
+
+Git-backed skill acquisition fetches into a temporary repository and extracts a
+bounded `git archive`. It never checks out repository content, runs hooks, or
+invokes configured checkout filters. Package validation rejects links and
+special files, traversal and case-folding collisions, missing or mismatched root
+metadata, and over-limit trees before installation.
 
 **Exclusive mode:** `safe_write(exclusive=True)` (used by `artefact.create`) checks file
 existence before writing, providing a lightweight create-or-fail guarantee.

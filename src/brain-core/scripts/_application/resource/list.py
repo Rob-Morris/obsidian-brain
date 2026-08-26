@@ -43,6 +43,8 @@ class PluginListItem:
 class SkillListItem:
     name: str
     source: SkillSource
+    effective: bool
+    shadowed: bool
     resource: Literal["skill"] = field(default="skill", init=False)
 
 
@@ -267,7 +269,12 @@ _LISTERS = {
         root,
         query,
         "skill",
-        lambda item: SkillListItem(item["name"], SkillSource(item["source"])),
+        lambda item: SkillListItem(
+            item["name"],
+            SkillSource(item["source"]),
+            bool(item["effective"]),
+            bool(item["shadowed"]),
+        ),
         SkillListPayload,
     ),
     ListableResource.STYLE: lambda root, query: _list_named(

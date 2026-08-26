@@ -197,6 +197,41 @@ def resolve_selected_brain(
     )
 
 
+def resolve_project_exposure_brain(
+    *,
+    vault: str | None,
+    brain_id: str | None,
+    workspace: str | None,
+    start_dir: Path | None = None,
+) -> SelectedBrain:
+    """Resolve binding-first/default-second while retaining the project root."""
+
+    start = (start_dir or Path.cwd()).resolve()
+    project_value = workspace or os.environ.get("BRAIN_WORKSPACE_DIR")
+    project = _absolute_path(project_value, start) if project_value else start
+    if vault is not None or brain_id is not None:
+        selected = resolve_selected_brain(
+            vault=vault,
+            brain_id=brain_id,
+            workspace=str(project),
+            start_dir=start,
+        )
+        return SelectedBrain(selected.vault_root, project, selected.source)
+
+    from _bootstrap.workspace_binding import resolve_brain_target
+
+    target = resolve_brain_target(
+        workspace_env=None,
+        vault_root_env=os.environ.get("BRAIN_VAULT_ROOT"),
+        start_dir=project,
+    )
+    return SelectedBrain(
+        _require_brain(Path(target.vault_root)),
+        project,
+        target.source,
+    )
+
+
 def compose_launcher_context(
     *,
     cli_binary: Path,
@@ -223,6 +258,7 @@ def compose_launcher_context(
         cli_binary=cli_binary.resolve(),
         launcher_python=Path(sys.executable).resolve(),
         current_vault=selected.vault_root if selected else None,
+        workspace_dir=selected.workspace if selected else None,
         distribution_root=distribution_root.resolve(),
         operator_key=operator_key,
         dry_run=dry_run,

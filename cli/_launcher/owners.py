@@ -64,6 +64,8 @@ LAUNCHER_OWNERS = LauncherOwners(
             (
                 access.approve_owner(),
                 agent_skill.configure_owner(),
+                agent_skill.expose_owner(),
+                agent_skill.unexpose_owner(),
                 doctor.doctor_owner(),
                 lifecycle.install_owner(),
                 lifecycle.uninstall_owner(),

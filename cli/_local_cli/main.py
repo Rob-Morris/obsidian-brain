@@ -68,8 +68,8 @@ def run(argv: list[str] | None = None) -> int:
             print(_help_text())
             return 0
         cli_binary, distribution_root = _trusted_distribution()
-        selected = _resolve_optional(common, required=False)
         if command_argv[:1] == ["command"]:
+            selected = _resolve_optional(common, required=False)
             return _run_discovery(
                 command_argv,
                 common=common,
@@ -94,6 +94,7 @@ def run(argv: list[str] | None = None) -> int:
         else:
             command_id = entry.command_id
         payload = _request_payload(common.request_json)
+        selected = _resolve_for_command(common, entry, payload)
         if entry is not None:
             operator_key = _launcher_operator_key(command_id, common.operator_key)
             context = compose_launcher_context(
@@ -197,6 +198,25 @@ def _resolve_optional(common, *, required: bool) -> SelectedBrain | None:
         if required or explicit:
             raise CliError(str(exc)) from exc
         return None
+
+
+def _resolve_for_command(common, entry, payload) -> SelectedBrain | None:
+    if (
+        entry is not None
+        and entry.command_id in {"skill.expose", "skill.unexpose"}
+        and payload.get("scope") == "project"
+    ):
+        from .runtime import resolve_project_exposure_brain
+
+        try:
+            return resolve_project_exposure_brain(
+                vault=common.vault,
+                brain_id=common.brain_id,
+                workspace=common.workspace,
+            )
+        except Exception as exc:
+            raise CliError(str(exc)) from exc
+    return _resolve_optional(common, required=False)
 
 
 def _request_payload(value: str) -> dict[str, object]:

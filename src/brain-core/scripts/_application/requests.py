@@ -54,6 +54,11 @@ from .runtime.warmup import RuntimeWarmupRequest
 from .session.start import SessionStartRequest
 from .shaping.render import ShapingRenderRequest
 from .shaping.start import ShapingStartRequest
+from .skill.add_git import SkillAddGitRequest
+from .skill.detach import SkillDetachRequest
+from .skill.list import SkillListRequest
+from .skill.status import SkillStatusRequest
+from .skill.update import SkillUpdateRequest
 from .stage.create import StageCreateRequest
 from .stage.discard import StageDiscardRequest
 from .trigger.create import TriggerCreateRequest
@@ -147,6 +152,11 @@ __all__ = (
     "SessionStartRequest",
     "ShapingRenderRequest",
     "ShapingStartRequest",
+    "SkillAddGitRequest",
+    "SkillDetachRequest",
+    "SkillListRequest",
+    "SkillStatusRequest",
+    "SkillUpdateRequest",
     "StageCreateRequest",
     "StageDiscardRequest",
     "TriggerCreateRequest",
@@ -471,6 +481,11 @@ CommandRequest = (
     | SessionStartRequest
     | ShapingRenderRequest
     | ShapingStartRequest
+    | SkillAddGitRequest
+    | SkillDetachRequest
+    | SkillListRequest
+    | SkillStatusRequest
+    | SkillUpdateRequest
     | StageCreateRequest
     | StageDiscardRequest
     | TriggerCreateRequest

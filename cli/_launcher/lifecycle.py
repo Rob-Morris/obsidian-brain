@@ -607,6 +607,17 @@ def _checked_preflight(
 
 def _reconciliation_steps(result: dict) -> tuple[LifecycleStep, ...]:
     steps = []
+    for item in result.get("skill_reconciliation", ()):
+        if not isinstance(item, dict) or not isinstance(item.get("name"), str):
+            continue
+        steps.append(
+            LifecycleStep(
+                f"skill_override:{item['name']}",
+                LifecycleStatus.CHANGED,
+                f"Collapsed the clean tracked user override for {item['name']} "
+                "to the matching upgraded core skill.",
+            )
+        )
     if isinstance(result.get("sync_error"), str):
         steps.append(
             LifecycleStep(

@@ -178,11 +178,11 @@ def test_upgrade_runner_applies_the_v055_profile_migration(tmp_path):
     assert "0.55.0" in ledger["migrations"]
     profiles = load_mapping_file(config_path)["vault"]["profiles"]
     assert {name: len(value["allow"]) for name, value in profiles.items()} == {
-        "reader": 26,
-        "contributor": 51,
-        "maintainer": 64,
-        "operator": 73,
-        "administrator": 74,
+        "reader": 27,
+        "contributor": 56,
+        "maintainer": 69,
+        "operator": 78,
+        "administrator": 79,
     }
 
 
@@ -685,6 +685,70 @@ def source_and_vault(tmp_path):
 
 
 class TestAgentSkillUpgradeFollowup:
+    def test_upgrade_collapses_clean_tracked_override_that_matches_new_core(
+        self, source_and_vault
+    ):
+        from _skill_library.packages import inspect_package, manifest_value
+
+        source, vault = source_and_vault
+        bundled = source / "skills" / "shaping"
+        bundled.mkdir(parents=True)
+        content = (
+            "---\nname: shaping\ndescription: Shaping\n---\n\n"
+            "# Shaping\n\nUpdated workflow.\n"
+        )
+        (bundled / "SKILL.md").write_text(content, encoding="utf-8")
+        installed_core = vault / ".brain-core" / "skills" / "shaping"
+        installed_core.mkdir(parents=True)
+        (installed_core / "SKILL.md").write_text(
+            content.replace("Updated workflow.", "Old workflow."),
+            encoding="utf-8",
+        )
+        user = vault / "_Config" / "Skills" / "shaping"
+        user.mkdir(parents=True)
+        (user / "SKILL.md").write_text(content, encoding="utf-8")
+        snapshot = inspect_package(user, expected_name="shaping")
+        tracking = {
+            "schema_version": 1,
+            "managed": {
+                "shaping": {
+                    "repository": "https://example.invalid/skills.git",
+                    "skill_path": "skills/shaping",
+                    "configured_ref": "main",
+                    "resolved_commit": "abc123",
+                    "source_package_sha256": snapshot.package_sha256,
+                    "installed_baseline_sha256": snapshot.package_sha256,
+                    "installed_manifest": manifest_value(snapshot),
+                    "installed_at": "2026-08-01T00:00:00+00:00",
+                    "last_checked_at": "2026-08-01T00:00:00+00:00",
+                    "available_commit": "abc123",
+                    "available_package_sha256": snapshot.package_sha256,
+                    "source_error": None,
+                    "core_lineage": "shaping",
+                }
+            },
+            "core_checks": {},
+        }
+        (vault / ".brain" / "skill-sources.json").write_text(
+            json.dumps(tracking), encoding="utf-8"
+        )
+
+        result = upgrade.upgrade(
+            str(vault),
+            str(source),
+            sync=False,
+            sync_deps=False,
+        )
+
+        assert result["status"] == "ok"
+        assert result["skill_reconciliation"][0]["name"] == "shaping"
+        assert not user.exists()
+        archived = vault / result["skill_reconciliation"][0]["archived_path"]
+        assert (archived / "SKILL.md").read_text(encoding="utf-8") == content
+        assert "shaping" not in json.loads(
+            (vault / ".brain" / "skill-sources.json").read_text(encoding="utf-8")
+        )["managed"]
+
     def test_core_copy_removes_retired_nested_skill_files_without_migration(
         self, source_and_vault
     ):
@@ -725,6 +789,79 @@ class TestAgentSkillUpgradeFollowup:
                 assert str(
                     Path("skills") / family / workflow / "SKILL.md"
                 ) in result["files_removed"]
+
+    def test_failed_post_reconciliation_compile_restores_user_override(
+        self, source_and_vault, monkeypatch
+    ):
+        from _skill_library.packages import inspect_package, manifest_value
+
+        source, vault = source_and_vault
+        content = (
+            "---\nname: shaping\ndescription: Shaping\n---\n\n"
+            "# Shaping\n\nUpdated workflow.\n"
+        )
+        bundled = source / "skills" / "shaping"
+        bundled.mkdir(parents=True)
+        (bundled / "SKILL.md").write_text(content, encoding="utf-8")
+        installed_core = vault / ".brain-core" / "skills" / "shaping"
+        installed_core.mkdir(parents=True)
+        (installed_core / "SKILL.md").write_text(
+            content.replace("Updated workflow.", "Old workflow."),
+            encoding="utf-8",
+        )
+        user = vault / "_Config" / "Skills" / "shaping"
+        user.mkdir(parents=True)
+        (user / "SKILL.md").write_text(content, encoding="utf-8")
+        snapshot = inspect_package(user, expected_name="shaping")
+        tracking = {
+            "schema_version": 1,
+            "managed": {
+                "shaping": {
+                    "repository": "https://example.invalid/shaping.git",
+                    "skill_path": "shaping",
+                    "configured_ref": "main",
+                    "resolved_commit": "abc123",
+                    "source_package_sha256": snapshot.package_sha256,
+                    "installed_baseline_sha256": snapshot.package_sha256,
+                    "installed_manifest": manifest_value(snapshot),
+                    "installed_at": "2026-08-01T00:00:00+00:00",
+                    "last_checked_at": "2026-08-01T00:00:00+00:00",
+                    "available_commit": "abc123",
+                    "available_package_sha256": snapshot.package_sha256,
+                    "source_error": None,
+                    "core_lineage": "shaping",
+                }
+            },
+            "core_overrides": {},
+            "core_checks": {},
+        }
+        tracking_path = vault / ".brain" / "skill-sources.json"
+        tracking_path.write_text(json.dumps(tracking), encoding="utf-8")
+
+        real_validate = upgrade._validate_compile
+        calls = 0
+
+        def fail_second_compile(vault_root):
+            nonlocal calls
+            calls += 1
+            if calls == 1:
+                return real_validate(vault_root)
+            return "simulated post-reconciliation compile failure"
+
+        monkeypatch.setattr(upgrade, "_validate_compile", fail_second_compile)
+
+        result = upgrade.upgrade(
+            str(vault),
+            str(source),
+            sync=False,
+            sync_deps=False,
+        )
+
+        assert result["status"] == "error"
+        assert result["rollback_verified"] is True
+        assert (user / "SKILL.md").read_text(encoding="utf-8") == content
+        restored = json.loads(tracking_path.read_text(encoding="utf-8"))
+        assert "shaping" in restored["managed"]
 
     def test_adapter_introduction_adds_structured_followup_and_log(
         self, source_and_vault

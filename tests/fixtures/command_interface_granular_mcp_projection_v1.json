@@ -7,14 +7,14 @@
   },
   "clients": {
     "claude-code": {
-      "catalogue_hash": "sha256:ef4f04789a457934edb08f27889c1a8c11bfd3147b4bbf6733a0b1f51c674bce",
+      "catalogue_hash": "sha256:4ed95b4f35c692af02cfa32d4f78b57f0f74dbc8048b863800c0750267a47b25",
       "client_version": "2.1.226",
       "maximum_tool_tokens": 2241,
       "projector": "claude-code-model-tool-declaration/2.1.226",
       "projector_source": "captured model request plus deterministic replay",
-      "raw_bytes": 43230,
-      "tokens": 9459,
-      "tool_count": 63,
+      "raw_bytes": 44646,
+      "tokens": 9773,
+      "tool_count": 68,
       "tools": {
         "access.reduce": {
           "projected_declaration_hash": "sha256:6df9333137fcefbcb0aedf2d7c88b28cebca950b7b31da78e64102bb85332d02",
@@ -304,6 +304,36 @@
           "source_schema_hash": "sha256:ccf48973767e7ab6f85506633978aafccbafd1333942cea063d3e53deb09febd",
           "tokens": 72
         },
+        "skill.add-git": {
+          "projected_declaration_hash": "sha256:52f998348c7f8d6d0150b82a3381133d9cde40e086b36343ed109e1670baf2b8",
+          "raw_bytes": 386,
+          "source_schema_hash": "sha256:efd4d9aef64715ae9ed909eadcc3cd313d1736270557e4536b23d62adb6d5588",
+          "tokens": 84
+        },
+        "skill.detach": {
+          "projected_declaration_hash": "sha256:f6e8e6694ba01a31ecd94acc11024b9eee70a6ae15befc9727ed49381132503b",
+          "raw_bytes": 212,
+          "source_schema_hash": "sha256:d79a1da98449769508e4063968e070cc594f7024f0dcea32d2b71523b7a6cdaf",
+          "tokens": 49
+        },
+        "skill.list": {
+          "projected_declaration_hash": "sha256:cc853ccb7ba484698a3b61b62094c1ab6c67f5fff5a4cfc2adf12370deeacc2b",
+          "raw_bytes": 218,
+          "source_schema_hash": "sha256:87e45c3f655f6f52bd622cb376804fba5a82ce69c71eda046a961b97879562ab",
+          "tokens": 50
+        },
+        "skill.status": {
+          "projected_declaration_hash": "sha256:88ce5d081a1dfec8835c79d9a58217f0c1fac23d7cc5036180f94147dd8478ca",
+          "raw_bytes": 216,
+          "source_schema_hash": "sha256:87e45c3f655f6f52bd622cb376804fba5a82ce69c71eda046a961b97879562ab",
+          "tokens": 50
+        },
+        "skill.update": {
+          "projected_declaration_hash": "sha256:13d62a2f493390fc28d33462d7b48d0a049583deeaed585cc1298ba1c999876f",
+          "raw_bytes": 379,
+          "source_schema_hash": "sha256:a8088de16daeea5bb752fc9d0d29260de52f51613da13b422655b617cf814ee8",
+          "tokens": 86
+        },
         "stage.create": {
           "projected_declaration_hash": "sha256:a611fdc73ec259eac1d78929085875cc68f5d1b01a08fab78b30be3e7c0dcf60",
           "raw_bytes": 221,
@@ -398,14 +428,14 @@
       "version_command": "claude --version"
     },
     "codex-cli": {
-      "catalogue_hash": "sha256:8d111fcf858d56ece204f292e2ba1e7b78167838f3a0cfd3f15a60f5b3d8858f",
+      "catalogue_hash": "sha256:a1f03220e8b355f5b02a6c48a1e4137ca08a062b212f6c8cdd7bdb7187af80b6",
       "client_version": "0.147.0",
       "maximum_tool_tokens": 2245,
       "projector": "codex-cli-responses-function-declaration/0.147.0",
       "projector_source": "captured model request plus deterministic replay",
-      "raw_bytes": 44723,
-      "tokens": 9695,
-      "tool_count": 63,
+      "raw_bytes": 46261,
+      "tokens": 10028,
+      "tool_count": 68,
       "tools": {
         "access.reduce": {
           "projected_declaration_hash": "sha256:750f0187541d8cfa9edf6b312a0a9df31cd31934c46956127d729c772629d328",
@@ -695,6 +725,36 @@
           "source_schema_hash": "sha256:ccf48973767e7ab6f85506633978aafccbafd1333942cea063d3e53deb09febd",
           "tokens": 80
         },
+        "skill.add-git": {
+          "projected_declaration_hash": "sha256:e11028232c9e453c42b1e0ec0e13efd32d62b6a22b9713aae17ef497f6c14a71",
+          "raw_bytes": 409,
+          "source_schema_hash": "sha256:efd4d9aef64715ae9ed909eadcc3cd313d1736270557e4536b23d62adb6d5588",
+          "tokens": 87
+        },
+        "skill.detach": {
+          "projected_declaration_hash": "sha256:6efd67902ed66b23d6daceefb65a09bb1fa29c671d861a530f9376f77e05b2a3",
+          "raw_bytes": 252,
+          "source_schema_hash": "sha256:d79a1da98449769508e4063968e070cc594f7024f0dcea32d2b71523b7a6cdaf",
+          "tokens": 57
+        },
+        "skill.list": {
+          "projected_declaration_hash": "sha256:43ec791d7ff4c2582aa22b32696b0bb271566f0ceccee03b31e5b88f3b969758",
+          "raw_bytes": 243,
+          "source_schema_hash": "sha256:87e45c3f655f6f52bd622cb376804fba5a82ce69c71eda046a961b97879562ab",
+          "tokens": 54
+        },
+        "skill.status": {
+          "projected_declaration_hash": "sha256:7af51509350263c78aa68f87ee9c586126b591b2362c7a443d937c895202d3fd",
+          "raw_bytes": 241,
+          "source_schema_hash": "sha256:87e45c3f655f6f52bd622cb376804fba5a82ce69c71eda046a961b97879562ab",
+          "tokens": 54
+        },
+        "skill.update": {
+          "projected_declaration_hash": "sha256:37ba06a091a9bad1f79c4150257a845aa0c20128e270e47a3409ea7a97470584",
+          "raw_bytes": 388,
+          "source_schema_hash": "sha256:a8088de16daeea5bb752fc9d0d29260de52f51613da13b422655b617cf814ee8",
+          "tokens": 86
+        },
         "stage.create": {
           "projected_declaration_hash": "sha256:cd3f8ce47d5d5f62b71352065f96ccf647351f28a98716820b9da9455e4e35eb",
           "raw_bytes": 261,
@@ -791,10 +851,10 @@
   },
   "mcp_sdk_version": "2.0.0",
   "raw_fastmcp": {
-    "catalogue_hash": "sha256:eb06a9a61d9ffe102d6a7839ec24606fa60c6265eba5b547c57581b231ccc2ac",
-    "raw_bytes": 42474,
-    "tokens": 9142,
-    "tool_count": 63
+    "catalogue_hash": "sha256:fd9e39ecdd78244849568c02fa35981ee5d33305bc335960091bc88a3533db95",
+    "raw_bytes": 43830,
+    "tokens": 9430,
+    "tool_count": 68
   },
   "schema": "brain.command-interface-granular-mcp-projection/1",
   "tokeniser": "tiktoken/0.12.0:o200k_base"

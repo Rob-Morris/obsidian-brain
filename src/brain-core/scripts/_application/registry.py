@@ -50,6 +50,11 @@ from .runtime import read_environment as runtime_read_environment
 from .runtime import status as runtime_status
 from .runtime import warmup as runtime_warmup
 from .session import start as session_start
+from .skill import add_git as skill_add_git
+from .skill import detach as skill_detach
+from .skill import list as skill_list
+from .skill import status as skill_status
+from .skill import update as skill_update
 from .shaping import render as shaping_render
 from .shaping import start as shaping_start
 from .stage import create as stage_create
@@ -125,6 +130,11 @@ _COMMAND_OWNERS = (
     runtime_status,
     runtime_warmup,
     session_start,
+    skill_add_git,
+    skill_detach,
+    skill_list,
+    skill_status,
+    skill_update,
     shaping_render,
     shaping_start,
     stage_create,

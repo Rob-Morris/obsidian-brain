@@ -180,10 +180,17 @@ def execute_document_mutation(
 
     subject_field = "path" if intent.resource == "artefact" else "name"
     subject_kwargs = {subject_field: intent.reference}
+    materialised = None
     try:
         with vault_mutation_lock(vault_root):
             opened = edit.open_document(
-                vault_root, router, intent.resource, intent.reference
+                vault_root,
+                router,
+                intent.resource,
+                intent.reference,
+                allow_core_skill_read=(
+                    intent.resource == "skill" and ":" not in intent.reference
+                ),
             )
             current_revision = opened.revision
             validate_document_revision(
@@ -199,6 +206,29 @@ def execute_document_mutation(
             file_index = None
             if _may_contain_wikilinks(opened, intent, body):
                 file_index = fix_links.file_index_for_mutation(vault_root)
+            if intent.resource == "skill" and ":" not in intent.reference:
+                from _skill_library import materialise_core_skill_for_edit
+
+                materialised = materialise_core_skill_for_edit(
+                    vault_root,
+                    name=intent.reference,
+                    lock_held=True,
+                )
+                if materialised is not None:
+                    from _portable.skill_resolution import skill_record
+
+                    router = dict(router)
+                    router["skills"] = [
+                        skill_record(
+                            intent.reference,
+                            f"_Config/Skills/{intent.reference}/SKILL.md",
+                            "user",
+                        ),
+                        *router.get("skills", ()),
+                    ]
+                    opened = edit.open_document(
+                        vault_root, router, intent.resource, intent.reference
+                    )
             try:
                 result = edit.edit_resource(
                     vault_root,
@@ -216,6 +246,10 @@ def execute_document_mutation(
                     "document mutation outcome could not be classified"
                 ) from exc
             except ValueError as exc:
+                if materialised is not None:
+                    raise MutationOutcomeUncertain(
+                        "core skill materialisation committed before the edit failed"
+                    ) from exc
                 try:
                     revision_after_failure = edit.current_document_revision(
                         vault_root,
@@ -286,7 +320,16 @@ def execute_document_mutation(
         request.COMMAND_ID,
         request.COMMAND_VERSION,
         payload,
-        committed_effects=(CommittedEffect(request.COMMAND_ID, payload.path),),
+        committed_effects=(
+            CommittedEffect(request.COMMAND_ID, payload.path),
+            *(
+                CommittedEffect(request.COMMAND_ID, path)
+                for path in (
+                    materialised.changed_paths if materialised is not None else ()
+                )
+                if path != payload.path
+            ),
+        ),
         warnings=tuple(warnings),
     )
 

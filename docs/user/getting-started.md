@@ -108,24 +108,29 @@ This local CLI command writes only the workspace's
 `.brain/local/workspace.yaml`; it does not create a Brain project or workspace
 artefact.
 
-To make the active Brain's shaping workflow discoverable as a native skill in
-Claude Code and Codex, install the shared discovery adapter once:
+To make any active Brain workflow discoverable as a native skill in Claude Code
+and Codex, expose a thin discovery adapter explicitly:
 
 ```bash
-brain agent-skill configure --vault /path/to/brain \
-  --request-json '{"client":"all"}' --json
+brain skill expose --vault /path/to/brain \
+  --request-json '{"name":"shaping","client":"all","scope":"global"}' --json
 ```
 
-The adapter contains no shaping workflow of its own. It calls `session.start` for
-the active Brain, then loads that Brain's `.brain-core/skills/shaping/SKILL.md`
-through `vault.read-file`, so a normal Brain upgrade updates the workflow without
-copying it into each client's global skill directory. Existing unmanaged shaping
-skills are preserved; after reviewing them, use `--replace` to archive each old
+The adapter contains no workflow of its own. It calls `session.start`, resolves
+the unqualified effective skill user-first, and loads that package from the
+active Brain. A normal Brain or skill update therefore changes the workflow
+without copying it into each client directory. Existing unmanaged skills are
+preserved; after reviewing one, use `"replace":true` to archive its old
 directory outside skill discovery under
 `~/.<client>/.brain-skill-backups/` and install the adapter. Restart Claude Code
 and Codex after the command reports a change. Installation is explicit because
 these are machine-global client
 directories, not vault-owned files.
+
+Use `"scope":"project"` with `--workspace /path/to/project` for project-local
+discovery. An existing canonical workspace binding takes precedence; otherwise
+the configured machine default is used. The exposure command will not create or
+change a binding.
 
 `vault.read-file` is limited to ordinary non-hidden vault files and explicit public Brain Core documentation trees such as `.brain-core/skills/`. It cannot read `.brain/`, `.brain/local/`, `.obsidian/`, Brain Core defaults/scripts or a symlink resolving into those private namespaces.
 
