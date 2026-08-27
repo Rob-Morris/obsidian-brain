@@ -3,7 +3,9 @@ PYTHON := $(VENV)/bin/python
 PIP := $(VENV)/bin/pip
 PYTEST := $(VENV)/bin/pytest
 
-.PHONY: venv install install-semantic test test-parallel lint lint-docstrings lint-command-docs clean hooks sync-template sync-template-check dev-link precommit-check release-status
+.PHONY: venv install install-semantic test test-parallel test-brain-lab test-brain-lab-docker lint lint-docstrings lint-command-docs clean hooks sync-template sync-template-check dev-link precommit-check release-status
+
+BRAIN_LAB_STATE_DIR ?= $(CURDIR)/.brain-lab
 
 venv:
 	python3.12 -m venv $(VENV)
@@ -26,6 +28,12 @@ test-parallel: dev-link
 
 test-fast: dev-link
 	$(PYTEST) -q -m "not slow"
+
+test-brain-lab:
+	$(PYTEST) -q tests/repo/brain_lab
+
+test-brain-lab-docker:
+	tools/brain-lab/brain-lab --state-dir "$(BRAIN_LAB_STATE_DIR)" --json scenario run --request-json - < tools/brain-lab/scenarios/current-template.json
 
 lint: lint-docstrings lint-command-docs
 

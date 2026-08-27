@@ -44,6 +44,8 @@ from _local_cli.execution import (
 from _local_cli.main import CliError, _trusted_distribution, run
 from _local_cli.runtime import (
     LauncherDiagnosticReporter,
+    SelectedBrain,
+    command_python,
     resolve_project_exposure_brain,
     resolve_selected_brain,
 )
@@ -60,6 +62,24 @@ from _application.results import (
 
 
 NOW = datetime.fromisoformat("2026-08-10T09:30:00+10:00")
+
+
+def test_managed_command_python_preserves_virtual_environment_entry_point(
+    tmp_path, monkeypatch
+):
+    vault = (tmp_path / "Brain").resolve()
+    managed = tmp_path / "venv" / "bin" / "python"
+    managed.parent.mkdir(parents=True)
+    managed.symlink_to(Path(sys.executable).resolve())
+    selected = SelectedBrain(vault, None, "vault_self")
+
+    monkeypatch.setattr(
+        "_common._venv.find_runnable_python",
+        lambda *_args, **_kwargs: managed,
+    )
+
+    assert command_python(selected, "managed") == managed.absolute()
+    assert command_python(selected, "managed") != managed.resolve()
 
 
 class _Authority:

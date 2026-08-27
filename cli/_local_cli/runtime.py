@@ -279,7 +279,11 @@ def command_python(selected: SelectedBrain, dependency_tier: str) -> Path:
         selected.vault_root,
         launcher=Path(sys.executable).resolve(),
     )
-    return Path(candidate).resolve() if candidate is not None else Path(sys.executable).resolve()
+    # Preserve the virtual-environment entry point.  Resolving this symlink
+    # collapses it to the base interpreter on POSIX, so Python no longer sets
+    # ``sys.prefix`` to the managed venv and selected-Brain commands observe
+    # only the portable dependency tier.
+    return Path(candidate).absolute() if candidate is not None else Path(sys.executable).resolve()
 
 
 def _absolute_path(value: str, start: Path) -> Path:
