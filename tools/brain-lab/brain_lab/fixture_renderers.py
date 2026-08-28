@@ -21,8 +21,9 @@ def _toml_string(value: str) -> str:
     return json.dumps(value, ensure_ascii=False)
 
 
-def render_codex(root: Path, bridge: Path) -> tuple[str, dict[str, str]]:
-    codex_home = root / "clients" / "codex" / "home"
+def render_codex(staging_root: Path, published_root: Path) -> tuple[str, dict[str, str]]:
+    codex_home = staging_root / "clients" / "codex" / "home"
+    output_home = published_root / "clients" / "codex" / "home"
     codex_home.mkdir(parents=True)
     (codex_home / "skills").symlink_to(
         Path("../../../shared/skills"),
@@ -31,12 +32,12 @@ def render_codex(root: Path, bridge: Path) -> tuple[str, dict[str, str]]:
     _write_text(
         codex_home / "config.toml",
         "[mcp_servers.brain]\n"
-        f"command = {_toml_string(str(bridge))}\n"
+        f"command = {_toml_string(str(published_root / 'shared' / 'brain-mcp-bridge'))}\n"
         "args = []\n",
     )
     _write_json(
-        root / "clients" / "codex" / "environment.json",
-        {"CODEX_HOME": str(codex_home)},
+        staging_root / "clients" / "codex" / "environment.json",
+        {"CODEX_HOME": str(output_home)},
     )
     return "codex", {
         "home": "clients/codex/home",
@@ -46,8 +47,9 @@ def render_codex(root: Path, bridge: Path) -> tuple[str, dict[str, str]]:
     }
 
 
-def render_claude(root: Path, bridge: Path) -> tuple[str, dict[str, str]]:
-    claude_project = root / "clients" / "claude" / "project"
+def render_claude(staging_root: Path, published_root: Path) -> tuple[str, dict[str, str]]:
+    claude_project = staging_root / "clients" / "claude" / "project"
+    output_project = published_root / "clients" / "claude" / "project"
     claude_skills_parent = claude_project / ".claude"
     claude_skills_parent.mkdir(parents=True)
     (claude_skills_parent / "skills").symlink_to(
@@ -58,13 +60,26 @@ def render_claude(root: Path, bridge: Path) -> tuple[str, dict[str, str]]:
         claude_project / ".mcp.json",
         {
             "mcpServers": {
-                "brain": {"command": str(bridge), "args": [], "env": {}}
+                "brain": {
+                    "command": str(published_root / "shared" / "brain-mcp-bridge"),
+                    "args": [],
+                    "env": {},
+                }
             }
         },
     )
     _write_json(
-        root / "clients" / "claude" / "environment.json",
-        {"project_directory": str(claude_project)},
+        staging_root / "clients" / "claude" / "environment.json",
+        {
+            "project_directory": str(output_project),
+            "required_arguments": [
+                "--strict-mcp-config",
+                "--mcp-config",
+                str(output_project / ".mcp.json"),
+                "--setting-sources",
+                "project",
+            ],
+        },
     )
     return "claude", {
         "project": "clients/claude/project",
@@ -77,5 +92,5 @@ def render_claude(root: Path, bridge: Path) -> tuple[str, dict[str, str]]:
 RENDERERS: tuple[Renderer, ...] = (render_codex, render_claude)
 
 
-def render_clients(root: Path, bridge: Path) -> dict[str, dict[str, str]]:
-    return dict(renderer(root, bridge) for renderer in RENDERERS)
+def render_clients(staging_root: Path, published_root: Path) -> dict[str, dict[str, str]]:
+    return dict(renderer(staging_root, published_root) for renderer in RENDERERS)

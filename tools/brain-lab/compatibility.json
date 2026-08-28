@@ -3,7 +3,7 @@
   "adapters": [
     {
       "id": "brain-0.51-0.54",
-      "revision": 10,
+      "revision": 11,
       "minimum_version": "0.51.0",
       "maximum_version_exclusive": "0.55.0",
       "install": [
@@ -14,7 +14,7 @@
       ],
       "post_install": [
         [
-          "python3.12",
+          "{container_python}",
           "/usr/local/lib/brain-lab/pin_mcp_requirement.py",
           "--vault",
           "{vault}",
@@ -24,7 +24,7 @@
       ],
       "template_prepare": [
         [
-          "python3.12",
+          "{container_python}",
           "{vault}/.brain-core/scripts/repair.py",
           "router",
           "--vault",
@@ -32,7 +32,7 @@
           "--json"
         ],
         [
-          "python3.12",
+          "{container_python}",
           "{vault}/.brain-core/scripts/repair.py",
           "lexical",
           "--vault",
@@ -42,19 +42,19 @@
       ],
       "rehydrate": [
         [
-          "python3.12",
+          "{container_python}",
           "/usr/local/lib/brain-lab/clear_imported_state.py",
           "--vault",
           "{vault}"
         ],
         [
-          "python3.12",
+          "{container_python}",
           "{vault}/.brain-core/scripts/vault_registry.py",
           "--register",
           "{vault}"
         ],
         [
-          "python3.12",
+          "{container_python}",
           "{vault}/.brain-core/scripts/configure.py",
           "mcp",
           "--vault",
@@ -67,7 +67,7 @@
           "--json"
         ],
         [
-          "python3.12",
+          "{container_python}",
           "{vault}/.brain-core/scripts/repair.py",
           "mcp",
           "--vault",
@@ -75,7 +75,7 @@
           "--json"
         ],
         [
-          "python3.12",
+          "{container_python}",
           "{vault}/.brain-core/scripts/repair.py",
           "router",
           "--vault",
@@ -83,7 +83,7 @@
           "--json"
         ],
         [
-          "python3.12",
+          "{container_python}",
           "{vault}/.brain-core/scripts/repair.py",
           "lexical",
           "--vault",
@@ -91,7 +91,7 @@
           "--json"
         ],
         [
-          "python3.12",
+          "{container_python}",
           "/usr/local/lib/brain-lab/restore_seed_paths.py",
           "--seed",
           "/opt/brain-lab/seed",
@@ -136,20 +136,20 @@
         {
           "id": "machine-doctor",
           "command": [
-            "python3.12",
+            "{container_python}",
             "{vault}/.brain-core/scripts/doctor_machine.py",
             "--vault",
             "{vault}",
             "--current-vault",
             "{vault}",
             "--launcher",
-            "/usr/bin/python3.12",
+            "{container_python}",
             "--json"
           ],
           "expected_json": {
             "healthy": true,
             "tidy": true,
-            "launcher_python": "/usr/bin/python3.12",
+            "launcher_python": "{container_python}",
             "counts.repair_findings": 0
           },
           "required_for": ["rehydrate"]
@@ -162,13 +162,13 @@
         },
         {
           "id": "mcp-read-only",
-          "command": ["python3.12", "/usr/local/lib/brain-lab/mcp_probe.py", "--vault", "{vault}"],
+          "command": ["{container_python}", "/usr/local/lib/brain-lab/mcp_probe.py", "--vault", "{vault}"],
           "expected_json": {"read_only_round_trip": "tools/list"},
           "required_for": ["template", "rehydrate"]
         },
         {
           "id": "active-paths",
-          "command": ["python3.12", "/usr/local/lib/brain-lab/active_path_probe.py"],
+          "command": ["{container_python}", "/usr/local/lib/brain-lab/active_path_probe.py"],
           "expected_json": {"safe": true},
           "required_for": ["template", "rehydrate"]
         },
@@ -183,7 +183,7 @@
     },
     {
       "id": "brain-0.55-0.62",
-      "revision": 7,
+      "revision": 8,
       "minimum_version": "0.55.0",
       "maximum_version_exclusive": "0.63.0",
       "install": [
@@ -194,21 +194,21 @@
       ],
       "post_install": [
         [
-          "python3.12",
+          "{container_python}",
           "{vault}/.brain-core/scripts/doctor_machine.py",
           "--vault",
           "{vault}",
           "--current-vault",
           "{vault}",
           "--launcher",
-          "/usr/bin/python3.12",
+          "{container_python}",
           "--json"
         ]
       ],
       "template_prepare": [],
       "rehydrate": [
         [
-          "python3.12",
+          "{container_python}",
           "/usr/local/lib/brain-lab/clear_imported_state.py",
           "--vault",
           "{vault}"
@@ -221,7 +221,7 @@
           "--json"
         ],
         [
-          "python3.12",
+          "{container_python}",
           "{vault}/.brain-core/scripts/configure.py",
           "mcp",
           "--vault",
@@ -234,7 +234,7 @@
           "--json"
         ],
         [
-          "python3.12",
+          "{container_python}",
           "/usr/local/lib/brain-lab/restore_seed_paths.py",
           "--seed",
           "/opt/brain-lab/seed",
@@ -271,20 +271,20 @@
         {
           "id": "machine-doctor",
           "command": [
-            "python3.12",
+            "{container_python}",
             "{vault}/.brain-core/scripts/doctor_machine.py",
             "--vault",
             "{vault}",
             "--current-vault",
             "{vault}",
             "--launcher",
-            "/usr/bin/python3.12",
+            "{container_python}",
             "--json"
           ],
           "expected_json": {
             "healthy": true,
             "tidy": true,
-            "launcher_python": "/usr/bin/python3.12",
+            "launcher_python": "{container_python}",
             "counts.repair_findings": 0
           },
           "required_for": ["rehydrate"]
@@ -308,13 +308,13 @@
         },
         {
           "id": "mcp-read-only",
-          "command": ["python3.12", "/usr/local/lib/brain-lab/mcp_probe.py", "--vault", "{vault}"],
+          "command": ["{container_python}", "/usr/local/lib/brain-lab/mcp_probe.py", "--vault", "{vault}"],
           "expected_json": {"read_only_round_trip": "tools/list"},
           "required_for": ["template", "rehydrate"]
         },
         {
           "id": "active-paths",
-          "command": ["python3.12", "/usr/local/lib/brain-lab/active_path_probe.py"],
+          "command": ["{container_python}", "/usr/local/lib/brain-lab/active_path_probe.py"],
           "expected_json": {"safe": true},
           "required_for": ["template", "rehydrate"]
         },

@@ -6,7 +6,6 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
-import subprocess
 import sys
 
 
@@ -14,44 +13,62 @@ def main() -> int:
     descriptor_path = Path(__file__).with_suffix(".json")
     try:
         descriptor = json.loads(descriptor_path.read_text(encoding="utf-8"))
+        if not isinstance(descriptor, dict):
+            raise ValueError("descriptor root must be an object")
+        if descriptor.get("schema") != "brain-lab.host-fixture-bridge/1":
+            raise ValueError("unsupported schema")
+        run_id = descriptor["run_id"]
         container_id = descriptor["container_id"]
         docker_executable = descriptor["docker_executable"]
-        argv = descriptor["argv"]
-    except (OSError, KeyError, TypeError, json.JSONDecodeError) as exc:
+        working_directory = descriptor["working_directory"]
+        environment = descriptor["environment"]
+        command = descriptor["command"]
+        arguments = descriptor["args"]
+        if not all(
+            isinstance(value, str) and value and "\0" not in value
+            for value in (
+                run_id,
+                container_id,
+                docker_executable,
+                working_directory,
+                command,
+            )
+        ):
+            raise ValueError("required fields must be non-empty strings")
+        if not isinstance(environment, dict) or not all(
+            isinstance(key, str)
+            and "\0" not in key
+            and isinstance(value, str)
+            and "\0" not in value
+            for key, value in environment.items()
+        ):
+            raise ValueError("environment must contain string fields")
+        if not isinstance(arguments, list) or not all(
+            isinstance(value, str) and "\0" not in value for value in arguments
+        ):
+            raise ValueError("args must be an array of strings")
+    except (OSError, KeyError, TypeError, ValueError, json.JSONDecodeError) as exc:
         print(f"brain-lab fixture bridge is invalid: {exc}", file=sys.stderr)
         return 2
 
+    argv = [
+        docker_executable,
+        "exec",
+        "--interactive",
+        "--workdir",
+        working_directory,
+    ]
+    for key, value in sorted(environment.items()):
+        argv.extend(["--env", f"{key}={value}"])
+    argv.extend([container_id, command, *arguments])
     try:
-        check = subprocess.run(
-            [
-                docker_executable,
-                "container",
-                "inspect",
-                "--format",
-                "{{json .State.Running}}",
-                container_id,
-            ],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            check=False,
-            timeout=30,
-        )
-    except (OSError, subprocess.TimeoutExpired) as exc:
-        print(f"brain-lab fixture cannot inspect its selected run: {exc}", file=sys.stderr)
-        return 3
-    if check.returncode != 0:
-        detail = check.stderr.strip() or "container is unavailable"
+        os.execvp(docker_executable, argv)
+    except (OSError, ValueError) as exc:
         print(
-            f"brain-lab fixture run {descriptor['run_id']} is unavailable: {detail}",
+            f"brain-lab fixture run {run_id} could not start its Docker bridge: {exc}",
             file=sys.stderr,
         )
         return 3
-    if check.stdout.strip() != "true":
-        print(f"brain-lab fixture run {descriptor['run_id']} is not running", file=sys.stderr)
-        return 3
-    os.execvp(argv[0], argv)
-    return 127
 
 
 if __name__ == "__main__":

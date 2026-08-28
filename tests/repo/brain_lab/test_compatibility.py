@@ -5,6 +5,7 @@ from pathlib import Path
 import pytest
 
 from brain_lab.compatibility import CompatibilityManifest, parse_version
+from brain_lab.container_contract import CONTAINER_PYTHON
 
 
 MANIFEST = Path(__file__).resolve().parents[3] / "tools" / "brain-lab" / "compatibility.json"
@@ -25,8 +26,14 @@ def test_compatibility_families_are_non_overlapping_and_cover_selected_versions(
 
 def test_commands_render_argv_without_shell_interpolation():
     adapter = CompatibilityManifest(MANIFEST).select("0.62.0")
-    values = {"source": "/source", "vault": "/vault", "version": "0.62.0"}
+    values = {
+        "container_python": CONTAINER_PYTHON,
+        "source": "/source",
+        "vault": "/vault",
+        "version": "0.62.0",
+    }
 
+    assert adapter.revision == 8
     assert adapter.render(adapter.install, values) == (
         "bash",
         "/source/install.sh",
@@ -54,7 +61,7 @@ def test_commands_render_argv_without_shell_interpolation():
     assert machine_doctor.expected_json == {
         "healthy": True,
         "tidy": True,
-        "launcher_python": "/usr/bin/python3.12",
+        "launcher_python": "{container_python}",
         "counts.repair_findings": 0,
     }
     paths = next(gate for gate in adapter.health if gate.gate_id == "active-paths")
@@ -63,7 +70,12 @@ def test_commands_render_argv_without_shell_interpolation():
 
 def test_historical_adapter_owns_future_dependency_break_and_generated_template_state():
     adapter = CompatibilityManifest(MANIFEST).select("0.51.0")
-    values = {"source": "/source", "vault": "/vault", "version": "0.51.0"}
+    values = {
+        "container_python": CONTAINER_PYTHON,
+        "source": "/source",
+        "vault": "/vault",
+        "version": "0.51.0",
+    }
 
     post_install = [adapter.render(command, values) for command in adapter.post_install]
     template_prepare = [adapter.render(command, values) for command in adapter.template_prepare]
@@ -80,7 +92,7 @@ def test_historical_adapter_owns_future_dependency_break_and_generated_template_
     )
     rehydrate = [adapter.render(command, values) for command in adapter.rehydrate]
     restore = rehydrate[-1]
-    assert adapter.revision == 10
+    assert adapter.revision == 11
     assert rehydrate[0][1] == "/usr/local/lib/brain-lab/clear_imported_state.py"
     assert "codex" in rehydrate[2]
     assert any("mcp" in command and any(part.endswith("/repair.py") for part in command) for command in rehydrate)

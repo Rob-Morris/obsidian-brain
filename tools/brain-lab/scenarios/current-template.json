@@ -69,7 +69,7 @@
       "operation": "run.exec",
       "request": {
         "id": "${steps.4.resource.id}",
-        "argv": ["python3.12", "/usr/local/lib/brain-lab/tree_manifest.py", "--root", "/home/brain", "--scope", "run"],
+        "argv": ["/usr/bin/python3.12", "/usr/local/lib/brain-lab/tree_manifest.py", "--root", "/home/brain", "--scope", "run"],
         "timeout_seconds": 300
       }
     },
@@ -85,7 +85,7 @@
       "operation": "run.exec",
       "request": {
         "id": "${steps.4.resource.id}",
-        "argv": ["python3.12", "/usr/local/lib/brain-lab/tree_manifest.py", "--root", "/home/brain", "--scope", "run"],
+        "argv": ["/usr/bin/python3.12", "/usr/local/lib/brain-lab/tree_manifest.py", "--root", "/home/brain", "--scope", "run"],
         "timeout_seconds": 300
       }
     },

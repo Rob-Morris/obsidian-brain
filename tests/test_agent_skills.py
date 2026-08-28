@@ -7,14 +7,37 @@ import importlib
 import json
 import os
 from pathlib import Path
+import shutil
 
 import pytest
 
 from _bootstrap import agent_skills
+from _skill_library import packages
 import upgrade
 
 
 ADAPTER_CONTENT = agent_skills.load_shaping_adapter()
+
+
+def test_prevalidated_package_builds_adapter_without_reinspection(tmp_path, monkeypatch):
+    vault = tmp_path / "vault"
+    package = vault / ".brain-core" / "skills" / "code-review"
+    source = Path(__file__).parents[1] / "src" / "brain-core" / "skills" / "code-review"
+    shutil.copytree(source, package)
+    snapshot = packages.inspect_package(package, expected_name="code-review")
+
+    def unexpected_reinspection(*_args, **_kwargs):
+        raise AssertionError("validated package was inspected twice")
+
+    monkeypatch.setattr(packages, "inspect_package", unexpected_reinspection)
+
+    adapter = agent_skills.load_effective_skill_adapter(
+        vault,
+        "code-review",
+        package_snapshot=snapshot,
+    )
+
+    assert 'resource.read(resource="skill", reference="code-review")' in adapter
 
 
 def _skill_dir(home, client):

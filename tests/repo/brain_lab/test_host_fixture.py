@@ -2,12 +2,14 @@ from __future__ import annotations
 
 import hashlib
 import gzip
+import importlib.util
 import json
 import os
 from pathlib import Path
 import shutil
 import subprocess
 import sys
+from dataclasses import dataclass
 from types import SimpleNamespace
 
 import pytest
@@ -16,6 +18,7 @@ import brain_lab.fixtures as fixture_module
 from brain_lab.application import Application
 from brain_lab.docker import DockerClient
 from brain_lab.fixtures import FIXTURE_SCHEMA, register_fixture_handlers
+from brain_lab.fixture_publication import publish_directory_exclusive
 from brain_lab.process import CommandRunner
 from brain_lab.store import StateStore
 
@@ -40,7 +43,7 @@ def _probe(loader: str = "---\nname: shaping\n---\n\nLoad the active Brain.\n") 
             "total_bytes": 12345,
         },
         "mcp": {
-            "source": ".mcp.json",
+            "sources": [".mcp.json"],
             "vault_path": "/home/brain/vault",
             "command": "/home/brain/.brain/venvs/brain/bin/python",
             "args": [
@@ -73,6 +76,14 @@ def _probe(loader: str = "---\nname: shaping\n---\n\nLoad the active Brain.\n") 
             }
         ],
     }
+
+
+@dataclass(frozen=True)
+class ExecutionSpec:
+    succeeded: bool = True
+    timed_out: bool = False
+    cancelled: bool = False
+    evidence_complete: bool = True
 
 
 class FixtureDocker:
@@ -110,6 +121,8 @@ class FixtureDocker:
         self.after_run_manifest = None
         self.after_manifest_hook = None
         self.manifest_calls = 0
+        self.probe_execution = ExecutionSpec()
+        self.after_manifest_execution = ExecutionSpec()
 
     def begin_operation(self):
         return 0
@@ -133,7 +146,8 @@ class FixtureDocker:
 
     def exec(self, container, argv, **kwargs):
         self.calls.append(("exec", container, list(argv), kwargs))
-        if any(item.endswith("/tree_manifest.py") for item in argv):
+        manifest_execution = any(item.endswith("/tree_manifest.py") for item in argv)
+        if manifest_execution:
             self.manifest_calls += 1
             if self.manifest_calls == 2 and self.after_manifest_hook is not None:
                 self.after_manifest_hook()
@@ -149,10 +163,17 @@ class FixtureDocker:
         else:
             stdout = self.tmp_path / "probe.json"
             stdout.write_text(json.dumps(self.probe), encoding="utf-8")
+        execution_spec = (
+            self.after_manifest_execution
+            if manifest_execution and self.manifest_calls == 2
+            else ExecutionSpec() if manifest_execution else self.probe_execution
+        )
         return SimpleNamespace(
-            succeeded=True,
+            succeeded=execution_spec.succeeded,
             stdout=SimpleNamespace(path=str(stdout), truncated=False),
-            evidence_complete=True,
+            evidence_complete=execution_spec.evidence_complete,
+            timed_out=execution_spec.timed_out,
+            cancelled=execution_spec.cancelled,
         )
 
 
@@ -204,6 +225,7 @@ def test_fixture_exports_exact_active_loader_bridge_and_identity(tmp_path: Path)
     }
     assert manifest["brain"]["core"]["version"] == "0.62.2"
     assert manifest["brain"]["core"]["tree_sha256"] == "a" * 64
+    assert manifest["brain"]["mcp_config_sources"] == [".mcp.json"]
     assert manifest["skills"][0]["package_tree_sha256"] == "b" * 64
     assert manifest["skills"][0]["loader_sha256"] == _digest(docker.probe["skills"][0]["adapter"])
     assert (output / manifest["skills"][0]["loader_path"]).read_text(encoding="utf-8") == docker.probe["skills"][0]["adapter"]
@@ -214,22 +236,17 @@ def test_fixture_exports_exact_active_loader_bridge_and_identity(tmp_path: Path)
     assert descriptor["run_id"] == RUN_ID
     assert descriptor["container_id"] == CONTAINER_ID
     assert descriptor["docker_executable"] == "docker"
-    assert descriptor["argv"][:5] == [
-        "docker",
-        "exec",
-        "--interactive",
-        "--workdir",
-        "/home/brain/vault",
-    ]
-    assert descriptor["argv"][-6:] == [
-        CONTAINER_ID,
-        "/home/brain/.brain/venvs/brain/bin/python",
+    assert descriptor["working_directory"] == "/home/brain/vault"
+    assert descriptor["command"] == "/home/brain/.brain/venvs/brain/bin/python"
+    assert descriptor["args"] == [
         "-m",
         "brain_mcp.proxy",
         "/home/brain/.brain/venvs/brain/bin/python",
         "brain_mcp.server",
     ]
-    assert any(call[0] == "exec" for call in docker.calls)
+    executions = [call for call in docker.calls if call[0] == "exec"]
+    assert executions
+    assert all(call[2][0] == "/usr/bin/python3.12" for call in executions)
 
 
 def test_codex_and_claude_renderers_share_the_same_bridge_and_skill_root(tmp_path: Path):
@@ -252,8 +269,18 @@ def test_codex_and_claude_renderers_share_the_same_bridge_and_skill_root(tmp_pat
     claude = json.loads(
         (output / "clients" / "claude" / "project" / ".mcp.json").read_text()
     )
+    claude_launch = json.loads(
+        (output / "clients" / "claude" / "environment.json").read_text()
+    )
     assert bridge in codex
     assert claude["mcpServers"]["brain"]["command"] == bridge
+    assert claude_launch["required_arguments"] == [
+        "--strict-mcp-config",
+        "--mcp-config",
+        str(output / "clients" / "claude" / "project" / ".mcp.json"),
+        "--setting-sources",
+        "project",
+    ]
 
 
 def test_fixture_preserves_a_portable_nondefault_docker_executable(tmp_path: Path):
@@ -271,7 +298,6 @@ def test_fixture_preserves_a_portable_nondefault_docker_executable(tmp_path: Pat
         (output / "shared" / "brain-mcp-bridge.json").read_text(encoding="utf-8")
     )
     assert descriptor["docker_executable"] == "fixture-docker"
-    assert descriptor["argv"][0] == "fixture-docker"
 
 
 def test_fixture_resolves_a_path_valued_docker_executable(tmp_path: Path):
@@ -294,7 +320,6 @@ def test_fixture_resolves_a_path_valued_docker_executable(tmp_path: Path):
         (output / "shared" / "brain-mcp-bridge.json").read_text(encoding="utf-8")
     )
     assert descriptor["docker_executable"] == str(wrapper.resolve())
-    assert descriptor["argv"][0] == str(wrapper.resolve())
 
 
 def test_fixture_bounds_requested_skill_count_before_docker(tmp_path: Path):
@@ -314,7 +339,9 @@ def test_fixture_bounds_requested_skill_count_before_docker(tmp_path: Path):
     assert docker.calls == []
 
 
-def test_fixture_does_not_touch_real_or_project_client_configuration(tmp_path: Path):
+def test_fixture_does_not_touch_real_or_project_client_configuration(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
     application, _docker = _application(tmp_path)
     real_home = tmp_path / "real-home"
     project = tmp_path / "project"
@@ -324,6 +351,10 @@ def test_fixture_does_not_touch_real_or_project_client_configuration(tmp_path: P
     claude = project / ".mcp.json"
     codex.write_text("sentinel-codex\n", encoding="utf-8")
     claude.write_text("sentinel-claude\n", encoding="utf-8")
+    monkeypatch.setenv("HOME", str(real_home))
+    monkeypatch.setenv("CODEX_HOME", str(real_home / ".codex"))
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(real_home / ".claude"))
+    monkeypatch.chdir(project)
 
     result = application.dispatch(
         "fixture.create",
@@ -337,6 +368,91 @@ def test_fixture_does_not_touch_real_or_project_client_configuration(tmp_path: P
     assert result.ok
     assert codex.read_text(encoding="utf-8") == "sentinel-codex\n"
     assert claude.read_text(encoding="utf-8") == "sentinel-claude\n"
+
+
+@pytest.mark.skipif(shutil.which("claude") is None, reason="Claude CLI is not installed")
+def test_claude_launch_contract_excludes_user_scoped_brain_mcp(tmp_path: Path):
+    application, _docker = _application(tmp_path)
+    output = tmp_path / "fixture"
+    result = application.dispatch(
+        "fixture.create",
+        {"run_id": RUN_ID, "skills": ["shaping"], "output": str(output)},
+    )
+    assert result.ok
+
+    isolated_home = tmp_path / "home"
+    isolated_home.mkdir()
+    user_bridge = "/user-scoped/brain-bridge"
+    (isolated_home / ".claude.json").write_text(
+        json.dumps(
+            {"mcpServers": {"brain": {"type": "stdio", "command": user_bridge, "args": []}}}
+        ),
+        encoding="utf-8",
+    )
+    launch = json.loads(
+        (output / "clients" / "claude" / "environment.json").read_text(encoding="utf-8")
+    )
+    completed = subprocess.run(
+        [shutil.which("claude"), *launch["required_arguments"], "mcp", "get", "brain"],
+        cwd=launch["project_directory"],
+        env={
+            **{
+                key: value
+                for key, value in os.environ.items()
+                if key not in {"CLAUDE_CONFIG_DIR", "XDG_CONFIG_HOME"}
+            },
+            "HOME": str(isolated_home),
+            "CLAUDE_CONFIG_DIR": str(tmp_path / "claude-config"),
+            "XDG_CONFIG_HOME": str(tmp_path / "xdg-config"),
+        },
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        timeout=30,
+        check=False,
+    )
+    observed = completed.stdout + completed.stderr
+    assert completed.returncode == 0, observed
+    project_config = json.loads(
+        (output / "clients" / "claude" / "project" / ".mcp.json").read_text()
+    )
+    assert project_config["mcpServers"]["brain"]["command"] == str(
+        output / "shared" / "brain-mcp-bridge"
+    )
+    assert "Scope: Project config" in observed
+    assert user_bridge not in observed
+
+
+@pytest.mark.skipif(shutil.which("codex") is None, reason="Codex CLI is not installed")
+def test_codex_launch_contract_selects_only_the_fixture_home(tmp_path: Path):
+    application, _docker = _application(tmp_path)
+    output = tmp_path / "fixture"
+    result = application.dispatch(
+        "fixture.create",
+        {"run_id": RUN_ID, "skills": ["shaping"], "output": str(output)},
+    )
+    assert result.ok
+
+    launch = json.loads(
+        (output / "clients" / "codex" / "environment.json").read_text(encoding="utf-8")
+    )
+    completed = subprocess.run(
+        [shutil.which("codex"), "mcp", "get", "brain", "--json"],
+        cwd=tmp_path,
+        env={**os.environ, **launch},
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        timeout=30,
+        check=False,
+    )
+    observed = completed.stdout + completed.stderr
+    assert completed.returncode == 0, observed
+    selected = json.loads(completed.stdout)
+    assert selected["transport"]["type"] == "stdio"
+    assert selected["transport"]["command"] == str(
+        output / "shared" / "brain-mcp-bridge"
+    )
 
 
 def test_fixture_refuses_unknown_run_before_docker_or_output(tmp_path: Path):
@@ -426,15 +542,41 @@ def test_fixture_preserves_an_output_created_during_publication_race(tmp_path: P
     assert (output / "sentinel").read_text(encoding="utf-8") == "other owner\n"
 
 
-def test_fixture_cleanup_preserves_output_swapped_during_materialisation(
+def test_fixture_retains_its_partial_output_on_materialisation_failure(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ):
     application, _docker = _application(tmp_path)
     output = tmp_path / "fixture"
-    displaced = tmp_path / "displaced-fixture"
 
-    def swap_output(*_args, **_kwargs):
-        output.rename(displaced)
+    def fail_after_write(root: Path, **_kwargs):
+        (root / "partial").write_text("inspect me\n", encoding="utf-8")
+        raise RuntimeError("injected publication failure")
+
+    monkeypatch.setattr(fixture_module, "_materialise_fixture", fail_after_write)
+
+    result = application.dispatch(
+        "fixture.create",
+        {"run_id": RUN_ID, "skills": ["shaping"], "output": str(output)},
+    )
+
+    assert not result.ok
+    assert result.effect_certainty.value == "partial"
+    assert result.payload["cleanup_attempted"] is False
+    assert result.payload["materialisation_error"] == "injected publication failure"
+    assert "publication_error" not in result.payload
+    partial = Path(result.payload["partial_fixture"])
+    assert (partial / "partial").read_text(encoding="utf-8") == "inspect me\n"
+    assert not output.exists()
+
+
+def test_fixture_never_deletes_output_swapped_during_materialisation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    application, _docker = _application(tmp_path)
+    output = tmp_path / "fixture"
+
+    def swap_output(root: Path, **_kwargs):
+        (root / "partial").write_text("inspect me\n", encoding="utf-8")
         output.mkdir()
         (output / "sentinel").write_text("replacement owner\n", encoding="utf-8")
         raise RuntimeError("injected publication failure")
@@ -448,9 +590,198 @@ def test_fixture_cleanup_preserves_output_swapped_during_materialisation(
 
     assert not result.ok
     assert result.effect_certainty.value == "partial"
-    assert "ownership changed" in result.payload["cleanup_error"]
+    assert result.payload["cleanup_attempted"] is False
     assert (output / "sentinel").read_text(encoding="utf-8") == "replacement owner\n"
-    assert displaced.is_dir()
+    assert (Path(result.payload["partial_fixture"]) / "partial").is_file()
+
+
+def test_fixture_distinguishes_exclusive_publication_failure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    application, _docker = _application(tmp_path)
+    output = tmp_path / "fixture"
+
+    def refuse_publication(_staging: Path, _output: Path) -> None:
+        raise FileExistsError("output was claimed concurrently")
+
+    monkeypatch.setattr(fixture_module, "publish_directory_exclusive", refuse_publication)
+
+    result = application.dispatch(
+        "fixture.create",
+        {"run_id": RUN_ID, "skills": ["shaping"], "output": str(output)},
+    )
+
+    assert not result.ok
+    assert result.effect_certainty.value == "partial"
+    assert result.payload["publication_error"] == "output was claimed concurrently"
+    assert "materialisation_error" not in result.payload
+    assert Path(result.payload["partial_fixture"]).is_dir()
+    assert not output.exists()
+
+
+def test_fixture_reports_no_effect_when_staging_cannot_be_created(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    application, _docker = _application(tmp_path)
+    output = tmp_path / "fixture"
+
+    def refuse_staging(_output: Path) -> Path:
+        raise PermissionError("staging parent is not writable")
+
+    monkeypatch.setattr(fixture_module, "create_staging_directory", refuse_staging)
+
+    result = application.dispatch(
+        "fixture.create",
+        {"run_id": RUN_ID, "skills": ["shaping"], "output": str(output)},
+    )
+
+    assert not result.ok
+    assert result.effect_certainty.value == "none"
+    assert "not writable" in result.errors[0]["message"]
+    assert not output.exists()
+
+
+def test_fixture_preserves_probe_timeout_and_post_probe_manifest(
+    tmp_path: Path,
+):
+    application, docker = _application(tmp_path)
+    docker.probe_execution = ExecutionSpec(
+        succeeded=False,
+        timed_out=True,
+        evidence_complete=False,
+    )
+    output = tmp_path / "fixture"
+
+    result = application.dispatch(
+        "fixture.create",
+        {"run_id": RUN_ID, "skills": ["shaping"], "output": str(output)},
+    )
+
+    assert not result.ok
+    assert result.outcome.value == "timeout"
+    assert result.effect_certainty.value == "none"
+    assert result.evidence_completeness.value == "partial"
+    assert result.payload["run_modified"] is False
+    assert docker.manifest_calls == 2
+    assert not output.exists()
+
+
+def test_fixture_preserves_probe_timeout_when_post_probe_manifest_also_fails(
+    tmp_path: Path,
+):
+    application, docker = _application(tmp_path)
+    docker.probe_execution = ExecutionSpec(
+        succeeded=False,
+        timed_out=True,
+        evidence_complete=False,
+    )
+    docker.after_manifest_execution = ExecutionSpec(succeeded=False)
+    output = tmp_path / "fixture"
+
+    result = application.dispatch(
+        "fixture.create",
+        {"run_id": RUN_ID, "skills": ["shaping"], "output": str(output)},
+    )
+
+    assert not result.ok
+    assert result.outcome.value == "timeout"
+    assert result.effect_certainty.value == "unknown"
+    assert result.evidence_completeness.value == "partial"
+    assert docker.manifest_calls == 2
+    assert not output.exists()
+
+
+def test_fixture_success_reports_partial_probe_evidence(tmp_path: Path):
+    application, docker = _application(tmp_path)
+    docker.probe_execution = ExecutionSpec(evidence_complete=False)
+    output = tmp_path / "fixture"
+
+    result = application.dispatch(
+        "fixture.create",
+        {"run_id": RUN_ID, "skills": ["shaping"], "output": str(output)},
+    )
+
+    assert result.ok
+    assert result.evidence_completeness.value == "partial"
+    assert output.is_dir()
+
+
+def test_fixture_reports_known_effect_when_diff_evidence_write_fails(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    application, _docker = _application(tmp_path)
+    output = tmp_path / "fixture"
+    original_write_text = Path.write_text
+
+    def selective_failure(path: Path, *args, **kwargs):
+        if path.name == "run-manifest-diff.json":
+            raise OSError("evidence volume is unavailable")
+        return original_write_text(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "write_text", selective_failure)
+
+    result = application.dispatch(
+        "fixture.create",
+        {"run_id": RUN_ID, "skills": ["shaping"], "output": str(output)},
+    )
+
+    assert not result.ok
+    assert result.effect_certainty.value == "none"
+    assert result.evidence_completeness.value == "partial"
+    assert result.payload["run_modified"] is False
+    assert not output.exists()
+
+
+def test_fixture_preserves_probe_timeout_when_diff_evidence_write_fails(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    application, docker = _application(tmp_path)
+    docker.probe_execution = ExecutionSpec(succeeded=False, timed_out=True)
+    original_write_text = Path.write_text
+
+    def selective_failure(path: Path, *args, **kwargs):
+        if path.name == "run-manifest-diff.json":
+            raise OSError("evidence volume is unavailable")
+        return original_write_text(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "write_text", selective_failure)
+
+    result = application.dispatch(
+        "fixture.create",
+        {"run_id": RUN_ID, "skills": ["shaping"], "output": str(tmp_path / "fixture")},
+    )
+
+    assert not result.ok
+    assert result.outcome.value == "timeout"
+    assert result.effect_certainty.value == "none"
+    assert result.evidence_completeness.value == "partial"
+
+
+def test_exclusive_publication_never_replaces_an_existing_directory(tmp_path: Path):
+    staging = tmp_path / "staging"
+    output = tmp_path / "fixture"
+    staging.mkdir()
+    (staging / "fixture").write_text("ours\n", encoding="utf-8")
+    output.mkdir()
+    (output / "sentinel").write_text("other owner\n", encoding="utf-8")
+
+    with pytest.raises(OSError):
+        publish_directory_exclusive(staging, output)
+
+    assert (output / "sentinel").read_text(encoding="utf-8") == "other owner\n"
+    assert (staging / "fixture").read_text(encoding="utf-8") == "ours\n"
+
+
+def test_exclusive_publication_moves_staging_to_unclaimed_output(tmp_path: Path):
+    staging = tmp_path / "staging"
+    output = tmp_path / "fixture"
+    staging.mkdir()
+    (staging / "fixture").write_text("ours\n", encoding="utf-8")
+
+    publish_directory_exclusive(staging, output)
+
+    assert not staging.exists()
+    assert (output / "fixture").read_text(encoding="utf-8") == "ours\n"
 
 
 def test_fixture_refuses_publication_when_probe_changes_the_run(tmp_path: Path):
@@ -480,6 +811,13 @@ def test_streamed_probe_generates_loader_from_the_selected_brain(tmp_path: Path)
     vault = tmp_path / "vault"
     core = vault / ".brain-core"
     shutil.copytree(Path("src/brain-core"), core)
+    user_skill = vault / "_Config" / "Skills" / "code-review"
+    shutil.copytree(core / "skills" / "code-review", user_skill)
+    skill_document = user_skill / "SKILL.md"
+    skill_document.write_text(
+        skill_document.read_text(encoding="utf-8") + "\n<!-- user override -->\n",
+        encoding="utf-8",
+    )
     managed_python = Path(sys.executable).resolve()
     (vault / ".mcp.json").write_text(
         json.dumps(
@@ -500,6 +838,17 @@ def test_streamed_probe_generates_loader_from_the_selected_brain(tmp_path: Path)
         ),
         encoding="utf-8",
     )
+    codex_config = vault / ".codex" / "config.toml"
+    codex_config.parent.mkdir()
+    codex_content = (
+        "[mcp_servers.brain]\n"
+        f'command = {json.dumps(str(managed_python))}\n'
+        f'args = ["-m", "brain_mcp.proxy", {json.dumps(str(managed_python))}, '
+        '"brain_mcp.server"]\n'
+        "[mcp_servers.brain.env]\n"
+        f'PYTHONPATH = {json.dumps(str(core))}\n'
+    )
+    codex_config.write_text(codex_content, encoding="utf-8")
 
     completed = subprocess.run(
         [
@@ -509,6 +858,10 @@ def test_streamed_probe_generates_loader_from_the_selected_brain(tmp_path: Path)
             str(vault),
             "--skill",
             "shaping",
+            "--skill",
+            "code-review",
+            "--skill",
+            "software-design-principles",
             "--tree-manifest",
             str(TOOL_ROOT / "container" / "tree_manifest.py"),
         ],
@@ -522,9 +875,36 @@ def test_streamed_probe_generates_loader_from_the_selected_brain(tmp_path: Path)
     probe = json.loads(completed.stdout)
     assert probe["core"]["version"] == (core / "VERSION").read_text().strip()
     assert probe["mcp"]["command"] == str(managed_python)
-    assert probe["skills"][0]["source"] == "core"
-    assert probe["skills"][0]["package_path"] == ".brain-core/skills/shaping"
-    assert "resource.read(resource=\"skill\", reference=\"shaping\")" in probe["skills"][0]["adapter"]
+    assert probe["mcp"]["sources"] == [".mcp.json", ".codex/config.toml"]
+    by_name = {row["name"]: row for row in probe["skills"]}
+    assert set(by_name) == {"shaping", "code-review", "software-design-principles"}
+    assert by_name["shaping"]["source"] == "core"
+    assert by_name["shaping"]["package_path"] == ".brain-core/skills/shaping"
+    assert by_name["code-review"]["source"] == "user"
+    assert by_name["code-review"]["package_path"] == "_Config/Skills/code-review"
+    assert "resource.read(resource=\"skill\", reference=\"code-review\")" in (
+        by_name["code-review"]["adapter"]
+    )
+    assert by_name["code-review"]["adapter_sha256"] == hashlib.sha256(
+        by_name["code-review"]["adapter"].encode("utf-8")
+    ).hexdigest()
+    assert by_name["software-design-principles"]["source"] == "core"
+
+    codex_config.write_text(
+        codex_content.replace('"brain_mcp.server"]', '"different.server"]'),
+        encoding="utf-8",
+    )
+    disagreement = subprocess.run(
+        completed.args,
+        check=False,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        env={"PYTHONDONTWRITEBYTECODE": "1"},
+    )
+    assert disagreement.returncode != 0
+    assert "registrations disagree" in disagreement.stderr
+    codex_config.write_text(codex_content, encoding="utf-8")
 
     secret = "must-not-enter-evidence"
     config = json.loads((vault / ".mcp.json").read_text(encoding="utf-8"))
@@ -543,6 +923,27 @@ def test_streamed_probe_generates_loader_from_the_selected_brain(tmp_path: Path)
     assert secret not in rejected.stderr
 
 
+def test_probe_adapter_handoff_falls_back_for_previous_core_loader(tmp_path: Path):
+    specification = importlib.util.spec_from_file_location(
+        "brain_lab_active_brain_probe",
+        TOOL_ROOT / "host_fixture" / "active_brain_probe.py",
+    )
+    assert specification is not None and specification.loader is not None
+    module = importlib.util.module_from_spec(specification)
+    specification.loader.exec_module(module)
+    calls = []
+
+    def previous_loader(vault, name):
+        calls.append((vault, name))
+        return "legacy adapter"
+
+    vault = tmp_path / "vault"
+    assert module._adapter_from_snapshot(previous_loader, vault, "shaping", object()) == (
+        "legacy adapter"
+    )
+    assert calls == [(vault, "shaping")]
+
+
 def test_bridge_preserves_stdio_and_fails_closed_for_a_stopped_run(tmp_path: Path):
     fixture = tmp_path / "fixture"
     fixture.mkdir()
@@ -554,7 +955,10 @@ def test_bridge_preserves_stdio_and_fails_closed_for_a_stopped_run(tmp_path: Pat
         "run_id": RUN_ID,
         "container_id": CONTAINER_ID,
         "docker_executable": "fixture-docker",
-        "argv": ["fixture-docker", "exec", "--interactive", CONTAINER_ID, "cat"],
+        "working_directory": "/home/brain/vault",
+        "environment": {},
+        "command": "cat",
+        "args": [],
     }
     bridge.with_suffix(".json").write_text(json.dumps(descriptor), encoding="utf-8")
 
@@ -568,9 +972,9 @@ import os
 from pathlib import Path
 import sys
 
-if sys.argv[1:3] == ["container", "inspect"]:
-    print("true" if os.environ.get("FIXTURE_RUNNING", "true") == "true" else "false")
-    raise SystemExit(0)
+if os.environ.get("FIXTURE_RUNNING", "true") != "true":
+    print("selected container is not running", file=sys.stderr)
+    raise SystemExit(3)
 Path(os.environ["FIXTURE_RECORD"]).write_text(json.dumps(sys.argv[1:]))
 sys.stdout.buffer.write(sys.stdin.buffer.read())
 """,
@@ -607,6 +1011,63 @@ sys.stdout.buffer.write(sys.stdin.buffer.read())
     assert stopped.returncode == 3
     assert stopped.stdout == b""
     assert b"not running" in stopped.stderr
+
+    invalid = dict(descriptor)
+    invalid["schema"] = "unsupported"
+    bridge.with_suffix(".json").write_text(json.dumps(invalid), encoding="utf-8")
+    malformed = subprocess.run(
+        [str(bridge)],
+        input=b"must-not-exec",
+        check=False,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        env=environment,
+    )
+    assert malformed.returncode == 2
+    assert b"unsupported schema" in malformed.stderr
+
+    bridge.with_suffix(".json").write_text("[]", encoding="utf-8")
+    wrong_root = subprocess.run(
+        [str(bridge)],
+        input=b"must-not-exec",
+        check=False,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        env=environment,
+    )
+    assert wrong_root.returncode == 2
+    assert wrong_root.stdout == b""
+    assert b"root must be an object" in wrong_root.stderr
+
+    nul_command = dict(descriptor)
+    nul_command["command"] = "cat\0unexpected"
+    bridge.with_suffix(".json").write_text(json.dumps(nul_command), encoding="utf-8")
+    malformed_nul = subprocess.run(
+        [str(bridge)],
+        input=b"must-not-exec",
+        check=False,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        env=environment,
+    )
+    assert malformed_nul.returncode == 2
+    assert malformed_nul.stdout == b""
+    assert b"required fields" in malformed_nul.stderr
+
+    missing = dict(descriptor)
+    missing["docker_executable"] = "definitely-missing-fixture-docker"
+    bridge.with_suffix(".json").write_text(json.dumps(missing), encoding="utf-8")
+    unavailable = subprocess.run(
+        [str(bridge)],
+        input=b"must-not-exec",
+        check=False,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        env=environment,
+    )
+    assert unavailable.returncode == 3
+    assert unavailable.stdout == b""
+    assert b"could not start its Docker bridge" in unavailable.stderr
 
 
 @pytest.mark.skipif(

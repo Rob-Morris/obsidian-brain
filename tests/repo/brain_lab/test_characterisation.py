@@ -8,6 +8,7 @@ import subprocess
 import sys
 
 from brain_lab.compatibility import CompatibilityManifest
+from brain_lab.container_contract import CONTAINER_PYTHON
 from brain_lab.manifests import normalised_core_tree
 
 
@@ -72,6 +73,14 @@ def test_acceptance_matrix_has_unique_executable_evidence_owners():
     operations = {step["operation"] for step in scenario["steps"]}
     assert {"baseline.prepare", "run.copy-in", "run.exec", "run.recreate"} <= operations
     assert scenario["host_state"] is not False
+    manifest_commands = [
+        step["request"]["argv"]
+        for step in scenario["steps"]
+        if step["operation"] == "run.exec"
+        and any(argument.endswith("/tree_manifest.py") for argument in step["request"]["argv"])
+    ]
+    assert manifest_commands
+    assert all(command[0] == CONTAINER_PYTHON for command in manifest_commands)
 
 
 def test_package_input_recorder_captures_repository_content_and_package_versions(tmp_path: Path):

@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any, Mapping, Sequence
 
 from .application import Application, HandlerResult, OperationContext, OperationFailure
+from .container_contract import CONTAINER_PYTHON
 from .docker import IMPORTED_LABEL, DockerClient, DockerError
 from .model import (
     BaselineRecipe,
@@ -52,7 +53,7 @@ def _container_manifest(context: OperationContext, container: str, scope: str, s
         context,
         container,
         [
-            "python3.12",
+            CONTAINER_PYTHON,
             "/usr/local/lib/brain-lab/tree_manifest.py",
             "--root",
             root,
@@ -418,6 +419,7 @@ def _prepare(
         attempt_receipt["container"] = {"id": container_id, "name": container_name}
         context.store.write("attempt", attempt_id, attempt_receipt)
         values = {
+            "container_python": CONTAINER_PYTHON,
             "source": SOURCE_PATH,
             "vault": VAULT_PATH,
             "version": source["spec"]["core_version"],

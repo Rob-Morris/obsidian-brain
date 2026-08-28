@@ -3,17 +3,19 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 import re
-import shutil
-import stat
 from typing import Any
 
 from .application import Application, HandlerResult, OperationContext, OperationFailure
+from .container_contract import CONTAINER_PYTHON
 from .docker import DockerError
+from .fixture_publication import create_staging_directory, publish_directory_exclusive
 from .fixture_renderers import render_clients
-from .model import EffectCertainty, EvidenceCompleteness, require_keys
-from .run_state import capture_run_manifest, filesystem_diff
+from .model import EffectCertainty, EvidenceCompleteness, Outcome, require_keys
+from .process import ProcessExecution
+from .run_state import RunManifestCaptureError, capture_run_manifest, filesystem_diff
 
 
 FIXTURE_SCHEMA = "brain-lab.host-fixture/1"
@@ -24,6 +26,43 @@ _MAX_SKILL_FILES = 512
 _MAX_SKILL_BYTES = 32 * 1024 * 1024
 _MAX_SKILLS = 32
 
+
+class ActiveBrainProbeError(RuntimeError):
+    def __init__(self, message: str, execution: ProcessExecution | None = None):
+        super().__init__(message)
+        self.execution = execution
+
+
+@dataclass(frozen=True)
+class VerifiedActiveBrain:
+    probe: dict[str, Any]
+    evidence_completeness: EvidenceCompleteness
+
+
+def _execution_outcome(execution: ProcessExecution | None) -> Outcome:
+    if execution is not None and execution.timed_out:
+        return Outcome.TIMEOUT
+    if execution is not None and execution.cancelled:
+        return Outcome.CANCELLED
+    return Outcome.FAILURE
+
+
+def _combined_failure_outcome(*executions: ProcessExecution | None) -> Outcome:
+    for execution in executions:
+        outcome = _execution_outcome(execution)
+        if outcome is not Outcome.FAILURE:
+            return outcome
+    return Outcome.FAILURE
+
+
+def _execution_evidence_complete(execution: ProcessExecution | None) -> bool:
+    return execution is None or execution.evidence_complete
+
+
+def _evidence_completeness(complete: bool) -> EvidenceCompleteness:
+    return EvidenceCompleteness.COMPLETE if complete else EvidenceCompleteness.PARTIAL
+
+
 def _sha256_bytes(value: bytes) -> str:
     return hashlib.sha256(value).hexdigest()
 
@@ -33,33 +72,12 @@ def _write_text(path: Path, content: str, *, executable: bool = False) -> str:
     path.write_text(content, encoding="utf-8")
     if executable:
         path.chmod(0o755)
-    return _sha256_bytes(content.encode("utf-8"))
+    return _sha256_bytes(path.read_bytes())
 
 
 def _write_json(path: Path, value: Any) -> str:
     content = json.dumps(value, indent=2, sort_keys=True) + "\n"
     return _write_text(path, content)
-
-
-def _directory_identity(path: Path) -> tuple[int, int]:
-    metadata = path.lstat()
-    if not stat.S_ISDIR(metadata.st_mode):
-        raise OSError(f"fixture output is not a directory: {path}")
-    return metadata.st_dev, metadata.st_ino
-
-
-def _remove_owned_output(path: Path, identity: tuple[int, int]) -> str | None:
-    try:
-        current_identity = _directory_identity(path)
-    except OSError as exc:
-        return f"output ownership could not be verified; cleanup skipped: {exc}"
-    if current_identity != identity:
-        return "output ownership changed during publication; cleanup skipped"
-    try:
-        shutil.rmtree(path)
-    except OSError as exc:
-        return f"owned output could not be removed: {exc}"
-    return None
 
 
 def _validated_output(value: Any) -> Path:
@@ -96,31 +114,44 @@ def _probe_active_brain(
     *,
     container_id: str,
     skills: tuple[str, ...],
-) -> dict[str, Any]:
-    probe = (context.tool_root / "host_fixture" / "active_brain_probe.py").read_bytes()
-    argv = ["python3.12", "-", "--vault", "/home/brain/vault"]
+    probe_source: bytes,
+) -> tuple[dict[str, Any], ProcessExecution]:
+    argv = [CONTAINER_PYTHON, "-", "--vault", "/home/brain/vault"]
     for skill in skills:
         argv.extend(["--skill", skill])
-    execution = context.docker.exec(
-        container_id,
-        argv,
-        working_directory="/home/brain/vault",
-        environment={"PYTHONDONTWRITEBYTECODE": "1"},
-        stdin=probe,
-        evidence_directory=context.evidence_directory / "01-active-brain-probe",
-        timeout_seconds=120,
-    )
+    try:
+        execution = context.docker.exec(
+            container_id,
+            argv,
+            working_directory="/home/brain/vault",
+            environment={"PYTHONDONTWRITEBYTECODE": "1"},
+            stdin=probe_source,
+            evidence_directory=context.evidence_directory / "01-active-brain-probe",
+            timeout_seconds=120,
+        )
+    except DockerError as exc:
+        raise ActiveBrainProbeError(str(exc), exc.execution) from exc
     if not execution.succeeded:
-        raise ValueError("selected run does not expose the expected active Brain fixture surface")
+        raise ActiveBrainProbeError(
+            "selected run does not expose the expected active Brain fixture surface",
+            execution,
+        )
     if execution.stdout.truncated:
-        raise ValueError("active Brain fixture identity exceeded the evidence retention bound")
+        raise ActiveBrainProbeError(
+            "active Brain fixture identity exceeded the evidence retention bound",
+            execution,
+        )
     try:
         value = json.loads(Path(execution.stdout.path).read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
-        raise ValueError("active Brain fixture probe returned invalid JSON") from exc
+        raise ActiveBrainProbeError(
+            "active Brain fixture probe returned invalid JSON", execution
+        ) from exc
     if not isinstance(value, dict) or value.get("schema") != PROBE_SCHEMA:
-        raise ValueError("active Brain fixture probe returned an unsupported result")
-    return value
+        raise ActiveBrainProbeError(
+            "active Brain fixture probe returned an unsupported result", execution
+        )
+    return value, execution
 
 
 def _validate_digest(value: Any, *, label: str) -> str:
@@ -133,25 +164,33 @@ def _validate_digest(value: Any, *, label: str) -> str:
     return value
 
 
-def _validated_probe(value: dict[str, Any], skills: tuple[str, ...]) -> dict[str, Any]:
-    core = value.get("core")
-    mcp = value.get("mcp")
-    rows = value.get("skills")
-    if not isinstance(core, dict) or not isinstance(mcp, dict) or not isinstance(rows, list):
-        raise ValueError("active Brain fixture probe omitted required identity fields")
-    if not isinstance(core.get("version"), str) or not core["version"]:
+def _validated_core(value: Any) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        raise ValueError("active Brain fixture probe omitted Core identity")
+    if not isinstance(value.get("version"), str) or not value["version"]:
         raise ValueError("active Brain fixture probe returned an invalid Core version")
-    _validate_digest(core.get("tree_sha256"), label="Core digest")
+    digest = _validate_digest(value.get("tree_sha256"), label="Core digest")
     if any(
-        not isinstance(core.get(field), int) or core[field] < 0
+        not isinstance(value.get(field), int) or value[field] < 0
         for field in ("file_count", "total_bytes")
     ):
         raise ValueError("active Brain fixture probe returned invalid Core size metadata")
-    if mcp.get("vault_path") != "/home/brain/vault":
+    return {
+        "version": value["version"],
+        "tree_sha256": digest,
+        "file_count": value["file_count"],
+        "total_bytes": value["total_bytes"],
+    }
+
+
+def _validated_mcp(value: Any) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        raise ValueError("active Brain fixture probe omitted MCP identity")
+    if value.get("vault_path") != "/home/brain/vault":
         raise ValueError("active Brain fixture probe selected an unexpected vault path")
-    command = mcp.get("command")
-    arguments = mcp.get("args")
-    environment = mcp.get("environment")
+    command = value.get("command")
+    arguments = value.get("args")
+    environment = value.get("environment")
     if (
         not isinstance(command, str)
         or not isinstance(arguments, list)
@@ -181,61 +220,108 @@ def _validated_probe(value: dict[str, Any], skills: tuple[str, ...]) -> dict[str
     for key in ("BRAIN_VAULT_ROOT", "BRAIN_WORKSPACE_DIR"):
         if key in environment and environment[key] != "/home/brain/vault":
             raise ValueError(f"active Brain fixture probe returned an unexpected MCP {key}")
-    if mcp.get("source") not in {".mcp.json", ".codex/config.toml"}:
-        raise ValueError("active Brain fixture probe returned an unexpected MCP config source")
+    sources = value.get("sources")
+    allowed_sources = {".mcp.json", ".codex/config.toml"}
+    if (
+        not isinstance(sources, list)
+        or not sources
+        or not all(isinstance(source, str) and source in allowed_sources for source in sources)
+        or len(set(sources)) != len(sources)
+    ):
+        raise ValueError("active Brain fixture probe returned unexpected MCP config sources")
+    return {
+        "sources": sorted(sources),
+        "vault_path": value["vault_path"],
+        "command": command,
+        "args": list(arguments),
+        "environment": dict(sorted(environment.items())),
+    }
+
+
+def _validated_package_file(value: Any, *, skill: str) -> dict[str, Any]:
+    if not isinstance(value, dict):
+        raise ValueError(f"active Brain fixture probe returned an invalid file for {skill!r}")
+    path = value.get("path")
+    portable_path = PurePosixPath(path) if isinstance(path, str) else None
+    if (
+        portable_path is None
+        or portable_path.is_absolute()
+        or path in {"", ".", ".."}
+        or ".." in portable_path.parts
+    ):
+        raise ValueError(f"active Brain fixture probe returned an unsafe file for {skill!r}")
+    digest = _validate_digest(value.get("sha256"), label=f"{skill} file digest")
+    size = value.get("size")
+    executable = value.get("executable")
+    if not isinstance(size, int) or size < 0 or not isinstance(executable, bool):
+        raise ValueError(f"active Brain fixture probe returned invalid file metadata for {skill!r}")
+    return {"path": path, "sha256": digest, "size": size, "executable": executable}
+
+
+def _validated_skill(value: Any) -> dict[str, Any]:
+    if not isinstance(value, dict) or not isinstance(value.get("name"), str):
+        raise ValueError("active Brain fixture probe returned an invalid skill identity")
+    name = value["name"]
+    adapter = value.get("adapter")
+    if not isinstance(adapter, str) or not adapter:
+        raise ValueError(f"active Brain fixture probe returned an invalid loader for {name!r}")
+    adapter_digest = _validate_digest(value.get("adapter_sha256"), label=f"{name} loader digest")
+    if _sha256_bytes(adapter.encode("utf-8")) != adapter_digest:
+        raise ValueError(f"active Brain fixture probe returned inconsistent loader content for {name!r}")
+    package_digest = _validate_digest(
+        value.get("package_tree_sha256"), label=f"{name} package digest"
+    )
+    source = value.get("source")
+    if source not in {"user", "core"}:
+        raise ValueError(f"active Brain fixture probe returned an invalid source for {name!r}")
+    package_path = value.get("package_path")
+    expected_package_path = (
+        f"_Config/Skills/{name}" if source == "user" else f".brain-core/skills/{name}"
+    )
+    if package_path != expected_package_path:
+        raise ValueError(f"active Brain fixture probe returned an invalid path for {name!r}")
+    raw_files = value.get("package_files")
+    if not isinstance(raw_files, list) or not raw_files or len(raw_files) > _MAX_SKILL_FILES:
+        raise ValueError(f"active Brain fixture probe returned invalid files for {name!r}")
+    files = [_validated_package_file(item, skill=name) for item in raw_files]
+    paths = [item["path"] for item in files]
+    if len(set(paths)) != len(paths):
+        raise ValueError(f"active Brain fixture probe returned duplicate files for {name!r}")
+    if sum(item["size"] for item in files) > _MAX_SKILL_BYTES or "SKILL.md" not in paths:
+        raise ValueError(f"active Brain fixture probe returned an invalid package for {name!r}")
+    return {
+        "name": name,
+        "source": source,
+        "package_path": package_path,
+        "package_tree_sha256": package_digest,
+        "package_files": files,
+        "adapter": adapter,
+        "adapter_sha256": adapter_digest,
+    }
+
+
+def _validated_probe(value: dict[str, Any], skills: tuple[str, ...]) -> dict[str, Any]:
+    if value.get("vault_path") != "/home/brain/vault":
+        raise ValueError("active Brain fixture probe returned an unexpected top-level vault path")
+    rows = value.get("skills")
+    if not isinstance(rows, list):
+        raise ValueError("active Brain fixture probe omitted skill identities")
     by_name = {}
-    for row in rows:
-        if not isinstance(row, dict) or not isinstance(row.get("name"), str):
-            raise ValueError("active Brain fixture probe returned an invalid skill identity")
+    for raw_row in rows:
+        row = _validated_skill(raw_row)
         name = row["name"]
         if name in by_name:
             raise ValueError(f"active Brain fixture probe returned duplicate skill {name!r}")
-        adapter = row.get("adapter")
-        if not isinstance(adapter, str) or not adapter:
-            raise ValueError(f"active Brain fixture probe returned an invalid loader for {name!r}")
-        adapter_digest = _validate_digest(row.get("adapter_sha256"), label=f"{name} loader digest")
-        if _sha256_bytes(adapter.encode("utf-8")) != adapter_digest:
-            raise ValueError(f"active Brain fixture probe returned inconsistent loader content for {name!r}")
-        _validate_digest(row.get("package_tree_sha256"), label=f"{name} package digest")
-        source = row.get("source")
-        if source not in {"user", "core"}:
-            raise ValueError(f"active Brain fixture probe returned an invalid source for {name!r}")
-        expected_package_path = (
-            f"_Config/Skills/{name}" if source == "user" else f".brain-core/skills/{name}"
-        )
-        if row.get("package_path") != expected_package_path:
-            raise ValueError(f"active Brain fixture probe returned an invalid path for {name!r}")
-        files = row.get("package_files")
-        if not isinstance(files, list) or not files or len(files) > _MAX_SKILL_FILES:
-            raise ValueError(f"active Brain fixture probe returned invalid files for {name!r}")
-        total_bytes = 0
-        seen_paths = set()
-        for item in files:
-            if not isinstance(item, dict):
-                raise ValueError(f"active Brain fixture probe returned an invalid file for {name!r}")
-            path = item.get("path")
-            portable_path = PurePosixPath(path) if isinstance(path, str) else None
-            if (
-                portable_path is None
-                or portable_path.is_absolute()
-                or path in {"", ".", ".."}
-                or ".." in portable_path.parts
-                or path in seen_paths
-            ):
-                raise ValueError(f"active Brain fixture probe returned an unsafe file for {name!r}")
-            seen_paths.add(path)
-            _validate_digest(item.get("sha256"), label=f"{name} file digest")
-            size = item.get("size")
-            if not isinstance(size, int) or size < 0 or not isinstance(item.get("executable"), bool):
-                raise ValueError(f"active Brain fixture probe returned invalid file metadata for {name!r}")
-            total_bytes += size
-        if total_bytes > _MAX_SKILL_BYTES or "SKILL.md" not in seen_paths:
-            raise ValueError(f"active Brain fixture probe returned an invalid package for {name!r}")
         by_name[name] = row
     if tuple(sorted(by_name)) != skills:
         raise ValueError("active Brain fixture probe did not return the exact requested skills")
-    value["skills"] = [by_name[name] for name in skills]
-    return value
+    return {
+        "schema": PROBE_SCHEMA,
+        "vault_path": value["vault_path"],
+        "core": _validated_core(value.get("core")),
+        "mcp": _validated_mcp(value.get("mcp")),
+        "skills": [by_name[name] for name in skills],
+    }
 
 
 def _bridge_descriptor(
@@ -253,22 +339,15 @@ def _bridge_descriptor(
         docker_executable = str(executable_path)
     elif "\\" in docker_executable:
         raise ValueError("fixture creation requires a portable Docker executable name or path")
-    docker_argv = [
-        docker_executable,
-        "exec",
-        "--interactive",
-        "--workdir",
-        mcp["vault_path"],
-    ]
-    for key, value in sorted(mcp["environment"].items()):
-        docker_argv.extend(["--env", f"{key}={value}"])
-    docker_argv.extend([container_id, mcp["command"], *mcp["args"]])
     return {
         "schema": "brain-lab.host-fixture-bridge/1",
         "run_id": run_id,
         "container_id": container_id,
         "docker_executable": docker_executable,
-        "argv": docker_argv,
+        "working_directory": mcp["vault_path"],
+        "environment": mcp["environment"],
+        "command": mcp["command"],
+        "args": mcp["args"],
     }
 
 
@@ -308,15 +387,15 @@ def _materialise_fixture(
             {
                 "name": skill["name"],
                 "source": skill["source"],
-                "package_path": skill.get("package_path"),
+                "package_path": skill["package_path"],
                 "package_tree_sha256": skill["package_tree_sha256"],
-                "package_files": skill.get("package_files", []),
+                "package_files": skill["package_files"],
                 "loader_path": relative.as_posix(),
                 "loader_sha256": loader_sha256,
             }
         )
 
-    clients = render_clients(root, output / bridge.relative_to(root))
+    clients = render_clients(root, output)
     container_name = inspect.get("Name")
     if isinstance(container_name, str):
         container_name = container_name.removeprefix("/")
@@ -335,7 +414,7 @@ def _materialise_fixture(
         "brain": {
             "vault_path": probe["mcp"]["vault_path"],
             "core": probe["core"],
-            "mcp_config_source": probe["mcp"].get("source"),
+            "mcp_config_sources": probe["mcp"]["sources"],
         },
         "bridge": {
             "path": "shared/brain-mcp-bridge",
@@ -350,8 +429,202 @@ def _materialise_fixture(
     return manifest
 
 
+def _verify_active_brain(
+    context: OperationContext,
+    *,
+    resource: dict[str, str],
+    container_id: str,
+    skills: tuple[str, ...],
+    probe_source: bytes,
+) -> VerifiedActiveBrain:
+    try:
+        before_capture = capture_run_manifest(
+            context,
+            container_id,
+            "01-before-run-manifest",
+        )
+    except RunManifestCaptureError as exc:
+        raise OperationFailure(
+            "fixture creation could not establish the run's pre-probe identity",
+            outcome=_execution_outcome(exc.execution),
+            effect_certainty=EffectCertainty.NONE,
+            evidence_completeness=_evidence_completeness(exc.evidence_complete),
+            resource=resource,
+            error_type=type(exc).__name__,
+        ) from exc
+
+    probe_error: ActiveBrainProbeError | None = None
+    probe_execution: ProcessExecution | None = None
+    raw_probe: dict[str, Any] | None = None
+    try:
+        raw_probe, probe_execution = _probe_active_brain(
+            context,
+            container_id=container_id,
+            skills=skills,
+            probe_source=probe_source,
+        )
+    except ActiveBrainProbeError as exc:
+        probe_error = exc
+    try:
+        after_capture = capture_run_manifest(
+            context,
+            container_id,
+            "03-after-run-manifest",
+        )
+    except RunManifestCaptureError as exc:
+        probe_failure_execution = probe_error.execution if probe_error is not None else None
+        raise OperationFailure(
+            "fixture creation could not prove whether active-Brain inspection changed the run",
+            outcome=_combined_failure_outcome(probe_failure_execution, exc.execution),
+            effect_certainty=EffectCertainty.UNKNOWN,
+            evidence_completeness=_evidence_completeness(
+                before_capture.evidence_complete
+                and _execution_evidence_complete(
+                    probe_error.execution if probe_error is not None else probe_execution
+                )
+                and exc.evidence_complete
+            ),
+            resource=resource,
+            payload={"before_tree_sha256": before_capture.manifest.get("tree_sha256")},
+            error_type=type(exc).__name__,
+        ) from exc
+
+    inspection_complete = (
+        before_capture.evidence_complete
+        and _execution_evidence_complete(
+            probe_error.execution if probe_error is not None else probe_execution
+        )
+        and after_capture.evidence_complete
+    )
+    evidence_completeness = _evidence_completeness(inspection_complete)
+    run_diff = filesystem_diff(before_capture.manifest, after_capture.manifest)
+    try:
+        (context.evidence_directory / "run-manifest-diff.json").write_text(
+            json.dumps(run_diff, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+    except OSError as exc:
+        raise OperationFailure(
+            "fixture creation could not retain run-manifest diff evidence",
+            outcome=(
+                _execution_outcome(probe_error.execution)
+                if probe_error is not None
+                else Outcome.FAILURE
+            ),
+            effect_certainty=(
+                EffectCertainty.NONE if run_diff["equal"] else EffectCertainty.PARTIAL
+            ),
+            evidence_completeness=EvidenceCompleteness.PARTIAL,
+            resource=resource,
+            payload={"run_manifest_diff": run_diff, "run_modified": not run_diff["equal"]},
+            error_type=type(exc).__name__,
+        ) from exc
+    if not run_diff["equal"]:
+        raise OperationFailure(
+            "active-Brain inspection changed the retained run; no fixture was published",
+            outcome=(
+                _execution_outcome(probe_error.execution)
+                if probe_error is not None
+                else Outcome.FAILURE
+            ),
+            effect_certainty=EffectCertainty.PARTIAL,
+            evidence_completeness=evidence_completeness,
+            resource=resource,
+            payload={"run_modified": True, "run_manifest_diff": run_diff},
+            error_type="RunModified",
+        )
+    if probe_error is not None:
+        raise OperationFailure(
+            str(probe_error),
+            outcome=_execution_outcome(probe_error.execution),
+            effect_certainty=EffectCertainty.NONE,
+            evidence_completeness=evidence_completeness,
+            resource=resource,
+            payload={"run_modified": False},
+            error_type=type(probe_error).__name__,
+        ) from probe_error
+    assert raw_probe is not None
+    try:
+        probe = _validated_probe(raw_probe, skills)
+    except (KeyError, TypeError, ValueError) as exc:
+        raise OperationFailure(
+            str(exc),
+            effect_certainty=EffectCertainty.NONE,
+            evidence_completeness=evidence_completeness,
+            resource=resource,
+            payload={"run_modified": False},
+            error_type=type(exc).__name__,
+        ) from exc
+    return VerifiedActiveBrain(probe, evidence_completeness)
+
+
+def _publish_fixture(
+    context: OperationContext,
+    *,
+    output: Path,
+    resource: dict[str, str],
+    run_id: str,
+    receipt: dict[str, Any],
+    inspect: dict[str, Any],
+    verified: VerifiedActiveBrain,
+    bridge_source: str,
+) -> dict[str, Any]:
+    try:
+        staging = create_staging_directory(output)
+    except OSError as exc:
+        raise OperationFailure(
+            str(exc),
+            effect_certainty=EffectCertainty.NONE,
+            evidence_completeness=verified.evidence_completeness,
+            resource=resource,
+            error_type=type(exc).__name__,
+        ) from exc
+    try:
+        manifest = _materialise_fixture(
+            staging,
+            output=output,
+            run_id=run_id,
+            receipt=receipt,
+            inspect=inspect,
+            probe=verified.probe,
+            docker_executable=context.docker.executable,
+            bridge_source=bridge_source,
+        )
+    except Exception as exc:
+        raise OperationFailure(
+            "fixture materialisation failed; staged partial fixture was retained",
+            effect_certainty=EffectCertainty.PARTIAL,
+            evidence_completeness=verified.evidence_completeness,
+            resource=resource,
+            payload={
+                "requested_output": str(output),
+                "partial_fixture": str(staging),
+                "cleanup_attempted": False,
+                "materialisation_error": str(exc),
+            },
+            error_type=type(exc).__name__,
+        ) from exc
+    try:
+        publish_directory_exclusive(staging, output)
+    except OSError as exc:
+        raise OperationFailure(
+            "fixture publication could not claim the requested output; staged fixture was retained",
+            effect_certainty=EffectCertainty.PARTIAL,
+            evidence_completeness=verified.evidence_completeness,
+            resource=resource,
+            payload={
+                "requested_output": str(output),
+                "partial_fixture": str(staging),
+                "cleanup_attempted": False,
+                "publication_error": str(exc),
+            },
+            error_type=type(exc).__name__,
+        ) from exc
+    return manifest
+
+
 def create_fixture(context: OperationContext, request: dict[str, Any]) -> HandlerResult:
-    run_id = request.get("run_id") if isinstance(request, dict) else None
+    run_id = request.get("run_id")
     try:
         require_keys(
             request,
@@ -368,6 +641,10 @@ def create_fixture(context: OperationContext, request: dict[str, Any]) -> Handle
         context.docker.verify_resource_labels(inspect, "run", run_id)
         if not bool(inspect.get("State", {}).get("Running")):
             raise ValueError(f"fixture run is not running: {run_id}")
+        probe_source = (context.tool_root / "host_fixture" / "active_brain_probe.py").read_bytes()
+        bridge_source = (context.tool_root / "host_fixture" / "brain_mcp_bridge.py").read_text(
+            encoding="utf-8"
+        )
     except (DockerError, KeyError, OSError, TypeError, ValueError) as exc:
         raise OperationFailure(
             str(exc),
@@ -380,145 +657,27 @@ def create_fixture(context: OperationContext, request: dict[str, Any]) -> Handle
             error_type=type(exc).__name__,
         ) from exc
 
-    before_complete = False
-    try:
-        before, before_error, before_complete = capture_run_manifest(
-            context,
-            inspect["Id"],
-            "01-before-run-manifest",
-        )
-        if before is None:
-            raise ValueError(before_error or "run manifest inspection failed")
-    except (DockerError, OSError, TypeError, ValueError) as exc:
-        raise OperationFailure(
-            "fixture creation could not establish the run's pre-probe identity",
-            effect_certainty=EffectCertainty.NONE,
-            evidence_completeness=(
-                EvidenceCompleteness.COMPLETE
-                if before_complete
-                else EvidenceCompleteness.PARTIAL
-            ),
-            resource={"kind": "run", "id": run_id, "docker_id": inspect["Id"]},
-            error_type=type(exc).__name__,
-        ) from exc
-
-    probe_error: Exception | None = None
-    raw_probe: dict[str, Any] | None = None
-    try:
-        raw_probe = _probe_active_brain(
-            context,
-            container_id=inspect["Id"],
-            skills=skills,
-        )
-    except (DockerError, OSError, TypeError, ValueError) as exc:
-        probe_error = exc
-    after_complete = False
-    try:
-        after, after_error, after_complete = capture_run_manifest(
-            context,
-            inspect["Id"],
-            "03-after-run-manifest",
-        )
-        if after is None:
-            raise ValueError(after_error or "run manifest inspection failed")
-    except (DockerError, OSError, TypeError, ValueError) as exc:
-        raise OperationFailure(
-            "fixture creation could not prove whether active-Brain inspection changed the run",
-            effect_certainty=EffectCertainty.UNKNOWN,
-            evidence_completeness=(
-                EvidenceCompleteness.COMPLETE
-                if after_complete
-                else EvidenceCompleteness.PARTIAL
-            ),
-            resource={"kind": "run", "id": run_id, "docker_id": inspect["Id"]},
-            payload={"before_tree_sha256": before.get("tree_sha256")},
-            error_type=type(exc).__name__,
-        ) from exc
-
-    run_diff = filesystem_diff(before, after)
-    (context.evidence_directory / "run-manifest-diff.json").write_text(
-        json.dumps(run_diff, indent=2, sort_keys=True) + "\n",
-        encoding="utf-8",
+    resource = {"kind": "run", "id": run_id, "docker_id": inspect["Id"]}
+    verified = _verify_active_brain(
+        context,
+        resource=resource,
+        container_id=inspect["Id"],
+        skills=skills,
+        probe_source=probe_source,
     )
-    if not run_diff["equal"]:
-        raise OperationFailure(
-            "active-Brain inspection changed the retained run; no fixture was published",
-            effect_certainty=EffectCertainty.PARTIAL,
-            resource={"kind": "run", "id": run_id, "docker_id": inspect["Id"]},
-            payload={"run_modified": True, "run_manifest_diff": run_diff},
-            error_type="RunModified",
-        )
-    if probe_error is not None:
-        raise OperationFailure(
-            str(probe_error),
-            effect_certainty=EffectCertainty.NONE,
-            resource={"kind": "run", "id": run_id, "docker_id": inspect["Id"]},
-            payload={"run_modified": False},
-            error_type=type(probe_error).__name__,
-        ) from probe_error
-    assert raw_probe is not None
-    try:
-        probe = _validated_probe(raw_probe, skills)
-    except (KeyError, TypeError, ValueError) as exc:
-        raise OperationFailure(
-            str(exc),
-            effect_certainty=EffectCertainty.NONE,
-            resource={"kind": "run", "id": run_id, "docker_id": inspect["Id"]},
-            payload={"run_modified": False},
-            error_type=type(exc).__name__,
-        ) from exc
-
-    try:
-        bridge_source = (context.tool_root / "host_fixture" / "brain_mcp_bridge.py").read_text(
-            encoding="utf-8"
-        )
-    except OSError as exc:
-        raise OperationFailure(
-            "fixture bridge asset is unavailable",
-            effect_certainty=EffectCertainty.NONE,
-            resource={"kind": "run", "id": run_id, "docker_id": inspect["Id"]},
-            error_type=type(exc).__name__,
-        ) from exc
-    try:
-        output.mkdir(mode=0o700)
-        output_identity = _directory_identity(output)
-    except FileExistsError as exc:
-        raise OperationFailure(
-            f"fixture output already exists: {output}",
-            effect_certainty=EffectCertainty.NONE,
-            resource={"kind": "run", "id": run_id, "docker_id": inspect["Id"]},
-            error_type=type(exc).__name__,
-        ) from exc
-    try:
-        manifest = _materialise_fixture(
-            output,
-            output=output,
-            run_id=run_id,
-            receipt=receipt,
-            inspect=inspect,
-            probe=probe,
-            docker_executable=context.docker.executable,
-            bridge_source=bridge_source,
-        )
-    except Exception as exc:
-        cleanup_error = _remove_owned_output(output, output_identity)
-        if cleanup_error is not None:
-            raise OperationFailure(
-                "fixture publication failed and its output could not be safely removed",
-                effect_certainty=EffectCertainty.PARTIAL,
-                resource={"kind": "run", "id": run_id, "docker_id": inspect["Id"]},
-                payload={"output": str(output), "cleanup_error": cleanup_error},
-                error_type=type(exc).__name__,
-            ) from exc
-        raise OperationFailure(
-            str(exc),
-            effect_certainty=EffectCertainty.NONE,
-            resource={"kind": "run", "id": run_id, "docker_id": inspect["Id"]},
-            error_type=type(exc).__name__,
-        ) from exc
+    manifest = _publish_fixture(
+        context,
+        output=output,
+        resource=resource,
+        run_id=run_id,
+        receipt=receipt,
+        inspect=inspect,
+        verified=verified,
+        bridge_source=bridge_source,
+    )
 
     return HandlerResult(
-        resource={"kind": "run", "id": run_id, "docker_id": inspect["Id"]},
+        resource=resource,
         payload={
             "output": str(output),
             "manifest": manifest,
@@ -526,6 +685,7 @@ def create_fixture(context: OperationContext, request: dict[str, Any]) -> Handle
             "run_modified": False,
         },
         effect_certainty=EffectCertainty.COMMITTED,
+        evidence_completeness=verified.evidence_completeness,
     )
 
 

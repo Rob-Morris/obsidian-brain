@@ -6,9 +6,13 @@ import hashlib
 import json
 import os
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from _bootstrap.mcp_transport import SUPPORTED_CLIENTS
 from _common import safe_write, safe_write_json
+
+if TYPE_CHECKING:
+    from _skill_library.models import PackageSnapshot
 
 
 CLIENT_SKILLS_DIRS = {
@@ -33,6 +37,8 @@ class AgentSkillConfigError(RuntimeError):
 def load_effective_skill_adapter(
     vault_root: str | Path,
     skill_name: str,
+    *,
+    package_snapshot: PackageSnapshot | None = None,
 ) -> str:
     """Build a thin adapter that resolves the effective skill on every use."""
     try:
@@ -53,10 +59,20 @@ def load_effective_skill_adapter(
     package = effective_skill_path(user, core)
     if not package.is_dir() or package.is_symlink():
         raise AgentSkillConfigError(f"Brain skill not found: {skill_name}")
-    try:
-        snapshot = inspect_package(package, expected_name=skill_name)
-    except (OSError, ValueError) as exc:
-        raise AgentSkillConfigError(f"invalid Brain skill {skill_name!r}: {exc}") from exc
+    if package_snapshot is None:
+        try:
+            snapshot = inspect_package(package, expected_name=skill_name)
+        except (OSError, ValueError) as exc:
+            raise AgentSkillConfigError(f"invalid Brain skill {skill_name!r}: {exc}") from exc
+    elif (
+        package_snapshot.name != skill_name
+        or package_snapshot.root != package
+    ):
+        raise AgentSkillConfigError(
+            f"prepared package snapshot does not identify the effective skill {skill_name!r}"
+        )
+    else:
+        snapshot = package_snapshot
     if skill_name == ADAPTER_SKILL:
         return load_shaping_adapter()
     if snapshot.executable_files:

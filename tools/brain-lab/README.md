@@ -201,7 +201,7 @@ active-Brain loaders generated for the requested effective skills. The bridge
 uses `docker exec -i` against the receipt-bound container; if that container is
 stopped or removed it fails explicitly and never falls back to a host Brain.
 `manifest.json` records the run generation, container and image IDs, installed
-Core version and normalised hash, MCP entry source, and package/loader hashes.
+Core version and normalised hash, equivalent MCP entry sources, and package/loader hashes.
 Creation compares bounded run-scope manifests before and after active-Brain inspection;
 it publishes nothing unless they are identical. If `--docker` is overridden,
 the exported bridge reuses that exact executable name or resolves its selected
@@ -215,14 +215,21 @@ Thin client layouts reuse that same payload:
   `clients/codex/environment.json`.
 - `clients/claude/project/` is an isolated project containing `.mcp.json` and
   `.claude/skills`; its selected project path is recorded in
-  `clients/claude/environment.json`.
+  `clients/claude/environment.json`. Launch Claude from that directory with the
+  recorded `required_arguments`; `--strict-mcp-config` excludes user-scoped MCP
+  bindings and `--setting-sources project` excludes user/local settings.
 
 Brain Lab does not launch either client, write real user/project client config,
 copy credentials, or modify/stop/recreate the selected run. Creation refuses an
 unknown, stopped, wrongly labelled, or incompatible run and refuses any
 pre-existing output path rather than merging or overwriting it. Remove the
 fixture directory when the host-side investigation is complete; retain or
-discard the run separately with the normal run operations.
+discard the run separately with the normal run operations. Materialisation
+occurs in a private sibling staging
+directory and uses an atomic no-replace rename, so concurrent paths are never
+merged or overwritten. A failed materialisation or publication reports partial
+effects and the retained staging path; Brain Lab does not attempt cleanup, so
+the caller can inspect and explicitly remove it.
 
 ## Scenarios
 

@@ -9,6 +9,7 @@ from pathlib import Path, PurePosixPath
 from typing import Any
 
 from .application import Application, HandlerResult, OperationContext, OperationFailure
+from .container_contract import CONTAINER_PYTHON
 from .docker import DockerClient, DockerError
 from .model import (
     EffectCertainty,
@@ -18,8 +19,11 @@ from .model import (
     RunSpec,
     require_keys,
 )
-from .run_state import capture_run_manifest as _manifest_snapshot
-from .run_state import filesystem_diff as _filesystem_diff
+from .run_state import (
+    RunManifestCaptureError,
+    capture_run_manifest,
+    filesystem_diff,
+)
 
 
 def _run_source(context: OperationContext, request: dict[str, Any]) -> tuple[str, str, dict[str, Any], bool]:
@@ -169,7 +173,7 @@ def _capture_changed_content(
         execution = context.docker.exec(
             container,
             [
-                "python3.12",
+                CONTAINER_PYTHON,
                 "/usr/local/lib/brain-lab/changed_content.py",
                 "--root",
                 "/home/brain",
@@ -185,12 +189,24 @@ def _capture_changed_content(
     return execution.to_dict(), None, execution.evidence_complete
 
 
+def _manifest_evidence(
+    context: OperationContext,
+    container: str,
+    evidence_name: str,
+) -> tuple[dict[str, Any] | None, str | None, bool]:
+    try:
+        capture = capture_run_manifest(context, container, evidence_name)
+    except RunManifestCaptureError as exc:
+        return None, f"{type(exc).__name__}: {exc}", exc.evidence_complete
+    return capture.manifest, None, capture.evidence_complete
+
+
 def exec_run(context: OperationContext, request: dict[str, Any]) -> HandlerResult:
     run_id, command = _parse_exec_request(request)
     receipt = context.store.read("run", run_id)
     inspect = context.docker.container_inspect(receipt["container"]["id"], context.evidence_directory / "00-inspect")
     context.docker.verify_resource_labels(inspect, "run", run_id)
-    before, before_error, before_complete = _manifest_snapshot(
+    before, before_error, before_complete = _manifest_evidence(
         context, inspect["Id"], "01-before-manifest"
     )
     execution = context.docker.exec(
@@ -202,7 +218,7 @@ def exec_run(context: OperationContext, request: dict[str, Any]) -> HandlerResul
         timeout_seconds=command.timeout_seconds,
         evidence_directory=context.evidence_directory / "02-exec",
     )
-    after, after_error, after_complete = _manifest_snapshot(
+    after, after_error, after_complete = _manifest_evidence(
         context, inspect["Id"], "03-after-manifest"
     )
     evidence_complete = execution.evidence_complete and before_complete and after_complete
@@ -213,7 +229,7 @@ def exec_run(context: OperationContext, request: dict[str, Any]) -> HandlerResul
             "after_error": after_error,
         }
     else:
-        diff = _filesystem_diff(before, after)
+        diff = filesystem_diff(before, after)
         content, content_error, content_complete = _capture_changed_content(
             context, inspect["Id"], diff
         )
@@ -330,7 +346,7 @@ def _require_available_copy_destination(
     )
     execution = context.docker.exec(
         container,
-        ["python3.12", "-c", probe, str(destination)],
+        [CONTAINER_PYTHON, "-c", probe, str(destination)],
         evidence_directory=context.evidence_directory / "01-destination-check",
         timeout_seconds=60,
     )
