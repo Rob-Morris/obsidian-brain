@@ -8,6 +8,7 @@ Never edit past changelog entries. Only add new entries at the top.
 
 | Version | Date | Summary |
 |---|---|---|
+| [v0.62.4](changelog/v0.62.4.md) | 2026-08-28 | Backfill terminal-status keys with migrate_to_0_62_4 |
 | [v0.62.3](changelog/v0.62.3.md) | 2026-08-28 | Add isolated Brain Lab fixture clients |
 | [v0.62.2](changelog/v0.62.2.md) | 2026-08-28 | Compose portable shaping with Brain capabilities |
 | [v0.62.1](changelog/v0.62.1.md) | 2026-08-28 | Add disposable Linux Brain labs |
