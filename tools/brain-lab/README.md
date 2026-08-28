@@ -224,6 +224,11 @@ Thin client layouts reuse that same payload:
   recorded `required_arguments`; `--strict-mcp-config` excludes user-scoped MCP
   bindings and `--setting-sources project` excludes user/local settings.
 
+The isolated Codex home contains no authentication and is not a self-running
+model profile. For a live Codex drill, retain the normal authenticated host
+context and override only `mcp_servers.brain` with the fixture bridge. Do not
+copy host credentials into the fixture.
+
 Brain Lab does not launch either client, write real user/project client config,
 copy credentials, or modify/stop/recreate the selected run. Creation refuses an
 unknown, stopped, wrongly labelled, or incompatible run and refuses any
