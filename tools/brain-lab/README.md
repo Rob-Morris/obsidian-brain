@@ -186,6 +186,44 @@ tools/brain-lab/brain-lab --json run copy-out --request-json \
 
 `run recreate` stops and retains the current container until its replacement has started, passed label verification, and become the recorded next generation; a failed replacement restores the previous container. `run discard` deletes the container and run receipt. Neither destroys the baseline or immutable inputs.
 
+## Host agent fixtures
+
+Export a retained, running Brain into a new caller-selected directory without
+starting an agent or changing the run:
+
+```sh
+tools/brain-lab/brain-lab --json fixture create --request-json \
+  '{"run_id":"run-…","skills":["shaping"],"output":"/tmp/brain-lab-fixture"}'
+```
+
+The generic `shared/` payload contains one stdio bridge and the exact
+active-Brain loaders generated for the requested effective skills. The bridge
+uses `docker exec -i` against the receipt-bound container; if that container is
+stopped or removed it fails explicitly and never falls back to a host Brain.
+`manifest.json` records the run generation, container and image IDs, installed
+Core version and normalised hash, MCP entry source, and package/loader hashes.
+Creation compares bounded run-scope manifests before and after active-Brain inspection;
+it publishes nothing unless they are identical. If `--docker` is overridden,
+the exported bridge reuses that exact executable name or resolves its selected
+path to an absolute executable path. A fixture request accepts at most 32
+skills; each exported package is independently bounded by file count and size.
+
+Thin client layouts reuse that same payload:
+
+- `clients/codex/home/` is an isolated `CODEX_HOME`, with `config.toml` and a
+  relative link to `shared/skills/`. Its selected path is recorded in
+  `clients/codex/environment.json`.
+- `clients/claude/project/` is an isolated project containing `.mcp.json` and
+  `.claude/skills`; its selected project path is recorded in
+  `clients/claude/environment.json`.
+
+Brain Lab does not launch either client, write real user/project client config,
+copy credentials, or modify/stop/recreate the selected run. Creation refuses an
+unknown, stopped, wrongly labelled, or incompatible run and refuses any
+pre-existing output path rather than merging or overwriting it. Remove the
+fixture directory when the host-side investigation is complete; retain or
+discard the run separately with the normal run operations.
+
 ## Scenarios
 
 Scenarios are optional ordered compositions of the same dispatcher used by direct commands. `${steps.0.resource.id}` references an earlier typed result; scenarios do not have privileged workflow-only operations.
@@ -244,6 +282,16 @@ Opt-in real Docker current-worktree acceptance:
 
 ```sh
 make test-brain-lab-docker
+```
+
+To exercise the optional live host-fixture bridge check against an explicitly
+retained run without starting a model:
+
+```sh
+BRAIN_LAB_HOST_FIXTURE_RUN_ID=run-… \
+BRAIN_LAB_HOST_FIXTURE_STATE_DIR=/path/to/brain-lab-state \
+  .venv/bin/pytest -q \
+  tests/repo/brain_lab/test_host_fixture.py::test_live_fixture_bridge_lists_active_brain_tools
 ```
 
 The complete design traceability table is `acceptance-matrix.json`. Its owners distinguish checked-in Docker automation from unit coverage and manual live drills; only rows listed under the `test-brain-lab-docker` verification target are exercised by that checked-in scenario. Slow Docker workflows are not part of routine pre-commit tests.

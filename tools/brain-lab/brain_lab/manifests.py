@@ -21,15 +21,39 @@ PORTABLE_EXCLUDED_PREFIXES = (
     ".claude/",
 )
 PORTABLE_EXCLUDED_FILES = {".mcp.json"}
+MAX_GZIP_JSON_EXPANDED_BYTES = 64 * 1024 * 1024
+MAX_GZIP_JSON_ENTRIES = 250_000
 
 
-def read_gzip_json(path: Path) -> dict:
+def read_gzip_json(
+    path: Path,
+    *,
+    max_expanded_bytes: int = MAX_GZIP_JSON_EXPANDED_BYTES,
+    max_entries: int = MAX_GZIP_JSON_ENTRIES,
+) -> dict:
     try:
-        value = json.loads(gzip.decompress(path.read_bytes()))
+        with gzip.open(path, "rb") as handle:
+            payload = handle.read(max_expanded_bytes + 1)
     except (OSError, EOFError, gzip.BadGzipFile, json.JSONDecodeError) as exc:
+        raise ValueError(f"compressed JSON evidence is invalid: {path}") from exc
+    if len(payload) > max_expanded_bytes:
+        raise ValueError(
+            f"compressed JSON evidence exceeds the {max_expanded_bytes}-byte expanded bound: {path}"
+        )
+    try:
+        value = json.loads(payload)
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
         raise ValueError(f"compressed JSON evidence is invalid: {path}") from exc
     if not isinstance(value, dict):
         raise ValueError(f"compressed JSON evidence root is not an object: {path}")
+    entries = value.get("entries")
+    if entries is not None:
+        if not isinstance(entries, list):
+            raise ValueError(f"compressed JSON evidence entries are not an array: {path}")
+        if len(entries) > max_entries:
+            raise ValueError(
+                f"compressed JSON evidence exceeds the {max_entries}-entry bound: {path}"
+            )
     return value
 
 

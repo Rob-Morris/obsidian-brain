@@ -58,7 +58,7 @@ def test_acceptance_matrix_has_unique_executable_evidence_owners():
     rows = matrix["rows"]
 
     assert matrix["schema"] == "brain-lab.acceptance-matrix/2"
-    assert len({row["id"] for row in rows}) == len(rows) == 15
+    assert len({row["id"] for row in rows}) == len(rows) == 16
     for row in rows:
         assert all(row[field] for field in ("setup", "command", "predicate", "evidence", "owner"))
     targets = matrix["verification_targets"]

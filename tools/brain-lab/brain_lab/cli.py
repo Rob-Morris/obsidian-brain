@@ -9,6 +9,7 @@ from typing import Any
 from .application import Application
 from .baselines import register_baseline_handlers
 from .docker import DockerClient
+from .fixtures import register_fixture_handlers
 from .operations import register_operational_handlers
 from .process import DEFAULT_STREAM_LIMIT, CommandRunner
 from .resources import register_resource_handlers
@@ -17,7 +18,7 @@ from .scenarios import register_scenario_handlers
 from .store import StateStore
 
 
-VERSION = "0.1.0"
+VERSION = "0.2.0"
 
 
 def build_application(
@@ -38,6 +39,7 @@ def build_application(
     register_resource_handlers(application)
     register_baseline_handlers(application)
     register_run_handlers(application)
+    register_fixture_handlers(application)
     register_scenario_handlers(application)
     register_operational_handlers(application)
     return application
@@ -72,7 +74,10 @@ def _parser() -> argparse.ArgumentParser:
         help="Maximum retained bytes for each stdout/stderr stream.",
     )
     parser.add_argument("--json", action="store_true", help="Emit the canonical operation-result JSON envelope.")
-    parser.add_argument("resource", help="Resource noun, such as base, source, seed, baseline, run, or scenario.")
+    parser.add_argument(
+        "resource",
+        help="Resource noun, such as base, source, seed, baseline, run, fixture, or scenario.",
+    )
     parser.add_argument("verb", help="Resource operation, such as build, capture, prepare, start, or exec.")
     parser.add_argument(
         "--request-json",

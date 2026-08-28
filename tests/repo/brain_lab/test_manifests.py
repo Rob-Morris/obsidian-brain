@@ -1,12 +1,19 @@
 from __future__ import annotations
 
+import gzip
+import json
 import os
 from pathlib import Path
 
 import pytest
 
-from brain_lab.manifests import manifest_tree, normalised_core_manifest, portable_manifest
-from brain_lab.runs import _filesystem_diff
+from brain_lab.manifests import (
+    manifest_tree,
+    normalised_core_manifest,
+    portable_manifest,
+    read_gzip_json,
+)
+from brain_lab.run_state import filesystem_diff
 
 
 def test_manifest_is_content_derived_and_ignores_mtime(tmp_path: Path):
@@ -21,6 +28,18 @@ def test_manifest_is_content_derived_and_ignores_mtime(tmp_path: Path):
     assert before.tree_sha256 == after.tree_sha256
     file.write_text("changed", encoding="utf-8")
     assert manifest_tree(root).tree_sha256 != before.tree_sha256
+
+
+def test_compressed_json_reader_bounds_expanded_bytes_and_entries(tmp_path: Path):
+    evidence = tmp_path / "manifest.json.gz"
+    evidence.write_bytes(gzip.compress(json.dumps({"padding": "x" * 100}).encode()))
+
+    with pytest.raises(ValueError, match="expanded bound"):
+        read_gzip_json(evidence, max_expanded_bytes=32)
+
+    evidence.write_bytes(gzip.compress(json.dumps({"entries": [{}, {}, {}]}).encode()))
+    with pytest.raises(ValueError, match="entry bound"):
+        read_gzip_json(evidence, max_entries=2)
 
 
 def test_manifest_preserves_contained_symlink_without_dereference(tmp_path: Path):
@@ -112,7 +131,7 @@ def test_run_filesystem_diff_retains_complete_metadata_for_every_change():
         ],
     }
 
-    diff = _filesystem_diff(before, after)
+    diff = filesystem_diff(before, after)
 
     assert diff["summary"] == {"added": 1, "removed": 1, "changed": 1}
     assert diff["added"][0]["path"] == "added.txt"

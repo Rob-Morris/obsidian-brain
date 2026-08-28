@@ -114,6 +114,14 @@
       "owner": "automated-docker"
     },
     {
+      "id": "host-agent-fixture",
+      "setup": "Select a retained running Brain and an empty caller-owned output path.",
+      "command": "fixture create",
+      "predicate": "One generic bridge and exact active-Brain skill loaders back isolated Codex and Claude layouts; no model starts, run state changes, credentials leak, or real client configuration changes.",
+      "evidence": "fixture manifest plus operation evidence for run label, Core, MCP and skill identity inspection",
+      "owner": "unit-and-manual-real-docker"
+    },
+    {
       "id": "imported-guardrails",
       "setup": "Create an imported seed and derivative baseline/run.",
       "command": "lab inventory, cleanup preview, and exact resource destroy/discard",
