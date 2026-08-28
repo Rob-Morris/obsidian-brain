@@ -15,7 +15,12 @@ from .fixture_publication import create_staging_directory, publish_directory_exc
 from .fixture_renderers import render_clients
 from .model import EffectCertainty, EvidenceCompleteness, Outcome, require_keys
 from .process import ProcessExecution
-from .run_state import RunManifestCaptureError, capture_run_manifest, filesystem_diff
+from .run_state import (
+    RunManifestCaptureError,
+    capture_run_manifest,
+    filesystem_diff,
+    load_run_manifest_helper,
+)
 
 
 FIXTURE_SCHEMA = "brain-lab.host-fixture/1"
@@ -438,10 +443,12 @@ def _verify_active_brain(
     probe_source: bytes,
 ) -> VerifiedActiveBrain:
     try:
+        manifest_helper = load_run_manifest_helper(context)
         before_capture = capture_run_manifest(
             context,
             container_id,
             "01-before-run-manifest",
+            manifest_helper,
         )
     except RunManifestCaptureError as exc:
         raise OperationFailure(
@@ -470,6 +477,7 @@ def _verify_active_brain(
             context,
             container_id,
             "03-after-run-manifest",
+            manifest_helper,
         )
     except RunManifestCaptureError as exc:
         probe_failure_execution = probe_error.execution if probe_error is not None else None
@@ -498,6 +506,7 @@ def _verify_active_brain(
     )
     evidence_completeness = _evidence_completeness(inspection_complete)
     run_diff = filesystem_diff(before_capture.manifest, after_capture.manifest)
+    run_diff["manifest_helper_sha256"] = manifest_helper.sha256
     try:
         (context.evidence_directory / "run-manifest-diff.json").write_text(
             json.dumps(run_diff, indent=2, sort_keys=True) + "\n",

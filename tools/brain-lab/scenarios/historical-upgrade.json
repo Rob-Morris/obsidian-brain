@@ -1,0 +1,89 @@
+{
+  "steps": [
+    {
+      "operation": "base.build",
+      "request": {
+        "image": "ubuntu:24.04",
+        "platform": "linux/arm64",
+        "timeout_seconds": 1800
+      }
+    },
+    {
+      "operation": "source.capture",
+      "request": {
+        "kind": "git",
+        "repository": ".",
+        "ref": "cf110689f27cfb0bbbb4d35073963e462c3ff512",
+        "platform": "linux/arm64"
+      }
+    },
+    {
+      "operation": "seed.template",
+      "request": {
+        "source_id": "${steps.1.resource.id}"
+      }
+    },
+    {
+      "operation": "baseline.prepare",
+      "request": {
+        "base_id": "${steps.0.resource.id}",
+        "source_id": "${steps.1.resource.id}",
+        "seed_id": "${steps.2.resource.id}",
+        "mode": "template",
+        "timeout_seconds": 1800
+      }
+    },
+    {
+      "operation": "source.capture",
+      "request": {
+        "kind": "worktree",
+        "path": ".",
+        "platform": "linux/arm64"
+      }
+    },
+    {
+      "operation": "run.start",
+      "request": {
+        "baseline_id": "${steps.3.resource.id}",
+        "network": "bridge"
+      }
+    },
+    {
+      "operation": "run.copy-in",
+      "request": {
+        "id": "${steps.5.resource.id}",
+        "source_id": "${steps.4.resource.id}",
+        "destination": "/home/brain/target-source"
+      }
+    },
+    {
+      "operation": "run.exec",
+      "request": {
+        "id": "${steps.5.resource.id}",
+        "argv": [
+          "/usr/bin/python3.12",
+          "/usr/local/lib/brain-lab/historical_upgrade_acceptance.py",
+          "--vault",
+          "/home/brain/vault",
+          "--target-source",
+          "/home/brain/target-source"
+        ],
+        "working_directory": "/home/brain/vault",
+        "environment": {
+          "BRAIN_VAULT_ROOT": "/home/brain/vault"
+        },
+        "timeout_seconds": 3600
+      }
+    },
+    {
+      "operation": "run.discard",
+      "request": {
+        "id": "${steps.5.resource.id}"
+      }
+    }
+  ],
+  "host_state": {
+    "worktrees": ["."],
+    "vaults": []
+  }
+}

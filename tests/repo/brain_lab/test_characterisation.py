@@ -2,10 +2,15 @@ from __future__ import annotations
 
 import json
 import gzip
+import os
 from pathlib import Path
 import runpy
+import signal
 import subprocess
 import sys
+import time
+
+import pytest
 
 from brain_lab.compatibility import CompatibilityManifest
 from brain_lab.container_contract import CONTAINER_PYTHON
@@ -65,11 +70,25 @@ def test_acceptance_matrix_has_unique_executable_evidence_owners():
     targets = matrix["verification_targets"]
     assert set(targets) == {"test-brain-lab", "test-brain-lab-docker"}
     for target in targets.values():
-        assert (TOOL_ROOT / target["path"]).exists() or (REPO_ROOT / target["path"]).exists()
+        paths = target.get("paths", [target.get("path")])
+        assert all(
+            path is not None
+            and ((TOOL_ROOT / path).exists() or (REPO_ROOT / path).exists())
+            for path in paths
+        )
     docker_target = targets["test-brain-lab-docker"]
     automated = {row["id"] for row in rows if row["owner"] == "automated-docker"}
     assert automated == set(docker_target["covers"])
-    scenario = json.loads((TOOL_ROOT / docker_target["path"]).read_text(encoding="utf-8"))
+    assert docker_target["kind"] == "docker-scenario-group"
+    assert docker_target["paths"] == [
+        "scenarios/current-template.json",
+        "scenarios/historical-upgrade.json",
+    ]
+    scenarios = [
+        json.loads((TOOL_ROOT / path).read_text(encoding="utf-8"))
+        for path in docker_target["paths"]
+    ]
+    scenario = scenarios[0]
     operations = {step["operation"] for step in scenario["steps"]}
     assert {"baseline.prepare", "run.copy-in", "run.exec", "run.recreate"} <= operations
     assert scenario["host_state"] is not False
@@ -81,6 +100,108 @@ def test_acceptance_matrix_has_unique_executable_evidence_owners():
     ]
     assert manifest_commands
     assert all(command[0] == CONTAINER_PYTHON for command in manifest_commands)
+    historical = scenarios[1]
+    historical_operations = [step["operation"] for step in historical["steps"]]
+    assert historical_operations.count("source.capture") == 2
+    assert "baseline.prepare" in historical_operations
+    acceptance = next(
+        step
+        for step in historical["steps"]
+        if step["operation"] == "run.exec"
+        and any(
+            argument.endswith("/historical_upgrade_acceptance.py")
+            for argument in step["request"]["argv"]
+        )
+    )
+    assert acceptance["request"]["argv"][0] == CONTAINER_PYTHON
+    assert historical["host_state"] is not False
+
+
+def test_historical_upgrade_delta_uses_stable_check_severity_and_path_identity():
+    helper = runpy.run_path(
+        str(TOOL_ROOT / "container" / "historical_upgrade_acceptance.py"),
+        run_name="historical_upgrade_acceptance_test",
+    )
+    before = [
+        {
+            "check": "living_key_fields",
+            "severity": "error",
+            "file": "Designs/Inherited.md",
+            "message": "old wording",
+        }
+    ]
+    after = [
+        {
+            "check": "living_key_fields",
+            "severity": "error",
+            "file": "Designs/Inherited.md",
+            "message": "new wording",
+        },
+        {
+            "check": "new_check",
+            "severity": "warning",
+            "file": None,
+            "message": "new finding",
+        },
+    ]
+
+    delta = helper["finding_delta"](before, after)
+
+    assert delta["retained"] == [
+        ("error", "living_key_fields", "Designs/Inherited.md")
+    ]
+    assert delta["added"] == [("warning", "new_check", "")]
+
+
+def test_historical_upgrade_runner_stops_output_above_its_bound(tmp_path: Path):
+    helper = runpy.run_path(
+        str(TOOL_ROOT / "container" / "historical_upgrade_acceptance.py"),
+        run_name="historical_upgrade_bound_test",
+    )
+    run = helper["_run"]
+    run.__globals__["MAX_CAPTURE_BYTES"] = 32
+
+    with pytest.raises(helper["AcceptanceFailure"], match="stdout exceeded"):
+        run(
+            [sys.executable, "-c", "import sys; sys.stdout.write('x' * 64)"],
+            cwd=tmp_path,
+        )
+
+
+def test_historical_upgrade_runner_kills_descendants_holding_output_pipe(tmp_path: Path):
+    helper = runpy.run_path(
+        str(TOOL_ROOT / "container" / "historical_upgrade_acceptance.py"),
+        run_name="historical_upgrade_descendant_test",
+    )
+    run = helper["_run"]
+    run.__globals__["MAX_CAPTURE_BYTES"] = 32
+    child_pid = tmp_path / "child.pid"
+    survivor = tmp_path / "survived"
+    child_code = (
+        "import pathlib,signal,time;"
+        "signal.signal(signal.SIGTERM, signal.SIG_IGN);"
+        "time.sleep(0.5);"
+        f"pathlib.Path({str(survivor)!r}).write_text('survived');"
+        "time.sleep(60)"
+    )
+    leader_code = (
+        "import pathlib,subprocess,sys;"
+        f"child=subprocess.Popen([sys.executable,'-c',{child_code!r}]);"
+        f"pathlib.Path({str(child_pid)!r}).write_text(str(child.pid));"
+        "sys.stdout.write('x'*64);sys.stdout.flush()"
+    )
+
+    try:
+        with pytest.raises(helper["AcceptanceFailure"], match="stdout exceeded"):
+            run([sys.executable, "-c", leader_code], cwd=tmp_path)
+        time.sleep(0.7)
+        assert not survivor.exists()
+    finally:
+        if child_pid.exists():
+            try:
+                os.kill(int(child_pid.read_text()), signal.SIGKILL)
+            except ProcessLookupError:
+                pass
 
 
 def test_package_input_recorder_captures_repository_content_and_package_versions(tmp_path: Path):

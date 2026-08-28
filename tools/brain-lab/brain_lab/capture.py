@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import re
 import tempfile
 from dataclasses import dataclass
 from pathlib import Path
@@ -125,6 +126,23 @@ def resolve_remote_ref(
     *,
     evidence_directory: Path,
 ) -> str:
+    local_repository = Path(repository).expanduser()
+    if local_repository.exists():
+        output = _git(
+            runner,
+            [
+                "-C",
+                str(local_repository.resolve()),
+                "rev-parse",
+                "--verify",
+                f"{ref}^{{commit}}",
+            ],
+            evidence_directory=evidence_directory,
+            timeout_seconds=120,
+        ).decode().strip()
+        if not re.fullmatch(r"[0-9a-fA-F]{40,64}", output):
+            raise ValueError(f"local ref did not resolve to a commit: {repository} {ref}")
+        return output.lower()
     output = _git(
         runner,
         ["ls-remote", repository, ref, f"{ref}^{{}}"],

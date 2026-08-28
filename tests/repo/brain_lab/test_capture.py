@@ -6,7 +6,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from brain_lab.capture import capture_worktree
+from brain_lab.capture import capture_worktree, resolve_remote_ref
 from brain_lab.process import CommandRunner
 from brain_lab.resources import _ensure_capture_space
 
@@ -113,3 +113,24 @@ def test_worktree_capture_rejects_escaping_explicit_paths(tmp_path: Path):
             include_untracked=["../outside"],
             evidence_directory=tmp_path / "evidence",
         )
+
+
+def test_local_git_ref_resolution_accepts_an_exact_historical_commit(tmp_path: Path):
+    repository = _repository(tmp_path / "repo")
+    historical = subprocess.run(
+        ["git", "-C", str(repository), "rev-parse", "HEAD"],
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    (repository / "tracked.txt").write_text("newer", encoding="utf-8")
+    subprocess.run(["git", "-C", str(repository), "commit", "-qam", "newer"], check=True)
+
+    resolved = resolve_remote_ref(
+        CommandRunner(),
+        str(repository),
+        historical,
+        evidence_directory=tmp_path / "evidence",
+    )
+
+    assert resolved == historical

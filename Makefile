@@ -3,7 +3,7 @@ PYTHON := $(VENV)/bin/python
 PIP := $(VENV)/bin/pip
 PYTEST := $(VENV)/bin/pytest
 
-.PHONY: venv install install-semantic test test-parallel test-brain-lab test-brain-lab-docker lint lint-docstrings lint-command-docs clean hooks sync-template sync-template-check dev-link precommit-check release-status
+.PHONY: venv install install-semantic test test-parallel test-brain-lab test-brain-lab-docker test-brain-lab-current-docker test-brain-lab-upgrade-docker lint lint-docstrings lint-command-docs clean hooks sync-template sync-template-check dev-link precommit-check release-status
 
 BRAIN_LAB_STATE_DIR ?= $(CURDIR)/.brain-lab
 
@@ -32,8 +32,13 @@ test-fast: dev-link
 test-brain-lab:
 	$(PYTEST) -q tests/repo/brain_lab
 
-test-brain-lab-docker:
+test-brain-lab-docker: test-brain-lab-current-docker test-brain-lab-upgrade-docker
+
+test-brain-lab-current-docker:
 	tools/brain-lab/brain-lab --state-dir "$(BRAIN_LAB_STATE_DIR)" --json scenario run --request-json - < tools/brain-lab/scenarios/current-template.json
+
+test-brain-lab-upgrade-docker:
+	tools/brain-lab/brain-lab --state-dir "$(BRAIN_LAB_STATE_DIR)" --json scenario run --request-json - < tools/brain-lab/scenarios/historical-upgrade.json
 
 lint: lint-docstrings lint-command-docs
 

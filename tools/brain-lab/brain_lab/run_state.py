@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import json
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -17,6 +19,12 @@ class RunManifestCapture:
     evidence_complete: bool
 
 
+@dataclass(frozen=True)
+class RunManifestHelper:
+    content: bytes
+    sha256: str
+
+
 class RunManifestCaptureError(RuntimeError):
     def __init__(self, message: str, execution: ProcessExecution | None = None):
         super().__init__(message)
@@ -24,27 +32,62 @@ class RunManifestCaptureError(RuntimeError):
 
     @property
     def evidence_complete(self) -> bool:
-        return self.execution is None or self.execution.evidence_complete
+        return self.execution is not None and self.execution.evidence_complete
+
+
+def load_run_manifest_helper(context: OperationContext) -> RunManifestHelper:
+    try:
+        content = (context.tool_root / "container" / "tree_manifest.py").read_bytes()
+    except OSError as exc:
+        raise RunManifestCaptureError(
+            f"Brain Lab run-manifest helper is unavailable: {exc}"
+        ) from exc
+    return RunManifestHelper(
+        content=content,
+        sha256=hashlib.sha256(content).hexdigest(),
+    )
 
 
 def capture_run_manifest(
     context: OperationContext,
     container: str,
     evidence_name: str,
+    helper: RunManifestHelper,
 ) -> RunManifestCapture:
+    evidence_directory = context.evidence_directory / evidence_name
+    try:
+        evidence_directory.mkdir(parents=True, exist_ok=True)
+        (evidence_directory / "manifest-helper.json").write_text(
+            json.dumps(
+                {
+                    "schema": "brain-lab.run-manifest-helper/1",
+                    "sha256": helper.sha256,
+                },
+                indent=2,
+                sort_keys=True,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+    except OSError as exc:
+        raise RunManifestCaptureError(
+            f"Brain Lab run-manifest helper evidence could not be retained: {exc}"
+        ) from exc
     try:
         execution = context.docker.exec(
             container,
             [
                 CONTAINER_PYTHON,
-                "/usr/local/lib/brain-lab/tree_manifest.py",
+                "-",
                 "--root",
                 "/home/brain",
                 "--scope",
                 "run",
                 "--gzip",
             ],
-            evidence_directory=context.evidence_directory / evidence_name,
+            environment={"PYTHONDONTWRITEBYTECODE": "1"},
+            stdin=helper.content,
+            evidence_directory=evidence_directory,
             timeout_seconds=600,
         )
     except DockerError as exc:

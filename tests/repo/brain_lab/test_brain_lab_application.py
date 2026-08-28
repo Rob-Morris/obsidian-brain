@@ -7,6 +7,7 @@ from types import SimpleNamespace
 
 import pytest
 
+import brain_lab.runs as runs_module
 from brain_lab.application import Application, HandlerResult, OperationFailure
 from brain_lab.compatibility import CompatibilityManifest
 from brain_lab.baselines import register_baseline_handlers
@@ -16,6 +17,7 @@ from brain_lab.operations import register_operational_handlers
 from brain_lab.process import CommandRunner
 from brain_lab.resources import _image_payload, _rollback_changed_capture
 from brain_lab.runs import register_run_handlers
+from brain_lab.run_state import RunManifestCaptureError
 from brain_lab.scenarios import register_scenario_handlers
 from brain_lab.store import StateStore
 
@@ -64,6 +66,63 @@ def _application(tmp_path: Path) -> Application:
         tool_root=TOOL_ROOT,
     )
     return application
+
+
+def test_run_exec_continues_with_partial_evidence_when_manifest_helper_is_missing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    class ExecDocker:
+        executions = []
+
+        def __init__(self):
+            self.calls = []
+
+        def begin_operation(self):
+            return 0
+
+        @property
+        def operation_command_limit(self):
+            return 32
+
+        def container_inspect(self, reference, evidence_directory):
+            return {
+                "Id": "run-container",
+                "Config": {"Labels": DockerClient.labels("run", "run-exec")},
+            }
+
+        def verify_resource_labels(self, inspect, kind, resource_id):
+            DockerClient.verify_resource_labels(inspect, kind, resource_id)
+
+        def exec(self, container, argv, **kwargs):
+            self.calls.append(list(argv))
+            return SimpleNamespace(
+                succeeded=True,
+                timed_out=False,
+                cancelled=False,
+                evidence_complete=True,
+                to_dict=lambda: {"returncode": 0},
+            )
+
+    application = _application(tmp_path)
+    docker = ExecDocker()
+    application.docker = docker
+    register_run_handlers(application)
+    application.store.write("run", "run-exec", {"container": {"id": "run-container"}})
+
+    def missing_helper(_context):
+        raise RunManifestCaptureError("missing helper")
+
+    monkeypatch.setattr(runs_module, "load_run_manifest_helper", missing_helper)
+
+    result = application.dispatch(
+        "run.exec",
+        {"id": "run-exec", "argv": ["/bin/true"]},
+    )
+
+    assert result.ok
+    assert docker.calls == [["/bin/true"]]
+    assert result.payload["filesystem_change"]["status"] == "unavailable"
+    assert result.evidence_completeness.value == "partial"
 
 
 class RecreateDocker:

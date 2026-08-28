@@ -167,6 +167,8 @@ Every `run exec` records bounded command streams plus before/after run-filesyste
 
 An historical-to-target upgrade is ordinary composition: start the historical baseline with bridge networking, copy in the target `source_id`, run that source's official installer, then run the target adapter's declared rehydration and health commands from `compatibility.json`. `run recreate` remains the authoritative reset to the unchanged historical baseline.
 
+The checked-in `scenarios/historical-upgrade.json` gate automates that path from the exact v0.54.0 repository commit. It adds one controlled inherited finding and one keyless terminal-status record, runs the official target installer and all pending migrations, and fails on any unexplained post-upgrade finding identity. It also requires the migration completeness marker and key compatibility record, first-call `session.start`, explicit `runtime.remove-orphans` dry-run/removal, tidy machine state, MCP `tools/list`, active-path isolation and unchanged declared host state. Local Git sources may use an exact commit SHA; remote repositories still require a ref advertised by the remote.
+
 Open an interactive shell (the timeout is owned by the user):
 
 ```sh
@@ -207,6 +209,9 @@ it publishes nothing unless they are identical. If `--docker` is overridden,
 the exported bridge reuses that exact executable name or resolves its selected
 path to an absolute executable path. A fixture request accepts at most 32
 skills; each exported package is independently bounded by file count and size.
+Run-scope manifests stream the current Brain Lab helper through the image-owned
+interpreter, so retained runs do not depend on the helper version baked into
+their historical image.
 
 Thin client layouts reuse that same payload:
 
@@ -291,6 +296,13 @@ Opt-in real Docker current-worktree acceptance:
 make test-brain-lab-docker
 ```
 
+Run either constituent scenario while iterating:
+
+```sh
+make test-brain-lab-current-docker
+make test-brain-lab-upgrade-docker
+```
+
 To exercise the optional live host-fixture bridge check against an explicitly
 retained run without starting a model:
 
@@ -301,7 +313,7 @@ BRAIN_LAB_HOST_FIXTURE_STATE_DIR=/path/to/brain-lab-state \
   tests/repo/brain_lab/test_host_fixture.py::test_live_fixture_bridge_lists_active_brain_tools
 ```
 
-The complete design traceability table is `acceptance-matrix.json`. Its owners distinguish checked-in Docker automation from unit coverage and manual live drills; only rows listed under the `test-brain-lab-docker` verification target are exercised by that checked-in scenario. Slow Docker workflows are not part of routine pre-commit tests.
+The complete design traceability table is `acceptance-matrix.json`. Its owners distinguish checked-in Docker automation from unit coverage and manual live drills; only rows listed under the `test-brain-lab-docker` verification target are exercised by its checked-in current-template and historical-upgrade scenarios. Slow Docker workflows are not part of routine pre-commit tests.
 
 ## Troubleshooting
 

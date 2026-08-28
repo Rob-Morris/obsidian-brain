@@ -20,9 +20,11 @@ from .model import (
     require_keys,
 )
 from .run_state import (
+    RunManifestHelper,
     RunManifestCaptureError,
     capture_run_manifest,
     filesystem_diff,
+    load_run_manifest_helper,
 )
 
 
@@ -193,9 +195,10 @@ def _manifest_evidence(
     context: OperationContext,
     container: str,
     evidence_name: str,
+    helper: RunManifestHelper,
 ) -> tuple[dict[str, Any] | None, str | None, bool]:
     try:
-        capture = capture_run_manifest(context, container, evidence_name)
+        capture = capture_run_manifest(context, container, evidence_name, helper)
     except RunManifestCaptureError as exc:
         return None, f"{type(exc).__name__}: {exc}", exc.evidence_complete
     return capture.manifest, None, capture.evidence_complete
@@ -206,9 +209,15 @@ def exec_run(context: OperationContext, request: dict[str, Any]) -> HandlerResul
     receipt = context.store.read("run", run_id)
     inspect = context.docker.container_inspect(receipt["container"]["id"], context.evidence_directory / "00-inspect")
     context.docker.verify_resource_labels(inspect, "run", run_id)
-    before, before_error, before_complete = _manifest_evidence(
-        context, inspect["Id"], "01-before-manifest"
-    )
+    try:
+        manifest_helper = load_run_manifest_helper(context)
+    except RunManifestCaptureError as exc:
+        manifest_helper = None
+        before, before_error, before_complete = None, f"{type(exc).__name__}: {exc}", False
+    else:
+        before, before_error, before_complete = _manifest_evidence(
+            context, inspect["Id"], "01-before-manifest", manifest_helper
+        )
     execution = context.docker.exec(
         inspect["Id"],
         command.argv,
@@ -218,9 +227,12 @@ def exec_run(context: OperationContext, request: dict[str, Any]) -> HandlerResul
         timeout_seconds=command.timeout_seconds,
         evidence_directory=context.evidence_directory / "02-exec",
     )
-    after, after_error, after_complete = _manifest_evidence(
-        context, inspect["Id"], "03-after-manifest"
-    )
+    if manifest_helper is None:
+        after, after_error, after_complete = None, before_error, False
+    else:
+        after, after_error, after_complete = _manifest_evidence(
+            context, inspect["Id"], "03-after-manifest", manifest_helper
+        )
     evidence_complete = execution.evidence_complete and before_complete and after_complete
     if before is None or after is None:
         filesystem_change = {
@@ -230,6 +242,7 @@ def exec_run(context: OperationContext, request: dict[str, Any]) -> HandlerResul
         }
     else:
         diff = filesystem_diff(before, after)
+        diff["manifest_helper_sha256"] = manifest_helper.sha256
         content, content_error, content_complete = _capture_changed_content(
             context, inspect["Id"], diff
         )

@@ -6,13 +6,17 @@
       "path": "tests/repo/brain_lab"
     },
     "test-brain-lab-docker": {
-      "kind": "docker-scenario",
-      "path": "scenarios/current-template.json",
+      "kind": "docker-scenario-group",
+      "paths": [
+        "scenarios/current-template.json",
+        "scenarios/historical-upgrade.json"
+      ],
       "covers": [
         "worktree-template-baseline",
         "arbitrary-composition",
         "run-recreation",
-        "host-isolation"
+        "host-isolation",
+        "worktree-upgrade"
       ]
     }
   },
@@ -61,9 +65,9 @@
       "id": "worktree-upgrade",
       "setup": "Start a run from the historical baseline and copy the target source bundle into it.",
       "command": "run start with bridge, run copy-in by source_id, then run exec for the selected source installer, target rehydration and health gates",
-      "predicate": "Target identities, declared migrations and required target health gates are observed.",
-      "evidence": "run operation results and exported evidence",
-      "owner": "manual-real-docker"
+      "predicate": "The exact v0.54.0 baseline reaches the target Core and CLI through every pending migration; no unexplained validation finding is added; first-call session readiness, canonical runtime cleanup, machine tidiness, MCP health and path isolation all pass.",
+      "evidence": "historical-upgrade scenario result, bounded command receipts and run filesystem evidence",
+      "owner": "automated-docker"
     },
     {
       "id": "arbitrary-composition",

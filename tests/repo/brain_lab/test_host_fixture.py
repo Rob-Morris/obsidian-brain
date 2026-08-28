@@ -20,6 +20,11 @@ from brain_lab.docker import DockerClient
 from brain_lab.fixtures import FIXTURE_SCHEMA, register_fixture_handlers
 from brain_lab.fixture_publication import publish_directory_exclusive
 from brain_lab.process import CommandRunner
+from brain_lab.run_state import (
+    RunManifestCaptureError,
+    RunManifestHelper,
+    capture_run_manifest,
+)
 from brain_lab.store import StateStore
 
 
@@ -146,7 +151,7 @@ class FixtureDocker:
 
     def exec(self, container, argv, **kwargs):
         self.calls.append(("exec", container, list(argv), kwargs))
-        manifest_execution = any(item.endswith("/tree_manifest.py") for item in argv)
+        manifest_execution = "--scope" in argv and "run" in argv
         if manifest_execution:
             self.manifest_calls += 1
             if self.manifest_calls == 2 and self.after_manifest_hook is not None:
@@ -177,14 +182,19 @@ class FixtureDocker:
         )
 
 
-def _application(tmp_path: Path, docker: FixtureDocker | None = None) -> tuple[Application, FixtureDocker]:
+def _application(
+    tmp_path: Path,
+    docker: FixtureDocker | None = None,
+    *,
+    tool_root: Path = TOOL_ROOT,
+) -> tuple[Application, FixtureDocker]:
     runner = CommandRunner()
     selected = docker or FixtureDocker(tmp_path)
     application = Application(
         store=StateStore(tmp_path / "state"),
         runner=runner,
         docker=selected,
-        tool_root=TOOL_ROOT,
+        tool_root=tool_root,
     )
     register_fixture_handlers(application)
     application.store.write(
@@ -247,6 +257,114 @@ def test_fixture_exports_exact_active_loader_bridge_and_identity(tmp_path: Path)
     executions = [call for call in docker.calls if call[0] == "exec"]
     assert executions
     assert all(call[2][0] == "/usr/bin/python3.12" for call in executions)
+    manifest_executions = [call for call in executions if "--scope" in call[2]]
+    assert len(manifest_executions) == 2
+    for call in manifest_executions:
+        assert call[2][1] == "-"
+        assert call[3]["stdin"] == (TOOL_ROOT / "container" / "tree_manifest.py").read_bytes()
+
+
+def test_fixture_snapshots_one_manifest_helper_for_both_captures(tmp_path: Path):
+    tool_root = tmp_path / "tool"
+    helper_path = tool_root / "container" / "tree_manifest.py"
+    helper_path.parent.mkdir(parents=True)
+    original = (TOOL_ROOT / "container" / "tree_manifest.py").read_bytes()
+    helper_path.write_bytes(original)
+    shutil.copy2(TOOL_ROOT / "compatibility.json", tool_root / "compatibility.json")
+    shutil.copytree(TOOL_ROOT / "host_fixture", tool_root / "host_fixture")
+    docker = FixtureDocker(tmp_path)
+    docker.after_manifest_hook = lambda: helper_path.write_bytes(b"changed between captures\n")
+    application, _selected = _application(tmp_path, docker, tool_root=tool_root)
+
+    result = application.dispatch(
+        "fixture.create",
+        {"run_id": RUN_ID, "skills": ["shaping"], "output": str(tmp_path / "fixture")},
+    )
+
+    assert result.ok
+    manifest_calls = [
+        call for call in docker.calls if call[0] == "exec" and "--scope" in call[2]
+    ]
+    assert [call[3]["stdin"] for call in manifest_calls] == [original, original]
+    expected_sha256 = hashlib.sha256(original).hexdigest()
+    assert result.evidence_bundle is not None
+    evidence = application.store.evidence / result.evidence_bundle
+    for name in ("01-before-run-manifest", "03-after-run-manifest"):
+        helper_receipt = json.loads(
+            (evidence / name / "manifest-helper.json").read_text(encoding="utf-8")
+        )
+        assert helper_receipt["sha256"] == expected_sha256
+    run_diff = json.loads(
+        (evidence / "run-manifest-diff.json").read_text(encoding="utf-8")
+    )
+    assert run_diff["manifest_helper_sha256"] == expected_sha256
+
+
+def test_streamed_manifest_helper_executes_as_stdin_program(tmp_path: Path):
+    root = tmp_path / "container-home"
+    (root / "vault").mkdir(parents=True)
+    (root / "vault" / "sentinel.txt").write_text("present\n", encoding="utf-8")
+    helper = (TOOL_ROOT / "container" / "tree_manifest.py").read_bytes()
+    completed = subprocess.run(
+        [
+            sys.executable,
+            "-",
+            "--root",
+            str(root),
+            "--scope",
+            "run",
+            "--gzip",
+        ],
+        input=helper,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        timeout=30,
+        check=False,
+    )
+
+    assert completed.returncode == 0, completed.stderr.decode("utf-8", errors="replace")
+    manifest = json.loads(gzip.decompress(completed.stdout))
+    assert manifest["scope"] == "run"
+    assert any(entry["path"] == "vault/sentinel.txt" for entry in manifest["entries"])
+
+
+def test_missing_manifest_helper_marks_fixture_evidence_partial(tmp_path: Path):
+    tool_root = tmp_path / "tool"
+    tool_root.mkdir()
+    shutil.copy2(TOOL_ROOT / "compatibility.json", tool_root / "compatibility.json")
+    shutil.copytree(TOOL_ROOT / "host_fixture", tool_root / "host_fixture")
+    application, docker = _application(tmp_path, tool_root=tool_root)
+
+    result = application.dispatch(
+        "fixture.create",
+        {"run_id": RUN_ID, "skills": ["shaping"], "output": str(tmp_path / "fixture")},
+    )
+
+    assert not result.ok
+    assert result.evidence_completeness.value == "partial"
+    assert not any(call[0] == "exec" for call in docker.calls)
+
+
+def test_manifest_helper_receipt_failure_is_incomplete_evidence(tmp_path: Path):
+    evidence_file = tmp_path / "not-a-directory"
+    evidence_file.write_text("sentinel\n", encoding="utf-8")
+    context = SimpleNamespace(
+        evidence_directory=evidence_file,
+        docker=SimpleNamespace(),
+    )
+
+    with pytest.raises(RunManifestCaptureError) as captured:
+        capture_run_manifest(
+            context,
+            CONTAINER_ID,
+            "manifest",
+            RunManifestHelper(
+                content=b"pass\n",
+                sha256=hashlib.sha256(b"pass\n").hexdigest(),
+            ),
+        )
+
+    assert captured.value.evidence_complete is False
 
 
 def test_codex_and_claude_renderers_share_the_same_bridge_and_skill_root(tmp_path: Path):
