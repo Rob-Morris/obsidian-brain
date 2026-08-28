@@ -129,6 +129,20 @@ def test_label_verification_refuses_lookalike_resource():
         raise AssertionError("lookalike Docker resource was accepted")
 
 
+@pytest.mark.parametrize(
+    ("kind", "resource_id", "expected"),
+    [
+        ("run", "run-1", "brain-lab-run-1"),
+        ("attempt", "attempt-1", "brain-lab-attempt-1"),
+        ("source-copy", "attempt-1", "brain-lab-source-copy-attempt-1"),
+    ],
+)
+def test_container_names_do_not_repeat_the_resource_kind(
+    kind: str, resource_id: str, expected: str
+):
+    assert DockerClient.deterministic_container_name(kind, resource_id) == expected
+
+
 def test_container_start_passes_the_explicit_platform(tmp_path: Path, monkeypatch):
     executable, log = _fake_docker(tmp_path)
     monkeypatch.setenv("FAKE_DOCKER_LOG", str(log))
@@ -136,7 +150,7 @@ def test_container_start_passes_the_explicit_platform(tmp_path: Path, monkeypatc
 
     client.start_container(
         "sha256:image",
-        name="brain-lab-run-run-1",
+        name="brain-lab-run-1",
         platform="linux/amd64",
         network="none",
         labels=DockerClient.labels("run", "run-1"),
@@ -148,7 +162,7 @@ def test_container_start_passes_the_explicit_platform(tmp_path: Path, monkeypatc
         "run",
         "--detach",
         "--name",
-        "brain-lab-run-run-1",
+        "brain-lab-run-1",
         "--platform",
         "linux/amd64",
         "--network",

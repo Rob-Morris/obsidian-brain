@@ -140,7 +140,7 @@ class FixtureDocker:
         self.calls.append(("inspect", reference))
         return {
             "Id": CONTAINER_ID,
-            "Name": "/brain-lab-run-run-fixture",
+            "Name": "/brain-lab-run-fixture",
             "Image": "sha256:fixture-image",
             "State": {"Running": self.running},
             "Config": {"Labels": self.labels},
@@ -229,7 +229,7 @@ def test_fixture_exports_exact_active_loader_bridge_and_identity(tmp_path: Path)
         "generation": 4,
         "container": {
             "id": CONTAINER_ID,
-            "name": "brain-lab-run-run-fixture",
+            "name": "brain-lab-run-fixture",
             "image_id": "sha256:fixture-image",
         },
     }

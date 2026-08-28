@@ -85,7 +85,8 @@ class DockerClient:
 
     @staticmethod
     def deterministic_container_name(kind: str, resource_id: str) -> str:
-        return f"brain-lab-{kind}-{resource_id}"
+        resource_suffix = resource_id.removeprefix(f"{kind}-")
+        return f"brain-lab-{kind}-{resource_suffix}"
 
     def _execute(
         self,

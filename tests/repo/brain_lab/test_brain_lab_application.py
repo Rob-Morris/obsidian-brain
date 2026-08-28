@@ -261,7 +261,9 @@ class CopyInDocker:
         return SimpleNamespace(to_dict=lambda: {"returncode": 0})
 
 
-def _recreate_application(tmp_path: Path, docker: RecreateDocker) -> Application:
+def _recreate_application_with_legacy_name(
+    tmp_path: Path, docker: RecreateDocker
+) -> Application:
     application = _application(tmp_path)
     application.docker = docker
     register_run_handlers(application)
@@ -355,13 +357,14 @@ def test_copy_in_rejects_destinations_outside_a_new_brain_child(
 
 def test_run_recreate_publishes_replacement_before_removing_previous(tmp_path: Path):
     docker = RecreateDocker()
-    application = _recreate_application(tmp_path, docker)
+    application = _recreate_application_with_legacy_name(tmp_path, docker)
 
     result = application.dispatch("run.recreate", {"id": "run-a"})
 
     assert result.ok
     assert result.payload["generation"] == 2
     assert application.store.read("run", "run-a")["container"]["id"] == "new-container"
+    assert ("start-container", "sha256:baseline", "brain-lab-run-run-a") in docker.calls
     start_index = next(i for i, call in enumerate(docker.calls) if call[0] == "start-container")
     remove_index = docker.calls.index(("remove", "old-container"))
     assert start_index < remove_index
@@ -369,7 +372,7 @@ def test_run_recreate_publishes_replacement_before_removing_previous(tmp_path: P
 
 def test_run_recreate_restores_previous_container_when_replacement_fails(tmp_path: Path):
     docker = RecreateDocker(fail_start=True)
-    application = _recreate_application(tmp_path, docker)
+    application = _recreate_application_with_legacy_name(tmp_path, docker)
 
     result = application.dispatch("run.recreate", {"id": "run-a"})
 
@@ -382,7 +385,7 @@ def test_run_recreate_restores_previous_container_when_replacement_fails(tmp_pat
 
 def test_run_recreate_removes_ambiguously_created_replacement_before_rollback(tmp_path: Path):
     docker = RecreateDocker(fail_start=True, create_before_start_failure=True)
-    application = _recreate_application(tmp_path, docker)
+    application = _recreate_application_with_legacy_name(tmp_path, docker)
 
     result = application.dispatch("run.recreate", {"id": "run-a"})
 
