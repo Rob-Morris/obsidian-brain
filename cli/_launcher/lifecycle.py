@@ -630,6 +630,7 @@ def _reconciliation_steps(result: dict) -> tuple[LifecycleStep, ...]:
         ("managed_runtime", "central_runtime"),
         ("machine_resolution_runtime", "machine_resolution_runtime"),
         ("retrieval_assets", "retrieval_asset_repair"),
+        ("runtime_readiness", "runtime_readiness"),
     ):
         value = result.get(key)
         if value is None:
@@ -646,6 +647,24 @@ def _reconciliation_steps(result: dict) -> tuple[LifecycleStep, ...]:
                 else f"{name} reconciliation completed."
             )
         steps.append(LifecycleStep(name, status, message))
+    orphan_state = result.get("runtime_orphans")
+    if isinstance(orphan_state, dict):
+        outcome = orphan_state.get("outcome")
+        status = (
+            LifecycleStatus.PLANNED
+            if outcome == "follow_up"
+            else LifecycleStatus.NOOP
+            if outcome == "ok"
+            else LifecycleStatus.CHANGED
+        )
+        steps.append(
+            LifecycleStep(
+                "runtime_orphans",
+                status,
+                orphan_state.get("message")
+                or "Shared-runtime tidiness inspection requires recovery.",
+            )
+        )
     return tuple(steps)
 
 
@@ -657,6 +676,8 @@ def _reconciliation_failed(result: dict) -> bool:
             "central_runtime",
             "machine_resolution_runtime",
             "retrieval_asset_repair",
+            "runtime_readiness",
+            "runtime_orphans",
         )
     )
 

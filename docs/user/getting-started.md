@@ -271,12 +271,16 @@ These are freeform. Write whatever helps.
 
 To upgrade brain-core to a new version:
 
-- **CLI**: `python3.12 src/brain-core/scripts/upgrade.py --source src/brain-core --vault /path/to/brain` (run from a clone of this repo; add `--force` for same-version re-apply, downgrade, or migration rerun)
+- **CLI**: `brain upgrade --vault /path/to/brain --request-json '{}' --json` (add `"force": true` for same-version re-apply, downgrade, or migration rerun)
 - **install.sh wrapper**: `bash install.sh /path/to/brain` — detects the existing install and delegates to `upgrade.py`
-- **Manual**: replace `.brain-core/` with the new version from `src/brain-core/`
 
-`upgrade.py` reports recommended follow-up commands in human output, `--json`,
-and `.brain/local/last-upgrade.json`. When the Claude/Codex shaping discovery
+The checked upgrade runs every pending versioned migration in order, completes
+the selected Brain's runtime warm-up before returning success, and records the
+result in `.brain/local/last-upgrade.json`. If readiness cannot complete it
+returns a known partial outcome with `brain runtime warmup` and `brain runtime
+status` recovery guidance. It never silently deletes shared machine runtimes;
+when read-only topology inspection proves orphan candidates, it reports `brain
+runtime remove-orphans --dry-run` and the explicit removal command. When the Claude/Codex shaping discovery
 adapter is first introduced or its template changes, it recommends
 `configure.py agent-skills --client all` but does not run it automatically.
 Ordinary updates to the active Brain's shaping workflow produce no adapter

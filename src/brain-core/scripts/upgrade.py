@@ -30,6 +30,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 from dataclasses import asdict
 from datetime import datetime, timezone
 from pathlib import Path
@@ -92,6 +93,7 @@ CLI_TARGET_LOCATIONS = (
 )
 DEPENDENCY_SYNC_TIMEOUT = 300
 RETRIEVAL_ASSET_REPAIR_TIMEOUT = 1800
+RUNTIME_WARMUP_TIMEOUT = 300
 SKIP_BOOTSTRAP_ENV = "BRAIN_SKIP_BOOTSTRAP"
 
 # Outcome tags for `_ensure_central_runtime` (named so producer + consumer cannot drift).
@@ -99,6 +101,13 @@ RUNTIME_CREATED = "created"
 RUNTIME_REUSED = "reused"
 RUNTIME_SKIPPED_DISABLED = "skipped_disabled"
 RUNTIME_ERROR = "error"
+
+
+def _runtime_error_message(snapshot: dict, fallback: str) -> str:
+    error = snapshot.get("last_error")
+    if isinstance(error, dict) and isinstance(error.get("message"), str):
+        return error["message"]
+    return fallback
 
 
 # ---------------------------------------------------------------------------
@@ -1324,6 +1333,124 @@ def _ensure_machine_resolution_runtime(vault_root: Path) -> dict:
     }
 
 
+def _await_runtime_readiness(readiness, vault_root: Path, timeout_seconds: float) -> dict:
+    """Await readiness through an already-loaded canonical readiness module."""
+
+    request_outcome, snapshot = readiness.ensure_runtime_warmup(
+        vault_root,
+        retry_failed=True,
+    )
+    deadline = time.monotonic() + max(0.0, timeout_seconds)
+    while snapshot.get("state") == "warming":
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            return {
+                "outcome": "error",
+                "request_outcome": request_outcome,
+                "runtime_status": snapshot,
+                "message": (
+                    "Runtime warm-up did not become ready before the "
+                    f"{timeout_seconds:g}s upgrade-completion timeout."
+                ),
+            }
+        retry_ms = snapshot.get("retry_after_ms")
+        delay = retry_ms / 1000 if isinstance(retry_ms, int) else 0.25
+        time.sleep(min(max(delay, 0.01), remaining))
+        snapshot = readiness.read_runtime_status(vault_root)
+
+    if snapshot.get("state") != "ready":
+        return {
+            "outcome": "error",
+            "request_outcome": request_outcome,
+            "runtime_status": snapshot,
+            "message": _runtime_error_message(
+                snapshot,
+                "Runtime warm-up finished without a ready state.",
+            ),
+        }
+    return {
+        "outcome": "ok",
+        "request_outcome": request_outcome,
+        "runtime_status": snapshot,
+        "message": "Runtime warm-up completed and the selected Brain is ready.",
+    }
+
+
+def _complete_runtime_readiness(
+    vault_root: Path,
+    *,
+    timeout_seconds: float = RUNTIME_WARMUP_TIMEOUT,
+) -> dict:
+    """Start or join canonical warm-up and await a closed readiness state."""
+
+    module_path = vault_root / ".brain-core" / "scripts" / "_bootstrap" / "readiness.py"
+    if not module_path.is_file():
+        return {
+            "outcome": "error",
+            "message": f"runtime readiness helper missing at {module_path}",
+        }
+    try:
+        with _MigrationImportContext(str(module_path)):
+            from _bootstrap import readiness
+            return _await_runtime_readiness(readiness, vault_root, timeout_seconds)
+    except (OSError, RuntimeError, ValueError) as exc:
+        return {
+            "outcome": "error",
+            "message": f"Runtime readiness could not be completed: {exc}",
+        }
+
+
+def _inspect_runtime_orphans(vault_root: Path) -> dict:
+    """Inspect shared runtimes and return canonical launcher follow-up guidance."""
+
+    module_path = vault_root / ".brain-core" / "scripts" / "_machine" / "maintenance.py"
+    if not module_path.is_file():
+        return {
+            "outcome": "error",
+            "message": f"runtime maintenance helper missing at {module_path}",
+        }
+    try:
+        with _MigrationImportContext(str(module_path)):
+            from _machine import maintenance
+
+            summary = maintenance.collect_machine_summary(
+                current_vault=str(vault_root),
+                launcher_python=sys.executable,
+                synchronise_registry=False,
+            )
+    except (OSError, RuntimeError, ValueError) as exc:
+        return {
+            "outcome": "error",
+            "message": f"Shared-runtime tidiness could not be inspected: {exc}",
+        }
+
+    return _runtime_orphan_guidance(summary)
+
+
+def _runtime_orphan_guidance(summary: dict) -> dict:
+    """Project a machine summary into bounded cleanup guidance."""
+
+    count = summary.get("counts", {}).get("orphan_candidates")
+    if not isinstance(count, int) or isinstance(count, bool) or count < 0:
+        return {
+            "outcome": "error",
+            "message": "Shared-runtime inspection returned an invalid orphan count.",
+        }
+    if count == 0:
+        return {
+            "outcome": "ok",
+            "orphan_candidates": 0,
+            "message": "No orphaned shared runtimes need follow-up.",
+        }
+    return {
+        "outcome": "follow_up",
+        "orphan_candidates": count,
+        "dry_run_command": ["brain", "runtime", "remove-orphans", "--dry-run"],
+        "remove_command": ["brain", "runtime", "remove-orphans"],
+        "message": f"{count} orphaned shared runtime(s) are safe cleanup candidates.",
+    }
+
+
 def _prepare_cli_cutover(
     vault_root: Path,
     source: Path,
@@ -2030,6 +2157,26 @@ def upgrade(
     )
     result["retrieval_asset_repair"] = _repair_retrieval_assets_after_upgrade(Path(vault_root))
 
+    _write_upgrade_progress(
+        vault_root,
+        old_version=old_version,
+        new_version=new_version,
+        dry_run=False,
+        stage="runtime_readiness",
+        message="Completing selected-Brain runtime warm-up",
+    )
+    result["runtime_readiness"] = _complete_runtime_readiness(Path(vault_root))
+
+    _write_upgrade_progress(
+        vault_root,
+        old_version=old_version,
+        new_version=new_version,
+        dry_run=False,
+        stage="runtime_tidiness",
+        message="Inspecting shared-runtime cleanup candidates",
+    )
+    result["runtime_orphans"] = _inspect_runtime_orphans(Path(vault_root))
+
     result["message"] = f"Upgraded {old_version or '(none)'} → {new_version}"
     _write_upgrade_log(vault_root, result)
     return result
@@ -2303,6 +2450,30 @@ def main() -> None:
                     info(f"Retrieval asset repair after upgrade failed: {retrieval_asset_repair['message']}")
                 if command:
                     info(f"  Retry: {command}")
+            print(file=sys.stderr)
+
+        runtime_readiness = result.get("runtime_readiness")
+        if runtime_readiness is not None:
+            if runtime_readiness.get("outcome") == "ok":
+                info("Selected Brain runtime warm-up completed; session.start is ready.")
+            else:
+                info(
+                    "Selected Brain runtime warm-up is incomplete: "
+                    f"{runtime_readiness.get('message', 'unknown readiness error')}"
+                )
+                info("  Retry: brain runtime warmup")
+                info("  Inspect: brain runtime status")
+            print(file=sys.stderr)
+
+        runtime_orphans = result.get("runtime_orphans")
+        if runtime_orphans is not None:
+            if runtime_orphans.get("outcome") == "follow_up":
+                info(runtime_orphans["message"])
+                info(f"  Preview: {_join_argv(runtime_orphans['dry_run_command'])}")
+                info(f"  Remove: {_join_argv(runtime_orphans['remove_command'])}")
+            elif runtime_orphans.get("outcome") == "error":
+                info(f"Shared-runtime tidiness is unknown: {runtime_orphans['message']}")
+                info("  Inspect: brain runtime remove-orphans --dry-run")
             print(file=sys.stderr)
 
         for warning in result.get("warnings", []):

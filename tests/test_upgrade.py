@@ -67,6 +67,69 @@ def _replace_vault_scripts_with_real(vault):
     _copy_real_scripts(vault / ".brain-core")
 
 
+class _ReadinessSequence:
+    def __init__(self, initial, *subsequent):
+        self.initial = initial
+        self.subsequent = list(subsequent)
+
+    def ensure_runtime_warmup(self, _vault, *, retry_failed):
+        assert retry_failed is True
+        return "started", self.initial
+
+    def read_runtime_status(self, _vault):
+        return self.subsequent.pop(0)
+
+
+def _runtime_snapshot(state, *, message=None):
+    return {
+        "state": state,
+        "retry_after_ms": 1 if state == "warming" else None,
+        "last_error": None if message is None else {"message": message},
+    }
+
+
+def test_upgrade_readiness_waits_for_the_canonical_ready_state(monkeypatch, tmp_path):
+    readiness = _ReadinessSequence(
+        _runtime_snapshot("warming"),
+        _runtime_snapshot("ready"),
+    )
+    monkeypatch.setattr(upgrade.time, "sleep", lambda _seconds: None)
+
+    result = upgrade._await_runtime_readiness(readiness, tmp_path, 1)
+
+    assert result["outcome"] == "ok"
+    assert result["runtime_status"]["state"] == "ready"
+
+
+def test_upgrade_readiness_surfaces_failure_and_timeout(tmp_path):
+    failed = _ReadinessSequence(_runtime_snapshot("failed", message="router failed"))
+    timed_out = _ReadinessSequence(_runtime_snapshot("warming"))
+
+    failure = upgrade._await_runtime_readiness(failed, tmp_path, 1)
+    timeout = upgrade._await_runtime_readiness(timed_out, tmp_path, 0)
+
+    assert failure["outcome"] == "error"
+    assert failure["message"] == "router failed"
+    assert timeout["outcome"] == "error"
+    assert "upgrade-completion timeout" in timeout["message"]
+
+
+def test_upgrade_orphan_guidance_uses_only_the_canonical_launcher_commands():
+    none = upgrade._runtime_orphan_guidance({"counts": {"orphan_candidates": 0}})
+    candidates = upgrade._runtime_orphan_guidance(
+        {"counts": {"orphan_candidates": 2}}
+    )
+
+    assert none["outcome"] == "ok"
+    assert candidates == {
+        "outcome": "follow_up",
+        "orphan_candidates": 2,
+        "dry_run_command": ["brain", "runtime", "remove-orphans", "--dry-run"],
+        "remove_command": ["brain", "runtime", "remove-orphans"],
+        "message": "2 orphaned shared runtime(s) are safe cleanup candidates.",
+    }
+
+
 @pytest.fixture(autouse=True)
 def _isolate_global_cli_targets(tmp_path, monkeypatch):
     """Never let upgrade unit tests inspect or replace the developer's CLI."""
@@ -78,6 +141,23 @@ def _isolate_global_cli_targets(tmp_path, monkeypatch):
             tmp_path / "machine" / "user" / "bin" / "brain",
             tmp_path / "machine" / "system" / "bin" / "brain",
         ),
+    )
+    monkeypatch.setattr(
+        upgrade,
+        "_complete_runtime_readiness",
+        lambda _vault: {
+            "outcome": "ok",
+            "message": "Runtime warm-up completed and the selected Brain is ready.",
+        },
+    )
+    monkeypatch.setattr(
+        upgrade,
+        "_inspect_runtime_orphans",
+        lambda _vault: {
+            "outcome": "ok",
+            "orphan_candidates": 0,
+            "message": "No orphaned shared runtimes need follow-up.",
+        },
     )
 
 

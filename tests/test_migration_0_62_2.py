@@ -66,7 +66,21 @@ def test_preserves_line_endings_when_replacing_the_exact_rule(tmp_path):
     assert router.read_bytes() == f"Conditional:\r\n{NEW_RULE}\r\n".encode()
 
 
-def test_upgrade_compiles_the_confirmed_plan_trigger_before_sync(tmp_path):
+def test_upgrade_compiles_the_confirmed_plan_trigger_before_sync(tmp_path, monkeypatch):
+    monkeypatch.setattr(
+        upgrade,
+        "_complete_runtime_readiness",
+        lambda _vault: {"outcome": "ok", "message": "ready"},
+    )
+    monkeypatch.setattr(
+        upgrade,
+        "_inspect_runtime_orphans",
+        lambda _vault: {
+            "outcome": "ok",
+            "orphan_candidates": 0,
+            "message": "tidy",
+        },
+    )
     source = tmp_path / "source"
     source.mkdir()
     (source / "VERSION").write_text("0.62.2\n", encoding="utf-8")

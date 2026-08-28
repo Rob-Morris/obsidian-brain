@@ -17,6 +17,24 @@ import upgrade
 _REAL_SCRIPTS = Path(__file__).resolve().parents[1] / "src" / "brain-core" / "scripts"
 
 
+@pytest.fixture(autouse=True)
+def _close_post_upgrade_runtime_state(monkeypatch):
+    monkeypatch.setattr(
+        upgrade,
+        "_complete_runtime_readiness",
+        lambda _vault: {"outcome": "ok", "message": "ready"},
+    )
+    monkeypatch.setattr(
+        upgrade,
+        "_inspect_runtime_orphans",
+        lambda _vault: {
+            "outcome": "ok",
+            "orphan_candidates": 0,
+            "message": "tidy",
+        },
+    )
+
+
 def _make_source(
     tmp_path: Path,
     version: str,
@@ -290,6 +308,8 @@ def test_upgrade_backfills_old_versions_and_prevents_startup_rerun(tmp_path):
 
     assert result["status"] == "ok"
     assert [item["version"] for item in result["migrations"]] == ["2.0.0"]
+    assert result["runtime_readiness"]["outcome"] == "ok"
+    assert result["runtime_orphans"]["outcome"] == "ok"
     assert startup == []
     assert ledger["migrations"]["1.0.0"]["status"] == "backfilled"
     assert ledger["migrations"]["2.0.0"]["status"] == "ok"

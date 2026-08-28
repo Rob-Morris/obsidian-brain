@@ -401,3 +401,24 @@ def test_upgrade_success_receipts_core_and_error_is_unknown(tmp_path, monkeypatc
     failed = _invocation(tmp_path, vault=vault).invoke(BrainUpgradeRequest())
     assert failed.error.code is ErrorCode.COMMAND_OUTCOME_UNKNOWN
     assert failed.effects == "unknown"
+
+
+def test_upgrade_completion_projects_readiness_failure_and_orphan_follow_up():
+    result = {
+        "runtime_readiness": {
+            "outcome": "error",
+            "message": "warm-up failed",
+        },
+        "runtime_orphans": {
+            "outcome": "follow_up",
+            "message": "one orphan is a safe cleanup candidate",
+        },
+    }
+
+    steps = {
+        step.name: step for step in lifecycle._reconciliation_steps(result)
+    }
+
+    assert lifecycle._reconciliation_failed(result) is True
+    assert steps["runtime_readiness"].status is LifecycleStatus.CHANGED
+    assert steps["runtime_orphans"].status is LifecycleStatus.PLANNED

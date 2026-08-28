@@ -122,13 +122,15 @@ CLI 3 can identify and recover an installed Brain older than 0.55.0, but it does
 
 `brain.upgrade` v2 performs a complete-registry preflight and coordinates Brain Core 0.55+, the installed CLI, catalogue, manifest and proxy contracts. Known other pre-cutover Brains require `acknowledge_global_cli_cutover: true`. Stale registry IDs require an exact sorted `excluded_stale_brain_ids` list; unknown registry scope cannot be waived.
 
+After the checked cutover, upgrade starts or joins the selected Brain's canonical runtime warm-up and waits for a recorded `ready` state. A readiness failure is a known partial outcome with `brain runtime warmup` / `brain runtime status` recovery guidance, not a false success. Upgrade also performs a read-only machine-topology inspection; when unused shared runtimes are proven orphan candidates, it reports `brain runtime remove-orphans --dry-run` and the explicit removal command without deleting machine-global state itself.
+
 ## Installation
 
 The installer writes a versioned distribution under the selected prefix and a small platform bootloader under `bin/`:
 
-- Unix-like user install: `~/.local/bin/brain` and `~/.local/lib/brain-cli/3.1.1/`.
-- Native Windows user install: `%LOCALAPPDATA%\Programs\Brain\bin\brain.cmd` and the adjacent `lib\brain-cli\3.1.1\` distribution.
+- Unix-like user install: `~/.local/bin/brain` and `~/.local/lib/brain-cli/3.1.2/`.
+- Native Windows user install: `%LOCALAPPDATA%\Programs\Brain\bin\brain.cmd` and the adjacent `lib\brain-cli\3.1.2\` distribution.
 
 The distribution contains the launcher application plus the Brain Core payload needed for install, upgrade and selected-Brain execution. Installation and replacement verify a content manifest and executable identity; failed replacement restores the proven old binary/distribution pair or retains recovery material and reports the outcome as unverified.
 
-The bootloader requires Python 3.12 or newer. `BRAIN_CLI_VERSION` is `3.1.1`; `BRAIN_INSTALL_REF` is `v0.62.4`.
+The bootloader requires Python 3.12 or newer. `BRAIN_CLI_VERSION` is `3.1.2`; `BRAIN_INSTALL_REF` is `v0.62.5`.
