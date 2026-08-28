@@ -82,6 +82,59 @@ def test_managed_command_python_preserves_virtual_environment_entry_point(
     assert command_python(selected, "managed") != managed.resolve()
 
 
+def test_managed_command_python_executes_inside_selected_virtual_environment(
+    tmp_path, monkeypatch
+):
+    vault = (tmp_path / "Brain").resolve()
+    venv_dir = tmp_path / "managed-venv"
+    subprocess.run(
+        [sys.executable, "-m", "venv", str(venv_dir)],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    managed = (
+        venv_dir / "Scripts" / "python.exe"
+        if sys.platform == "win32"
+        else venv_dir / "bin" / "python"
+    )
+    site_packages = subprocess.run(
+        [str(managed), "-c", "import site; print(site.getsitepackages()[0])"],
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    Path(site_packages, "brain_cli_venv_marker.py").write_text(
+        "VALUE = 'managed-runtime'\n",
+        encoding="utf-8",
+    )
+    selected = SelectedBrain(vault, None, "vault_self")
+    monkeypatch.setattr(
+        "_common._venv.find_runnable_python",
+        lambda *_args, **_kwargs: managed,
+    )
+
+    chosen = command_python(selected, "managed")
+    probe = subprocess.run(
+        [
+            str(chosen),
+            "-c",
+            (
+                "import json, sys, brain_cli_venv_marker; "
+                "print(json.dumps({'prefix': sys.prefix, "
+                "'marker': brain_cli_venv_marker.VALUE}))"
+            ),
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    payload = json.loads(probe.stdout)
+
+    assert Path(payload["prefix"]).resolve() == venv_dir.resolve()
+    assert payload["marker"] == "managed-runtime"
+
+
 class _Authority:
     def __init__(self, allowed=True):
         self.allowed = allowed
