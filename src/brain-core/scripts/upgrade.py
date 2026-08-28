@@ -92,6 +92,7 @@ CLI_TARGET_LOCATIONS = (
     Path("/usr/local/bin/brain"),
 )
 DEPENDENCY_SYNC_TIMEOUT = 300
+MCP_REGISTRATION_REPAIR_TIMEOUT = 300
 RETRIEVAL_ASSET_REPAIR_TIMEOUT = 1800
 RUNTIME_WARMUP_TIMEOUT = 300
 SKIP_BOOTSTRAP_ENV = "BRAIN_SKIP_BOOTSTRAP"
@@ -1629,7 +1630,7 @@ def _load_json_dict_from_output(text: str) -> Optional[dict]:
     return None
 
 
-def _retrieval_repair_failure_message(
+def _repair_failure_message(
     *,
     returncode: int,
     payload: Optional[dict],
@@ -1648,6 +1649,77 @@ def _retrieval_repair_failure_message(
     return f"repair.py exited {returncode}"
 
 
+def _run_repair_scope_after_upgrade(
+    vault_root: Path,
+    scope: str,
+    *,
+    timeout: float,
+) -> dict:
+    """Run one canonical vault repair scope and preserve its typed evidence."""
+    repair_script = vault_root / ".brain-core" / "scripts" / "repair.py"
+    command = [
+        sys.executable,
+        str(repair_script),
+        scope,
+        "--vault",
+        str(vault_root),
+        "--json",
+    ]
+    summary = {"scope": scope, "command": command}
+    try:
+        proc = subprocess.run(
+            command,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+        )
+    except subprocess.TimeoutExpired:
+        return {**summary, "outcome": "error", "message": f"timed out after {timeout:g}s"}
+    except OSError as exc:
+        return {**summary, "outcome": "error", "message": str(exc)}
+
+    stdout = proc.stdout.strip()
+    stderr = proc.stderr.strip()
+    payload = _load_json_dict_from_output(stdout)
+    if proc.returncode != 0:
+        return {
+            **summary,
+            "outcome": "error",
+            "message": _repair_failure_message(
+                returncode=proc.returncode,
+                payload=payload,
+                stdout=stdout,
+                stderr=stderr,
+            ),
+            "returncode": proc.returncode,
+            "stdout": stdout,
+            "stderr": stderr,
+            "result": payload,
+        }
+    return {**summary, "outcome": "ok", "result": payload}
+
+
+def _repair_mcp_registration_after_upgrade(vault_root: Path) -> dict:
+    """Reconcile existing current-vault MCP registrations to the new runtime."""
+    local_state_paths = (
+        vault_root / ".mcp.json",
+        vault_root / ".codex" / "config.toml",
+        vault_root / ".brain" / "local" / "init-state.json",
+    )
+    if not any(path.exists() for path in local_state_paths):
+        return {
+            "scope": "mcp",
+            "command": [],
+            "outcome": "noop",
+            "message": "No existing current-vault MCP registrations need reconciliation.",
+        }
+    return _run_repair_scope_after_upgrade(
+        vault_root,
+        "mcp",
+        timeout=MCP_REGISTRATION_REPAIR_TIMEOUT,
+    )
+
+
 def _repair_retrieval_assets_after_upgrade(vault_root: Path) -> dict:
     """Reconcile the vault's supported retrieval assets after upgrade.
 
@@ -1655,58 +1727,20 @@ def _repair_retrieval_assets_after_upgrade(vault_root: Path) -> dict:
     semantic intent route through `repair.py semantic`, which already owns
     the broader router + lexical index + embeddings-sidecar refresh path.
     """
-    summary = {
-        "scope": "retrieval-assets",
-        "command": [],
-    }
     try:
         scope = _post_upgrade_retrieval_scope(vault_root)
-        repair_script = vault_root / ".brain-core" / "scripts" / "repair.py"
-        command = [
-            sys.executable,
-            str(repair_script),
-            scope,
-            "--vault",
-            str(vault_root),
-            "--json",
-        ]
-        summary = {
-            "scope": scope,
-            "command": command,
-        }
-        proc = subprocess.run(
-            command,
-            capture_output=True,
-            text=True,
-            timeout=RETRIEVAL_ASSET_REPAIR_TIMEOUT,
-        )
-    except subprocess.TimeoutExpired:
-        return {**summary, "outcome": "error", "message": f"timed out after {RETRIEVAL_ASSET_REPAIR_TIMEOUT}s"}
-    except OSError as e:
-        return {**summary, "outcome": "error", "message": str(e)}
-
-    stdout = proc.stdout.strip()
-    stderr = proc.stderr.strip()
-    payload = _load_json_dict_from_output(stdout)
-
-    if proc.returncode != 0:
-        message = _retrieval_repair_failure_message(
-            returncode=proc.returncode,
-            payload=payload,
-            stdout=stdout,
-            stderr=stderr,
-        )
+    except (OSError, ValueError) as exc:
         return {
-            **summary,
+            "scope": "retrieval-assets",
+            "command": [],
             "outcome": "error",
-            "message": message,
-            "returncode": proc.returncode,
-            "stdout": stdout,
-            "stderr": stderr,
-            "result": payload,
+            "message": str(exc),
         }
-
-    return {**summary, "outcome": "ok", "result": payload}
+    return _run_repair_scope_after_upgrade(
+        vault_root,
+        scope,
+        timeout=RETRIEVAL_ASSET_REPAIR_TIMEOUT,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -2136,6 +2170,18 @@ def upgrade(
     )
     if runtime is not None:
         result["central_runtime"] = runtime
+
+    _write_upgrade_progress(
+        vault_root,
+        old_version=old_version,
+        new_version=new_version,
+        dry_run=False,
+        stage="mcp_registration_repair",
+        message="Reconciling existing current-vault MCP registrations",
+    )
+    result["mcp_registration_repair"] = _repair_mcp_registration_after_upgrade(
+        Path(vault_root)
+    )
 
     _write_upgrade_progress(
         vault_root,

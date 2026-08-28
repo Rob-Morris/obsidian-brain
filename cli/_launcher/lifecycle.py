@@ -628,6 +628,7 @@ def _reconciliation_steps(result: dict) -> tuple[LifecycleStep, ...]:
         )
     for name, key in (
         ("managed_runtime", "central_runtime"),
+        ("mcp_registration", "mcp_registration_repair"),
         ("machine_resolution_runtime", "machine_resolution_runtime"),
         ("retrieval_assets", "retrieval_asset_repair"),
         ("runtime_readiness", "runtime_readiness"),
@@ -674,6 +675,7 @@ def _reconciliation_failed(result: dict) -> bool:
         and result[key].get("outcome") in {"error", "partial", "unknown"}
         for key in (
             "central_runtime",
+            "mcp_registration_repair",
             "machine_resolution_runtime",
             "retrieval_asset_repair",
             "runtime_readiness",

@@ -174,6 +174,8 @@ def _write_legacy_records(vault: Path) -> tuple[Path, Path]:
         "tags:\n"
         "  - design\n"
         "status: shaping\n"
+        "created: 2026-08-28T00:00:00+00:00\n"
+        "modified: 2026-08-28T00:00:00+00:00\n"
         "---\n\n"
         "# Inherited missing key\n",
         encoding="utf-8",
@@ -184,6 +186,8 @@ def _write_legacy_records(vault: Path) -> tuple[Path, Path]:
         "tags:\n"
         "  - design\n"
         "status: deprecated\n"
+        "created: 2026-08-28T00:00:00+00:00\n"
+        "modified: 2026-08-28T00:00:00+00:00\n"
         "---\n\n"
         "# Legacy terminal design\n\n"
         "> [!info] Deprecated — retained upgrade fixture\n",

@@ -1889,6 +1889,48 @@ class TestUpgradeRetrievalAssetRepair:
         assert result["result"]["message"] == "semantic refresh failed"
 
 
+def test_mcp_registration_repair_is_noop_without_existing_registration(
+    source_and_vault, monkeypatch
+):
+    _source, vault = source_and_vault
+    monkeypatch.setattr(
+        upgrade.subprocess,
+        "run",
+        lambda *_args, **_kwargs: pytest.fail("repair subprocess should not run"),
+    )
+
+    result = upgrade._repair_mcp_registration_after_upgrade(vault)
+
+    assert result["outcome"] == "noop"
+    assert result["command"] == []
+
+
+def test_mcp_registration_repair_runs_canonical_scope_for_existing_state(
+    source_and_vault, monkeypatch
+):
+    _source, vault = source_and_vault
+    (vault / ".mcp.json").write_text("{}\n")
+    calls = []
+
+    def fake_run(args, **kwargs):
+        calls.append((args, kwargs))
+        return subprocess.CompletedProcess(
+            args=args,
+            returncode=0,
+            stdout=json.dumps({"status": "ok", "steps": []}),
+            stderr="",
+        )
+
+    monkeypatch.setattr(upgrade.subprocess, "run", fake_run)
+
+    result = upgrade._repair_mcp_registration_after_upgrade(vault)
+
+    assert result["outcome"] == "ok"
+    assert result["result"]["status"] == "ok"
+    assert calls[0][0][2] == "mcp"
+    assert calls[0][1]["timeout"] == upgrade.MCP_REGISTRATION_REPAIR_TIMEOUT
+
+
 class TestUpgradeProgressLogging:
     def test_upgrade_records_retrieval_asset_repair_stage_before_follow_up(self, source_and_vault, monkeypatch):
         source, vault = source_and_vault

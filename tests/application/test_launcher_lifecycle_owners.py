@@ -405,6 +405,10 @@ def test_upgrade_success_receipts_core_and_error_is_unknown(tmp_path, monkeypatc
 
 def test_upgrade_completion_projects_readiness_failure_and_orphan_follow_up():
     result = {
+        "mcp_registration_repair": {
+            "outcome": "error",
+            "message": "MCP registration repair failed",
+        },
         "runtime_readiness": {
             "outcome": "error",
             "message": "warm-up failed",
@@ -420,5 +424,6 @@ def test_upgrade_completion_projects_readiness_failure_and_orphan_follow_up():
     }
 
     assert lifecycle._reconciliation_failed(result) is True
+    assert steps["mcp_registration"].status is LifecycleStatus.CHANGED
     assert steps["runtime_readiness"].status is LifecycleStatus.CHANGED
     assert steps["runtime_orphans"].status is LifecycleStatus.PLANNED
