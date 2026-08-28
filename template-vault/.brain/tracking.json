@@ -336,11 +336,11 @@
       }
     },
     "temporal/shaping-transcripts": {
-      "brain_core_version": "0.57.2",
-      "installed_at": "2026-08-13T01:43:32.059557+00:00",
+      "brain_core_version": "0.62.2",
+      "installed_at": "2026-08-28T00:20:36.394644+00:00",
       "files": {
         "taxonomy": {
-          "source_hash": "sha256:581a87824f967024eb6387d5c42405e82733dedaf34ae0679601edf33f52973a",
+          "source_hash": "sha256:a1ae1baf331b95bb4992cc1669beff27c59686ac859e71c753b26aa8704ad5cf",
           "target": "_Config/Taxonomy/Temporal/shaping-transcripts.md"
         },
         "template": {

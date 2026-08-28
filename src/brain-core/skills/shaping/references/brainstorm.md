@@ -1,40 +1,40 @@
-# Brainstorm workflow
+# Brainstorm
 
-Use brainstorm when a convergent artefact has too little shape for concrete decisions. Explore collaboratively until its purpose, boundaries, and likely decision surface are clear enough to hand to refine.
+Use brainstorm for a new or skeletal **convergent** artefact. Its purpose is to
+make the problem, boundaries, and decision/work surface clear enough to refine.
 
-<HARD-GATE>
-Do not write code, scaffold a project, or take implementation action until a design has been presented and the user has approved it.
-</HARD-GATE>
+## Work the idea into shape
 
-If the parent workflow has not supplied an artefact path and transcript path, return to the root workflow and run `references/assess.md` first.
+1. Read the session plan, target artefact, and directly relevant context. Help
+   split genuinely independent artefacts before treating them as one design.
+2. Explore purpose, users, constraints, success conditions, and meaningful
+   approaches. Keep the discussion directed toward an artefact the user can use,
+   rather than implementation unless implementation is part of the agreed scope.
+3. After each answer, update the chosen artefact or in-session draft, and any
+   selected session records. Apply the answer wherever it changes the current
+   shape, not solely beside the latest prompt.
+4. Bring forward concrete decisions or agent work as they emerge. Put them in
+   the selected decision/work record or in-session agenda; a clean source
+   document need not carry the working agenda.
+5. Reconsider the remaining uncertainty and ask the next useful question or do
+   bounded evidence work. A new answer can narrow, combine, or retire several
+   candidate prompts.
 
-## Shape synthesis loop
+## Candidate handoff
 
-1. **Understand context.** Read the vault router with `vault.read-router()` and relevant existing artefacts. Help decompose the idea if it contains independent artefacts.
-2. **Ask one clarifying question** about purpose, constraints, success, boundaries, or a genuinely consequential approach. Focus on what and why before how, and follow the shared Q&A rules loaded during assessment.
-3. **Apply every answer broadly.** Update all affected sections and related in-scope artefacts rather than only the section or prompt currently in view.
-4. **Refresh the working shape.** Reconsider purpose, intended users, boundaries, constraints, success criteria, established assumptions, unknowns, and emerging approaches. Retire questions already answered, narrow the rest, and identify factual work the agent can do.
-5. **Put evidence first.** Perform bounded vault or repository inspection when it could collapse or materially reframe a question. This is artefact-definition work, not implementation.
-6. **Follow useful momentum.** Prefer high-leverage unknowns, but continue a thread the user is engaging with when it remains productive. Make concise adjacent suggestions rather than forcing a checklist.
-7. **Promote mature work.** When a genuine material trade-off becomes concrete, add it to the canonical shaping-decisions table with a stable ID. Put agent-owned definition or verification work in the shaping-work table. Do not force premature rows during open exploration.
-8. **Record material synthesis.** Use `### Reconciliation Rn` for material body propagation, scope changes, candidate-prompt additions or transitions, automatic narrowing, or promotions. The transcript owns the mutation history; the source artefact holds the resulting current shape. Do not duplicate the event in another audit artefact or log ordinary copy-editing.
+Brainstorm reaches a handoff point when purpose, boundaries, and the likely
+decision/work surface are explicit enough for refine. The resulting artefact
+may contain concrete decisions or work items, or explicitly show that no further
+agenda is known.
 
-When several approaches remain genuinely viable, present two or three with material trade-offs and a recommendation. When evidence leaves one sensible approach, explain and apply it under the normal authority rules instead of inventing alternatives.
+At that point, recommend the optional four-Cs review in
+[review.md](review.md), or ask whether the user would like to begin refine. A
+environment integration may attach lifecycle handling to that handoff; otherwise
+preserve the user’s chosen records and describe the next step plainly.
 
-Present a design in sections scaled to complexity. Apply established content directly. Ask for confirmation only when a section embodies a material interpretation that could reasonably diverge from the user's intent; otherwise use a compact synthesis checkpoint after a coherent group of sections.
+## Watch for
 
-## Handoff to refine
-
-When the artefact's purpose, boundaries, and decision/work surface are explicit enough for refine, it has reached a candidate handoff point. It should either contain at least one concrete decision or work item, or explicitly have no remaining agenda and be ready for refine's exit handling. Brainstorm never applies the artefact's completion status directly.
-
-Use the recommended A/B/C four-Cs offer in `references/review.md`. State at a high level why the shape meets the handoff bar, recommend review first, and offer B to skip review and hand off or C to stop without handoff. Selecting B returns directly to the root workflow and loads `references/refine.md`; do not ask for handoff twice. Only accepted findings enter shaping state. If accepted findings require more exploration, re-enter the shape synthesis loop; if they expose mature decisions or work, promote them. After fixes, assess the shape again and use the same A/B/C offer.
-
-## Red flags
-
-- Jumping to approaches before understanding the problem
-- Asking several substantive questions in one turn
-- Writing code or scaffolding before design approval
-- Presenting strawman alternatives where one option is clearly better
-- Requiring serial approval for content already established
-- Forgetting to reconcile affected content and the remaining exploration
-- Forgetting the transcript and material-reconciliation audit
+- Exploring solutions before the problem and constraints are understood
+- Treating several independent artefacts as one discussion
+- Leaving the current artefact stale after a decision changes its shape
+- Asking a fixed questionnaire instead of following the emerging decision surface

@@ -1,30 +1,104 @@
 # Session assessment and shared Q&A rules
 
-## Session start
+## Build a proposed session plan
 
-1. If the user named a specific artefact, read it via `artefact.read(reference="...")`. If it does not resolve, ask what type to create, then use `artefact.create`.
-2. If the user described an idea with no artefact, ask what artefact type fits, then use `artefact.create`.
-3. Read the type taxonomy with `resource.read(resource="type", reference="{type-key}")`. Require complete `shaping` metadata: `flavour`, `bar`, and an effective `status_behaviour` (default `transition`). A transitioning contract requires `completion_status`; a preserving contract may declare one only as the approved exit for an artefact already in `shaping`. If the contract is absent or incomplete, explain that the type is not shapeable and stop before creating a transcript.
-4. Check for prior sessions before opening this one. If the artefact has a `**Transcripts:**` line, this is a resumption. The artefact is the source of truth for current state; the transcript is the append-only event history. Consult old events only when provenance is needed, never to reconstruct current state by replay.
-5. Select the shaping workflow from the taxonomy and artefact content:
-   - `flavour: discovery` -> **discover**
-   - `flavour: convergent` and new, empty, or too incomplete for specific decisions -> **brainstorm**
-   - every other `flavour: convergent` artefact -> **refine**, including one with no open agenda that needs candidate-exit review and status handling
-6. Call `shaping.start(target="{path}", mode="{mode}")`. This validates shapeability, applies the taxonomy's status behaviour, and creates or continues today's transcript. `transition` enters `shaping` through the canonical lifecycle handler; `preserve` leaves the current non-terminal status unchanged.
-7. Allocate transcript-scoped IDs. Read headings only far enough to set reconciliation to one greater than the highest `Rn`, or `R1` when none exists. Read Agent turns only far enough to set the next question to one greater than the highest leading `Qn` label, or `Q1` when none exists. Do not count incidental Q references elsewhere. Every legacy dialogue-only transcript is valid, including older `Q.` / `> A.` turns and Agent/User headings. Start its forward-only audit at `R1` and its first newly numbered question at `Q1`; never backfill inferred historical events. Both sequences increase monotonically within the transcript across same-day resumptions and multi-source expansion, but may restart in a new daily transcript.
-8. Rehydrate the active session scope from the transcript's `**Source:**` line and read every listed source. This is session metadata, not event replay. The active transcript is the sole owner of the joint continuation; when several linked same-day transcripts name a source, `shaping.start` selects the one with the widest distinct declared source-link set—including archived or unresolved links—and rejects an unresolved tie.
-9. Report the artefact, transcript, type, flavour, bar, mode, current status, and status behaviour. For `transition`, include the completion status. For `preserve`, state that opening leaves lifecycle status unchanged; if the current status is `shaping`, also name the declared completion status as its approved exit.
+Understand the request and inspect the named artefact or relevant context before
+choosing a workflow. Treat setup as planning: establish the resources and
+preferences first, then show the proposal before creating new session records or
+making shaping changes.
+
+An available environment integration may offer target resolution and mutation,
+shaping metadata, or persistence methods. Its availability is input to the
+plan, not a session-wide override: select its contribution separately for the
+artefact, decision/work record, transcript, and any lifecycle handling. An
+integration can therefore shape a managed artefact while a local document and a
+scratch transcript remain independent resources in the same session.
+
+Resolve the plan in this order:
+
+1. **Honour explicit user choices.** A requested artefact location, shaping
+   style, completion goal, decision log, transcript location, or chosen
+   environment takes precedence.
+2. **Use target-specific context.** If an artefact resolves through an
+   integration, use its type-specific style, bar, lifecycle behaviour, and
+   preferred persistence as the proposed defaults for that artefact. When the
+   user explicitly chooses an integration for another role, apply that selected
+   contribution while preserving their choices for the other resources.
+3. **Infer a portable default.** A request to settle a bounded outcome, make
+   decisions, or produce a usable design normally suggests **convergent**
+   shaping. A request to understand, capture, or develop a topic without a
+   bounded decision agenda normally suggests **exploratory** shaping. Derive a
+   concise completion bar from the stated purpose, constraints, and intended
+   use.
+4. **Ask when the choice would materially alter the session and evidence does
+   not select a sensible recommendation.** Otherwise present the recommendation
+   for confirmation.
+
+The plan records these independent concerns:
+
+- **Style and workflow:** convergent + brainstorm/refine, or exploratory +
+  discover.
+- **Completion bar:** the concrete condition for completing this shaping pass.
+- **Artefact handling:** the documents or other resources to update, or an
+  in-session working draft when the user has not chosen a destination yet.
+- **Decision/work record:** the artefact itself, a sidecar, another
+  user-selected record, or an in-session agenda. Keep a document clean by
+  proposing a sidecar when that appears useful.
+- **Transcript:** whether to retain the Q&A and material reconciliation history,
+  and its chosen location. It may share a record with decisions when that is
+  useful, remain separate, or be omitted.
+- **Environment contributions:** the integration, capability, and scope chosen
+  for each concern. An integration supplies capabilities; it does not override
+  the plan.
+
+When no persistence location is suitable and the user wants a record, use an
+OS-temporary scratch location outside the user’s repository. State its path in
+the proposed plan so the user can retain, move, or discard it deliberately.
+When persistence is not wanted, retain only the in-session draft or agenda and
+make that choice clear in the plan.
+
+Present the result in a compact form, for example:
+
+```text
+Proposed shaping setup
+- Style: convergent — settle the deployment and ownership decisions
+- Done when: the design records the chosen approach, trade-offs, and remaining work
+- Artefact: docs/deployment-design.md
+- Decisions: docs/deployment-design.shaping.md
+- Transcript: temporary scratch record
+- Integration: local-file workflow
+
+Ready to begin, or would you like to change any of these?
+```
+
+After approval, initialise the selected records and retain the plan as session
+context. Re-show the affected part and obtain confirmation if a later request
+changes where an artefact, decision record, or transcript is kept.
 
 ## Shared Q&A rules
 
-- **One user commitment at a time.** A user-facing turn may ask one substantive question or one procedural question, never several independent choices. Informational reconciliation may accompany it without creating another choice. One coupled question may address several D/W IDs when one answer genuinely resolves them together; do not bundle unrelated decisions for efficiency. Wait for the user to finish answering before moving on.
-- **Keep question and decision identities distinct.** Begin each normal substantive shaping-question Agent turn with its allocated `Qn`, then foreground concise decision/work references: `Q4 — D11: Responsive repeated quit`. In a single-source session use local `D11`/`W2` references; in a multi-source session prefix them with the shortest unique source title or key label. Reserve full immutable source qualification for reconciliation events and source-state pointers, not ordinary user-facing headings. Proposal confirmations, review-finding dispositions, navigation choices, and status confirmations are procedural turns: leave them unnumbered and connect their effects through D/W/C IDs and reconciliation events.
-- **Reconcile before asking again.** A response may answer more than the active question. Let the selected workflow propagate it, retire or narrow affected prompts, and reprioritise before choosing the next turn.
-- **Apply the complete propagation set through the document mutation commands.** Re-read each affected document for its current revision, use `document.edit` for Markdown structures, `document.patch` for exact literal replacements, `document.write` only for deliberate whole-body changes, and `document.update-frontmatter` only for metadata. Keep each operation mechanically narrow without narrowing the semantic scope of the answer.
-- **Follow useful momentum.** Start with dependency leverage and material impact, then favour the thread the user appears interested in when it remains useful. Make relevant suggestions and let the user redirect, defer, deepen, broaden, or stop.
-- **Prefer multiple choice when options are enumerable.** Frame the tension and why it matters. Present only genuinely viable lettered options, then state a recommendation. The user may choose something else.
-- **Do not manufacture decisions.** If accepted constraints or evidence leave a clear winner, explain the conclusion and let the active workflow apply its authority and audit rules.
-- **Use evidence before asking for facts.** Complete bounded inspection or verification when it could eliminate or materially reframe a question. Offer a research spike when the work is substantial or the user seems uncertain. Discovery should not investigate personal or reflective uncertainty unless the user asks or the artefact's purpose requires factual verification.
-- **Follow the user's lead.** The user may volunteer decisions, answer out of order, correct prior material, defer questions, request research, or move to another thread.
-- **Record verbatim turns.** Append exact agent text under `### Agent` and exact user text under `### User` in the shaping transcript.
-- **Record material state transitions separately.** When the active workflow changes semantic content, a decision or work item, or the live prompt agenda, append a `### Reconciliation Rn` audit event. It may be triggered by a user response, session resumption, agent work, research, source expansion, or review and need not have an adjacent `### User`. The transcript owns the full mutation history; source artefacts own the resulting current state. Never mix synthesis into speaker turns, create a second audit artefact, or log routine copy-editing.
+- **One user commitment at a time.** A turn may ask one substantive question or
+  one procedural question. A coupled question may address several decisions
+  when one answer genuinely resolves them together.
+- **Keep question and decision identities distinct.** When a decision or work
+  log is kept, give its entries stable local IDs such as `D4` or `W2`. If a
+  transcript is kept, give substantive questions and material reconciliations
+  stable transcript-local IDs such as `Q3` and `R5`.
+- **Reconcile before asking again.** Apply an answer across the affected
+  artefact and records, retire or narrow affected prompts, and reprioritise the
+  remaining work.
+- **Follow useful momentum.** Start with dependency leverage and material
+  impact, while letting the user's interest, deferrals, corrections, research
+  requests, and stopping point steer the session.
+- **Prefer real choices.** When several viable alternatives exist, explain the
+  tension, present concise options, and recommend one. When evidence already
+  selects a clear outcome, explain and apply it rather than manufacturing a
+  choice.
+- **Use evidence before asking for facts.** Complete bounded inspection or
+  verification when it can eliminate or materially reframe a question. Offer a
+  research spike when the work needs more time, authority, or a separate scope.
+- **Record proportionately.** Keep the artefact or in-session draft as the
+  current source of truth. Record material decisions, work transitions, and
+  reconciliations in the locations chosen by the session plan; an in-session
+  agenda is sufficient when no durable decision record was selected. Avoid
+  logging routine copy-editing.

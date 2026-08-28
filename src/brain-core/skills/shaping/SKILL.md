@@ -1,39 +1,26 @@
 ---
 name: shaping
 description: >
-  Shape an artefact through adaptive, structured Q&A. Routes convergent work
-  through brainstorm or refine and discovery-shaped artefacts through discover,
-  while propagating answers, reconciling remaining ambiguity, recording material
-  body and agenda mutations in the transcript, and recommending an optional four-Cs
-  review at candidate exits.
+  Shape an artefact through adaptive, structured Q&A using a portable workflow
+  and the capabilities selected from the currently active Brain.
 ---
 
 # Shaping
 
-Develop an artefact through collaborative Q&A. Apply each answer throughout the artefact and any related in-scope artefacts, then reconsider what remains before asking again.
+This Brain-owned entry point composes two independently maintained parts:
 
-## Active workflows
+1. Read [portable.md](portable.md) completely. It is the behavioural source of
+   truth for session setup, routing, question flow, completion, and review.
+2. Read [references/brain.md](references/brain.md) completely. It contributes
+   Brain target resolution, persistence, taxonomy, provenance, and lifecycle
+   capabilities when the proposed session plan selects them.
 
-- **Brainstorm:** Use for a new or skeletal convergent artefact whose concrete decisions are not clear yet. Read [references/brainstorm.md](references/brainstorm.md).
-- **Refine:** Use for a formed convergent artefact, including one whose agenda appears complete and needs exit handling. Read [references/refine.md](references/refine.md).
-- **Discover:** Use when the taxonomy declares discovery shaping. Treat the conversation as open-ended development while respecting whether the artefact is a revisitable living picture or a bounded temporal record. Read [references/discover.md](references/discover.md).
+The Brain adaptor supplies capabilities and recommended defaults. It does not
+override the portable workflow or the user's requested locations and recording
+preferences. A connected Brain is not, by itself, a reason to store the
+artefact, decisions, work, or transcript in Brain.
 
-## Shared workflows
-
-- **Session assessment and Q&A rules:** Read [references/assess.md](references/assess.md) first for every shaping request.
-- **Four-Cs review:** When an active workflow reaches a candidate stopping or handoff point, recommend the optional review in [references/review.md](references/review.md). The user may bypass it.
-
-All paths are relative to this skill's root. These referenced Markdown files are workflow instructions, not independently discoverable skills. Read each selected file completely.
-
-## Routing
-
-1. Read and follow [references/assess.md](references/assess.md). It resolves the artefact, reads the taxonomy's `## Shaping` metadata, selects an active workflow, and opens the session.
-2. Read and follow the selected workflow.
-3. At that workflow's candidate exit, recommend [references/review.md](references/review.md) as the next step. If the user bypasses it, proceed with the active workflow's handoff or exact status approval. If they accept, reconcile the review outcome as specified and return to the active workflow when refinement continues.
-
-## Examples
-
-- Existing design with decisions -> assess -> **refine**
-- “I want to build X” with no formed artefact -> assess -> **brainstorm**
-- Any discovery-shaped artefact, living or temporal -> assess -> **discover**
-- Skeletal design -> assess -> **brainstorm**
+The portable source is checked into this package so an installed Brain has no
+runtime dependency on a network or sibling repository. Its exact source and
+file identities are recorded in
+[portable-provenance.json](portable-provenance.json).

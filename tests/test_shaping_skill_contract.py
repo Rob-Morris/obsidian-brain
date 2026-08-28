@@ -1,335 +1,376 @@
+import hashlib
+import importlib.util
+import json
 from pathlib import Path
+import subprocess
+
+import pytest
 
 
 SKILL_ROOT = Path("src/brain-core/skills/shaping")
+PORTABLE_REVISION = "022f6dcd3c412a49163682218f3346a5f0299201"
+PORTABLE_FILES = {
+    ("SKILL.md", "portable.md"): "43bc56f5cfce84e601550b1c09383beeba207fbde9dbd1239851fe39fc3f0279",
+    ("references/assess.md", "references/assess.md"): "d14ec41547f0473eb91103229011424a515876a4baa6b68f009f724fe348dc98",
+    ("references/brainstorm.md", "references/brainstorm.md"): "8cbc339c004bcf03455af9d0071e7903151cf52651042546d2f1ab08ae1c027e",
+    ("references/discover.md", "references/discover.md"): "8a981243a651ef0bec4bc4e992d8f5170127fb023cd231816920f45a5757594f",
+    ("references/refine.md", "references/refine.md"): "6dbb7d1a0513f375f84f43a9fae262351d26bf48dc0045d4bb2b4f3a19e23555",
+    ("references/review.md", "references/review.md"): "2ed2faaeb95d24e3f9cac6add8c3721eebb660715e8ee82d918d6364176124e5",
+}
 
 
 def _read(relative_path):
     return (SKILL_ROOT / relative_path).read_text()
 
 
-def test_shaping_root_has_portable_public_identity():
-    parent = _read("SKILL.md")
-    assert "name: shaping" in parent
-    assert "name: shaping:" not in parent
+def _load_vendor_module():
+    path = Path("src/scripts/vendor_shaping_skill.py")
+    spec = importlib.util.spec_from_file_location("vendor_shaping_skill", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 
-def test_assess_reads_taxonomy_and_selects_mode_before_opening_session():
-    assess = _read("references/assess.md")
+def test_brain_entry_point_composes_portable_workflow_and_narrow_adaptor():
+    root = _read("SKILL.md")
+    prose = " ".join(root.split())
 
-    taxonomy_read = assess.index('resource.read(resource="type"')
-    mode_selection = assess.index("Select the shaping workflow")
-    session_open = assess.index('shaping.start(target="{path}", mode="{mode}")')
-
-    assert taxonomy_read < mode_selection < session_open
-    assert "start-shaping" not in assess
-    assert "skill_type" not in assess
-
-
-def test_parent_router_does_not_hardcode_shapeable_type_lists():
-    parent = _read("SKILL.md")
-
-    assert "Designs, Plans, Tasks" not in parent
-    assert "People, Ideas, Cookies" not in parent
-    assert "taxonomy's `## Shaping` metadata" in parent
+    assert "name: shaping" in root
+    portable = root.index("[portable.md](portable.md)")
+    adaptor = root.index("[references/brain.md](references/brain.md)")
+    assert portable < adaptor
+    assert "behavioural source of truth" in prose
+    assert "does not override the portable workflow" in prose
+    assert "connected Brain is not, by itself" in prose
 
 
-def test_terminal_workflows_apply_taxonomy_completion_status():
-    for relative_path in ("references/refine.md", "references/discover.md"):
-        content = _read(relative_path)
-        assert "{completion_status}" in content
-        assert "artefact.set-status" in content
+def test_vendored_portable_workflow_is_complete_and_content_exact():
+    provenance = json.loads(_read("portable-provenance.json"))
+    entries = provenance["materialised_files"]
+
+    assert provenance["schema_version"] == 1
+    assert provenance["source"] == {
+        "repository": "https://github.com/Rob-Morris/agent-skills.git",
+        "revision": PORTABLE_REVISION,
+        "skill_path": "shaping",
+    }
+    assert {
+        (entry["source"], entry["destination"]): entry["sha256"]
+        for entry in entries
+    } == PORTABLE_FILES
+    for entry in entries:
+        content = (SKILL_ROOT / entry["destination"]).read_bytes()
+        assert hashlib.sha256(content).hexdigest() == entry["sha256"]
 
 
-def test_skill_uses_granular_shaping_start_consistently():
-    content = "\n".join(
-        path.read_text() for path in [SKILL_ROOT / "SKILL.md", *sorted((SKILL_ROOT / "references").glob("*.md"))]
+def test_materialiser_updates_only_portable_files_and_records_provenance(tmp_path):
+    module = _load_vendor_module()
+    source, revision = _source_repository(tmp_path, module)
+    destination = tmp_path / "destination"
+    destination.mkdir()
+    brain_adaptor = destination / "references/brain.md"
+    brain_adaptor.parent.mkdir()
+    brain_adaptor.write_text("Brain owned\n", encoding="utf-8")
+
+    provenance = module.materialise(
+        source,
+        destination,
+        expected_repository="https://example.test/skills.git",
+        expected_revision=revision,
     )
 
-    assert "start-shaping" not in content
-    assert 'shaping.start(target="{path}", mode="{mode}")' in content
-    assert "`shape`" not in content
-    assert "brain_action" not in content
+    assert brain_adaptor.read_text() == "Brain owned\n"
+    assert provenance["source"] == {
+        "repository": "https://example.test/skills.git",
+        "revision": revision,
+        "skill_path": "shaping",
+    }
+    assert json.loads(
+        (destination / "portable-provenance.json").read_text(encoding="utf-8")
+    ) == provenance
+    for entry in provenance["materialised_files"]:
+        assert (destination / entry["destination"]).read_bytes() == (
+            source / entry["source"]
+        ).read_bytes()
 
 
-def test_shared_mutation_contract_names_granular_document_owner():
+def test_materialiser_rejects_revision_repository_and_dirty_source(tmp_path):
+    module = _load_vendor_module()
+    source, revision = _source_repository(tmp_path, module)
+
+    with pytest.raises(ValueError, match="revision mismatch"):
+        module.materialise(
+            source,
+            tmp_path / "wrong-revision",
+            expected_repository="https://example.test/skills.git",
+            expected_revision="0" * 40,
+        )
+    with pytest.raises(ValueError, match="repository mismatch"):
+        module.materialise(
+            source,
+            tmp_path / "wrong-repository",
+            expected_repository="https://wrong.example/skills.git",
+            expected_revision=revision,
+        )
+
+    (source / "SKILL.md").write_text("dirty\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="uncommitted changes"):
+        module.materialise(
+            source,
+            tmp_path / "dirty-source",
+            expected_repository="https://example.test/skills.git",
+            expected_revision=revision,
+        )
+
+
+def test_portable_setup_proposes_plan_before_any_persistence():
+    portable = _read("portable.md")
     assess = _read("references/assess.md")
 
-    assert "complete propagation set through the document mutation commands" in assess
-    assert "mechanically narrow without narrowing the semantic scope" in assess
+    assert "Read and follow [references/assess.md]" in portable
+    proposal = assess.index("Present the result in a compact form")
+    approval = assess.index("After approval, initialise the selected records")
+    assert proposal < approval
+    assert "The user's requested locations and recording preferences remain authoritative" in portable
 
 
-def test_shaping_standard_uses_public_granular_command_name():
+def test_brain_adaptor_reuses_portable_plan_contract_without_redeclaring_it():
+    adaptor = _read("references/brain.md")
+    prose = " ".join(adaptor.split())
+
+    assert "Use the session-plan contract defined by the portable assessment workflow" in adaptor
+    assert "do not rename, remove, or redeclare its fields" in prose
+    for field in (
+        "**Style and workflow:**",
+        "**Done when:**",
+        "**Artefact:**",
+        "**Decisions and agent work:**",
+        "**Transcript:**",
+        "**Environment contributions:**",
+    ):
+        assert field not in adaptor
+    assert "ready to begin or wants to change" in adaptor
+    assert "session contract" in adaptor
+
+
+def test_brain_artefact_defaults_select_brain_capabilities_after_confirmation():
+    scenario = _scenario("Brain artefact workflow", "Connected Brain, local document")
+
+    assert "Brain design" in scenario
+    assert "design's normal shaping sections" in scenario
+    assert "Brain shaping transcript" in scenario
+    assert "Brain for target, decisions/work, transcript" in scenario
+    assert "`shaping.start` after confirmation" in scenario
+
+
+def test_new_brain_target_preflights_authority_before_create_and_refresh():
+    from _application.registry import current_application_catalogue
+
+    adaptor = _read("references/brain.md")
     standard = Path("src/brain-core/standards/shaping.md").read_text()
+    standard_prose = " ".join(standard.split())
+    authorities = {
+        entry.command_id: entry.authority.value
+        for entry in current_application_catalogue().entries
+    }
 
-    assert "`shape`" not in standard
-    assert "`shaping.start` command" in standard
-
-
-def test_refine_routes_resumptions_with_non_question_agenda_state():
-    assess = _read("references/assess.md")
-
-    assert "every other `flavour: convergent` artefact" in assess
-    assert "no open agenda" in assess
-    assert "candidate-exit review and status handling" in assess
-    assert "-> **refine**" in assess
-
-
-def test_refine_contract_is_event_driven_and_evidence_first():
-    refine = _read("references/refine.md")
-
-    for trigger in (
-        "session start or resumption",
-        "research or agent-work result",
-        "source artefact addition or scope change",
-        "four-Cs review finding",
-    ):
-        assert trigger in refine
-    assert "Do evidence work before asking" in refine
-    assert "Run the impact sweep to a fixed point" in refine
-    assert "### Reconciliation R4" in refine
+    preflight = adaptor.index("Before proposing a plan that may create")
+    create = adaptor.index("confirmed `artefact.create`")
+    refresh = adaptor.index("`runtime.refresh-router`", create)
+    shaping_start = adaptor.index("`shaping.start`", refresh)
+    assert preflight < create < refresh < shaping_start
+    assert authorities["artefact.create"] == "contributor"
+    assert authorities["runtime.refresh-router"] == "maintainer"
+    assert "Creation is a Contributor operation" not in adaptor
+    assert "`artefact.create` requires Contributor authority" in standard_prose
+    assert "`runtime.refresh-router` requires Maintainer authority" in standard_prose
+    assert "When refresh is unavailable, do not create first" in standard_prose
 
 
-def test_refine_persists_decisions_work_and_lineage_in_the_artefact():
-    refine = _read("references/refine.md")
+def test_connected_brain_does_not_capture_local_document_records():
+    scenario = _scenario(
+        "Connected Brain, local document",
+        "Brain artefact with scratch transcript",
+    )
 
-    assert "## Shaping Decisions" in refine
-    assert "## Shaping Work" in refine
-    assert "A merge names one surviving ID" in refine
-    assert "A split keeps the parent as a superseded lineage record" in refine
-    assert "source-qualified" in refine
-
-
-def test_refine_keeps_asked_questions_immutable_and_logs_agenda_mutations():
-    assess = _read("references/assess.md")
-    refine = _read("references/refine.md")
-
-    assert "Asked-question IDs are immutable, transcript-scoped historical turn identifiers" in refine
-    assert "Q4 — D11: Responsive repeated quit" in assess
-    assert "Reserve full immutable source qualification" in assess
-    assert "Proposal confirmations, review-finding dispositions" in assess
-    assert "Q3 — D2 + D4: Ownership boundary" in refine
-    assert "living/design/design-a:D4" in refine
-    assert "treat it as an ephemeral candidate prompt" in refine
-    assert "Do not allocate prompt IDs" in refine
-    assert "authoritative chronological mutation log" in refine
-    for event in (
-        "`Added`",
-        "`Reframed`",
-        "`Split`",
-        "`Merged`",
-        "`Deferred`",
-        "`Resolved`",
-        "`Reopened`",
-        "`Superseded`",
-        "`Retired prompt`",
-        "`Propagated`",
-    ):
-        assert event in refine
-    assert "outcome and authority when a decision resolves" in refine
-    assert "Do not duplicate the full event in a source artefact" in refine
+    assert "repository document through local-file tooling" in scenario
+    assert "requested local sidecar" in scenario
+    assert "requested OS-temporary scratch path" in scenario
+    assert "no Brain record" in scenario
+    assert "no `shaping.start`" in scenario
 
 
-def test_refine_persists_pending_proposals_without_event_replay():
-    refine = _read("references/refine.md")
+def test_scratch_transcript_overrides_brain_default_for_brain_target():
+    scenario = _scenario("Brain artefact with scratch transcript", "No durable artefact")
 
-    assert "Represent each pending transformation in the owning source table" in refine
-    assert "state `proposed`" in refine
-    assert "originating `Rn`" in refine
-    assert "On decline, restore the prior active state" in refine
-    assert "must not be resurfaced unless relevant content or evidence changes" in refine
-
-
-def test_refine_asks_for_one_commitment_and_reviews_proposals_sequentially():
-    assess = _read("references/assess.md")
-    refine = _read("references/refine.md")
-
-    assert "One user commitment at a time" in assess
-    assert "never several independent choices" in assess
-    assert "## Cold opening" in refine
-    assert "Do not offer several inferred resolutions for bulk confirmation" in refine
-    assert "At a cold opening, always handle proposals individually" in refine
-    assert "create a review queue and present only its first item" in refine
-    assert "reconcile and reprioritise before presenting the next item" in refine
-    assert "offer the genuinely viable alternatives as multiple choice" in refine
+    assert "Brain artefact, resolved and mutated through Brain" in scenario
+    assert "explicit OS-temporary scratch path" in scenario
+    assert "scratch storage for the transcript" in scenario
+    assert "Do not call `shaping.start`" in scenario
+    assert "violate the confirmed plan" in scenario
 
 
-def test_discovery_is_open_ended_adaptive_and_audited():
-    discover = _read("references/discover.md")
+def test_lifecycle_without_brain_transcript_has_an_explicit_operation():
+    adaptor = _read("references/brain.md")
+    prose = " ".join(adaptor.split())
+    scenario = _scenario(
+        "Brain artefact with scratch transcript",
+        "Brain transcript with lifecycle override",
+    )
 
-    for contract in (
-        "open-ended refinement",
-        "Refresh the thread map",
-        "Retire prompts answered directly or indirectly",
-        "Follow the user's energy",
-        "Improve current accuracy proportionately",
-        "### Reconciliation Rn",
-        "Current discovery pass complete",
-        "For a temporal artefact, preserve the bounded moment",
-        "Conversation stop",
-        "Shaping completion",
-        "leave the lifecycle status unchanged",
-    ):
-        assert contract in discover
-
-
-def test_brainstorm_reconciles_shape_and_promotes_only_mature_items():
-    brainstorm = _read("references/brainstorm.md")
-
-    for contract in (
-        "Shape synthesis loop",
-        "Apply every answer broadly",
-        "Refresh the working shape",
-        "Put evidence first",
-        "Follow useful momentum",
-        "Promote mature work",
-        "### Reconciliation Rn",
-    ):
-        assert contract in brainstorm
-
-
-def test_four_cs_review_is_optional_consent_based_and_repeatable():
-    parent = _read("SKILL.md")
-    review = _read("references/review.md")
-
-    assert "user may bypass it" in parent
-    for quality in ("Correctness", "Clarity", "Consistency", "Completeness"):
-        assert f"**{quality}:**" in review
-    for contract in (
-        "read-only subagent when available",
-        "recommend review as the next step",
-        "**A. Run the [independent / separate] four-Cs review — recommended.**",
-        "**B. Skip the review and [set the artefact to `{completion_status}` / hand off to refine / complete the current pass with status unchanged / exit explicit `shaping` to `{completion_status}`].**",
-        "**C. Stop here without completing the current pass; leave lifecycle status unchanged.**",
-        "ask for one commitment before applying any review-originated edit",
-        "recommend the highest-priority reopening",
-        "Only a finding the user accepts becomes a reconciliation trigger",
-        "use the same recommended A/B/C offer",
-        "Do not resurface a declined finding",
-        "Set `review-entry` to `candidate-exit`",
-        "At `mid-pass`, return directly to the active workflow",
-    ):
-        assert contract in review
-    assert "finish/rerun/continue navigator" in review
-    assert "This shaping pass looks ready" not in review
-
-
-def test_four_cs_exit_is_agent_led_and_review_findings_are_sequential():
-    review = _read("references/review.md")
-
-    assert "## Agent-led offer" in review
-    assert "recommend review as the next step" in review
-    assert "Keep A visibly recommended rather than presenting three equally weighted paths" in review
-    review_all = review.index("If the user asks to review all")
-    queue = review.index("create a queue", review_all)
-    first_item = review.index("explain only the first item", queue)
-    reprioritise = review.index("reconcile and reprioritise before continuing", first_item)
-    assert review_all < queue < first_item < reprioritise
-    assert "fall back to genuinely viable multiple-choice alternatives" in review
-    assert "Claiming final readiness before review or explicit bypass" in review
-
-
-def test_candidate_exit_checks_the_bar_and_uses_dynamic_completion_status():
-    refine = _read("references/refine.md")
+    assert "**Lifecycle without a Brain transcript:**" in adaptor
+    assert '`artefact.set-status(path="{path}", status="shaping")`' in adaptor
+    assert "preserving taxonomy" in prose
+    scenario_prose = " ".join(scenario.split())
+    assert "Brain for the target, selected decision/work persistence, and selected lifecycle" in scenario_prose
+    assert "scratch storage for the transcript" in scenario
+    assert "Apply transition lifecycle with `artefact.set-status`" in scenario
+    assert "Do not call `shaping.start`" in scenario
     standard = Path("src/brain-core/standards/shaping.md").read_text()
-
-    bar_check = refine.index("assess the current artefact explicitly against the taxonomy bar")
-    review_offer = refine.index("use the recommended A/B/C four-Cs offer")
-    status_change = refine.index("artefact.set-status")
-    assert bar_check < review_offer < status_change
-
-    assert "[artefact] is `{completion_status}`" in standard
-    assert "[artefact] is ready" not in standard
-    assert "set `{completion_status}` for transition" in standard
-    assert "set `ready`" not in standard
+    standard_prose = " ".join(standard.split())
+    assert "leave an enduring non-terminal status unchanged" in standard_prose
+    assert "began the pass already in `shaping`" in standard_prose
+    assert "began the pass already in `shaping`" not in prose
 
 
-def test_discovery_status_behaviour_is_explicit_and_preservation_is_non_terminal():
-    assess = _read("references/assess.md")
-    discover = _read("references/discover.md")
+def test_brain_transcript_without_lifecycle_has_an_explicit_operation():
+    adaptor = _read("references/brain.md")
+    prose = " ".join(adaptor.split())
+    scenario = _scenario(
+        "Brain transcript with lifecycle override",
+        "No durable artefact",
+    )
+
+    assert "**Brain transcript without Brain lifecycle:**" in adaptor
+    assert "Resolve the normal shaping-transcript artefact" in adaptor
+    assert "If none exists, create it with `artefact.create`" in adaptor
+    assert "If it already exists, select the standard read-revision-mutate rule" in prose
+    assert "select the standard new-target refresh rule" in prose
+    assert "under the standard provenance rules" in prose
+    assert "leave lifecycle status unchanged" in prose
+    assert "explicit lifecycle override leaves status unchanged" in scenario
+    assert "Do not call `shaping.start`" in scenario
+
+
+def test_no_durable_artefact_keeps_all_state_in_session_by_default():
+    adaptor = _read("references/brain.md")
+    start = adaptor.index("### No durable artefact")
+    scenario = adaptor[start : adaptor.index("## Guardrails", start)]
+
+    assert "in-session draft" in scenario
+    assert "in-session agenda or omitted" in scenario
+    assert "Transcript: omitted unless requested" in scenario
+    assert "none beyond session context" in scenario
+
+
+def test_brain_standard_is_conditional_on_selected_plan_roles():
     standard = Path("src/brain-core/standards/shaping.md").read_text()
+    prose = " ".join(standard.split())
 
-    assert "effective `status_behaviour` (default `transition`)" in assess
-    assert "`preserve` leaves the current non-terminal status unchanged" in assess
-    assert "do not change an existing enduring status" in discover
-    assert "already in `shaping`" in discover
-    assert "C stops without asserting pass completion" in discover
-    assert "A preserved target in a terminal status is rejected before any mutation" in standard
-    assert "complete a preserved discovery pass with status unchanged" in standard
-
-
-def test_selected_discovery_taxonomies_have_purpose_specific_bars():
-    people = Path(
-        "src/brain-core/artefact-library/living/people/taxonomy.md"
-    ).read_text()
-    journal = Path(
-        "src/brain-core/artefact-library/temporal/journal-entries/taxonomy.md"
-    ).read_text()
-    thoughts = Path(
-        "src/brain-core/artefact-library/temporal/thoughts/taxonomy.md"
-    ).read_text()
-
-    assert "**Status behaviour:** `preserve`" in people
-    assert "material uncertainty or inconsistency is explicit" in people
-    assert "**Completion status:** `active`" in people
-    assert "faithfully captures the user's meaning and voice" in journal
-    assert "coherent enough to stand alone" in journal
-    assert "preserve what surfaced" in thoughts
-    assert "uncertainty or incompleteness may remain" in thoughts
+    assert "portable shaping workflow](../skills/shaping/portable.md) owns session" in standard
+    assert "A connected Brain does not select Brain persistence" in standard
+    assert "canonical owner of Brain operation selection" in prose
+    assert "Brain lifecycle outcomes" in standard
+    assert "transcript stored outside Brain follows the confirmed session plan" in prose
+    for portable_heading in (
+        "## During Shaping",
+        "### One user commitment",
+        "## Completing a Shaping Pass",
+        "## Optional four-Cs review",
+    ):
+        assert portable_heading not in standard
 
 
-def test_review_severity_identity_and_declined_finding_exit_are_explicit():
-    review = _read("references/review.md")
+def test_effective_shaping_transcript_trigger_requires_confirmed_brain_plan():
+    compiler_path = Path("src/brain-core/scripts/compile_router.py")
+    spec = importlib.util.spec_from_file_location("compile_router", compiler_path)
+    compiler = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(compiler)
 
-    for severity in ("`blocking`", "`material`", "`minor`"):
-        assert severity in review
-    assert "Keep the same `Cn`" in review
-    assert "only to the most recently presented finding inventory" in review
-    assert "After the user declines one or more findings" in review
-    assert "If a blocking finding remains true, do not claim readiness" in review
-
-
-def test_review_and_completion_contracts_keep_authority_and_modes_separate():
-    refine = _read("references/refine.md")
-    brainstorm = _read("references/brainstorm.md")
-    standard = Path("src/brain-core/standards/shaping.md").read_text()
-
-    assert "accepted four-Cs review finding" in refine
-    assert "Brainstorm never applies the artefact's completion status" in brainstorm
-    assert "Reviewer output that the user has not accepted is candidate evidence" in standard
-    assert "Brainstorm:** hand off to refine" in standard
-
-
-def test_shaping_transcript_taxonomy_allows_generated_reconciliation_events():
-    taxonomy = Path(
+    taxonomy_path = Path(
+        "template-vault/_Config/Taxonomy/Temporal/shaping-transcripts.md"
+    )
+    source_taxonomy = Path(
         "src/brain-core/artefact-library/temporal/shaping-transcripts/taxonomy.md"
-    ).read_text()
+    )
+    assert taxonomy_path.read_text() == source_taxonomy.read_text()
 
-    assert "### Reconciliation R4" in taxonomy
-    assert "non-speaker, append-only audit event" in taxonomy
-    assert "Allocate `Rn` monotonically within the transcript" in taxonomy
-    assert "does not require an adjacent `### User` turn" in taxonomy
-    assert "authoritative chronological mutation log" in taxonomy
-    assert "Keep historical questions immutable" in taxonomy
-    assert "Separate current state from event history" in taxonomy
-    assert "Scope IDs to the transcript" in taxonomy
-    assert "Keep candidate prompts ephemeral" in taxonomy
-    assert "Joint continuation" in taxonomy
+    _, conditionals = compiler.parse_router(Path("template-vault/_Config/router.md"))
+    parsed = compiler.parse_taxonomy_file(taxonomy_path)
+    triggers = compiler.merge_triggers(
+        conditionals,
+        [
+            {
+                "taxonomy_file": (
+                    "_Config/Taxonomy/Temporal/shaping-transcripts.md"
+                ),
+                "trigger": parsed["trigger"],
+            }
+        ],
+    )
+    trigger = next(
+        item
+        for item in triggers
+        if item["target"] == "_Config/Taxonomy/Temporal/shaping-transcripts"
+    )
+
+    assert trigger["condition"] == (
+        "When a confirmed shaping plan selects a Brain transcript"
+    )
+    assert "After the shaping plan is confirmed" in trigger["detail"]
+    assert "only when that plan selects Brain" in trigger["detail"]
+    assert "At the start of shaping, create" not in trigger["detail"]
 
 
-def test_shaping_transcript_change_is_additive_and_requires_no_user_data_migration():
-    assess = _read("references/assess.md")
-    standard = Path("src/brain-core/standards/shaping.md").read_text()
-    taxonomy = Path(
-        "src/brain-core/artefact-library/temporal/shaping-transcripts/taxonomy.md"
-    ).read_text()
+def _scenario(start_heading, end_heading):
+    adaptor = _read("references/brain.md")
+    start = adaptor.index(f"### {start_heading}")
+    end = adaptor.index(f"### {end_heading}", start)
+    return adaptor[start:end]
 
-    assert "Every legacy dialogue-only transcript is valid" in assess
-    assert "older `Q.` / `> A.` turns and Agent/User headings" in assess
-    assert "never backfill inferred historical events" in assess
-    assert "This transcript format is additive and forward-only" in standard
-    assert "Every existing dialogue-only transcript format remains valid" in standard
-    assert "No version-bound user-data migration, check remediation, or repair rewrite is required" in standard
-    assert "Every existing dialogue-only transcript remains valid" in taxonomy
-    assert "older `Q.` / `> A.` turns and `### Agent` / `### User` turns" in taxonomy
-    assert "no version-bound user-data migration, check remediation, or repair pass is required" in taxonomy
+
+def _source_repository(tmp_path, module):
+    repository = tmp_path / "source-repository"
+    source = repository / "shaping"
+    repository.mkdir()
+    subprocess.run(["git", "init", str(repository)], check=True, capture_output=True)
+    subprocess.run(
+        ["git", "-C", str(repository), "config", "user.email", "test@example.com"],
+        check=True,
+    )
+    subprocess.run(
+        ["git", "-C", str(repository), "config", "user.name", "Test Author"],
+        check=True,
+    )
+    subprocess.run(
+        [
+            "git",
+            "-C",
+            str(repository),
+            "remote",
+            "add",
+            "origin",
+            "https://example.test/skills.git",
+        ],
+        check=True,
+    )
+    for index, relative in enumerate(module.SOURCE_TO_DESTINATION):
+        path = source / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(f"source {index}\n", encoding="utf-8")
+    subprocess.run(
+        ["git", "-C", str(repository), "add", "shaping"],
+        check=True,
+    )
+    subprocess.run(
+        ["git", "-C", str(repository), "commit", "-m", "Add shaping"],
+        check=True,
+        capture_output=True,
+    )
+    revision = subprocess.run(
+        ["git", "-C", str(repository), "rev-parse", "HEAD"],
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    return source, revision

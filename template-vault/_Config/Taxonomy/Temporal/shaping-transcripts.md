@@ -46,7 +46,8 @@ tags:
 
 ## Trigger
 
-At the start of shaping, create a shaping transcript linked to the source artefact(s).
+After the shaping plan is confirmed, create a linked Brain shaping transcript
+only when that plan selects Brain for transcript persistence.
 
 ## Template
 
