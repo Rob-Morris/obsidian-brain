@@ -165,6 +165,34 @@ def _write_taxonomy(root: Path, classification: str, folder: str, frontmatter_ty
     )
 
 
+def test_exact_0_3_no_release_data_runs_the_retained_migration_chain(tmp_path):
+    vault = _make_vault(tmp_path, "0.3.0")
+    scripts = vault / ".brain-core" / "scripts"
+    shutil.rmtree(scripts)
+    shutil.copytree(_REAL_SCRIPTS, scripts)
+    (scripts / "upgrade.py").unlink()
+    compiled = compile_router.compile(str(vault))
+    (vault / ".brain" / "local" / "compiled-router.json").write_text(
+        json.dumps(compiled, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    current_version = (_REAL_SCRIPTS.parent / "VERSION").read_text().strip()
+
+    results, ledger = upgrade._run_migrations(
+        str(vault),
+        "0.3.0",
+        current_version,
+        raise_on_error=True,
+    )
+
+    release_alignment = next(item for item in results if item["version"] == "0.34.0")
+    assert release_alignment["status"] == "skipped"
+    assert release_alignment["reason"] == (
+        "release taxonomy and release-bearing data are both absent"
+    )
+    assert ledger["migrations"]["0.34.0"]["status"] == "skipped"
+
+
 def test_run_pending_migrations_records_ledger_and_skips_repeat(tmp_path):
     source = _make_source(
         tmp_path,

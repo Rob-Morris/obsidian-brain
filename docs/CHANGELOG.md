@@ -8,6 +8,7 @@ Never edit past changelog entries. Only add new entries at the top.
 
 | Version | Date | Summary |
 |---|---|---|
+| [v0.62.7](changelog/v0.62.7.md) | 2026-08-29 | Let no-release vaults pass migrate_to_0_34_0 |
 | [v0.62.6](changelog/v0.62.6.md) | 2026-08-29 | Reconcile MCP registrations during brain.upgrade |
 | [v0.62.5](changelog/v0.62.5.md) | 2026-08-28 | Make brain.upgrade readiness-aware and surface runtime cleanup |
 | [v0.62.4](changelog/v0.62.4.md) | 2026-08-28 | Backfill terminal-status keys with migrate_to_0_62_4 |

@@ -13,6 +13,7 @@ Normalises legacy release artefacts to the settled Phase 1 release structure.
 
 ## What it does not guess
 
+- If an early vault has neither a configured `living/release` taxonomy nor any release-bearing Markdown, the migration records a no-op and allows the ordered upgrade chain to continue. If release-bearing or unreadable data is present without the taxonomy, it fails closed before changes.
 - It never infers a new parent from tags or folders.
 - If a release has no `parent:` set, the migration **halts before making any changes** and lists the offending paths. Set `parent: <type>/<key>` on each (any owning living artefact type is valid — projects are the canonical case), then re-run the migration.
 - If a stored `parent:` does not resolve, the migration leaves the file in its current ownership context and records a warning.

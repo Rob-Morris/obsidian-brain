@@ -33,7 +33,9 @@ from _common import (
     ensure_parent_tag,
     extract_title,
     find_vault_root,
+    has_leading_frontmatter,
     iter_artefact_paths,
+    iter_vault_md_files,
     load_compiled_router,
     normalize_artefact_key,
     parse_frontmatter,
@@ -62,7 +64,45 @@ def _release_artefact(router):
     for art in router.get("artefacts", []):
         if art.get("frontmatter_type") == _RELEASE_FRONTMATTER_TYPE:
             return art
-    raise ValueError("Compiled router has no configured release artefact.")
+    return None
+
+
+_RELEASE_TYPE_LINE_RE = re.compile(
+    r"(?m)^\s*type:\s*['\"]?living/release['\"]?\s*$"
+)
+
+
+def _release_paths_without_taxonomy(vault_root):
+    """Return release-bearing files when the historical taxonomy is absent."""
+    releases = []
+    unreadable = []
+    for dirpath, filename in iter_vault_md_files(vault_root):
+        path = os.path.join(dirpath, filename)
+        rel_path = os.path.relpath(path, vault_root)
+        try:
+            with open(path, "r", encoding="utf-8") as handle:
+                content = handle.read()
+        except (OSError, UnicodeDecodeError) as exc:
+            unreadable.append(f"{rel_path}: {exc}")
+            continue
+        fields, _body = parse_frontmatter(content)
+        if fields.get("type") == _RELEASE_FRONTMATTER_TYPE:
+            releases.append(rel_path)
+            continue
+        if (
+            content.startswith("---")
+            and not has_leading_frontmatter(content)
+            and _RELEASE_TYPE_LINE_RE.search(content)
+        ):
+            releases.append(rel_path)
+    if unreadable:
+        listing = "\n".join(f"  - {item}" for item in unreadable)
+        raise ValueError(
+            "Cannot prove that the vault has no release-bearing data because "
+            "some Markdown files are unreadable:\n"
+            f"{listing}"
+        )
+    return releases
 
 
 def _split_sections(body):
@@ -278,6 +318,23 @@ def backfill_vault(vault_root, router=None, *, dry_run=False):
         raise ValueError(router["error"])
 
     artefact = _release_artefact(router)
+    if artefact is None:
+        release_paths = _release_paths_without_taxonomy(vault_root)
+        if release_paths:
+            listing = "\n".join(f"  - {path}" for path in release_paths)
+            raise ValueError(
+                "Cannot migrate release-bearing data because the compiled router "
+                "has no configured living/release artefact:\n"
+                f"{listing}"
+            )
+        return {
+            "status": "skipped",
+            "updated": 0,
+            "warnings": [],
+            "actions": [],
+            "dry_run": dry_run,
+            "reason": "release taxonomy and release-bearing data are both absent",
+        }
     records = _load_release_records(vault_root, artefact)
 
     unparented = [rel for rel, fields, _ in records if not normalize_artefact_key(fields.get("parent"))]
