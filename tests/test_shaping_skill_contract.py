@@ -94,6 +94,83 @@ def test_materialiser_updates_only_portable_files_and_records_provenance(tmp_pat
         ).read_bytes()
 
 
+def test_materialiser_rejects_unmapped_committed_source_before_writing(tmp_path):
+    module = _load_vendor_module()
+    source, _revision = _source_repository(tmp_path, module)
+    unexpected = source / "references/unmapped.md"
+    unexpected.write_text("new portable contract\n", encoding="utf-8")
+    subprocess.run(
+        ["git", "-C", str(source.parent), "add", "shaping"],
+        check=True,
+    )
+    subprocess.run(
+        ["git", "-C", str(source.parent), "commit", "-m", "Add unmapped file"],
+        check=True,
+        capture_output=True,
+    )
+    revision = subprocess.run(
+        ["git", "-C", str(source.parent), "rev-parse", "HEAD"],
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    destination = tmp_path / "destination"
+    destination.mkdir()
+    sentinel = destination / "sentinel.md"
+    sentinel.write_text("unchanged\n", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="unmapped source files"):
+        module.materialise(
+            source,
+            destination,
+            expected_repository="https://example.test/skills.git",
+            expected_revision=revision,
+        )
+
+    assert sentinel.read_text(encoding="utf-8") == "unchanged\n"
+    assert not (destination / "portable.md").exists()
+
+
+def test_materialiser_removes_only_stale_provenance_owned_files(tmp_path):
+    module = _load_vendor_module()
+    source, revision = _source_repository(tmp_path, module)
+    destination = tmp_path / "destination"
+    references = destination / "references"
+    references.mkdir(parents=True)
+    brain_owned = references / "brain.md"
+    brain_owned.write_text("Brain owned\n", encoding="utf-8")
+    unclaimed = references / "notes.md"
+    unclaimed.write_text("not vendor owned\n", encoding="utf-8")
+    stale = references / "legacy.md"
+    stale.write_text("stale\n", encoding="utf-8")
+    (destination / "portable-provenance.json").write_text(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "materialised_files": [
+                    {
+                        "source": "references/legacy.md",
+                        "destination": "references/legacy.md",
+                        "sha256": "0" * 64,
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    module.materialise(
+        source,
+        destination,
+        expected_repository="https://example.test/skills.git",
+        expected_revision=revision,
+    )
+
+    assert not stale.exists()
+    assert brain_owned.read_text(encoding="utf-8") == "Brain owned\n"
+    assert unclaimed.read_text(encoding="utf-8") == "not vendor owned\n"
+
+
 def test_materialiser_rejects_revision_repository_and_dirty_source(tmp_path):
     module = _load_vendor_module()
     source, revision = _source_repository(tmp_path, module)

@@ -233,6 +233,11 @@ Git provenance is optional and independent of core/user ownership. Bundled
 source descriptors live in `.brain-core/skill-sources.json`; user tracking and
 baselines live in `.brain/skill-sources.json`.
 
+An unscoped refreshing status request acquires each distinct repository and ref
+once, then stages and validates every configured skill path independently. One
+invalid package therefore cannot hide valid sibling results, while repositories
+shared by several skills do not incur repeated serial fetches.
+
 Application-facing Git acquisition accepts only explicit HTTPS, SSH URL, or
 SCP-style SSH repository locations. Local paths, `file://` repositories,
 option-shaped refs and refs containing Git revision expressions are rejected at

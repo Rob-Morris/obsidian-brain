@@ -65,6 +65,21 @@ def _source_repo(tmp_path: Path, name: str = "shaping") -> tuple[Path, str]:
     return repository, _git(["rev-parse", "HEAD"], cwd=repository)
 
 
+def _source_repo_with_skills(
+    tmp_path: Path, names: tuple[str, ...]
+) -> tuple[Path, str]:
+    repository = tmp_path / "source"
+    repository.mkdir()
+    _git(["init", "--quiet"], cwd=repository)
+    _git(["config", "user.email", "tests@example.invalid"], cwd=repository)
+    _git(["config", "user.name", "Brain Tests"], cwd=repository)
+    for name in names:
+        _write_skill(repository / "skills", name, f"{name} version one")
+    _git(["add", "."], cwd=repository)
+    _git(["commit", "--quiet", "-m", "initial"], cwd=repository)
+    return repository, _git(["rev-parse", "HEAD"], cwd=repository)
+
+
 def _advance(repository: Path, name: str, body: str) -> str:
     skill = repository / "skills" / name
     (skill / "SKILL.md").write_text(
@@ -298,6 +313,54 @@ def test_refresh_reports_moving_branch_update_without_mutating_package(
     assert status.available_commit == second_commit
     assert tracking["available_package_sha256"] != tracking["source_package_sha256"]
     assert installed.read_bytes() == installed_before
+
+
+def test_unscoped_refresh_fetches_shared_source_once_and_isolates_path_errors(
+    tmp_path, monkeypatch, allow_local_git
+):
+    repository, commit = _source_repo_with_skills(tmp_path, ("review", "shaping"))
+    vault = tmp_path / "vault"
+    for name in ("review", "shaping"):
+        _write_skill(vault / ".brain-core/skills", name, f"bundled {name}")
+    manifest = {
+        "schema_version": 1,
+        "skills": {
+            "review": {
+                "repository": str(repository),
+                "skill_path": "skills/missing",
+                "configured_ref": commit,
+                "resolved_commit": commit,
+            },
+            "shaping": {
+                "repository": str(repository),
+                "skill_path": "skills/shaping",
+                "configured_ref": commit,
+                "resolved_commit": commit,
+            },
+        },
+    }
+    manifest_path = vault / ".brain-core/skill-sources.json"
+    manifest_path.parent.mkdir(parents=True, exist_ok=True)
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+    fetches = 0
+    original_run = git_source._run
+
+    def count_fetches(program, *arguments):
+        nonlocal fetches
+        if "fetch" in arguments:
+            fetches += 1
+        return original_run(program, *arguments)
+
+    monkeypatch.setattr(git_source, "_run", count_fetches)
+    list_skill_status(vault, refresh=True)
+    checks = load_tracking(vault)["core_checks"]
+
+    assert fetches == 1
+    assert checks["shaping"]["resolved_commit"] == commit
+    assert checks["shaping"]["error"] is None
+    assert checks["review"]["resolved_commit"] is None
+    assert checks["review"]["error"]
 
 
 def test_conflict_stages_upstream_and_replacement_archives_local(

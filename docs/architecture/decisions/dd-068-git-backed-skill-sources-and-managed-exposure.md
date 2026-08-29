@@ -86,6 +86,10 @@ filters. Package validation rejects symlinks and unsupported entries, enforces
 portable collision-free paths and bounded size/count, and hashes every file path,
 content digest, and executable bit.
 
+One unscoped status refresh acquires each distinct repository and configured ref
+once. Archive extraction and package validation remain isolated per skill path,
+so a malformed sibling reports its own error without invalidating valid results.
+
 Application-facing acquisition accepts only explicit HTTPS, SSH URL, or
 SCP-style SSH repositories and safe literal refs. Local paths, `file://` and Git
 remote-helper transports, embedded URL credentials, option-shaped refs and

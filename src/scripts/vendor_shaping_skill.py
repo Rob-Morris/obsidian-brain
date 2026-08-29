@@ -7,6 +7,7 @@ import argparse
 import hashlib
 import json
 from pathlib import Path
+from pathlib import PurePosixPath
 import subprocess
 
 
@@ -21,6 +22,82 @@ SOURCE_TO_DESTINATION = {
     "references/refine.md": "references/refine.md",
     "references/review.md": "references/review.md",
 }
+BRAIN_OWNED_DESTINATIONS = frozenset(("SKILL.md", "references/brain.md"))
+
+
+def _portable_relative_path(value: object, *, field: str) -> str:
+    if not isinstance(value, str) or not value or "\\" in value:
+        raise ValueError(f"{field} must be a portable relative path")
+    path = PurePosixPath(value)
+    if path.is_absolute() or any(part in ("", ".", "..") for part in path.parts):
+        raise ValueError(f"{field} must be a portable relative path")
+    return path.as_posix()
+
+
+def _committed_source_membership(
+    repository_root: Path,
+    *,
+    revision: str,
+    skill_path: str,
+) -> set[str]:
+    raw_paths = _git(
+        repository_root,
+        "ls-tree",
+        "-r",
+        "--name-only",
+        "-z",
+        revision,
+        "--",
+        skill_path,
+    )
+    prefix = f"{skill_path}/"
+    committed = set()
+    for raw_path in raw_paths.split(b"\0"):
+        if not raw_path:
+            continue
+        path = raw_path.decode("utf-8")
+        if not path.startswith(prefix):
+            raise ValueError(f"unexpected portable shaping source path: {path}")
+        committed.add(path[len(prefix) :])
+    return committed
+
+
+def _previous_vendor_destinations(destination_root: Path) -> set[str]:
+    provenance_path = destination_root / PROVENANCE_FILE
+    if not provenance_path.exists():
+        return set()
+    try:
+        provenance = json.loads(provenance_path.read_text(encoding="utf-8"))
+        entries = provenance["materialised_files"]
+    except (OSError, UnicodeError, json.JSONDecodeError, KeyError, TypeError) as exc:
+        raise ValueError("existing portable provenance is invalid") from exc
+    if not isinstance(entries, list):
+        raise ValueError("existing portable provenance is invalid")
+    destinations = set()
+    for entry in entries:
+        if not isinstance(entry, dict):
+            raise ValueError("existing portable provenance is invalid")
+        relative = _portable_relative_path(
+            entry.get("destination"),
+            field="portable provenance destination",
+        )
+        if relative == PROVENANCE_FILE or relative in BRAIN_OWNED_DESTINATIONS:
+            raise ValueError("portable provenance claims a Brain-owned destination")
+        destinations.add(relative)
+    return destinations
+
+
+def _stale_destination_path(destination_root: Path, relative: str) -> Path:
+    path = destination_root / relative
+    current = destination_root
+    for part in PurePosixPath(relative).parts[:-1]:
+        current /= part
+        if current.is_symlink():
+            raise ValueError("stale portable destination traverses a symlink")
+    if path.is_dir() and not path.is_symlink():
+        raise ValueError("stale portable destination is not a file")
+    return path
+
 
 def _git(repository_root: Path, *args: str) -> bytes:
     process = subprocess.run(
@@ -87,6 +164,32 @@ def materialise(
     if dirty.strip():
         raise ValueError("portable shaping source has uncommitted changes")
 
+    committed_sources = _committed_source_membership(
+        repository_root,
+        revision=revision,
+        skill_path=skill_path,
+    )
+    expected_sources = set(SOURCE_TO_DESTINATION)
+    if committed_sources != expected_sources:
+        unexpected = sorted(committed_sources - expected_sources)
+        missing = sorted(expected_sources - committed_sources)
+        detail = []
+        if unexpected:
+            detail.append(f"unmapped source files: {', '.join(unexpected)}")
+        if missing:
+            detail.append(f"missing source files: {', '.join(missing)}")
+        raise ValueError(
+            "portable shaping source membership changed; " + "; ".join(detail)
+        )
+
+    previous_destinations = _previous_vendor_destinations(destination_root)
+    current_destinations = set(SOURCE_TO_DESTINATION.values())
+    stale_destinations = previous_destinations - current_destinations
+    stale_paths = tuple(
+        _stale_destination_path(destination_root, relative)
+        for relative in sorted(stale_destinations)
+    )
+
     contents: dict[str, bytes] = {}
     for source_relative in SOURCE_TO_DESTINATION:
         committed_path = f"{skill_path}/{source_relative}"
@@ -109,6 +212,10 @@ def materialise(
                 "sha256": hashlib.sha256(content).hexdigest(),
             }
         )
+
+    for stale_path in stale_paths:
+        if stale_path.exists() or stale_path.is_symlink():
+            stale_path.unlink()
 
     provenance: dict[str, object] = {
         "schema_version": 1,

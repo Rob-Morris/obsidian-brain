@@ -14,7 +14,7 @@ import uuid
 from _common import vault_mutation_lock
 from _common import safe_write_json
 
-from .git_source import GitSourceError, checkout_source
+from .git_source import GitSourceError, checkout_repository, checkout_source
 from .models import (
     CoreReconciliationAction,
     CoreReconciliation,
@@ -378,39 +378,72 @@ def _eligible_core_overrides(root, core_base, tracking):
 def _refresh_sources(root, names, tracking, core_sources):
     updated = deepcopy(tracking)
     checked_at = _now()
+    source_groups = {}
     for name in sorted(names):
         record = updated["managed"].get(name)
         descriptor = record if isinstance(record, dict) else core_sources.get(name)
         if descriptor is None:
             continue
+        source_key = (
+            str(descriptor["repository"]),
+            str(descriptor["configured_ref"]),
+        )
+        source_groups.setdefault(source_key, []).append((name, record, descriptor))
+
+    for (repository, configured_ref), entries in source_groups.items():
         try:
-            with checkout_source(
-                str(descriptor["repository"]),
-                skill_path=str(descriptor["skill_path"]),
-                configured_ref=str(descriptor["configured_ref"]),
-                expected_name=name,
-            ) as source:
-                check = {
-                    "resolved_commit": source.resolved_commit,
-                    "package_sha256": source.package.package_sha256,
-                    "checked_at": checked_at,
-                    "error": None,
-                }
+            with checkout_repository(
+                repository,
+                configured_ref=configured_ref,
+            ) as repository_checkout:
+                for name, record, descriptor in entries:
+                    try:
+                        source = repository_checkout.checkout_source(
+                            skill_path=str(descriptor["skill_path"]),
+                            expected_name=name,
+                        )
+                        check = _source_check(
+                            checked_at=checked_at,
+                            resolved_commit=source.resolved_commit,
+                            package_sha256=source.package.package_sha256,
+                        )
+                    except (GitSourceError, OSError, ValueError) as exc:
+                        check = _source_check(checked_at=checked_at, error=str(exc))
+                    _record_source_check(updated, name, record, check)
         except (GitSourceError, OSError, ValueError) as exc:
-            check = {
-                "resolved_commit": None,
-                "package_sha256": None,
-                "checked_at": checked_at,
-                "error": str(exc),
-            }
-        if isinstance(record, dict):
-            record["available_commit"] = check["resolved_commit"]
-            record["available_package_sha256"] = check["package_sha256"]
-            record["last_checked_at"] = checked_at
-            record["source_error"] = check["error"]
-        else:
-            updated["core_checks"][name] = check
+            for name, record, _descriptor in entries:
+                _record_source_check(
+                    updated,
+                    name,
+                    record,
+                    _source_check(checked_at=checked_at, error=str(exc)),
+                )
     return updated
+
+
+def _source_check(
+    *,
+    checked_at,
+    resolved_commit=None,
+    package_sha256=None,
+    error=None,
+):
+    return {
+        "resolved_commit": resolved_commit,
+        "package_sha256": package_sha256,
+        "checked_at": checked_at,
+        "error": error,
+    }
+
+
+def _record_source_check(updated, name, record, check):
+    if isinstance(record, dict):
+        record["available_commit"] = check["resolved_commit"]
+        record["available_package_sha256"] = check["package_sha256"]
+        record["last_checked_at"] = check["checked_at"]
+        record["source_error"] = check["error"]
+    else:
+        updated["core_checks"][name] = check
 
 
 def _install_new_managed(root, source, *, core_lineage):

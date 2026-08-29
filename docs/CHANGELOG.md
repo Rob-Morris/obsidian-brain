@@ -8,6 +8,7 @@ Never edit past changelog entries. Only add new entries at the top.
 
 | Version | Date | Summary |
 |---|---|---|
+| [v0.62.13](changelog/v0.62.13.md) | 2026-08-29 | Batch skill refreshes and enforce vendor membership |
 | [v0.62.12](changelog/v0.62.12.md) | 2026-08-29 | Restore long-lived MCP state and non-blocking session mirrors |
 | [v0.62.11](changelog/v0.62.11.md) | 2026-08-29 | Constrain Git skill sources and complete adapter acceptance |
 | [v0.62.10](changelog/v0.62.10.md) | 2026-08-29 | Make brain.upgrade rollback cover every declared effect |

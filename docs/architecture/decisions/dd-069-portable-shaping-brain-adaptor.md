@@ -23,8 +23,8 @@ session-wide switch would override explicit user choices.
 The portable `agent-skills/shaping` package is the behavioural source of truth.
 Brain materialises its exact files into the shipped core package at release
 time. The contributor tool verifies the source checkout's origin, HEAD, clean
-shaping path, and committed Git blobs before recording the repository,
-revision, file mapping, and SHA-256 identities in
+shaping path, exact committed file membership, and Git blobs before recording
+the repository, revision, file mapping, and SHA-256 identities in
 `portable-provenance.json`. Installed clients use only the checked-in package;
 they never read the source checkout or network at runtime.
 
@@ -58,7 +58,9 @@ Brain and are not copies of the portable source.
 - Upgrades narrowly replace the previous shipped shaping-transcript router
   condition while preserving customised router entries.
 - Updating the portable source is an explicit contributor materialisation step,
-  followed by review and the normal Brain release process.
+  which refuses unmapped upstream files and removes only stale destinations
+  owned by the previous provenance, followed by review and the normal Brain
+  release process.
 - Core skill Git lifecycle metadata remains separate: this vendored dependency
   is not advertised as a user-updatable core source that would omit the Brain
   adaptor.

@@ -31,6 +31,69 @@ _SCP_REMOTE = re.compile(
 _SAFE_REF = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._/-]{0,255}$")
 
 
+class RepositoryCheckout:
+    """One fetched repository revision serving isolated skill-package stages."""
+
+    def __init__(
+        self,
+        *,
+        git: str,
+        checkout: Path,
+        staging_root: Path,
+        repository: str,
+        configured_ref: str,
+        resolved_commit: str,
+    ) -> None:
+        self._git = git
+        self._checkout = checkout
+        self._staging_root = staging_root
+        self.repository = repository
+        self.configured_ref = configured_ref
+        self.resolved_commit = resolved_commit
+
+    def checkout_source(
+        self,
+        *,
+        skill_path: str,
+        expected_name: str | None = None,
+    ) -> SourceCheckout:
+        """Stage and validate one package from the fetched revision."""
+
+        normalized_skill_path = _normalise_skill_path(skill_path)
+        archive_arguments = [
+            "-C",
+            str(self._checkout),
+            "archive",
+            "--format=tar",
+            self.resolved_commit,
+        ]
+        if normalized_skill_path != ".":
+            archive_arguments.append(normalized_skill_path)
+        archive = _run_archive(self._git, *archive_arguments)
+        package_stage = Path(
+            tempfile.mkdtemp(prefix="package-", dir=self._staging_root)
+        )
+        _extract_archive(archive, package_stage)
+        package_root = (
+            package_stage
+            if normalized_skill_path == "."
+            else package_stage / normalized_skill_path
+        )
+        try:
+            package = inspect_package(package_root, expected_name=expected_name)
+        except ValueError as exc:
+            raise GitSourceError(
+                f"invalid skill package at {skill_path!r}: {exc}"
+            ) from exc
+        return SourceCheckout(
+            self.repository,
+            self.configured_ref,
+            self.resolved_commit,
+            normalized_skill_path,
+            package,
+        )
+
+
 def validate_remote_repository(repository: str) -> str:
     """Return one approved remote Git location or reject local/helper forms."""
 
@@ -70,29 +133,24 @@ def validate_configured_ref(configured_ref: str) -> str:
 
 
 @contextmanager
-def checkout_source(
+def checkout_repository(
     repository: str,
     *,
-    skill_path: str,
     configured_ref: str = "HEAD",
-    expected_name: str | None = None,
-) -> Iterator[SourceCheckout]:
-    """Fetch, bound, validate, and temporarily expose one Git skill package."""
+) -> Iterator[RepositoryCheckout]:
+    """Fetch one bounded repository revision for request-scoped package reads."""
+
     repository = validate_remote_repository(repository)
     configured_ref = validate_configured_ref(configured_ref)
-    if skill_path == ".":
-        normalized_skill_path = "."
-    else:
-        try:
-            normalized_skill_path = validate_portable_relative_path(skill_path)
-        except ValueError as exc:
-            raise GitSourceError(str(exc)) from exc
     git = shutil.which("git")
     if git is None:
         raise GitSourceError("Git is required to refresh or update a skill source")
 
     with tempfile.TemporaryDirectory(prefix="brain-skill-source-") as temporary:
-        checkout = Path(temporary) / "repository"
+        temporary_root = Path(temporary)
+        checkout = temporary_root / "repository"
+        staging_root = temporary_root / "packages"
+        staging_root.mkdir()
         _run(git, "init", "--quiet", str(checkout))
         _run(git, "-C", str(checkout), "remote", "add", "origin", repository)
         _run(
@@ -108,32 +166,43 @@ def checkout_source(
         commit = _run(
             git, "-C", str(checkout), "rev-parse", "--verify", "FETCH_HEAD"
         ).strip()
-        archive_arguments = [
-            "-C",
-            str(checkout),
-            "archive",
-            "--format=tar",
-            commit,
-        ]
-        if normalized_skill_path != ".":
-            archive_arguments.append(normalized_skill_path)
-        archive = _run_archive(git, *archive_arguments)
-        _extract_archive(
-            archive,
-            checkout,
+        yield RepositoryCheckout(
+            git=git,
+            checkout=checkout,
+            staging_root=staging_root,
+            repository=repository,
+            configured_ref=configured_ref,
+            resolved_commit=commit,
         )
-        package_root = checkout if normalized_skill_path == "." else checkout / normalized_skill_path
-        try:
-            package = inspect_package(package_root, expected_name=expected_name)
-        except ValueError as exc:
-            raise GitSourceError(f"invalid skill package at {skill_path!r}: {exc}") from exc
-        yield SourceCheckout(
-            repository,
-            configured_ref,
-            commit,
-            normalized_skill_path,
-            package,
+
+
+@contextmanager
+def checkout_source(
+    repository: str,
+    *,
+    skill_path: str,
+    configured_ref: str = "HEAD",
+    expected_name: str | None = None,
+) -> Iterator[SourceCheckout]:
+    """Fetch, bound, validate, and temporarily expose one Git skill package."""
+
+    with checkout_repository(
+        repository,
+        configured_ref=configured_ref,
+    ) as checkout:
+        yield checkout.checkout_source(
+            skill_path=skill_path,
+            expected_name=expected_name,
         )
+
+
+def _normalise_skill_path(skill_path: str) -> str:
+    if skill_path == ".":
+        return "."
+    try:
+        return validate_portable_relative_path(skill_path)
+    except ValueError as exc:
+        raise GitSourceError(str(exc)) from exc
 
 
 def _run(program: str, *arguments: str) -> str:
