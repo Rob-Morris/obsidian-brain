@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from .._decoding import reject_unexpected
+
 from dataclasses import dataclass
 from enum import Enum
 from typing import ClassVar, Mapping
@@ -37,8 +39,6 @@ from ..types import (
     DependencyTier,
     EffectClass,
     Locality,
-    Projection,
-    ProjectionEligibility,
     RetryClass,
 )
 from .classify import (
@@ -95,16 +95,28 @@ class ContentIngestRequest:
             raise ValueError("content.ingest mode must use ContentClassifyMode")
 
 
+@dataclass(frozen=True, slots=True)
+class _RetrievalState:
+    index: object | None
+    type_embeddings: object | None
+    doc_embeddings: object | None
+    metadata: object | None
+
+
+@dataclass(frozen=True, slots=True)
+class _IngestionOutcome:
+    result: Mapping[str, object]
+    action: str | None
+    staged_handle: str | None
+    staging_warning: str | None
+
+
 def execute(context: InvocationContext, request: ContentIngestRequest):
-    import process
     from _common import (
         MutationLockError,
         PartialApplyError,
         public_mutation_error_message,
-        vault_mutation_lock,
     )
-    from _search.lexical_query import IndexNotFoundError, load_index
-    from _staging import finalise_staged_body
 
     if context.dry_run:
         return no_effect_error(
@@ -115,56 +127,13 @@ def execute(context: InvocationContext, request: ContentIngestRequest):
     router = load_router(context, ContentIngestRequest)
     if isinstance(router, Error):
         return router
-    try:
-        index = load_index(context.selected_brain.vault_root)
-    except (IndexNotFoundError, OSError, ValueError) as exc:
-        return no_effect_error(
-            ContentIngestRequest,
-            ErrorCode.CONFLICT,
-            str(exc),
-        )
-
-    type_embeddings = doc_embeddings = metadata = None
-    if request.mode is ContentClassifyMode.EMBEDDING:
-        if not semantic_provider_ready(context):
-            return semantic_unavailable(ContentIngestRequest, context)
-        semantic_state = load_semantic_state(context, ContentIngestRequest)
-        if isinstance(semantic_state, Error):
-            return semantic_state
-        _config, type_embeddings, doc_embeddings, metadata = semantic_state
-        if type_embeddings is None:
-            return no_effect_error(
-                ContentIngestRequest,
-                ErrorCode.CONFLICT,
-                "semantic type embeddings are missing",
-            )
-    elif semantic_provider_ready(context):
-        semantic_state = load_semantic_state(context, ContentIngestRequest)
-        if isinstance(semantic_state, Error):
-            return semantic_state
-        _config, type_embeddings, doc_embeddings, metadata = semantic_state
+    retrieval = _prepare_retrieval_state(context, request, router)
+    if isinstance(retrieval, Error):
+        return retrieval
 
     root = str(context.selected_brain.vault_root)
     try:
-        with vault_mutation_lock(root):
-            body, staged_handle = resolve_mutation_content(root, request.content)
-            result = process.ingest_content(
-                router,
-                root,
-                body,
-                title=request.title,
-                type_hint=request.type_key,
-                index=index,
-                type_embeddings=type_embeddings,
-                type_embeddings_meta=metadata,
-                doc_embeddings=doc_embeddings,
-                doc_embeddings_meta=metadata,
-                classification_mode=request.mode.value,
-            )
-            action = result.get("action_taken")
-            staging_warning = None
-            if action in {"created", "updated"}:
-                staging_warning = finalise_staged_body(root, staged_handle)
+        outcome = _ingest_locked(root, request, router, retrieval)
     except MutationLockError as exc:
         return no_effect_error(
             ContentIngestRequest,
@@ -195,24 +164,135 @@ def execute(context: InvocationContext, request: ContentIngestRequest):
             ErrorCode.INVALID_REQUEST,
             str(exc),
         )
+    return _project_outcome(request, outcome)
 
-    if action == "error":
+
+def _prepare_retrieval_state(
+    context: InvocationContext,
+    request: ContentIngestRequest,
+    router,
+):
+    import process
+    from _search.lexical_query import IndexNotFoundError, load_index
+
+    if request.type_key is not None and request.title is not None:
+        exact = process.resolve_exact_content(
+            router,
+            context.selected_brain.vault_root,
+            request.type_key,
+            request.title,
+        )
+        if exact is not None and exact.get("action") == "update":
+            return _RetrievalState(None, None, None, None)
+
+    needs_classification_choice = (
+        request.type_key is None
+        and request.mode is ContentClassifyMode.CONTEXT_ASSEMBLY
+    )
+    index = None
+    if not needs_classification_choice:
+        try:
+            index = load_index(context.selected_brain.vault_root)
+        except (IndexNotFoundError, OSError, ValueError) as exc:
+            return no_effect_error(
+                ContentIngestRequest,
+                ErrorCode.CONFLICT,
+                str(exc),
+            )
+
+    type_embeddings = doc_embeddings = metadata = None
+    if request.mode is ContentClassifyMode.EMBEDDING:
+        if not semantic_provider_ready(context):
+            return semantic_unavailable(ContentIngestRequest, context)
+        semantic_state = load_semantic_state(
+            context,
+            ContentIngestRequest,
+            router,
+            selection="all" if request.type_key is None else "documents",
+        )
+        if isinstance(semantic_state, Error):
+            return semantic_state
+        _config, type_embeddings, doc_embeddings, metadata = semantic_state
+        if type_embeddings is None:
+            return no_effect_error(
+                ContentIngestRequest,
+                ErrorCode.CONFLICT,
+                "semantic type embeddings are missing",
+            )
+    elif semantic_provider_ready(context) and not needs_classification_choice:
+        semantic_state = load_semantic_state(
+            context,
+            ContentIngestRequest,
+            router,
+            selection=(
+                "all"
+                if request.type_key is None
+                and request.mode is ContentClassifyMode.AUTO
+                else "documents"
+            ),
+        )
+        if isinstance(semantic_state, Error):
+            return semantic_state
+        _config, type_embeddings, doc_embeddings, metadata = semantic_state
+
+    return _RetrievalState(index, type_embeddings, doc_embeddings, metadata)
+
+
+def _ingest_locked(
+    root: str,
+    request: ContentIngestRequest,
+    router,
+    retrieval: _RetrievalState,
+) -> _IngestionOutcome:
+    import process
+    from _common import vault_mutation_lock
+    from _staging import finalise_staged_body
+
+    with vault_mutation_lock(root):
+        body, staged_handle = resolve_mutation_content(root, request.content)
+        result = process.ingest_content(
+            router,
+            root,
+            body,
+            title=request.title,
+            type_hint=request.type_key,
+            index=retrieval.index,
+            type_embeddings=retrieval.type_embeddings,
+            type_embeddings_meta=retrieval.metadata,
+            doc_embeddings=retrieval.doc_embeddings,
+            doc_embeddings_meta=retrieval.metadata,
+            classification_mode=request.mode.value,
+        )
+        action = result.get("action_taken")
+        staging_warning = (
+            finalise_staged_body(root, staged_handle)
+            if action in {"created", "updated"}
+            else None
+        )
+    return _IngestionOutcome(result, action, staged_handle, staging_warning)
+
+
+def _project_outcome(
+    request: ContentIngestRequest,
+    outcome: _IngestionOutcome,
+):
+    if outcome.action == "error":
         return no_effect_error(
             ContentIngestRequest,
             ErrorCode.INVALID_REQUEST,
-            result["message"],
+            outcome.result["message"],
         )
     payload = _payload(
-        result,
+        outcome.result,
         staged_handle_consumed=(
-            staged_handle is not None
-            and action in {"created", "updated"}
-            and staging_warning is None
+            outcome.staged_handle is not None
+            and outcome.action in {"created", "updated"}
+            and outcome.staging_warning is None
         ),
     )
     warnings = (
-        (CommandWarning(WarningCode.FOLLOW_UP_REQUIRED, staging_warning),)
-        if staging_warning
+        (CommandWarning(WarningCode.FOLLOW_UP_REQUIRED, outcome.staging_warning),)
+        if outcome.staging_warning
         else ()
     )
     effects = (
@@ -256,9 +336,7 @@ def _payload(result, *, staged_handle_consumed: bool) -> ContentIngestPayload:
 
 def decode(payload: Mapping[str, object]) -> ContentIngestRequest:
     allowed = {"content", "type_key", "title", "mode"}
-    unexpected = sorted(set(payload) - allowed)
-    if unexpected:
-        raise ValueError(f"unexpected fields: {', '.join(unexpected)}")
+    reject_unexpected(payload, allowed)
     type_key = payload.get("type_key")
     title = payload.get("title")
     if type_key is not None and not isinstance(type_key, str):
@@ -283,7 +361,7 @@ def decode(payload: Mapping[str, object]) -> ContentIngestRequest:
 
 
 def catalogue_entry():
-    from ..catalogue import ApplicationEntry
+    from ..catalogue import ALL_APPLICATION_PROJECTIONS, ApplicationEntry
 
     return ApplicationEntry(
         request_type=ContentIngestRequest,
@@ -295,19 +373,5 @@ def catalogue_entry():
         authority=Authority.CONTRIBUTOR,
         effect_class=EffectClass.SELECTED_BRAIN_MUTATION,
         retry_class=RetryClass.RECEIPT_REQUIRED,
-        projections=tuple(
-            ProjectionEligibility(projection, True)
-            for projection in (
-                Projection.MCP,
-                Projection.CLI,
-                Projection.SCRIPT,
-                Projection.PYTHON,
-            )
-        ),
+        projections=ALL_APPLICATION_PROJECTIONS,
     )
-
-
-def resolver_entry():
-    from ..resolver import ResolverEntry
-
-    return ResolverEntry(ContentIngestRequest, decode)

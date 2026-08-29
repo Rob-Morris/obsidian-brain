@@ -56,9 +56,3 @@ def decode(payload: Mapping[str, object]) -> ArtefactArchiveRequest:
 
 def catalogue_entry():
     return transition_catalogue_entry(ArtefactArchiveRequest, execute)
-
-
-def resolver_entry():
-    from ..resolver import ResolverEntry
-
-    return ResolverEntry(ArtefactArchiveRequest, decode)

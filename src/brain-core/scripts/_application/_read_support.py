@@ -2,26 +2,21 @@
 
 from __future__ import annotations
 
+from ._decoding import reject_unexpected
+
 from typing import Mapping
 
-from .results import CommandError, Error, ErrorCode, RequestErrorDetails
+from .results import request_error
 from .types import (
     Authority,
     DependencyTier,
     EffectClass,
     Locality,
-    Projection,
-    ProjectionEligibility,
     RetryClass,
 )
 
 
-def command_error(request_type, code: ErrorCode, message: str, field: str | None):
-    return Error(
-        request_type.COMMAND_ID,
-        request_type.COMMAND_VERSION,
-        CommandError(code, message, RequestErrorDetails(field, message)),
-    )
+command_error = request_error
 
 
 def decode_required_string(
@@ -29,9 +24,7 @@ def decode_required_string(
     field: str,
     request_type,
 ):
-    unexpected = sorted(set(payload) - {field})
-    if unexpected:
-        raise ValueError(f"unexpected fields: {', '.join(unexpected)}")
+    reject_unexpected(payload, {field})
     value = payload.get(field)
     if not isinstance(value, str):
         raise ValueError(f"{field} must be a string")
@@ -43,9 +36,7 @@ def decode_reference(payload: Mapping[str, object], request_type):
 
 
 def decode_query(payload: Mapping[str, object], request_type):
-    unexpected = sorted(set(payload) - {"query"})
-    if unexpected:
-        raise ValueError(f"unexpected fields: {', '.join(unexpected)}")
+    reject_unexpected(payload, {"query"})
     query = payload.get("query")
     if query is not None and not isinstance(query, str):
         raise ValueError("query must be a string")
@@ -53,7 +44,7 @@ def decode_query(payload: Mapping[str, object], request_type):
 
 
 def catalogue_entry(request_type, executor):
-    from .catalogue import ApplicationEntry
+    from .catalogue import ALL_APPLICATION_PROJECTIONS, ApplicationEntry
 
     return ApplicationEntry(
         request_type=request_type,
@@ -65,19 +56,5 @@ def catalogue_entry(request_type, executor):
         authority=Authority.READER,
         effect_class=EffectClass.NONE,
         retry_class=RetryClass.SAFE,
-        projections=tuple(
-            ProjectionEligibility(projection, True)
-            for projection in (
-                Projection.MCP,
-                Projection.CLI,
-                Projection.SCRIPT,
-                Projection.PYTHON,
-            )
-        ),
+        projections=ALL_APPLICATION_PROJECTIONS,
     )
-
-
-def resolver_entry(request_type, decoder):
-    from .resolver import ResolverEntry
-
-    return ResolverEntry(request_type, decoder)

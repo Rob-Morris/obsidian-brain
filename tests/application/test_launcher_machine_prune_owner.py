@@ -16,7 +16,7 @@ from launcher_catalogue import LAUNCHER_CATALOGUE
 from _launcher.context import LauncherContext, ProviderBindings
 from _launcher.contracts import ErrorCode, ReceiptState
 from _launcher.invocation import LauncherInvocation
-from _launcher.machine import MachinePruneRuntimesRequest, RuntimePruneStatus
+from _launcher.machine import RuntimeRemoveOrphansRequest, RuntimeRemovalStatus
 from _launcher.owners import LAUNCHER_OWNERS
 from _machine import maintenance
 import vault_registry
@@ -97,19 +97,19 @@ def _summary(runtime_dir: Path | None = None, *, scan_available=True):
     }
 
 
-def test_machine_prune_owner_matches_machine_global_contract():
+def test_runtime_remove_orphans_owner_matches_machine_global_contract():
     entry = next(
         item
         for item in LAUNCHER_CATALOGUE.entries
-        if item.command_id == "machine.prune-runtimes"
+        if item.command_id == "runtime.remove-orphans"
     )
     owner = next(
         item
         for item in LAUNCHER_OWNERS.entries
-        if item.command_id == "machine.prune-runtimes"
+        if item.command_id == "runtime.remove-orphans"
     )
 
-    assert entry.owner_ref == owner.owner_ref == "_launcher.machine:prune_runtimes"
+    assert entry.owner_ref == owner.owner_ref == "_launcher.machine:remove_orphans"
     assert entry.authority == "operator"
     assert entry.effect_class == "machine_mutation"
     assert entry.retry_class == "receipt_required"
@@ -123,8 +123,8 @@ def test_machine_prune_owner_matches_machine_global_contract():
     }
 
 
-def test_machine_prune_requires_an_available_caller_filesystem(tmp_path):
-    request = MachinePruneRuntimesRequest()
+def test_runtime_remove_orphans_requires_an_available_caller_filesystem(tmp_path):
+    request = RuntimeRemoveOrphansRequest()
 
     missing = _invocation(tmp_path, provider=False).invoke(request)
     unavailable = _invocation(
@@ -138,7 +138,7 @@ def test_machine_prune_requires_an_available_caller_filesystem(tmp_path):
     assert unavailable.error.details.missing == ("capability:caller_filesystem",)
 
 
-def test_machine_prune_dry_run_is_real_and_does_not_remove(tmp_path, monkeypatch):
+def test_runtime_remove_orphans_dry_run_is_real_and_does_not_remove(tmp_path, monkeypatch):
     runtime_dir = (tmp_path / "venvs" / "py3.12-orphan").resolve()
     (runtime_dir / "bin").mkdir(parents=True)
     (runtime_dir / "bin" / "python").write_text("python")
@@ -153,16 +153,16 @@ def test_machine_prune_dry_run_is_real_and_does_not_remove(tmp_path, monkeypatch
         tmp_path,
         dry_run=True,
         receipts=receipts,
-    ).invoke(MachinePruneRuntimesRequest())
+    ).invoke(RuntimeRemoveOrphansRequest())
 
-    assert result.result.status is RuntimePruneStatus.PLANNED
-    assert result.result.targets[0].status is RuntimePruneStatus.PLANNED
+    assert result.result.status is RuntimeRemovalStatus.PLANNED
+    assert result.result.targets[0].status is RuntimeRemovalStatus.PLANNED
     assert result.committed_effects == ()
     assert runtime_dir.is_dir()
     assert receipts.values[-1].state is ReceiptState.COMMITTED
 
 
-def test_machine_prune_removes_and_receipts_each_orphan(tmp_path, monkeypatch):
+def test_runtime_remove_orphans_removes_and_receipts_each_orphan(tmp_path, monkeypatch):
     runtime_dir = (tmp_path / "venvs" / "py3.12-orphan").resolve()
     (runtime_dir / "bin").mkdir(parents=True)
     (runtime_dir / "bin" / "python").write_text("python")
@@ -172,31 +172,31 @@ def test_machine_prune_removes_and_receipts_each_orphan(tmp_path, monkeypatch):
         lambda **_kwargs: _summary(runtime_dir),
     )
 
-    result = _invocation(tmp_path).invoke(MachinePruneRuntimesRequest())
+    result = _invocation(tmp_path).invoke(RuntimeRemoveOrphansRequest())
 
-    assert result.result.status is RuntimePruneStatus.REMOVED
-    assert result.result.targets[0].status is RuntimePruneStatus.REMOVED
+    assert result.result.status is RuntimeRemovalStatus.REMOVED
+    assert result.result.targets[0].status is RuntimeRemovalStatus.REMOVED
     assert tuple(effect.subject for effect in result.committed_effects) == (
         f"managed-runtime:{runtime_dir}",
     )
     assert not runtime_dir.exists()
 
 
-def test_machine_prune_returns_noop_when_no_orphans_exist(tmp_path, monkeypatch):
+def test_runtime_remove_orphans_returns_noop_when_no_orphans_exist(tmp_path, monkeypatch):
     monkeypatch.setattr(
         maintenance,
         "collect_machine_summary",
         lambda **_kwargs: _summary(),
     )
 
-    result = _invocation(tmp_path).invoke(MachinePruneRuntimesRequest())
+    result = _invocation(tmp_path).invoke(RuntimeRemoveOrphansRequest())
 
-    assert result.result.status is RuntimePruneStatus.NOOP
+    assert result.result.status is RuntimeRemovalStatus.NOOP
     assert result.result.targets == ()
     assert result.committed_effects == ()
 
 
-def test_machine_prune_uses_trusted_current_vault_during_discovery(
+def test_runtime_remove_orphans_uses_trusted_current_vault_during_discovery(
     tmp_path,
     monkeypatch,
 ):
@@ -213,14 +213,14 @@ def test_machine_prune_uses_trusted_current_vault_during_discovery(
     result = _invocation(
         tmp_path,
         current_vault=current_vault,
-    ).invoke(MachinePruneRuntimesRequest())
+    ).invoke(RuntimeRemoveOrphansRequest())
 
-    assert result.result.status is RuntimePruneStatus.NOOP
+    assert result.result.status is RuntimeRemovalStatus.NOOP
     assert calls[0]["current_vault"] == str(current_vault)
     assert calls[0]["synchronise_registry"] is False
 
 
-def test_machine_prune_fails_known_when_live_process_scan_is_unavailable(
+def test_runtime_remove_orphans_fails_known_when_live_process_scan_is_unavailable(
     tmp_path,
     monkeypatch,
 ):
@@ -230,14 +230,14 @@ def test_machine_prune_fails_known_when_live_process_scan_is_unavailable(
         lambda **_kwargs: _summary(scan_available=False),
     )
 
-    result = _invocation(tmp_path).invoke(MachinePruneRuntimesRequest())
+    result = _invocation(tmp_path).invoke(RuntimeRemoveOrphansRequest())
 
     assert result.error.code is ErrorCode.CONFLICT
     assert result.effects == "none"
     assert "live-process detection is unavailable" in result.error.message
 
 
-def test_machine_prune_maps_registry_read_failure_to_known_no_effect(
+def test_runtime_remove_orphans_maps_registry_read_failure_to_known_no_effect(
     tmp_path,
     monkeypatch,
 ):
@@ -246,14 +246,14 @@ def test_machine_prune_maps_registry_read_failure_to_known_no_effect(
 
     monkeypatch.setattr(maintenance, "collect_machine_summary", fail_summary)
 
-    result = _invocation(tmp_path).invoke(MachinePruneRuntimesRequest())
+    result = _invocation(tmp_path).invoke(RuntimeRemoveOrphansRequest())
 
     assert result.error.code is ErrorCode.CONFLICT
     assert result.effects == "none"
     assert "registry is unreadable" in result.error.message
 
 
-def test_machine_prune_deletion_failure_is_non_retryable_unknown(
+def test_runtime_remove_orphans_deletion_failure_is_non_retryable_unknown(
     tmp_path,
     monkeypatch,
 ):
@@ -273,7 +273,7 @@ def test_machine_prune_deletion_failure_is_non_retryable_unknown(
     receipts = _Receipts()
 
     result = _invocation(tmp_path, receipts=receipts).invoke(
-        MachinePruneRuntimesRequest()
+        RuntimeRemoveOrphansRequest()
     )
 
     assert result.error.code is ErrorCode.COMMAND_OUTCOME_UNKNOWN

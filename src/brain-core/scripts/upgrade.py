@@ -30,6 +30,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 from dataclasses import asdict
 from datetime import datetime, timezone
 from pathlib import Path
@@ -91,7 +92,9 @@ CLI_TARGET_LOCATIONS = (
     Path("/usr/local/bin/brain"),
 )
 DEPENDENCY_SYNC_TIMEOUT = 300
+MCP_REGISTRATION_REPAIR_TIMEOUT = 300
 RETRIEVAL_ASSET_REPAIR_TIMEOUT = 1800
+RUNTIME_WARMUP_TIMEOUT = 300
 SKIP_BOOTSTRAP_ENV = "BRAIN_SKIP_BOOTSTRAP"
 
 # Outcome tags for `_ensure_central_runtime` (named so producer + consumer cannot drift).
@@ -99,6 +102,13 @@ RUNTIME_CREATED = "created"
 RUNTIME_REUSED = "reused"
 RUNTIME_SKIPPED_DISABLED = "skipped_disabled"
 RUNTIME_ERROR = "error"
+
+
+def _runtime_error_message(snapshot: dict, fallback: str) -> str:
+    error = snapshot.get("last_error")
+    if isinstance(error, dict) and isinstance(error.get("message"), str):
+        return error["message"]
+    return fallback
 
 
 # ---------------------------------------------------------------------------
@@ -1324,6 +1334,124 @@ def _ensure_machine_resolution_runtime(vault_root: Path) -> dict:
     }
 
 
+def _await_runtime_readiness(readiness, vault_root: Path, timeout_seconds: float) -> dict:
+    """Await readiness through an already-loaded canonical readiness module."""
+
+    request_outcome, snapshot = readiness.ensure_runtime_warmup(
+        vault_root,
+        retry_failed=True,
+    )
+    deadline = time.monotonic() + max(0.0, timeout_seconds)
+    while snapshot.get("state") == "warming":
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            return {
+                "outcome": "error",
+                "request_outcome": request_outcome,
+                "runtime_status": snapshot,
+                "message": (
+                    "Runtime warm-up did not become ready before the "
+                    f"{timeout_seconds:g}s upgrade-completion timeout."
+                ),
+            }
+        retry_ms = snapshot.get("retry_after_ms")
+        delay = retry_ms / 1000 if isinstance(retry_ms, int) else 0.25
+        time.sleep(min(max(delay, 0.01), remaining))
+        snapshot = readiness.read_runtime_status(vault_root)
+
+    if snapshot.get("state") != "ready":
+        return {
+            "outcome": "error",
+            "request_outcome": request_outcome,
+            "runtime_status": snapshot,
+            "message": _runtime_error_message(
+                snapshot,
+                "Runtime warm-up finished without a ready state.",
+            ),
+        }
+    return {
+        "outcome": "ok",
+        "request_outcome": request_outcome,
+        "runtime_status": snapshot,
+        "message": "Runtime warm-up completed and the selected Brain is ready.",
+    }
+
+
+def _complete_runtime_readiness(
+    vault_root: Path,
+    *,
+    timeout_seconds: float = RUNTIME_WARMUP_TIMEOUT,
+) -> dict:
+    """Start or join canonical warm-up and await a closed readiness state."""
+
+    module_path = vault_root / ".brain-core" / "scripts" / "_bootstrap" / "readiness.py"
+    if not module_path.is_file():
+        return {
+            "outcome": "error",
+            "message": f"runtime readiness helper missing at {module_path}",
+        }
+    try:
+        with _MigrationImportContext(str(module_path)):
+            from _bootstrap import readiness
+            return _await_runtime_readiness(readiness, vault_root, timeout_seconds)
+    except (OSError, RuntimeError, ValueError) as exc:
+        return {
+            "outcome": "error",
+            "message": f"Runtime readiness could not be completed: {exc}",
+        }
+
+
+def _inspect_runtime_orphans(vault_root: Path) -> dict:
+    """Inspect shared runtimes and return canonical launcher follow-up guidance."""
+
+    module_path = vault_root / ".brain-core" / "scripts" / "_machine" / "maintenance.py"
+    if not module_path.is_file():
+        return {
+            "outcome": "error",
+            "message": f"runtime maintenance helper missing at {module_path}",
+        }
+    try:
+        with _MigrationImportContext(str(module_path)):
+            from _machine import maintenance
+
+            summary = maintenance.collect_machine_summary(
+                current_vault=str(vault_root),
+                launcher_python=sys.executable,
+                synchronise_registry=False,
+            )
+    except (OSError, RuntimeError, ValueError) as exc:
+        return {
+            "outcome": "error",
+            "message": f"Shared-runtime tidiness could not be inspected: {exc}",
+        }
+
+    return _runtime_orphan_guidance(summary)
+
+
+def _runtime_orphan_guidance(summary: dict) -> dict:
+    """Project a machine summary into bounded cleanup guidance."""
+
+    count = summary.get("counts", {}).get("orphan_candidates")
+    if not isinstance(count, int) or isinstance(count, bool) or count < 0:
+        return {
+            "outcome": "error",
+            "message": "Shared-runtime inspection returned an invalid orphan count.",
+        }
+    if count == 0:
+        return {
+            "outcome": "ok",
+            "orphan_candidates": 0,
+            "message": "No orphaned shared runtimes need follow-up.",
+        }
+    return {
+        "outcome": "follow_up",
+        "orphan_candidates": count,
+        "dry_run_command": ["brain", "runtime", "remove-orphans", "--dry-run"],
+        "remove_command": ["brain", "runtime", "remove-orphans"],
+        "message": f"{count} orphaned shared runtime(s) are safe cleanup candidates.",
+    }
+
+
 def _prepare_cli_cutover(
     vault_root: Path,
     source: Path,
@@ -1345,9 +1473,10 @@ def _prepare_cli_cutover(
     repo_root = source.resolve().parent.parent
     cli_root = repo_root / "cli"
     if not (cli_root / "_distribution.py").is_file():
-        raise ValueError("breaking Brain upgrade requires the complete CLI 2 distribution")
+        raise ValueError("breaking Brain upgrade requires the complete Brain CLI distribution")
     if str(cli_root) not in sys.path:
         sys.path.insert(0, str(cli_root))
+    from _distribution import source_versions
     from _launcher.cutover import preflight
 
     catalogue = json.loads((source / "command-catalogue.json").read_text(encoding="utf-8"))
@@ -1365,6 +1494,7 @@ def _prepare_cli_cutover(
     source_version = _read_version(str(source))
     if source_version is None:
         raise ValueError("source Brain Core version is missing")
+    new_cli_version = source_versions(repo_root).cli_version
     cli_text = target.read_text(encoding="utf-8")
     version_match = re.search(
         r'^BRAIN_CLI_VERSION="([0-9]+\.[0-9]+\.[0-9]+)"$',
@@ -1380,7 +1510,7 @@ def _prepare_cli_cutover(
         selected_vault=vault_root,
         source_brain_core_version=source_version,
         old_cli_version=old_cli_version,
-        new_cli_version="2.1.0",
+        new_cli_version=new_cli_version,
         interface_epoch=epoch,
         proxy_protocol=int(protocol_match.group(1)),
         acknowledge_global_cli_cutover=acknowledge_global_cli_cutover,
@@ -1390,6 +1520,7 @@ def _prepare_cli_cutover(
         "target": target,
         "repo_root": repo_root,
         "source_version": source_version,
+        "cli_version": new_cli_version,
         "preflight": report,
     }
 
@@ -1400,7 +1531,7 @@ def _commit_cli_cutover(plan: dict) -> dict:
     installed = install_distribution(
         plan["repo_root"],
         plan["target"],
-        cli_version="2.1.0",
+        cli_version=plan["cli_version"],
         expected_brain_core_version=plan["source_version"],
     )
     return {
@@ -1499,7 +1630,7 @@ def _load_json_dict_from_output(text: str) -> Optional[dict]:
     return None
 
 
-def _retrieval_repair_failure_message(
+def _repair_failure_message(
     *,
     returncode: int,
     payload: Optional[dict],
@@ -1518,6 +1649,77 @@ def _retrieval_repair_failure_message(
     return f"repair.py exited {returncode}"
 
 
+def _run_repair_scope_after_upgrade(
+    vault_root: Path,
+    scope: str,
+    *,
+    timeout: float,
+) -> dict:
+    """Run one canonical vault repair scope and preserve its typed evidence."""
+    repair_script = vault_root / ".brain-core" / "scripts" / "repair.py"
+    command = [
+        sys.executable,
+        str(repair_script),
+        scope,
+        "--vault",
+        str(vault_root),
+        "--json",
+    ]
+    summary = {"scope": scope, "command": command}
+    try:
+        proc = subprocess.run(
+            command,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+        )
+    except subprocess.TimeoutExpired:
+        return {**summary, "outcome": "error", "message": f"timed out after {timeout:g}s"}
+    except OSError as exc:
+        return {**summary, "outcome": "error", "message": str(exc)}
+
+    stdout = proc.stdout.strip()
+    stderr = proc.stderr.strip()
+    payload = _load_json_dict_from_output(stdout)
+    if proc.returncode != 0:
+        return {
+            **summary,
+            "outcome": "error",
+            "message": _repair_failure_message(
+                returncode=proc.returncode,
+                payload=payload,
+                stdout=stdout,
+                stderr=stderr,
+            ),
+            "returncode": proc.returncode,
+            "stdout": stdout,
+            "stderr": stderr,
+            "result": payload,
+        }
+    return {**summary, "outcome": "ok", "result": payload}
+
+
+def _repair_mcp_registration_after_upgrade(vault_root: Path) -> dict:
+    """Reconcile existing current-vault MCP registrations to the new runtime."""
+    local_state_paths = (
+        vault_root / ".mcp.json",
+        vault_root / ".codex" / "config.toml",
+        vault_root / ".brain" / "local" / "init-state.json",
+    )
+    if not any(path.exists() for path in local_state_paths):
+        return {
+            "scope": "mcp",
+            "command": [],
+            "outcome": "noop",
+            "message": "No existing current-vault MCP registrations need reconciliation.",
+        }
+    return _run_repair_scope_after_upgrade(
+        vault_root,
+        "mcp",
+        timeout=MCP_REGISTRATION_REPAIR_TIMEOUT,
+    )
+
+
 def _repair_retrieval_assets_after_upgrade(vault_root: Path) -> dict:
     """Reconcile the vault's supported retrieval assets after upgrade.
 
@@ -1525,58 +1727,20 @@ def _repair_retrieval_assets_after_upgrade(vault_root: Path) -> dict:
     semantic intent route through `repair.py semantic`, which already owns
     the broader router + lexical index + embeddings-sidecar refresh path.
     """
-    summary = {
-        "scope": "retrieval-assets",
-        "command": [],
-    }
     try:
         scope = _post_upgrade_retrieval_scope(vault_root)
-        repair_script = vault_root / ".brain-core" / "scripts" / "repair.py"
-        command = [
-            sys.executable,
-            str(repair_script),
-            scope,
-            "--vault",
-            str(vault_root),
-            "--json",
-        ]
-        summary = {
-            "scope": scope,
-            "command": command,
-        }
-        proc = subprocess.run(
-            command,
-            capture_output=True,
-            text=True,
-            timeout=RETRIEVAL_ASSET_REPAIR_TIMEOUT,
-        )
-    except subprocess.TimeoutExpired:
-        return {**summary, "outcome": "error", "message": f"timed out after {RETRIEVAL_ASSET_REPAIR_TIMEOUT}s"}
-    except OSError as e:
-        return {**summary, "outcome": "error", "message": str(e)}
-
-    stdout = proc.stdout.strip()
-    stderr = proc.stderr.strip()
-    payload = _load_json_dict_from_output(stdout)
-
-    if proc.returncode != 0:
-        message = _retrieval_repair_failure_message(
-            returncode=proc.returncode,
-            payload=payload,
-            stdout=stdout,
-            stderr=stderr,
-        )
+    except (OSError, ValueError) as exc:
         return {
-            **summary,
+            "scope": "retrieval-assets",
+            "command": [],
             "outcome": "error",
-            "message": message,
-            "returncode": proc.returncode,
-            "stdout": stdout,
-            "stderr": stderr,
-            "result": payload,
+            "message": str(exc),
         }
-
-    return {**summary, "outcome": "ok", "result": payload}
+    return _run_repair_scope_after_upgrade(
+        vault_root,
+        scope,
+        timeout=RETRIEVAL_ASSET_REPAIR_TIMEOUT,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -1665,6 +1829,25 @@ def upgrade(
 
     if dry_run:
         result["message"] = f"Dry run: {old_version or '(none)'} → {new_version}"
+
+        try:
+            from _skill_library import preview_core_override_reconciliation
+
+            collapse = preview_core_override_reconciliation(
+                vault_root,
+                core_root=source,
+            )
+        except (OSError, ValueError, RuntimeError) as exc:
+            result.setdefault("warnings", []).append({
+                "stage": "skill_reconciliation_preview",
+                "message": str(exc),
+            })
+        else:
+            if collapse:
+                result["skill_reconciliation_preview"] = [
+                    {"name": name, "action": "collapse_to_core"}
+                    for name in collapse
+                ]
 
         # Preview migrations and definition sync that would run after the
         # version copy. Without this, dry-run reports only file-copy changes
@@ -1896,6 +2079,39 @@ def upgrade(
     if _all_migrations_recorded(vault_root, new_version, ledger=ledger):
         _write_migrated_version_marker(vault_root, new_version)
 
+    try:
+        from _skill_library import (
+            preview_core_override_reconciliation,
+            reconcile_core_overrides,
+        )
+
+        for skill_name in preview_core_override_reconciliation(vault_root):
+            _snapshot_tree(
+                os.path.join(vault_root, "_Config", "Skills", skill_name),
+                postcompile_snapshots,
+                roots=postcompile_snapshot_roots,
+            )
+
+        reconciled_skills = reconcile_core_overrides(vault_root)
+        if reconciled_skills:
+            result["skill_reconciliation"] = [
+                {
+                    "name": item.name,
+                    "action": item.action,
+                    "archived_path": item.archived_path,
+                    "detail": item.detail,
+                }
+                for item in reconciled_skills
+            ]
+            compile_error = _validate_compile(vault_root)
+            if compile_error is not None:
+                return _rollback(
+                    "skill override reconciliation could not refresh the router: "
+                    f"{compile_error}"
+                )
+    except (OSError, ValueError, RuntimeError) as exc:
+        return _rollback(f"skill override reconciliation failed: {exc}")
+
     if commit_callback is not None:
         try:
             result["cutover_commit"] = commit_callback(result)
@@ -1924,6 +2140,17 @@ def upgrade(
     sync_info = _post_upgrade_sync(vault_root, sync=sync)
     if sync_info is not None:
         result.update(sync_info)
+        sync_result = sync_info.get("sync_result")
+        if sync_result and any(
+            item.get("target", "").startswith("_Config/Taxonomy/")
+            for item in sync_result.get("updated", [])
+        ):
+            compile_error = _validate_compile(vault_root)
+            if compile_error is not None:
+                result["sync_compile_error"] = (
+                    "Definitions were updated but router recompilation failed: "
+                    f"{compile_error}"
+                )
 
     requirements_changed = REQ_FILE_REL in (
         result.get("files_added", []) + result.get("files_modified", [])
@@ -1949,6 +2176,18 @@ def upgrade(
         old_version=old_version,
         new_version=new_version,
         dry_run=False,
+        stage="mcp_registration_repair",
+        message="Reconciling existing current-vault MCP registrations",
+    )
+    result["mcp_registration_repair"] = _repair_mcp_registration_after_upgrade(
+        Path(vault_root)
+    )
+
+    _write_upgrade_progress(
+        vault_root,
+        old_version=old_version,
+        new_version=new_version,
+        dry_run=False,
         stage="machine_resolution_runtime",
         message="Provisioning machine-level resolution runtime",
     )
@@ -1963,6 +2202,26 @@ def upgrade(
         message="Reconciling retrieval asset state after upgrade",
     )
     result["retrieval_asset_repair"] = _repair_retrieval_assets_after_upgrade(Path(vault_root))
+
+    _write_upgrade_progress(
+        vault_root,
+        old_version=old_version,
+        new_version=new_version,
+        dry_run=False,
+        stage="runtime_readiness",
+        message="Completing selected-Brain runtime warm-up",
+    )
+    result["runtime_readiness"] = _complete_runtime_readiness(Path(vault_root))
+
+    _write_upgrade_progress(
+        vault_root,
+        old_version=old_version,
+        new_version=new_version,
+        dry_run=False,
+        stage="runtime_tidiness",
+        message="Inspecting shared-runtime cleanup candidates",
+    )
+    result["runtime_orphans"] = _inspect_runtime_orphans(Path(vault_root))
 
     result["message"] = f"Upgraded {old_version or '(none)'} → {new_version}"
     _write_upgrade_log(vault_root, result)
@@ -2239,6 +2498,30 @@ def main() -> None:
                     info(f"  Retry: {command}")
             print(file=sys.stderr)
 
+        runtime_readiness = result.get("runtime_readiness")
+        if runtime_readiness is not None:
+            if runtime_readiness.get("outcome") == "ok":
+                info("Selected Brain runtime warm-up completed; session.start is ready.")
+            else:
+                info(
+                    "Selected Brain runtime warm-up is incomplete: "
+                    f"{runtime_readiness.get('message', 'unknown readiness error')}"
+                )
+                info("  Retry: brain runtime warmup")
+                info("  Inspect: brain runtime status")
+            print(file=sys.stderr)
+
+        runtime_orphans = result.get("runtime_orphans")
+        if runtime_orphans is not None:
+            if runtime_orphans.get("outcome") == "follow_up":
+                info(runtime_orphans["message"])
+                info(f"  Preview: {_join_argv(runtime_orphans['dry_run_command'])}")
+                info(f"  Remove: {_join_argv(runtime_orphans['remove_command'])}")
+            elif runtime_orphans.get("outcome") == "error":
+                info(f"Shared-runtime tidiness is unknown: {runtime_orphans['message']}")
+                info("  Inspect: brain runtime remove-orphans --dry-run")
+            print(file=sys.stderr)
+
         for warning in result.get("warnings", []):
             message = warning.get("message")
             if message:
@@ -2250,6 +2533,9 @@ def main() -> None:
         if "sync_error" in result:
             info(f"Definition sync failed: {result['sync_error']}")
             info("Run sync_definitions.py manually after investigating.")
+        elif "sync_compile_error" in result:
+            info(result["sync_compile_error"])
+            info("Run compile_router.py manually after investigating.")
         elif "sync_result" in result:
             sr = result["sync_result"]
             if sr.get("updated"):

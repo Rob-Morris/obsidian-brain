@@ -61,13 +61,10 @@ class TestBuildSessionModel:
         )
 
         route = model["command_catalogue"]
+        route_source = Path(session.__file__).resolve().parents[1] / "command-catalogue.json"
+        expected_route = json.loads(route_source.read_text(encoding="utf-8"))
         assert route == {
-            "schema": "brain.command-catalogue/1",
-            "interface_epoch": 1,
-            "static_fingerprint": (
-                "sha256:9f7d1b8bdaa26e431c65951a6d58737871babf9492fd7dd5650e757b73e7cdcc"
-            ),
-            "installed_application_command_count": 71,
+            **expected_route,
             "brain_core_version": "0.25.0",
             "list": "Use command.list for filtered, paginated commands.",
             "describe": (

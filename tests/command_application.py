@@ -22,6 +22,12 @@ class _Authority:
     def allows(self, **_kwargs):
         return True
 
+    def ceiling_allows(self, _command_id):
+        return True
+
+    def consume(self, _command_id):
+        return True
+
 
 class _Receipts:
     def __init__(self):

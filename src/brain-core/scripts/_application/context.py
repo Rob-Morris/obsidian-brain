@@ -5,6 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
+import sys
+import traceback
 from typing import Protocol
 
 from .access_contracts import AccessController
@@ -19,10 +21,14 @@ from .types import (
 
 
 class Clock(Protocol):
+    """Provide a trusted timezone-aware wall clock to application services."""
+
     def now(self) -> datetime: ...
 
 
 class AuthorityEvaluator(Protocol):
+    """Evaluate immutable ceiling and current principal-bound command grants."""
+
     def allows(
         self,
         *,
@@ -31,13 +37,75 @@ class AuthorityEvaluator(Protocol):
         effect: EffectClass,
     ) -> bool: ...
 
+    def ceiling_allows(self, command_id: str) -> bool: ...
+
+    def consume(self, command_id: str) -> bool: ...
+
+
+class DiagnosticReporter(Protocol):
+    """Receive best-effort internal diagnostics without changing command results."""
+
+    def report_failure(
+        self,
+        *,
+        phase: str,
+        command_id: str,
+        correlation_id: str,
+        error: BaseException,
+    ) -> None: ...
+
+
+@dataclass(frozen=True, slots=True)
+class NullDiagnosticReporter:
+    def report_failure(
+        self,
+        *,
+        phase: str,
+        command_id: str,
+        correlation_id: str,
+        error: BaseException,
+    ) -> None:
+        del phase, command_id, correlation_id, error
+
+
+def report_failure_safely(
+    context: "InvocationContext",
+    *,
+    phase: str,
+    command_id: str,
+    error: BaseException,
+) -> None:
+    """Report an invocation failure without letting diagnostics alter its outcome."""
+
+    try:
+        context.diagnostics.report_failure(
+            phase=phase,
+            command_id=command_id,
+            correlation_id=context.correlation_id,
+            error=error,
+        )
+    except Exception as reporter_error:
+        try:
+            sys.__stderr__.write(
+                "Brain command diagnostic reporter failed while handling "
+                f"{phase} for {command_id}:\n"
+            )
+            traceback.print_exception(reporter_error, file=sys.__stderr__)
+        except Exception:
+            # Diagnostic fallback must never change the command outcome.
+            pass
+
 
 class ProviderPort(Protocol):
+    """Identify one adapter-composed provider available to command executors."""
+
     @property
     def provider_id(self) -> str: ...
 
 
 class CapabilitySnapshotStore(Protocol):
+    """Read or refresh immutable provider-availability snapshots."""
+
     def refresh(
         self,
         provider_ids: tuple[str, ...],
@@ -50,6 +118,8 @@ class CapabilitySnapshotStore(Protocol):
 
 @dataclass(frozen=True, slots=True)
 class ProviderBindings:
+    """Immutable provider lookup keyed by unique provider identity."""
+
     providers: tuple[ProviderPort, ...] = ()
 
     def __post_init__(self) -> None:
@@ -74,6 +144,8 @@ class ProviderBindings:
 
 @dataclass(frozen=True, slots=True)
 class Capability:
+    """Availability of one named capability in a trusted snapshot."""
+
     name: str
     availability: Availability
 
@@ -84,6 +156,8 @@ class Capability:
 
 @dataclass(frozen=True, slots=True)
 class CapabilitySnapshot:
+    """Point-in-time capability evidence used for one invocation boundary."""
+
     token: str
     freshness: SnapshotFreshness
     observed_at: datetime
@@ -108,6 +182,8 @@ class CapabilitySnapshot:
 
 @dataclass(frozen=True, slots=True)
 class SelectedBrain:
+    """Trusted identity and absolute vault root selected by an adapter."""
+
     brain_id: str
     vault_root: Path
 
@@ -120,6 +196,8 @@ class SelectedBrain:
 
 @dataclass(frozen=True, slots=True)
 class InvocationContext:
+    """Trusted, immutable execution facts composed outside semantic requests."""
+
     selected_brain: SelectedBrain
     profile: str
     authority: AuthorityEvaluator
@@ -135,6 +213,7 @@ class InvocationContext:
     dry_run: bool = False
     workspace_dir: Path | None = None
     capability_snapshots: CapabilitySnapshotStore | None = None
+    diagnostics: DiagnosticReporter = NullDiagnosticReporter()
 
     def __post_init__(self) -> None:
         if not self.profile.strip():

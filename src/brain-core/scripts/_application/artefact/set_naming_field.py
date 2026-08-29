@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from .._decoding import reject_unexpected
+
 from dataclasses import dataclass
 from typing import ClassVar, Mapping
 
@@ -38,9 +40,7 @@ def execute(context: InvocationContext, request: ArtefactSetNamingFieldRequest):
 
 
 def decode(payload: Mapping[str, object]) -> ArtefactSetNamingFieldRequest:
-    unexpected = sorted(set(payload) - {"path", "field", "value"})
-    if unexpected:
-        raise ValueError(f"unexpected fields: {', '.join(unexpected)}")
+    reject_unexpected(payload, {"path", "field", "value"})
     missing = [name for name in ("path", "field", "value") if name not in payload]
     if missing:
         raise ValueError(f"{missing[0]} is required")
@@ -52,9 +52,3 @@ def decode(payload: Mapping[str, object]) -> ArtefactSetNamingFieldRequest:
 
 def catalogue_entry():
     return lifecycle_catalogue_entry(ArtefactSetNamingFieldRequest, execute)
-
-
-def resolver_entry():
-    from ..resolver import ResolverEntry
-
-    return ResolverEntry(ArtefactSetNamingFieldRequest, decode)

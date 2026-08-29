@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import MISSING, fields
 import inspect
+import time
 from typing import Annotated, Callable, get_type_hints
 
 from mcp.server import MCPServer
@@ -27,6 +28,7 @@ from _application.projection import (
 from _application.resolver import RequestResolver
 from _application.results import CommandError, Error, ErrorCode
 from _application.types import EffectClass, Projection, RetryClass
+from _common import _operational_log
 
 from ._interface_protocol import (
     CommandInterfaceHeader,
@@ -163,19 +165,36 @@ def _handler(
         # adapter error path. The server guard exits with code 10 so the proxy
         # can replace stale command code and replay under the new interface.
         invocation_guard()
+        logger = _operational_log.current_logger()
+        started = time.monotonic()
         try:
             context = context_factory(
                 command_id=entry.command_id,
                 catalogue=catalogue,
                 mcp_context=mcp_context,
             )
-        except Exception:
+        except Exception as exc:
+            # Unpaired tool.handled: the invocation identity never composed.
+            if logger is not None:
+                logger.record(
+                    "tool.handled",
+                    command_id=entry.command_id,
+                    duration_ms=int((time.monotonic() - started) * 1000),
+                    outcome="error",
+                    error_class=_operational_log.classify_error(exc),
+                )
             projection = _error_projection(
                 entry,
                 ErrorCode.INTERNAL_ERROR,
                 "The MCP invocation context could not be composed.",
             )
         else:
+            if logger is not None:
+                logger.record(
+                    "tool.started",
+                    command_id=entry.command_id,
+                    invocation_id=context.invocation_id,
+                )
             try:
                 projection = adapter.invoke(
                     context,
@@ -187,6 +206,14 @@ def _handler(
                     entry,
                     ErrorCode.INVALID_REQUEST,
                     str(exc),
+                )
+            if logger is not None:
+                logger.record(
+                    "tool.handled",
+                    command_id=entry.command_id,
+                    invocation_id=context.invocation_id,
+                    duration_ms=int((time.monotonic() - started) * 1000),
+                    outcome="error" if projection.is_error else "ok",
                 )
         return CallToolResult(
             content=[TextContent(type="text", text=projection.concise_text)],

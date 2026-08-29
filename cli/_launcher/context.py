@@ -26,6 +26,19 @@ class ProviderPort(Protocol):
     def available(self) -> bool: ...
 
 
+class DiagnosticReporter(Protocol):
+    """Receive best-effort internal diagnostics without changing command results."""
+
+    def report_failure(
+        self,
+        *,
+        phase: str,
+        command_id: str,
+        correlation_id: str,
+        error: BaseException,
+    ) -> None: ...
+
+
 @dataclass(frozen=True, slots=True)
 class ProviderBindings:
     providers: tuple[ProviderPort, ...] = ()
@@ -59,9 +72,11 @@ class LauncherContext:
     cli_binary: Path
     launcher_python: Path | None = None
     current_vault: Path | None = None
+    workspace_dir: Path | None = None
     distribution_root: Path | None = None
     operator_key: str | None = field(default=None, repr=False)
     dry_run: bool = False
+    diagnostics: DiagnosticReporter | None = None
 
     def __post_init__(self) -> None:
         if not self.profile.strip() or not self.correlation_id.strip():
@@ -78,9 +93,35 @@ class LauncherContext:
             raise ValueError("launcher_python must be absolute")
         if self.current_vault is not None and not self.current_vault.is_absolute():
             raise ValueError("launcher current_vault must be absolute")
+        if self.workspace_dir is not None and not self.workspace_dir.is_absolute():
+            raise ValueError("launcher workspace_dir must be absolute")
         if self.distribution_root is not None and not self.distribution_root.is_absolute():
             raise ValueError("launcher distribution_root must be absolute")
         if self.operator_key is not None and not self.operator_key.strip():
             raise ValueError("launcher operator_key must be non-empty when supplied")
         if not isinstance(self.dry_run, bool):
             raise ValueError("launcher dry_run must be a boolean")
+
+
+def report_failure_safely(
+    context: "LauncherContext",
+    *,
+    phase: str,
+    command_id: str,
+    error: BaseException,
+) -> None:
+    """Report a launcher failure without letting diagnostics alter its outcome."""
+
+    reporter = context.diagnostics
+    if reporter is None:
+        return
+    try:
+        reporter.report_failure(
+            phase=phase,
+            command_id=command_id,
+            correlation_id=context.correlation_id,
+            error=error,
+        )
+    except Exception:
+        # Diagnostics are best-effort by contract.
+        pass

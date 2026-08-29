@@ -12,7 +12,10 @@ from granular_mcp_metadata import (
     canonical_json,
     project_tool,
 )
-from capture_real_mcp_clients import SUCCESSFUL_CALLS
+from capture_real_mcp_clients import (
+    SUCCESSFUL_CALLS,
+    _CAPTURE_REVISION_PLACEHOLDER,
+)
 
 
 EVIDENCE_PATH = (
@@ -48,14 +51,24 @@ def test_pinned_real_clients_observe_current_command_list_declaration():
             "command": "command.list",
             "status": "ok",
         }
-        assert observed["successful_requests"] == dict(SUCCESSFUL_CALLS)
+        successful_requests = json.loads(
+            json.dumps(observed["successful_requests"])
+        )
+        revision = successful_requests["document.replace-text"]["expected_revision"]
+        assert revision.startswith("sha256:") and len(revision) == 71
+        successful_requests["document.replace-text"][
+            "expected_revision"
+        ] = _CAPTURE_REVISION_PLACEHOLDER
+        assert successful_requests == dict(SUCCESSFUL_CALLS)
 
 
 def test_pinned_real_clients_cover_eager_and_deferred_projection_paths():
     clients = json.loads(EVIDENCE_PATH.read_text(encoding="utf-8"))["clients"]
 
     assert clients["claude-code"]["capture_path"] == "eager model request declarations"
-    assert clients["claude-code"]["initial_brain_declarations"] == 78
+    assert clients["claude-code"]["initial_brain_declarations"] == len(
+        _registered_tools()
+    )
     assert clients["claude-code"]["catalogue_hash"].startswith("sha256:")
     assert clients["codex-cli"]["capture_path"] == "deferred client tool search"
     assert clients["codex-cli"]["initial_brain_declarations"] == 0

@@ -5,6 +5,10 @@ from __future__ import annotations
 import pytest
 
 import _application.artefact.search as artefact_search
+import _application.content.classify as content_classify
+import _application.content.ingest as content_ingest
+import _application.content.resolve as content_resolve
+from _application._mutation_support import InlineContent
 from _application.artefact.search import (
     ArtefactSearchMode,
     ArtefactSearchRequest,
@@ -18,10 +22,11 @@ from _application.content.resolve import (
     ContentResolutionAction,
     ContentResolveRequest,
 )
+from _application.content.ingest import ContentIngestRequest
 from _application.context import Capability
 from _application.registry import current_application_catalogue, current_request_resolver
 from _application.resource.search import ResourceSearchRequest, SearchableResource
-from _application.results import ErrorCode
+from _application.results import ErrorCode, request_error
 from _application.types import (
     Authority,
     Availability,
@@ -53,8 +58,15 @@ def test_artefact_search_returns_typed_lexical_results(command_vault_baseline):
 
 def test_explicit_semantic_search_fails_before_runtime_loading(
     command_vault_baseline,
+    monkeypatch,
 ):
     application = application_for(command_vault_baseline.vault_root)
+    monkeypatch.setattr(
+        "_search.lexical_query.load_index",
+        lambda *_args, **_kwargs: pytest.fail(
+            "explicit semantic search must not load the lexical index"
+        ),
+    )
 
     result = application.invoke(
         ArtefactSearchRequest("command", mode=ArtefactSearchMode.SEMANTIC)
@@ -82,12 +94,17 @@ def test_auto_search_uses_semantic_enhancement_only_from_trusted_context(
             Capability("semantic_retrieval", Availability.AVAILABLE),
         ),
     )
+    observed = {}
+
+    def load_state(_context, _request_type, _router, *, selection):
+        observed["selection"] = selection
+        return object(), None, object(), object()
+
     monkeypatch.setattr(
         artefact_search,
         "load_semantic_state",
-        lambda _context, _request_type: (object(), None, object(), object()),
+        load_state,
     )
-    observed = {}
 
     def dispatch(
         _index,
@@ -114,14 +131,76 @@ def test_auto_search_uses_semantic_enhancement_only_from_trusted_context(
     result = application.invoke(ArtefactSearchRequest("command fixture"))
 
     assert result.status == "ok"
-    assert observed == {"mode": "hybrid"}
+    assert observed == {"selection": "documents", "mode": "hybrid"}
     assert result.result.retrieval_mode == "hybrid"
+
+
+@pytest.mark.parametrize(
+    ("module", "command_request", "selection", "dependency_tier"),
+    (
+        (
+            content_classify,
+            ContentClassifyRequest("candidate", ContentClassifyMode.EMBEDDING),
+            "types",
+            DependencyTier.PORTABLE,
+        ),
+        (
+            content_resolve,
+            ContentResolveRequest("candidate", "ideas", "Novel Candidate"),
+            "documents",
+            DependencyTier.PORTABLE,
+        ),
+        (
+            content_ingest,
+            ContentIngestRequest(
+                InlineContent("candidate"),
+                mode=ContentClassifyMode.EMBEDDING,
+            ),
+            "all",
+            DependencyTier.MANAGED,
+        ),
+    ),
+)
+def test_semantic_callers_request_only_the_arrays_they_use(
+    command_vault_baseline,
+    monkeypatch,
+    module,
+    command_request,
+    selection,
+    dependency_tier,
+):
+    class SemanticProvider:
+        provider_id = "semantic_retrieval"
+
+    observed = []
+
+    def load_state(_context, request_type, _router, *, selection):
+        observed.append(selection)
+        return request_error(request_type, ErrorCode.CONFLICT, "stop after wiring check")
+
+    monkeypatch.setattr(module, "load_semantic_state", load_state)
+    result = application_for(
+        command_vault_baseline.vault_root,
+        dependency_tier=dependency_tier,
+        providers=(SemanticProvider(),),
+        capabilities=(Capability("semantic_retrieval", Availability.AVAILABLE),),
+    ).invoke(command_request)
+
+    assert result.error.code is ErrorCode.CONFLICT
+    assert observed == [selection]
 
 
 def test_content_classify_exposes_typed_context_without_an_open_result_bag(
     command_vault_baseline,
+    monkeypatch,
 ):
     application = application_for(command_vault_baseline.vault_root)
+    monkeypatch.setattr(
+        "_search.lexical_query.load_index",
+        lambda *_args, **_kwargs: pytest.fail(
+            "context assembly must not load the lexical index"
+        ),
+    )
 
     result = application.invoke(
         ContentClassifyRequest(
@@ -156,8 +235,17 @@ def test_content_classify_degrades_to_context_when_lexical_index_is_missing(
     assert result.result.classification.type_descriptions
 
 
-def test_content_resolve_preserves_exact_filename_decision(command_vault_baseline):
+def test_content_resolve_preserves_exact_filename_decision(
+    command_vault_baseline,
+    monkeypatch,
+):
     application = application_for(command_vault_baseline.vault_root)
+    monkeypatch.setattr(
+        "_search.lexical_query.load_index",
+        lambda *_args, **_kwargs: pytest.fail(
+            "exact content resolution must not load the lexical index"
+        ),
+    )
 
     result = application.invoke(
         ContentResolveRequest("", "projects", "Command Fixture")
@@ -260,4 +348,14 @@ def test_optional_semantic_transport_shapes_are_granular_and_strict():
         resolver.resolve(
             "resource.search",
             {"query": "shape", "resource": "unknown"},
+        )
+    with pytest.raises(ValueError, match="query must be a non-empty string"):
+        resolver.resolve(
+            "resource.search",
+            {"query": None, "resource": "plugin"},
+        )
+    with pytest.raises(ValueError, match="top_k must be between"):
+        resolver.resolve(
+            "resource.search",
+            {"query": "shape", "resource": "plugin", "top_k": "ten"},
         )

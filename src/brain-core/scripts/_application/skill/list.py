@@ -1,76 +1,57 @@
-"""Typed ``skill.list`` command and internal executor."""
+"""Typed read-only ``skill.list`` owner."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import ClassVar, Mapping
 
-from .._named_documents import list_portable
-from .._read_support import (
-    catalogue_entry as _catalogue_entry,
-    command_error,
-    decode_query,
-    resolver_entry as _resolver_entry,
-)
+from .._decoding import reject_unexpected
+from .._read_support import catalogue_entry as read_catalogue_entry, command_error
 from ..context import InvocationContext
 from ..results import ErrorCode, Ok
-from .read import SkillSource
-
-
-@dataclass(frozen=True, slots=True)
-class SkillListItem:
-    name: str
-    source: SkillSource
-
-
-@dataclass(frozen=True, slots=True)
-class SkillListPayload:
-    items: tuple[SkillListItem, ...]
-    total: int
+from ._types import SkillStatusPayload, status_payload
 
 
 @dataclass(frozen=True, slots=True)
 class SkillListRequest:
     COMMAND_ID: ClassVar[str] = "skill.list"
     COMMAND_VERSION: ClassVar[int] = 1
-    RESULT_TYPE: ClassVar[type] = SkillListPayload
+    RESULT_TYPE: ClassVar[type] = SkillStatusPayload
 
-    query: str | None = None
+    name: str | None = None
 
     def __post_init__(self) -> None:
-        if self.query is not None and (
-            not isinstance(self.query, str) or not self.query.strip()
+        if self.name is not None and (
+            not isinstance(self.name, str) or not self.name.strip()
         ):
-            raise ValueError("skill.list query must be a non-empty string")
+            raise ValueError("skill.list name must be a non-empty string or null")
 
 
 def execute(context: InvocationContext, request: SkillListRequest):
+    from _skill_library import SkillLibraryError, list_skill_status
+
     try:
-        resources = list_portable(
+        rows = list_skill_status(
             context.selected_brain.vault_root,
-            "skill",
-            request.query,
+            name=request.name,
+            refresh=False,
         )
-    except FileNotFoundError as exc:
-        return command_error(SkillListRequest, ErrorCode.CONFLICT, str(exc), None)
-    items = tuple(
-        SkillListItem(item["name"], SkillSource(item["source"]))
-        for item in sorted(resources, key=lambda item: item["name"].casefold())
-    )
+    except (OSError, ValueError, SkillLibraryError) as exc:
+        return command_error(SkillListRequest, ErrorCode.CONFLICT, str(exc), "name")
     return Ok(
-        SkillListRequest.COMMAND_ID,
-        SkillListRequest.COMMAND_VERSION,
-        SkillListPayload(items, len(items)),
+        request.COMMAND_ID,
+        request.COMMAND_VERSION,
+        status_payload(rows, refreshed=False),
     )
 
 
 def decode(payload: Mapping[str, object]) -> SkillListRequest:
-    return decode_query(payload, SkillListRequest)
+    reject_unexpected(payload, {"name"})
+    name = payload.get("name")
+    if name is not None and not isinstance(name, str):
+        raise ValueError("name must be a string")
+    return SkillListRequest(name)
 
 
 def catalogue_entry():
-    return _catalogue_entry(SkillListRequest, execute)
-
-
-def resolver_entry():
-    return _resolver_entry(SkillListRequest, decode)
+    return read_catalogue_entry(SkillListRequest, execute)

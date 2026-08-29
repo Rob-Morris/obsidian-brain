@@ -3,8 +3,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Mapping
-
 from .context import InvocationContext
 from .results import (
     CapabilityUnavailableDetails,
@@ -13,7 +11,7 @@ from .results import (
     ErrorCode,
     InstructionNextAction,
     Ok,
-    RequestErrorDetails,
+    request_error,
 )
 from .types import (
     Authority,
@@ -21,8 +19,6 @@ from .types import (
     DependencyTier,
     EffectClass,
     Locality,
-    Projection,
-    ProjectionEligibility,
     RetryClass,
 )
 
@@ -58,22 +54,6 @@ def validate_query_and_limit(command_id: str, query: str, top_k: int) -> None:
         or not 1 <= top_k <= MAX_TOP_K
     ):
         raise ValueError(f"{command_id} top_k must be between 1 and {MAX_TOP_K}")
-
-
-def decode_query_and_limit(
-    payload: Mapping[str, object],
-    request_type,
-):
-    unexpected = sorted(set(payload) - {"query", "top_k"})
-    if unexpected:
-        raise ValueError(f"unexpected fields: {', '.join(unexpected)}")
-    query = payload.get("query")
-    if not isinstance(query, str):
-        raise ValueError("query must be a string")
-    top_k = payload.get("top_k", DEFAULT_TOP_K)
-    if not isinstance(top_k, int) or isinstance(top_k, bool):
-        raise ValueError("top_k must be an integer")
-    return request_type(query=query, top_k=top_k)
 
 
 def load_router(context: InvocationContext, request_type):
@@ -173,7 +153,13 @@ def semantic_unavailable(request_type, context: InvocationContext) -> Error:
     )
 
 
-def load_semantic_state(context: InvocationContext, request_type):
+def load_semantic_state(
+    context: InvocationContext,
+    request_type,
+    router,
+    *,
+    selection: str,
+):
     """Load selected-Brain semantic sidecars after trusted availability gating."""
     from _semantic import config as semantic_config
     from _semantic import runtime as semantic_runtime
@@ -182,17 +168,13 @@ def load_semantic_state(context: InvocationContext, request_type):
         config = semantic_config.load_config_checked(
             context.selected_brain.vault_root
         )
-        type_embeddings, doc_embeddings, metadata = (
-            semantic_runtime.load_embeddings_state(
-                context.selected_brain.vault_root
-            )
+        type_embeddings, doc_embeddings, metadata = semantic_runtime.load_embeddings_state(
+            context.selected_brain.vault_root,
+            selection=selection,
         )
         if metadata is None:
             raise RuntimeError("semantic embeddings metadata is missing")
-        if not semantic_runtime.embeddings_meta_matches_current_router(
-            context.selected_brain.vault_root,
-            metadata,
-        ):
+        if not semantic_runtime.embeddings_meta_matches_router(metadata, router):
             raise RuntimeError(
                 "semantic embeddings were built for a different compiled router"
             )
@@ -202,15 +184,11 @@ def load_semantic_state(context: InvocationContext, request_type):
 
 
 def error(request_type, code: ErrorCode, message: str, field: str | None) -> Error:
-    return Error(
-        request_type.COMMAND_ID,
-        request_type.COMMAND_VERSION,
-        CommandError(code, message, RequestErrorDetails(field, message)),
-    )
+    return request_error(request_type, code, message, field)
 
 
 def catalogue_entry(request_type, executor, *, optional_semantic: bool = False):
-    from .catalogue import ApplicationEntry
+    from .catalogue import ALL_APPLICATION_PROJECTIONS, ApplicationEntry
 
     return ApplicationEntry(
         request_type=request_type,
@@ -222,13 +200,5 @@ def catalogue_entry(request_type, executor, *, optional_semantic: bool = False):
         authority=Authority.READER,
         effect_class=EffectClass.NONE,
         retry_class=RetryClass.SAFE,
-        projections=tuple(
-            ProjectionEligibility(projection, True)
-            for projection in (
-                Projection.MCP,
-                Projection.CLI,
-                Projection.SCRIPT,
-                Projection.PYTHON,
-            )
-        ),
+        projections=ALL_APPLICATION_PROJECTIONS,
     )

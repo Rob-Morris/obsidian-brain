@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import ClassVar, Literal, Mapping
 
 from ..access_contracts import AccessReductionResult
@@ -14,27 +14,25 @@ from ..types import (
     DependencyTier,
     EffectClass,
     Locality,
-    Projection,
-    ProjectionEligibility,
     RetryClass,
 )
 
 
 @dataclass(frozen=True, slots=True)
 class ResetReduction:
-    kind: Literal["initial"]
+    kind: Literal["initial"] = field(default="initial", init=False)
 
 
 @dataclass(frozen=True, slots=True)
 class LeaseReduction:
-    kind: Literal["leases"]
     lease_ids: tuple[str, ...]
+    kind: Literal["leases"] = field(default="leases", init=False)
 
 
 @dataclass(frozen=True, slots=True)
 class CommandReduction:
-    kind: Literal["commands"]
     commands: tuple[str, ...]
+    kind: Literal["commands"] = field(default="commands", init=False)
 
 
 Reduction = ResetReduction | LeaseReduction | CommandReduction
@@ -100,7 +98,7 @@ def decode(payload: Mapping[str, object]) -> AccessReduceRequest:
     if kind == "initial":
         if set(reduction) != {"kind"}:
             raise ValueError("initial reduction accepts only kind")
-        typed: Reduction = ResetReduction("initial")
+        typed: Reduction = ResetReduction()
     elif kind in {"leases", "commands"}:
         field = "lease_ids" if kind == "leases" else "commands"
         if set(reduction) != {"kind", field}:
@@ -109,9 +107,9 @@ def decode(payload: Mapping[str, object]) -> AccessReduceRequest:
         if not isinstance(values, list) or any(not isinstance(item, str) for item in values):
             raise ValueError(f"{field} must be an array of strings")
         typed = (
-            LeaseReduction("leases", tuple(values))
+            LeaseReduction(tuple(values))
             if kind == "leases"
-            else CommandReduction("commands", tuple(values))
+            else CommandReduction(tuple(values))
         )
     else:
         raise ValueError("reduction kind must be initial, leases or commands")
@@ -119,7 +117,7 @@ def decode(payload: Mapping[str, object]) -> AccessReduceRequest:
 
 
 def catalogue_entry():
-    from ..catalogue import ApplicationEntry
+    from ..catalogue import ALL_APPLICATION_PROJECTIONS, ApplicationEntry
 
     return ApplicationEntry(
         request_type=AccessReduceRequest,
@@ -131,20 +129,6 @@ def catalogue_entry():
         authority=Authority.READER,
         effect_class=EffectClass.SELECTED_BRAIN_MUTATION,
         retry_class=RetryClass.SAFE,
-        projections=tuple(
-            ProjectionEligibility(projection, True)
-            for projection in (
-                Projection.MCP,
-                Projection.CLI,
-                Projection.SCRIPT,
-                Projection.PYTHON,
-            )
-        ),
+        projections=ALL_APPLICATION_PROJECTIONS,
         summary="Reduce exact elevation leases or return to the initial grant.",
     )
-
-
-def resolver_entry():
-    from ..resolver import ResolverEntry
-
-    return ResolverEntry(AccessReduceRequest, decode)

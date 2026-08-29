@@ -13,7 +13,7 @@ def now_iso():
 
 
 _DATE_PLACEHOLDER_RE = re.compile(r"\{\{date:([^}]+)\}\}")
-_AGENT_INSTRUCTION_RE = re.compile(r"\{\{agent:.*?\}\}", re.DOTALL)
+AGENT_INSTRUCTION_RE = re.compile(r"\{\{agent:.*?\}\}", re.DOTALL)
 _EXCESS_BLANK_LINES_RE = re.compile(r"\n{3,}")
 
 # Mapping from template date tokens to strftime codes.  Longest tokens
@@ -64,7 +64,7 @@ def substitute_template_vars(content, template_vars=None, _now=None):
             content = content.replace(key, template_vars[key])
 
     if "{{agent:" in content:
-        content = _AGENT_INSTRUCTION_RE.sub("", content)
+        content = AGENT_INSTRUCTION_RE.sub("", content)
         content = _EXCESS_BLANK_LINES_RE.sub("\n\n", content)
 
     return content

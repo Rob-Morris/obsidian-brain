@@ -767,7 +767,14 @@ def _has_file_extension(stem):
     return ext.lower() in _ASSET_EXTENSIONS
 
 
-def check_wikilinks_in_file(vault_root, rel_path, file_index=None, temporal_prefixes=None):
+def check_wikilinks_in_file(
+    vault_root,
+    rel_path,
+    file_index=None,
+    temporal_prefixes=None,
+    *,
+    text=None,
+):
     """Check wikilinks in a single file against the vault file index.
 
     If file_index is not provided, builds one via build_vault_file_index().
@@ -796,12 +803,13 @@ def check_wikilinks_in_file(vault_root, rel_path, file_index=None, temporal_pref
     all_basenames_complete = file_index.get("all_basenames_complete", True)
     md_relpaths = file_index["md_relpaths"]
 
-    fpath = os.path.join(vault_root, rel_path)
-    try:
-        with open(fpath, "r", encoding="utf-8") as f:
-            text = f.read()
-    except OSError:
-        return []
+    if text is None:
+        fpath = os.path.join(vault_root, rel_path)
+        try:
+            with open(fpath, "r", encoding="utf-8") as f:
+                text = f.read()
+        except OSError:
+            return []
 
     findings = []
     for link in extract_wikilinks(text):

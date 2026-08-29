@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from .._decoding import reject_unexpected
+
 from dataclasses import dataclass
 from typing import ClassVar, Mapping
 
@@ -77,9 +79,7 @@ def execute(context: InvocationContext, request: StageCreateRequest):
 
 
 def decode(payload: Mapping[str, object]) -> StageCreateRequest:
-    unexpected = sorted(set(payload) - {"content"})
-    if unexpected:
-        raise ValueError(f"unexpected fields: {', '.join(unexpected)}")
+    reject_unexpected(payload, {"content"})
     content = payload.get("content")
     if not isinstance(content, str):
         raise ValueError("content must be a string")
@@ -88,9 +88,3 @@ def decode(payload: Mapping[str, object]) -> StageCreateRequest:
 
 def catalogue_entry():
     return contributor_mutation_entry(StageCreateRequest, execute)
-
-
-def resolver_entry():
-    from ..resolver import ResolverEntry
-
-    return ResolverEntry(StageCreateRequest, decode)

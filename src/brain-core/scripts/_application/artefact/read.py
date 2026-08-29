@@ -2,21 +2,15 @@
 
 from __future__ import annotations
 
+from .._decoding import reject_unexpected
+from .._read_support import catalogue_entry as portable_reader_entry
+
 from dataclasses import dataclass
 from enum import Enum
 from typing import ClassVar, Mapping
 
 from ..context import InvocationContext
-from ..results import CommandError, Error, ErrorCode, Ok, RequestErrorDetails
-from ..types import (
-    Authority,
-    DependencyTier,
-    EffectClass,
-    Locality,
-    Projection,
-    ProjectionEligibility,
-    RetryClass,
-)
+from ..results import Error, ErrorCode, Ok, request_error
 
 
 @dataclass(frozen=True, slots=True)
@@ -24,6 +18,7 @@ class ArtefactReadPayload:
     reference: str
     location: "ArtefactLocation"
     content: str
+    revision: str
 
 
 class ArtefactLocation(str, Enum):
@@ -34,7 +29,7 @@ class ArtefactLocation(str, Enum):
 @dataclass(frozen=True, slots=True)
 class ArtefactReadRequest:
     COMMAND_ID: ClassVar[str] = "artefact.read"
-    COMMAND_VERSION: ClassVar[int] = 2
+    COMMAND_VERSION: ClassVar[int] = 3
     RESULT_TYPE: ClassVar[type] = ArtefactReadPayload
 
     reference: str
@@ -48,7 +43,7 @@ class ArtefactReadRequest:
 
 
 def execute(context: InvocationContext, request: ArtefactReadRequest):
-    from _common import MissingFileResult
+    from _common import MissingFileResult, PersistedDocumentContent
     from _portable.artefact_read import read_from_vault
     from _portable.vault_files import read_archived_artefact
 
@@ -73,31 +68,26 @@ def execute(context: InvocationContext, request: ArtefactReadRequest):
         if "router" in message.casefold():
             return _error(ErrorCode.CONFLICT, message)
         return _error(ErrorCode.NOT_FOUND, message)
-    if not isinstance(result, str):
-        raise TypeError("portable artefact reader returned a non-text result")
+    if not isinstance(result, PersistedDocumentContent):
+        raise TypeError("portable artefact reader returned non-persisted document text")
     return Ok(
         ArtefactReadRequest.COMMAND_ID,
         ArtefactReadRequest.COMMAND_VERSION,
-        ArtefactReadPayload(request.reference, request.location, result),
-    )
-
-
-def _error(code: ErrorCode, message: str) -> Error:
-    return Error(
-        ArtefactReadRequest.COMMAND_ID,
-        ArtefactReadRequest.COMMAND_VERSION,
-        CommandError(
-            code,
-            message,
-            RequestErrorDetails("reference", message),
+        ArtefactReadPayload(
+            request.reference,
+            request.location,
+            result,
+            result.revision,
         ),
     )
 
 
+def _error(code: ErrorCode, message: str) -> Error:
+    return request_error(ArtefactReadRequest, code, message, "reference")
+
+
 def decode(payload: Mapping[str, object]) -> ArtefactReadRequest:
-    unexpected = sorted(set(payload) - {"reference", "location"})
-    if unexpected:
-        raise ValueError(f"unexpected fields: {', '.join(unexpected)}")
+    reject_unexpected(payload, {"reference", "location"})
     reference = payload.get("reference")
     if not isinstance(reference, str):
         raise ValueError("reference must be a string")
@@ -113,31 +103,4 @@ def decode(payload: Mapping[str, object]) -> ArtefactReadRequest:
 
 
 def catalogue_entry():
-    from ..catalogue import ApplicationEntry
-
-    return ApplicationEntry(
-        request_type=ArtefactReadRequest,
-        executor=execute,
-        dependency_tier=DependencyTier.PORTABLE,
-        locality=Locality.SELECTED_BRAIN_LOCAL,
-        required_providers=(),
-        optional_providers=(),
-        authority=Authority.READER,
-        effect_class=EffectClass.NONE,
-        retry_class=RetryClass.SAFE,
-        projections=tuple(
-            ProjectionEligibility(projection, True)
-            for projection in (
-                Projection.MCP,
-                Projection.CLI,
-                Projection.SCRIPT,
-                Projection.PYTHON,
-            )
-        ),
-    )
-
-
-def resolver_entry():
-    from ..resolver import ResolverEntry
-
-    return ResolverEntry(ArtefactReadRequest, decode)
+    return portable_reader_entry(ArtefactReadRequest, execute)

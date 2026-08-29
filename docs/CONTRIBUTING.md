@@ -6,7 +6,11 @@ Guide for anyone working on brain-core. For the pre-commit checklist, see [pre-c
 
 ## Canary Hook
 
-A git pre-commit hook verifies the [pre-commit canary](../.canaries/pre-commit.md) was followed. It checks that `.canary--pre-commit` exists and covers all numbered items. The hook deletes the file after a successful commit so it can't go stale.
+A git pre-commit hook first runs deterministic repository-contract checks against
+the exact staged snapshot, then verifies the subjective
+[pre-commit canary](../.canaries/pre-commit.md) was followed. It checks that
+`.canary--pre-commit` exists and covers all remaining numbered items. The hook
+deletes the file after a successful commit so it can't go stale.
 
 The hook source is tracked at `.githooks/pre-commit`. To activate:
 
@@ -14,13 +18,36 @@ The hook source is tracked at `.githooks/pre-commit`. To activate:
 make hooks      # sets git to use .githooks/ directory
 ```
 
-Adding a new numbered item to the canary file automatically enforces it — no hook changes needed. See [canary.md](standards/canary.md) for how canaries work generally.
+The hook is read-only with respect to tracked files and the Git index. It
+reports deterministic drift but never rewrites or stages a correction. Use
+`python src/scripts/release.py prepare ...` for explicit dry-run-first release
+mechanics, and run `make precommit-check` after staging to validate the exact
+snapshot before attempting a commit.
+
+`.venv/bin/python src/scripts/check_repository_contracts.py` runs the same
+deterministic checks against the working tree; `--staged` materialises the Git
+index and executes that snapshot's checker, purpose-owned policy modules under
+`src/scripts/_repository_contracts/`, and parser imports. It owns brain-core
+VERSION and README badge coupling, current-version changelog Summary coupling,
+decision-file/index parity and permanent numbering, artefact-library
+metadata/catalogue/count invariants, and documentation reachability. These predicates are also exercised by
+`tests/test_repository_contracts.py` under `make test`.
+
+Adding a new subjective numbered item to the canary file automatically enforces
+its receipt — no hook changes needed. Deterministic requirements belong in the
+repository-contract checker or another test/linter instead. See
+[canary.md](standards/canary.md) for how canaries work generally.
 
 ### When to update a canary
 
-**Add a sub-item** when you introduce a new doc file or cross-cutting concern that needs maintaining. For example, `docs/architecture/security.md` was added as `[4l]` because changes to the security model should be reflected there. If you add a doc that agents need to keep in sync, add it to the relevant `[4x]` item — or create a new one if no existing category fits.
+**Add a sub-item** when you introduce a new cross-cutting concern whose impact
+requires judgement. For example, `docs/architecture/security.md` is `[4l]`
+because code cannot determine whether a change alters the security model. Do
+not add a checklist item for file/index equality or another predicate code can
+decide.
 
-**Update file paths** when you move or rename a doc file. Stale paths in the canary mean agents check the wrong file (or skip the check entirely because the file doesn't exist).
+**Update file paths** when you move or rename a document named by a subjective
+review item. Documentation link reachability itself is machine-checked.
 
 **Create a new canary brief** (in `.canaries/`) when you introduce a workflow with subjective steps that can't be tested deterministically. The pre-commit canary covers commit hygiene; a different workflow (deployment, vault propagation, release) would get its own brief. Each canary is self-contained — the hook tests any brief that follows the format.
 
@@ -83,7 +110,39 @@ Bump `src/brain-core/VERSION` for any change to files under `src/brain-core/`, i
 When a change touches versioned helper surfaces outside `src/brain-core/VERSION`, check them explicitly before commit:
 
 - `src/brain-core/brain_mcp/proxy.py` — bump `PROXY_VERSION` when the shipped proxy behaviour changes, so upgraded vaults do not report the new proxy as `+modified`.
-- `cli/brain` — keep `BRAIN_INSTALL_REF` pinned to `v<src/brain-core/VERSION>` and bump `BRAIN_CLI_VERSION` when the CLI's own dispatch or CLI-only behaviour changes.
+- `cli/brain` and `cli/brain.cmd` — keep both `BRAIN_INSTALL_REF`
+  declarations pinned to `v<src/brain-core/VERSION>` and both
+  `BRAIN_CLI_VERSION` declarations equal; bump the CLI version when dispatch or
+  CLI-only behaviour changes.
+
+### Release preparation
+
+Release intent remains a contributor decision: decide whether work amends an
+unreleased version or creates a new release, then choose the Brain Core, CLI
+and proxy versions under the policies above. Tooling handles only the mechanics:
+
+```bash
+python src/scripts/release.py status
+python src/scripts/release.py prepare \
+  --core-version 0.61.0 \
+  --cli-version 3.0.1 \
+  --proxy-version 0.8.0 \
+  --summary "Add bounded operational diagnostics" \
+  --release-type "Breaking Brain Core minor; diagnostics contract" \
+  --change "Describe the user-observable change."
+# Repeat with --apply after reviewing the dry-run diff.
+```
+
+`status` compares `HEAD`, the Git index and the working tree. `prepare` is a
+dry run unless `--apply` is explicit; it synchronises canonical version
+declarations and creates the changelog row/entry from the supplied intent. It
+does not infer semantic-version policy or author release prose. Use `--amend`
+only when the target changelog entry already exists and its Summary is unchanged.
+
+Before committing, stage only the intended release and run `make
+precommit-check`. A correction made before integration/publication amends that
+unreleased release without another bump; a correction to a released version
+requires a new patch release.
 
 ## Changelog
 
@@ -103,13 +162,29 @@ For each shipped version:
 
 Never rewrite older per-version files to “fix history”. Add any correction in the current version's entry instead.
 
+The repository-contract checker enforces the current VERSION entry and index
+row as one canonical Summary, rejects trailing periods and version suffixes,
+and requires the VERSION row to be newest. Judgement about wording quality,
+release scope, and whether a milestone note is warranted remains contributor
+work.
+
+To propagate or rehearse an immutable commit while later work remains dirty,
+materialise the committed source first:
+
+```bash
+python src/scripts/release.py export --ref HEAD --destination /new/path
+```
+
+The destination must not already exist. The export contains the selected Git
+tree only, so working-tree and index changes cannot leak into an upgrade source.
+
 ## Commit Messages
 
 Every commit in this repo should have a scannable subject and a body that explains *why* the change exists, not just what the diff already shows. See [standards/commit-messages.md](standards/commit-messages.md) for the subject-line template, body structure, worked example, and drafting rules. For release commits, the subject is `<Summary> (vX.Y.Z)` where `<Summary>` is the canonical Summary text — the per-version file's top-line Summary, also filled into the matching `docs/CHANGELOG.md` index row — verbatim, parenthesised version suffix, never `as vX.Y.Z`. Release commits stay prefix-free. Non-versioned support commits must use exactly one of the prefixes `docs:`, `test:`, or `chore:`. Read `git diff` and `git diff --stat`, the matching index row, the corresponding `docs/changelog/vX.Y.Z.md` entry (if any), and recent `git log --oneline` output before drafting. Use only public-safe references in the message body — anything a stranger can verify using only `git log` and the public web.
 
 ## Testing
 
-Run `make test` before committing. Uses `.venv` with Python 3.12.
+Run `make test` before committing, after your final edit. Uses `.venv` with Python 3.12. A green run that precedes a later edit — a VERSION bump, a `make sync-template` — says nothing about what you are committing; re-run it.
 
 ```bash
 make install   # first time — creates venv, installs dependencies
@@ -121,10 +196,19 @@ with pytest-xdist (`-n auto --dist loadscope`). The serial `make test` run
 remains the canonical pre-commit gate because it preserves ordering-sensitive
 pollution checks.
 
+Run `make lint` when changing Python APIs or command contracts. It composes a
+docstring ratchet for reusable scripts with explicit schema and behavioural
+documentation checks for the supported `brain_application` façade; internal
+command-owner hook counts are deliberately not treated as API quality.
+
 The `Linux test suite` GitHub Actions workflow runs the full `make test` on
 `ubuntu-latest` for every push to `main` and every pull request, so the suite
 must stay host-independent — `tests/conftest.py` pins the timezone and isolates
 launcher Python discovery so it passes regardless of what the runner ships.
+
+`make test` also runs the deterministic checkout-level repository contracts.
+The pre-commit hook reruns those fast predicates against staged content so a
+partially staged commit cannot bypass them.
 
 The `Windows user smoke` GitHub Actions workflow runs only
 `tests/test_windows_user_smoke.py` on `windows-latest`. It protects the native
@@ -205,7 +289,7 @@ obsidian-brain/
 │       ├── plugins.md           # shipped plugin overview and vault-side plugin workflow
 │       ├── scripts/             # brain-core tooling and vault-operation scripts
 │       └── mcp/                 # MCP server and tool surface
-├── src/scripts/                 # repo-maintenance helpers (e.g. template-vault sync)
+├── src/scripts/                 # repo-maintenance helpers (contract checks, template-vault sync)
 ├── tests/                       # test suite (make test)
 ├── docs/
 │   ├── contributor/             # contributor-facing product docs and workflow guidance

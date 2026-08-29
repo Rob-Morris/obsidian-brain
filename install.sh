@@ -828,7 +828,7 @@ if [ "$UPGRADE_MODE" != true ] && [ "$SKIP_CLI" != true ]; then
     CLI_TARGET="$CLI_TARGET_DIR/brain"
     if [ -n "$PYTHON" ] && "$PYTHON" "$REPO_DIR/cli/_distribution.py" "$REPO_DIR" "$CLI_TARGET" >/dev/null; then
         printf '\n' >&2
-        info "Installed brain CLI 2 distribution: $CLI_TARGET"
+        info "Installed Brain CLI distribution: $CLI_TARGET"
         case ":${PATH}:" in
             *":${CLI_TARGET_DIR}:"*) ;;
             *)
@@ -839,7 +839,7 @@ if [ "$UPGRADE_MODE" != true ] && [ "$SKIP_CLI" != true ]; then
         esac
     else
         printf '\n' >&2
-        warn "Could not install the brain CLI 2 distribution to $CLI_TARGET."
+        warn "Could not install the Brain CLI distribution to $CLI_TARGET."
         info "The vault is installed; retry CLI installation with Python 3.12+:"
         info "  python3.12 \"$REPO_DIR/cli/_distribution.py\" \"$REPO_DIR\" \"$CLI_TARGET\""
     fi

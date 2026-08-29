@@ -139,17 +139,17 @@ The config system supports five cumulative built-in profiles with user-centred l
 | Profile | Intended use |
 |---------|-------------|
 | `reader` | Inspect, discover and manage access state (26 application / 26 MCP commands) |
-| `contributor` | Reader access plus ordinary content creation, editing and lifecycle work (48 / 47 cumulative) |
-| `maintainer` | Contributor access plus definition, plugin and derived-index maintenance (61 / 58 cumulative) |
-| `operator` | Maintainer access plus workspace registration and runtime-operational changes (70 / 59 cumulative) |
-| `administrator` | Operator access plus irreversible artefact deletion (71 / 60 cumulative) |
+| `contributor` | Reader access plus ordinary content creation, editing and lifecycle work (51 / 50 cumulative) |
+| `maintainer` | Contributor access plus definition, plugin and derived-index maintenance (64 / 61 cumulative) |
+| `operator` | Maintainer access plus workspace registration and runtime-operational changes (73 / 62 cumulative) |
+| `administrator` | Operator access plus irreversible artefact deletion (74 / 63 cumulative) |
 
 Each profile has a per-tool allow-list defined in the vault config. Tools not on the active profile's allow-list return an error `CallToolResult` — no silent failures.
 
 Brain Core derives its built-in lists from the authoritative catalogue's
 authority metadata: reader has 26 exact application commands, contributor
-cumulatively has 48, maintainer 61, operator 70 and administrator all 71. MCP
-projects the eligible 26, 47, 58, 59 and 60-command subsets respectively. A
+cumulatively has 51, maintainer 64, operator 73 and administrator all 74. MCP
+projects the eligible 26, 50, 61, 62 and 63-command subsets respectively. A
 known denied leaf is rejected from catalogue plus trusted profile state before
 dynamic request resolution, executor entry or effects. There is no aggregate
 name fallback.
@@ -207,7 +207,7 @@ The key is a random secret; the hash goes in `.brain/config.yaml`; the key goes 
 
 ## Core Skills
 
-**Design decisions:** [DD-024](../architecture/decisions/dd-024-core-skills.md)
+**Design decisions:** [DD-024](../architecture/decisions/dd-024-core-skills.md), [DD-068](../architecture/decisions/dd-068-git-backed-skill-sources-and-managed-exposure.md)
 
 Skills live in two places:
 
@@ -216,45 +216,89 @@ Skills live in two places:
 | `.brain-core/skills/*/SKILL.md` | `"source": "core"` | No — overwritten on upgrade |
 | `_Config/Skills/*/SKILL.md` | `"source": "user"` | Yes |
 
-The compiler discovers both locations and merges them into the compiled router. Core skills are tagged `"source": "core"` in the router; user skills are tagged `"source": "user"`. This lets agents and tools distinguish system methodology from vault-specific configuration.
+The compiler discovers both locations and retains both rows in the compiled
+router. Unqualified names resolve user-first; `user:<name>` and `core:<name>`
+select one substrate explicitly. Core skills are tagged `"source": "core"` and
+user skills `"source": "user"`.
 
 Core skills teach agents how to use brain-core's own tools. They ship in `.brain-core/` and are intentionally overwritten on upgrade — they describe system methodology, not user configuration.
 
-### Client discovery adapters
+A supported edit of a core-only skill first creates the identical package under
+`_Config/Skills/`, then applies the edit there. Core remains immutable. A clean
+tracked copy is collapsed back to core during a later Brain upgrade when its
+complete package identity exactly matches the upgraded core package.
 
-Claude Code and Codex discover native skills in separate machine-global
-directories. Brain can install the same thin `shaping` adapter into both without
-duplicating the actual workflow:
+### Git-backed sources
+
+Git provenance is optional and independent of core/user ownership. Bundled
+source descriptors live in `.brain-core/skill-sources.json`; user tracking and
+baselines live in `.brain/skill-sources.json`.
 
 ```bash
-brain agent-skill configure --vault /path/to/brain --request-json '{"client":"all"}'
+brain skill add-git --request-json \
+  '{"repository":"https://github.com/example/skills.git","skill_path":"skills/example","configured_ref":"main"}' --json
+brain skill list --request-json '{}' --json
+brain skill status --request-json '{"name":"example"}' --json
+brain skill update --request-json '{"name":"example"}' --json
+brain skill detach --request-json '{"name":"example"}' --json
 ```
 
-The checked-in adapter template at
-`.brain-core/client-adapters/shaping/SKILL.md` calls `session.start`, then reads the authoritative
-`.brain-core/skills/shaping/SKILL.md` from the active Brain with `vault.read-file`.
-Consequently the client-visible workflow and its MCP contract come from the same
-Brain version. Only the stable adapter is installed under
-`~/.claude/skills/shaping/` or `~/.codex/skills/shaping/`.
+An update always targets an existing user package first. If none exists and a
+core source descriptor is available, `skill.update` installs the updated package
+as a user skill. It never mutates core. Local and upstream divergence stages the
+upstream package plus `comparison.json` under
+`.brain/skill-conflicts/<name>/`. Preserve the current package, detach it,
+manually reconcile then update to rebaseline, or explicitly replace it with
+`{"replace_conflict":true}`; replacement archives the local package under
+`.brain/skill-backups/`.
+
+### Client discovery adapters
+
+Claude Code and Codex discover native skills in global and project directories.
+Brain can explicitly expose any valid effective skill through a thin adapter
+without duplicating the package:
+
+```bash
+brain skill expose --vault /path/to/brain \
+  --request-json '{"name":"shaping","client":"all","scope":"global"}' --json
+brain skill expose --workspace /path/to/bound/project \
+  --request-json '{"name":"shaping","client":"codex","scope":"project"}' --json
+brain skill unexpose --request-json \
+  '{"name":"shaping","client":"all","scope":"global"}' --json
+```
+
+Each adapter calls `session.start`, then reads the unqualified effective skill
+through `resource.read`. A same-name user package therefore takes precedence
+without changing the exposure. Relative package files are read from the returned
+core/user substrate. Global adapters use the active-Brain resolution ladder,
+including the configured machine default. Project adapters resolve an existing
+canonical workspace binding first and otherwise use the configured machine
+default; exposure never creates or changes a binding.
 
 Each installed adapter has a Brain ownership marker and content digest. Re-running
 the command updates only an unmodified Brain-owned adapter. An unmanaged skill is
-left untouched unless `--replace` is supplied, in which case the complete old
+left untouched unless `"replace":true` is supplied, in which case the complete old
 directory is moved outside skill discovery to
-`~/.<client>/.brain-skill-backups/shaping.pre-brain-adapter[-N]`. `--remove`
-likewise removes only an unmodified Brain-owned adapter. Symlinked targets,
+`~/.<client>/.brain-skill-backups/<name>.pre-brain-adapter[-N]`.
+`skill.unexpose` likewise removes only an unmodified Brain-owned adapter. Symlinked targets,
 including the backup root, and unexpected files are refused. These writes are
 never performed implicitly during vault upgrade; restart the affected client
 after an explicit command reports a change.
-When that checked-in discovery template is introduced or modified, `upgrade.py`
-surfaces the configuration command as a recommended follow-up. Updates to the
-authoritative shaping workflow itself need no client update and produce no prompt.
+The older `agent-skill.configure` shaping command remains compatible. Generic
+`skill.expose` is the normal surface for new policy.
 
 ### Current core skills
 
-- `shaping` — parent router plus `assess`, `brainstorm`, `discover`, and `refine` sub-skills for artefact shaping workflows
-- `swarm-test` — parent router plus `review` and `evaluate` sub-skills for multi-agent test workflows
-- `code-review` — parent router plus `investigate` and `fix` sub-skills for review-only and review-with-fixes workflows
+Portable multi-workflow families expose exactly one public `<family>/SKILL.md`.
+That root routes directly to frontmatter-free, one-level
+`<family>/references/*.md` workflow files so Agent Skills clients do not
+rediscover colon-named nested skills.
+
+- `shaping` — one Brain-owned public entry point that composes an exact vendored
+  portable workflow with `references/brain.md`; the portable source owns shaping
+  behaviour, while the Brain adaptor contributes independently selected target,
+  persistence, taxonomy, provenance, and lifecycle capabilities. Installed
+  vaults have no runtime dependency on the source repository.
 - `software-design-principles` — lightweight reference skill for in-the-moment design decisions and trivial code evaluation
 - `software-design-review` — multi-agent design review skill for complex code, diffs, and proposed technical changes
 

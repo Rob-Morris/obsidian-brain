@@ -33,6 +33,14 @@ The following section headings are parsed by `compile_router.py` and must use th
   - `key: {key}` (for hub-style types — see [keys.md](../keys.md))
   - `tags: [{singular}/{key}]` (for hub-style types — see Tag Convention)
   - `status: {default}` (when the type has a lifecycle)
+
+  Every top-level key the example shows is treated as **required** — the example is what an agent authoring without tooling reproduces. To document a genuinely optional field, add an `**Optional:**` line after the code block naming those fields:
+
+  ```markdown
+  **Optional:** `version`, `tag`, `commit`, `shipped`
+  ```
+
+  Omit the line when every documented field is required. Naming a field the example does not show is a compile error. A field the `## Naming` rules match on cannot be optional — the compiler needs a value to select a pattern — so `Releases` and `Writing` keep `status` required even though it carries a default. Keep the line consistent with the type's `schema.yaml`: it may promote a schema-optional field to required, never the reverse.
 - **`## Lifecycle`** *(when the type has a status enum)* — a Markdown table with one row per state, including the default and any terminal states. The compiler extracts the status enum and terminal states from this section. See [archiving.md](../archiving.md) for `+Done/`, `+Shipped/`, `+Published/` conventions.
 - **`## Template`** — a single wikilink to the template, e.g. `[[_Config/Templates/Living/People]]` (no `.md` extension). Required for the compiler to record the template pointer.
 
@@ -41,7 +49,7 @@ Optional sections:
 - **`## When To Use`** — orienting cue separate from `## Purpose`. Convention only; not parsed.
 - **`## Trigger`** — first non-blank line is the *condition* (used to infer category: `before` / `after` / `ongoing`); the rest is *detail* shown to agents. Required only if the type has a router trigger; the compiler merges this with the matching conditional in `_Config/router.md`.
 - **`## On Status Change`** — per-status hooks of the form: `When `status` transitions to `{value}`, set `{field}` to {expr}.` The compiler compiles each line into a `{status: {set: {field: expr}}}` rule. Used by `Writing` to set `publisheddate` on `published`.
-- **`## Shaping`** — opts the type into shaping and declares the parsed contract: `**Flavour:**` (`Convergent` or `Discovery`), `**Bar:**`, and a backtick-delimited `**Completion status:**`. The compiler exposes this metadata to shaping skills and requires both `shaping` and the completion status to exist in the taxonomy's explicit lifecycle enum.
+- **`## Shaping`** — opts the type into shaping and declares the parsed contract: `**Flavour:**` (`Convergent` or `Discovery`) and `**Bar:**`. Status behaviour defaults to `transition`, which requires a backtick-delimited `**Completion status:**`. A discovery type whose lifecycle represents an enduring domain state may instead declare `**Status behaviour:** \`preserve\``; it may omit completion status or declare one solely as the explicit exit for an artefact already in `shaping`. The compiler exposes this metadata to shaping skills. Both behaviours require `shaping` in the explicit lifecycle enum, and every declared completion status must also appear there.
 
 ## Tag Convention
 
@@ -100,7 +108,7 @@ To add a new type to brain-core for distribution, create a bundle at `artefact-l
       const: "living/{singular}"
     key:
       type: string
-      pattern: "^[a-z0-9]+(-[a-z0-9]+)*$"
+      pattern: "^(?=.{1,64}$)(?=.*[a-z])[a-z0-9]+(?:-[a-z0-9]+)*$"
     tags:
       type: array
       contains: "{singular}/{key}"

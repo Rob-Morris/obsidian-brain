@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from .._decoding import reject_unexpected
+
 from dataclasses import dataclass
 from enum import Enum
 from typing import ClassVar, Mapping
@@ -9,7 +11,6 @@ from typing import ClassVar, Mapping
 from .._read_support import (
     catalogue_entry as _catalogue_entry,
     command_error,
-    resolver_entry as _resolver_entry,
 )
 from ..context import InvocationContext
 from ..results import ErrorCode, Ok
@@ -108,9 +109,7 @@ def execute(context: InvocationContext, request: TypeStatusRequest):
 
 
 def decode(payload: Mapping[str, object]) -> TypeStatusRequest:
-    unexpected = sorted(set(payload) - {"type_keys"})
-    if unexpected:
-        raise ValueError(f"unexpected fields: {', '.join(unexpected)}")
+    reject_unexpected(payload, {"type_keys"})
     raw = payload.get("type_keys", [])
     if not isinstance(raw, list) or any(not isinstance(item, str) for item in raw):
         raise ValueError("type_keys must be an array of strings")
@@ -119,7 +118,3 @@ def decode(payload: Mapping[str, object]) -> TypeStatusRequest:
 
 def catalogue_entry():
     return _catalogue_entry(TypeStatusRequest, execute)
-
-
-def resolver_entry():
-    return _resolver_entry(TypeStatusRequest, decode)

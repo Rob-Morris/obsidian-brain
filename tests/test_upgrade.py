@@ -67,6 +67,69 @@ def _replace_vault_scripts_with_real(vault):
     _copy_real_scripts(vault / ".brain-core")
 
 
+class _ReadinessSequence:
+    def __init__(self, initial, *subsequent):
+        self.initial = initial
+        self.subsequent = list(subsequent)
+
+    def ensure_runtime_warmup(self, _vault, *, retry_failed):
+        assert retry_failed is True
+        return "started", self.initial
+
+    def read_runtime_status(self, _vault):
+        return self.subsequent.pop(0)
+
+
+def _runtime_snapshot(state, *, message=None):
+    return {
+        "state": state,
+        "retry_after_ms": 1 if state == "warming" else None,
+        "last_error": None if message is None else {"message": message},
+    }
+
+
+def test_upgrade_readiness_waits_for_the_canonical_ready_state(monkeypatch, tmp_path):
+    readiness = _ReadinessSequence(
+        _runtime_snapshot("warming"),
+        _runtime_snapshot("ready"),
+    )
+    monkeypatch.setattr(upgrade.time, "sleep", lambda _seconds: None)
+
+    result = upgrade._await_runtime_readiness(readiness, tmp_path, 1)
+
+    assert result["outcome"] == "ok"
+    assert result["runtime_status"]["state"] == "ready"
+
+
+def test_upgrade_readiness_surfaces_failure_and_timeout(tmp_path):
+    failed = _ReadinessSequence(_runtime_snapshot("failed", message="router failed"))
+    timed_out = _ReadinessSequence(_runtime_snapshot("warming"))
+
+    failure = upgrade._await_runtime_readiness(failed, tmp_path, 1)
+    timeout = upgrade._await_runtime_readiness(timed_out, tmp_path, 0)
+
+    assert failure["outcome"] == "error"
+    assert failure["message"] == "router failed"
+    assert timeout["outcome"] == "error"
+    assert "upgrade-completion timeout" in timeout["message"]
+
+
+def test_upgrade_orphan_guidance_uses_only_the_canonical_launcher_commands():
+    none = upgrade._runtime_orphan_guidance({"counts": {"orphan_candidates": 0}})
+    candidates = upgrade._runtime_orphan_guidance(
+        {"counts": {"orphan_candidates": 2}}
+    )
+
+    assert none["outcome"] == "ok"
+    assert candidates == {
+        "outcome": "follow_up",
+        "orphan_candidates": 2,
+        "dry_run_command": ["brain", "runtime", "remove-orphans", "--dry-run"],
+        "remove_command": ["brain", "runtime", "remove-orphans"],
+        "message": "2 orphaned shared runtime(s) are safe cleanup candidates.",
+    }
+
+
 @pytest.fixture(autouse=True)
 def _isolate_global_cli_targets(tmp_path, monkeypatch):
     """Never let upgrade unit tests inspect or replace the developer's CLI."""
@@ -78,6 +141,23 @@ def _isolate_global_cli_targets(tmp_path, monkeypatch):
             tmp_path / "machine" / "user" / "bin" / "brain",
             tmp_path / "machine" / "system" / "bin" / "brain",
         ),
+    )
+    monkeypatch.setattr(
+        upgrade,
+        "_complete_runtime_readiness",
+        lambda _vault: {
+            "outcome": "ok",
+            "message": "Runtime warm-up completed and the selected Brain is ready.",
+        },
+    )
+    monkeypatch.setattr(
+        upgrade,
+        "_inspect_runtime_orphans",
+        lambda _vault: {
+            "outcome": "ok",
+            "orphan_candidates": 0,
+            "message": "No orphaned shared runtimes need follow-up.",
+        },
     )
 
 
@@ -178,11 +258,11 @@ def test_upgrade_runner_applies_the_v055_profile_migration(tmp_path):
     assert "0.55.0" in ledger["migrations"]
     profiles = load_mapping_file(config_path)["vault"]["profiles"]
     assert {name: len(value["allow"]) for name, value in profiles.items()} == {
-        "reader": 26,
-        "contributor": 48,
-        "maintainer": 61,
-        "operator": 70,
-        "administrator": 71,
+        "reader": 27,
+        "contributor": 56,
+        "maintainer": 69,
+        "operator": 78,
+        "administrator": 79,
     }
 
 
@@ -269,6 +349,48 @@ def test_upgrade_runner_applies_the_v057_access_controls(tmp_path):
         ("0.57.0", "ok")
     ]
     assert "0.57.0" in ledger["migrations"]
+    profiles = load_mapping_file(config_path)["vault"]["profiles"]
+    assert {
+        name: tuple(value["allow"]) for name, value in profiles.items()
+    } == current
+
+
+def test_upgrade_runner_applies_the_v059_document_profile_expansion(tmp_path):
+    vault = tmp_path / "Brain"
+    scripts = vault / ".brain-core" / "scripts"
+    shutil.copytree(_REAL_SCRIPTS, scripts)
+    current = builtin_profile_allow_lists(current_application_catalogue())
+    previous = {
+        name: {
+            "allow": sorted(
+                set(commands)
+                - {
+                    "document.replace-text",
+                    "document.update-frontmatter",
+                    "document.write-body",
+                }
+            )
+        }
+        for name, commands in current.items()
+    }
+    config_path = vault / ".brain" / "config.yaml"
+    config_path.parent.mkdir(parents=True)
+    config_path.write_text(
+        dump_yaml_text({"vault": {"profiles": previous}}),
+        encoding="utf-8",
+    )
+
+    results, ledger = upgrade._run_migrations(
+        str(vault),
+        "0.58.0",
+        "0.59.0",
+        raise_on_error=True,
+    )
+
+    assert [(item["version"], item["status"]) for item in results] == [
+        ("0.59.0", "ok")
+    ]
+    assert "0.59.0" in ledger["migrations"]
     profiles = load_mapping_file(config_path)["vault"]["profiles"]
     assert {
         name: tuple(value["allow"]) for name, value in profiles.items()
@@ -387,6 +509,25 @@ class TestShapingLifecycleMigration:
 
         assert added == ["shaping"]
         assert patched.count("draft | shaping") == 1
+
+    def test_preserved_status_contract_still_adds_shaping_compatibility(self):
+        content = (
+            "# People\n\n"
+            "## Frontmatter\n\n```yaml\n---\n"
+            "type: living/person\nstatus: active  # active | parked\n---\n```\n\n"
+            "## Shaping\n\n"
+            "**Flavour:** Discovery\n"
+            "**Bar:** The current picture is faithful and clear.\n"
+            "**Status behaviour:** `preserve`\n"
+        )
+
+        patched, added = migrate_to_0_53_0._patch_taxonomy(content)
+
+        assert added == ["shaping"]
+        assert "status: active  # active | parked | shaping" in patched
+        assert migrate_to_0_53_0.compile_router.parse_taxonomy_content(
+            patched
+        )["shaping"]["status_behaviour"] == "preserve"
 
     def test_postcondition_rejects_a_lossy_lifecycle_patch(self, monkeypatch):
         content = (
@@ -624,6 +765,190 @@ def source_and_vault(tmp_path):
 
 
 class TestAgentSkillUpgradeFollowup:
+    def test_upgrade_collapses_clean_tracked_override_that_matches_new_core(
+        self, source_and_vault
+    ):
+        from _skill_library.packages import inspect_package, manifest_value
+
+        source, vault = source_and_vault
+        bundled = source / "skills" / "shaping"
+        bundled.mkdir(parents=True)
+        content = (
+            "---\nname: shaping\ndescription: Shaping\n---\n\n"
+            "# Shaping\n\nUpdated workflow.\n"
+        )
+        (bundled / "SKILL.md").write_text(content, encoding="utf-8")
+        installed_core = vault / ".brain-core" / "skills" / "shaping"
+        installed_core.mkdir(parents=True)
+        (installed_core / "SKILL.md").write_text(
+            content.replace("Updated workflow.", "Old workflow."),
+            encoding="utf-8",
+        )
+        user = vault / "_Config" / "Skills" / "shaping"
+        user.mkdir(parents=True)
+        (user / "SKILL.md").write_text(content, encoding="utf-8")
+        snapshot = inspect_package(user, expected_name="shaping")
+        tracking = {
+            "schema_version": 1,
+            "managed": {
+                "shaping": {
+                    "repository": "https://example.invalid/skills.git",
+                    "skill_path": "skills/shaping",
+                    "configured_ref": "main",
+                    "resolved_commit": "abc123",
+                    "source_package_sha256": snapshot.package_sha256,
+                    "installed_baseline_sha256": snapshot.package_sha256,
+                    "installed_manifest": manifest_value(snapshot),
+                    "installed_at": "2026-08-01T00:00:00+00:00",
+                    "last_checked_at": "2026-08-01T00:00:00+00:00",
+                    "available_commit": "abc123",
+                    "available_package_sha256": snapshot.package_sha256,
+                    "source_error": None,
+                    "core_lineage": "shaping",
+                }
+            },
+            "core_checks": {},
+        }
+        (vault / ".brain" / "skill-sources.json").write_text(
+            json.dumps(tracking), encoding="utf-8"
+        )
+
+        result = upgrade.upgrade(
+            str(vault),
+            str(source),
+            sync=False,
+            sync_deps=False,
+        )
+
+        assert result["status"] == "ok"
+        assert result["skill_reconciliation"][0]["name"] == "shaping"
+        assert not user.exists()
+        archived = vault / result["skill_reconciliation"][0]["archived_path"]
+        assert (archived / "SKILL.md").read_text(encoding="utf-8") == content
+        assert "shaping" not in json.loads(
+            (vault / ".brain" / "skill-sources.json").read_text(encoding="utf-8")
+        )["managed"]
+
+    def test_core_copy_removes_retired_nested_skill_files_without_migration(
+        self, source_and_vault
+    ):
+        source, vault = source_and_vault
+        source_skills = source / "skills"
+        installed_skills = vault / ".brain-core" / "skills"
+        families = {"shaping": ("assess", "brainstorm", "discover", "refine")}
+        retired = ("code-review", "swarm-test", "superpowers-brain")
+
+        for family, workflows in families.items():
+            family_source = source_skills / family
+            references = family_source / "references"
+            references.mkdir(parents=True)
+            (family_source / "SKILL.md").write_text(f"---\nname: {family}\n---\n")
+            for workflow in workflows:
+                (references / f"{workflow}.md").write_text(f"# {workflow}\n")
+                legacy = installed_skills / family / workflow / "SKILL.md"
+                legacy.parent.mkdir(parents=True)
+                legacy.write_text(f"---\nname: {family}:{workflow}\n---\n")
+        for family in retired:
+            legacy = installed_skills / family / "SKILL.md"
+            legacy.parent.mkdir(parents=True)
+            legacy.write_text(f"---\nname: {family}\n---\n")
+
+        result = upgrade.upgrade(
+            str(vault),
+            str(source),
+            sync=False,
+            sync_deps=False,
+        )
+
+        assert result["status"] == "ok"
+        for family, workflows in families.items():
+            installed_family = installed_skills / family
+            assert (installed_family / "SKILL.md").is_file()
+            for workflow in workflows:
+                assert (installed_family / "references" / f"{workflow}.md").is_file()
+                assert not (installed_family / workflow).exists()
+                assert str(
+                    Path("skills") / family / workflow / "SKILL.md"
+                ) in result["files_removed"]
+        for family in retired:
+            assert not (installed_skills / family).exists()
+            assert str(Path("skills") / family / "SKILL.md") in result[
+                "files_removed"
+            ]
+
+    def test_failed_post_reconciliation_compile_restores_user_override(
+        self, source_and_vault, monkeypatch
+    ):
+        from _skill_library.packages import inspect_package, manifest_value
+
+        source, vault = source_and_vault
+        content = (
+            "---\nname: shaping\ndescription: Shaping\n---\n\n"
+            "# Shaping\n\nUpdated workflow.\n"
+        )
+        bundled = source / "skills" / "shaping"
+        bundled.mkdir(parents=True)
+        (bundled / "SKILL.md").write_text(content, encoding="utf-8")
+        installed_core = vault / ".brain-core" / "skills" / "shaping"
+        installed_core.mkdir(parents=True)
+        (installed_core / "SKILL.md").write_text(
+            content.replace("Updated workflow.", "Old workflow."),
+            encoding="utf-8",
+        )
+        user = vault / "_Config" / "Skills" / "shaping"
+        user.mkdir(parents=True)
+        (user / "SKILL.md").write_text(content, encoding="utf-8")
+        snapshot = inspect_package(user, expected_name="shaping")
+        tracking = {
+            "schema_version": 1,
+            "managed": {
+                "shaping": {
+                    "repository": "https://example.invalid/shaping.git",
+                    "skill_path": "shaping",
+                    "configured_ref": "main",
+                    "resolved_commit": "abc123",
+                    "source_package_sha256": snapshot.package_sha256,
+                    "installed_baseline_sha256": snapshot.package_sha256,
+                    "installed_manifest": manifest_value(snapshot),
+                    "installed_at": "2026-08-01T00:00:00+00:00",
+                    "last_checked_at": "2026-08-01T00:00:00+00:00",
+                    "available_commit": "abc123",
+                    "available_package_sha256": snapshot.package_sha256,
+                    "source_error": None,
+                    "core_lineage": "shaping",
+                }
+            },
+            "core_overrides": {},
+            "core_checks": {},
+        }
+        tracking_path = vault / ".brain" / "skill-sources.json"
+        tracking_path.write_text(json.dumps(tracking), encoding="utf-8")
+
+        real_validate = upgrade._validate_compile
+        calls = 0
+
+        def fail_second_compile(vault_root):
+            nonlocal calls
+            calls += 1
+            if calls == 1:
+                return real_validate(vault_root)
+            return "simulated post-reconciliation compile failure"
+
+        monkeypatch.setattr(upgrade, "_validate_compile", fail_second_compile)
+
+        result = upgrade.upgrade(
+            str(vault),
+            str(source),
+            sync=False,
+            sync_deps=False,
+        )
+
+        assert result["status"] == "error"
+        assert result["rollback_verified"] is True
+        assert (user / "SKILL.md").read_text(encoding="utf-8") == content
+        restored = json.loads(tracking_path.read_text(encoding="utf-8"))
+        assert "shaping" in restored["managed"]
+
     def test_adapter_introduction_adds_structured_followup_and_log(
         self, source_and_vault
     ):
@@ -804,6 +1129,68 @@ class TestPostUpgradeSync:
         assert len(result["sync_result"]["updated"]) > 0
         # Verify file was actually updated
         assert "v2" in _read(str(vault / "_Config" / "Taxonomy" / "Living" / "docs.md"))
+
+    def test_upgrade_recompiles_after_taxonomy_sync(
+        self, source_and_vault, monkeypatch
+    ):
+        source, vault = source_and_vault
+        (vault / ".brain" / "preferences.json").write_text(
+            json.dumps({"artefact_sync": "auto"})
+        )
+        observed_taxonomies = []
+
+        def observe_compile(vault_root):
+            observed_taxonomies.append(
+                _read(
+                    str(
+                        Path(vault_root)
+                        / "_Config"
+                        / "Taxonomy"
+                        / "Living"
+                        / "docs.md"
+                    )
+                )
+            )
+            return None
+
+        monkeypatch.setattr(upgrade, "_validate_compile", observe_compile)
+
+        result = upgrade.upgrade(str(vault), str(source))
+
+        assert result["status"] == "ok"
+        assert "v1" in observed_taxonomies[0]
+        assert "v2" in observed_taxonomies[-1]
+        assert len(observed_taxonomies) >= 2
+
+    def test_upgrade_surfaces_post_sync_compile_failure(
+        self, source_and_vault, monkeypatch
+    ):
+        source, vault = source_and_vault
+        (vault / ".brain" / "preferences.json").write_text(
+            json.dumps({"artefact_sync": "auto"})
+        )
+
+        def fail_only_after_sync(vault_root):
+            taxonomy = _read(
+                str(
+                    Path(vault_root)
+                    / "_Config"
+                    / "Taxonomy"
+                    / "Living"
+                    / "docs.md"
+                )
+            )
+            return "new taxonomy is invalid" if "v2" in taxonomy else None
+
+        monkeypatch.setattr(upgrade, "_validate_compile", fail_only_after_sync)
+
+        result = upgrade.upgrade(str(vault), str(source))
+
+        assert result["status"] == "ok"
+        assert result["sync_compile_error"] == (
+            "Definitions were updated but router recompilation failed: "
+            "new taxonomy is invalid"
+        )
 
     def test_upgrade_with_ask_preference_applies_safe_updates(self, source_and_vault):
         """artefact_sync: ask (default) → safe updates auto-applied."""
@@ -1506,6 +1893,48 @@ class TestUpgradeRetrievalAssetRepair:
         assert result["stdout"] == noisy_stdout
         assert result["result"]["status"] == "error"
         assert result["result"]["message"] == "semantic refresh failed"
+
+
+def test_mcp_registration_repair_is_noop_without_existing_registration(
+    source_and_vault, monkeypatch
+):
+    _source, vault = source_and_vault
+    monkeypatch.setattr(
+        upgrade.subprocess,
+        "run",
+        lambda *_args, **_kwargs: pytest.fail("repair subprocess should not run"),
+    )
+
+    result = upgrade._repair_mcp_registration_after_upgrade(vault)
+
+    assert result["outcome"] == "noop"
+    assert result["command"] == []
+
+
+def test_mcp_registration_repair_runs_canonical_scope_for_existing_state(
+    source_and_vault, monkeypatch
+):
+    _source, vault = source_and_vault
+    (vault / ".mcp.json").write_text("{}\n")
+    calls = []
+
+    def fake_run(args, **kwargs):
+        calls.append((args, kwargs))
+        return subprocess.CompletedProcess(
+            args=args,
+            returncode=0,
+            stdout=json.dumps({"status": "ok", "steps": []}),
+            stderr="",
+        )
+
+    monkeypatch.setattr(upgrade.subprocess, "run", fake_run)
+
+    result = upgrade._repair_mcp_registration_after_upgrade(vault)
+
+    assert result["outcome"] == "ok"
+    assert result["result"]["status"] == "ok"
+    assert calls[0][0][2] == "mcp"
+    assert calls[0][1]["timeout"] == upgrade.MCP_REGISTRATION_REPAIR_TIMEOUT
 
 
 class TestUpgradeProgressLogging:

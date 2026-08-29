@@ -140,10 +140,10 @@ if (-not $SkipCli) {
     $distributionInstaller = Join-Path $repoRoot "cli\_distribution.py"
     & $python $distributionInstaller $repoRoot $cliTarget
     if ($LASTEXITCODE -ne 0) {
-        Write-Warning "The Brain vault was installed, but the CLI 2 distribution failed to install."
+        Write-Warning "The Brain vault was installed, but the Brain CLI distribution failed to install."
         exit 1
     }
-    Write-Host "Installed brain CLI 2 distribution: $cliTarget"
+    Write-Host "Installed Brain CLI distribution: $cliTarget"
     $cliDirectory = Split-Path -Parent $cliTarget
     if (($env:PATH -split ';') -notcontains $cliDirectory) {
         Write-Warning "$cliDirectory is not on PATH. Add it to your user PATH to run 'brain'."

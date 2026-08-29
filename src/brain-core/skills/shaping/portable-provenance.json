@@ -1,0 +1,40 @@
+{
+  "materialised_files": [
+    {
+      "destination": "portable.md",
+      "sha256": "43bc56f5cfce84e601550b1c09383beeba207fbde9dbd1239851fe39fc3f0279",
+      "source": "SKILL.md"
+    },
+    {
+      "destination": "references/assess.md",
+      "sha256": "d14ec41547f0473eb91103229011424a515876a4baa6b68f009f724fe348dc98",
+      "source": "references/assess.md"
+    },
+    {
+      "destination": "references/brainstorm.md",
+      "sha256": "8cbc339c004bcf03455af9d0071e7903151cf52651042546d2f1ab08ae1c027e",
+      "source": "references/brainstorm.md"
+    },
+    {
+      "destination": "references/discover.md",
+      "sha256": "8a981243a651ef0bec4bc4e992d8f5170127fb023cd231816920f45a5757594f",
+      "source": "references/discover.md"
+    },
+    {
+      "destination": "references/refine.md",
+      "sha256": "6dbb7d1a0513f375f84f43a9fae262351d26bf48dc0045d4bb2b4f3a19e23555",
+      "source": "references/refine.md"
+    },
+    {
+      "destination": "references/review.md",
+      "sha256": "2ed2faaeb95d24e3f9cac6add8c3721eebb660715e8ee82d918d6364176124e5",
+      "source": "references/review.md"
+    }
+  ],
+  "schema_version": 1,
+  "source": {
+    "repository": "https://github.com/Rob-Morris/agent-skills.git",
+    "revision": "022f6dcd3c412a49163682218f3346a5f0299201",
+    "skill_path": "shaping"
+  }
+}

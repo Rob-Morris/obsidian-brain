@@ -35,6 +35,40 @@ def test_skill_owners_return_exact_typed_documents(command_vault_baseline):
     assert "shaping" in reading.result.content.casefold()
 
 
+def test_skill_resolution_is_user_first_and_both_substrates_are_explicit(
+    command_vault_clone,
+):
+    user = command_vault_clone.vault_root / "_Config" / "Skills" / "shaping"
+    user.mkdir(parents=True)
+    (user / "SKILL.md").write_text(
+        "---\nname: shaping\ndescription: Personal shaping\n---\n\nUSER SHAPING\n",
+        encoding="utf-8",
+    )
+    router = compile_router.compile(str(command_vault_clone.vault_root))
+    compile_router.persist_compiled_router(str(command_vault_clone.vault_root), router)
+    application = application_for(command_vault_clone.vault_root)
+
+    default = application.invoke(
+        ResourceReadRequest(ReadableResource.SKILL, "shaping")
+    )
+    explicit_user = application.invoke(
+        ResourceReadRequest(ReadableResource.SKILL, "user:shaping")
+    )
+    explicit_core = application.invoke(
+        ResourceReadRequest(ReadableResource.SKILL, "core:shaping")
+    )
+    listing = application.invoke(ResourceListRequest(ListableResource.SKILL, "shaping"))
+
+    assert default.result.source == "user"
+    assert default.result.content == explicit_user.result.content
+    assert "USER SHAPING" in default.result.content
+    assert explicit_core.result.source == "core"
+    assert [(item.source.value, item.effective, item.shadowed) for item in listing.result.items] == [
+        ("user", True, False),
+        ("core", False, True),
+    ]
+
+
 def test_style_owners_return_sorted_names_and_content(command_vault_baseline):
     application = application_for(command_vault_baseline.vault_root)
 

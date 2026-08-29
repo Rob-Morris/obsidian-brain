@@ -65,12 +65,14 @@ When `status` transitions to `published`, set `publisheddate` to today (if not a
 ```yaml
 ---
 type: living/writing
+key: {key}
 tags:
   - writing
 status: draft
 ---
 ```
 
+`status` is required because the naming rules select a filename pattern from it.
 `publisheddate: YYYY-MM-DD` is required when `status: published`.
 
 ## Template

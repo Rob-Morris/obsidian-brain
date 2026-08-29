@@ -538,14 +538,24 @@ def _distribution_unavailable(request_type):
 
 def _migration_ids(result: dict) -> tuple[str, ...]:
     values = []
-    for key in ("precompile_patch_migrations", "migrations"):
+    for key in (
+        "precompile_patch_migrations",
+        "precompile_patch_migrations_preview",
+        "migrations",
+        "migrations_preview",
+    ):
         for item in result.get(key, []):
             if isinstance(item, dict):
                 value = item.get("id") or item.get("version") or item.get("name")
+                target = item.get("target")
             else:
                 value = item
+                target = None
             if value is not None:
-                values.append(str(value))
+                identifier = str(value)
+                if target not in (None, "post_compile"):
+                    identifier = f"{identifier}@{target}"
+                values.append(identifier)
     return tuple(values)
 
 
@@ -561,8 +571,13 @@ def _load_upgrade(core: Path):
     return module
 
 
-def _source_interface_contract(source_root: Path, core: Path) -> tuple[str, int, int]:
+def _source_interface_contract(
+    source_root: Path, core: Path
+) -> tuple[str, str, int, int]:
+    from _distribution import source_versions
+
     version = _source_version(core)
+    cli_version = source_versions(source_root).cli_version
     catalogue = json.loads(
         (core / "command-catalogue.json").read_text(encoding="utf-8")
     )
@@ -575,7 +590,7 @@ def _source_interface_contract(source_root: Path, core: Path) -> tuple[str, int,
     match = re.search(r"^PROXY_PROTOCOL = ([0-9]+)$", protocol_text, re.MULTILINE)
     if match is None:
         raise ValueError("source proxy protocol declaration is invalid")
-    return version, epoch, int(match.group(1))
+    return version, cli_version, epoch, int(match.group(1))
 
 
 def _checked_preflight(
@@ -584,13 +599,15 @@ def _checked_preflight(
     source_root: Path,
     core: Path,
 ) -> CutoverPreflight:
-    version, epoch, protocol = _source_interface_contract(source_root, core)
+    version, cli_version, epoch, protocol = _source_interface_contract(
+        source_root, core
+    )
     assert context.current_vault is not None
     return cutover_preflight(
         selected_vault=context.current_vault,
         source_brain_core_version=version,
         old_cli_version=context.cli_version,
-        new_cli_version="2.1.0",
+        new_cli_version=cli_version,
         interface_epoch=epoch,
         proxy_protocol=protocol,
         acknowledge_global_cli_cutover=request.acknowledge_global_cli_cutover,
@@ -600,6 +617,17 @@ def _checked_preflight(
 
 def _reconciliation_steps(result: dict) -> tuple[LifecycleStep, ...]:
     steps = []
+    for item in result.get("skill_reconciliation", ()):
+        if not isinstance(item, dict) or not isinstance(item.get("name"), str):
+            continue
+        steps.append(
+            LifecycleStep(
+                f"skill_override:{item['name']}",
+                LifecycleStatus.CHANGED,
+                f"Collapsed the clean tracked user override for {item['name']} "
+                "to the matching upgraded core skill.",
+            )
+        )
     if isinstance(result.get("sync_error"), str):
         steps.append(
             LifecycleStep(
@@ -610,8 +638,10 @@ def _reconciliation_steps(result: dict) -> tuple[LifecycleStep, ...]:
         )
     for name, key in (
         ("managed_runtime", "central_runtime"),
+        ("mcp_registration", "mcp_registration_repair"),
         ("machine_resolution_runtime", "machine_resolution_runtime"),
         ("retrieval_assets", "retrieval_asset_repair"),
+        ("runtime_readiness", "runtime_readiness"),
     ):
         value = result.get(key)
         if value is None:
@@ -628,6 +658,24 @@ def _reconciliation_steps(result: dict) -> tuple[LifecycleStep, ...]:
                 else f"{name} reconciliation completed."
             )
         steps.append(LifecycleStep(name, status, message))
+    orphan_state = result.get("runtime_orphans")
+    if isinstance(orphan_state, dict):
+        outcome = orphan_state.get("outcome")
+        status = (
+            LifecycleStatus.PLANNED
+            if outcome == "follow_up"
+            else LifecycleStatus.NOOP
+            if outcome == "ok"
+            else LifecycleStatus.CHANGED
+        )
+        steps.append(
+            LifecycleStep(
+                "runtime_orphans",
+                status,
+                orphan_state.get("message")
+                or "Shared-runtime tidiness inspection requires recovery.",
+            )
+        )
     return tuple(steps)
 
 
@@ -637,8 +685,11 @@ def _reconciliation_failed(result: dict) -> bool:
         and result[key].get("outcome") in {"error", "partial", "unknown"}
         for key in (
             "central_runtime",
+            "mcp_registration_repair",
             "machine_resolution_runtime",
             "retrieval_asset_repair",
+            "runtime_readiness",
+            "runtime_orphans",
         )
     )
 
@@ -666,14 +717,9 @@ def execute_upgrade(context: LauncherContext, request: BrainUpgradeRequest):
 
     def commit_cutover(_upgrade_result):
         nonlocal installed_distribution
-        from _distribution import install_distribution
+        from _distribution import install_from_source
 
-        installed_distribution = install_distribution(
-            source_root,
-            context.cli_binary,
-            cli_version="2.1.0",
-            expected_brain_core_version=preflight.source_brain_core_version,
-        )
+        installed_distribution = install_from_source(source_root, context.cli_binary)
         return {
             "cli_binary": str(installed_distribution.cli_binary),
             "distribution_root": str(installed_distribution.distribution_root),

@@ -2,6 +2,11 @@
 
 This document describes the Canary Brief, a technique for testing subjective work by agents. Each brief specifies a list of tasks with testable instructions for logging what was done. If the log is missing or malformed, the test fails — check the receipt, not the work.
 
+Canaries may name an umbrella verification target whose component gates enforce
+different quality contracts. For example, `make lint` combines the reusable
+script docstring ratchet with explicit command API/schema checks; record the
+umbrella result without conflating the component metrics.
+
 ## How to use a canary brief
 
 1. Create a canary brief `my-canary-test.md`
@@ -16,7 +21,12 @@ This document describes the Canary Brief, a technique for testing subjective wor
 
 ## When to use and not to use
 
-Use a canary brief to provide an agent with a testable list of tasks, especially when task completion is subjective. If work can be tested deterministically, that is more reliable. For everything else, there's canary.md. A canary brief can be used as a task list and supplemented by deterministic tests.
+Use a canary brief to provide an agent with a testable list of tasks when task
+completion is subjective. If work can be tested deterministically, move the
+requirement into a test, linter, or hook and remove it from the canary receipt.
+Do not keep deterministic requirements as belt-and-braces attestations: that
+preserves two enforcement sources and still asks the agent to self-report a
+fact the machine already knows.
 
 ## Why it scales
 
@@ -150,6 +160,10 @@ At runtime:
 2. Extract all task lines from the brief's `## Tasks` section. Task lines must start with a bracket ID (e.g. `[1]`, `[4a]`), ignoring whitespace.
 3. Parse the log file, ensuring each task ID is matched by a correctly formatted log line. If anything is malformed, the test fails.
 4. Delete the log file to prevent staleness.
+
+Validation hooks may consume their ignored canary receipt, but must not rewrite
+tracked files or alter the Git index. Deterministic repair belongs to an
+explicit preparation command that can preview its changes before writing.
 
 Note: You may optionally bundle additional tests. For example, if a task specifies touching a particular file, check that the file has changes.
 

@@ -35,7 +35,7 @@ Brain classifies every file as either **living** or **temporal**.
 | `living/documentation` | `Documentation/` | `new` → `shaping` → `ready` → `active` → `deprecated` | Prescriptive reference material that governs work. |
 | `living/idea` | `Ideas/` | `new` → `shaping` → `ready` → `adopted`/`parked` | Concepts being articulated to clarity. |
 | `living/note` | `Notes/` | none | Low-friction knowledge capture. |
-| `living/person` | `People/` | `active` → `shaping` → `parked` | Living hub for what you know about a person. |
+| `living/person` | `People/` | `active` / `parked` / explicit `shaping` → `deprecated` | Living hub for what you know about a person; discovery preserves its current non-terminal status. |
 | `living/project` | `Projects/` | none | Living hub for project state and related artefacts. |
 | `living/release` | `Releases/{scope}/` | `planned` → `active` → `shipped`/`deprecated` | Milestone record before ship, historical release record after ship. |
 | `living/task` | `Tasks/` | `open` → `shaping` → `in-progress` → `done`/`parked`/`deprecated` | Persistent unit of work linked to the artefacts it serves. |

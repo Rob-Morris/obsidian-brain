@@ -129,7 +129,7 @@ Some types have a lifecycle. Status values are defined per type:
 - **Documentation:** `new` → `shaping` → `ready` → `active` → `deprecated`
 - **Ideas:** `new` → `shaping` → `ready` → `adopted` | `deprecated` | `parked`
 - **Idea Logs:** `open` → `graduated` | `deprecated` | `parked`
-- **People:** `active` → `shaping` → `parked` | `deprecated`
+- **People:** `active` | `parked` | explicit `shaping` → `deprecated` (discovery preserves the current non-terminal status)
 - **Releases:** `planned` → `active` → `shipped` | `deprecated`
 - **Tasks:** `open` → `shaping` → `in-progress` → `done` | `parked` | `deprecated`
 - **Writing:** `draft` → `editing` → `review` → `published` | `deprecated` | `parked`
@@ -147,6 +147,12 @@ Use **basename-only** wikilinks: `[[My Page]]`, not `[[Wiki/My Page]]`. Basename
 Only wikilink to targets that already exist. If the artefact doesn't exist yet, write plain text — create the artefact first, then link. `artefact.create` and the granular artefact mutations warn about broken or resolvable wikilinks, and `links.fix` repairs them one file or vault-wide at a time. Full rules are in the [wikilinks standard](standards/wikilinks.md); resolution mechanics are in the [linking standard](standards/linking.md).
 
 `artefact.create` auto-disambiguates basename collisions across type folders by appending the type key (e.g. `My Page (idea).md`).
+
+For existing Markdown, read the document first and pass its returned revision to
+the mutation: `document.write-body` changes the complete body, `document.replace-text`
+replaces literal text, `document.structured-edit` targets Markdown structures, and
+`document.update-frontmatter` changes metadata. A stale revision is rejected so
+an agent cannot silently overwrite a newer human or agent edit.
 
 ## Provenance
 
@@ -210,6 +216,7 @@ Full details in the [Template Library Guide — Extending Your Vault](https://gi
 | Workflow triggers | `_Config/router.md` |
 | Type definitions | `_Config/Taxonomy/` |
 | Templates | `_Config/Templates/` |
+| Skills (reusable procedures) | `_Config/Skills/` |
 | Writing style | `_Config/Styles/writing.md` |
 | Folder colours | `_Config/Styles/obsidian.md` |
 | Memories | `_Config/Memories/` |
@@ -252,9 +259,9 @@ change.
 
 If your vault has the Brain MCP server running, every command within the authenticated MCP ceiling appears under its canonical dotted `<noun>.<verb>` name. Start with `session.start`, discover with `command.list`, and inspect an exact schema and minimal request with `command.describe`. Active access starts at Reader by default: use `access.status`, `access.request` and `access.reduce` for exact expiring within-ceiling leases. The removed aggregate 1.x tools are not aliases.
 
-Common families include `artefact.*`, `memory.*`, `skill.*`, `style.*`, `template.*`, `plugin.*`, `trigger.*`, `type.*`, `content.*`, `retrieval.*`, `links.*`, `shaping.*`, `workspace.*`, `vault.*`, `runtime.*`, `stage.*` and `attachment.upload`. Profiles authorise exact leaves rather than aggregate buckets.
+Common families include `artefact.*`, `document.*`, `resource.*` (skills, memories, styles and templates all resolve through this family), `plugin.*`, `trigger.*`, `type.*`, `content.*`, `retrieval.*`, `links.*`, `shaping.*`, `workspace.*`, `vault.*`, `runtime.*`, `stage.*`, `access.*` and `attachment.upload`. Profiles authorise exact leaves rather than aggregate buckets.
 
-The MCP server logs to `.brain/local/mcp-server.log` — startup diagnostics, tool call tracing, and errors. Set `BRAIN_LOG_LEVEL=DEBUG` for tool argument details.
+Brain's MCP processes keep an always-on, content-free operational log under `.brain/local/diagnostics/` (bounded NDJSON: lifecycle, tool spans, command failures). On a development machine, set `BRAIN_LOG_BODIES=1` (or `true`) before starting MCP to additionally capture raw request/response bodies to `diagnostics/debug-bodies.log`.
 
 For structural compliance, run `brain vault check --json`.
 

@@ -7,6 +7,7 @@ from datetime import datetime
 import hashlib
 import json
 from pathlib import Path
+import re
 from threading import RLock
 
 from _application.receipts import (
@@ -22,6 +23,8 @@ from _common._file_lock import exclusive_file_lock
 
 RECEIPT_SCHEMA = "brain.command-outcome/1"
 RECEIPT_DIRECTORY = Path(".brain/local/command-outcomes")
+RECEIPT_INDEX_SCHEMA = "brain.command-outcome-index/1"
+RECEIPT_INDEX_NAME = ".receipt-index"
 _RECEIPT_KEYS = frozenset(
     {
         "schema",
@@ -33,6 +36,7 @@ _RECEIPT_KEYS = frozenset(
         "committed_effects",
     }
 )
+_RECEIPT_FILENAME_RE = re.compile(r"[0-9a-f]{64}\.json")
 
 
 class FileReceiptStore:
@@ -53,12 +57,16 @@ class FileReceiptStore:
             return
         with self._locked_directory():
             now = self._clock.now()
-            self._cleanup_locked(now)
+            index = self._load_index_locked()
+            index, _expired = self._expire_index_locked(index, now)
             path = self._path(receipt.reference)
             existing = self._read_path(path)
             if existing is not None:
                 if existing != receipt:
                     raise ValueError("invocation receipt is immutable once recorded")
+                if index.get(path.name) != receipt.recorded_at:
+                    index[path.name] = receipt.recorded_at
+                    self._write_index_locked(index)
                 return
             safe_write_json(
                 path,
@@ -66,7 +74,9 @@ class FileReceiptStore:
                 bounds=self._root,
                 follow_symlinks=False,
             )
-            self._trim_locked()
+            index[path.name] = receipt.recorded_at
+            self._trim_index_locked(index)
+            self._write_index_locked(index)
 
     def read(self, reference: OutcomeReference) -> OutcomeReceipt | None:
         with self._lock:
@@ -85,7 +95,13 @@ class FileReceiptStore:
 
     def cleanup(self) -> int:
         with self._locked_directory():
-            return self._cleanup_locked(self._clock.now())
+            now = self._clock.now()
+            records = self._records_locked()
+            retained, expired = self._expire_records_locked(records, now)
+            self._write_index_locked(
+                {path.name: receipt.recorded_at for path, receipt in retained}
+            )
+            return expired
 
     @contextmanager
     def _locked_directory(self):
@@ -132,33 +148,89 @@ class FileReceiptStore:
                 records.append((path, receipt))
         return records
 
-    def _cleanup_locked(self, now: datetime) -> int:
+    @property
+    def _index_path(self) -> Path:
+        return self._directory / RECEIPT_INDEX_NAME
+
+    def _load_index_locked(self) -> dict[str, datetime]:
+        path = self._index_path
+        if path.is_symlink():
+            raise ValueError("outcome receipt index must be a regular file")
+        if not path.exists():
+            return self._rebuild_index_locked()
+        if not path.is_file():
+            raise ValueError("outcome receipt index must be a regular file")
+        try:
+            raw = json.loads(path.read_text(encoding="utf-8"))
+            return _decode_index(raw)
+        except FileNotFoundError:
+            return self._rebuild_index_locked()
+        except (OSError, ValueError, json.JSONDecodeError):
+            return self._rebuild_index_locked()
+
+    def _rebuild_index_locked(self) -> dict[str, datetime]:
+        index = {
+            path.name: receipt.recorded_at
+            for path, receipt in self._records_locked()
+        }
+        self._write_index_locked(index)
+        return index
+
+    def _write_index_locked(self, index: dict[str, datetime]) -> None:
+        safe_write_json(
+            self._index_path,
+            _encode_index(index),
+            bounds=self._root,
+            follow_symlinks=False,
+        )
+
+    def _expire_index_locked(
+        self,
+        index: dict[str, datetime],
+        now: datetime,
+    ) -> tuple[dict[str, datetime], int]:
         if now.tzinfo is None:
             raise ValueError("receipt cleanup clock must be timezone-aware")
         cutoff = now - self._policy.retention
-        expired = [
-            path
-            for path, receipt in self._records_locked()
-            if receipt.recorded_at < cutoff
-        ]
-        for path in expired:
-            path.unlink()
-        return len(expired)
+        retained = {}
+        expired = 0
+        for filename, recorded_at in index.items():
+            if recorded_at < cutoff:
+                (self._directory / filename).unlink(missing_ok=True)
+                expired += 1
+            else:
+                retained[filename] = recorded_at
+        return retained, expired
 
-    def _trim_locked(self) -> None:
-        records = self._records_locked()
-        overflow = len(records) - self._policy.max_records
+    def _trim_index_locked(self, index: dict[str, datetime]) -> None:
+        overflow = len(index) - self._policy.max_records
         if overflow <= 0:
             return
         oldest = sorted(
-            records,
-            key=lambda item: (
-                item[1].recorded_at,
-                item[1].reference.invocation_id,
-            ),
+            index,
+            key=lambda filename: (index[filename], filename),
         )[:overflow]
-        for path, _receipt in oldest:
-            path.unlink()
+        for filename in oldest:
+            (self._directory / filename).unlink(missing_ok=True)
+            del index[filename]
+
+    def _expire_records_locked(
+        self,
+        records: list[tuple[Path, OutcomeReceipt]],
+        now: datetime,
+    ) -> tuple[list[tuple[Path, OutcomeReceipt]], int]:
+        if now.tzinfo is None:
+            raise ValueError("receipt cleanup clock must be timezone-aware")
+        cutoff = now - self._policy.retention
+        retained = []
+        expired = 0
+        for path, receipt in records:
+            if receipt.recorded_at < cutoff:
+                path.unlink()
+                expired += 1
+            else:
+                retained.append((path, receipt))
+        return retained, expired
 
 
 def _require_regular_vault(root: Path) -> None:
@@ -214,6 +286,42 @@ def _encode(receipt: OutcomeReceipt) -> dict[str, object]:
             for effect in receipt.committed_effects
         ],
     }
+
+
+def _encode_index(index: dict[str, datetime]) -> dict[str, object]:
+    return {
+        "schema": RECEIPT_INDEX_SCHEMA,
+        "records": {
+            filename: recorded_at.isoformat()
+            for filename, recorded_at in sorted(index.items())
+        },
+    }
+
+
+def _decode_index(raw: object) -> dict[str, datetime]:
+    if not isinstance(raw, dict) or set(raw) != {"schema", "records"}:
+        raise ValueError("outcome receipt index has an invalid object shape")
+    if raw["schema"] != RECEIPT_INDEX_SCHEMA:
+        raise ValueError("outcome receipt index schema is unsupported")
+    records = raw["records"]
+    if not isinstance(records, dict):
+        raise ValueError("outcome receipt index records must be an object")
+    decoded = {}
+    for filename, raw_recorded_at in records.items():
+        if (
+            not isinstance(filename, str)
+            or _RECEIPT_FILENAME_RE.fullmatch(filename) is None
+            or not isinstance(raw_recorded_at, str)
+        ):
+            raise ValueError("outcome receipt index contains an invalid record")
+        try:
+            recorded_at = datetime.fromisoformat(raw_recorded_at)
+        except ValueError as exc:
+            raise ValueError("outcome receipt index contains an invalid timestamp") from exc
+        if recorded_at.tzinfo is None:
+            raise ValueError("outcome receipt index timestamps must be timezone-aware")
+        decoded[filename] = recorded_at
+    return decoded
 
 
 def _decode(raw: object) -> OutcomeReceipt:

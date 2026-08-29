@@ -484,6 +484,94 @@ def _make_inprocess_proxy(tmp_path, monkeypatch, stdin_lines: list[bytes]) -> tu
     return proxy, sent_to_client
 
 
+def test_non_string_jsonrpc_method_is_forwarded_without_crashing_diagnostics(
+    tmp_path,
+    monkeypatch,
+):
+    raw = json.dumps(
+        {"jsonrpc": "2.0", "id": 7, "method": {"PatientSSN123": "secret"}}
+    ).encode("utf-8")
+    proxy, _sent_to_client = _make_inprocess_proxy(tmp_path, monkeypatch, [raw])
+    child = _FakeChild()
+    with proxy._child_lock:
+        proxy._child = child
+    events = []
+    monkeypatch.setattr(proxy_mod, "_op_event", lambda event, **fields: events.append((event, fields)))
+
+    proxy.run()
+
+    assert child.sent == [json.loads(raw)]
+    assert events == [
+        (
+            "frame.forwarded",
+            {"family": "proxy-rpc", "frame_seq": 1, "method": "other"},
+        )
+    ]
+
+
+def test_invalid_jsonrpc_request_id_isolated_from_following_request(
+    tmp_path,
+    monkeypatch,
+):
+    invalid = {"jsonrpc": "2.0", "id": [], "method": "ping"}
+    valid = {"jsonrpc": "2.0", "id": 7, "method": "ping"}
+    proxy, sent_to_client = _make_inprocess_proxy(
+        tmp_path,
+        monkeypatch,
+        [json.dumps(invalid).encode("utf-8"), json.dumps(valid).encode("utf-8")],
+    )
+    child = _FakeChild()
+    with proxy._child_lock:
+        proxy._child = child
+
+    proxy.run()
+
+    assert child.sent == [valid]
+    assert sent_to_client == [
+        {
+            "jsonrpc": "2.0",
+            "id": None,
+            "error": {
+                "code": -32600,
+                "message": "Invalid Request: JSON-RPC id must be a string or integer",
+            },
+        }
+    ]
+
+
+def test_tools_call_notification_is_rejected_before_interface_acceptance(
+    tmp_path,
+    monkeypatch,
+):
+    tool_notification = {
+        "jsonrpc": "2.0",
+        "method": "tools/call",
+        "params": {"name": "example.mutate", "arguments": {}},
+    }
+    valid_notification = {"jsonrpc": "2.0", "method": "notifications/initialized"}
+    proxy, sent_to_client = _make_inprocess_proxy(
+        tmp_path,
+        monkeypatch,
+        [
+            json.dumps(tool_notification).encode("utf-8"),
+            json.dumps(valid_notification).encode("utf-8"),
+        ],
+    )
+    child = _FakeChild()
+    with proxy._child_lock:
+        proxy._child = child
+
+    def fail_prepare(_request):
+        raise AssertionError("tools/call notification reached interface acceptance")
+
+    monkeypatch.setattr(proxy, "_prepare_interface_call", fail_prepare)
+
+    proxy.run()
+
+    assert child.sent == [valid_notification]
+    assert sent_to_client == []
+
+
 def _make_inprocess_proxy_with_real_threads(
     tmp_path, monkeypatch, stdin=None,
 ) -> tuple[proxy_mod.Proxy, list[dict]]:

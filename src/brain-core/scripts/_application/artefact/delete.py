@@ -45,7 +45,6 @@ def execute(context: InvocationContext, request: ArtefactDeleteRequest):
         effect_subject=lambda payload: payload.path,
     )
 
-
 def _delete(root: str, router: dict, request: ArtefactDeleteRequest) -> dict:
     import rename
 
@@ -68,9 +67,3 @@ def catalogue_entry():
         execute,
         authority=Authority.ADMINISTRATOR,
     )
-
-
-def resolver_entry():
-    from ..resolver import ResolverEntry
-
-    return ResolverEntry(ArtefactDeleteRequest, decode)

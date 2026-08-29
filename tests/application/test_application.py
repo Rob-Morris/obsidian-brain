@@ -14,6 +14,7 @@ from _application.context import (
     InvocationContext,
     ProviderBindings,
     SelectedBrain,
+    report_failure_safely,
 )
 from _application.receipts import ReceiptState
 from _application.requests import CommandListPayload, CommandListRequest
@@ -43,6 +44,25 @@ class _Authority:
         if self.fail:
             raise RuntimeError("authority backend unavailable")
         return self.allowed
+
+    def ceiling_allows(self, _command_id):
+        return self.allowed
+
+    def consume(self, _command_id):
+        return self.allowed
+
+
+class _Diagnostics:
+    def __init__(self):
+        self.failures = []
+
+    def report_failure(self, **failure):
+        self.failures.append(failure)
+
+
+class _FailingDiagnostics:
+    def report_failure(self, **_failure):
+        raise OSError("diagnostic sink unavailable")
 
 
 class _Receipts:
@@ -77,6 +97,7 @@ def _context(
     tier=DependencyTier.PORTABLE,
     providers=(),
     capabilities=(),
+    diagnostics=None,
 ):
     receipts = receipts or _Receipts()
     return InvocationContext(
@@ -96,6 +117,7 @@ def _context(
         receipt_writer=receipts,
         receipt_reader=receipts,
         clock=_Clock(),
+        **({"diagnostics": diagnostics} if diagnostics is not None else {}),
     )
 
 
@@ -228,10 +250,15 @@ def test_bound_but_unavailable_provider_is_not_silently_provisioned(tmp_path):
 
 
 def test_port_failure_and_bad_read_result_map_to_stable_internal_error(tmp_path):
+    diagnostics = _Diagnostics()
     authority_failure = _invoke(
         tmp_path,
         _entry(lambda *_args: Ok("command.list", 2, _payload())),
-        context=_context(tmp_path, authority=_Authority(fail=True)),
+        context=_context(
+            tmp_path,
+            authority=_Authority(fail=True),
+            diagnostics=diagnostics,
+        ),
     )
     wrong_payload = _invoke(
         tmp_path,
@@ -242,6 +269,101 @@ def test_port_failure_and_bad_read_result_map_to_stable_internal_error(tmp_path)
         assert result.error.code is ErrorCode.INTERNAL_ERROR
         assert result.effects == "none"
         assert result.error.details.correlation_id == "corr-1"
+    assert diagnostics.failures[0]["phase"] == "preflight"
+    assert diagnostics.failures[0]["command_id"] == "command.list"
+    assert diagnostics.failures[0]["correlation_id"] == "corr-1"
+    assert isinstance(diagnostics.failures[0]["error"], RuntimeError)
+
+
+def test_missing_authority_consumption_fails_closed(tmp_path):
+    class _IncompleteAuthority:
+        def allows(self, **_kwargs):
+            return True
+
+        def ceiling_allows(self, _command_id):
+            return True
+
+    result = _invoke(
+        tmp_path,
+        _entry(lambda *_args: Ok("command.list", 2, _payload())),
+        context=_context(tmp_path, authority=_IncompleteAuthority()),
+    )
+
+    assert result.error.code is ErrorCode.INTERNAL_ERROR
+    assert result.effects == "none"
+
+
+def test_diagnostic_reporter_failure_uses_local_fallback(tmp_path, capfd):
+    context = _context(tmp_path, diagnostics=_FailingDiagnostics())
+
+    report_failure_safely(
+        context,
+        phase="execute",
+        command_id="command.list",
+        error=RuntimeError("original failure"),
+    )
+
+    fallback = capfd.readouterr().err
+    assert "diagnostic reporter failed" in fallback
+    assert "diagnostic sink unavailable" in fallback
+
+
+def test_diagnostic_reporter_failure_preserves_command_result(tmp_path, capfd):
+    result = _invoke(
+        tmp_path,
+        _entry(lambda *_args: (_ for _ in ()).throw(RuntimeError("executor failed"))),
+        context=_context(tmp_path, diagnostics=_FailingDiagnostics()),
+    )
+
+    assert result.error.code is ErrorCode.INTERNAL_ERROR
+    assert "diagnostic reporter failed" in capfd.readouterr().err
+
+
+def test_diagnostics_identify_each_application_failure_phase(tmp_path):
+    diagnostics = _Diagnostics()
+    base_context = _context(tmp_path, diagnostics=diagnostics)
+
+    CommandApplication(base_context, ApplicationCatalogue(())).invoke(CommandListRequest())
+    _invoke(
+        tmp_path,
+        _entry(lambda *_args: (_ for _ in ()).throw(RuntimeError("execute failed"))),
+        context=base_context,
+    )
+    _invoke(
+        tmp_path,
+        _entry(lambda *_args: Ok("command.list", 2, _payload())),
+        context=_context(
+            tmp_path,
+            authority=_Authority(allowed=False),
+            receipts=_Receipts(fail=True),
+            diagnostics=diagnostics,
+        ),
+    )
+    mutation_entry = _entry(
+        lambda *_args: Ok("command.list", 2, _payload()),
+        effect_class=EffectClass.SELECTED_BRAIN_MUTATION,
+        retry_class=RetryClass.RECEIPT_REQUIRED,
+        authority=Authority.CONTRIBUTOR,
+    )
+    mutation_context = replace(
+        _context(
+            tmp_path,
+            receipts=_Receipts(fail=True),
+            diagnostics=diagnostics,
+        ),
+        profile="contributor",
+        authority=_Authority(),
+    )
+    _invoke(tmp_path, mutation_entry, context=mutation_context)
+
+    assert [failure["phase"] for failure in diagnostics.failures] == [
+        "catalogue.resolve",
+        "execute",
+        "receipt.preflight",
+        "receipt.finalise",
+    ]
+    assert all(failure["command_id"] == "command.list" for failure in diagnostics.failures)
+    assert all(failure["correlation_id"] == "corr-1" for failure in diagnostics.failures)
 
 
 def test_mutation_executor_failure_is_unknown_non_retryable_and_receipted(tmp_path):

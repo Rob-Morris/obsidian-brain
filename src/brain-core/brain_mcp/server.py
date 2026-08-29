@@ -26,6 +26,7 @@ from _application.registry import (  # noqa: E402
     current_application_catalogue,
     current_request_resolver,
 )
+from _common import _operational_log  # noqa: E402
 from _command_interface.direct import (  # noqa: E402
     compose_direct_context,
     resolve_direct_identity,
@@ -150,9 +151,22 @@ def _build_public_mcp() -> MCPServer:
 mcp = _build_public_mcp()
 
 
+def _install_diagnostics(root: Path) -> _operational_log.OperationalLogger | None:
+    """Best-effort operational logging; a diagnostics failure never blocks serving."""
+    try:
+        logger = _operational_log.install(root, "server")
+        logger.record("process.started")
+        return logger
+    except Exception:
+        return None
+
+
 def main() -> None:
-    _selected_vault()
+    root = _selected_vault()
+    logger = _install_diagnostics(root)
     mcp.run(transport="stdio")
+    if logger is not None:
+        logger.close(exit_code=0)
 
 
 if __name__ == "__main__":

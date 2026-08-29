@@ -19,12 +19,16 @@ import sys
 from datetime import datetime, timezone
 
 from _portable.links import check_broken_wikilinks
-from _lifecycle.derived_cache_state import load_fresh_compiled_router
+from _lifecycle.derived_cache_state import (
+    inspect_lexical_cache,
+    load_fresh_compiled_router,
+)
 from _common import (
     build_vault_file_index,
     build_wikilink_pattern,
     check_wikilinks_in_file,
     discover_temporal_prefixes,
+    file_index_from_documents,
     find_vault_root,
     make_wikilink_replacer,
     overlay_file_index_result,
@@ -33,6 +37,27 @@ from _common import (
     resolve_broken_link,
     safe_write,
 )
+
+
+class WikilinkProcessingError(RuntimeError):
+    """A requested post-write wikilink phase failed for a known document."""
+
+    def __init__(self, path, cause):
+        self.path = path
+        super().__init__(f"wikilink processing failed for {path}: {cause}")
+
+
+def file_index_for_mutation(vault_root):
+    """Return a freshness-qualified wikilink index before a document write."""
+    state = inspect_lexical_cache(vault_root)
+    payload = state.payload if not state.stale else None
+    documents = payload.get("documents") if isinstance(payload, dict) else None
+    if isinstance(documents, list):
+        try:
+            return file_index_from_documents(documents, vault_root)
+        except (KeyError, TypeError, ValueError):
+            pass
+    return build_vault_file_index(vault_root)
 
 
 def _resolvable_fixes(findings):
@@ -67,12 +92,27 @@ def attach_wikilink_warnings(vault_root, result, apply_fixes=False, file_index=N
     path = result.get("path")
     if not path:
         return
+    try:
+        _attach_wikilink_warnings(
+            vault_root,
+            result,
+            apply_fixes=apply_fixes,
+            file_index=file_index,
+        )
+    except Exception as exc:
+        if apply_fixes:
+            raise WikilinkProcessingError(path, exc) from exc
+
+
+def _attach_wikilink_warnings(vault_root, result, apply_fixes=False, file_index=None):
+    path = result["path"]
     vault_root = str(vault_root)
     try:
         with open(os.path.join(vault_root, path), "r", encoding="utf-8") as handle:
-            if "[[" not in handle.read():
-                return
+            text = handle.read()
     except OSError:
+        raise
+    if "[[" not in text:
         return
     if callable(file_index):
         file_index = file_index()
@@ -83,7 +123,7 @@ def attach_wikilink_warnings(vault_root, result, apply_fixes=False, file_index=N
     temporal_prefixes = discover_temporal_prefixes(file_index["md_basenames"])
     findings = check_wikilinks_in_file(
         vault_root, path,
-        file_index=file_index, temporal_prefixes=temporal_prefixes,
+        file_index=file_index, temporal_prefixes=temporal_prefixes, text=text,
     )
     if apply_fixes:
         resolvable = _resolvable_fixes(findings)

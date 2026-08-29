@@ -20,12 +20,11 @@ from _launcher.contracts import ErrorCode, ReceiptState
 from _launcher.invocation import LauncherInvocation
 from _launcher.owners import LAUNCHER_OWNERS
 from _launcher.registry import (
-    BrainBackfillRequest,
     BrainClearDefaultRequest,
-    BrainPruneRequest,
     BrainRegisterRequest,
     BrainSetDefaultRequest,
     BrainUnregisterRequest,
+    RegistryRemoveStaleRequest,
     RegistryMutationStatus,
 )
 import vault_registry
@@ -33,12 +32,11 @@ import vault_registry
 
 NOW = datetime.fromisoformat("2026-08-10T04:00:00+10:00")
 MUTATION_COMMANDS = {
-    "brain.backfill",
     "brain.clear-default",
-    "brain.prune",
     "brain.register",
     "brain.set-default",
     "brain.unregister",
+    "registry.remove-stale",
 }
 
 
@@ -134,12 +132,11 @@ def test_registry_mutation_owners_match_machine_global_contract():
 @pytest.mark.parametrize(
     "command_request",
     (
-        BrainBackfillRequest(Path("/tmp/brain")),
         BrainClearDefaultRequest(),
-        BrainPruneRequest(),
         BrainRegisterRequest(Path("/tmp/brain")),
         BrainSetDefaultRequest("brain"),
         BrainUnregisterRequest(Path("/tmp/brain")),
+        RegistryRemoveStaleRequest(),
     ),
 )
 def test_registry_mutations_require_an_available_caller_filesystem(
@@ -160,21 +157,17 @@ def test_registry_mutations_require_an_available_caller_filesystem(
     assert unavailable.effects == "none"
 
 
-def test_register_and_backfill_report_exact_change_state(vault, tmp_path):
+def test_register_reports_exact_change_state(vault, tmp_path):
     invocation = _invocation(tmp_path)
 
     registered = invocation.invoke(BrainRegisterRequest(vault.resolve(), "test-brain"))
     repeated = invocation.invoke(BrainRegisterRequest(vault.resolve(), "test-brain"))
-    backfilled = invocation.invoke(BrainBackfillRequest(vault.resolve()))
 
     assert registered.result.status is RegistryMutationStatus.CHANGED
     assert registered.result.brain_id == "test-brain"
     assert _effect_subjects(registered) == ("machine-registry:test-brain",)
     assert repeated.result.status is RegistryMutationStatus.NOOP
     assert repeated.committed_effects == ()
-    assert backfilled.result.status is RegistryMutationStatus.NOOP
-    assert backfilled.result.brain_id == "test-brain"
-    assert backfilled.committed_effects == ()
 
 
 def test_register_rejects_a_non_brain_before_mutation(tmp_path):
@@ -229,12 +222,12 @@ def test_unregister_reports_registry_and_default_effects(vault, tmp_path):
     assert absent.committed_effects == ()
 
 
-def test_prune_removes_only_stale_registrations(vault, tmp_path):
+def test_remove_stale_removes_only_stale_registrations(vault, tmp_path):
     stale = tmp_path / "missing-brain"
     vault_registry.register(vault, brain_id="live-brain")
     vault_registry.register(stale, brain_id="stale-brain")
 
-    result = _invocation(tmp_path).invoke(BrainPruneRequest())
+    result = _invocation(tmp_path).invoke(RegistryRemoveStaleRequest())
 
     assert result.result.status is RegistryMutationStatus.CHANGED
     assert result.result.removed_brain_ids == ("stale-brain",)
@@ -264,12 +257,9 @@ def test_registry_dry_run_uses_real_resolution_without_writing(vault, tmp_path):
     vault_registry.set_default("existing-brain")
     invocation = _invocation(tmp_path, dry_run=True)
 
-    existing = invocation.invoke(BrainBackfillRequest(vault.resolve()))
     impossible = invocation.invoke(BrainSetDefaultRequest("missing-brain"))
     removal = invocation.invoke(BrainUnregisterRequest(vault.resolve()))
 
-    assert existing.result.status is RegistryMutationStatus.NOOP
-    assert existing.result.brain_id == "existing-brain"
     assert impossible.error.code is ErrorCode.CONFLICT
     assert removal.result.status is RegistryMutationStatus.PLANNED
     assert removal.result.removed_brain_ids == ("existing-brain",)
@@ -334,7 +324,6 @@ def test_unexpected_registry_failure_is_a_non_retryable_unknown_outcome(
     (
         lambda: BrainRegisterRequest(Path("relative")),
         lambda: BrainRegisterRequest(Path("/tmp/brain"), "Invalid Brain"),
-        lambda: BrainBackfillRequest(Path("relative")),
         lambda: BrainUnregisterRequest(Path("relative")),
         lambda: BrainSetDefaultRequest("Invalid Brain"),
     ),

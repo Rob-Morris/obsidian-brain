@@ -8,11 +8,12 @@ import hashlib
 import json
 import os
 from pathlib import Path
-import re
 import shutil
 import stat
 import sys
 import uuid
+
+from _version_contract import SourceVersions, parse_source_versions
 
 
 MANIFEST_NAME = ".brain-cli-distribution.json"
@@ -47,23 +48,36 @@ class InstalledDistribution:
     manifest_fingerprint: str
 
 
+def source_versions(source_root: Path) -> SourceVersions:
+    """Read the canonical CLI/Core pair from one complete source tree."""
+
+    source = source_root.resolve()
+    bootloaders = (source / "cli" / "brain", source / "cli" / "brain.cmd")
+    try:
+        declarations = [path.read_text(encoding="utf-8") for path in bootloaders]
+        brain_core_version = (source / "src" / "brain-core" / "VERSION").read_text(
+            encoding="utf-8"
+        )
+    except OSError as exc:
+        raise ValueError(f"CLI source version declarations are unreadable: {exc}") from exc
+    return parse_source_versions(
+        core=brain_core_version,
+        unix_cli=declarations[0],
+        windows_cli=declarations[1],
+    )
+
+
 def install_from_source(source_root: Path, cli_binary: Path) -> InstalledDistribution:
     source = source_root.resolve()
-    bootloader = _source_bootloader(source, cli_binary).read_text(encoding="utf-8")
-    match = _declared_version(bootloader, "BRAIN_CLI_VERSION")
-    if match is None:
-        raise DistributionInstallError(
-            "CLI source does not declare one canonical version",
-            rollback_verified=True,
-        )
-    brain_core_version = (source / "src" / "brain-core" / "VERSION").read_text(
-        encoding="utf-8"
-    ).strip()
+    try:
+        versions = source_versions(source)
+    except ValueError as exc:
+        raise DistributionInstallError(str(exc), rollback_verified=True) from exc
     return install_distribution(
         source,
         cli_binary,
-        cli_version=match,
-        expected_brain_core_version=brain_core_version,
+        cli_version=versions.cli_version,
+        expected_brain_core_version=versions.brain_core_version,
     )
 
 
@@ -190,27 +204,16 @@ def _validate_source(source: Path, cli_version: str, brain_core_version: str) ->
                 f"CLI distribution source is missing {entry}",
                 rollback_verified=True,
             )
-    bootloaders = (source / "cli" / "brain", source / "cli" / "brain.cmd")
-    if any(not path.is_file() for path in bootloaders):
-        raise DistributionInstallError(
-            "CLI distribution is missing a platform bootloader",
-            rollback_verified=True,
-        )
-    declarations = [path.read_text(encoding="utf-8") for path in bootloaders]
-    if any(_declared_version(text, "BRAIN_CLI_VERSION") != cli_version for text in declarations):
+    try:
+        versions = source_versions(source)
+    except ValueError as exc:
+        raise DistributionInstallError(str(exc), rollback_verified=True) from exc
+    if versions.cli_version != cli_version:
         raise DistributionInstallError(
             "CLI bootloader version does not match the requested distribution",
             rollback_verified=True,
         )
-    if any(_declared_version(text, "BRAIN_INSTALL_REF", prefix="v") != brain_core_version for text in declarations):
-        raise DistributionInstallError(
-            "CLI install ref does not match the Brain Core distribution",
-            rollback_verified=True,
-        )
-    actual_core = (source / "src" / "brain-core" / "VERSION").read_text(
-        encoding="utf-8"
-    ).strip()
-    if actual_core != brain_core_version:
+    if versions.brain_core_version != brain_core_version:
         raise DistributionInstallError(
             "Brain Core source version does not match the requested distribution",
             rollback_verified=True,
@@ -219,15 +222,6 @@ def _validate_source(source: Path, cli_version: str, brain_core_version: str) ->
 
 def _source_bootloader(source: Path, binary: Path) -> Path:
     return source / "cli" / ("brain.cmd" if binary.suffix.casefold() == ".cmd" else "brain")
-
-
-def _declared_version(text: str, name: str, *, prefix: str = "") -> str | None:
-    match = re.search(
-        rf'^(?:set ")?{name}="?{re.escape(prefix)}([0-9]+\.[0-9]+\.[0-9]+)"?$',
-        text,
-        re.MULTILINE | re.IGNORECASE,
-    )
-    return match.group(1) if match is not None else None
 
 
 def _copy_distribution(source: Path, stage: Path) -> None:

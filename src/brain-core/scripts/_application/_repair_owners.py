@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum
-from typing import Callable, ClassVar, Mapping
+from typing import Callable, ClassVar
 
 from ._mutation_support import contributor_mutation_entry, no_effect_error
 from .context import InvocationContext
@@ -41,12 +41,6 @@ class ArtefactRepairRequest:
     COMMAND_ID: ClassVar[str] = ""
     COMMAND_VERSION: ClassVar[int] = 1
     RESULT_TYPE: ClassVar[type] = ArtefactRepairPayload
-
-
-def decode_empty(payload: Mapping[str, object], request_type):
-    if payload:
-        raise ValueError(f"unexpected fields: {', '.join(sorted(payload))}")
-    return request_type()
 
 
 def execute_repair(

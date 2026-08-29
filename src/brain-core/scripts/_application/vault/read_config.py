@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
+from .._decoding import decode_empty
 from dataclasses import dataclass
 from typing import ClassVar, Mapping
 
 from .._read_support import (
     catalogue_entry as _catalogue_entry,
     command_error,
-    resolver_entry as _resolver_entry,
 )
 from ..context import InvocationContext
 from ..results import ErrorCode, Ok
@@ -91,14 +91,8 @@ def execute(context: InvocationContext, _request: VaultReadConfigRequest):
 
 
 def decode(payload: Mapping[str, object]) -> VaultReadConfigRequest:
-    if payload:
-        raise ValueError(f"unexpected fields: {', '.join(sorted(payload))}")
-    return VaultReadConfigRequest()
+    return decode_empty(payload, VaultReadConfigRequest)
 
 
 def catalogue_entry():
     return _catalogue_entry(VaultReadConfigRequest, execute)
-
-
-def resolver_entry():
-    return _resolver_entry(VaultReadConfigRequest, decode)

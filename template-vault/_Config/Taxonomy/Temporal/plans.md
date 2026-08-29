@@ -31,6 +31,8 @@ status: draft
 ---
 ```
 
+**Optional:** `status`
+
 Status values: `draft`, `shaping`, `approved`, `implementing`, `completed`, `deprecated`, `parked`.
 
 ## Shaping

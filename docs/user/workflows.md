@@ -175,7 +175,9 @@ Back on the idea log, a callout records the spin-out:
 
 The idea has legs. Time to shape it properly:
 
-The shaping skill reads the design taxonomy, chooses its conversational mode, and calls the granular `shaping.start` MCP command to open or continue today's linked session. The application command owns transcript and lifecycle mechanics; the skill owns the questions, review, and completion decision.
+The shaping skill reads the design taxonomy, chooses its conversational mode, and calls the granular `shaping.start` MCP command to open or continue today's linked session. The application command owns transcript and taxonomy-declared status mechanics; the skill owns adaptive questions, answer propagation, reconciliation, and the completion decision. Most types enter `shaping` and later move to their declared completion status. Discovery-shaped types whose lifecycle represents an enduring state may instead preserve their current non-terminal status throughout the pass.
+
+The source artefact remains the current truth, while transcript reconciliation events preserve how decisions, work, possible questions, and body content were added, narrowed, resolved, reopened, or propagated. Each turn asks for one user commitment; question numbers identify transcript turns while stable decision numbers identify the artefact's evolving choices. At a candidate stopping point, the skill explains at a high level why the taxonomy bar is met and recommends an optional four-Cs review—independent when a separate reviewer is available. The review checks correctness, clarity, consistency, and completeness, asks before applying fixes, and either supports completion or returns decision-worthy gaps to shaping. The user chooses to run the review, skip it and complete or hand off the pass, or stop without asserting completion; status changes only when the taxonomy and chosen outcome require one.
 
 ```
 Designs/shared-token-validation.md
@@ -307,6 +309,14 @@ folder projection was changed out-of-band in Obsidian — it points at the exact
 repair command. `brain artefact repair-ownership --dry-run --json` previews the metadata-
 authoritative move set; apply it explicitly after review. Brain never infers a
 missing parent field from folder structure.
+
+### Agents Edit Without Losing Concurrent Changes
+
+Agents first read an artefact or editable named resource, then supply that
+read's exact revision to `document.write-body`, `document.replace-text`, `document.structured-edit`, or
+`document.update-frontmatter`. If another editor changes the file first, Brain
+rejects the stale mutation and directs the agent to re-read rather than silently
+overwriting the intervening work.
 
 ### Agents Read Your Preferences
 

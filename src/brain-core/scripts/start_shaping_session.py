@@ -31,6 +31,7 @@ from _common import (
     serialize_frontmatter,
     substitute_template_vars,
     strip_md_ext,
+    terminal_status_folder,
     unique_filename,
     vault_mutation_lock,
 )
@@ -47,6 +48,7 @@ class _PreparedShapingTarget:
     artefact: dict
     fields: dict
     body: str
+    status_behaviour: str
 
 
 def _normalise_stem(path):
@@ -79,6 +81,30 @@ def _transcript_names_source(content, source_path, file_index):
                 for link in extract_wikilinks(line)
             )
     return False
+
+
+def _transcript_source_count(content, file_index):
+    """Return the number of distinct source links declared by a transcript."""
+    for line in content.splitlines():
+        if not line.startswith("**Source:**"):
+            continue
+        return len(
+            {
+                (
+                    "resolved",
+                    resolved.casefold(),
+                )
+                if (
+                    resolved := _resolve_link_path(link["stem"], file_index)
+                )
+                else (
+                    "unresolved",
+                    _normalise_stem(link["stem"]).casefold(),
+                )
+                for link in extract_wikilinks(line)
+            }
+        )
+    return 0
 
 
 def _transcript_artefact(router):
@@ -171,9 +197,25 @@ def _choose_transcript_path(
         layout_fields,
     )
     if len(linked) > 1:
+        source_counts = {}
+        for rel_path in linked:
+            transcript_abs = os.path.join(vault_root, rel_path)
+            with open(transcript_abs, "r", encoding="utf-8") as handle:
+                source_counts[rel_path] = _transcript_source_count(
+                    handle.read(),
+                    file_index,
+                )
+        widest_count = max(source_counts.values())
+        widest = [
+            rel_path
+            for rel_path, count in source_counts.items()
+            if count == widest_count
+        ]
+        if len(widest) == 1:
+            return widest[0], True
         raise ValueError(
-            f"Multiple shaping transcripts are linked to '{source_path}' for today: "
-            + ", ".join(linked)
+            f"Multiple shaping transcripts are linked to '{source_path}' for today "
+            f"with equally wide source sets: " + ", ".join(widest)
         )
     if linked:
         return linked[0], True
@@ -277,7 +319,23 @@ def _prepare_shaping_target(vault_root, router, target):
             f"Artefact '{resolved_path}' is not shapeable; its type must declare "
             "a complete ## Shaping and lifecycle contract"
         )
-    return _PreparedShapingTarget(resolved_path, artefact, fields, body)
+    status_behaviour = shaping.get("status_behaviour", "transition")
+    if (
+        status_behaviour == "preserve"
+        and terminal_status_folder(artefact, fields) is not None
+    ):
+        raise ValueError(
+            f"Artefact '{resolved_path}' has terminal status "
+            f"'{fields['status']}'. Set an explicit non-terminal status before "
+            "opening a status-preserving shaping session."
+        )
+    return _PreparedShapingTarget(
+        resolved_path,
+        artefact,
+        fields,
+        body,
+        status_behaviour,
+    )
 
 
 def start_shaping_session(
@@ -327,7 +385,11 @@ def start_shaping_session(
     )
     transcript_abs = os.path.join(vault_root, transcript_path)
 
-    status_changed = fields.get("status") != "shaping"
+    status_behaviour = prepared.status_behaviour
+    status_changed = (
+        status_behaviour == "transition"
+        and fields.get("status") != "shaping"
+    )
     lifecycle_applied = False
     transcript_changed = False
     target_path = resolved_path
@@ -424,6 +486,7 @@ def start_shaping_session(
         "transcript_path": transcript_path,
         "type": transcript_type,
         "mode": session_mode,
+        "status_behaviour": status_behaviour,
         "status_changed": status_changed,
         "transcript_operation": transcript_operation,
         "changed_paths": changed_paths,

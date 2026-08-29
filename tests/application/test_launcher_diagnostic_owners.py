@@ -159,7 +159,7 @@ def _vault_report(tmp_path):
                 {
                     "check": "workspace-registry",
                     "severity": "error",
-                    "file": ".brain/local/workspaces.json",
+                    "file": None,
                     "message": "Registry is malformed.",
                     "repair": {
                         "scope": "registry",
@@ -226,6 +226,7 @@ def test_doctor_returns_bounded_typed_diagnosis_without_registry_sync(
     assert result.result.machine.brains[0].repair_findings[0].command_id == "mcp.repair"
     assert not hasattr(result.result.machine.brains[0].repair_findings[0], "command")
     assert result.result.vault.state is DoctorVaultState.CHECKED
+    assert result.result.vault.findings[0].file is None
     assert result.result.vault.findings[0].repair_command_id == (
         "workspace.repair-registry"
     )

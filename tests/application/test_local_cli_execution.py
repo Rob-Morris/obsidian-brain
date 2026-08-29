@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from dataclasses import replace
 import json
 from pathlib import Path
 import subprocess
@@ -20,6 +21,7 @@ if str(CLI_DIR) not in sys.path:
 from launcher_catalogue import LAUNCHER_CATALOGUE
 from _launcher.adapter import LauncherAdapter, LauncherRequestError, project_launcher_result
 from _launcher.context import LauncherContext, ProviderBindings
+from _launcher.invocation import LauncherInvocation
 from _launcher.contracts import (
     CommandError,
     CommittedEffect,
@@ -29,6 +31,8 @@ from _launcher.contracts import (
     Partial,
 )
 from _launcher.owners import LAUNCHER_OWNERS
+from _launcher.owners import LauncherOwners
+from _launcher.version import BrainVersionRequest
 from _local_cli.discovery import ComposedCommandEntry
 from _local_cli.execution import (
     ApplicationProcessInvoker,
@@ -37,8 +41,15 @@ from _local_cli.execution import (
     SelectedBrainProcess,
     render_local_result,
 )
-from _local_cli.main import CliError, _trusted_distribution
-from _local_cli.runtime import resolve_selected_brain
+from _local_cli.main import CliError, _trusted_distribution, run
+from _local_cli.runtime import (
+    LauncherDiagnosticReporter,
+    SelectedBrain,
+    command_python,
+    resolve_project_exposure_brain,
+    resolve_selected_brain,
+)
+from _common import _operational_log
 from _application.projection import canonical_result_envelope
 from _application.receipts import CommittedEffect as ApplicationCommittedEffect
 from _application.results import (
@@ -51,6 +62,77 @@ from _application.results import (
 
 
 NOW = datetime.fromisoformat("2026-08-10T09:30:00+10:00")
+
+
+def test_managed_command_python_preserves_virtual_environment_entry_point(
+    tmp_path, monkeypatch
+):
+    vault = (tmp_path / "Brain").resolve()
+    managed = tmp_path / "venv" / "bin" / "python"
+    managed.parent.mkdir(parents=True)
+    managed.symlink_to(Path(sys.executable).resolve())
+    selected = SelectedBrain(vault, None, "vault_self")
+
+    monkeypatch.setattr(
+        "_common._venv.find_runnable_python",
+        lambda *_args, **_kwargs: managed,
+    )
+
+    assert command_python(selected, "managed") == managed.absolute()
+    assert command_python(selected, "managed") != managed.resolve()
+
+
+def test_managed_command_python_executes_inside_selected_virtual_environment(
+    tmp_path, monkeypatch
+):
+    vault = (tmp_path / "Brain").resolve()
+    venv_dir = tmp_path / "managed-venv"
+    subprocess.run(
+        [sys.executable, "-m", "venv", str(venv_dir)],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    managed = (
+        venv_dir / "Scripts" / "python.exe"
+        if sys.platform == "win32"
+        else venv_dir / "bin" / "python"
+    )
+    site_packages = subprocess.run(
+        [str(managed), "-c", "import site; print(site.getsitepackages()[0])"],
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+    Path(site_packages, "brain_cli_venv_marker.py").write_text(
+        "VALUE = 'managed-runtime'\n",
+        encoding="utf-8",
+    )
+    selected = SelectedBrain(vault, None, "vault_self")
+    monkeypatch.setattr(
+        "_common._venv.find_runnable_python",
+        lambda *_args, **_kwargs: managed,
+    )
+
+    chosen = command_python(selected, "managed")
+    probe = subprocess.run(
+        [
+            str(chosen),
+            "-c",
+            (
+                "import json, sys, brain_cli_venv_marker; "
+                "print(json.dumps({'prefix': sys.prefix, "
+                "'marker': brain_cli_venv_marker.VALUE}))"
+            ),
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    payload = json.loads(probe.stdout)
+
+    assert Path(payload["prefix"]).resolve() == venv_dir.resolve()
+    assert payload["marker"] == "managed-runtime"
 
 
 class _Authority:
@@ -132,6 +214,45 @@ def test_launcher_dynamic_adapter_rejects_unknown_identity_and_fields(tmp_path):
         adapter.invoke(_context(tmp_path), "artefact.read", {})
     with pytest.raises(LauncherRequestError, match="unknown fields"):
         adapter.invoke(_context(tmp_path), "brain.version", {"extra": True})
+
+
+def test_real_launcher_failure_persists_the_returned_correlation_id(tmp_path):
+    vault = (tmp_path / "Brain").resolve()
+    (vault / ".brain-core").mkdir(parents=True)
+    (vault / ".brain-core" / "VERSION").write_text("0.61.0\n", encoding="utf-8")
+    context = replace(
+        _context(tmp_path),
+        current_vault=vault,
+        diagnostics=LauncherDiagnosticReporter(vault),
+    )
+
+    def _fail(_context, _request):
+        raise RuntimeError("private failure detail")
+
+    owners = LauncherOwners(
+        tuple(
+            replace(owner, executor=_fail)
+            if owner.command_id == "brain.version"
+            else owner
+            for owner in LAUNCHER_OWNERS.entries
+        )
+    )
+    result = LauncherInvocation(context, LAUNCHER_CATALOGUE, owners).invoke(
+        BrainVersionRequest()
+    )
+
+    assert result.error.details.correlation_id == "corr-local-cli"
+    records = [
+        json.loads(line)
+        for line in (
+            _operational_log.diagnostics_directory(vault) / "command.log"
+        ).read_text(encoding="utf-8").splitlines()
+    ]
+    assert records[-1]["event"] == "command.failed"
+    assert records[-1]["phase"] == "execute"
+    assert records[-1]["command_id"] == "brain.version"
+    assert records[-1]["correlation_id"] == result.error.details.correlation_id
+    assert "private failure detail" not in json.dumps(records[-1])
 
 
 def test_launcher_projection_matches_application_structural_wire_vocabulary():
@@ -290,6 +411,71 @@ def test_local_cli_rejects_symlinked_selected_brain(tmp_path):
 
     with pytest.raises(ValueError, match="not an installed local Brain"):
         resolve_selected_brain(vault=str(link), brain_id=None, workspace=None)
+
+
+def test_real_local_cli_project_exposure_uses_default_and_preserves_project(
+    tmp_path,
+    monkeypatch,
+):
+    import vault_registry
+
+    home = tmp_path / "home"
+    project = tmp_path / "project"
+    project.mkdir()
+    vault = tmp_path / "Brain"
+    skill = vault / ".brain-core/skills/example"
+    skill.mkdir(parents=True)
+    (vault / ".brain-core/VERSION").write_text("0.62.0\n", encoding="utf-8")
+    (skill / "SKILL.md").write_text(
+        "---\nname: example\ndescription: Example\n---\n\nExample.\n",
+        encoding="utf-8",
+    )
+    binary = tmp_path / "brain-cli"
+    binary.write_text("#!/bin/sh\n", encoding="utf-8")
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "state"))
+    monkeypatch.setenv("BRAIN_CLI_BINARY", str(binary))
+    monkeypatch.setenv("BRAIN_CLI_DISTRIBUTION_ROOT", str(REPO_ROOT))
+    monkeypatch.delenv("BRAIN_WORKSPACE_DIR", raising=False)
+    monkeypatch.delenv("BRAIN_VAULT_ROOT", raising=False)
+    vault_registry.register(str(vault), "default-brain")
+    vault_registry.set_default("default-brain")
+
+    selected = resolve_project_exposure_brain(
+        vault=None,
+        brain_id=None,
+        workspace=str(project),
+    )
+    code = run(
+        [
+            "--workspace",
+            str(project),
+            "--request-json",
+            json.dumps({"name": "example", "client": "codex", "scope": "project"}),
+            "--json",
+            "skill",
+            "expose",
+        ]
+    )
+
+    assert selected.vault_root == vault.resolve()
+    assert selected.workspace == project.resolve()
+    assert code == 0
+    assert (project / ".codex/skills/example/SKILL.md").is_file()
+    assert not (project / ".brain/local/workspace.yaml").exists()
+
+    monkeypatch.chdir(project)
+    removed = run(
+        [
+            "--request-json",
+            json.dumps({"name": "example", "client": "codex", "scope": "project"}),
+            "--json",
+            "skill",
+            "unexpose",
+        ]
+    )
+    assert removed == 0
+    assert not (project / ".codex/skills/example").exists()
 
 
 def test_local_cli_rejects_symlinked_distribution_identity(tmp_path, monkeypatch):

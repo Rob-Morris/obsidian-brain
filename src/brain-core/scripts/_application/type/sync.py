@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from .._decoding import reject_unexpected
+
 from dataclasses import dataclass
 from typing import ClassVar, Mapping
 
@@ -38,9 +40,7 @@ def execute(context: InvocationContext, request: TypeSyncRequest):
 
 
 def decode(payload: Mapping[str, object]) -> TypeSyncRequest:
-    unexpected = sorted(set(payload) - {"type_key", "force"})
-    if unexpected:
-        raise ValueError(f"unexpected fields: {', '.join(unexpected)}")
+    reject_unexpected(payload, {"type_key", "force"})
     type_key = payload.get("type_key")
     force = payload.get("force", False)
     if not isinstance(type_key, str):
@@ -52,9 +52,3 @@ def decode(payload: Mapping[str, object]) -> TypeSyncRequest:
 
 def catalogue_entry():
     return sync_catalogue_entry(TypeSyncRequest, execute)
-
-
-def resolver_entry():
-    from ..resolver import ResolverEntry
-
-    return ResolverEntry(TypeSyncRequest, decode)

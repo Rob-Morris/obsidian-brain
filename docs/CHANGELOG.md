@@ -8,6 +8,25 @@ Never edit past changelog entries. Only add new entries at the top.
 
 | Version | Date | Summary |
 |---|---|---|
+| [v0.62.9](changelog/v0.62.9.md) | 2026-08-29 | Use the authorised document mutation names |
+| [v0.62.8](changelog/v0.62.8.md) | 2026-08-29 | Correct and prove the complete v0.53.5 upgrade path |
+| [v0.62.7](changelog/v0.62.7.md) | 2026-08-29 | Let no-release vaults pass migrate_to_0_34_0 |
+| [v0.62.6](changelog/v0.62.6.md) | 2026-08-29 | Reconcile MCP registrations during brain.upgrade |
+| [v0.62.5](changelog/v0.62.5.md) | 2026-08-28 | Make brain.upgrade readiness-aware and surface runtime cleanup |
+| [v0.62.4](changelog/v0.62.4.md) | 2026-08-28 | Backfill terminal-status keys with migrate_to_0_62_4 |
+| [v0.62.3](changelog/v0.62.3.md) | 2026-08-28 | Add isolated Brain Lab fixture clients |
+| [v0.62.2](changelog/v0.62.2.md) | 2026-08-28 | Compose portable shaping with Brain capabilities |
+| [v0.62.1](changelog/v0.62.1.md) | 2026-08-28 | Add disposable Linux Brain labs |
+| [v0.62.0](changelog/v0.62.0.md) | 2026-08-25 | Add Git-backed skill sources and managed client exposure |
+| [v0.61.2](changelog/v0.61.2.md) | 2026-08-25 | Reject unsafe MCP proxy requests before dispatch |
+| [v0.61.1](changelog/v0.61.1.md) | 2026-08-24 | Reduce mutation I/O and receipt-store contention |
+| [v0.61.0](changelog/v0.61.0.md) | 2026-08-16 | BREAKING — Add always-on content-free operational diagnostics |
+| [v0.60.0](changelog/v0.60.0.md) | 2026-08-16 | BREAKING — Replace machine-shaped launcher commands with domain language |
+| [v0.59.2](changelog/v0.59.2.md) | 2026-08-15 | Make mutation admission and staged contracts content-exact |
+| [v0.59.1](changelog/v0.59.1.md) | 2026-08-15 | Restore and enforce the naive-agent bootstrap contract |
+| [v0.59.0](changelog/v0.59.0.md) | 2026-08-13 | BREAKING — Split document mutations and require exact revisions |
+| [v0.58.0](changelog/v0.58.0.md) | 2026-08-13 | Make `shaping.start` adaptive, auditable and status-aware |
+| [v0.57.2](changelog/v0.57.2.md) | 2026-08-12 | Enforce fail-closed authority and simplify `_application` ownership |
 | [v0.57.1](changelog/v0.57.1.md) | 2026-08-12 | Accept SDK 2 mapping metadata for proxy-owned MCP invocation IDs |
 | [v0.57.0](changelog/v0.57.0.md) | 2026-08-12 | Add ceiling-visible MCP discovery and Reader-default exact access leases |
 | [v0.56.0](changelog/v0.56.0.md) | 2026-08-12 | Consolidate target-only commands and restore runtime warm-up contracts |
@@ -80,6 +99,7 @@ Never edit past changelog entries. Only add new entries at the top.
 | [v0.54.2](changelog/v0.54.2.md) | 2026-08-09 | Establish receipt, version, capability, and launcher contracts |
 | [v0.54.1](changelog/v0.54.1.md) | 2026-08-09 | Establish typed `_application` command invocation contracts |
 | [v0.54.0](changelog/v0.54.0.md) | 2026-08-09 | BREAKING — Require explicit reparenting and recover degraded MCP schemas |
+| [v0.53.5](changelog/v0.53.5.md) | 2026-08-22 | Replace legacy review skills with `superpowers-brain` workflows |
 | [v0.53.4](changelog/v0.53.4.md) | 2026-07-31 | Add `brain_upload_attachment` for vault-safe asset uploads |
 | [v0.53.3](changelog/v0.53.3.md) | 2026-07-28 | Surface local workspace binding guidance through `brain_session` |
 | [v0.53.2](changelog/v0.53.2.md) | 2026-07-23 | Keep replaced skill backups outside client discovery roots |

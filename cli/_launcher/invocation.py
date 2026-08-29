@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from launcher_catalogue import LauncherCatalogue
 
-from .context import LauncherContext
+from .context import LauncherContext, report_failure_safely
 from .contracts import (
     AuthorityDeniedDetails,
     CapabilityUnavailableDetails,
@@ -55,28 +55,37 @@ class LauncherInvocation:
             return self._internal_error(owner.command_id, owner.command_version)
         try:
             preflight = self._preflight(entry)
-        except Exception:
+        except Exception as exc:
+            self._report(entry.command_id, "preflight", exc)
             preflight = self._internal_error(owner.command_id, owner.command_version)
         if preflight is not None:
             try:
                 self._record(entry, preflight)
-            except Exception:
+            except Exception as exc:
+                self._report(entry.command_id, "receipt.preflight", exc)
                 return self._internal_error(owner.command_id, owner.command_version)
             return preflight
         try:
             result = owner.executor(self._context, request)
             self._validate_result(entry, owner, result)
-        except Exception:
+        except Exception as exc:
+            self._report(entry.command_id, "execute", exc)
             result = self._execution_failure(entry)
         try:
             self._record(entry, result)
-        except Exception:
+        except Exception as exc:
+            self._report(entry.command_id, "receipt.finalise", exc)
             return (
                 self._internal_error(entry.command_id, entry.command_version)
                 if entry.effect_class == "none"
                 else self._unknown_result(entry)
             )
         return result
+
+    def _report(self, command_id: str, phase: str, error: BaseException) -> None:
+        report_failure_safely(
+            self._context, phase=phase, command_id=command_id, error=error
+        )
 
     def _preflight(self, entry):
         context = self._context

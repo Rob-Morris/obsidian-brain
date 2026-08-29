@@ -1,0 +1,124 @@
+{
+  "steps": [
+    {
+      "operation": "base.build",
+      "request": {
+        "image": "ubuntu:24.04",
+        "platform": "linux/arm64"
+      }
+    },
+    {
+      "operation": "source.capture",
+      "request": {
+        "kind": "worktree",
+        "path": ".",
+        "platform": "linux/arm64"
+      }
+    },
+    {
+      "operation": "seed.template",
+      "request": {
+        "source_id": "${steps.1.resource.id}"
+      }
+    },
+    {
+      "operation": "baseline.prepare",
+      "request": {
+        "base_id": "${steps.0.resource.id}",
+        "source_id": "${steps.1.resource.id}",
+        "seed_id": "${steps.2.resource.id}",
+        "mode": "template",
+        "timeout_seconds": 1800
+      }
+    },
+    {
+      "operation": "run.start",
+      "request": {
+        "baseline_id": "${steps.3.resource.id}"
+      }
+    },
+    {
+      "operation": "run.copy-in",
+      "request": {
+        "id": "${steps.4.resource.id}",
+        "source_id": "${steps.1.resource.id}",
+        "destination": "/home/brain/copied-source"
+      }
+    },
+    {
+      "operation": "run.exec",
+      "request": {
+        "id": "${steps.4.resource.id}",
+        "argv": ["test", "-f", "/home/brain/copied-source/install.sh"],
+        "timeout_seconds": 300
+      }
+    },
+    {
+      "operation": "run.exec",
+      "request": {
+        "id": "${steps.4.resource.id}",
+        "argv": ["brain", "session", "start", "--request-json", "{}", "--json"],
+        "working_directory": "/home/brain/vault",
+        "environment": {
+          "BRAIN_VAULT_ROOT": "/home/brain/vault"
+        },
+        "timeout_seconds": 300
+      }
+    },
+    {
+      "operation": "run.exec",
+      "request": {
+        "id": "${steps.4.resource.id}",
+        "argv": ["/usr/bin/python3.12", "/usr/local/lib/brain-lab/tree_manifest.py", "--root", "/home/brain", "--scope", "run"],
+        "timeout_seconds": 300
+      }
+    },
+    {
+      "operation": "run.exec",
+      "request": {
+        "id": "${steps.4.resource.id}",
+        "argv": ["bash", "-c", "printf mutation > /home/brain/vault/brain-lab-mutation"],
+        "timeout_seconds": 300
+      }
+    },
+    {
+      "operation": "run.exec",
+      "request": {
+        "id": "${steps.4.resource.id}",
+        "argv": ["/usr/bin/python3.12", "/usr/local/lib/brain-lab/tree_manifest.py", "--root", "/home/brain", "--scope", "run"],
+        "timeout_seconds": 300
+      }
+    },
+    {
+      "operation": "run.recreate",
+      "request": {
+        "id": "${steps.4.resource.id}"
+      }
+    },
+    {
+      "operation": "run.exec",
+      "request": {
+        "id": "${steps.4.resource.id}",
+        "argv": ["test", "!", "-e", "/home/brain/vault/brain-lab-mutation"],
+        "timeout_seconds": 300
+      }
+    },
+    {
+      "operation": "run.discard",
+      "request": {
+        "id": "${steps.4.resource.id}"
+      }
+    }
+  ],
+  "assertions": [
+    {
+      "left": "${steps.8.payload.execution.stdout.sha256}",
+      "operator": "not_equal",
+      "right": "${steps.10.payload.execution.stdout.sha256}"
+    }
+  ],
+  "host_state": {
+    "worktrees": ["."],
+    "vaults": []
+  }
+}

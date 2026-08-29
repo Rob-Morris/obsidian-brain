@@ -2,6 +2,7 @@
 
 **Status:** Implemented (v0.53.0)
 **Extends:** DD-024, DD-045, DD-056
+**Extended by:** DD-063
 
 **Cutover note (v0.55.0):** DD-061 retires the temporary
 `start_shaping.py` compatibility launcher. The session primitive remains, and

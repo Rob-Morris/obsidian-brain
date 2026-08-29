@@ -5,6 +5,7 @@ import os
 import re
 from datetime import datetime, timezone
 
+from ._document_revision import decode_persisted_document
 from ._frontmatter import parse_frontmatter
 from ._slugs import is_valid_key, title_to_filename, title_to_slug, validate_key
 from ._vault import match_artefact
@@ -93,7 +94,7 @@ class MissingFileResult(str):
 
 
 def read_file_content(vault_root, rel_path):
-    """Read a vault file's content given a relative path from vault root."""
+    """Read a vault file, inferring Markdown when the supplied path has no suffix."""
     original = rel_path
     if not rel_path.endswith(".md"):
         rel_path += ".md"
@@ -103,8 +104,13 @@ def read_file_content(vault_root, rel_path):
         rel_path = original
     if not os.path.isfile(abs_path):
         return MissingFileResult(rel_path)
-    with open(abs_path, "r", encoding="utf-8") as f:
-        return f.read()
+    return read_exact_file_content(abs_path)
+
+
+def read_exact_file_content(path):
+    """Read exact persisted bytes and return decoded text with their revision."""
+    with open(path, "rb") as handle:
+        return decode_persisted_document(handle.read())
 
 
 def artefact_type_prefix(artefact_or_type):

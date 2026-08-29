@@ -6,3 +6,4 @@ What Obsidian Brain does. This layer is reference-oriented: tool contracts, scri
 - [CLI](cli.md) — optional machine-level `brain` CLI contract
 - [Scripts](scripts.md) — script reference: entry points, arguments, and behaviour
 - [Config](config.md) — configuration profiles, merge rules, and environment
+- [Diagnostics](diagnostics.md) — the operational log: families, record schema, and `BRAIN_LOG_BODIES`

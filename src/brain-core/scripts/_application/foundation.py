@@ -2,12 +2,19 @@
 
 from __future__ import annotations
 
+from ._decoding import reject_unexpected
+
 import json
 from typing import Mapping
 
-from .catalogue import ApplicationCatalogue, ApplicationEntry, type_identity
+from .catalogue import (
+    ALL_APPLICATION_PROJECTIONS,
+    ApplicationCatalogue,
+    ApplicationEntry,
+    type_identity,
+)
 from .context import InvocationContext
-from .receipts import OutcomeReference, ReceiptLookupState
+from .receipts import ReceiptLookupState
 from .requests import (
     CatalogueCursor,
     CommandDescribeRequest,
@@ -40,20 +47,7 @@ from .types import (
     EffectClass,
     Locality,
     Projection,
-    ProjectionEligibility,
     RetryClass,
-    SnapshotFreshness,
-)
-
-
-_ALL_APPLICATION_PROJECTIONS = tuple(
-    ProjectionEligibility(projection, True)
-    for projection in (
-        Projection.MCP,
-        Projection.CLI,
-        Projection.SCRIPT,
-        Projection.PYTHON,
-    )
 )
 
 
@@ -366,8 +360,7 @@ def _availability(entry: ApplicationEntry, context: InvocationContext, snapshot)
 def _ceiling_allows(context: InvocationContext, command_id: str) -> bool:
     """Hide catalogue entries excluded by an authenticated profile ceiling."""
 
-    evaluator = getattr(context.authority, "ceiling_allows", None)
-    return True if not callable(evaluator) else bool(evaluator(command_id))
+    return context.authority.ceiling_allows(command_id)
 
 
 def _entry(
@@ -386,7 +379,7 @@ def _entry(
         authority=authority,
         effect_class=EffectClass.NONE,
         retry_class=RetryClass.SAFE,
-        projections=_ALL_APPLICATION_PROJECTIONS,
+        projections=ALL_APPLICATION_PROJECTIONS,
     )
 
 
@@ -414,9 +407,7 @@ def build_application_catalogue(
 
 
 def _only(payload: Mapping[str, object], allowed: set[str]) -> None:
-    unexpected = sorted(set(payload) - allowed)
-    if unexpected:
-        raise ValueError(f"unexpected fields: {', '.join(unexpected)}")
+    reject_unexpected(payload, allowed)
 
 
 def _optional_string(payload: Mapping[str, object], name: str) -> str | None:

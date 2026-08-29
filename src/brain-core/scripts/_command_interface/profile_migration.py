@@ -71,6 +71,19 @@ _LEGACY_BUILTIN_ALLOW = {
     ),
 }
 
+_DOCUMENT_MUTATION_COMMANDS = (
+    "document.replace-text",
+    "document.structured-edit",
+    "document.update-frontmatter",
+    "document.write-body",
+)
+
+_PREVIOUS_DOCUMENT_COMMANDS = {
+    "document.edit": "document.structured-edit",
+    "document.patch": "document.replace-text",
+    "document.write": "document.write-body",
+}
+
 _LEGACY_COMMANDS = {
     "brain_action": (
         "artefact.delete",
@@ -95,9 +108,7 @@ _LEGACY_COMMANDS = {
         "type.replace",
     ),
     "brain_discard_stage": ("stage.discard",),
-    "brain_edit": (
-        "document.edit",
-    ),
+    "brain_edit": _DOCUMENT_MUTATION_COMMANDS,
     "brain_ingest": ("content.ingest",),
     # The retired readiness aggregate's published replacements form one
     # discovery/bootstrap closure; this is migration data, not a runtime alias.
@@ -142,12 +153,30 @@ _LEGACY_COMMANDS = {
     "brain_upload_attachment": ("attachment.upload",),
 }
 
+# These names were previously broader than their spelling now implies. This is
+# one-time authority projection: granting every replacement preserves the old
+# capability without retaining a runtime alias or guessing at invocation data.
+_PROFILE_EXPANSIONS = {
+    "document.edit": _DOCUMENT_MUTATION_COMMANDS,
+    **{
+        f"{resource}.edit": _DOCUMENT_MUTATION_COMMANDS
+        for resource in ("artefact", "memory", "skill", "style", "template")
+    },
+}
+
 
 _REMOVED_GRANULAR_COMMANDS = {
+    **_PREVIOUS_DOCUMENT_COMMANDS,
     **{
-        f"{resource}.{operation}": "document.edit"
+        f"{resource}.{operation}": (
+            "document.write-body"
+            if operation in ("append", "prepend")
+            else "document.replace-text"
+            if operation == "replace-text"
+            else "document.structured-edit"
+        )
         for resource in ("artefact", "memory", "skill", "style", "template")
-        for operation in ("append", "delete-section", "edit", "prepend", "replace-text")
+        for operation in ("append", "delete-section", "prepend", "replace-text")
     },
     "artefact.list-archived": "artefact.list",
     "artefact.read-archived": "artefact.read",
@@ -230,23 +259,38 @@ def migrate_profile_allow_lists(
     }
     _validate_migration_map(granular_entries)
     builtins = builtin_profile_allow_lists(catalogue)
-    exact_builtin_set = _is_exact_legacy_builtin_set(profiles)
-    exact_previous_granular_set = _is_exact_previous_granular_builtin_set(
+    legacy_builtins_present = _contains_exact_legacy_builtins(profiles)
+    previous_granular_builtins_present = _contains_exact_previous_granular_builtins(
         profiles,
         granular_entries,
         builtins,
     )
-    source_profiles = (
-        {
-            profile: profiles.get(
-                profile,
-                {"label": f"{profile} profile", "allow": []},
-            )
-            for profile in builtins
+    source_profiles = dict(profiles)
+    builtin_profiles_to_project = set()
+    if legacy_builtins_present:
+        builtin_profiles_to_project.update(_LEGACY_BUILTIN_ALLOW)
+        for profile in builtins:
+            if profile not in source_profiles:
+                source_profiles[profile] = {
+                    "label": f"{profile} profile",
+                    "allow": [],
+                }
+                builtin_profiles_to_project.add(profile)
+    elif previous_granular_builtins_present:
+        builtin_profiles_to_project.update(builtins)
+    if legacy_builtins_present or previous_granular_builtins_present:
+        source_profiles = {
+            **{
+                profile: source_profiles[profile]
+                for profile in builtins
+                if profile in source_profiles
+            },
+            **{
+                profile: definition
+                for profile, definition in source_profiles.items()
+                if profile not in builtins
+            },
         }
-        if exact_builtin_set
-        else dict(profiles)
-    )
     migrated = {}
     changes = []
     for profile, raw_definition in source_profiles.items():
@@ -263,7 +307,7 @@ def migrate_profile_allow_lists(
                 f"profile '{profile}' allow-list must contain only non-empty strings"
             )
         before = tuple(before_raw)
-        if (exact_builtin_set or exact_previous_granular_set) and profile in builtins:
+        if profile in builtin_profiles_to_project:
             after = builtins[profile]
             strategy = "builtin"
         elif profile in _LEGACY_BUILTIN_ALLOW and set(before) == set(
@@ -274,6 +318,10 @@ def migrate_profile_allow_lists(
         else:
             command_ids = set()
             for tool in before:
+                expansion = _PROFILE_EXPANSIONS.get(tool)
+                if expansion is not None:
+                    command_ids.update(expansion)
+                    continue
                 if tool in granular_entries:
                     command_ids.add(granular_entries[tool].command_id)
                     continue
@@ -304,8 +352,58 @@ def migrate_profile_allow_lists(
     return ProfileMigrationResult(migrated, tuple(changes))
 
 
-def _is_exact_legacy_builtin_set(profiles: Mapping[str, object]) -> bool:
-    if set(profiles) != set(_LEGACY_BUILTIN_ALLOW):
+def migrate_current_document_command_names(
+    profiles: Mapping[str, object],
+    catalogue: ApplicationCatalogue,
+) -> ProfileMigrationResult:
+    """Rename the v0.62.8 document grants without widening their authority.
+
+    ``document.edit`` had broad semantics in an earlier granular catalogue, so
+    the historical migration deliberately expands it. By v0.62.8 the same
+    spelling meant only structural editing. This version-specific migration
+    therefore owns the unambiguous one-to-one cutover instead of adding a
+    runtime alias or guessing inside the historical projection.
+    """
+
+    current_tools = {
+        project_identity(entry.command_id).mcp_tool for entry in catalogue.entries
+    }
+    migrated = {}
+    changes = []
+    for profile, raw_definition in profiles.items():
+        if not isinstance(profile, str) or not profile.strip():
+            raise ProfileMigrationError("profile names must be non-empty strings")
+        if not isinstance(raw_definition, Mapping):
+            raise ProfileMigrationError(f"profile '{profile}' must be a mapping")
+        definition = dict(raw_definition)
+        before_raw = definition.get("allow", [])
+        if not isinstance(before_raw, list) or any(
+            not isinstance(item, str) or not item.strip() for item in before_raw
+        ):
+            raise ProfileMigrationError(
+                f"profile '{profile}' allow-list must contain only non-empty strings"
+            )
+
+        before = tuple(before_raw)
+        after_list = []
+        for tool in before:
+            replacement = _PREVIOUS_DOCUMENT_COMMANDS.get(tool, tool)
+            if replacement not in current_tools:
+                raise ProfileMigrationError(
+                    f"profile '{profile}' contains unknown tool '{tool}'"
+                )
+            if replacement not in after_list:
+                after_list.append(replacement)
+        after = tuple(after_list)
+        definition["allow"] = list(after)
+        migrated[profile] = definition
+        if before != after:
+            changes.append(ProfileMigrationChange(profile, "rename", before, after))
+    return ProfileMigrationResult(migrated, tuple(changes))
+
+
+def _contains_exact_legacy_builtins(profiles: Mapping[str, object]) -> bool:
+    if not set(_LEGACY_BUILTIN_ALLOW) <= set(profiles):
         return False
     for profile, expected in _LEGACY_BUILTIN_ALLOW.items():
         definition = profiles.get(profile)
@@ -317,7 +415,7 @@ def _is_exact_legacy_builtin_set(profiles: Mapping[str, object]) -> bool:
     return True
 
 
-def _is_exact_previous_granular_builtin_set(
+def _contains_exact_previous_granular_builtins(
     profiles: Mapping[str, object],
     granular_entries: Mapping[str, object],
     builtins: Mapping[str, tuple[str, ...]],
@@ -329,7 +427,7 @@ def _is_exact_previous_granular_builtin_set(
     their projected meaning avoids embedding five large duplicate allow-lists.
     """
 
-    if set(profiles) != set(builtins):
+    if not set(builtins) <= set(profiles):
         return False
     new_access_tools = {
         "access.reduce",
@@ -340,9 +438,18 @@ def _is_exact_previous_granular_builtin_set(
         "runtime.status",
         "runtime.warmup",
     }
+    new_document_tools = {
+        "document.replace-text",
+        "document.update-frontmatter",
+        "document.write-body",
+    }
     for additions in (
+        set(),
+        new_document_tools,
         new_access_tools,
         new_access_tools | new_runtime_tools,
+        new_access_tools | new_document_tools,
+        new_access_tools | new_runtime_tools | new_document_tools,
     ):
         matches = True
         for profile, expected in builtins.items():
@@ -374,6 +481,10 @@ def _project_tool_set(
 
     projected = set()
     for tool in tools:
+        expansion = _PROFILE_EXPANSIONS.get(tool)
+        if expansion is not None:
+            projected.update(expansion)
+            continue
         if tool in granular_entries:
             projected.add(tool)
             continue

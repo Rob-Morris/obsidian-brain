@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from .._decoding import reject_unexpected
+
 from dataclasses import dataclass
 from typing import ClassVar, Mapping
 
@@ -82,9 +84,7 @@ def execute(context: InvocationContext, request: RetrievalEvaluateRequest):
 
 
 def decode(payload: Mapping[str, object]) -> RetrievalEvaluateRequest:
-    unexpected = sorted(set(payload) - {"benchmark_path", "modes"})
-    if unexpected:
-        raise ValueError(f"unexpected fields: {', '.join(unexpected)}")
+    reject_unexpected(payload, {"benchmark_path", "modes"})
     benchmark_path = payload.get("benchmark_path")
     if not isinstance(benchmark_path, str):
         raise ValueError("benchmark_path must be a string")
@@ -98,9 +98,3 @@ def decode(payload: Mapping[str, object]) -> RetrievalEvaluateRequest:
 
 def catalogue_entry():
     return benchmark_entry(RetrievalEvaluateRequest, execute, mutation=False)
-
-
-def resolver_entry():
-    from ..resolver import ResolverEntry
-
-    return ResolverEntry(RetrievalEvaluateRequest, decode)

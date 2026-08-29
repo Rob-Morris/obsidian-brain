@@ -69,6 +69,12 @@ def test_stage_authority_is_checked_before_filesystem_effects(command_vault_clon
         def allows(self, **_kwargs):
             return False
 
+        def ceiling_allows(self, _command_id):
+            return False
+
+        def consume(self, _command_id):
+            return False
+
     application = application_for(
         command_vault_clone.vault_root,
         authority=Denied(),

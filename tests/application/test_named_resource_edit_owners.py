@@ -1,213 +1,201 @@
-"""Cross-resource behaviour for the cohesive document editor."""
+"""Cross-resource behaviour for cohesive document mutation commands."""
 
 from __future__ import annotations
 
-import edit
+import os
+
+import compile_router
 import pytest
 
-from _application._document_edit import EditScope
-from _application._mutation_support import FrontmatterField, InlineContent, StagedContent
-from _application.document.edit import (
-    AppendChange,
-    DeleteSectionChange,
-    DocumentEditRequest,
-    DocumentResource,
-    DocumentTarget,
-    PrependChange,
-    ReplaceChange,
-    ReplaceTextChange,
+from _application._mutation_support import FrontmatterField, InlineContent
+from _application.document._types import DocumentLocator, DocumentResource
+from _application.document.structured_edit import (
+    DocumentStructuredEditRequest,
+    HeadingPart,
+    HeadingSelection,
+    ReplaceStructure,
 )
-from _application.registry import current_request_resolver
+from _application.document.replace_text import DocumentReplaceTextRequest, UniqueMatch
+from _application.document.update_frontmatter import DocumentUpdateFrontmatterRequest
+from _application.document.write_body import DocumentWriteBodyOperation, DocumentWriteBodyRequest
+from _application.resource.read import ReadableResource, ResourceReadRequest
 from _application.results import ErrorCode
-from _common import parse_frontmatter
-from _staging import read_staged_body, stage_body
+from _common import document_revision_at, load_compiled_router, parse_frontmatter
 from command_application import application_for
 
 
 RESOURCE_CASES = {
-    DocumentResource.MEMORY: (
-        "brain-core-reference",
-        "# Brain Core Reference",
-        "Brain-core is",
-    ),
-    DocumentResource.SKILL: (
-        "vault-maintenance",
-        "# Vault Maintenance",
-        "Read the vault's router",
-    ),
-    DocumentResource.STYLE: (
-        "writing",
-        "# Writing Style",
-        "Use Australian English",
-    ),
-    DocumentResource.TEMPLATE: (
-        "designs",
-        "## Open Decisions",
-        "What needs to be decided",
-    ),
+    DocumentResource.MEMORY: ("brain-core-reference", "# Brain Core Reference", "Brain-core is"),
+    DocumentResource.SKILL: ("vault-maintenance", "# Vault Maintenance", "Read the vault's router"),
+    DocumentResource.STYLE: ("writing", "# Writing Style", "Use Australian English"),
+    DocumentResource.TEMPLATE: ("designs", "## Open Decisions", "What needs to be decided"),
 }
 
 
-def _change(operation, heading, old_text):
-    if operation == "replace":
-        return ReplaceChange(
-            "replace",
-            InlineContent("# Replaced Document\n\nEdited through ownership.\n"),
-            target=":body",
-            scope=EditScope.SECTION,
-        ), "Edited through ownership."
-    if operation == "append":
-        return AppendChange(
-            "append",
-            InlineContent("\nAppended through ownership.\n"),
-            target=":body",
-            scope=EditScope.SECTION,
-        ), "Appended through ownership."
-    if operation == "prepend":
-        return PrependChange(
-            "prepend",
-            InlineContent("Prepended through ownership.\n\n"),
-            target=":body",
-            scope=EditScope.SECTION,
-        ), "Prepended through ownership."
-    if operation == "delete-section":
-        return DeleteSectionChange("delete-section", heading), None
-    return ReplaceTextChange(
-        "replace-text",
-        old_text,
-        "Replaced through ownership",
-    ), "Replaced through ownership"
+def _read(application, resource, reference):
+    result = application.invoke(ResourceReadRequest(ReadableResource(resource.value), reference))
+    assert result.status == "ok", result.error.message
+    return result.result
 
 
 @pytest.mark.parametrize("resource", tuple(RESOURCE_CASES))
-@pytest.mark.parametrize(
-    "operation",
-    ("replace", "append", "prepend", "delete-section", "replace-text"),
-)
-def test_document_edit_preserves_all_named_target_and_change_combinations(
+@pytest.mark.parametrize("operation", ("write", "patch", "edit"))
+def test_all_named_documents_support_write_patch_and_structural_edit(
     command_vault_clone,
     resource,
     operation,
 ):
     name, heading, old_text = RESOURCE_CASES[resource]
-    change, expected_text = _change(operation, heading, old_text)
-    result = application_for(command_vault_clone.vault_root).invoke(
-        DocumentEditRequest(DocumentTarget(resource, name), change)
-    )
+    application = application_for(command_vault_clone.vault_root)
+    document = DocumentLocator(resource, name)
 
-    assert result.status == "ok"
-    assert result.committed_effects[0].kind == "document.edit"
-    assert result.result.operation == operation
-    written = (command_vault_clone.vault_root / result.result.path).read_text()
-    if expected_text is None:
-        assert heading not in written
+    initial = _read(application, resource, name)
+    if operation == "patch":
+        result = application.invoke(
+            DocumentReplaceTextRequest(
+                document,
+                initial.revision,
+                old_text,
+                "Patched safely",
+                UniqueMatch(),
+            )
+        )
+    elif operation == "edit":
+        heading_level = len(heading) - len(heading.lstrip("#"))
+        heading_text = heading.lstrip("# ")
+        result = application.invoke(
+            DocumentStructuredEditRequest(
+                document,
+                initial.revision,
+                ReplaceStructure(
+                    HeadingSelection(heading_text, HeadingPart.BODY, level=heading_level),
+                    InlineContent("Edited structurally.\n"),
+                ),
+            )
+        )
     else:
-        assert expected_text in written
+        result = application.invoke(
+            DocumentWriteBodyRequest(
+                document,
+                initial.revision,
+                DocumentWriteBodyOperation.APPEND,
+                InlineContent("\nWritten at body end.\n"),
+            )
+        )
+    assert result.status == "ok"
+    assert result.result.revision != initial.revision
 
 
-def test_named_append_preserves_resource_frontmatter_merge_mode(command_vault_clone):
-    result = application_for(command_vault_clone.vault_root).invoke(
-        DocumentEditRequest(
-            DocumentTarget(DocumentResource.MEMORY, "brain-core-reference"),
-            AppendChange(
-                "append",
-                frontmatter=(FrontmatterField("triggers", ("typed-edit",)),),
-            ),
+def test_named_frontmatter_update_overwrites_lists_instead_of_inheriting_body_mode(
+    command_vault_clone,
+):
+    application = application_for(command_vault_clone.vault_root)
+    document = DocumentLocator(DocumentResource.MEMORY, "brain-core-reference")
+    initial = _read(application, DocumentResource.MEMORY, "brain-core-reference")
+
+    result = application.invoke(
+        DocumentUpdateFrontmatterRequest(
+            document,
+            initial.revision,
+            (FrontmatterField("triggers", ("typed-update",)),),
         )
     )
 
+    assert result.status == "ok"
     fields, _body = parse_frontmatter(
         (command_vault_clone.vault_root / result.result.path).read_text()
     )
-    assert "brain core" in fields["triggers"]
-    assert "typed-edit" in fields["triggers"]
-
-
-def test_named_edit_consumes_stage_only_after_commit(command_vault_clone):
-    vault_root = str(command_vault_clone.vault_root)
-    handle = stage_body(vault_root, "# Staged Style\n")["handle"]
-    result = application_for(command_vault_clone.vault_root).invoke(
-        DocumentEditRequest(
-            DocumentTarget(DocumentResource.STYLE, "writing"),
-            ReplaceChange(
-                "replace",
-                StagedContent(handle),
-                target=":body",
-                scope=EditScope.SECTION,
-            ),
-        )
+    assert fields["triggers"] == ["typed-update"]
+    assert result.result.revision == document_revision_at(
+        command_vault_clone.vault_root / result.result.path
     )
 
-    assert result.status == "ok"
-    assert result.result.staged_handle_consumed is True
-    with pytest.raises(ValueError, match="already-consumed"):
-        read_staged_body(vault_root, handle)
 
-
-def test_named_edit_not_found_is_a_no_effect_result(command_vault_clone):
-    result = application_for(command_vault_clone.vault_root).invoke(
-        DocumentEditRequest(
-            DocumentTarget(DocumentResource.STYLE, "missing-style"),
-            ReplaceTextChange("replace-text", "old", "new"),
-        )
-    )
-
-    assert result.error.code is ErrorCode.NOT_FOUND
-    assert result.effects == "none"
-
-
-def test_named_edit_post_commit_failure_is_honestly_unknown(
+def test_editing_core_only_skill_materialises_user_copy_without_mutating_core(
     command_vault_clone,
-    monkeypatch,
 ):
-    real_edit = edit.edit_resource
+    vault = command_vault_clone.vault_root
+    application = application_for(vault)
+    initial = _read(application, DocumentResource.SKILL, "shaping")
+    core_path = vault / ".brain-core" / "skills" / "shaping" / "SKILL.md"
+    core_before = core_path.read_text(encoding="utf-8")
 
-    def commit_then_fail(*args, **kwargs):
-        real_edit(*args, **kwargs)
-        raise OSError("response failed after named edit commit")
-
-    monkeypatch.setattr(edit, "edit_resource", commit_then_fail)
-    result = application_for(command_vault_clone.vault_root).invoke(
-        DocumentEditRequest(
-            DocumentTarget(DocumentResource.MEMORY, "brain-core-reference"),
-            ReplaceTextChange(
-                "replace-text",
-                "Brain-core is",
-                "Brain Core remains",
-            ),
+    result = application.invoke(
+        DocumentWriteBodyRequest(
+            DocumentLocator(DocumentResource.SKILL, "shaping"),
+            initial.revision,
+            DocumentWriteBodyOperation.APPEND,
+            InlineContent("\nUser-owned addition.\n"),
         )
     )
 
-    assert result.error.code is ErrorCode.COMMAND_OUTCOME_UNKNOWN
-    assert result.effects == "unknown"
+    user_path = vault / "_Config" / "Skills" / "shaping" / "SKILL.md"
+    assert result.status == "ok", result.error.message
+    assert core_path.read_text(encoding="utf-8") == core_before
+    assert "User-owned addition." in user_path.read_text(encoding="utf-8")
+    assert result.result.path == "_Config/Skills/shaping/SKILL.md"
+    assert {effect.subject for effect in result.committed_effects} >= {
+        "_Config/Skills/shaping/SKILL.md",
+        ".brain/skill-sources.json",
+    }
 
 
-def test_named_document_transport_uses_one_explicit_target_contract():
-    resolver = current_request_resolver()
-    request = resolver.resolve(
-        "document.edit",
-        {
-            "target": {"resource": "skill", "reference": "vault-maintenance"},
-            "change": {
-                "operation": "append",
-                "content": {"source": "inline", "content": "Body.\n"},
-                "target": ":body",
-                "scope": "section",
-            },
-        },
-    )
-    assert request.target.resource is DocumentResource.SKILL
-    assert request.change.operation == "append"
+def test_stale_core_skill_edit_does_not_materialise_user_override(
+    command_vault_clone,
+):
+    vault = command_vault_clone.vault_root
+    application = application_for(vault)
+    document = DocumentLocator(DocumentResource.SKILL, "shaping")
 
-    with pytest.raises(ValueError, match="only for artefacts"):
-        resolver.resolve(
-            "document.edit",
-            {
-                "target": {"resource": "template", "reference": "designs"},
-                "change": {
-                    "operation": "append",
-                    "content": {"source": "inline", "content": "Body.\n"},
-                },
-                "fix_links": True,
-            },
+    result = application.invoke(
+        DocumentWriteBodyRequest(
+            document,
+            "sha256:" + "0" * 64,
+            DocumentWriteBodyOperation.APPEND,
+            InlineContent("\nShould not be written.\n"),
         )
+    )
+
+    assert result.error.code is ErrorCode.CONFLICT
+    assert not (vault / "_Config/Skills/shaping").exists()
+    tracking_path = vault / ".brain/skill-sources.json"
+    if tracking_path.exists():
+        assert "shaping" not in tracking_path.read_text(encoding="utf-8")
+
+
+def test_crlf_named_resource_revision_can_be_used_for_an_immediate_mutation(
+    command_vault_clone,
+):
+    vault_root = command_vault_clone.vault_root
+    router = load_compiled_router(vault_root)
+    metadata = next(
+        item for item in router["memories"]
+        if item["name"] == "brain-core-reference"
+    )
+    path = vault_root / metadata["memory_doc"]
+    source_stat = path.stat()
+    path.write_bytes(path.read_bytes().replace(b"\n", b"\r\n"))
+    os.utime(path, ns=(source_stat.st_atime_ns, source_stat.st_mtime_ns))
+    refreshed_router = compile_router.compile(str(vault_root))
+    compile_router.persist_compiled_router(str(vault_root), refreshed_router)
+    application = application_for(vault_root)
+
+    initial = _read(
+        application,
+        DocumentResource.MEMORY,
+        "brain-core-reference",
+    )
+
+    assert "\r" not in initial.content
+    assert initial.revision == document_revision_at(path)
+    result = application.invoke(
+        DocumentReplaceTextRequest(
+            DocumentLocator(DocumentResource.MEMORY, "brain-core-reference"),
+            initial.revision,
+            "Brain-core is",
+            "Brain Core is",
+            UniqueMatch(),
+        )
+    )
+    assert result.status == "ok", result.error.message
+    assert result.result.revision == document_revision_at(path)

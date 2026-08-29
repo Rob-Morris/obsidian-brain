@@ -1,6 +1,7 @@
 # DD-024: Core Skills in `.brain-core/skills/`
 
 **Status:** Implemented (v0.10.0)
+**Extended by:** DD-068
 
 ## Context
 

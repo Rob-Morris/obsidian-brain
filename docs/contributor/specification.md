@@ -81,7 +81,10 @@ Cross-type child folders use `{scope}/` (for example `Releases/project~brain/`),
 - `docs/user/plugins.md` — plugin installation and usage guide
 - `docs/user/user-reference.md` — full type specs, conventions, config reference
 - `docs/CHANGELOG.md` — live changelog index, with per-version files under `docs/changelog/` and milestone release files under `docs/changelog/releases/`
-- `.canaries/pre-commit.md` — pre-commit canary: versioning, changelog, routing table, cross-checks
+- `.githooks/pre-commit` + `src/scripts/check_repository_contracts.py` + `src/scripts/_repository_contracts/` — read-only staged deterministic contracts for version/changelog/platform-CLI coupling, decisions, artefact-library metadata/counts, and documentation reachability
+- `src/scripts/release.py` — dry-run-first release preparation, HEAD/index/worktree status, and immutable committed-source export
+- `src/scripts/vendor_shaping_skill.py` — materialises the pinned portable shaping workflow from a verified clean Git checkout while retaining Brain-owned composition files
+- `.canaries/pre-commit.md` — subjective pre-commit receipt: change-impact review, non-derivable shared facts, version-surface judgement, and commit-message drafting
 - `docs/CONTRIBUTING.md` — contributor guide: doc architecture, drift prevention, testing, pitfalls
 - `docs/contributor/agents.md` — contributor workflow guidance for agents
 - `docs/contributor/plugins.md` — plugin authoring and packaging guide

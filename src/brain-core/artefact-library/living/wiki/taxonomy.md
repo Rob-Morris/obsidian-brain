@@ -60,6 +60,7 @@ Examples:
 ```yaml
 ---
 type: living/wiki
+key: {key}
 tags:
   - topic-tag
 ---

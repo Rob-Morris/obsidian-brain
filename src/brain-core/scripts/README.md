@@ -69,6 +69,12 @@ and cold `session.start` share the stdlib-safe `brain.runtime-status/1`
 readiness snapshot. Presentation and printable rendering share
 `shaping.render` with a strict `output.kind` variant.
 
+Editable artefacts and named resources share four document intents:
+`document.write-body` for whole-body writes, `document.replace-text` for exact text,
+`document.structured-edit` for typed Markdown structures, and `document.update-frontmatter`
+for metadata. Each requires the exact persisted revision returned by the
+corresponding read command.
+
 `access.status`, `access.request` and `access.reduce` own the selected-Brain
 active-grant lifecycle across every application projection. External approval
 is intentionally outside that application boundary: the CLI-only
@@ -88,7 +94,7 @@ Locality and providers are orthogonal. A selected-Brain command never becomes ma
 ## Other projections
 
 - `brain_mcp/` registers every MCP-eligible catalogue entry under its canonical `<noun>.<verb>` identifier.
-- CLI 2 resolves application discovery from the selected Brain and invokes that Brain's `command.py` process.
+- The installed CLI resolves application discovery from the selected Brain and invokes that Brain's `command.py` process.
 - Typed Python callers construct a sealed request and invoke `CommandApplication` with trusted context.
 
 These are adapters over one application owner, not separate implementations.

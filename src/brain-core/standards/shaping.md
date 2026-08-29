@@ -1,160 +1,146 @@
 # Shaping
 
-Shaping is the iterative process of refining an artefact through structured Q&A until it meets its type's bar for clarity and completeness. Shaping produces two things: an artefact that is ready to act on, and a transcript that records how it got there.
+The [portable shaping workflow](../skills/shaping/portable.md) owns session
+setup, the plan schema, workflow routing, question flow, completion, and review.
+The [Brain adaptor](../skills/shaping/references/brain.md) maps a confirmed plan
+onto selected Brain capabilities and is the canonical owner of Brain operation
+selection. This standard defines only the Brain taxonomy, command-effect,
+lifecycle, provenance, and transcript invariants used by that adaptor.
 
-## Shapeable Artefacts
+A connected Brain does not select Brain persistence. The confirmed shaping plan
+may use Brain independently for the target, decisions and work, transcript, or
+lifecycle, and may instead select local, scratch, or in-session handling for any
+of those roles.
 
-A type is shapeable if:
-1. Its taxonomy declares lifecycle values for both `shaping` and the completion status
-2. Its taxonomy defines a `## Shaping` section specifying:
-   - Its primary flavour (`Convergent` or `Discovery`)
-   - What "fully shaped" means for this type (the bar)
-   - What status to transition to when shaping completes (e.g. `ready`)
+## Shapeable Brain artefacts
 
-Each type owns its definition of "fully shaped." The bar should be concrete enough that an agent can judge whether the artefact meets it. Examples:
+A Brain artefact type is shapeable when:
 
-- **Ideas:** Clear *what* the idea is and *why* it matters. Open questions about *how* are fine — that's design territory.
-- **Designs:** All decisions resolved, core goal clear, approach concrete enough to plan, no internal inconsistencies.
-- **People:** Nothing more the user wants to record right now — shaping is a discovery process teasing out useful information.
+1. Its taxonomy declares `shaping` in its lifecycle.
+2. Its taxonomy has a complete `## Shaping` section defining:
+   - its primary flavour, `Convergent` or `Discovery`;
+   - the concrete completion bar for one pass;
+   - optional `Status behaviour: preserve` for a discovery type whose lifecycle
+     represents an enduring domain state; and
+   - for transition behaviour, the completion status to apply after approval.
 
-Types opt in with an explicit lifecycle contract and a complete `## Shaping` section. `compile_router.py` parses the flavour, bar, and completion status and exposes them as the type's `shaping` metadata. An incomplete section, or one that references an undeclared lifecycle value, is a compile error.
+Status behaviour defaults to `transition`. A preserving type leaves an
+enduring non-terminal status unchanged when shaping opens and completes. It may
+declare a completion status only as the approved exit for a target that was
+already in `shaping`. A preserving target in a terminal status is rejected; the
+user must first assign a non-terminal status explicitly.
 
-## Shaping Flavours
+The router compiler rejects incomplete shaping metadata, `preserve` on a
+non-discovery type, or references to lifecycle statuses the taxonomy does not
+declare.
 
-Not all shaping works the same way. The process adapts to the artefact's nature:
+## Brain command effects
 
-- **Convergent shaping** drives toward specific decisions. The decision list is the primary tracking mechanism, and shaping completes when all decisions are resolved and the artefact is internally consistent. Examples: Designs, Plans, Tasks.
+`shaping.start(target="...", mode="...")` is a combined Brain session-boundary
+operation. It:
 
-- **Discovery shaping** teases out information the user wants to capture. There may not be a fixed decision list — the agent explores the topic, asking questions to surface what's worth recording. Shaping completes when the user has nothing more to add. Examples: People, Journal Entries, Cookies.
+1. validates the target's shaping taxonomy;
+2. resolves the target by name or path;
+3. creates or continues today's Brain shaping transcript and establishes
+   source/backlinks; and
+4. applies the taxonomy's opening lifecycle behaviour.
 
-Most artefacts lean one way, but a session can blend both — a design might start with discovery (what are we even designing?) before converging on decisions. The type's `## Shaping` section should indicate which flavour is primary.
+Those effects are deliberately coupled. The Brain adaptor is the canonical
+owner of whether the confirmed plan selects that combined operation or separate
+commands for mixed persistence and lifecycle roles. This standard does not
+select an operation merely because Brain is available.
 
-**Convergent types** must include a decisions table in their template (e.g. Open Decisions) so shaping state is trackable in the artefact. **Discovery types** don't need one — the artefact grows with each answer and shaping completes when there's nothing more to capture.
+Creating a Brain artefact changes the indexed inventory. After
+`artefact.create`, call `runtime.refresh-router` before a router-dependent
+mutation. Do not use the deliberately stale pre-creation router.
 
-## Opening or Continuing a Shaping Session
+Before a confirmed plan creates a Brain target or Brain transcript, verify that
+the active command profile exposes both operations. `artefact.create` requires
+Contributor authority and `runtime.refresh-router` requires Maintainer
+authority. When refresh is unavailable, do not create first: select an existing
+target or non-Brain persistence, or obtain the required authority before any
+write.
 
-The shaping skill owns the end-to-end activity: resolve or create the artefact, read its taxonomy contract, choose a mode, run the Q&A loop, review the result, and apply the taxonomy's completion status. Once the target and mode are known, it calls the `shaping.start` MCP command with `target` and `mode`.
+For document mutations, read the current revision immediately before calling
+`document.structured-edit`, `document.replace-text`, `document.write-body`, or
+`document.update-frontmatter`. Use `artefact.set-status` for lifecycle changes
+so folder moves, timestamps, hooks, and links remain coherent.
 
-The low-level `shape` action opens or continues the session mechanics only:
+## Brain lifecycle outcomes
 
-1. **Validates shapeability** — uses the compiled taxonomy contract
-2. **Identifies the artefact** — resolves an existing artefact by name or path
-3. **Creates or appends to today's transcript** — linked to the artefact, with provenance in both directions
-4. **Sets status canonically** — uses the lifecycle handler, including moves and status hooks
+The portable workflow decides when a pass has reached its candidate exit and
+obtains the required approval. Brain then applies only the lifecycle role
+selected by the confirmed plan:
 
-The action does not conduct Q&A, choose what to ask, or decide that shaping is complete. Those are skill-level judgements. Internally, `start_shaping_session()` names this narrower session-boundary primitive. Public direct-script callers use `command.py shaping start`; the former `start_shaping.py` compatibility launcher was removed at the 0.55.0 command-interface cutover.
+- **Transitioning refine or discovery:** enter `shaping` when the pass opens and
+  apply the taxonomy's exact completion status only after approval.
+- **Preserved discovery:** leave an enduring non-terminal status unchanged when
+  the pass opens and completes. If the target began the pass already in
+  `shaping`, apply its declared completion-status exit only after approval.
+- **Brainstorm:** hand off to refine without applying a completion status.
 
-Sometimes shaping begins before the user knows what they're shaping. In this case, the first questions are exploratory — identifying the artefact type and creating it is part of the skill process. The skill calls `shape` once the target is clear.
+A local or scratch transcript does not disable a separately selected Brain
+lifecycle role, and a Brain transcript does not imply lifecycle mutation when
+the plan overrides it.
 
-### Source linking
+## Brain decision and work persistence
 
-The transcript's first body line identifies all source artefacts:
-```
-**Source:** [[Artefact1|Title1]]
-```
+When a convergent plan stores decisions and agent work in the Brain artefact,
+the artefact carries separate `## Shaping Decisions` and `## Shaping Work`
+tables once concrete items exist. Stable decision and work IDs remain in the
+owning source artefact so its current state is resumable without replaying a
+transcript.
 
-As shaping expands to touch additional artefacts, append them:
-```
+Discovery types use natural current-state prose and a lightweight working
+thread map rather than compulsory decision tables. Records selected outside
+Brain follow the confirmed plan and do not acquire these Brain conventions.
+
+## Brain transcript provenance
+
+The Brain artefact is the source of truth for current content, decisions, and
+work. A selected Brain shaping transcript is the chronological event history:
+verbatim turns plus material reconciliations explaining what changed and why.
+Do not create a second temporal audit record or require a future agent to replay
+events to reconstruct current state.
+
+The transcript's first body line identifies every source:
+
+```markdown
 **Source:** [[Artefact1|Title1]], [[Artefact2|Title2]]
 ```
 
-Each source artefact links back via `**Transcripts:** [[transcript|Session]]` — see the [provenance standard](provenance.md).
+Each source links back through `**Transcripts:**` according to the
+[provenance standard](provenance.md). When scope expands, add the new source to
+the transcript and add the backlink to that source through the normal
+read-revision-mutate loop.
 
-### Shaping state lives in the artefact
+## Brain transcript conventions
 
-The artefact is the source of truth for where shaping stands — its content, open questions, and decision table (for convergent types). Previous transcripts are reference material the agent *can* consult for context (e.g. "why was this decided?") but the artefact should be self-sufficient. An agent picking up shaping in a new session reads the artefact, not the transcript history.
+Brain shaping transcripts follow the shaping-transcript taxonomy with these
+additional invariants:
 
-### Setting the agenda
+- **Naming:** `yyyymmdd-shaping-transcript~{Title}.md` under
+  `_Temporal/Shaping Transcripts/yyyy-mm/`.
+- **Verbatim dialogue:** `### Agent` and `### User` contain exact turns rather
+  than inferred synthesis.
+- **Reconciliation:** source-qualified `### Reconciliation Rn` events record
+  material propagation, decision/work/thread transitions, authority, evidence,
+  confirmation, and multi-source effects. Source artefacts contain the resulting
+  current state, not a duplicate event history.
+- **One file per day per source identity:** same-day resumption follows the
+  source backlink and appends a new session heading. It does not reuse an
+  unrelated same-title transcript.
+- **ID scope:** question, reconciliation, and review-finding IDs are monotonic
+  within the transcript across same-day session headings.
 
-Review the artefact's current state and identify what needs to be decided. If the artefact is new and blank, the first question establishes what this is about.
+A transcript stored outside Brain follows the confirmed session plan rather
+than acquiring Brain taxonomy or provenance rules automatically.
 
-## During Shaping
+## Compatibility
 
-### One question per turn
-
-Each turn asks one numbered question (Q1, Q2, …). The next question is chosen after each answer based on what has highest impact and flows naturally from the conversation — not by walking a pre-made list in order.
-
-Wait for the user to signal they are done answering before moving on — a response to one question does not mean the user has nothing more to say.
-
-### Deferred questions and research
-
-The user may:
-- **Defer a question** — mark it as deferred and move to the next highest-impact question. Return to it later.
-- **Need to answer another question first** — reorder on the fly. The agent follows the user's lead.
-- **Need research to answer** — allocate a background subagent to research while shaping continues on other questions. When research completes, return to the deferred question with findings.
-
-### Scope expansion
-
-A shaping session may discover that additional artefacts are involved. When this happens:
-- Add the new source to the transcript's source line
-- Add the transcript link to the new source's `**Transcripts:**` line
-- Continue shaping — the transcript can serve multiple related artefacts
-
-### Convergent shaping process
-
-Each question references the decision(s) it relates to (e.g. "Q3 [D2, D4]"). Questions and decisions are separate tracking concerns — one question may resolve multiple decisions, or several questions may be needed for one decision.
-
-After the user answers:
-
-1. Update the artefact to reflect what was decided
-2. Update the decision list (resolve decided items, add newly discovered ones) — **only the user closes decisions**. If research or reasoning leads to a conclusion, present it and confirm before marking resolved.
-3. Record the Q&A in the transcript
-4. Choose the next question (see [[#One question per turn]])
-
-**Decision visibility.** After each turn, show the user the decision list with resolved/open status and count (e.g. "3 of 5 decisions resolved"). When all known decisions are resolved, signal that review is next — do not assume shaping is done (see [[#Completing Shaping]]).
-
-### Discovery shaping process
-
-There is no fixed decision list. The agent asks questions to surface what the user wants to capture, exploring the topic to tease out useful information.
-
-After the user answers:
-
-1. Incorporate the answer into the artefact's content
-2. Record the Q&A in the transcript
-3. Choose the next question (see [[#One question per turn]])
-
-**Progress signalling.** After each turn, signal where things stand:
-- "Still exploring — more to capture?" when the topic feels open
-- "Anything else?" when the conversation seems to be winding down
-
-Shaping completes when the user signals they have nothing more to add. The agent should then review for completeness (see [[#Completing Shaping]]) before declaring the artefact fully shaped.
-
-## Completing Shaping
-
-### Don't assume done
-
-When all known questions are resolved, do not declare the artefact fully shaped. Instead, enter a review phase.
-
-### Completion review
-
-Review the artefact against its type's bar:
-- **Internal consistency:** Do all parts agree with each other?
-- **Completeness:** Does the artefact meet its type's fully-shaped bar?
-- **Clarity:** Would someone reading this for the first time understand it?
-- **Missing links:** Are provenance and transcript links in place?
-
-Present a summary of potential gaps to the user:
-
-> **Review found X potential gaps:**
-> 1. [gap summary]
-> 2. [gap summary]
->
-> **Do any of these need more shaping?**
-
-Only the gaps the user flags become new shaping questions. The rest are dismissed. Do not resume shaping or update the artefact without confirmation. If no gaps are found, proceed to declaring fully shaped.
-
-### Declaring fully shaped
-
-When the review passes:
-1. Set the artefact's status to its type's completion status (e.g. `ready` for designs)
-2. Close the transcript (no more Q&A appended)
-3. Signal to the user: "Fully shaped — [artefact] is ready"
-
-The artefact's lifecycle continues beyond shaping. The type's taxonomy defines subsequent statuses (e.g. `adopted` for ideas, `implemented` for designs).
-
-## Transcript Conventions
-
-Shaping transcripts follow the shaping-transcript taxonomy with these additions:
-- **Naming:** `yyyymmdd-shaping-transcript~{Title}.md` in `_Temporal/Shaping Transcripts/yyyy-mm/`
-- **Multi-source:** The `**Source:**` line lists all source artefacts, growing as scope expands
-- **One file per day per artefact:** If shaping resumes later the same day, `shape` follows the source artefact's transcript backlink and appends a new `## ... session start` heading. This preserves identity across source renames and avoids reusing a same-title transcript owned by another artefact.
+Existing shapeable artefacts remain valid without shaping decision, work, or
+reconciliation sections; the active portable workflow normalises selected Brain
+records lazily when they are next shaped. Existing dialogue-only transcript
+formats remain valid. Begin reconciliation numbering at `R1` when a new
+material event occurs, and never infer or backfill historical events from old
+dialogue.

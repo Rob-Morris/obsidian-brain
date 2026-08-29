@@ -131,12 +131,30 @@ def test_load_embeddings_state_returns_none_without_numpy(tmp_path, monkeypatch)
 
     def fake_import(name, *args, **kwargs):
         if name == "numpy":
-            raise ImportError("numpy unavailable")
+            raise ModuleNotFoundError("numpy unavailable", name="numpy")
         return real_import(name, *args, **kwargs)
 
     monkeypatch.setattr(builtins, "__import__", fake_import)
 
     assert semantic_runtime.load_embeddings_state(vault) == (None, None, None)
+
+
+def test_load_embeddings_state_reports_broken_numpy_import(tmp_path, monkeypatch):
+    vault = _make_vault(tmp_path)
+    real_import = builtins.__import__
+
+    def fake_import(name, *args, **kwargs):
+        if name == "numpy":
+            raise ImportError("native extension failed")
+        return real_import(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", fake_import)
+
+    with pytest.raises(
+        semantic_runtime.SemanticEmbeddingsLoadError,
+        match="semantic NumPy dependency failed to import",
+    ):
+        semantic_runtime.load_embeddings_state(vault)
 
 
 @pytest.mark.semantic
@@ -184,6 +202,37 @@ def test_load_embeddings_state_raises_on_corrupt_document_array(tmp_path):
         match="semantic document embeddings are unreadable",
     ):
         semantic_runtime.load_embeddings_state(vault)
+
+
+@pytest.mark.semantic
+def test_load_embeddings_state_skips_unrequested_arrays(tmp_path):
+    np = pytest.importorskip("numpy")
+    vault = _make_vault(tmp_path)
+    meta_path = vault / semantic_runtime.EMBEDDINGS_META_REL
+    type_path = vault / semantic_runtime.TYPE_EMBEDDINGS_REL
+    doc_path = vault / semantic_runtime.DOC_EMBEDDINGS_REL
+    meta_path.parent.mkdir(parents=True, exist_ok=True)
+    meta_path.write_text('{"documents": [], "types": []}', encoding="utf-8")
+
+    np.save(type_path, np.array([[1.0]]))
+    doc_path.write_bytes(b"unreadable but unrequested")
+    type_embeddings, doc_embeddings, metadata = semantic_runtime.load_embeddings_state(
+        vault,
+        selection="types",
+    )
+    assert type_embeddings.shape == (1, 1)
+    assert doc_embeddings is None
+    assert metadata == {"documents": [], "types": []}
+
+    type_path.write_bytes(b"unreadable but unrequested")
+    np.save(doc_path, np.array([[2.0]]))
+    type_embeddings, doc_embeddings, metadata = semantic_runtime.load_embeddings_state(
+        vault,
+        selection="documents",
+    )
+    assert type_embeddings is None
+    assert doc_embeddings.shape == (1, 1)
+    assert metadata == {"documents": [], "types": []}
 
 def test_router_source_hash_reads_string_from_router_meta():
     assert semantic_runtime.router_source_hash({"meta": {"source_hash": "sha256:router"}}) == "sha256:router"

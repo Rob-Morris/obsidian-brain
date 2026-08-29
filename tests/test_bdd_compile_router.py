@@ -53,6 +53,28 @@ def compilable_router_vault(router_compilation_vault):
     return router_compilation_vault
 
 
+@given("a discovery-shaped type that preserves lifecycle status")
+def preserved_discovery_type(router_vault):
+    """Add a shapeable living type whose status describes enduring state."""
+    (router_vault / "People").mkdir()
+    taxonomy = router_vault / "_Config" / "Taxonomy" / "Living" / "people.md"
+    taxonomy.write_text(
+        "# People\n\n"
+        "## Naming\n\n`{Title}.md` in `People/`.\n\n"
+        "## Frontmatter\n\n"
+        "```yaml\n---\ntype: living/person\nstatus: active\n---\n```\n\n"
+        "## Lifecycle\n\n"
+        "| Status | Meaning |\n|---|---|\n"
+        "| `active` | Current record. |\n"
+        "| `shaping` | Explicit sustained shaping. |\n"
+        "| `deprecated` | Terminal. |\n\n"
+        "## Shaping\n\n"
+        "**Flavour:** Discovery\n"
+        "**Bar:** The current intended scope is faithfully captured.\n"
+        "**Status behaviour:** `preserve`\n"
+    )
+
+
 @when("I compile the router", target_fixture="compiled_router")
 def compile_router_step(router_vault):
     """Compile the router for the configured vault."""
@@ -72,3 +94,16 @@ def assert_configured_artefact(compiled_router, artefact_key):
 def assert_always_rule(compiled_router, expected_rule):
     """Assert the compiled router includes the expected always rule."""
     assert expected_rule in compiled_router["always_rules"]
+
+
+@then(parsers.parse('the compiled artefact "{artefact_key}" preserves shaping lifecycle status'))
+def assert_preserved_shaping_status(compiled_router, artefact_key):
+    """Assert discovery shaping compiles without a completion transition."""
+    artefact = next(
+        item for item in compiled_router["artefacts"] if item["key"] == artefact_key
+    )
+    assert artefact["shaping"] == {
+        "flavour": "discovery",
+        "bar": "The current intended scope is faithfully captured.",
+        "status_behaviour": "preserve",
+    }

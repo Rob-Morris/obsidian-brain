@@ -5,6 +5,7 @@ from __future__ import annotations
 import pytest
 
 import process
+import _application.content.ingest as content_ingest
 from _application._mutation_support import InlineContent, StagedContent
 from _application.content.classify import ContentClassifyMode
 from _application.content.ingest import (
@@ -44,10 +45,16 @@ def test_content_ingest_creates_typed_artefact(command_vault_clone):
     assert (root / result.result.path).is_file()
 
 
-def test_content_ingest_updates_exact_existing_title(command_vault_clone):
+def test_content_ingest_updates_exact_existing_title(command_vault_clone, monkeypatch):
     root = command_vault_clone.vault_root
     target = root / "Ideas" / "Command Fixture Candidate.md"
     before = target.read_text()
+    monkeypatch.setattr(
+        "_search.lexical_query.load_index",
+        lambda *_args, **_kwargs: pytest.fail(
+            "known exact ingest must not load the lexical index"
+        ),
+    )
 
     result = _managed(root).invoke(
         ContentIngestRequest(
@@ -66,7 +73,21 @@ def test_content_ingest_updates_exact_existing_title(command_vault_clone):
 
 def test_content_ingest_pauses_for_explicit_classification_without_effect(
     command_vault_clone,
+    monkeypatch,
 ):
+    monkeypatch.setattr(
+        "_search.lexical_query.load_index",
+        lambda *_args, **_kwargs: pytest.fail(
+            "context-only ingest must not load the lexical index"
+        ),
+    )
+    monkeypatch.setattr(
+        content_ingest,
+        "load_semantic_state",
+        lambda *_args, **_kwargs: pytest.fail(
+            "context-only ingest must not load semantic state"
+        ),
+    )
     result = _managed(command_vault_clone.vault_root).invoke(
         ContentIngestRequest(
             InlineContent("Unclassified material."),

@@ -1,0 +1,153 @@
+{
+  "schema": "brain-lab.acceptance-matrix/2",
+  "verification_targets": {
+    "test-brain-lab": {
+      "kind": "pytest",
+      "path": "tests/repo/brain_lab"
+    },
+    "test-brain-lab-docker": {
+      "kind": "docker-scenario-group",
+      "paths": [
+        "scenarios/current-template.json",
+        "scenarios/historical-upgrade.json"
+      ],
+      "covers": [
+        "worktree-template-baseline",
+        "arbitrary-composition",
+        "run-recreation",
+        "host-isolation",
+        "worktree-upgrade"
+      ]
+    }
+  },
+  "rows": [
+    {
+      "id": "historical-template-baseline",
+      "setup": "Capture official v0.51.0 source and its template seed on the native platform.",
+      "command": "source capture, seed template, then baseline prepare",
+      "predicate": "Every required brain-0.51-0.54 adapter gate passes against the promoted image.",
+      "evidence": "baseline receipt health array and evidence bundle",
+      "owner": "manual-real-docker"
+    },
+    {
+      "id": "worktree-template-baseline",
+      "setup": "Capture the explicit local worktree and derive its template seed.",
+      "command": "baseline prepare",
+      "predicate": "The installed Core fingerprint equals the captured source and required gates pass.",
+      "evidence": "source, seed and baseline receipts",
+      "owner": "automated-docker"
+    },
+    {
+      "id": "import-source-safety",
+      "setup": "Capture a curated imported-vault fixture.",
+      "command": "seed import",
+      "predicate": "Source-before, staged and source-after tree identities are equal.",
+      "evidence": "seed receipt and host-state receipt",
+      "owner": "unit-and-manual-real-vault"
+    },
+    {
+      "id": "preserve-mode",
+      "setup": "Prepare an exact-match imported seed with preserve mode.",
+      "command": "baseline prepare",
+      "predicate": "Portable and Core manifests equal the immutable seed before any user command.",
+      "evidence": "baseline portable/core manifests",
+      "owner": "manual-real-docker"
+    },
+    {
+      "id": "rehydrate-mode",
+      "setup": "Prepare an exact-match imported seed with rehydrate mode.",
+      "command": "baseline prepare",
+      "predicate": "Only excluded generated paths change; portable and Core fingerprints remain equal.",
+      "evidence": "before/after portable and Core manifests",
+      "owner": "manual-real-docker"
+    },
+    {
+      "id": "worktree-upgrade",
+      "setup": "Start a run from the historical baseline and copy the target source bundle into it.",
+      "command": "run start with bridge, run copy-in by source_id, then run exec for the selected source installer, target rehydration and health gates",
+      "predicate": "The exact v0.54.0 baseline reaches the target Core and CLI through every pending migration; no unexplained validation finding is added; first-call session readiness, canonical runtime cleanup, machine tidiness, MCP health and path isolation all pass.",
+      "evidence": "historical-upgrade scenario result, bounded command receipts and run filesystem evidence",
+      "owner": "automated-docker"
+    },
+    {
+      "id": "arbitrary-composition",
+      "setup": "Start a verified baseline run and reuse the captured source as a test input.",
+      "command": "run copy-in followed by run exec",
+      "predicate": "The independently exposed primitives compose and the copied source is executable as test input.",
+      "evidence": "copy-in and exec operation results",
+      "owner": "automated-docker"
+    },
+    {
+      "id": "interactive-diagnosis-export",
+      "setup": "Start a long-running baseline run and choose an empty local export destination.",
+      "command": "run shell followed by results export",
+      "predicate": "The operator can diagnose through a TTY and export a redacted receipt without raw vault content or host paths.",
+      "evidence": "shell exit classification and redacted exported result bundle",
+      "owner": "unit-and-manual-tty"
+    },
+    {
+      "id": "run-recreation",
+      "setup": "Mutate a run created from a baseline.",
+      "command": "run recreate",
+      "predicate": "The replacement container starts from the recorded immutable baseline image.",
+      "evidence": "run generations and image IDs",
+      "owner": "automated-docker"
+    },
+    {
+      "id": "clean-rebuild",
+      "setup": "Destroy a verified baseline image while retaining its immutable inputs.",
+      "command": "baseline rebuild",
+      "predicate": "Initial and rebuilt normalised fingerprints are equal.",
+      "evidence": "baseline rebuild result and receipts",
+      "owner": "manual-real-docker"
+    },
+    {
+      "id": "failure-truth",
+      "setup": "Run known failure, timeout, cancellation and evidence-truncation fixtures.",
+      "command": "run exec",
+      "predicate": "Failure, timeout and cancellation outcomes retain independently accurate effect certainty and bounded evidence.",
+      "evidence": "operation-result and evidence-bundle envelopes",
+      "owner": "unit-and-manual-real-docker"
+    },
+    {
+      "id": "host-isolation",
+      "setup": "Capture the declared host-state surface before every mutating acceptance scenario.",
+      "command": "scenario run",
+      "predicate": "No non-lab host path, registry, CLI, runtime, client configuration or source input changes.",
+      "evidence": "host-state before/after receipt",
+      "owner": "automated-docker"
+    },
+    {
+      "id": "host-agent-fixture",
+      "setup": "Select a retained running Brain and an empty caller-owned output path.",
+      "command": "fixture create",
+      "predicate": "One generic bridge and exact active-Brain skill loaders back isolated Codex and Claude layouts; no model starts, run state changes, credentials leak, or real client configuration changes.",
+      "evidence": "fixture manifest plus operation evidence for run label, Core, MCP and skill identity inspection",
+      "owner": "unit-and-manual-real-docker"
+    },
+    {
+      "id": "imported-guardrails",
+      "setup": "Create an imported seed and derivative baseline/run.",
+      "command": "lab inventory, cleanup preview, and exact resource destroy/discard",
+      "predicate": "Imported resources are labelled, sized, referenced, excluded from automatic deletion, and require explicit confirmation for exact cleanup.",
+      "evidence": "inventory, cleanup-preview, and label-verified destruction results",
+      "owner": "unit-and-manual-receipt"
+    },
+    {
+      "id": "historical-adapters",
+      "setup": "Capture one source in every supported adapter range.",
+      "command": "baseline prepare",
+      "predicate": "Every declared required command executes in a real container.",
+      "evidence": "adapter-specific health bundles",
+      "owner": "manual-real-docker"
+    },
+    {
+      "id": "amd64-smoke",
+      "setup": "Probe local linux/amd64 emulation support.",
+      "command": "clean install and historical-to-target upgrade",
+      "predicate": "Both operations pass using an explicit linux/amd64 platform identity.",
+      "evidence": "platform-specific source, baseline and upgrade receipts",
+      "owner": "manual-when-supported"
+    }
+  ]
+}

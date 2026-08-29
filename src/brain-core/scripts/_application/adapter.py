@@ -11,7 +11,7 @@ from .application import (
     internal_error_result,
 )
 from .catalogue import ApplicationCatalogue
-from .context import InvocationContext
+from .context import InvocationContext, report_failure_safely
 from .projection import canonical_result_envelope, canonical_result_json
 from .resolver import RequestResolutionError, RequestResolver, ResolutionErrorCode
 from .results import (
@@ -41,19 +41,26 @@ class AdapterRequestError(ValueError):
 @dataclass(frozen=True, slots=True)
 class AdapterProjection:
     result: CommandResult
-    structured_content: dict[str, object]
-    json_text: str
-    concise_text: str
     is_error: bool
     exit_code: int
 
     def __post_init__(self) -> None:
-        if not self.concise_text.strip() or not self.json_text:
-            raise ValueError("adapter projection requires JSON and concise text")
         if self.is_error != (not isinstance(self.result, Ok)):
             raise ValueError("adapter error flag must follow the structural result branch")
         if self.exit_code not in range(5):
             raise ValueError("adapter exit code must use the canonical 0-4 categories")
+
+    @property
+    def structured_content(self) -> dict[str, object]:
+        return canonical_result_envelope(self.result)
+
+    @property
+    def json_text(self) -> str:
+        return canonical_result_json(self.result)
+
+    @property
+    def concise_text(self) -> str:
+        return _concise_text(self.result)
 
 
 @dataclass(frozen=True, slots=True)
@@ -86,7 +93,13 @@ class ApplicationAdapter:
         if entry is not None:
             try:
                 denied = authority_denied_result(context, entry)
-            except Exception:
+            except Exception as exc:
+                report_failure_safely(
+                    context,
+                    phase="authority.before-resolution",
+                    command_id=entry.command_id,
+                    error=exc,
+                )
                 return project_adapter_result(
                     internal_error_result(
                         context,
@@ -123,9 +136,6 @@ def project_adapter_result(result: CommandResult) -> AdapterProjection:
 
     return AdapterProjection(
         result=result,
-        structured_content=canonical_result_envelope(result),
-        json_text=canonical_result_json(result),
-        concise_text=_concise_text(result),
         is_error=not isinstance(result, Ok),
         exit_code=_exit_code(result),
     )

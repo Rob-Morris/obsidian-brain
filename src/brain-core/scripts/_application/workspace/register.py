@@ -76,9 +76,3 @@ def decode(payload: Mapping[str, object]) -> WorkspaceRegisterRequest:
 
 def catalogue_entry():
     return caller_workspace_entry(WorkspaceRegisterRequest, execute)
-
-
-def resolver_entry():
-    from ..resolver import ResolverEntry
-
-    return ResolverEntry(WorkspaceRegisterRequest, decode)

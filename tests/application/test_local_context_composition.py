@@ -37,6 +37,7 @@ def _context(
     *,
     tools=frozenset(("command.list",)),
     invocation_id="inv-local",
+    diagnostics=None,
 ):
     clock = _Clock()
     receipts = MemoryReceiptStore(clock)
@@ -56,6 +57,7 @@ def _context(
         receipt_store=receipts,
         workspace_dir=(tmp_path / "workspace").resolve(),
         clock=clock,
+        diagnostics=diagnostics,
     )
 
 
@@ -68,6 +70,19 @@ def test_local_context_uses_only_explicit_resolved_state(tmp_path):
     assert context.providers.require("semantic_retrieval").provider_id == "semantic_retrieval"
     assert context.capabilities.availability_of("semantic_retrieval") is Availability.AVAILABLE
     assert context.workspace_dir == (tmp_path / "workspace").resolve()
+
+
+def test_local_context_preserves_a_falsey_diagnostic_reporter(tmp_path):
+    class _FalseyDiagnostics:
+        def __bool__(self):
+            return False
+
+        def report_failure(self, **_failure):
+            pass
+
+    diagnostics = _FalseyDiagnostics()
+
+    assert _context(tmp_path, diagnostics=diagnostics).diagnostics is diagnostics
 
 
 def test_granular_profile_denies_before_executor_and_has_no_aggregate_fallback(tmp_path):
@@ -139,11 +154,11 @@ def test_built_in_profiles_derive_cumulative_exact_application_commands():
     profiles = builtin_profile_allow_lists(current_application_catalogue())
 
     assert {name: len(tools) for name, tools in profiles.items()} == {
-        "reader": 26,
-        "contributor": 48,
-        "maintainer": 61,
-        "operator": 70,
-        "administrator": 71,
+        "reader": 27,
+        "contributor": 56,
+        "maintainer": 69,
+        "operator": 78,
+        "administrator": 79,
     }
     assert (
         set(profiles["reader"])
@@ -184,7 +199,7 @@ def test_every_application_command_has_the_exact_five_profile_authority_matrix()
         "administrator": 4,
     }
 
-    assert len(catalogue.entries) == 71
+    assert len(catalogue.entries) == 79
     for profile, maximum in profile_rank.items():
         allowed = set(profiles[profile])
         for entry in catalogue.entries:

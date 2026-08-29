@@ -1,6 +1,9 @@
 required:
   type:
     const: "living/design"
+  key:
+    type: string
+    pattern: "^(?=.{1,64}$)(?=.*[a-z])[a-z0-9]+(?:-[a-z0-9]+)*$"
   tags:
     type: array
     contains: "design"

@@ -2,23 +2,18 @@
 
 from __future__ import annotations
 
+from .._decoding import reject_unexpected
+
 from dataclasses import dataclass, field, replace
 from enum import Enum
 from typing import ClassVar, Literal, Mapping
 
-from ..memory import list as memory_list
-from ..plugin import list as plugin_list
-from ..skill import list as skill_list
-from ..skill import read as skill_read
-from ..style import list as style_list
-from ..template import list as template_list
-from ..trigger import list as trigger_list
-from ..trigger import read as trigger_read
-from ..type import list as type_list
-from ..type import read as type_read
 from .._read_support import catalogue_entry as read_catalogue_entry
+from .._read_support import command_error
 from ..context import InvocationContext
-from ._result import compose_result
+from ..results import Error, ErrorCode, Ok
+from ..type._classification import ArtefactTypeClassification
+from ._types import SkillSource, TriggerCategory
 
 
 class ListableResource(str, Enum):
@@ -47,7 +42,9 @@ class PluginListItem:
 @dataclass(frozen=True, slots=True)
 class SkillListItem:
     name: str
-    source: skill_read.SkillSource
+    source: SkillSource
+    effective: bool
+    shadowed: bool
     resource: Literal["skill"] = field(default="skill", init=False)
 
 
@@ -69,7 +66,7 @@ class TemplateListItem:
 class TriggerListItem:
     condition: str
     target: str
-    category: trigger_read.TriggerCategory
+    category: TriggerCategory
     detail: str | None
     resource: Literal["trigger"] = field(default="trigger", init=False)
 
@@ -77,7 +74,7 @@ class TriggerListItem:
 @dataclass(frozen=True, slots=True)
 class TypeListItem:
     key: str
-    classification: type_read.ArtefactTypeClassification
+    classification: ArtefactTypeClassification
     frontmatter_type: str
     configured: bool
     has_template: bool
@@ -177,72 +174,124 @@ class ResourceListRequest:
             raise ValueError("resource.list query must be a non-empty string")
 
 
-_IMPLEMENTATIONS = {
-    ListableResource.MEMORY: (memory_list.MemoryListRequest, memory_list.execute),
-    ListableResource.PLUGIN: (plugin_list.PluginListRequest, plugin_list.execute),
-    ListableResource.SKILL: (skill_list.SkillListRequest, skill_list.execute),
-    ListableResource.STYLE: (style_list.StyleListRequest, style_list.execute),
-    ListableResource.TEMPLATE: (
-        template_list.TemplateListRequest,
-        template_list.execute,
+def execute(context: InvocationContext, request: ResourceListRequest):
+    try:
+        payload = _LISTERS[request.resource](
+            context.selected_brain.vault_root,
+            request.query,
+        )
+    except FileNotFoundError as exc:
+        return command_error(ResourceListRequest, ErrorCode.CONFLICT, str(exc), None)
+    if isinstance(payload, Error):
+        return payload
+    return Ok(request.COMMAND_ID, request.COMMAND_VERSION, payload)
+
+
+def _list_memory(root, query):
+    from _portable.router_collections import list_memories_from_vault
+
+    resources = list_memories_from_vault(root, query)
+    items = tuple(
+        MemoryListItem(item["name"], tuple(item.get("triggers") or ()))
+        for item in sorted(resources, key=lambda item: item["name"].casefold())
+    )
+    return MemoryListPayload(items, len(items))
+
+
+def _list_named(root, query, resource, item_builder, payload_type):
+    from .._named_documents import list_portable
+
+    resources = list_portable(root, resource, query)
+    items = tuple(
+        item_builder(item)
+        for item in sorted(resources, key=lambda item: item["name"].casefold())
+    )
+    return payload_type(items, len(items))
+
+
+def _list_template(root, query):
+    from _portable.type_definitions import list_templates_from_vault
+
+    resources = list_templates_from_vault(root, query)
+    items = tuple(
+        TemplateListItem(item["name"], item["type"], item["template_file"])
+        for item in sorted(resources, key=lambda item: item["name"].casefold())
+    )
+    return TemplateListPayload(items, len(items))
+
+
+def _list_trigger(root, query):
+    from _portable.router_collections import list_triggers_from_vault
+
+    resources = list_triggers_from_vault(root, query)
+    items = tuple(
+        TriggerListItem(
+            item["condition"],
+            item["target"],
+            TriggerCategory(item["category"]),
+            item.get("detail"),
+        )
+        for item in sorted(
+            resources,
+            key=lambda item: (item["condition"].casefold(), item["target"].casefold()),
+        )
+    )
+    return TriggerListPayload(items, len(items))
+
+
+def _list_type(root, query):
+    from _portable.type_definitions import list_types_from_vault
+
+    resources = list_types_from_vault(root, query)
+    items = tuple(
+        TypeListItem(
+            item["key"],
+            ArtefactTypeClassification(item["classification"]),
+            item["frontmatter_type"],
+            bool(item["configured"]),
+            bool(item.get("template_file")),
+        )
+        for item in sorted(resources, key=lambda item: item["key"].casefold())
+    )
+    return TypeListPayload(items, len(items))
+
+
+_LISTERS = {
+    ListableResource.MEMORY: _list_memory,
+    ListableResource.PLUGIN: lambda root, query: _list_named(
+        root,
+        query,
+        "plugin",
+        lambda item: PluginListItem(item["name"]),
+        PluginListPayload,
     ),
-    ListableResource.TRIGGER: (trigger_list.TriggerListRequest, trigger_list.execute),
-    ListableResource.TYPE: (
-        type_list.ArtefactTypeListRequest,
-        type_list.execute,
+    ListableResource.SKILL: lambda root, query: _list_named(
+        root,
+        query,
+        "skill",
+        lambda item: SkillListItem(
+            item["name"],
+            SkillSource(item["source"]),
+            bool(item["effective"]),
+            bool(item["shadowed"]),
+        ),
+        SkillListPayload,
     ),
+    ListableResource.STYLE: lambda root, query: _list_named(
+        root,
+        query,
+        "style",
+        lambda item: StyleListItem(item["name"]),
+        StyleListPayload,
+    ),
+    ListableResource.TEMPLATE: _list_template,
+    ListableResource.TRIGGER: _list_trigger,
+    ListableResource.TYPE: _list_type,
 }
 
 
-def execute(context: InvocationContext, request: ResourceListRequest):
-    request_type, executor = _IMPLEMENTATIONS[request.resource]
-    result = executor(context, request_type(request.query))
-    return compose_result(
-        result,
-        type(request),
-        lambda payload: _payload(request.resource, payload),
-    )
-
-
-def _payload(resource: ListableResource, payload) -> ResourceListPayload:
-    builders = {
-        ListableResource.MEMORY: lambda item: MemoryListItem(
-            item.name, item.triggers
-        ),
-        ListableResource.PLUGIN: lambda item: PluginListItem(item.name),
-        ListableResource.SKILL: lambda item: SkillListItem(item.name, item.source),
-        ListableResource.STYLE: lambda item: StyleListItem(item.name),
-        ListableResource.TEMPLATE: lambda item: TemplateListItem(
-            item.type_key, item.artefact_type, item.path
-        ),
-        ListableResource.TRIGGER: lambda item: TriggerListItem(
-            item.condition, item.target, item.category, item.detail
-        ),
-        ListableResource.TYPE: lambda item: TypeListItem(
-            item.key,
-            item.classification,
-            item.frontmatter_type,
-            item.configured,
-            item.has_template,
-        ),
-    }
-    items = tuple(builders[resource](item) for item in payload.items)
-    payload_types = {
-        ListableResource.MEMORY: MemoryListPayload,
-        ListableResource.PLUGIN: PluginListPayload,
-        ListableResource.SKILL: SkillListPayload,
-        ListableResource.STYLE: StyleListPayload,
-        ListableResource.TEMPLATE: TemplateListPayload,
-        ListableResource.TRIGGER: TriggerListPayload,
-        ListableResource.TYPE: TypeListPayload,
-    }
-    return payload_types[resource](items, payload.total)
-
-
 def decode(payload: Mapping[str, object]) -> ResourceListRequest:
-    unexpected = sorted(set(payload) - {"resource", "query"})
-    if unexpected:
-        raise ValueError(f"unexpected fields: {', '.join(unexpected)}")
+    reject_unexpected(payload, {"resource", "query"})
     try:
         resource = ListableResource(payload.get("resource"))
     except (TypeError, ValueError) as exc:
@@ -260,9 +309,3 @@ def catalogue_entry():
         read_catalogue_entry(ResourceListRequest, execute),
         summary="List memories, plugins, skills, styles, templates, triggers or types.",
     )
-
-
-def resolver_entry():
-    from ..resolver import ResolverEntry
-
-    return ResolverEntry(ResourceListRequest, decode)

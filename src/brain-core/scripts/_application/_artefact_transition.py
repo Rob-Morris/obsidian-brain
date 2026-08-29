@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from ._decoding import reject_unexpected
+
 from dataclasses import dataclass
 from typing import Callable, Mapping
 
@@ -89,9 +91,7 @@ def decode_required_strings(
     request_type,
     fields: tuple[str, ...],
 ):
-    unexpected = sorted(set(payload) - set(fields))
-    if unexpected:
-        raise ValueError(f"unexpected fields: {', '.join(unexpected)}")
+    reject_unexpected(payload, set(fields))
     for field in fields:
         if field not in payload:
             raise ValueError(f"{field} is required")
@@ -101,9 +101,7 @@ def decode_required_strings(
 
 
 def decode_path_recursive(payload: Mapping[str, object], request_type):
-    unexpected = sorted(set(payload) - {"path", "recursive"})
-    if unexpected:
-        raise ValueError(f"unexpected fields: {', '.join(unexpected)}")
+    reject_unexpected(payload, {"path", "recursive"})
     if "path" not in payload:
         raise ValueError("path is required")
     path = payload["path"]

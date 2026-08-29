@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum
-from typing import Mapping
 
 from ._mutation_support import no_effect_error
 from .context import InvocationContext
@@ -15,8 +14,6 @@ from .types import (
     DependencyTier,
     EffectClass,
     Locality,
-    Projection,
-    ProjectionEligibility,
     RetryClass,
 )
 
@@ -216,19 +213,13 @@ def _error_message(result: dict) -> str:
     )
 
 
-def decode_empty(payload: Mapping[str, object], request_type):
-    if payload:
-        raise ValueError(f"unexpected fields: {', '.join(sorted(payload))}")
-    return request_type()
-
-
 def catalogue_entry(
     request_type,
     executor,
     *,
     authority: Authority = Authority.OPERATOR,
 ):
-    from .catalogue import ApplicationEntry
+    from .catalogue import ALL_APPLICATION_PROJECTIONS, ApplicationEntry
 
     return ApplicationEntry(
         request_type=request_type,
@@ -240,13 +231,5 @@ def catalogue_entry(
         authority=authority,
         effect_class=EffectClass.SELECTED_BRAIN_MUTATION,
         retry_class=RetryClass.RECEIPT_REQUIRED,
-        projections=tuple(
-            ProjectionEligibility(projection, True)
-            for projection in (
-                Projection.MCP,
-                Projection.CLI,
-                Projection.SCRIPT,
-                Projection.PYTHON,
-            )
-        ),
+        projections=ALL_APPLICATION_PROJECTIONS,
     )

@@ -39,7 +39,13 @@ from _bootstrap.runtime import (
     handoff_current_script_to_managed_runtime,
     required_modules_for_scope,
 )
-from _common import find_vault_root, read_version, safe_write_json
+from _common import (
+    decode_definition_manifest,
+    find_vault_root,
+    read_version,
+    resolve_and_check_bounds,
+    safe_write_json,
+)
 from _common._yaml import YamlError, load_mapping_file
 from _repair_common import build_repair_command
 from compile_router import hash_file
@@ -145,39 +151,10 @@ def parse_manifest(path: str) -> Optional[dict]:
     Returns None if the file doesn't exist or is malformed.
     """
     try:
-        data = load_mapping_file(path)
-    except (OSError, YamlError):
+        data = decode_definition_manifest(load_mapping_file(path))
+    except (OSError, YamlError, ValueError):
         return None
-
-    files = data.get("files")
-    if not isinstance(files, dict) or not files:
-        return None
-
-    result: dict = {"files": {}, "folders": []}
-    for role, meta in files.items():
-        if not isinstance(role, str) or not isinstance(meta, dict):
-            return None
-        source = meta.get("source")
-        target = meta.get("target")
-        if not isinstance(source, str) or not isinstance(target, str):
-            return None
-        result["files"][role] = {"source": source, "target": target}
-
-    folders = data.get("folders", [])
-    if folders == []:
-        result["folders"] = []
-    elif isinstance(folders, list) and all(isinstance(item, str) for item in folders):
-        result["folders"] = list(folders)
-    else:
-        return None
-
-    router_trigger = data.get("router_trigger")
-    if router_trigger is not None:
-        if not isinstance(router_trigger, str):
-            return None
-        result["router_trigger"] = router_trigger
-
-    return result
+    return data
 
 
 # ---------------------------------------------------------------------------
@@ -549,9 +526,13 @@ def sync_definitions(
         type_changed = False
 
         for role, file_info in manifest["files"].items():
-            source_path = os.path.join(lib_dir, file_info["source"])
+            source_path = resolve_and_check_bounds(
+                os.path.join(lib_dir, file_info["source"]), lib_dir
+            )
             target_rel = file_info["target"]
-            vault_path = os.path.join(vault_root, target_rel)
+            vault_path = resolve_and_check_bounds(
+                os.path.join(vault_root, target_rel), vault_root
+            )
 
             if not os.path.isfile(source_path):
                 errors.append({
@@ -653,7 +634,9 @@ def sync_definitions(
                 tracking["installed"][type_key]["files"] = new_type_files
 
         for folder in manifest.get("folders", []):
-            folder_path = os.path.join(vault_root, folder)
+            folder_path = resolve_and_check_bounds(
+                os.path.join(vault_root, folder), vault_root
+            )
             if not dry_run:
                 os.makedirs(folder_path, exist_ok=True)
 

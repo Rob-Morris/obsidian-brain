@@ -85,7 +85,7 @@ No lifecycle. Optional `status: shaping` or `status: ready` when shaping is acti
 ## Shaping
 
 **Flavour:** Discovery
-**Bar:** User has nothing more to add.
+**Bar:** The entry faithfully captures the user's meaning and voice, is coherent enough to stand alone, and the user has nothing more to add right now.
 **Completion status:** `ready`
 
 See [[.brain-core/standards/shaping]] for the shaping process.

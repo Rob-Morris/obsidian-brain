@@ -31,26 +31,50 @@ CAPTURE_PATH = (
     / "fixtures"
     / "command_interface_granular_mcp_projection_v1.json"
 )
+REAL_CLIENT_CAPTURE_PATH = (
+    REPO_ROOT
+    / "tests"
+    / "fixtures"
+    / "command_interface_real_client_evidence_v1.json"
+)
 TOKENISER = "tiktoken/0.12.0:o200k_base"
 TOKEN_ENCODING = "o200k_base"
 COMPACT_TOOL_TOKENS = 512
-MAX_TOOL_TOKENS = 2_048
-LARGE_TOOL_ALLOWLIST = frozenset({"document.edit", "resource.create"})
+MAX_TOOL_TOKENS = 3_072
+LARGE_TOOL_ALLOWLIST = frozenset({"document.structured-edit", "resource.create"})
 MAX_CATALOGUE_TOKENS = 16_384
-SUPPORTED_CLIENTS = {
-    "claude-code": {
-        "client_version": "2.1.226",
-        "version_command": "claude --version",
-        "projector": "claude-code-model-tool-declaration/2.1.226",
-        "projector_source": "captured model request plus deterministic replay",
-    },
-    "codex-cli": {
-        "client_version": "0.147.0",
-        "version_command": "codex --version",
-        "projector": "codex-cli-responses-function-declaration/0.147.0",
-        "projector_source": "captured model request plus deterministic replay",
-    },
-}
+
+
+def _real_client_capture() -> dict[str, object]:
+    return json.loads(REAL_CLIENT_CAPTURE_PATH.read_text(encoding="utf-8"))
+
+
+def _supported_clients() -> dict[str, dict[str, str]]:
+    evidence = _real_client_capture()
+    clients = evidence["clients"]
+    return {
+        "claude-code": {
+            "client_version": clients["claude-code"]["client_version"],
+            "version_command": "claude --version",
+            "projector": (
+                "claude-code-model-tool-declaration/"
+                + clients["claude-code"]["client_version"]
+            ),
+            "projector_source": "captured model request plus deterministic replay",
+        },
+        "codex-cli": {
+            "client_version": clients["codex-cli"]["client_version"],
+            "version_command": "codex --version",
+            "projector": (
+                "codex-cli-responses-function-declaration/"
+                + clients["codex-cli"]["client_version"]
+            ),
+            "projector_source": "captured model request plus deterministic replay",
+        },
+    }
+
+
+SUPPORTED_CLIENTS = _supported_clients()
 
 
 def canonical_json(value) -> str:
@@ -137,7 +161,7 @@ def build_granular_metadata_capture() -> dict[str, object]:
     encoding = tiktoken.get_encoding(TOKEN_ENCODING)
     capture: dict[str, object] = {
         "schema": "brain.command-interface-granular-mcp-projection/1",
-        "captured_at": "2026-08-10T16:00:00+10:00",
+        "captured_at": _real_client_capture()["captured_at"],
         "capture_command": (
             ".venv/bin/python tests/capture_granular_mcp_projection.py "
             "--output tests/fixtures/command_interface_granular_mcp_projection_v1.json"

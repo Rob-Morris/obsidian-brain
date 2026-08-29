@@ -74,6 +74,15 @@ Use serial `make test` for the pre-commit gate. `make test-parallel` is a fast
 pytest-xdist feedback path while iterating, but it does not replace the serial
 run because serial ordering still catches cross-file pollution.
 
+`make lint` is an umbrella for two different documentation contracts. The
+legacy/reusable scripts retain a percentage docstring ratchet; internal
+`_application` owners are excluded because public-looking dataclass and hook
+counts are not an API-quality measure. `lint-command-docs` instead requires
+strict described schemas for every command and behavioural docstrings on the
+supported `brain_application` kernel/context/result façade. Add useful
+invariant or trust-boundary docstrings to that façade; do not add mechanical
+one-line restatements to owner `execute`, `decode`, or `catalogue_entry` hooks.
+
 The `Linux test suite` GitHub Actions workflow runs the full `make test` on
 `ubuntu-latest`, so the suite must stay host-independent (timezone, filesystem
 case-sensitivity, and the Python interpreters on `PATH` are all pinned or
@@ -112,11 +121,37 @@ Why this matters:
 - Agent sandboxes commonly block package index access even when local file operations succeed.
 - Repo guidance belongs here and in `AGENTS.md`, not in shipped `.brain-core/` bootstrap files.
 
+## Deterministic repository contracts
+
+The pre-commit hook runs
+`.venv/bin/python src/scripts/check_repository_contracts.py --staged` before
+reading the canary receipt. The checker materialises the Git index and executes
+that snapshot's checker and parser imports, so neither staged data nor staged
+semantics can be validated by unstaged code. The runner composes purpose-owned
+policies under `src/scripts/_repository_contracts/`; both belong to the staged
+bootstrap closure. Together they own facts that code can decide:
+VERSION/README badge/changelog coupling, DD/index parity and number permanence,
+artefact-library metadata/catalogue/count consistency, and documentation
+reachability. `make test` exercises the same predicates against the checkout
+plus focused failure cases.
+
+Keep subjective review in `.canaries/pre-commit.md`. When a checklist statement
+can be expressed as an equality, set comparison, graph reachability rule, or
+Git predicate, add it to the checker/tests instead of requiring self-attestation.
+
+Before committing, use `python src/scripts/release.py status` to distinguish
+the release facts in `HEAD`, the index and the working tree, then run `make
+precommit-check` after staging. The hook never fixes or stages files. For a new
+release, provide the chosen Core/CLI/proxy versions and authored changelog facts
+to `release.py prepare`; review its dry-run diff before passing `--apply`.
+
 ## Why Drift Happens
 
 The same fact often appears in multiple files. For example, "Plans lifecycle is `draft` → `approved` → `implementing` → `completed`" appears in the Plans taxonomy, `docs/user/system-guide.md`, `src/brain-core/guide.md`, and `src/brain-core/artefact-library/README.md`. When a commit updates some but not all, the docs drift.
 
-The pre-commit canary's cross-check tasks exist specifically to catch this. Follow them carefully — grep for the values you changed and verify every occurrence.
+Deterministic repository contracts catch exact drift. The pre-commit canary
+retains the remaining impact review: grep for shared values that do not yet
+have a reliable canonical representation and verify every affected occurrence.
 
 ## Multi-Repo Workflow
 

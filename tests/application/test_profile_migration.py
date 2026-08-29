@@ -21,6 +21,7 @@ from _command_interface.profiles import builtin_profile_allow_lists
 import migrate_to_0_55_0
 import migrate_to_0_56_0
 import migrate_to_0_57_0
+import migrate_to_0_59_0
 
 
 DISPOSITIONS = (
@@ -115,10 +116,19 @@ def _fixture_replacements(tool, fixture):
 
 
 def _final_replacements(command_ids):
-    return {
+    replacements = {
         _REMOVED_GRANULAR_COMMANDS.get(command_id, command_id)
         for command_id in command_ids
     }
+    if "document.structured-edit" in replacements:
+        replacements.update(
+            {
+                "document.replace-text",
+                "document.update-frontmatter",
+                "document.write-body",
+            }
+        )
+    return replacements
 
 
 def test_legacy_mapping_matches_the_closed_operation_disposition_evidence():
@@ -145,11 +155,11 @@ def test_exact_legacy_builtins_become_catalogue_derived_granular_profiles():
     )
 
     assert {name: len(value["allow"]) for name, value in result.profiles.items()} == {
-        "reader": 26,
-        "contributor": 48,
-        "maintainer": 61,
-        "operator": 70,
-        "administrator": 71,
+        "reader": 27,
+        "contributor": 56,
+        "maintainer": 69,
+        "operator": 78,
+        "administrator": 79,
     }
     assert [change.strategy for change in result.changes] == [
         "builtin",
@@ -199,6 +209,57 @@ def test_custom_mutator_gains_only_the_required_outcome_query_closure():
     expected.add("invocation.read")
 
     assert set(result.profiles["author"]["allow"]) == expected
+
+
+def test_legacy_builtins_with_custom_profile_add_the_missing_builtins():
+    profiles = _legacy_builtins()
+    profiles["author"] = {
+        "allow": ["brain_read", "brain_create"],
+        "description": "User-owned authority.",
+    }
+
+    result = migrate_profile_allow_lists(
+        profiles,
+        current_application_catalogue(),
+    )
+
+    expected_builtins = builtin_profile_allow_lists(current_application_catalogue())
+    assert set(result.profiles) == set(expected_builtins) | {"author"}
+    for profile, allow in expected_builtins.items():
+        assert tuple(result.profiles[profile]["allow"]) == allow
+    assert set(result.profiles["author"]["allow"]) == {
+        "artefact.create",
+        "artefact.read",
+        "invocation.read",
+        "resource.create",
+        "resource.read",
+        "runtime.read-environment",
+        "vault.read-file",
+        "vault.read-router",
+        "workspace.read",
+    }
+    assert result.profiles["author"]["description"] == "User-owned authority."
+
+
+def test_previous_granular_builtins_with_custom_profile_remain_recognisable():
+    profiles = _previous_granular_builtins()
+    profiles["custom"] = {
+        "allow": ["memory.read", "session.start"],
+        "description": "Custom profile.",
+    }
+
+    result = migrate_profile_allow_lists(
+        profiles,
+        current_application_catalogue(),
+    )
+
+    expected_builtins = builtin_profile_allow_lists(current_application_catalogue())
+    for profile, allow in expected_builtins.items():
+        assert tuple(result.profiles[profile]["allow"]) == allow
+    assert result.profiles["custom"] == {
+        "allow": ["resource.read", "session.start"],
+        "description": "Custom profile.",
+    }
 
 
 def test_mixed_and_already_granular_profiles_are_idempotent():
@@ -268,11 +329,11 @@ def test_v055_upgrade_migration_writes_all_five_builtin_profiles(tmp_path):
         name: len(definition["allow"])
         for name, definition in migrated["vault"]["profiles"].items()
     } == {
-        "reader": 26,
-        "contributor": 48,
-        "maintainer": 61,
-        "operator": 70,
-        "administrator": 71,
+        "reader": 27,
+        "contributor": 56,
+        "maintainer": 69,
+        "operator": 78,
+        "administrator": 79,
     }
     assert migrated["vault"]["brain_name"] == "Test Brain"
     assert migrated["defaults"] == {"default_profile": "operator"}
@@ -526,3 +587,74 @@ def test_v057_upgrade_does_not_widen_custom_profiles(tmp_path):
     assert load_mapping_file(config_path)["vault"]["profiles"]["custom"][
         "allow"
     ] == ["artefact.read", "session.start"]
+
+
+def test_v059_upgrade_expands_exact_v058_builtins(tmp_path):
+    current = builtin_profile_allow_lists(current_application_catalogue())
+    previous = {
+        name: {
+            "allow": sorted(
+                set(commands)
+                - {
+                    "document.replace-text",
+                    "document.update-frontmatter",
+                    "document.write-body",
+                }
+            ),
+            "label": f"{name} profile",
+        }
+        for name, commands in current.items()
+    }
+    config_path = tmp_path / ".brain" / "config.yaml"
+    config_path.parent.mkdir(parents=True)
+    config_path.write_text(
+        dump_yaml_text({"vault": {"profiles": previous}}),
+        encoding="utf-8",
+    )
+
+    result = migrate_to_0_59_0.migrate(str(tmp_path))
+    migrated = load_mapping_file(config_path)
+
+    assert result["status"] == "ok"
+    assert result["profiles"] == [
+        name for name, commands in current.items()
+        if "document.structured-edit" in commands
+    ]
+    assert {
+        name: tuple(definition["allow"])
+        for name, definition in migrated["vault"]["profiles"].items()
+    } == current
+
+
+def test_v059_upgrade_expands_an_explicit_custom_document_edit_grant(tmp_path):
+    config_path = tmp_path / ".brain" / "config.yaml"
+    config_path.parent.mkdir(parents=True)
+    config_path.write_text(
+        dump_yaml_text(
+            {
+                "vault": {
+                    "profiles": {
+                        "author": {"allow": ["document.edit"]},
+                    }
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    result = migrate_to_0_59_0.migrate(str(tmp_path))
+
+    assert result == {
+        "status": "ok",
+        "profiles": ["author"],
+        "strategies": {"author": "custom"},
+    }
+    assert load_mapping_file(config_path)["vault"]["profiles"]["author"][
+        "allow"
+    ] == [
+        "document.replace-text",
+        "document.structured-edit",
+        "document.update-frontmatter",
+        "document.write-body",
+        "invocation.read",
+    ]

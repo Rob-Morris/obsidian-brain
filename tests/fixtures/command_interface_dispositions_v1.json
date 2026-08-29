@@ -55,39 +55,39 @@
       ],
       "mappings": {
         "artefact": {
-          "append": "document.edit",
-          "delete_section": "document.edit",
-          "edit": "document.edit",
-          "prepend": "document.edit",
-          "replace_text": "document.edit"
+          "append": "document.structured-edit",
+          "delete_section": "document.structured-edit",
+          "edit": "document.structured-edit",
+          "prepend": "document.structured-edit",
+          "replace_text": "document.structured-edit"
         },
         "memory": {
-          "append": "document.edit",
-          "delete_section": "document.edit",
-          "edit": "document.edit",
-          "prepend": "document.edit",
-          "replace_text": "document.edit"
+          "append": "document.structured-edit",
+          "delete_section": "document.structured-edit",
+          "edit": "document.structured-edit",
+          "prepend": "document.structured-edit",
+          "replace_text": "document.structured-edit"
         },
         "skill": {
-          "append": "document.edit",
-          "delete_section": "document.edit",
-          "edit": "document.edit",
-          "prepend": "document.edit",
-          "replace_text": "document.edit"
+          "append": "document.structured-edit",
+          "delete_section": "document.structured-edit",
+          "edit": "document.structured-edit",
+          "prepend": "document.structured-edit",
+          "replace_text": "document.structured-edit"
         },
         "style": {
-          "append": "document.edit",
-          "delete_section": "document.edit",
-          "edit": "document.edit",
-          "prepend": "document.edit",
-          "replace_text": "document.edit"
+          "append": "document.structured-edit",
+          "delete_section": "document.structured-edit",
+          "edit": "document.structured-edit",
+          "prepend": "document.structured-edit",
+          "replace_text": "document.structured-edit"
         },
         "template": {
-          "append": "document.edit",
-          "delete_section": "document.edit",
-          "edit": "document.edit",
-          "prepend": "document.edit",
-          "replace_text": "document.edit"
+          "append": "document.structured-edit",
+          "delete_section": "document.structured-edit",
+          "edit": "document.structured-edit",
+          "prepend": "document.structured-edit",
+          "replace_text": "document.structured-edit"
         }
       }
     },
@@ -344,11 +344,11 @@
       "mappings": {
         "migrate-legacy": {
           "owner": "launcher",
-          "target": "machine.migrate-legacy"
+          "target": "brain.migrate-legacy-installations"
         },
         "prune-runtimes": {
           "owner": "launcher",
-          "target": "machine.prune-runtimes"
+          "target": "runtime.remove-orphans"
         }
       }
     },
@@ -568,8 +568,7 @@
         "owner": "launcher",
         "targets": [
           "runtime.repair",
-          "runtime.resolve",
-          "runtime.resolve-runnable"
+          "runtime.inspect"
         ]
       },
       "configure.py": {
@@ -635,15 +634,14 @@
       "vault_registry.py": {
         "owner": "launcher",
         "targets": [
-          "brain.backfill",
           "brain.clear-default",
           "brain.get-default",
           "brain.list",
-          "brain.prune",
           "brain.register",
           "brain.resolve",
           "brain.set-default",
-          "brain.unregister"
+          "brain.unregister",
+          "registry.remove-stale"
         ]
       },
       "workspace_registry.py": {
@@ -732,6 +730,14 @@
     "command.list",
     "invocation.read"
   ],
+  "new_command_dispositions": {
+    "skill.add-git": "skill.add-git",
+    "skill.detach": "skill.detach",
+    "skill.status": "skill.status",
+    "skill.update": "skill.update",
+    "skill.expose": "skill.expose",
+    "skill.unexpose": "skill.unexpose"
+  },
   "command_contract_groups": {
     "application_access_read": {
       "contract": {
@@ -949,11 +955,15 @@
         "artefact.set-status",
         "artefact.unarchive",
         "attachment.upload",
-        "document.edit",
+        "document.structured-edit",
         "links.fix",
         "memory.create",
         "shaping.start",
+        "skill.add-git",
         "skill.create",
+        "skill.detach",
+        "skill.status",
+        "skill.update",
         "stage.create",
         "stage.discard",
         "style.create",
@@ -1271,8 +1281,7 @@
         "brain.list",
         "brain.resolve",
         "brain.version",
-        "runtime.resolve",
-        "runtime.resolve-runnable"
+        "runtime.inspect"
       ]
     },
     "launcher_mutation": {
@@ -1298,20 +1307,21 @@
       "commands": [
         "access.approve",
         "agent-skill.configure",
-        "brain.backfill",
         "brain.clear-default",
         "brain.install",
-        "brain.prune",
+        "brain.migrate-legacy-installations",
         "brain.register",
         "brain.set-default",
         "brain.uninstall",
         "brain.unregister",
         "brain.upgrade",
-        "machine.migrate-legacy",
-        "machine.prune-runtimes",
         "mcp.configure",
         "mcp.repair",
-        "runtime.repair"
+        "registry.remove-stale",
+        "runtime.remove-orphans",
+        "runtime.repair",
+        "skill.expose",
+        "skill.unexpose"
       ]
     },
     "launcher_operator_key": {

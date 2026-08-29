@@ -176,7 +176,7 @@ def preflight(
         (
             "Restart every MCP client using the upgraded Brain.",
             "Re-discover tools before the next MCP call.",
-            "Use brain brain upgrade for each acknowledged pre-cutover Brain.",
+            "Use brain upgrade for each acknowledged pre-cutover Brain.",
         ),
     )
 

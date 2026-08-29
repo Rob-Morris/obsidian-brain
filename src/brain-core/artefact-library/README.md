@@ -113,6 +113,7 @@ Artefact types that have a lifecycle should include a `status` field in frontmat
 - **Workspaces:** `active` → `parked` → `completed` | `deprecated`
 - **Plans:** `draft` → `shaping` → `approved` → `implementing` → `completed` | `deprecated` | `parked`
 - **Shapeable temporal artefacts:** `shaping` → `ready` (optional status introduced when a shaping session opens)
+- **People:** `active` | `parked` | explicit `shaping` → `deprecated` (discovery sessions preserve the current non-terminal status)
 - **Idea Logs:** `open` → `graduated` | `deprecated` | `parked`
 
 `deprecated` is the unified abandonment terminal across types; the *reason* (superseded, rejected, cancelled, retired, duplicate) is captured in a `> [!info] Deprecated — <reason>` callout in the body. `parked` is a non-terminal pause. See [[Artefact Closure Status Model]] for the full model.
@@ -146,7 +147,7 @@ brain type sync --request-json '{"type_key":"living/releases"}' --json
 ```
 
 Use `type.status` to choose the type keys that need attention, then call
-`type.sync` once per selected type. After a CLI upgrade (`brain brain upgrade`),
+`type.sync` once per selected type. After a CLI upgrade (`brain upgrade`),
 definition sync runs automatically under the `artefact_sync` preference in
 `.brain/preferences.json`: `auto` applies safe updates, `ask` (default) returns
 a preview, and `skip` does nothing. Upgrade request fields can override that

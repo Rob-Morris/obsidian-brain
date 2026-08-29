@@ -29,7 +29,10 @@ from .attachment.upload import AttachmentUploadRequest
 from .content.classify import ContentClassifyRequest
 from .content.ingest import ContentIngestRequest
 from .content.resolve import ContentResolveRequest
-from .document.edit import DocumentEditRequest
+from .document.structured_edit import DocumentStructuredEditRequest
+from .document.replace_text import DocumentReplaceTextRequest
+from .document.update_frontmatter import DocumentUpdateFrontmatterRequest
+from .document.write_body import DocumentWriteBodyRequest
 from .links.check import LinksCheckRequest
 from .links.fix import LinksFixRequest
 from .plugin.create import PluginCreateRequest
@@ -51,6 +54,11 @@ from .runtime.warmup import RuntimeWarmupRequest
 from .session.start import SessionStartRequest
 from .shaping.render import ShapingRenderRequest
 from .shaping.start import ShapingStartRequest
+from .skill.add_git import SkillAddGitRequest
+from .skill.detach import SkillDetachRequest
+from .skill.list import SkillListRequest
+from .skill.status import SkillStatusRequest
+from .skill.update import SkillUpdateRequest
 from .stage.create import StageCreateRequest
 from .stage.discard import StageDiscardRequest
 from .trigger.create import TriggerCreateRequest
@@ -74,6 +82,7 @@ from .workspace.setup import WorkspaceSetupRequest
 from .workspace.unregister import WorkspaceUnregisterRequest
 from .workspace.update_metadata import WorkspaceUpdateMetadataRequest
 from .receipts import OutcomeReceipt, OutcomeReference, ReceiptLookupState
+from .identity import command_identity
 from .types import (
     Availability,
     Authority,
@@ -87,6 +96,89 @@ from .types import (
     RetryClass,
     SnapshotFreshness,
     validate_command_id,
+)
+
+__all__ = (
+    "AccessReduceRequest",
+    "AccessRequestRequest",
+    "AccessStatusRequest",
+    "ArtefactArchiveRequest",
+    "ArtefactConvertRequest",
+    "ArtefactCreateRequest",
+    "ArtefactDeleteRequest",
+    "ArtefactListRequest",
+    "ArtefactMigrateNamingRequest",
+    "ArtefactOutlineRequest",
+    "ArtefactReadRequest",
+    "ArtefactRenameRequest",
+    "ArtefactRepairRequest",
+    "ArtefactReparentChildrenRequest",
+    "ArtefactReparentRequest",
+    "ArtefactSearchRequest",
+    "ArtefactSetKeyRequest",
+    "ArtefactSetNamingFieldRequest",
+    "ArtefactSetStatusRequest",
+    "ArtefactUnarchiveRequest",
+    "AttachmentUploadRequest",
+    "CommandDescribeRequest",
+    "CommandListRequest",
+    "CommandRequest",
+    "ContentClassifyRequest",
+    "ContentIngestRequest",
+    "ContentResolveRequest",
+    "DocumentStructuredEditRequest",
+    "DocumentReplaceTextRequest",
+    "DocumentUpdateFrontmatterRequest",
+    "DocumentWriteBodyRequest",
+    "InvocationReadRequest",
+    "LinksCheckRequest",
+    "LinksFixRequest",
+    "PluginCreateRequest",
+    "PluginReplaceRequest",
+    "ResourceCreateRequest",
+    "ResourceListRequest",
+    "ResourceReadRequest",
+    "ResourceSearchRequest",
+    "RetrievalConstructBenchmarkRequest",
+    "RetrievalEnableRequest",
+    "RetrievalEvaluateRequest",
+    "RetrievalRebuildSemanticRequest",
+    "RetrievalRefreshLexicalRequest",
+    "RetrievalRepairSemanticRequest",
+    "RuntimeReadEnvironmentRequest",
+    "RuntimeRefreshRouterRequest",
+    "RuntimeStatusRequest",
+    "RuntimeWarmupRequest",
+    "SessionStartRequest",
+    "ShapingRenderRequest",
+    "ShapingStartRequest",
+    "SkillAddGitRequest",
+    "SkillDetachRequest",
+    "SkillListRequest",
+    "SkillStatusRequest",
+    "SkillUpdateRequest",
+    "StageCreateRequest",
+    "StageDiscardRequest",
+    "TriggerCreateRequest",
+    "TriggerDeleteRequest",
+    "TriggerReplaceRequest",
+    "TypeCreateRequest",
+    "TypeReplaceRequest",
+    "TypeStatusRequest",
+    "TypeSyncRequest",
+    "VaultCheckRequest",
+    "VaultReadConfigRequest",
+    "VaultReadFileRequest",
+    "VaultReadRouterRequest",
+    "WorkspaceBindRequest",
+    "WorkspaceConfigureBootstrapRequest",
+    "WorkspaceListRequest",
+    "WorkspaceReadRequest",
+    "WorkspaceRegisterRequest",
+    "WorkspaceRepairRegistryRequest",
+    "WorkspaceSetupRequest",
+    "WorkspaceUnregisterRequest",
+    "WorkspaceUpdateMetadataRequest",
 )
 
 
@@ -364,7 +456,10 @@ CommandRequest = (
     | ContentClassifyRequest
     | ContentIngestRequest
     | ContentResolveRequest
-    | DocumentEditRequest
+    | DocumentStructuredEditRequest
+    | DocumentReplaceTextRequest
+    | DocumentUpdateFrontmatterRequest
+    | DocumentWriteBodyRequest
     | LinksCheckRequest
     | LinksFixRequest
     | PluginCreateRequest
@@ -386,6 +481,11 @@ CommandRequest = (
     | SessionStartRequest
     | ShapingRenderRequest
     | ShapingStartRequest
+    | SkillAddGitRequest
+    | SkillDetachRequest
+    | SkillListRequest
+    | SkillStatusRequest
+    | SkillUpdateRequest
     | StageCreateRequest
     | StageDiscardRequest
     | TriggerCreateRequest
@@ -409,83 +509,3 @@ CommandRequest = (
     | WorkspaceUnregisterRequest
     | WorkspaceUpdateMetadataRequest
 )
-
-
-def command_identity(request: CommandRequest) -> tuple[str, int, type]:
-    """Return identity owned by the concrete request type, never caller input."""
-    request_type = type(request)
-    if request_type not in {
-        AccessReduceRequest,
-        AccessRequestRequest,
-        AccessStatusRequest,
-        CommandListRequest,
-        CommandDescribeRequest,
-        InvocationReadRequest,
-        ArtefactArchiveRequest,
-        ArtefactConvertRequest,
-        ArtefactCreateRequest,
-        ArtefactDeleteRequest,
-        ArtefactReadRequest,
-        ArtefactRepairRequest,
-        ArtefactReparentRequest,
-        ArtefactRenameRequest,
-        ArtefactReparentChildrenRequest,
-        ArtefactOutlineRequest,
-        ArtefactListRequest,
-        ArtefactMigrateNamingRequest,
-        ArtefactSearchRequest,
-        ArtefactSetKeyRequest,
-        ArtefactSetNamingFieldRequest,
-        ArtefactSetStatusRequest,
-        ArtefactUnarchiveRequest,
-        AttachmentUploadRequest,
-        ContentClassifyRequest,
-        ContentIngestRequest,
-        ContentResolveRequest,
-        DocumentEditRequest,
-        LinksCheckRequest,
-        LinksFixRequest,
-        PluginCreateRequest,
-        PluginReplaceRequest,
-        ResourceCreateRequest,
-        ResourceListRequest,
-        ResourceReadRequest,
-        ResourceSearchRequest,
-        RetrievalConstructBenchmarkRequest,
-        RetrievalEnableRequest,
-        RetrievalEvaluateRequest,
-        RetrievalRefreshLexicalRequest,
-        RetrievalRebuildSemanticRequest,
-        RetrievalRepairSemanticRequest,
-        RuntimeRefreshRouterRequest,
-        RuntimeReadEnvironmentRequest,
-        RuntimeStatusRequest,
-        RuntimeWarmupRequest,
-        SessionStartRequest,
-        ShapingRenderRequest,
-        ShapingStartRequest,
-        StageCreateRequest,
-        StageDiscardRequest,
-        TriggerCreateRequest,
-        TriggerDeleteRequest,
-        TriggerReplaceRequest,
-        TypeCreateRequest,
-        TypeReplaceRequest,
-        TypeStatusRequest,
-        TypeSyncRequest,
-        VaultCheckRequest,
-        VaultReadConfigRequest,
-        VaultReadRouterRequest,
-        VaultReadFileRequest,
-        WorkspaceBindRequest,
-        WorkspaceConfigureBootstrapRequest,
-        WorkspaceListRequest,
-        WorkspaceReadRequest,
-        WorkspaceRegisterRequest,
-        WorkspaceRepairRegistryRequest,
-        WorkspaceSetupRequest,
-        WorkspaceUnregisterRequest,
-        WorkspaceUpdateMetadataRequest,
-    }:
-        raise TypeError(f"unregistered command request type: {request_type.__name__}")
-    return request_type.COMMAND_ID, request_type.COMMAND_VERSION, request_type.RESULT_TYPE

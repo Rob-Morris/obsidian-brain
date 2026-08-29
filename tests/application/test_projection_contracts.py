@@ -53,9 +53,12 @@ def test_every_application_command_has_one_collision_free_mechanical_projection(
     assert len({item.mcp_tool for item in projections}) == len(projections)
     assert len({item.cli_argv for item in projections}) == len(projections)
     assert project_identity("vault.check").mcp_tool == "vault.check"
-    assert project_identity("document.edit").cli_argv == ("document", "edit")
-    assert project_identity("document.edit").module_path == (
-        "_application/document/edit.py"
+    assert project_identity("document.structured-edit").cli_argv == (
+        "document",
+        "structured-edit",
+    )
+    assert project_identity("document.structured-edit").module_path == (
+        "_application/document/structured_edit.py"
     )
     assert all(
         1 <= len(entry.summary.removesuffix(".").split()) <= 12
@@ -68,8 +71,8 @@ def test_name_resolvers_reject_aliases_stutter_and_unowned_mcp_names():
         entry.command_id for entry in current_application_catalogue().entries
     )
     assert command_id_from_argv(
-        "document", "edit", command_ids
-    ) == "document.edit"
+        "document", "structured-edit", command_ids
+    ) == "document.structured-edit"
     assert command_id_from_mcp_tool("vault.check", command_ids) == "vault.check"
 
     for noun, verb in (("brain", "vault-check"), ("artefact", "replace_text")):
@@ -128,14 +131,16 @@ def test_every_discovery_example_resolves_through_the_real_dynamic_boundary():
         assert type(request) is entry.request_type, entry.command_id
 
 
-def test_request_schema_preserves_required_defaults_enums_and_nested_shapes():
-    from _application.document.edit import DocumentEditRequest
+def test_document_mutation_schemas_preserve_typed_intents_and_revisions():
+    from _application.document.structured_edit import DocumentStructuredEditRequest
+    from _application.document.replace_text import DocumentReplaceTextRequest
+    from _application.document.write_body import DocumentWriteBodyRequest
 
-    schema = request_schema(DocumentEditRequest)
+    schema = request_schema(DocumentStructuredEditRequest)
 
-    assert schema["required"] == ["target", "change"]
+    assert schema["required"] == ["document", "expected_revision", "change"]
     assert schema["properties"]["fix_links"]["default"] is False
-    assert schema["properties"]["target"]["properties"]["resource"]["enum"] == [
+    assert schema["properties"]["document"]["properties"]["resource"]["enum"] == [
         "artefact",
         "memory",
         "skill",
@@ -148,12 +153,28 @@ def test_request_schema_preserves_required_defaults_enums_and_nested_shapes():
     }
     assert operations == {
         "replace",
+        "insert",
+        "delete",
+    }
+    encoded = json.dumps(schema)
+    assert '"target"' not in encoded
+    assert '"scope"' not in encoded
+
+    write_schema = request_schema(DocumentWriteBodyRequest)
+    assert write_schema["properties"]["operation"]["enum"] == [
+        "replace",
         "append",
         "prepend",
-        "delete-section",
-        "replace-text",
-    }
+    ]
 
+    patch_schema = request_schema(DocumentReplaceTextRequest)
+    assert {
+        branch["properties"]["mode"]["enum"][0]
+        for branch in patch_schema["properties"]["match"]["anyOf"]
+    } == {"unique", "occurrence", "all"}
+
+
+def test_request_schema_preserves_required_defaults_enums_and_nested_shapes():
     from _application.requests import CommandListRequest
 
     command_list_schema = request_schema(CommandListRequest)

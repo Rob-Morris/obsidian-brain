@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from .._decoding import decode_empty
 from dataclasses import dataclass
 from typing import ClassVar, Mapping
 
@@ -13,8 +14,6 @@ from ..types import (
     DependencyTier,
     EffectClass,
     Locality,
-    Projection,
-    ProjectionEligibility,
     RetryClass,
 )
 
@@ -37,13 +36,11 @@ def execute(context: InvocationContext, _request: AccessStatusRequest):
 
 
 def decode(payload: Mapping[str, object]) -> AccessStatusRequest:
-    if payload:
-        raise ValueError(f"unexpected fields: {', '.join(sorted(payload))}")
-    return AccessStatusRequest()
+    return decode_empty(payload, AccessStatusRequest)
 
 
 def catalogue_entry():
-    from ..catalogue import ApplicationEntry
+    from ..catalogue import ALL_APPLICATION_PROJECTIONS, ApplicationEntry
 
     return ApplicationEntry(
         request_type=AccessStatusRequest,
@@ -55,20 +52,6 @@ def catalogue_entry():
         authority=Authority.READER,
         effect_class=EffectClass.NONE,
         retry_class=RetryClass.SAFE,
-        projections=tuple(
-            ProjectionEligibility(projection, True)
-            for projection in (
-                Projection.MCP,
-                Projection.CLI,
-                Projection.SCRIPT,
-                Projection.PYTHON,
-            )
-        ),
+        projections=ALL_APPLICATION_PROJECTIONS,
         summary="Read the active grant, ceiling and expiring access leases.",
     )
-
-
-def resolver_entry():
-    from ..resolver import ResolverEntry
-
-    return ResolverEntry(AccessStatusRequest, decode)

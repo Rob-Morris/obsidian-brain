@@ -103,7 +103,7 @@ class LegacyMigrationTarget:
 
 
 @dataclass(frozen=True, slots=True)
-class MachineMigrateLegacyPayload:
+class BrainMigrateLegacyInstallationsPayload:
     status: LegacyMigrationStatus
     targets: tuple[LegacyMigrationTarget, ...]
 
@@ -120,10 +120,10 @@ class MachineMigrateLegacyPayload:
 
 
 @dataclass(frozen=True, slots=True)
-class MachineMigrateLegacyRequest:
-    COMMAND_ID: ClassVar[str] = "machine.migrate-legacy"
+class BrainMigrateLegacyInstallationsRequest:
+    COMMAND_ID: ClassVar[str] = "brain.migrate-legacy-installations"
     COMMAND_VERSION: ClassVar[int] = 1
-    RESULT_TYPE: ClassVar[type] = MachineMigrateLegacyPayload
+    RESULT_TYPE: ClassVar[type] = BrainMigrateLegacyInstallationsPayload
 
     target: LegacyMigrationSelector | None = None
 
@@ -135,54 +135,54 @@ class MachineMigrateLegacyRequest:
             raise ValueError("legacy migration target must be typed")
 
 
-class RuntimePruneStatus(str, Enum):
+class RuntimeRemovalStatus(str, Enum):
     NOOP = "noop"
     PLANNED = "planned"
     REMOVED = "removed"
 
 
 @dataclass(frozen=True, slots=True)
-class RuntimePruneTarget:
+class OrphanRuntimeTarget:
     name: str
     directory: str
     python: str
-    status: RuntimePruneStatus
+    status: RuntimeRemovalStatus
 
     def __post_init__(self) -> None:
         if not self.name.strip():
-            raise ValueError("runtime prune targets require a name")
+            raise ValueError("orphan runtime targets require a name")
         for value, field in (
             (self.directory, "directory"),
             (self.python, "python"),
         ):
             if not isinstance(value, str) or not Path(value).is_absolute():
-                raise ValueError(f"runtime prune target {field} must be absolute")
-        if not isinstance(self.status, RuntimePruneStatus):
-            raise ValueError("runtime prune target status must be closed and typed")
+                raise ValueError(f"orphan runtime target {field} must be absolute")
+        if not isinstance(self.status, RuntimeRemovalStatus):
+            raise ValueError("runtime removal status must be closed and typed")
 
 
 @dataclass(frozen=True, slots=True)
-class MachinePruneRuntimesPayload:
-    status: RuntimePruneStatus
-    targets: tuple[RuntimePruneTarget, ...]
+class RuntimeRemoveOrphansPayload:
+    status: RuntimeRemovalStatus
+    targets: tuple[OrphanRuntimeTarget, ...]
 
     def __post_init__(self) -> None:
-        if not isinstance(self.status, RuntimePruneStatus):
-            raise ValueError("machine prune status must be closed and typed")
-        if any(not isinstance(target, RuntimePruneTarget) for target in self.targets):
-            raise ValueError("machine prune payload requires typed targets")
+        if not isinstance(self.status, RuntimeRemovalStatus):
+            raise ValueError("runtime removal status must be closed and typed")
+        if any(not isinstance(target, OrphanRuntimeTarget) for target in self.targets):
+            raise ValueError("runtime removal payload requires typed targets")
         directories = tuple(target.directory for target in self.targets)
         if directories != tuple(sorted(set(directories))):
-            raise ValueError("machine prune targets must be sorted and unique")
-        if not self.targets and self.status is not RuntimePruneStatus.NOOP:
-            raise ValueError("an empty machine prune result must be a no-op")
+            raise ValueError("orphan runtime targets must be sorted and unique")
+        if not self.targets and self.status is not RuntimeRemovalStatus.NOOP:
+            raise ValueError("an empty runtime removal result must be a no-op")
 
 
 @dataclass(frozen=True, slots=True)
-class MachinePruneRuntimesRequest:
-    COMMAND_ID: ClassVar[str] = "machine.prune-runtimes"
+class RuntimeRemoveOrphansRequest:
+    COMMAND_ID: ClassVar[str] = "runtime.remove-orphans"
     COMMAND_VERSION: ClassVar[int] = 1
-    RESULT_TYPE: ClassVar[type] = MachinePruneRuntimesPayload
+    RESULT_TYPE: ClassVar[type] = RuntimeRemoveOrphansPayload
 
 
 def _selector_value(target: LegacyMigrationSelector | None) -> str | None:
@@ -246,7 +246,7 @@ def _typed_legacy_targets(raw_targets: list[dict]) -> tuple[LegacyMigrationTarge
 
 
 def _migration_effects(
-    request: MachineMigrateLegacyRequest,
+    request: BrainMigrateLegacyInstallationsRequest,
     raw_targets: list[dict],
 ):
     effects = []
@@ -285,9 +285,9 @@ def _migration_has_unknown_outcome(raw_targets: list[dict]) -> bool:
     )
 
 
-def execute_migrate_legacy(
+def execute_migrate_legacy_installations(
     context: LauncherContext,
-    request: MachineMigrateLegacyRequest,
+    request: BrainMigrateLegacyInstallationsRequest,
 ):
     import vault_registry
     from _machine import maintenance
@@ -348,34 +348,37 @@ def execute_migrate_legacy(
     return Ok(
         request.COMMAND_ID,
         request.COMMAND_VERSION,
-        MachineMigrateLegacyPayload(status, _typed_legacy_targets(raw_targets)),
+        BrainMigrateLegacyInstallationsPayload(
+            status,
+            _typed_legacy_targets(raw_targets),
+        ),
         effects,
     )
 
 
-def _target_status(raw: str) -> RuntimePruneStatus:
+def _target_status(raw: str) -> RuntimeRemovalStatus:
     return {
-        "noop": RuntimePruneStatus.NOOP,
-        "planned": RuntimePruneStatus.PLANNED,
-        "changed": RuntimePruneStatus.REMOVED,
+        "noop": RuntimeRemovalStatus.NOOP,
+        "planned": RuntimeRemovalStatus.PLANNED,
+        "changed": RuntimeRemovalStatus.REMOVED,
     }[raw]
 
 
-def _payload_status(raw: str) -> RuntimePruneStatus:
+def _payload_status(raw: str) -> RuntimeRemovalStatus:
     return {
-        "noop": RuntimePruneStatus.NOOP,
-        "planned": RuntimePruneStatus.PLANNED,
-        "ok": RuntimePruneStatus.REMOVED,
+        "noop": RuntimeRemovalStatus.NOOP,
+        "planned": RuntimeRemovalStatus.PLANNED,
+        "ok": RuntimeRemovalStatus.REMOVED,
     }[raw]
 
 
-def _typed_targets(raw_targets: list[dict]) -> tuple[RuntimePruneTarget, ...]:
+def _typed_targets(raw_targets: list[dict]) -> tuple[OrphanRuntimeTarget, ...]:
     targets = []
     for raw in raw_targets:
         runtime = raw["runtime"]
         step = raw["steps"][0]
         targets.append(
-            RuntimePruneTarget(
+            OrphanRuntimeTarget(
                 runtime["name"],
                 runtime["dir"],
                 runtime["python"],
@@ -385,9 +388,9 @@ def _typed_targets(raw_targets: list[dict]) -> tuple[RuntimePruneTarget, ...]:
     return tuple(sorted(targets, key=lambda target: target.directory))
 
 
-def execute_prune_runtimes(
+def execute_remove_orphans(
     context: LauncherContext,
-    request: MachinePruneRuntimesRequest,
+    request: RuntimeRemoveOrphansRequest,
 ):
     import vault_registry
     from _machine import maintenance
@@ -420,39 +423,39 @@ def execute_prune_runtimes(
     if raw["status"] in {"error", "partial"} or any(
         target["status"] in {"error", "partial"} for target in raw_targets
     ):
-        raise RuntimeError("runtime prune outcome cannot be proven complete")
+        raise RuntimeError("orphan runtime removal outcome cannot be proven complete")
 
     targets = _typed_targets(raw_targets)
     effects = tuple(
         CommittedEffect(request.COMMAND_ID, f"managed-runtime:{target.directory}")
         for target in targets
-        if target.status is RuntimePruneStatus.REMOVED
+        if target.status is RuntimeRemovalStatus.REMOVED
     )
     return Ok(
         request.COMMAND_ID,
         request.COMMAND_VERSION,
-        MachinePruneRuntimesPayload(_payload_status(raw["status"]), targets),
+        RuntimeRemoveOrphansPayload(_payload_status(raw["status"]), targets),
         effects,
     )
 
 
-def prune_runtimes_owner():
+def remove_orphans_owner():
     from .owners import LauncherOwner
 
     return LauncherOwner(
-        MachinePruneRuntimesRequest,
-        MachinePruneRuntimesPayload,
-        "_launcher.machine:prune_runtimes",
-        execute_prune_runtimes,
+        RuntimeRemoveOrphansRequest,
+        RuntimeRemoveOrphansPayload,
+        "_launcher.machine:remove_orphans",
+        execute_remove_orphans,
     )
 
 
-def migrate_legacy_owner():
+def migrate_legacy_installations_owner():
     from .owners import LauncherOwner
 
     return LauncherOwner(
-        MachineMigrateLegacyRequest,
-        MachineMigrateLegacyPayload,
-        "_launcher.machine:migrate_legacy",
-        execute_migrate_legacy,
+        BrainMigrateLegacyInstallationsRequest,
+        BrainMigrateLegacyInstallationsPayload,
+        "_launcher.machine:migrate_legacy_installations",
+        execute_migrate_legacy_installations,
     )

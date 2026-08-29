@@ -1,10 +1,10 @@
 {
-  "captured_at": "2026-08-11T17:00:00+10:00",
+  "captured_at": "2026-08-29T10:58:11+10:00",
   "clients": {
     "claude-code": {
       "capture_path": "eager model request declarations",
-      "catalogue_hash": "sha256:11ae2ceef618ab324c4f6041ed321789ff9e1cdb09729bcc3d10090f83c8314b",
-      "client_version": "2.1.226",
+      "catalogue_hash": "sha256:3f6963100a2fc4f55d83949f71acb3d6b5ece5a8bfe397d9d2c35d1b575ac141",
+      "client_version": "2.1.251",
       "declaration": {
         "description": "List command resources.",
         "input_schema": {
@@ -181,7 +181,7 @@
         "name": "mcp__brain__command_list"
       },
       "declaration_hash": "sha256:183eb66663813d37dcb52e2424d368da64d588ea5909f347c8281b4d9918a4cb",
-      "initial_brain_declarations": 78,
+      "initial_brain_declarations": 68,
       "minimal_request": {
         "page_size": 1
       },
@@ -204,20 +204,17 @@
         "command.list": {
           "page_size": 1
         },
-        "document.edit": {
-          "change": {
-            "content": {
-              "content": "# Brain Core Reference\n\nReal-client capture.\n",
-              "source": "inline"
-            },
-            "operation": "replace",
-            "scope": "section",
-            "target": ":body"
+        "document.replace-text": {
+          "document": {
+            "reference": "Designs/project~command-fixture/Command Fixture Design.md",
+            "resource": "artefact"
           },
-          "target": {
-            "reference": "brain-core-reference",
-            "resource": "memory"
-          }
+          "expected_revision": "sha256:cd652144cb493a431f7d77f77cc7d08b23f0f601d3f7e3d2bb922c64937b9e15",
+          "match": {
+            "mode": "unique"
+          },
+          "new_text": "Real-client capture.",
+          "old_text": "Second occurrence."
         },
         "links.check": {
           "path": "Designs/project~command-fixture/Command Fixture Design.md"
@@ -237,7 +234,7 @@
     },
     "codex-cli": {
       "capture_path": "deferred client tool search",
-      "client_version": "0.147.0",
+      "client_version": "0.150.1",
       "declaration": {
         "defer_loading": true,
         "description": "List command resources.",
@@ -427,20 +424,17 @@
         "command.list": {
           "page_size": 1
         },
-        "document.edit": {
-          "change": {
-            "content": {
-              "content": "# Brain Core Reference\n\nReal-client capture.\n",
-              "source": "inline"
-            },
-            "operation": "replace",
-            "scope": "section",
-            "target": ":body"
+        "document.replace-text": {
+          "document": {
+            "reference": "Designs/project~command-fixture/Command Fixture Design.md",
+            "resource": "artefact"
           },
-          "target": {
-            "reference": "brain-core-reference",
-            "resource": "memory"
-          }
+          "expected_revision": "sha256:cd652144cb493a431f7d77f77cc7d08b23f0f601d3f7e3d2bb922c64937b9e15",
+          "match": {
+            "mode": "unique"
+          },
+          "new_text": "Real-client capture.",
+          "old_text": "Second occurrence."
         },
         "links.check": {
           "path": "Designs/project~command-fixture/Command Fixture Design.md"

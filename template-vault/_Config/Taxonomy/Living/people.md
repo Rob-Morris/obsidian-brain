@@ -28,6 +28,8 @@ status: active
 ---
 ```
 
+**Optional:** `status`
+
 `key` is the canonical identifier (see [[.brain-core/standards/keys]]). The platform generates it at create time.
 
 Every file related to a person should use the nested person tag, e.g. `person/alice-smith`.
@@ -37,7 +39,7 @@ Every file related to a person should use the nested person tag, e.g. `person/al
 | Status | Meaning |
 |---|---|
 | `active` | Default. Actively maintained. |
-| `shaping` | The person card is being shaped — filling in the picture through discovery. |
+| `shaping` | Explicitly held in sustained shaping. Normal discovery sessions preserve the card's current non-terminal status. |
 | `parked` | No longer in regular contact. Preserved for reference. Non-terminal; may resume. |
 | `deprecated` | Card permanently retired — duplicate, merged into another, or no longer relevant. Reason captured in a callout. Terminal — move to `+Deprecated/`. |
 
@@ -56,7 +58,8 @@ Existing observations and other artefacts tagged to this person stay where they 
 ## Shaping
 
 **Flavour:** Discovery
-**Bar:** Nothing more the user wants to record right now.
+**Bar:** For the user's intended current scope, the card faithfully and clearly reflects what they want recorded; material uncertainty or inconsistency is explicit, and they have nothing more to add right now.
+**Status behaviour:** `preserve`
 **Completion status:** `active`
 
 See [[.brain-core/standards/shaping]] for the shaping process.

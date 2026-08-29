@@ -1,4 +1,4 @@
-"""Released CLI 2 noun/verb grammar and composed execution boundary."""
+"""Released CLI noun/verb grammar and composed execution boundary."""
 
 from __future__ import annotations
 
@@ -21,6 +21,9 @@ def _shell_value(name):
     match = re.search(rf'^{name}="([^"]+)"$', CLI_TEXT, re.MULTILINE)
     assert match
     return match.group(1)
+
+
+CLI_VERSION = _shell_value("BRAIN_CLI_VERSION")
 
 
 def _run(tmp_path, *args, cwd=None, env=None):
@@ -92,7 +95,7 @@ print(json.dumps(base, separators=(',', ':')))
 
 
 def test_release_versions_move_together():
-    assert _shell_value("BRAIN_CLI_VERSION") == "2.1.0"
+    assert CLI_VERSION
     assert _shell_value("BRAIN_INSTALL_REF") == f"v{CORE_VERSION}"
 
 
@@ -115,15 +118,15 @@ def test_windows_python_probe_does_not_escape_comparison_inside_quotes():
 
 def test_version_and_launcher_discovery_need_no_selected_brain(tmp_path):
     version = _run(tmp_path, "--version")
-    structural = _run(tmp_path, "brain", "version", "--json")
+    structural = _run(tmp_path, "version", "--json")
     listing = _run(tmp_path, "command", "list", "--owner", "launcher", "--json")
 
     assert version.returncode == 0
-    assert version.stdout.strip() == "brain 2.1.0"
+    assert version.stdout.strip() == f"brain {CLI_VERSION}"
     payload = json.loads(structural.stdout)
     assert structural.returncode == 0
     assert payload["command"] == "brain.version"
-    assert payload["result"]["cli_version"] == "2.1.0"
+    assert payload["result"]["cli_version"] == CLI_VERSION
     commands = json.loads(listing.stdout)
     assert listing.returncode == 0
     assert commands["schema"] == "brain.local-command-list/1"
@@ -131,18 +134,35 @@ def test_version_and_launcher_discovery_need_no_selected_brain(tmp_path):
     assert len(command_ids) == len(set(command_ids))
     assert "brain.version" in command_ids
     assert len(commands["entries"]) == 24
+    by_id = {entry["command_id"]: entry for entry in commands["entries"]}
+    assert by_id["brain.version"]["payload"]["entry_point"] == ["brain", "version"]
+    assert by_id["runtime.inspect"]["payload"]["entry_point"] == [
+        "brain",
+        "runtime",
+        "inspect",
+    ]
+    assert {
+        "brain.backfill",
+        "brain.prune",
+        "machine.migrate-legacy",
+        "machine.prune-runtimes",
+        "runtime.resolve",
+        "runtime.resolve-runnable",
+    }.isdisjoint(command_ids)
 
 
-def test_help_and_parser_expose_only_canonical_noun_verb_grammar(tmp_path):
+def test_help_and_parser_expose_application_grammar_and_launcher_entry_points(tmp_path):
     help_result = _run(tmp_path, "--help")
     legacy = _run(tmp_path, "check")
-    alias = _run(tmp_path, "version")
+    canonical_id_spelling = _run(tmp_path, "brain", "version")
 
     assert help_result.returncode == 0
     assert "<noun> <verb>" in help_result.stdout
+    assert "<launcher-entry-point>" in help_result.stdout
     assert "brain check" not in help_result.stdout
-    assert legacy.returncode == alias.returncode == 2
-    assert "exactly one canonical noun and verb" in legacy.stderr
+    assert legacy.returncode == canonical_id_spelling.returncode == 2
+    assert "one installed launcher entry point" in legacy.stderr
+    assert "uses the launcher entry point: brain version" in canonical_id_spelling.stderr
 
 
 def test_pre_cutover_brain_exposes_launcher_recovery_but_not_application_emulation(
@@ -186,6 +206,29 @@ def test_application_dispatch_discovers_then_invokes_selected_brain_owner(tmp_pa
     assert payload["command"] == "vault.check"
     assert payload["result"]["request"] == {"severity": "warning"}
     assert payload["result"]["vault"] == str(brain)
+
+
+def test_runtime_inspect_uses_selected_brain_with_empty_request(tmp_path):
+    brain = _brain(tmp_path)
+    requirements = brain / ".brain-core" / "brain_mcp" / "requirements.txt"
+    requirements.parent.mkdir()
+    requirements.write_text("", encoding="utf-8")
+
+    result = _run(
+        tmp_path,
+        "runtime",
+        "inspect",
+        "--vault",
+        str(brain),
+        "--request-json",
+        "{}",
+        "--json",
+    )
+
+    payload = json.loads(result.stdout)
+    assert result.returncode == 0, result.stderr
+    assert payload["command"] == "runtime.inspect"
+    assert payload["result"]["vault_root"] == str(brain.resolve())
 
 
 def test_composed_discovery_preserves_application_and_launcher_owners(tmp_path):

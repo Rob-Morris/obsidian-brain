@@ -1,10 +1,11 @@
-# Brain CLI 2
+# Brain CLI 3
 
-The `brain` CLI is the machine-local projection of the Brain command architecture. CLI 2 replaces the former flat dispatch grammar with one predictable noun/verb grammar and one structural result contract. CLI 2.1 adds the out-of-band external access-approval owner.
+The `brain` CLI is the machine-local projection of the Brain command architecture. CLI 3 keeps canonical command IDs in predictable noun/verb form while giving launcher-owned machine operations concise, domain-explicit entry points. It removes machine-implementation names and duplicate commands rather than carrying compatibility aliases.
 
 ## Command grammar
 
 ```text
+brain [selection] <launcher-entry-point> [--request-json JSON|-] [--json] [--dry-run]
 brain [selection] <noun> <verb> [--request-json JSON|-] [--json] [--dry-run]
 brain command list [discovery filters] [--json]
 brain command describe <command-id> [--owner application|launcher|all] [--json]
@@ -12,17 +13,30 @@ brain --version
 brain --help
 ```
 
-Command IDs use `<noun>.<verb>`; CLI words use the same noun and verb separated by a space. For example:
+Command IDs use `<noun>.<verb>`. Selected-Brain application commands use the same noun and verb as two CLI words. Launcher commands own an explicit entry point: the redundant `brain` noun is collapsed (`brain.doctor` → `brain doctor`), while other nouns remain visible (`runtime.inspect` → `brain runtime inspect`). For example:
 
 ```bash
 brain artefact read --request-json '{"reference":"Designs/Example.md"}' --json
 brain artefact create --request-json '{"type":"living/wiki","title":"Example","content":{"source":"inline","content":"Body"}}' --json
-brain brain doctor --request-json '{}' --json
+brain doctor --request-json '{}' --json
+brain runtime inspect --vault /path/to/brain --request-json '{}' --json
 ```
 
-There are no flat aliases, aggregate action buckets, parser spelling aliases or legacy-mode translations. Request fields are passed in one JSON object so MCP, CLI, direct script and typed Python use the same semantic request.
+There are no compatibility aliases, aggregate action buckets, parser spelling aliases or legacy-mode translations. Request fields are passed in one JSON object so MCP, CLI, direct script and typed Python use the same semantic request where those projections are eligible.
 
-`--request-json -` reads the object from standard input. Unknown fields, malformed JSON and a command with anything other than one noun and one verb fail as request errors.
+The CLI 3 launcher break is deliberate:
+
+| Removed command | Replacement | Purpose |
+|---|---|---|
+| `brain machine migrate-legacy` | `brain migrate-legacy-installations` | Migrate legacy Brain installations on this machine. |
+| `brain machine prune-runtimes` | `brain runtime remove-orphans` | Remove orphaned managed runtimes. |
+| `brain backfill` | `brain register` | Register an installed Brain; the removed command duplicated this operation. |
+| `brain prune` | `brain registry remove-stale` | Remove stale local Brain registry entries. |
+| `brain runtime resolve` and `brain runtime resolve-runnable` | `brain runtime inspect` | Report the expected managed runtime and the selected runnable Python source together. |
+
+`brain resolve` remains the direct registry lookup from Brain ID to vault path. These launcher commands are CLI-only; the MCP catalogue is unchanged.
+
+`--request-json -` reads the object from standard input. Unknown fields, malformed JSON, unknown launcher entry points and application commands with anything other than one noun and one verb fail as request errors.
 
 ## Discover commands instead of memorising them
 
@@ -48,6 +62,25 @@ Selection options are global and mutually constrained:
 - `--operator-key KEY` authenticates the application command against the selected Brain's profiles.
 
 Launcher commands may run without a selected Brain when their schema permits it. Application commands always execute through the selected Brain's own `.brain-core/scripts/command.py`; the machine-global CLI does not import or emulate another Brain's application semantics.
+
+### Skill sources and exposure
+
+Selected-Brain commands `skill.list`, `skill.status`, `skill.add-git`,
+`skill.update` and `skill.detach` own package source state. Launcher commands
+`skill.expose` and `skill.unexpose` own explicit writes to Claude and Codex
+discovery directories. For example:
+
+```bash
+brain skill update --request-json '{"name":"shaping"}' --json
+brain skill expose --request-json \
+  '{"name":"shaping","client":"all","scope":"global"}' --json
+```
+
+The exposure launcher still requires an active Brain so it can validate the
+effective skill. With no explicit selector, normal resolution includes the
+machine's default Brain. Project exposure resolves an existing canonical binding
+for `--workspace` first and otherwise uses the machine default; it never creates
+or changes a binding.
 
 ### External access approval
 
@@ -85,17 +118,19 @@ Exit categories are stable across CLI and direct script:
 
 ## Launcher recovery and old Brains
 
-CLI 2 can identify and recover an installed Brain older than 0.55.0, but it does not translate the old grammar. Launcher-owned version, doctor, install and upgrade/recovery commands remain available. Attempting an application command returns structural `upgrade_required`; that Brain's own legacy scripts remain directly invocable until the Brain is upgraded.
+CLI 3 can identify and recover an installed Brain older than 0.55.0, but it does not translate old grammars. Launcher-owned version, doctor, install and upgrade/recovery commands remain available. Attempting an application command returns structural `upgrade_required`; that Brain's own legacy scripts remain directly invocable until the Brain is upgraded.
 
-`brain.upgrade` v2 performs a complete-registry preflight and coordinates Brain Core 0.55+, CLI 2, catalogue, manifest and proxy contracts. Known other pre-cutover Brains require `acknowledge_global_cli_cutover: true`. Stale registry IDs require an exact sorted `excluded_stale_brain_ids` list; unknown registry scope cannot be waived.
+`brain.upgrade` v2 performs a complete-registry preflight and coordinates Brain Core 0.55+, the installed CLI, catalogue, manifest and proxy contracts. Known other pre-cutover Brains require `acknowledge_global_cli_cutover: true`. Stale registry IDs require an exact sorted `excluded_stale_brain_ids` list; unknown registry scope cannot be waived.
+
+After provisioning the target managed runtime, upgrade reconciles any existing current-vault Claude and Codex MCP registrations through the canonical `repair.py mcp` owner; vaults without project registrations remain untouched. Registration or readiness failure is a known partial outcome with explicit recovery guidance, not a false success. Upgrade then starts or joins the selected Brain's canonical runtime warm-up and waits for a recorded `ready` state. It also performs a read-only machine-topology inspection; when unused shared runtimes are proven orphan candidates, it reports `brain runtime remove-orphans --dry-run` and the explicit removal command without deleting machine-global state itself.
 
 ## Installation
 
 The installer writes a versioned distribution under the selected prefix and a small platform bootloader under `bin/`:
 
-- Unix-like user install: `~/.local/bin/brain` and `~/.local/lib/brain-cli/2.1.0/`.
-- Native Windows user install: `%LOCALAPPDATA%\Programs\Brain\bin\brain.cmd` and the adjacent `lib\brain-cli\2.1.0\` distribution.
+- Unix-like user install: `~/.local/bin/brain` and `~/.local/lib/brain-cli/3.1.4/`.
+- Native Windows user install: `%LOCALAPPDATA%\Programs\Brain\bin\brain.cmd` and the adjacent `lib\brain-cli\3.1.4\` distribution.
 
 The distribution contains the launcher application plus the Brain Core payload needed for install, upgrade and selected-Brain execution. Installation and replacement verify a content manifest and executable identity; failed replacement restores the proven old binary/distribution pair or retains recovery material and reports the outcome as unverified.
 
-The bootloader requires Python 3.12 or newer. `BRAIN_CLI_VERSION` is `2.1.0`; `BRAIN_INSTALL_REF` is `v0.57.1`.
+The bootloader requires Python 3.12 or newer. `BRAIN_CLI_VERSION` is `3.1.4`; `BRAIN_INSTALL_REF` is `v0.62.9`.

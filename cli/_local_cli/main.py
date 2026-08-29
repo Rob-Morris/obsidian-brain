@@ -1,4 +1,4 @@
-"""CLI 2 composition root for launcher and selected-Brain commands."""
+"""CLI composition root for launcher and selected-Brain commands."""
 
 from __future__ import annotations
 
@@ -68,8 +68,8 @@ def run(argv: list[str] | None = None) -> int:
             print(_help_text())
             return 0
         cli_binary, distribution_root = _trusted_distribution()
-        selected = _resolve_optional(common, required=False)
         if command_argv[:1] == ["command"]:
+            selected = _resolve_optional(common, required=False)
             return _run_discovery(
                 command_argv,
                 common=common,
@@ -77,14 +77,24 @@ def run(argv: list[str] | None = None) -> int:
                 cli_binary=cli_binary,
                 distribution_root=distribution_root,
             )
-        if len(command_argv) != 2:
-            raise LocalCliUsageError(
-                "commands use exactly one canonical noun and verb; "
-                "pass request data with --request-json"
-            )
-        command_id = ".".join(command_argv)
+        entry = _launcher_entry_for_argv(command_argv)
+        if entry is None:
+            if len(command_argv) != 2:
+                raise LocalCliUsageError(
+                    "commands use one installed launcher entry point or exactly one "
+                    "application noun and verb; pass request data with --request-json"
+                )
+            command_id = ".".join(command_argv)
+            installed_launcher = _launcher_entry(command_id)
+            if installed_launcher is not None:
+                spelling = " ".join(installed_launcher.payload["entry_point"])
+                raise LocalCliUsageError(
+                    f"{command_id} uses the launcher entry point: {spelling}"
+                )
+        else:
+            command_id = entry.command_id
         payload = _request_payload(common.request_json)
-        entry = _launcher_entry(command_id)
+        selected = _resolve_for_command(common, entry, payload)
         if entry is not None:
             operator_key = _launcher_operator_key(command_id, common.operator_key)
             context = compose_launcher_context(
@@ -190,6 +200,25 @@ def _resolve_optional(common, *, required: bool) -> SelectedBrain | None:
         return None
 
 
+def _resolve_for_command(common, entry, payload) -> SelectedBrain | None:
+    if (
+        entry is not None
+        and entry.command_id in {"skill.expose", "skill.unexpose"}
+        and payload.get("scope") == "project"
+    ):
+        from .runtime import resolve_project_exposure_brain
+
+        try:
+            return resolve_project_exposure_brain(
+                vault=common.vault,
+                brain_id=common.brain_id,
+                workspace=common.workspace,
+            )
+        except Exception as exc:
+            raise CliError(str(exc)) from exc
+    return _resolve_optional(common, required=False)
+
+
 def _request_payload(value: str) -> dict[str, object]:
     raw = sys.stdin.read() if value == "-" else value
     try:
@@ -226,6 +255,15 @@ def _launcher_entry(command_id: str) -> ComposedCommandEntry | None:
         None,
     ))
     return composed.entries[0]
+
+
+def _launcher_entry_for_argv(command_argv: list[str]) -> ComposedCommandEntry | None:
+    words = ("brain", *command_argv)
+    match = next(
+        (entry for entry in LAUNCHER_CATALOGUE.entries if entry.entry_point == words),
+        None,
+    )
+    return _launcher_entry(match.command_id) if match is not None else None
 
 
 def _application_entry(selected: SelectedBrain, command_id: str, common) -> ComposedCommandEntry:
@@ -462,16 +500,18 @@ def _required_text(payload: Mapping[str, object], name: str) -> str:
 
 
 def _help_text() -> str:
-    return """brain 2.0 — canonical Brain command interface
+    return """brain 3.0 — canonical Brain command interface
 
 Usage:
+  brain <launcher-entry-point> [--request-json JSON|-] [--vault PATH|--brain ID] [--json]
   brain <noun> <verb> [--request-json JSON|-] [--vault PATH|--brain ID] [--json]
   brain command list [--owner application|launcher|all] [filters] [--json]
   brain command describe <command-id> [--owner application|launcher|all] [--json]
   brain --version
 
-Every semantic command uses one canonical noun/verb spelling. Run `brain command
-describe <command-id> --json` for its exact request schema and minimal example.
+Application commands use their canonical noun/verb spelling. Launcher commands
+use the entry point advertised by discovery. Run `brain command describe
+<command-id> --json` for its exact request schema and minimal example.
 """
 
 

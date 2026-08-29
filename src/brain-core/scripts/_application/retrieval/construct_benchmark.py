@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from .._decoding import reject_unexpected
+
 from dataclasses import dataclass
 from enum import Enum
 from typing import ClassVar, Literal, Mapping
@@ -21,6 +23,15 @@ from ..results import ErrorCode, Ok
 class BenchmarkConstructionStatus(str, Enum):
     PLANNED = "planned"
     COMPLETE = "complete"
+
+
+_TARGET_DEFAULTS = {
+    "target_lexical": 8,
+    "target_semantic": 8,
+    "target_hybrid": 8,
+    "target_cluster": 4,
+    "target_filter": 4,
+}
 
 
 @dataclass(frozen=True, slots=True)
@@ -43,11 +54,11 @@ class RetrievalConstructBenchmarkRequest:
 
     fixture_path: str
     audit_path: str | None = None
-    target_lexical: int = 8
-    target_semantic: int = 8
-    target_hybrid: int = 8
-    target_cluster: int = 4
-    target_filter: int = 4
+    target_lexical: int = _TARGET_DEFAULTS["target_lexical"]
+    target_semantic: int = _TARGET_DEFAULTS["target_semantic"]
+    target_hybrid: int = _TARGET_DEFAULTS["target_hybrid"]
+    target_cluster: int = _TARGET_DEFAULTS["target_cluster"]
+    target_filter: int = _TARGET_DEFAULTS["target_filter"]
     semantic_strategy: Literal["local", "assisted-zero-overlap"] = "local"
     semantic_seed_path: str | None = None
     hybrid_seed_path: str | None = None
@@ -59,14 +70,12 @@ class RetrievalConstructBenchmarkRequest:
             not isinstance(self.audit_path, str) or not self.audit_path.strip()
         ):
             raise ValueError("audit_path must be a non-empty Brain-relative path")
-        for field in (
-            "target_lexical",
-            "target_semantic",
-            "target_hybrid",
-            "target_cluster",
-            "target_filter",
-        ):
-            validate_count(getattr(self, field), field, default=0)
+        for field, default in _TARGET_DEFAULTS.items():
+            object.__setattr__(
+                self,
+                field,
+                validate_count(getattr(self, field), field, default=default),
+            )
         if self.semantic_strategy not in {"local", "assisted-zero-overlap"}:
             raise ValueError("semantic_strategy must be 'local' or 'assisted-zero-overlap'")
 
@@ -213,34 +222,29 @@ def decode(payload: Mapping[str, object]) -> RetrievalConstructBenchmarkRequest:
         "semantic_seed_path",
         "hybrid_seed_path",
     }
-    unexpected = sorted(set(payload) - allowed)
-    if unexpected:
-        raise ValueError(f"unexpected fields: {', '.join(unexpected)}")
+    reject_unexpected(payload, allowed)
     fixture_path = payload.get("fixture_path")
     if not isinstance(fixture_path, str):
         raise ValueError("fixture_path must be a string")
     strategy = payload.get("semantic_strategy", "local")
     if not isinstance(strategy, str):
         raise ValueError("semantic_strategy must be a string")
+    optional = {
+        field: payload[field]
+        for field in (
+            "audit_path",
+            *_TARGET_DEFAULTS,
+            "semantic_seed_path",
+            "hybrid_seed_path",
+        )
+        if field in payload
+    }
     return RetrievalConstructBenchmarkRequest(
-        fixture_path,
-        payload.get("audit_path"),
-        validate_count(payload.get("target_lexical"), "target_lexical", default=8),
-        validate_count(payload.get("target_semantic"), "target_semantic", default=8),
-        validate_count(payload.get("target_hybrid"), "target_hybrid", default=8),
-        validate_count(payload.get("target_cluster"), "target_cluster", default=4),
-        validate_count(payload.get("target_filter"), "target_filter", default=4),
-        strategy,
-        payload.get("semantic_seed_path"),
-        payload.get("hybrid_seed_path"),
+        fixture_path=fixture_path,
+        semantic_strategy=strategy,
+        **optional,
     )
 
 
 def catalogue_entry():
     return benchmark_entry(RetrievalConstructBenchmarkRequest, execute, mutation=True)
-
-
-def resolver_entry():
-    from ..resolver import ResolverEntry
-
-    return ResolverEntry(RetrievalConstructBenchmarkRequest, decode)

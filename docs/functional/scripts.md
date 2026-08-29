@@ -50,11 +50,11 @@ The direct projection honours the same ceiling and Reader-default active grant a
 | 3 | authority, dependency or provider unavailable |
 | 4 | infrastructure failure or unknown outcome |
 
-Human output and JSON output are projections of the same result. Diagnostics never replace the structural envelope in JSON mode.
+Human output and JSON output are projections of the same result. Diagnostics never replace the structural envelope in JSON mode. Unexpected failures produce bounded public stderr without a traceback or raw exception detail. Once trusted context exists, its diagnostic sink receives the full failure with command and correlation metadata.
 
 ## Typed Python
 
-Python consumers construct the sealed request type for a known command and invoke it through `CommandApplication(context).invoke(request)`. Dynamic infrastructure consumers resolve through the catalogue-bound `ApplicationAdapter`; free command strings are permitted only at that explicit adapter boundary.
+Python consumers import the supported kernel from `brain_application`, construct sealed request types from `brain_application.requests`, and obtain their construction values from `brain_application.values` or a narrow domain module such as `brain_application.documents`. Trusted context contracts, including dependency and availability enums and receipt ports, are exported by `brain_application.context`. Invoke requests through `CommandApplication(context).invoke(request)`. Importing the kernel does not load command owners; importing the all-requests or all-values modules is an explicit opt-in to every dependency tier. The internal `_application` tree owns execution and registration and is not a supported integration surface. Dynamic infrastructure consumers resolve through the catalogue-bound `ApplicationAdapter`; free command strings are permitted only at that explicit adapter boundary.
 
 The trusted `InvocationContext` contains selected-Brain identity, authenticated authority, dependency tier, one capability snapshot, providers, invocation/correlation identity, receipt writer and effect facilities. Executors do not rediscover those facts from environment variables.
 

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from .._decoding import decode_empty
 from dataclasses import dataclass
 from typing import ClassVar, Mapping
 
@@ -13,8 +14,6 @@ from ..types import (
     DependencyTier,
     EffectClass,
     Locality,
-    Projection,
-    ProjectionEligibility,
     RetryClass,
 )
 from ._snapshot import typed_snapshot
@@ -44,13 +43,11 @@ def execute(context: InvocationContext, _request: RuntimeStatusRequest):
 
 
 def decode(payload: Mapping[str, object]) -> RuntimeStatusRequest:
-    if payload:
-        raise ValueError(f"unexpected fields: {', '.join(sorted(payload))}")
-    return RuntimeStatusRequest()
+    return decode_empty(payload, RuntimeStatusRequest)
 
 
 def catalogue_entry():
-    from ..catalogue import ApplicationEntry
+    from ..catalogue import ALL_APPLICATION_PROJECTIONS, ApplicationEntry
 
     return ApplicationEntry(
         request_type=RuntimeStatusRequest,
@@ -62,20 +59,6 @@ def catalogue_entry():
         authority=Authority.READER,
         effect_class=EffectClass.NONE,
         retry_class=RetryClass.SAFE,
-        projections=tuple(
-            ProjectionEligibility(projection, True)
-            for projection in (
-                Projection.MCP,
-                Projection.CLI,
-                Projection.SCRIPT,
-                Projection.PYTHON,
-            )
-        ),
+        projections=ALL_APPLICATION_PROJECTIONS,
         summary="Read the selected Brain's recorded runtime warm-up status.",
     )
-
-
-def resolver_entry():
-    from ..resolver import ResolverEntry
-
-    return ResolverEntry(RuntimeStatusRequest, decode)

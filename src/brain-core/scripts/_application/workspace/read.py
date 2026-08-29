@@ -10,7 +10,6 @@ from .._read_support import (
     catalogue_entry as _catalogue_entry,
     command_error,
     decode_reference,
-    resolver_entry as _resolver_entry,
 )
 from ..context import InvocationContext
 from ..results import ErrorCode, Ok
@@ -92,7 +91,3 @@ def decode(payload: Mapping[str, object]) -> WorkspaceReadRequest:
 
 def catalogue_entry():
     return _catalogue_entry(WorkspaceReadRequest, execute)
-
-
-def resolver_entry():
-    return _resolver_entry(WorkspaceReadRequest, decode)

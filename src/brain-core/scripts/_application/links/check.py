@@ -2,20 +2,14 @@
 
 from __future__ import annotations
 
+from .._decoding import reject_unexpected
+from .._read_support import catalogue_entry as portable_reader_entry
+
 from dataclasses import dataclass
 from typing import ClassVar, Mapping
 
 from ..context import InvocationContext
 from ..results import Ok
-from ..types import (
-    Authority,
-    DependencyTier,
-    EffectClass,
-    Locality,
-    Projection,
-    ProjectionEligibility,
-    RetryClass,
-)
 
 
 @dataclass(frozen=True, slots=True)
@@ -112,9 +106,7 @@ def execute(context: InvocationContext, request: LinksCheckRequest):
 
 
 def decode(payload: Mapping[str, object]) -> LinksCheckRequest:
-    unexpected = sorted(set(payload) - {"path"})
-    if unexpected:
-        raise ValueError(f"unexpected fields: {', '.join(unexpected)}")
+    reject_unexpected(payload, {"path"})
     path = payload.get("path")
     if path is not None and not isinstance(path, str):
         raise ValueError("path must be a string")
@@ -122,31 +114,4 @@ def decode(payload: Mapping[str, object]) -> LinksCheckRequest:
 
 
 def catalogue_entry():
-    from ..catalogue import ApplicationEntry
-
-    return ApplicationEntry(
-        request_type=LinksCheckRequest,
-        executor=execute,
-        dependency_tier=DependencyTier.PORTABLE,
-        locality=Locality.SELECTED_BRAIN_LOCAL,
-        required_providers=(),
-        optional_providers=(),
-        authority=Authority.READER,
-        effect_class=EffectClass.NONE,
-        retry_class=RetryClass.SAFE,
-        projections=tuple(
-            ProjectionEligibility(projection, True)
-            for projection in (
-                Projection.MCP,
-                Projection.CLI,
-                Projection.SCRIPT,
-                Projection.PYTHON,
-            )
-        ),
-    )
-
-
-def resolver_entry():
-    from ..resolver import ResolverEntry
-
-    return ResolverEntry(LinksCheckRequest, decode)
+    return portable_reader_entry(LinksCheckRequest, execute)

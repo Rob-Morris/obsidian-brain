@@ -2,7 +2,7 @@
 
 **Status:** Implemented (v0.55.0; foundation staged in v0.54.1–v0.54.59)
 **Extends:** DD-002, DD-003, DD-045, DD-049
-**Extended by:** DD-062
+**Extended by:** DD-062, DD-066
 
 ## Context
 
@@ -1061,8 +1061,8 @@ scripts and permanent translation mappings are removed. Profile allow-lists
 migrate once inside the checked upgrade transaction and runtime authorisation
 accepts exact granular command names only.
 
-The final catalogue consolidates operations that differ only by target or mode:
-`document.edit` owns five edit changes across five document resources; active
+The original v0.55 catalogue consolidated operations that differed only by target or mode:
+`document.edit` owned five edit changes across five document resources; active
 versus archived read/list is a field; definition installation and refresh share
 `type.sync`; router and lexical maintenance each use one optional-force refresh;
 and artefact repair uses an explicit scope. The resulting application catalogue
@@ -1072,8 +1072,8 @@ operator/administrator respectively; their MCP projections contain
 37/63/74/77/78 tools because eight caller-local or benchmark commands are
 intentionally not MCP-eligible.
 
-The supported-client metadata budget remains 16,384 tokens for the complete
-catalogue and 512 for ordinary tools. `document.edit` has one explicit 2,048
+The v0.55 supported-client metadata budget was 16,384 tokens for the complete
+catalogue and 512 for ordinary tools. `document.edit` had one explicit 2,048
 token allowance because its five resource targets and five strict change
 variants are the approved cohesive interface; making those fields opaque or
 re-splitting the command merely to preserve the earlier per-leaf ceiling would

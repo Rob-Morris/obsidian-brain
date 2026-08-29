@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from .._decoding import reject_unexpected
+
 from dataclasses import dataclass
 from enum import Enum
 from typing import ClassVar, Mapping
@@ -193,9 +195,7 @@ def _payload(result, *, dry_run: bool) -> AttachmentUploadPayload:
 
 def decode(payload: Mapping[str, object]) -> AttachmentUploadRequest:
     allowed = {"destination_key", "name", "content_base64"}
-    unexpected = sorted(set(payload) - allowed)
-    if unexpected:
-        raise ValueError(f"unexpected fields: {', '.join(unexpected)}")
+    reject_unexpected(payload, allowed)
     values = {field: payload.get(field) for field in allowed}
     if any(not isinstance(value, str) for value in values.values()):
         raise ValueError(
@@ -210,9 +210,3 @@ def decode(payload: Mapping[str, object]) -> AttachmentUploadRequest:
 
 def catalogue_entry():
     return contributor_mutation_entry(AttachmentUploadRequest, execute)
-
-
-def resolver_entry():
-    from ..resolver import ResolverEntry
-
-    return ResolverEntry(AttachmentUploadRequest, decode)

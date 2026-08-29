@@ -109,11 +109,11 @@ The MCP proxy and replacement server exchange a strict command-interface header.
 
 ## Installation and checked cutover
 
-CLI 2 is a small platform bootloader plus a versioned distribution. A fresh install writes a matching Brain Core, catalogue, launcher, CLI, proxy and installer set.
+The Brain CLI is a small platform bootloader plus a versioned distribution. A fresh install writes a matching Brain Core, catalogue, launcher, CLI, proxy and installer set.
 
 Upgrade preflights the complete local Brain registry and classifies every local/remote/stale entry before mutation. Other local Brains affected by the machine-global CLI replacement require exact acknowledgement; stale exclusions are explicit. Brain Core and the CLI distribution commit inside one checked transaction. Failure either proves restoration of the old set or retains recovery material and reports uncertainty honestly.
 
-CLI 2 refuses application discovery against a pre-cutover Brain but retains launcher-owned discovery and recovery. Old direct Brain scripts remain available only as recovery material in the old installation; the new release does not ship public compatibility aliases.
+The current CLI refuses application discovery against a pre-cutover Brain but retains launcher-owned discovery and recovery. Old direct Brain scripts remain available only as recovery material in the old installation; the new release does not ship public compatibility aliases.
 
 ## Agent bootstrap
 

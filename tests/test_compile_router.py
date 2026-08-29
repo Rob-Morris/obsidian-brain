@@ -538,6 +538,63 @@ class TestParseShaping:
         with pytest.raises(ValueError, match="Completion status"):
             cr.parse_taxonomy_file(str(f))
 
+    def test_parses_discovery_contract_that_preserves_status(self, tmp_path):
+        f = tmp_path / "people.md"
+        f.write_text(
+            "# People\n\n"
+            "## Frontmatter\n\n"
+            "```yaml\n---\nstatus: active  # active | shaping | parked\n---\n```\n\n"
+            "## Shaping\n\n"
+            "**Flavour:** Discovery\n"
+            "**Bar:** The current picture is faithful and clear.\n"
+            "**Status behaviour:** `preserve`\n"
+        )
+
+        result = cr.parse_taxonomy_file(str(f))
+
+        assert result["shaping"] == {
+            "flavour": "discovery",
+            "bar": "The current picture is faithful and clear.",
+            "status_behaviour": "preserve",
+        }
+
+    def test_preserved_status_requires_discovery_flavour(self, tmp_path):
+        f = tmp_path / "designs.md"
+        f.write_text(
+            "# Designs\n\n"
+            "## Frontmatter\n\n"
+            "```yaml\n---\nstatus: shaping  # shaping | ready\n---\n```\n\n"
+            "## Shaping\n\n"
+            "**Flavour:** Convergent\n"
+            "**Bar:** Decisions are resolved.\n"
+            "**Status behaviour:** `preserve`\n"
+        )
+
+        with pytest.raises(ValueError, match="requires.*Discovery"):
+            cr.parse_taxonomy_file(str(f))
+
+    def test_preserved_status_accepts_declared_exit_from_shaping(self, tmp_path):
+        f = tmp_path / "people.md"
+        f.write_text(
+            "# People\n\n"
+            "## Frontmatter\n\n"
+            "```yaml\n---\nstatus: active  # active | shaping\n---\n```\n\n"
+            "## Shaping\n\n"
+            "**Flavour:** Discovery\n"
+            "**Bar:** The current picture is faithful and clear.\n"
+            "**Status behaviour:** `preserve`\n"
+            "**Completion status:** `active`\n"
+        )
+
+        result = cr.parse_taxonomy_file(str(f))
+
+        assert result["shaping"] == {
+            "flavour": "discovery",
+            "bar": "The current picture is faithful and clear.",
+            "status_behaviour": "preserve",
+            "completion_status": "active",
+        }
+
     @pytest.mark.parametrize(
         ("metadata", "message"),
         [
@@ -569,6 +626,16 @@ class TestParseShaping:
                 "**Flavour:** Convergent\n**Bar:** Clear.\n"
                 "**Completion status:** approved\n",
                 "backticks",
+            ),
+            (
+                "**Flavour:** Discovery\n**Bar:** Clear.\n"
+                "**Status behaviour:** preserve\n",
+                "backticks",
+            ),
+            (
+                "**Flavour:** Discovery\n**Bar:** Clear.\n"
+                "**Status behaviour:** `temporary`\n",
+                "must be",
             ),
         ],
     )
@@ -950,10 +1017,10 @@ class TestCompile:
         assert triggers[0]["category"] == "after"
         assert "meaningful work" in triggers[0]["condition"].lower()
 
-    def test_core_skills_before_user_skills(self, vault):
+    def test_user_skills_precede_core_skills_for_default_resolution(self, vault):
         result = cr.compile(vault)
         sources = [s["source"] for s in result["skills"]]
-        assert sources == ["core", "user"]
+        assert sources == ["user", "core"]
 
     def test_skills_have_source_tag(self, vault):
         result = cr.compile(vault)
@@ -1124,8 +1191,15 @@ class TestTemplateVault:
             "shipped",
             "deprecated",
         ]
-        for field in ["version", "tag", "commit", "shipped"]:
-            assert field in parsed["frontmatter"]["required"]
+        required = parsed["frontmatter"]["required"]
+        # `status` drives the naming rules above and `parent` roots the artefact,
+        # so both are required. The ship-time fields are documented in the example
+        # so an author knows they exist, but the taxonomy declares them optional —
+        # they "become load-bearing at ship time; until then they may stay blank".
+        assert "status" in required
+        assert "parent" in required
+        for blank_until_ship in ["version", "tag", "commit", "shipped"]:
+            assert blank_until_ship not in required
 
 
 # ---------------------------------------------------------------------------
@@ -1256,6 +1330,77 @@ class TestFrontmatterType:
         recipes = next(a for a in result["artefacts"] if a["folder"] == "Recipes")
         assert recipes["configured"] is True
         assert recipes["frontmatter_type"] == "living/recipes"
+
+
+class TestFrontmatterOptionalFields:
+    """The frontmatter example documents shape; `**Optional:**` declares requiredness.
+
+    Without the declaration every documented key is required — the historical
+    behaviour, and what an undeclared custom type still gets.
+    """
+
+    NAMING = "## Naming\n\n`{title}.md` in `Recipes/`.\n\n"
+
+    def _recipes_required(self, vault, frontmatter_section, *, naming=None):
+        (vault / "Recipes").mkdir()
+        tax = vault / "_Config" / "Taxonomy" / "Living"
+        (tax / "Recipes.md").write_text(
+            "# Recipes\n\n" + (naming or self.NAMING) + frontmatter_section
+        )
+        result = cr.compile(vault)
+        entry = next(a for a in result["artefacts"] if a["folder"] == "Recipes")
+        return entry["frontmatter"]["required"]
+
+    def test_every_documented_key_is_required_without_a_declaration(self, vault):
+        required = self._recipes_required(
+            vault,
+            "## Frontmatter\n\n```yaml\n---\ntype: living/recipe\ntags:\n  - recipe\n"
+            "servings:\n---\n```\n",
+        )
+        assert required == ["type", "tags", "servings"]
+
+    def test_declared_optional_fields_are_subtracted(self, vault):
+        required = self._recipes_required(
+            vault,
+            "## Frontmatter\n\n```yaml\n---\ntype: living/recipe\ntags:\n  - recipe\n"
+            "servings:\n---\n```\n\n**Optional:** `servings`\n",
+        )
+        assert required == ["type", "tags"]
+
+    def test_declaring_an_undocumented_field_is_a_compile_error(self, vault):
+        """A silent no-op subtraction is the failure the declaration prevents."""
+        with pytest.raises(ValueError, match="absent from the example"):
+            self._recipes_required(
+                vault,
+                "## Frontmatter\n\n```yaml\n---\ntype: living/recipe\ntags:\n  - recipe\n"
+                "---\n```\n\n**Optional:** `calories`\n",
+            )
+
+    def test_declaration_outside_the_frontmatter_section_is_ignored(self, vault):
+        required = self._recipes_required(
+            vault,
+            "## Frontmatter\n\n```yaml\n---\ntype: living/recipe\ntags:\n  - recipe\n"
+            "servings:\n---\n```\n\n## Notes\n\n**Optional:** `servings`\n",
+        )
+        assert required == ["type", "tags", "servings"]
+
+    def test_naming_driver_cannot_be_optional(self, vault):
+        naming = (
+            "## Naming\n\n"
+            "Primary folder: `Recipes/`.\n\n"
+            "### Rules\n\n"
+            "| Match field | Match values | Pattern |\n"
+            "|---|---|---|\n"
+            "| `status` | `draft` | `{Title}.md` |\n\n"
+        )
+        with pytest.raises(ValueError, match="used by ## Naming rules: status"):
+            self._recipes_required(
+                vault,
+                "## Frontmatter\n\n```yaml\n---\ntype: living/recipe\n"
+                "tags:\n  - recipe\nstatus: draft\n---\n```\n\n"
+                "**Optional:** `status`\n",
+                naming=naming,
+            )
 
 
 class TestArtefactIndex:

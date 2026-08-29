@@ -75,7 +75,7 @@ def test_installed_cli_discovers_real_selected_brain_catalogue(
     assert completed.returncode == 0, completed.stderr
     payload = json.loads(completed.stdout)
     assert payload["schema"] == "brain.local-command-list/1"
-    assert len(payload["entries"]) == 70
+    assert len(payload["entries"]) == 78
     assert "artefact.delete" not in {
         entry["command_id"] for entry in payload["entries"]
     }
@@ -122,10 +122,14 @@ def test_source_core_version_must_match_requested_distribution(tmp_path):
     (source / "template-vault").mkdir()
     declaration = (
         'BRAIN_CLI_VERSION="9.9.9"\n'
-        'BRAIN_INSTALL_REF="v8.8.8"\n'
+        'BRAIN_INSTALL_REF="v7.7.7"\n'
     )
     (source / "cli" / "brain").write_text(declaration, encoding="utf-8")
-    (source / "cli" / "brain.cmd").write_text(declaration, encoding="utf-8")
+    (source / "cli" / "brain.cmd").write_text(
+        'set "BRAIN_CLI_VERSION=9.9.9"\n'
+        'set "BRAIN_INSTALL_REF=v7.7.7"\n',
+        encoding="utf-8",
+    )
     (source / "src" / "brain-core" / "VERSION").write_text(
         "7.7.7\n", encoding="utf-8"
     )

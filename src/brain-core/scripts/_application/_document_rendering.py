@@ -14,8 +14,6 @@ from .types import (
     DependencyTier,
     EffectClass,
     Locality,
-    Projection,
-    ProjectionEligibility,
     RetryClass,
 )
 
@@ -130,28 +128,14 @@ def require_non_empty(value: object, field: str) -> str:
     return value
 
 
-def optional_bool(value: object, field: str, *, default: bool) -> bool:
-    if value is None:
-        return default
-    if not isinstance(value, bool):
-        raise ValueError(f"{field} must be a boolean")
-    return value
-
-
 def optional_string(value: object, field: str) -> str | None:
     if value is None:
         return None
     return require_non_empty(value, field)
 
 
-def reject_unexpected(payload: Mapping[str, object], allowed: set[str]) -> None:
-    unexpected = sorted(set(payload) - allowed)
-    if unexpected:
-        raise ValueError(f"unexpected fields: {', '.join(unexpected)}")
-
-
 def catalogue_entry(request_type, executor):
-    from .catalogue import ApplicationEntry
+    from .catalogue import ALL_APPLICATION_PROJECTIONS, ApplicationEntry
 
     return ApplicationEntry(
         request_type=request_type,
@@ -163,13 +147,5 @@ def catalogue_entry(request_type, executor):
         authority=Authority.CONTRIBUTOR,
         effect_class=EffectClass.SELECTED_BRAIN_MUTATION,
         retry_class=RetryClass.RECEIPT_REQUIRED,
-        projections=tuple(
-            ProjectionEligibility(projection, True)
-            for projection in (
-                Projection.MCP,
-                Projection.CLI,
-                Projection.SCRIPT,
-                Projection.PYTHON,
-            )
-        ),
+        projections=ALL_APPLICATION_PROJECTIONS,
     )

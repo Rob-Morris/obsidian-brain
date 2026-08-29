@@ -83,6 +83,7 @@ from ._artefacts import (
     parse_date_value,
     parse_artefact_key,
     prune_vacated_owner_folders,
+    read_exact_file_content,
     read_file_content,
     replace_artefact_key_references,
     resolve_artefact_definition_for_prefix,
@@ -127,6 +128,8 @@ from ._filesystem import (
     safe_write_via,
     safe_write_json,
     temp_body_file_cleanup_path,
+    validate_portable_relative_path,
+    validate_windows_portable_filename_segment,
 )
 
 from ._file_lock import (
@@ -135,6 +138,16 @@ from ._file_lock import (
     mutation_lock_error_message,
     public_mutation_error_message,
     vault_mutation_lock,
+)
+
+from ._document_revision import (
+    DocumentRevisionConflict,
+    PersistedDocumentContent,
+    decode_persisted_document,
+    document_revision,
+    document_revision_at,
+    require_document_revision,
+    validate_document_revision,
 )
 
 from ._frontmatter import (
@@ -206,6 +219,7 @@ from ._selector import (
 )
 
 from ._slugs import (
+    CANONICAL_KEY_PATTERN,
     SLUG_TITLE_KEY_LIMIT,
     derive_distinctive_slug,
     extract_slug_keywords,
@@ -231,10 +245,15 @@ from ._cli import (
 )
 
 from ._templates import (
+    AGENT_INSTRUCTION_RE,
     now_iso,
     random_short_suffix,
     substitute_template_vars,
     unique_filename,
+)
+
+from ._definition_manifest import (
+    decode_definition_manifest,
 )
 
 from ._reconcile import (

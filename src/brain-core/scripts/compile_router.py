@@ -23,6 +23,7 @@ from _bootstrap.runtime import (
     handoff_current_script_to_managed_runtime,
     required_modules_for_scope,
 )
+from _portable.skill_resolution import order_skill_records, skill_record
 from _common import (
     PLACEHOLDER_TOKEN_RE,
     PLUGINS_DIR,
@@ -244,6 +245,36 @@ def _unwrap_backticks(cell):
     return m.group(1) if m else cell
 
 
+def _parse_optional_frontmatter_fields(section, documented):
+    """Return the fields a ``## Frontmatter`` section declares optional.
+
+    The frontmatter example documents shape, not requiredness — a defaulted
+    ``status:`` or a blank ``version:`` is shown so an agent knows the field
+    exists. An explicit ``**Optional:**`` line names those fields, and
+    everything else the example shows stays required. Absent the line, every
+    documented key is required, which is the historical behaviour.
+
+    Declaring a field the example does not show is a compile error: the
+    subtraction would silently do nothing, which is the failure the explicit
+    declaration exists to prevent.
+    """
+    line = re.search(
+        r"^\*\*Optional:\*\*[ \t]*([^\r\n]+?)[ \t]*$",
+        section,
+        re.MULTILINE,
+    )
+    if not line:
+        return frozenset()
+    fields = _split_backticked_values(line.group(1))
+    undocumented = [field for field in fields if field not in documented]
+    if undocumented:
+        raise ValueError(
+            "## Frontmatter **Optional:** names field(s) absent from the example: "
+            + ", ".join(undocumented)
+        )
+    return frozenset(fields)
+
+
 def _split_backticked_values(cell):
     """Parse a value cell: '`a`, `b`, `c`' → ['a','b','c']; '`*`' or '*' → ['*'].
 
@@ -439,6 +470,54 @@ def _parse_naming_section(content):
     }
 
 
+def naming_storage_root(folder):
+    """Return the static directory prefix of a compiled naming folder."""
+    if not isinstance(folder, str) or not folder.strip("/"):
+        return None
+    static_parts = []
+    for part in folder.strip("/").split("/"):
+        if "{" in part or part == "yyyy-mm":
+            break
+        static_parts.append(part)
+    if not static_parts:
+        return None
+    return "/".join(static_parts) + "/"
+
+
+def _parse_backtick_shaping_field(section, label, *, required):
+    """Parse one optional or required backtick-delimited shaping field."""
+    line = re.search(
+        rf"^\*\*{re.escape(label)}:\*\*.*$",
+        section,
+        re.MULTILINE | re.IGNORECASE,
+    )
+    if line is None:
+        if required:
+            raise ValueError(
+                f"{SHAPING_METADATA_ERROR_CODE}: "
+                f"## Shaping requires **{label}:** metadata in backticks"
+            )
+        return None
+
+    match = re.search(
+        rf"^\*\*{re.escape(label)}:\*\*[ \t]*`([^`]*)`[ \t]*$",
+        section,
+        re.MULTILINE | re.IGNORECASE,
+    )
+    if match is None:
+        raise ValueError(
+            f"{SHAPING_METADATA_ERROR_CODE}: "
+            f"## Shaping **{label}:** must be in backticks"
+        )
+    value = match.group(1).strip()
+    if not value:
+        raise ValueError(
+            f"{SHAPING_METADATA_ERROR_CODE}: "
+            f"## Shaping requires non-empty **{label}:** metadata"
+        )
+    return value
+
+
 def _parse_shaping_section(content):
     """Parse the domain contract declared by an optional ``## Shaping`` section."""
     section_match = re.search(
@@ -451,25 +530,20 @@ def _parse_shaping_section(content):
 
     section = section_match.group(1)
     fields = {}
-    patterns = {
+    required_patterns = {
         "flavour": r"^\*\*Flavour:\*\*[ \t]*([^\r\n]+?)[ \t]*$",
         "bar": r"^\*\*Bar:\*\*[ \t]*([^\r\n]+?)[ \t]*$",
-        "completion_status": (
-            r"^\*\*Completion status:\*\*[ \t]*`([^`]+)`[ \t]*$"
-        ),
     }
     labels = {
         "flavour": "Flavour",
         "bar": "Bar",
-        "completion_status": "Completion status",
     }
-    for field, pattern in patterns.items():
+    for field, pattern in required_patterns.items():
         match = re.search(pattern, section, re.MULTILINE | re.IGNORECASE)
         if not match:
             raise ValueError(
                 f"{SHAPING_METADATA_ERROR_CODE}: "
                 f"## Shaping requires **{labels[field]}:** metadata"
-                + (" in backticks" if field == "completion_status" else "")
             )
         fields[field] = match.group(1).strip()
         if not fields[field]:
@@ -485,7 +559,45 @@ def _parse_shaping_section(content):
             "## Shaping **Flavour:** must be `Convergent` or `Discovery`"
         )
     fields["flavour"] = flavour
+
+    declared_status_behaviour = _parse_backtick_shaping_field(
+        section, "Status behaviour", required=False
+    )
+    status_behaviour = (declared_status_behaviour or "transition").lower()
+    if status_behaviour not in {"transition", "preserve"}:
+        raise ValueError(
+            f"{SHAPING_METADATA_ERROR_CODE}: "
+            "## Shaping **Status behaviour:** must be `transition` or `preserve`"
+        )
+    if status_behaviour == "preserve" and flavour != "discovery":
+        raise ValueError(
+            f"{SHAPING_METADATA_ERROR_CODE}: "
+            "## Shaping **Status behaviour:** `preserve` requires "
+            "**Flavour:** Discovery"
+        )
+    if declared_status_behaviour is not None:
+        fields["status_behaviour"] = status_behaviour
+
+    completion_status = _parse_backtick_shaping_field(
+        section,
+        "Completion status",
+        required=status_behaviour == "transition",
+    )
+    if completion_status is not None:
+        fields["completion_status"] = completion_status
     return fields
+
+
+def required_shaping_lifecycle_statuses(shaping):
+    """Return lifecycle values that must support a compiled shaping contract."""
+    return [
+        "shaping",
+        *(
+            [shaping["completion_status"]]
+            if shaping.get("completion_status")
+            else []
+        ),
+    ]
 
 
 def finalize_naming_date_sources(naming, classification, type_key):
@@ -533,21 +645,44 @@ def parse_taxonomy_content(content):
     result["naming"] = _parse_naming_section(content)
 
     # Parse ## Frontmatter — extract YAML code block
-    fm_match = re.search(
-        r"^## Frontmatter\s*\n.*?```ya?ml\s*\n---\s*\n(.*?)---\s*\n```",
+    fm_section = re.search(
+        r"^## Frontmatter\s*$\n(.*?)(?=^## |\Z)",
         content,
         re.MULTILINE | re.DOTALL,
+    )
+    fm_match = (
+        re.search(
+            r"```ya?ml\s*\n---\s*\n(.*?)---\s*\n```",
+            fm_section.group(1),
+            re.MULTILINE | re.DOTALL,
+        )
+        if fm_section
+        else None
     )
     if fm_match:
         yaml_text = fm_match.group(1).strip()
         # Extract type field
         type_match = re.search(r"^type:\s*(.+)$", yaml_text, re.MULTILINE)
-        # Extract required fields (all top-level keys)
-        required = re.findall(r"^(\w[\w-]*):", yaml_text, re.MULTILINE)
+        # The example documents the artefact's shape: every top-level key it
+        # shows is required unless the section declares it optional.
+        documented = re.findall(r"^(\w[\w-]*):", yaml_text, re.MULTILINE)
+        optional = _parse_optional_frontmatter_fields(fm_section.group(1), documented)
+        naming_fields = {
+            rule.get("match_field")
+            for rule in (result["naming"] or {}).get("rules", [])
+            if isinstance(rule, dict) and rule.get("match_field")
+        }
+        naming_conflicts = sorted(optional & naming_fields)
+        if naming_conflicts:
+            raise ValueError(
+                "## Frontmatter **Optional:** cannot name field(s) used by "
+                "## Naming rules: " + ", ".join(naming_conflicts)
+            )
+        required = [field for field in documented if field not in optional]
         if type_match or required:
             result["frontmatter"] = {
                 "type": type_match.group(1).strip() if type_match else None,
-                "required": required if required else [],
+                "required": required,
             }
 
     # Extract status enum and terminal statuses from full content
@@ -572,7 +707,7 @@ def parse_taxonomy_content(content):
         )
         missing_statuses = [
             status
-            for status in ("shaping", shaping["completion_status"])
+            for status in required_shaping_lifecycle_statuses(shaping)
             if status not in statuses
         ]
         if missing_statuses:
@@ -758,7 +893,7 @@ def discover_skills(vault_root):
         skill_doc = os.path.join(skills_dir, entry, "SKILL.md")
         if os.path.isfile(skill_doc):
             rel = os.path.relpath(skill_doc, vault_root)
-            skills.append({"name": entry, "skill_doc": rel, "source": "user"})
+            skills.append(skill_record(entry, rel, "user"))
     return skills
 
 
@@ -772,7 +907,7 @@ def discover_core_skills(vault_root):
         skill_doc = os.path.join(skills_dir, entry, "SKILL.md")
         if os.path.isfile(skill_doc):
             rel = os.path.relpath(skill_doc, vault_root)
-            skills.append({"name": entry, "skill_doc": rel, "source": "core"})
+            skills.append(skill_record(entry, rel, "core"))
     return skills
 
 
@@ -948,7 +1083,13 @@ def hash_living_artefact_source(abs_path):
 
 def count_living_artefact_index_entries(vault_root, artefacts):
     """Return the number of living markdown files with a valid artefact key."""
-    count = 0
+    count, _sources = living_artefact_source_state(vault_root, artefacts)
+    return count
+
+
+def living_artefact_source_state(vault_root, artefacts):
+    """Collect living index count and source fingerprints in one file pass."""
+    sources = {}
     for artefact in artefacts:
         if artefact.get("classification") != "living":
             continue
@@ -959,8 +1100,8 @@ def count_living_artefact_index_entries(vault_root, artefacts):
             except (OSError, UnicodeDecodeError):
                 continue
             if is_valid_key(fields.get("key")):
-                count += 1
-    return count
+                sources[rel_path] = _hash_index_payload(fields)
+    return len(sources), sources
 
 
 def build_living_artefact_index(vault_root, artefacts, *, return_sources=False):
@@ -1114,7 +1255,7 @@ def compile(vault_root):
     core_skills = discover_core_skills(vault_root)
     for s in core_skills:
         track(s["skill_doc"])
-    skills = core_skills + skills
+    skills = order_skill_records([*skills, *core_skills])
 
     plugins = discover_plugins(vault_root)
     for p in plugins:

@@ -23,6 +23,7 @@ The `date` frontmatter field is the subject date of the note — the day the not
 ```yaml
 ---
 type: living/daily-note
+key: {key}
 tags:
   - daily-note
 date:

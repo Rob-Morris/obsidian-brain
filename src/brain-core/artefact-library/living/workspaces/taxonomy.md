@@ -31,6 +31,8 @@ workspace_mode: embedded
 ---
 ```
 
+**Optional:** `status`, `workspace_mode`
+
 `key` is the canonical identifier (see [[.brain-core/standards/keys]]). The platform generates it at create time.
 
 Every file related to a workspace should use the nested workspace tag, e.g. `workspace/yearly-taxes-2026`.

@@ -72,12 +72,12 @@ The supported surfaces are projections, not owners:
 - granular MCP `<noun>.<verb>`;
 - CLI `brain <noun> <verb>`;
 - direct `command.py <noun> <verb>`;
-- sealed typed Python requests through `CommandApplication`.
+- sealed typed Python requests through the `brain_application` façade and `CommandApplication`.
 
 Legacy aggregate MCP tools, irregular CLI aliases and public top-level operation scripts are removed at the coordinated 0.55.0/CLI 2.0 cutover. Platform install and pre-cutover recovery launchers are explicit lifecycle exceptions.
 
 ## Practical guidance
 
-For a new selected-Brain operation, add one request/result, executor, catalogue entry and resolver registration, then prove all eligible projections mechanically. For machine-global behaviour, add a launcher request/result and owner without importing selected-Brain semantics. Shared filesystem/domain mechanics belong below the application executor, not in adapters or catalogue definitions.
+For a new selected-Brain operation, add one request/result, executor, catalogue entry and resolver registration, then prove all eligible projections mechanically. Export supported Python contracts through `brain_application.requests` or a narrow domain façade; do not turn owner hooks into public API. For machine-global behaviour, add a launcher request/result and owner without importing selected-Brain semantics. Shared filesystem/domain mechanics belong below the application executor, not in adapters or catalogue definitions.
 
 See [Architecture overview](overview.md), [Security](security.md) and [DD-061](decisions/dd-061-typed-command-application-boundary.md).

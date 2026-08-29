@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 from .catalogue import ApplicationCatalogue, ApplicationEntry
-from .context import InvocationContext
+from .context import InvocationContext, report_failure_safely
 from .receipts import OutcomeReceipt, OutcomeReference, ReceiptState
-from .requests import CommandRequest, command_identity
+from .identity import command_identity
 from .results import (
     AuthorityDeniedDetails,
     CapabilityUnavailableDetails,
@@ -30,38 +30,76 @@ class CommandApplication:
     def __init__(
         self,
         context: InvocationContext,
-        catalogue: ApplicationCatalogue,
+        catalogue: ApplicationCatalogue | None = None,
     ) -> None:
+        """Bind trusted context to the installed or explicitly supplied catalogue."""
+
+        if catalogue is None:
+            from .registry import current_application_catalogue
+
+            catalogue = current_application_catalogue()
         self._context = context
         self._catalogue = catalogue
 
-    def invoke(self, request: CommandRequest) -> CommandResult:
+    def invoke(self, request: object) -> CommandResult:
+        """Invoke one sealed request through authority, capability and receipt gates."""
+
         command_id, command_version, _result_type = command_identity(request)
         try:
             entry = self._catalogue.resolve(request)
-        except Exception:
+        except Exception as exc:
+            report_failure_safely(
+                self._context,
+                phase="catalogue.resolve",
+                command_id=command_id,
+                error=exc,
+            )
             return self._internal_error(command_id, command_version)
 
         try:
             preflight = self._preflight(entry)
-        except Exception:
+        except Exception as exc:
+            report_failure_safely(
+                self._context,
+                phase="preflight",
+                command_id=command_id,
+                error=exc,
+            )
             preflight = self._internal_error(command_id, command_version)
         if preflight is not None:
             try:
                 self._record(entry, preflight)
-            except Exception:
+            except Exception as exc:
+                report_failure_safely(
+                    self._context,
+                    phase="receipt.preflight",
+                    command_id=command_id,
+                    error=exc,
+                )
                 return self._internal_error(command_id, command_version)
             return preflight
 
         try:
             result = entry.executor(self._context, request)
             self._validate_result(entry, result)
-        except Exception:
+        except Exception as exc:
+            report_failure_safely(
+                self._context,
+                phase="execute",
+                command_id=command_id,
+                error=exc,
+            )
             result = self._execution_failure(entry)
 
         try:
             self._record(entry, result)
-        except Exception:
+        except Exception as exc:
+            report_failure_safely(
+                self._context,
+                phase="receipt.finalise",
+                command_id=command_id,
+                error=exc,
+            )
             if entry.effect_class is EffectClass.NONE:
                 return self._internal_error(command_id, command_version)
             return self._unknown_result(entry)
@@ -82,8 +120,7 @@ class CommandApplication:
             elif context.capabilities.availability_of(provider_id) is not Availability.AVAILABLE:
                 missing.append(f"capability:{provider_id}")
         if not missing:
-            consume = getattr(context.authority, "consume", None)
-            if callable(consume) and not consume(entry.command_id):
+            if not context.authority.consume(entry.command_id):
                 return authority_denied_result(context, entry, active_denial=True)
             return None
 
@@ -183,7 +220,6 @@ class CommandApplication:
             command_version,
         )
 
-
 def authority_denied_result(
     context: InvocationContext,
     entry: ApplicationEntry,
@@ -198,12 +234,7 @@ def authority_denied_result(
         effect=entry.effect_class,
     ):
         return None
-    ceiling_allows = getattr(context.authority, "ceiling_allows", None)
-    within_ceiling = (
-        ceiling_allows(entry.command_id)
-        if callable(ceiling_allows)
-        else False
-    )
+    within_ceiling = context.authority.ceiling_allows(entry.command_id)
     requestable = bool(
         within_ceiling
         and context.access is not None

@@ -5,10 +5,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import ClassVar, Mapping
 
+from .._decoding import decode_empty
 from .._semantic_maintenance import (
     SemanticMaintenancePayload,
     catalogue_entry as semantic_catalogue_entry,
-    decode_empty,
     execute_repair,
 )
 from ..context import InvocationContext
@@ -31,9 +31,3 @@ def decode(payload: Mapping[str, object]) -> RetrievalRepairSemanticRequest:
 
 def catalogue_entry():
     return semantic_catalogue_entry(RetrievalRepairSemanticRequest, execute)
-
-
-def resolver_entry():
-    from ..resolver import ResolverEntry
-
-    return ResolverEntry(RetrievalRepairSemanticRequest, decode)

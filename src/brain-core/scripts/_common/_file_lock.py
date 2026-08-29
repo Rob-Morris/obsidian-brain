@@ -6,6 +6,7 @@ import contextlib
 import errno
 import os
 from pathlib import Path
+import stat
 import sys
 import time
 from typing import Iterator
@@ -29,7 +30,10 @@ def public_mutation_error_message(exc: BaseException) -> str:
 
 @contextlib.contextmanager
 def exclusive_file_lock(
-    lock_path: str | Path, *, timeout: float | None = None
+    lock_path: str | Path,
+    *,
+    timeout: float | None = None,
+    follow_symlinks: bool = True,
 ) -> Iterator[None]:
     """Hold an exclusive file lock on ``lock_path`` for this process.
 
@@ -40,10 +44,34 @@ def exclusive_file_lock(
     """
     path = Path(lock_path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    if sys.platform == "win32":
-        # ``a+b`` preserves an existing lock byte; msvcrt.locking cannot lock
-        # an empty byte range, so initialise one byte on first use.
-        with path.open("a+b") as lock:
+    flags = os.O_RDWR | os.O_CREAT
+    if not follow_symlinks:
+        flags |= getattr(os, "O_NOFOLLOW", 0)
+    descriptor = os.open(path, flags, 0o600)
+    try:
+        opened = os.fstat(descriptor)
+        if not stat.S_ISREG(opened.st_mode):
+            raise OSError(f"lock endpoint is not a regular file: {path}")
+        if not follow_symlinks:
+            endpoint = os.stat(path, follow_symlinks=False)
+            if (
+                not stat.S_ISREG(endpoint.st_mode)
+                or (endpoint.st_dev, endpoint.st_ino) != (opened.st_dev, opened.st_ino)
+            ):
+                raise OSError(f"refusing symlinked lock endpoint: {path}")
+        if hasattr(os, "fchmod"):
+            os.fchmod(descriptor, 0o600)
+        lock = os.fdopen(descriptor, "r+b")
+        descriptor = -1
+    except BaseException:
+        if descriptor >= 0:
+            os.close(descriptor)
+        raise
+
+    with lock:
+        if sys.platform == "win32":
+            # Preserve an existing lock byte; msvcrt.locking cannot lock an
+            # empty byte range, so initialise one byte on first use.
             if lock.seek(0, os.SEEK_END) == 0:
                 lock.write(b"\0")
                 lock.flush()
@@ -79,32 +107,40 @@ def exclusive_file_lock(
             finally:
                 lock.seek(0)
                 msvcrt.locking(lock.fileno(), msvcrt.LK_UNLCK, 1)
-        return
+            return
 
-    import fcntl
+        import fcntl
 
-    with path.open("a+", encoding="utf-8") as lock:
         deadline = None if timeout is None else time.monotonic() + timeout
         while True:
             try:
-                mode = fcntl.LOCK_EX if deadline is None else fcntl.LOCK_EX | fcntl.LOCK_NB
+                mode = (
+                    fcntl.LOCK_EX
+                    if deadline is None
+                    else fcntl.LOCK_EX | fcntl.LOCK_NB
+                )
                 fcntl.flock(lock.fileno(), mode)
                 break
             except BlockingIOError as exc:
                 if deadline is not None and time.monotonic() >= deadline:
                     lock.seek(0)
-                    owner = lock.read().strip() or "unknown owner"
+                    owner = (
+                        lock.read().decode("utf-8", "replace").strip()
+                        or "unknown owner"
+                    )
                     raise MutationLockError(
                         f"timed out after {timeout:g}s acquiring exclusive lock on {path} "
                         f"({owner})"
                     ) from exc
                 time.sleep(0.05)
             except OSError as exc:
-                raise MutationLockError(f"could not acquire exclusive lock on {path}") from exc
+                raise MutationLockError(
+                    f"could not acquire exclusive lock on {path}"
+                ) from exc
         try:
             lock.seek(0)
             lock.truncate()
-            lock.write(f"pid={os.getpid()} acquired={time.time():.3f}\n")
+            lock.write(f"pid={os.getpid()} acquired={time.time():.3f}\n".encode())
             lock.flush()
             yield
         finally:

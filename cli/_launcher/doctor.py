@@ -231,13 +231,14 @@ class DoctorVaultSummary:
 class DoctorVaultFinding:
     check: str
     severity: DoctorSeverity
-    file: str
+    file: str | None
     message: str
     repair_command_id: str | None
 
     def __post_init__(self) -> None:
-        if not self.check.strip() or not self.file.strip() or not self.message.strip():
-            raise ValueError("Doctor vault findings require check, file and message")
+        if not self.check.strip() or not self.message.strip():
+            raise ValueError("Doctor vault findings require check and message")
+        _validate_optional_text(self.file, "Doctor finding file")
         if not isinstance(self.severity, DoctorSeverity):
             raise ValueError("Doctor finding severity must be closed and typed")
         if self.repair_command_id is not None:

@@ -201,13 +201,34 @@ symlinked directory components and non-regular records, bounds atomic writes to
 the selected Brain, serialises cross-process updates, and retains only command
 identity, outcome state, timestamp and compact effect references. Request
 bodies, credentials and provider values are not representable in the receipt
-schema. Proven no-effect results are not persisted.
+schema. A privacy-minimal compact index maps only hashed receipt filenames to
+timestamps, so ordinary writes do not inventory every durable record. Index
+publication is atomic, its endpoint must be a regular non-symlink file, and a
+missing or malformed index is rebuilt from the authoritative receipt files;
+explicit maintenance remains the full-inventory repair path. Proven no-effect
+results are not persisted.
 
 `invocation.read` is a strictly non-mutating lookup. Missing receipt storage
 returns no receipt without creating directories or lock files; expired records
 are logically absent without deletion. Atomic publication lets readers avoid a
 cross-process write lock, while receipt writes and explicit maintenance retain
 serialised retention cleanup.
+
+Operational diagnostics are another fixed internal write capability, under
+`.brain/local/diagnostics/` (0700 directory, 0600 files, per-family sidecar
+locks). The stream is content-free by construction: its record schema has no
+message field, rejects unknown events/fields, projects protocol methods into a
+closed vocabulary, and reduces errors to a closed class vocabulary plus the
+exception type name — request bodies, vault content, paths and exception text
+are unrepresentable. Directory components reject symlinks; lock and log
+endpoints use no-follow, same-regular-file verification before append,
+truncation or export.
+Callers pass typed records, never paths; storage is hard-capped per family by
+rotation; writers never block or unwind a command. The only content-bearing
+surface is the opt-in `BRAIN_LOG_BODIES` wire capture, which is confined to
+its own `debug-bodies.log` family and flagged on the operational stream. See
+[DD-067](decisions/dd-067-operational-diagnostics-logging.md) and
+[Diagnostics](../functional/diagnostics.md).
 
 The MCP proxy/server protocol marker is a local compatibility assertion, not an
 authentication credential. The long-lived proxy sets it only in the child
@@ -255,9 +276,10 @@ may still be live. Runtime creation or dependency-sync interruption is
 outcome-unknown; a completed dependency mutation followed by failed verification
 is known partial at the managed-runtime scope.
 
-Client skill adapters are an explicit machine-global exception to ordinary
-vault write bounds. `configure.py agent-skills` writes only the fixed
-`~/.claude/skills/shaping/` and/or `~/.codex/skills/shaping/` destinations. It
+Client skill adapters are an explicit global or canonically resolved project
+exception to ordinary vault write bounds. `skill.expose` writes only the named
+skill beneath the selected client's `.claude/skills/` or `.codex/skills/`
+directory. It
 uses atomic writes with the skill directory as the bound, refuses symlinked
 targets, and records an expected content hash in a Brain ownership marker.
 Unmanaged or modified content is preserved; `--replace` archives an unmanaged
@@ -265,11 +287,18 @@ directory under the client-root `.brain-skill-backups/` directory before
 installing, keeping executable skill discovery separate from recoverable data.
 The backup root is also symlink-refused, and removal applies only to an
 unmodified managed adapter. Vault upgrades never mutate these client-global
-locations implicitly. See [DD-058](decisions/dd-058-active-brain-skill-adapters.md).
+locations implicitly. See [DD-058](decisions/dd-058-active-brain-skill-adapters.md)
+and [DD-068](decisions/dd-068-git-backed-skill-sources-and-managed-exposure.md).
 The canonical launcher owner receives the home directory as trusted context,
 not request data, and preflights every selected client through a no-write path
 before applying the first change. Dry-run therefore exercises the real
 ownership and destination checks without creating client directories.
+
+Git-backed skill acquisition fetches into a temporary repository and extracts a
+bounded `git archive`. It never checks out repository content, runs hooks, or
+invokes configured checkout filters. Package validation rejects links and
+special files, traversal and case-folding collisions, missing or mismatched root
+metadata, and over-limit trees before installation.
 
 **Exclusive mode:** `safe_write(exclusive=True)` (used by `artefact.create`) checks file
 existence before writing, providing a lightweight create-or-fail guarantee.
@@ -341,6 +370,12 @@ writing. MCP, CLI, direct `command.py` and typed Python therefore share the same
 precondition: stale derived state is repaired through an explicit command or
 surfaced as an actionable error, never used to drive a mutation.
 
+Document mutation owners also require the SHA-256 revision of the exact bytes
+returned by the preceding editable read. They compare it while holding the
+vault mutation lock immediately before effects; a mismatch consumes no staged
+content and returns a conflict with re-read guidance. This prevents lost updates
+across agents, humans, and adapters without relying on timestamps.
+
 See: [DD-036: Safe write pattern](decisions/dd-036-safe-write-pattern.md)
 
 ---
@@ -361,6 +396,12 @@ The canonical lock lives below the application boundary, with bounded
 acquisition and owner diagnostics. It coordinates processes sharing one vault;
 machine-global launcher transactions use their own fixed-state locking and
 checked rollback boundaries.
+
+Mutation outcome classification also occurs while that lock is held. A
+post-effect failure whose commit state cannot be proven is reported as
+`command_outcome_unknown`; public command adapters keep stderr bounded and send
+full exception diagnostics through the trusted diagnostic sink with correlation
+metadata once trusted invocation context exists.
 
 ---
 

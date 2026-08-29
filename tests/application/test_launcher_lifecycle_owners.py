@@ -322,7 +322,12 @@ def test_upgrade_projects_dry_run_and_closed_policies(tmp_path, monkeypatch):
             "files_added": ["one"],
             "files_modified": ["two", "three"],
             "files_removed": [],
-            "migrations": [{"id": "migration-one"}],
+            "precompile_patch_migrations_preview": [
+                {"version": "0.62.2", "target": "pre_compile_patch"}
+            ],
+            "migrations_preview": [
+                {"version": "0.55.0", "target": "post_compile"}
+            ],
         }
 
     monkeypatch.setattr(
@@ -339,7 +344,10 @@ def test_upgrade_projects_dry_run_and_closed_policies(tmp_path, monkeypatch):
 
     assert result.result.status is LifecycleStatus.PLANNED
     assert (result.result.files_added, result.result.files_modified) == (1, 2)
-    assert result.result.migrations == ("migration-one",)
+    assert result.result.migrations == (
+        "0.62.2@pre_compile_patch",
+        "0.55.0",
+    )
     assert result.committed_effects == ()
     assert calls[0][1]["sync"] is False
     assert calls[0][1]["sync_deps"] is True
@@ -401,3 +409,29 @@ def test_upgrade_success_receipts_core_and_error_is_unknown(tmp_path, monkeypatc
     failed = _invocation(tmp_path, vault=vault).invoke(BrainUpgradeRequest())
     assert failed.error.code is ErrorCode.COMMAND_OUTCOME_UNKNOWN
     assert failed.effects == "unknown"
+
+
+def test_upgrade_completion_projects_readiness_failure_and_orphan_follow_up():
+    result = {
+        "mcp_registration_repair": {
+            "outcome": "error",
+            "message": "MCP registration repair failed",
+        },
+        "runtime_readiness": {
+            "outcome": "error",
+            "message": "warm-up failed",
+        },
+        "runtime_orphans": {
+            "outcome": "follow_up",
+            "message": "one orphan is a safe cleanup candidate",
+        },
+    }
+
+    steps = {
+        step.name: step for step in lifecycle._reconciliation_steps(result)
+    }
+
+    assert lifecycle._reconciliation_failed(result) is True
+    assert steps["mcp_registration"].status is LifecycleStatus.CHANGED
+    assert steps["runtime_readiness"].status is LifecycleStatus.CHANGED
+    assert steps["runtime_orphans"].status is LifecycleStatus.PLANNED

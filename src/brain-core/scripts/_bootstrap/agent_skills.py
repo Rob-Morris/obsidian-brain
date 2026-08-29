@@ -6,9 +6,13 @@ import hashlib
 import json
 import os
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from _bootstrap.mcp_transport import SUPPORTED_CLIENTS
 from _common import safe_write, safe_write_json
+
+if TYPE_CHECKING:
+    from _skill_library.models import PackageSnapshot
 
 
 CLIENT_SKILLS_DIRS = {
@@ -30,6 +34,80 @@ class AgentSkillConfigError(RuntimeError):
     """A client skill cannot be changed without risking user-owned content."""
 
 
+def load_effective_skill_adapter(
+    vault_root: str | Path,
+    skill_name: str,
+    *,
+    package_snapshot: PackageSnapshot | None = None,
+) -> str:
+    """Build a thin adapter that resolves the effective skill on every use."""
+    try:
+        from _skill_library.packages import inspect_package, validate_skill_name
+
+        validate_skill_name(skill_name)
+    except ValueError as exc:
+        raise AgentSkillConfigError(str(exc)) from exc
+    root = Path(vault_root)
+    user = root / "_Config" / "Skills" / skill_name
+    core = root / ".brain-core" / "skills" / skill_name
+    if user.is_symlink():
+        raise AgentSkillConfigError(
+            f"effective user skill is a symlink and cannot be exposed: {user}"
+        )
+    from _portable.skill_resolution import effective_skill_path
+
+    package = effective_skill_path(user, core)
+    if not package.is_dir() or package.is_symlink():
+        raise AgentSkillConfigError(f"Brain skill not found: {skill_name}")
+    if package_snapshot is None:
+        try:
+            snapshot = inspect_package(package, expected_name=skill_name)
+        except (OSError, ValueError) as exc:
+            raise AgentSkillConfigError(f"invalid Brain skill {skill_name!r}: {exc}") from exc
+    elif (
+        package_snapshot.name != skill_name
+        or package_snapshot.root != package
+    ):
+        raise AgentSkillConfigError(
+            f"prepared package snapshot does not identify the effective skill {skill_name!r}"
+        )
+    else:
+        snapshot = package_snapshot
+    if skill_name == ADAPTER_SKILL:
+        return load_shaping_adapter()
+    if snapshot.executable_files:
+        # Exposure loads instructions through the Brain; it does not install or
+        # execute package assets. Keep the fact explicit for safety diagnostics.
+        executable_note = (
+            " The package contains executable files, but this adapter never "
+            "executes or copies them."
+        )
+    else:
+        executable_note = ""
+    description = json.dumps(
+        f"Loads the effective {skill_name} workflow from the currently active Brain."
+    )
+    return (
+        "---\n"
+        f"name: {skill_name}\n"
+        f"description: {description}\n"
+        "---\n\n"
+        f"# Active Brain: {skill_name}\n\n"
+        "This is a discovery adapter, not a local copy of the workflow.\n\n"
+        "1. Call `session.start` to bootstrap the active Brain.\n"
+        f"2. Call `resource.read(resource=\"skill\", reference=\"{skill_name}\")`.\n"
+        "3. Follow the returned skill document as authoritative. Its `source` is "
+        "`user` or `core`; unqualified resolution is user-first.\n"
+        "4. Resolve any relative package file beneath "
+        f"`_Config/Skills/{skill_name}/` when `source` is `user`, or beneath "
+        f"`.brain-core/skills/{skill_name}/` when `source` is `core`, and load it "
+        "with `vault.read-file`.\n\n"
+        "Do not load workflow instructions from files beside this adapter. The "
+        "active Brain owns resolution, content, and updates."
+        f"{executable_note}\n"
+    )
+
+
 def load_shaping_adapter() -> str:
     """Read the shipped adapter only when the agent-skills surface needs it."""
     return ADAPTER_TEMPLATE_FILE.read_text(encoding="utf-8")
@@ -43,17 +121,17 @@ def _sha256_file(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
-def _marker(content_hash: str) -> dict:
+def _marker(content_hash: str, skill_name: str = ADAPTER_SKILL) -> dict:
     return {
         "schema_version": MARKER_SCHEMA_VERSION,
         "owner": MARKER_OWNER,
         "kind": MARKER_KIND,
-        "skill": ADAPTER_SKILL,
+        "skill": skill_name,
         "content_sha256": content_hash,
     }
 
 
-def _load_marker(path: Path) -> dict | None:
+def _load_marker(path: Path, skill_name: str = ADAPTER_SKILL) -> dict | None:
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
     except FileNotFoundError:
@@ -64,7 +142,7 @@ def _load_marker(path: Path) -> dict | None:
         "schema_version": MARKER_SCHEMA_VERSION,
         "owner": MARKER_OWNER,
         "kind": MARKER_KIND,
-        "skill": ADAPTER_SKILL,
+        "skill": skill_name,
     }
     if not isinstance(data, dict) or any(data.get(key) != value for key, value in expected.items()):
         raise AgentSkillConfigError(f"unrecognised Brain ownership marker at {path}")
@@ -81,9 +159,9 @@ def _unexpected_entries(skill_dir: Path, *, marker_present: bool) -> list[str]:
     return sorted(entry.name for entry in skill_dir.iterdir() if entry.name not in allowed)
 
 
-def _backup_path(skills_root: Path) -> Path:
+def _backup_path(skills_root: Path, skill_name: str = ADAPTER_SKILL) -> Path:
     backup_root = skills_root.parent / BACKUP_DIR
-    base = backup_root / f"{ADAPTER_SKILL}.pre-brain-adapter"
+    base = backup_root / f"{skill_name}.pre-brain-adapter"
     candidate = base
     suffix = 2
     while candidate.exists() or candidate.is_symlink():
@@ -92,7 +170,11 @@ def _backup_path(skills_root: Path) -> Path:
     return candidate
 
 
-def _write_adapter(skill_dir: Path, content: str) -> None:
+def _write_adapter(
+    skill_dir: Path,
+    content: str,
+    skill_name: str = ADAPTER_SKILL,
+) -> None:
     skill_dir.mkdir(parents=True, exist_ok=True)
     digest = _sha256_text(content)
     safe_write(
@@ -103,7 +185,7 @@ def _write_adapter(skill_dir: Path, content: str) -> None:
     )
     safe_write_json(
         skill_dir / MARKER_FILE,
-        _marker(digest),
+        _marker(digest, skill_name),
         bounds=skill_dir,
         follow_symlinks=False,
     )
@@ -115,22 +197,23 @@ def _archive_and_install(
     content: str,
     *,
     existing_label: str,
+    skill_name: str = ADAPTER_SKILL,
     dry_run: bool = False,
 ) -> tuple[str, str, Path | None]:
-    backup = _backup_path(skills_root)
+    backup = _backup_path(skills_root, skill_name)
     if dry_run:
         return (
             "planned",
             f"Would archive the existing {existing_label} at {backup} "
-            "and install the shaping adapter.",
+            f"and install the {skill_name} adapter.",
             backup,
         )
     backup.parent.mkdir(parents=True, exist_ok=True)
     os.replace(skill_dir, backup)
-    _write_adapter(skill_dir, content)
+    _write_adapter(skill_dir, content, skill_name)
     return (
         "changed",
-        f"Archived the existing {existing_label} at {backup} and installed the shaping adapter.",
+        f"Archived the existing {existing_label} at {backup} and installed the {skill_name} adapter.",
         backup,
     )
 
@@ -145,16 +228,20 @@ def _refuse_symlinked_destination(skills_root: Path, skill_dir: Path) -> None:
             )
 
 
-def _install_client_adapter(
+def install_prepared_skill_adapter(
     home_dir: Path,
     client: str,
     content: str,
     *,
     replace: bool,
     dry_run: bool = False,
+    skill_name: str = ADAPTER_SKILL,
 ) -> tuple[str, str, Path | None]:
+    """Install validated adapter content without resolving its Brain package."""
+    if client not in SUPPORTED_CLIENTS:
+        raise ValueError(f"unsupported agent-skill client '{client}'")
     skills_root = home_dir / CLIENT_SKILLS_DIRS[client]
-    skill_dir = skills_root / ADAPTER_SKILL
+    skill_dir = skills_root / skill_name
     skill_file = skill_dir / "SKILL.md"
     marker_path = skill_dir / MARKER_FILE
     desired_hash = _sha256_text(content)
@@ -172,6 +259,7 @@ def _install_client_adapter(
             skill_dir,
             content,
             existing_label="path",
+            skill_name=skill_name,
             dry_run=dry_run,
         )
 
@@ -180,19 +268,19 @@ def _install_client_adapter(
             f"refusing to manage symlinked files inside skill directory: {skill_dir}"
         )
 
-    marker = _load_marker(marker_path) if skill_dir.is_dir() else None
+    marker = _load_marker(marker_path, skill_name) if skill_dir.is_dir() else None
     if marker is None:
         if not skill_dir.exists() or not any(skill_dir.iterdir()):
             if dry_run:
                 return (
                     "planned",
-                    f"Would install the active-Brain shaping adapter at {skill_dir}.",
+                    f"Would install the active-Brain {skill_name} adapter at {skill_dir}.",
                     None,
                 )
-            _write_adapter(skill_dir, content)
+            _write_adapter(skill_dir, content, skill_name)
             return (
                 "changed",
-                f"Installed the active-Brain shaping adapter at {skill_dir}.",
+                f"Installed the active-Brain {skill_name} adapter at {skill_dir}.",
                 None,
             )
 
@@ -202,31 +290,31 @@ def _install_client_adapter(
             if dry_run:
                 return (
                     "planned",
-                    f"Would install the active-Brain shaping adapter at {skill_dir}.",
+                    f"Would install the active-Brain {skill_name} adapter at {skill_dir}.",
                     None,
                 )
-            _write_adapter(skill_dir, content)
+            _write_adapter(skill_dir, content, skill_name)
             return (
                 "changed",
-                f"Installed the active-Brain shaping adapter at {skill_dir}.",
+                f"Installed the active-Brain {skill_name} adapter at {skill_dir}.",
                 None,
             )
         if not extras and current_hash == desired_hash:
             if dry_run:
                 return (
                     "planned",
-                    f"Would adopt the existing shaping adapter at {skill_dir}.",
+                    f"Would adopt the existing {skill_name} adapter at {skill_dir}.",
                     None,
                 )
             safe_write_json(
                 marker_path,
-                _marker(desired_hash),
+                _marker(desired_hash, skill_name),
                 bounds=skill_dir,
                 follow_symlinks=False,
             )
             return (
                 "changed",
-                f"Adopted the existing shaping adapter at {skill_dir}.",
+                f"Adopted the existing {skill_name} adapter at {skill_dir}.",
                 None,
             )
         if not replace:
@@ -238,6 +326,7 @@ def _install_client_adapter(
             skill_dir,
             content,
             existing_label="skill",
+            skill_name=skill_name,
             dry_run=dry_run,
         )
 
@@ -250,13 +339,13 @@ def _install_client_adapter(
         if dry_run:
             return (
                 "planned",
-                f"Would restore the missing shaping adapter at {skill_dir}.",
+                f"Would restore the missing {skill_name} adapter at {skill_dir}.",
                 None,
             )
-        _write_adapter(skill_dir, content)
+        _write_adapter(skill_dir, content, skill_name)
         return (
             "changed",
-            f"Restored the missing shaping adapter at {skill_dir}.",
+            f"Restored the missing {skill_name} adapter at {skill_dir}.",
             None,
         )
 
@@ -267,60 +356,64 @@ def _install_client_adapter(
             if dry_run:
                 return (
                     "planned",
-                    f"Would repair shaping adapter ownership at {skill_dir}.",
+                    f"Would repair {skill_name} adapter ownership at {skill_dir}.",
                     None,
                 )
             safe_write_json(
                 marker_path,
-                _marker(desired_hash),
+                _marker(desired_hash, skill_name),
                 bounds=skill_dir,
                 follow_symlinks=False,
             )
             return (
                 "changed",
-                f"Repaired shaping adapter ownership at {skill_dir}.",
+                f"Repaired {skill_name} adapter ownership at {skill_dir}.",
                 None,
             )
         return (
             "noop",
-            f"The active-Brain shaping adapter is current at {skill_dir}.",
+            f"The active-Brain {skill_name} adapter is current at {skill_dir}.",
             None,
         )
     if current_hash != recorded_hash:
         raise AgentSkillConfigError(
-            f"Brain-managed shaping adapter was modified at {skill_file}; preserve or remove those edits before retrying"
+            f"Brain-managed {skill_name} adapter was modified at {skill_file}; preserve or remove those edits before retrying"
         )
 
     if dry_run:
         return (
             "planned",
-            f"Would update the active-Brain shaping adapter at {skill_dir}.",
+            f"Would update the active-Brain {skill_name} adapter at {skill_dir}.",
             None,
         )
-    _write_adapter(skill_dir, content)
+    _write_adapter(skill_dir, content, skill_name)
     return (
         "changed",
-        f"Updated the active-Brain shaping adapter at {skill_dir}.",
+        f"Updated the active-Brain {skill_name} adapter at {skill_dir}.",
         None,
     )
 
 
-def _remove_client_adapter(
+def remove_prepared_skill_adapter(
     home_dir: Path,
     client: str,
     current_content: str | None = None,
     *,
     dry_run: bool = False,
+    skill_name: str = ADAPTER_SKILL,
 ) -> tuple[str, str, Path | None]:
+    """Remove unchanged managed adapter content already resolved by the caller."""
+    if client not in SUPPORTED_CLIENTS:
+        raise ValueError(f"unsupported agent-skill client '{client}'")
     skills_root = home_dir / CLIENT_SKILLS_DIRS[client]
-    skill_dir = skills_root / ADAPTER_SKILL
+    skill_dir = skills_root / skill_name
     skill_file = skill_dir / "SKILL.md"
     marker_path = skill_dir / MARKER_FILE
     _refuse_symlinked_destination(skills_root, skill_dir)
     if not skill_dir.exists():
         return (
             "noop",
-            f"No Brain-managed shaping adapter is installed for {client}.",
+            f"No Brain-managed {skill_name} adapter is installed for {client}.",
             None,
         )
     if not skill_dir.is_dir():
@@ -330,7 +423,7 @@ def _remove_client_adapter(
             f"refusing to remove symlinked files inside skill directory: {skill_dir}"
         )
 
-    marker = _load_marker(marker_path)
+    marker = _load_marker(marker_path, skill_name)
     if marker is None:
         raise AgentSkillConfigError(f"unmanaged skill exists at {skill_dir}; it was not removed")
     extras = _unexpected_entries(skill_dir, marker_present=True)
@@ -345,12 +438,12 @@ def _remove_client_adapter(
             allowed_hashes.add(_sha256_text(current_content))
         if current_hash not in allowed_hashes:
             raise AgentSkillConfigError(
-                f"Brain-managed shaping adapter was modified at {skill_file}; it was not removed"
+                f"Brain-managed {skill_name} adapter was modified at {skill_file}; it was not removed"
             )
     if dry_run:
         return (
             "planned",
-            f"Would remove the Brain-managed shaping adapter from {skill_dir}.",
+            f"Would remove the Brain-managed {skill_name} adapter from {skill_dir}.",
             None,
         )
     for name in INCIDENTAL_ENTRIES:
@@ -363,7 +456,7 @@ def _remove_client_adapter(
     skill_dir.rmdir()
     return (
         "changed",
-        f"Removed the Brain-managed shaping adapter from {skill_dir}.",
+        f"Removed the Brain-managed {skill_name} adapter from {skill_dir}.",
         None,
     )
 
@@ -405,7 +498,7 @@ def configure_agent_skill_adapters(
     for selected in clients:
         try:
             if remove:
-                status, message, _ = _remove_client_adapter(
+                status, message, _ = remove_prepared_skill_adapter(
                     Path(home_dir),
                     selected,
                     adapter_content,
@@ -413,7 +506,7 @@ def configure_agent_skill_adapters(
                 )
             else:
                 assert adapter_content is not None
-                status, message, _ = _install_client_adapter(
+                status, message, _ = install_prepared_skill_adapter(
                     Path(home_dir),
                     selected,
                     adapter_content,

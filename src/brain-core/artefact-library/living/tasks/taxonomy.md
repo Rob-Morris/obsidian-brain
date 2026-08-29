@@ -112,11 +112,14 @@ Board tasks: `{ParentType}~{Name}.md` (e.g. `Design~Brain Inbox.md`).
 ```yaml
 ---
 type: living/task
+key: {key}
 tags:
   - task
 status: open                 # open | shaping | in-progress | done | parked | deprecated
 ---
 ```
+
+**Optional:** `status`
 
 Optional fields:
 

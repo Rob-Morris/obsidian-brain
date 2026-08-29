@@ -55,7 +55,7 @@ def _reachable_properties(schema):
 
 def test_every_projected_tool_has_strict_valid_described_schema():
     tools = _tools()
-    assert len(tools) == 60
+    assert len(tools) == 68
     for tool in tools:
         Draft202012Validator.check_schema(tool.input_schema)
         assert tool.input_schema.get("type") == "object"

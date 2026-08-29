@@ -37,6 +37,8 @@ status: active
 ---
 ```
 
+**Optional:** `status`
+
 `key` is the canonical identifier (see [[.brain-core/standards/keys]]). The platform generates it at create time.
 
 The `journal/{key}` tag (e.g. `journal/personal`) is the relationship tag that connects journal entries to this journal.

@@ -16,6 +16,8 @@ T = TypeVar("T")
 
 
 class ErrorCode(str, Enum):
+    """Closed failure vocabulary shared by every command projection."""
+
     INVALID_REQUEST = "invalid_request"
     NOT_FOUND = "not_found"
     CONFLICT = "conflict"
@@ -26,6 +28,8 @@ class ErrorCode(str, Enum):
 
 
 class WarningCode(str, Enum):
+    """Closed non-fatal condition vocabulary for successful or partial results."""
+
     DEGRADED_CAPABILITY = "degraded_capability"
     STALE_SNAPSHOT = "stale_snapshot"
     FOLLOW_UP_REQUIRED = "follow_up_required"
@@ -43,6 +47,8 @@ class CommandArgument:
 
 @dataclass(frozen=True, slots=True)
 class CommandNextAction:
+    """Machine-actionable recovery step naming a command and typed arguments."""
+
     command_id: str
     arguments: tuple[CommandArgument, ...] = ()
 
@@ -67,6 +73,8 @@ NextAction = CommandNextAction | InstructionNextAction
 
 @dataclass(frozen=True, slots=True)
 class CommandWarning:
+    """Non-fatal condition callers should surface or follow up."""
+
     code: WarningCode
     message: str
 
@@ -143,6 +151,8 @@ ErrorDetails = (
 
 @dataclass(frozen=True, slots=True)
 class CommandError:
+    """Structural failure with stable code, details and optional recovery action."""
+
     code: ErrorCode
     message: str
     details: ErrorDetails | None = None
@@ -155,6 +165,8 @@ class CommandError:
 
 @dataclass(frozen=True, slots=True)
 class Ok(Generic[T]):
+    """Successful command result with explicit committed effects and warnings."""
+
     command_id: str
     command_version: int
     result: T
@@ -169,6 +181,8 @@ class Ok(Generic[T]):
 
 @dataclass(frozen=True, slots=True)
 class Partial:
+    """Known partial outcome that enumerates every committed effect."""
+
     command_id: str
     command_version: int
     error: CommandError
@@ -185,6 +199,8 @@ class Partial:
 
 @dataclass(frozen=True, slots=True)
 class Error:
+    """No-effect or explicitly uncertain command failure with recovery data."""
+
     command_id: str
     command_version: int
     error: CommandError
@@ -215,6 +231,24 @@ class Error:
 
 
 CommandResult = Ok[T] | Partial | Error
+
+
+def request_error(
+    request_type,
+    code: ErrorCode,
+    message: str,
+    field: str | None = None,
+    *,
+    retryable: bool = False,
+) -> Error:
+    """Build a no-effect request failure from request-owned identity."""
+
+    return Error(
+        request_type.COMMAND_ID,
+        request_type.COMMAND_VERSION,
+        CommandError(code, message, RequestErrorDetails(field, message)),
+        retryable=retryable,
+    )
 
 
 def _validate_identity(command_id: str, command_version: int) -> None:

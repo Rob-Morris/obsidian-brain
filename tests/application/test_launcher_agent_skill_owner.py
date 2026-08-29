@@ -20,6 +20,9 @@ from _launcher.agent_skill import (
     AgentSkillClient,
     AgentSkillConfigureRequest,
     AgentSkillMutationStatus,
+    SkillExposeRequest,
+    SkillExposureScope,
+    SkillUnexposeRequest,
 )
 from _launcher.context import LauncherContext, ProviderBindings
 from _launcher.contracts import ErrorCode, ReceiptState
@@ -64,6 +67,8 @@ def _invocation(
     provider_available=True,
     dry_run=False,
     receipts=None,
+    current_vault=None,
+    workspace_dir=None,
 ):
     providers = ((_CallerFilesystem(provider_available),) if provider else ())
     context = LauncherContext(
@@ -79,6 +84,8 @@ def _invocation(
         cli_version="2.0.0",
         cli_binary=(tmp_path / "bin" / "brain").resolve(),
         launcher_python=Path(sys.executable).resolve(),
+        current_vault=current_vault.resolve() if current_vault else None,
+        workspace_dir=workspace_dir.resolve() if workspace_dir else None,
         dry_run=dry_run,
     )
     return LauncherInvocation(context, LAUNCHER_CATALOGUE, LAUNCHER_OWNERS)
@@ -86,6 +93,15 @@ def _invocation(
 
 def _skill_dir(home, client):
     return home / f".{client}" / "skills" / agent_skills.ADAPTER_SKILL
+
+
+def _brain_skill(vault, name, body, *, user=False):
+    base = vault / ("_Config/Skills" if user else ".brain-core/skills") / name
+    base.mkdir(parents=True)
+    (base / "SKILL.md").write_text(
+        f"---\nname: {name}\ndescription: Example\n---\n\n{body}\n",
+        encoding="utf-8",
+    )
 
 
 def test_agent_skill_owner_matches_machine_global_contract():
@@ -184,6 +200,190 @@ def test_agent_skill_configure_is_typed_idempotent_and_receipted(tmp_path):
     assert (_skill_dir(tmp_path, "claude") / "SKILL.md").is_file()
 
 
+def test_generic_global_exposure_loads_effective_skill_without_copying_package(
+    tmp_path,
+):
+    vault = tmp_path / "vault"
+    _brain_skill(vault, "example", "CORE BODY")
+    _brain_skill(vault, "example", "USER BODY", user=True)
+    invocation = _invocation(tmp_path, current_vault=vault)
+
+    exposed = invocation.invoke(
+        SkillExposeRequest("example", client=AgentSkillClient.CLAUDE)
+    )
+    destination = tmp_path / ".claude/skills/example"
+    content = (destination / "SKILL.md").read_text(encoding="utf-8")
+    marker = (destination / agent_skills.MARKER_FILE).read_text(encoding="utf-8")
+
+    assert exposed.result.scope is SkillExposureScope.GLOBAL
+    assert "resource.read" in content
+    assert 'reference="example"' in content
+    assert "USER BODY" not in content
+    assert '"skill": "example"' in marker
+    assert {path.name for path in destination.iterdir()} == {
+        "SKILL.md",
+        agent_skills.MARKER_FILE,
+    }
+
+    removed = invocation.invoke(
+        SkillUnexposeRequest("example", client=AgentSkillClient.CLAUDE)
+    )
+    assert removed.result.steps[0].status is AgentSkillMutationStatus.CHANGED
+    assert not destination.exists()
+
+
+def test_generic_shaping_exposure_adopts_existing_adapter_without_rewrite(tmp_path):
+    vault = tmp_path / "vault"
+    _brain_skill(vault, "shaping", "CORE SHAPING")
+    invocation = _invocation(tmp_path, current_vault=vault)
+    configured = invocation.invoke(
+        AgentSkillConfigureRequest(client=AgentSkillClient.CLAUDE)
+    )
+    destination = tmp_path / ".claude/skills/shaping"
+    skill_before = (destination / "SKILL.md").read_bytes()
+    marker_before = (destination / agent_skills.MARKER_FILE).read_bytes()
+
+    exposed = invocation.invoke(
+        SkillExposeRequest("shaping", client=AgentSkillClient.CLAUDE)
+    )
+
+    assert configured.status == "ok"
+    assert exposed.result.steps[0].status is AgentSkillMutationStatus.NOOP
+    assert (destination / "SKILL.md").read_bytes() == skill_before
+    assert (destination / agent_skills.MARKER_FILE).read_bytes() == marker_before
+
+
+def test_project_exposure_requires_matching_canonical_binding(
+    tmp_path,
+    monkeypatch,
+):
+    import vault_registry
+
+    home = tmp_path / "home"
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.delenv("XDG_CONFIG_HOME", raising=False)
+    vault = tmp_path / "vault"
+    workspace = tmp_path / "project"
+    workspace.mkdir()
+    _brain_skill(vault, "example", "CORE BODY")
+    (vault / ".brain-core/VERSION").write_text("0.62.0\n", encoding="utf-8")
+    vault_registry.register(str(vault), "selected")
+    manifest = workspace / ".brain/local/workspace.yaml"
+    manifest.parent.mkdir(parents=True)
+    manifest.write_text("brain: selected\nslug: project\n", encoding="utf-8")
+    registry_before = vault_registry.registry_path()
+    registry_bytes = Path(registry_before).read_bytes()
+    manifest_bytes = manifest.read_bytes()
+    invocation = _invocation(
+        tmp_path,
+        home_dir=home,
+        current_vault=vault,
+        workspace_dir=workspace,
+    )
+    result = invocation.invoke(
+        SkillExposeRequest(
+            "example",
+            client=AgentSkillClient.CODEX,
+            scope=SkillExposureScope.PROJECT,
+        )
+    )
+
+    assert result.status == "ok"
+    assert (workspace / ".codex/skills/example/SKILL.md").is_file()
+    assert manifest.read_bytes() == manifest_bytes
+    assert Path(registry_before).read_bytes() == registry_bytes
+
+
+def test_project_exposure_refuses_missing_binding_without_creating_one(
+    tmp_path,
+    monkeypatch,
+):
+    home = tmp_path / "home"
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.delenv("XDG_CONFIG_HOME", raising=False)
+    vault = tmp_path / "vault"
+    workspace = tmp_path / "project"
+    workspace.mkdir()
+    _brain_skill(vault, "example", "CORE BODY")
+
+    result = _invocation(
+        tmp_path,
+        home_dir=home,
+        current_vault=vault,
+        workspace_dir=workspace,
+    ).invoke(
+        SkillExposeRequest(
+            "example",
+            client=AgentSkillClient.CODEX,
+            scope=SkillExposureScope.PROJECT,
+        )
+    )
+
+    assert result.error.code is ErrorCode.CONFLICT
+    assert not (workspace / ".brain/local/workspace.yaml").exists()
+    assert not (workspace / ".codex").exists()
+
+
+def test_project_exposure_uses_machine_default_without_creating_binding(
+    tmp_path,
+    monkeypatch,
+):
+    import vault_registry
+
+    home = tmp_path / "home"
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.delenv("XDG_CONFIG_HOME", raising=False)
+    vault = tmp_path / "vault"
+    workspace = tmp_path / "project"
+    workspace.mkdir()
+    _brain_skill(vault, "example", "CORE BODY")
+    (vault / ".brain-core/VERSION").write_text("0.62.0\n", encoding="utf-8")
+    vault_registry.register(str(vault), "selected")
+    vault_registry.set_default("selected")
+    registry_path = vault_registry.registry_path()
+    registry_bytes = Path(registry_path).read_bytes()
+
+    result = _invocation(
+        tmp_path,
+        home_dir=home,
+        current_vault=vault,
+        workspace_dir=workspace,
+    ).invoke(
+        SkillExposeRequest(
+            "example",
+            client=AgentSkillClient.CODEX,
+            scope=SkillExposureScope.PROJECT,
+        )
+    )
+
+    assert result.status == "ok"
+    assert (workspace / ".codex/skills/example/SKILL.md").is_file()
+    assert not (workspace / ".brain/local/workspace.yaml").exists()
+    assert Path(registry_path).read_bytes() == registry_bytes
+
+
+def test_generic_exposure_apply_failure_is_unknown_not_no_effect(
+    tmp_path,
+    monkeypatch,
+):
+    vault = tmp_path / "vault"
+    _brain_skill(vault, "example", "CORE BODY")
+    original = agent_skills.install_prepared_skill_adapter
+
+    def fail_apply(*args, dry_run=False, **kwargs):
+        if not dry_run:
+            raise OSError("simulated exposure ambiguity")
+        return original(*args, dry_run=dry_run, **kwargs)
+
+    monkeypatch.setattr(agent_skills, "install_prepared_skill_adapter", fail_apply)
+    result = _invocation(tmp_path, current_vault=vault).invoke(
+        SkillExposeRequest("example", client=AgentSkillClient.CLAUDE)
+    )
+
+    assert result.error.code is ErrorCode.COMMAND_OUTCOME_UNKNOWN
+    assert result.effects == "unknown"
+
+
 def test_all_client_validation_completes_before_any_write(tmp_path):
     unmanaged = _skill_dir(tmp_path, "codex")
     unmanaged.mkdir(parents=True)
@@ -240,14 +440,14 @@ def test_remove_plans_and_applies_only_a_managed_adapter(tmp_path):
 
 
 def test_apply_failure_is_non_retryable_unknown_outcome(tmp_path, monkeypatch):
-    original = agent_skills._install_client_adapter
+    original = agent_skills.install_prepared_skill_adapter
 
     def fail_apply(*args, dry_run=False, **kwargs):
         if not dry_run:
             raise OSError("simulated apply ambiguity")
         return original(*args, dry_run=dry_run, **kwargs)
 
-    monkeypatch.setattr(agent_skills, "_install_client_adapter", fail_apply)
+    monkeypatch.setattr(agent_skills, "install_prepared_skill_adapter", fail_apply)
     receipts = _Receipts()
 
     result = _invocation(tmp_path, receipts=receipts).invoke(

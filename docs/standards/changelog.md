@@ -21,6 +21,11 @@ When shipping a new version:
 3. If the version closes a shipped `living/release`, add or update the matching file under `docs/changelog/releases/`.
 4. Never rewrite older per-version files to “fix history”. Add corrections in the current version instead.
 
+For repository releases, `python src/scripts/release.py prepare` owns these
+mechanical edits. Contributors still choose the versions, Summary, release type
+and change prose. The command previews a unified diff by default and writes only
+with `--apply`; the pre-commit hook validates but never repairs or stages drift.
+
 ## Per-Version Files
 
 Each `docs/changelog/vX.Y.Z.md` file documents one shipped version.

@@ -5,17 +5,24 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 import json
 
+import pytest
+
 from _application.adapter import ApplicationAdapter
 from _application.receipts import MemoryReceiptStore
 from _application.registry import current_application_catalogue, current_request_resolver
 from _application.results import ErrorCode
-from _application.types import Availability, DependencyTier, SnapshotFreshness
+from _application.types import DependencyTier, SnapshotFreshness
 from _command_interface.access import (
     AccessPolicy,
     FileAccessController,
 )
 from _command_interface.context import compose_local_context
 from _application.access_contracts import AccessRequestState, ElevationPolicy
+from _application.access.reduce import (
+    CommandReduction,
+    LeaseReduction,
+    ResetReduction,
+)
 
 
 class _Clock:
@@ -27,6 +34,18 @@ class _Clock:
 
     def advance(self, seconds):
         self.value += timedelta(seconds=seconds)
+
+
+def test_access_reduction_discriminators_are_constructor_owned():
+    assert ResetReduction().kind == "initial"
+    assert LeaseReduction(("lease-1",)).kind == "leases"
+    assert CommandReduction(("artefact.read",)).kind == "commands"
+    with pytest.raises(TypeError):
+        ResetReduction(kind="commands")
+    with pytest.raises(TypeError):
+        LeaseReduction(("lease-1",), kind="commands")
+    with pytest.raises(TypeError):
+        CommandReduction(("artefact.read",), kind="leases")
 
 
 def _vault(tmp_path):

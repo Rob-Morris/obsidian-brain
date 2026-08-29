@@ -8,8 +8,8 @@ import json
 from typing import Callable, get_args, get_origin
 
 from .context import InvocationContext
-from .requests import CommandRequest, command_identity
-from .results import CommandResult
+from .identity import command_identity
+from .results import CommandResult, RESULT_SCHEMA
 from .types import (
     Authority,
     CommandLifecycle,
@@ -24,14 +24,17 @@ from .types import (
 
 
 CATALOGUE_SCHEMA = "brain.command-catalogue/1"
-RESULT_SCHEMA = "brain.command-result/1"
 APPLICATION_PROJECTIONS = (
     Projection.MCP,
     Projection.CLI,
     Projection.SCRIPT,
     Projection.PYTHON,
 )
-Executor = Callable[[InvocationContext, CommandRequest], CommandResult]
+ALL_APPLICATION_PROJECTIONS = tuple(
+    ProjectionEligibility(projection, True)
+    for projection in APPLICATION_PROJECTIONS
+)
+Executor = Callable[[InvocationContext, object], CommandResult]
 
 
 @dataclass(frozen=True, slots=True)
@@ -128,7 +131,7 @@ class ApplicationCatalogue:
         if ids != sorted(ids):
             raise ValueError("application catalogue entries must be sorted by command_id")
 
-    def resolve(self, request: CommandRequest) -> ApplicationEntry:
+    def resolve(self, request: object) -> ApplicationEntry:
         command_id, version, result_type = command_identity(request)
         entry = next(
             (item for item in self.entries if item.request_type is type(request)),

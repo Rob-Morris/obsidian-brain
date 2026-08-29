@@ -2,21 +2,15 @@
 
 from __future__ import annotations
 
+from .._decoding import optional_string, reject_unexpected
+from .._read_support import catalogue_entry as portable_reader_entry
+
 from dataclasses import dataclass
 from enum import Enum
 from typing import ClassVar, Mapping
 
 from ..context import InvocationContext
-from ..results import CommandError, Error, ErrorCode, Ok, RequestErrorDetails
-from ..types import (
-    Authority,
-    DependencyTier,
-    EffectClass,
-    Locality,
-    Projection,
-    ProjectionEligibility,
-    RetryClass,
-)
+from ..results import Error, ErrorCode, Ok, request_error
 
 
 class ArtefactSort(str, Enum):
@@ -168,20 +162,7 @@ def execute(context: InvocationContext, request: ArtefactListRequest):
 
 
 def _error(code: ErrorCode, message: str, field: str | None) -> Error:
-    return Error(
-        ArtefactListRequest.COMMAND_ID,
-        ArtefactListRequest.COMMAND_VERSION,
-        CommandError(code, message, RequestErrorDetails(field, message)),
-    )
-
-
-def _optional_string(payload: Mapping[str, object], name: str) -> str | None:
-    value = payload.get(name)
-    if value is None:
-        return None
-    if not isinstance(value, str):
-        raise ValueError(f"{name} must be a string")
-    return value
+    return request_error(ArtefactListRequest, code, message, field)
 
 
 def decode(payload: Mapping[str, object]) -> ArtefactListRequest:
@@ -198,9 +179,7 @@ def decode(payload: Mapping[str, object]) -> ArtefactListRequest:
         "cursor",
         "page_size",
     }
-    unexpected = sorted(set(payload) - allowed)
-    if unexpected:
-        raise ValueError(f"unexpected fields: {', '.join(unexpected)}")
+    reject_unexpected(payload, allowed)
     page_size = payload.get("page_size", 500)
     if not isinstance(page_size, int) or isinstance(page_size, bool):
         raise ValueError("page_size must be an integer")
@@ -216,45 +195,22 @@ def decode(payload: Mapping[str, object]) -> ArtefactListRequest:
         raise ValueError("location must be active, archived, or all") from exc
     return ArtefactListRequest(
         location=location_value,
-        type_filter=_optional_string(payload, "type_filter"),
-        since=_optional_string(payload, "since"),
-        until=_optional_string(payload, "until"),
-        modified_since=_optional_string(payload, "modified_since"),
-        modified_until=_optional_string(payload, "modified_until"),
-        tag=_optional_string(payload, "tag"),
-        parent=_optional_string(payload, "parent"),
+        type_filter=optional_string(payload.get("type_filter"), "type_filter"),
+        since=optional_string(payload.get("since"), "since"),
+        until=optional_string(payload.get("until"), "until"),
+        modified_since=optional_string(
+            payload.get("modified_since"), "modified_since"
+        ),
+        modified_until=optional_string(
+            payload.get("modified_until"), "modified_until"
+        ),
+        tag=optional_string(payload.get("tag"), "tag"),
+        parent=optional_string(payload.get("parent"), "parent"),
         sort=ArtefactSort(sort),
-        cursor=_optional_string(payload, "cursor"),
+        cursor=optional_string(payload.get("cursor"), "cursor"),
         page_size=page_size,
     )
 
 
 def catalogue_entry():
-    from ..catalogue import ApplicationEntry
-
-    return ApplicationEntry(
-        request_type=ArtefactListRequest,
-        executor=execute,
-        dependency_tier=DependencyTier.PORTABLE,
-        locality=Locality.SELECTED_BRAIN_LOCAL,
-        required_providers=(),
-        optional_providers=(),
-        authority=Authority.READER,
-        effect_class=EffectClass.NONE,
-        retry_class=RetryClass.SAFE,
-        projections=tuple(
-            ProjectionEligibility(projection, True)
-            for projection in (
-                Projection.MCP,
-                Projection.CLI,
-                Projection.SCRIPT,
-                Projection.PYTHON,
-            )
-        ),
-    )
-
-
-def resolver_entry():
-    from ..resolver import ResolverEntry
-
-    return ResolverEntry(ArtefactListRequest, decode)
+    return portable_reader_entry(ArtefactListRequest, execute)

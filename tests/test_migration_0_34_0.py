@@ -146,6 +146,56 @@ def vault(tmp_path):
     return tmp_path
 
 
+def test_skips_when_release_taxonomy_and_release_data_are_both_absent(tmp_path):
+    _write(
+        tmp_path / "Notes" / "Early Brain.md",
+        "---\ntype: living/note\n---\n\n# Early Brain\n",
+    )
+
+    result = migrate_to_0_34_0.backfill_vault(
+        str(tmp_path),
+        router={"artefacts": []},
+        dry_run=False,
+    )
+
+    assert result == {
+        "status": "skipped",
+        "updated": 0,
+        "warnings": [],
+        "actions": [],
+        "dry_run": False,
+        "reason": "release taxonomy and release-bearing data are both absent",
+    }
+
+
+def test_fails_closed_when_release_data_exists_without_release_taxonomy(tmp_path):
+    _write(
+        tmp_path / "Releases" / "Legacy.md",
+        "---\ntype: living/release\nstatus: planned\n---\n\n# Legacy\n",
+    )
+
+    with pytest.raises(ValueError, match="no configured living/release artefact"):
+        migrate_to_0_34_0.backfill_vault(
+            str(tmp_path),
+            router={"artefacts": []},
+            dry_run=False,
+        )
+
+
+def test_fails_closed_for_malformed_release_frontmatter_without_taxonomy(tmp_path):
+    _write(
+        tmp_path / "Releases" / "Malformed.md",
+        "---\ntype: living/release\nstatus: planned\n# missing closing delimiter\n",
+    )
+
+    with pytest.raises(ValueError, match="no configured living/release artefact"):
+        migrate_to_0_34_0.backfill_vault(
+            str(tmp_path),
+            router={"artefacts": []},
+            dry_run=False,
+        )
+
+
 def test_normalises_parented_release_structure_and_filename(vault):
     router = compile_router.compile(str(vault))
     result = migrate_to_0_34_0.backfill_vault(str(vault), router=router, dry_run=False)

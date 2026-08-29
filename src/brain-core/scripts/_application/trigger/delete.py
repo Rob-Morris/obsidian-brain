@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from .._decoding import reject_unexpected
+
 from dataclasses import dataclass
 from typing import ClassVar, Mapping
 
@@ -45,9 +47,7 @@ def execute(context: InvocationContext, request: TriggerDeleteRequest):
 
 
 def decode(payload: Mapping[str, object]) -> TriggerDeleteRequest:
-    unexpected = sorted(set(payload) - {"condition", "target"})
-    if unexpected:
-        raise ValueError(f"unexpected fields: {', '.join(unexpected)}")
+    reject_unexpected(payload, {"condition", "target"})
     if "condition" not in payload:
         raise ValueError("condition is required")
     condition = payload["condition"]
@@ -61,9 +61,3 @@ def decode(payload: Mapping[str, object]) -> TriggerDeleteRequest:
 
 def catalogue_entry():
     return definition_catalogue_entry(TriggerDeleteRequest, execute)
-
-
-def resolver_entry():
-    from ..resolver import ResolverEntry
-
-    return ResolverEntry(TriggerDeleteRequest, decode)

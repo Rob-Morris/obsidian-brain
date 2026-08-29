@@ -108,24 +108,29 @@ This local CLI command writes only the workspace's
 `.brain/local/workspace.yaml`; it does not create a Brain project or workspace
 artefact.
 
-To make the active Brain's shaping workflow discoverable as a native skill in
-Claude Code and Codex, install the shared discovery adapter once:
+To make any active Brain workflow discoverable as a native skill in Claude Code
+and Codex, expose a thin discovery adapter explicitly:
 
 ```bash
-brain agent-skill configure --vault /path/to/brain \
-  --request-json '{"client":"all"}' --json
+brain skill expose --vault /path/to/brain \
+  --request-json '{"name":"shaping","client":"all","scope":"global"}' --json
 ```
 
-The adapter contains no shaping workflow of its own. It calls `session.start` for
-the active Brain, then loads that Brain's `.brain-core/skills/shaping/SKILL.md`
-through `vault.read-file`, so a normal Brain upgrade updates the workflow without
-copying it into each client's global skill directory. Existing unmanaged shaping
-skills are preserved; after reviewing them, use `--replace` to archive each old
+The adapter contains no workflow of its own. It calls `session.start`, resolves
+the unqualified effective skill user-first, and loads that package from the
+active Brain. A normal Brain or skill update therefore changes the workflow
+without copying it into each client directory. Existing unmanaged skills are
+preserved; after reviewing one, use `"replace":true` to archive its old
 directory outside skill discovery under
 `~/.<client>/.brain-skill-backups/` and install the adapter. Restart Claude Code
 and Codex after the command reports a change. Installation is explicit because
 these are machine-global client
 directories, not vault-owned files.
+
+Use `"scope":"project"` with `--workspace /path/to/project` for project-local
+discovery. An existing canonical workspace binding takes precedence; otherwise
+the configured machine default is used. The exposure command will not create or
+change a binding.
 
 `vault.read-file` is limited to ordinary non-hidden vault files and explicit public Brain Core documentation trees such as `.brain-core/skills/`. It cannot read `.brain/`, `.brain/local/`, `.obsidian/`, Brain Core defaults/scripts or a symlink resolving into those private namespaces.
 
@@ -266,12 +271,16 @@ These are freeform. Write whatever helps.
 
 To upgrade brain-core to a new version:
 
-- **CLI**: `python3.12 src/brain-core/scripts/upgrade.py --source src/brain-core --vault /path/to/brain` (run from a clone of this repo; add `--force` for same-version re-apply, downgrade, or migration rerun)
+- **CLI**: `brain upgrade --vault /path/to/brain --request-json '{}' --json` (add `"force": true` for same-version re-apply, downgrade, or migration rerun)
 - **install.sh wrapper**: `bash install.sh /path/to/brain` — detects the existing install and delegates to `upgrade.py`
-- **Manual**: replace `.brain-core/` with the new version from `src/brain-core/`
 
-`upgrade.py` reports recommended follow-up commands in human output, `--json`,
-and `.brain/local/last-upgrade.json`. When the Claude/Codex shaping discovery
+The checked upgrade runs every pending versioned migration in order, completes
+the selected Brain's runtime warm-up before returning success, and records the
+result in `.brain/local/last-upgrade.json`. If readiness cannot complete it
+returns a known partial outcome with `brain runtime warmup` and `brain runtime
+status` recovery guidance. It never silently deletes shared machine runtimes;
+when read-only topology inspection proves orphan candidates, it reports `brain
+runtime remove-orphans --dry-run` and the explicit removal command. When the Claude/Codex shaping discovery
 adapter is first introduced or its template changes, it recommends
 `configure.py agent-skills --client all` but does not run it automatically.
 Ordinary updates to the active Brain's shaping workflow produce no adapter
@@ -311,7 +320,7 @@ restores the pinned runtime packages, local model snapshot/manifest, and
 embeddings sidecars together. `router`, `lexical`, and `registry` are narrower
 generated-state repairs and are usually best run when `vault.check` tells you to.
 
-CLI 2's launcher recovery stays bootstrap-safe and converges packageful work
+The CLI's launcher recovery stays bootstrap-safe and converges packageful work
 into the central managed runtime under `~/.brain/venvs/`; it does not install
 packages into your wider Python environment. Use `brain vault check`,
 `brain runtime refresh-router`, `brain retrieval refresh-lexical`,

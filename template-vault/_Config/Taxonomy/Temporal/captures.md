@@ -32,6 +32,8 @@ tags:
 ---
 ```
 
+**Optional:** `source`
+
 No status field. Captures have no lifecycle — they are immutable once created.
 
 ## Trigger

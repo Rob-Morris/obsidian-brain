@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import _application.adapter as adapter_module
 from _application.adapter import (
     AdapterRequestError,
     ApplicationAdapter,
@@ -133,3 +134,19 @@ def test_result_projection_preserves_branches_and_exact_exit_categories():
         assert projected.is_error is is_error
         assert projected.exit_code == exit_code
         assert projected.structured_content["status"] == result.status
+
+
+def test_result_projection_defers_unused_renderings(monkeypatch):
+    result = Ok("command.list", 1, {"entries": ()})
+
+    def unexpected(_result):
+        raise AssertionError("unused rendering was constructed eagerly")
+
+    monkeypatch.setattr(adapter_module, "canonical_result_envelope", unexpected)
+    monkeypatch.setattr(adapter_module, "canonical_result_json", unexpected)
+    monkeypatch.setattr(adapter_module, "_concise_text", unexpected)
+
+    projected = project_adapter_result(result)
+
+    assert projected.result is result
+    assert projected.exit_code == 0

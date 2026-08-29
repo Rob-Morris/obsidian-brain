@@ -17,6 +17,24 @@ import upgrade
 _REAL_SCRIPTS = Path(__file__).resolve().parents[1] / "src" / "brain-core" / "scripts"
 
 
+@pytest.fixture(autouse=True)
+def _close_post_upgrade_runtime_state(monkeypatch):
+    monkeypatch.setattr(
+        upgrade,
+        "_complete_runtime_readiness",
+        lambda _vault: {"outcome": "ok", "message": "ready"},
+    )
+    monkeypatch.setattr(
+        upgrade,
+        "_inspect_runtime_orphans",
+        lambda _vault: {
+            "outcome": "ok",
+            "orphan_candidates": 0,
+            "message": "tidy",
+        },
+    )
+
+
 def _make_source(
     tmp_path: Path,
     version: str,
@@ -145,6 +163,34 @@ def _write_taxonomy(root: Path, classification: str, folder: str, frontmatter_ty
         f"```yaml\n---\ntype: {frontmatter_type}\ntags: []\n---\n```\n",
         encoding="utf-8",
     )
+
+
+def test_exact_0_3_no_release_data_runs_the_retained_migration_chain(tmp_path):
+    vault = _make_vault(tmp_path, "0.3.0")
+    scripts = vault / ".brain-core" / "scripts"
+    shutil.rmtree(scripts)
+    shutil.copytree(_REAL_SCRIPTS, scripts)
+    (scripts / "upgrade.py").unlink()
+    compiled = compile_router.compile(str(vault))
+    (vault / ".brain" / "local" / "compiled-router.json").write_text(
+        json.dumps(compiled, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    current_version = (_REAL_SCRIPTS.parent / "VERSION").read_text().strip()
+
+    results, ledger = upgrade._run_migrations(
+        str(vault),
+        "0.3.0",
+        current_version,
+        raise_on_error=True,
+    )
+
+    release_alignment = next(item for item in results if item["version"] == "0.34.0")
+    assert release_alignment["status"] == "skipped"
+    assert release_alignment["reason"] == (
+        "release taxonomy and release-bearing data are both absent"
+    )
+    assert ledger["migrations"]["0.34.0"]["status"] == "skipped"
 
 
 def test_run_pending_migrations_records_ledger_and_skips_repeat(tmp_path):
@@ -290,6 +336,8 @@ def test_upgrade_backfills_old_versions_and_prevents_startup_rerun(tmp_path):
 
     assert result["status"] == "ok"
     assert [item["version"] for item in result["migrations"]] == ["2.0.0"]
+    assert result["runtime_readiness"]["outcome"] == "ok"
+    assert result["runtime_orphans"]["outcome"] == "ok"
     assert startup == []
     assert ledger["migrations"]["1.0.0"]["status"] == "backfilled"
     assert ledger["migrations"]["2.0.0"]["status"] == "ok"

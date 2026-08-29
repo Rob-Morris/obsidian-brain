@@ -8,7 +8,7 @@ from typing import Mapping
 
 from launcher_catalogue import LauncherCatalogue
 
-from .context import LauncherContext
+from .context import LauncherContext, report_failure_safely
 from .contracts import Error, ErrorCode, Ok, Partial
 from .invocation import (
     LauncherInvocation,
@@ -84,7 +84,10 @@ class LauncherAdapter:
             raise LauncherRequestError("command is not owned by the launcher catalogue")
         try:
             denied = authority_denied_result(context, entry)
-        except Exception:
+        except Exception as exc:
+            report_failure_safely(
+                context, phase="authority.preflight", command_id=command_id, error=exc
+            )
             return project_launcher_result(
                 internal_error_result(context, command_id, entry.command_version)
             )

@@ -7,14 +7,38 @@ import importlib
 import json
 import os
 from pathlib import Path
+import shutil
 
 import pytest
 
 from _bootstrap import agent_skills
+from _skill_library import packages
 import upgrade
 
 
 ADAPTER_CONTENT = agent_skills.load_shaping_adapter()
+
+
+def test_prevalidated_package_builds_adapter_without_reinspection(tmp_path, monkeypatch):
+    vault = tmp_path / "vault"
+    skill_name = "software-design-principles"
+    package = vault / ".brain-core" / "skills" / skill_name
+    source = Path(__file__).parents[1] / "src" / "brain-core" / "skills" / skill_name
+    shutil.copytree(source, package)
+    snapshot = packages.inspect_package(package, expected_name=skill_name)
+
+    def unexpected_reinspection(*_args, **_kwargs):
+        raise AssertionError("validated package was inspected twice")
+
+    monkeypatch.setattr(packages, "inspect_package", unexpected_reinspection)
+
+    adapter = agent_skills.load_effective_skill_adapter(
+        vault,
+        skill_name,
+        package_snapshot=snapshot,
+    )
+
+    assert f'resource.read(resource="skill", reference="{skill_name}")' in adapter
 
 
 def _skill_dir(home, client):
@@ -49,7 +73,9 @@ def test_install_configures_both_clients_from_one_adapter(tmp_path):
         assert content == ADAPTER_CONTENT
         assert "session.start" in content
         assert "vault.read-file" in content
-        assert '.brain-core/skills/shaping/SKILL.md' in content
+        assert "resource.read" in content
+        assert "_Config/Skills/shaping/" in content
+        assert ".brain-core/skills/shaping/" in content
         assert "start-shaping" not in content
         assert marker == _marker_for(content)
 
@@ -385,7 +411,7 @@ def test_all_clients_report_partial_success_independently(tmp_path):
 
 
 def test_value_error_is_contained_to_the_failing_client(tmp_path, monkeypatch):
-    original_install = agent_skills._install_client_adapter
+    original_install = agent_skills.install_prepared_skill_adapter
 
     def fail_codex(home_dir, client, content, *, replace, dry_run=False):
         if client == "codex":
@@ -398,7 +424,7 @@ def test_value_error_is_contained_to_the_failing_client(tmp_path, monkeypatch):
             dry_run=dry_run,
         )
 
-    monkeypatch.setattr(agent_skills, "_install_client_adapter", fail_codex)
+    monkeypatch.setattr(agent_skills, "install_prepared_skill_adapter", fail_codex)
 
     steps = agent_skills.configure_agent_skill_adapters(
         home_dir=tmp_path,

@@ -1,6 +1,14 @@
 # Brain Reference
 
-This page is the stable user-facing reference for Brain Core 0.57.1 and CLI 2.1.0. Exact command schemas, examples and availability come from the installed Brain rather than a duplicated hand-maintained inventory.
+This page is the stable user-facing reference for Brain Core 0.62.9 and CLI 3.1.4. Exact command schemas, examples and availability come from the installed Brain rather than a duplicated hand-maintained inventory.
+
+Document changes use a read–mutate loop. Read an editable artefact or named
+resource, retain its returned `revision`, then pass that value as
+`expected_revision` to `document.write-body`, `document.replace-text`, `document.structured-edit`, or
+`document.update-frontmatter`. A conflict means the bytes changed; re-read and
+reapply the intended change. Use `write` for whole-body text, `patch` for exact
+literal replacement, `edit` for headings/callouts/document intro, and
+`update-frontmatter` for metadata only.
 
 ## Vault model
 
@@ -17,13 +25,15 @@ The compiled `_Config/router.md` is the concise navigation map. Taxonomy definit
 
 ## Canonical command grammar
 
-Every semantic operation has one dot-separated command identifier and one noun/verb CLI spelling:
+Every semantic operation has one dot-separated command identifier. Application commands use the corresponding noun/verb CLI spelling; launcher commands own concise domain-explicit entry points:
 
 ```text
 artefact.read       brain artefact read
 artefact.create     brain artefact create
 vault.check         brain vault check
-brain.doctor        brain brain doctor
+brain.doctor        brain doctor
+brain.resolve       brain resolve
+runtime.inspect     brain runtime inspect
 ```
 
 Selected-Brain application commands can project to MCP, CLI, the direct command script and typed Python when the catalogue marks that projection eligible. Machine-global launcher commands project only where their owner and locality permit. The projections share one request type, application owner and structural `brain.command-result/1` result.
@@ -54,7 +64,12 @@ Each granular tool exposes its own top-level request fields. There is no generic
 
 Start with `session.start`, then use `command.list` and `command.describe` for bounded discovery. For example, inspect `artefact.create` before supplying its fields to the `artefact.create` tool.
 
-The MCP server derives registrations, schemas, descriptions and tool hints from the selected Brain's catalogue, then exposes only the authenticated ceiling. The cumulative built-in ceilings expose 26 reader, 47 contributor, 58 maintainer, 59 operator and 60 administrator MCP tools; custom profiles use exact command names. Active access starts at Reader by default. Use `access.status`, request exact within-ceiling leases with `access.request`, and revoke them with `access.reduce`; leases do not change the visible tool catalogue.
+`shaping.start` opens or continues a taxonomy-declared shaping session after
+the shaping skill selects its mode. It applies the taxonomy's status behaviour:
+ordinary contracts enter `shaping`, while discovery-only preserving contracts
+leave an enduring non-terminal status unchanged and refuse terminal targets.
+
+The MCP server derives registrations, schemas, descriptions and tool hints from the selected Brain's catalogue, then exposes only the authenticated ceiling. The cumulative built-in ceilings expose 26 reader, 50 contributor, 61 maintainer, 62 operator and 63 administrator MCP tools; custom profiles use exact command names. Active access starts at Reader by default. Use `access.status`, request exact within-ceiling leases with `access.request`, and revoke them with `access.reduce`; leases do not change the visible tool catalogue.
 
 Every MCP call checks the installed Brain Core version before composing context or executing effects. Planned pre-effect drift exits for proxy replacement and is replayed only after positive command compatibility. An unexpectedly lost mutation is never blindly replayed; query its durable reference with `invocation.read`. Receipt lookup is read-only, including for missing or expired references.
 
@@ -62,7 +77,7 @@ See [MCP tools](../functional/mcp-tools.md) for transport, protocol and result d
 
 ## CLI
 
-The installed `brain` command is a machine-global CLI 2 bootloader plus a versioned distribution. It resolves exactly one selected local Brain and executes either:
+The installed `brain` command is a machine-global CLI 3 bootloader plus a versioned distribution. It resolves exactly one selected local Brain and executes either:
 
 - a launcher-owned machine command, without importing selected-Brain application semantics; or
 - an application command through that selected Brain's own `command.py`.
@@ -72,13 +87,20 @@ Supply semantic fields as a strict JSON object:
 ```bash
 brain artefact read --request-json '{"reference":"design/brain"}' --json
 brain vault check --request-json '{"actionable":true}' --json
-brain brain upgrade --vault /path/to/brain \
+brain upgrade --vault /path/to/brain \
   --request-json '{"acknowledge_global_cli_cutover":true}' --json
 ```
 
+Successful upgrade includes a recorded ready runtime, so the first ordinary
+`session.start` does not have to initiate overlapping warm-up work. A warm-up
+failure returns the known-partial exit category with recovery commands. Shared
+runtime cleanup remains explicit: upgrade only recommends `brain runtime
+remove-orphans --dry-run` and `brain runtime remove-orphans` after read-only
+inspection proves candidates.
+
 Use `--request-json -` to read one object from stdin. `--vault`, `--brain` and workspace binding select the Brain; they are adapter inputs, never semantic command fields. `--dry-run` is trusted execution context. Exit categories are stable: 0 success, 1 known partial, 2 request/domain failure, 3 authority/capability unavailable, and 4 infrastructure failure or unknown mutation outcome.
 
-CLI 2 refuses application discovery against a pre-0.55 Brain. Launcher discovery and recovery remain available so the operator can run the checked upgrade. See [CLI](../functional/cli.md).
+CLI 3 refuses application discovery against a pre-0.55 Brain. Launcher discovery and recovery remain available so the operator can run the checked upgrade. See [CLI](../functional/cli.md).
 
 With external elevation policy, `access.request` returns a pending identifier. A separately trusted local operator approves it with `brain access approve`; that launcher-only command is not exposed to MCP or the selected-Brain direct script.
 
@@ -139,7 +161,7 @@ MCP cannot configure the connecting agent's local filesystem. Remote-Brain trans
 Useful granular checks and repairs include:
 
 ```bash
-brain brain doctor --json
+brain doctor --json
 brain vault check --vault /path/to/brain --json
 brain runtime repair --vault /path/to/brain --json
 brain runtime refresh-router --vault /path/to/brain --request-json '{"force":true}' --json
@@ -165,6 +187,6 @@ Agents degrade in this order:
 - [System guide](system-guide.md) — artefact lifecycle, structure and naming
 - [Workflows](workflows.md) — everyday use
 - [MCP tools](../functional/mcp-tools.md) — granular MCP projection
-- [CLI](../functional/cli.md) — CLI 2 grammar and lifecycle
+- [CLI](../functional/cli.md) — CLI grammar and lifecycle
 - [Scripts](../functional/scripts.md) — direct and Python parity
 - [Configuration](../functional/config.md) — config, profiles and skills

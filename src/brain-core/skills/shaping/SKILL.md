@@ -1,45 +1,26 @@
 ---
 name: shaping
 description: >
-  Shape an artefact through structured Q&A. Routes to the right sub-skill:
-  brainstorm (new/unclear artefacts), refine (open decisions), or discover
-  (exploration-driven artefacts like People and Ideas).
+  Shape an artefact through adaptive, structured Q&A using a portable workflow
+  and the capabilities selected from the currently active Brain.
 ---
 
 # Shaping
 
-Shape an artefact through structured Q&A until it meets its type's bar.
+This Brain-owned entry point composes two independently maintained parts:
 
-## Modes
+1. Read [portable.md](portable.md) completely. It is the behavioural source of
+   truth for session setup, routing, question flow, completion, and review.
+2. Read [references/brain.md](references/brain.md) completely. It contributes
+   Brain target resolution, persistence, taxonomy, provenance, and lifecycle
+   capabilities when the proposed session plan selects them.
 
-### brainstorm
+The Brain adaptor supplies capabilities and recommended defaults. It does not
+override the portable workflow or the user's requested locations and recording
+preferences. A connected Brain is not, by itself, a reason to store the
+artefact, decisions, work, or transcript in Brain.
 
-The artefact is new or a stub. What needs to be shaped isn't clear yet. Explores the idea, writes initial content, then hands off to refine.
-
-**File:** `brainstorm/SKILL.md`
-
-### refine
-
-The artefact is clear but has open decisions to work through. Decision-driven, with progress tracking.
-
-**File:** `refine/SKILL.md`
-
-### discover
-
-The taxonomy declares discovery shaping. Open-ended exploration, no decision table.
-
-**File:** `discover/SKILL.md`
-
-## Routing
-
-All file paths below are relative to this skill's base directory. Use the Read tool to load them — do NOT use the Skill tool.
-
-1. Read and follow `assess/SKILL.md`. It resolves the artefact, reads the taxonomy's `## Shaping` metadata, selects the mode, and opens the session.
-2. Read and follow the skill file for the mode returned by assess.
-
-## Routing Examples
-
-- `shaping <design name>` → assess → **refine** (existing design with decisions)
-- `shaping` + "I want to build X" → assess (creates artefact) → **brainstorm**
-- `shaping <discovery artefact>` → assess → **discover**
-- `shaping <stub design>` → assess → **brainstorm** (not enough content to refine yet)
+The portable source is checked into this package so an installed Brain has no
+runtime dependency on a network or sibling repository. Its exact source and
+file identities are recorded in
+[portable-provenance.json](portable-provenance.json).

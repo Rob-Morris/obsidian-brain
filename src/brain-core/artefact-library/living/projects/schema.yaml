@@ -3,7 +3,7 @@ required:
     const: "living/project"
   key:
     type: string
-    pattern: "^[a-z0-9]+(-[a-z0-9]+)*$"
+    pattern: "^(?=.{1,64}$)(?=.*[a-z])[a-z0-9]+(?:-[a-z0-9]+)*$"
   tags:
     type: array
     contains: "project/{key}"
