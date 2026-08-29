@@ -13,7 +13,7 @@
       "request": {
         "kind": "git",
         "repository": ".",
-        "ref": "cf110689f27cfb0bbbb4d35073963e462c3ff512",
+        "ref": "7bf6db30efc9e132aa84755bc6f448d575fdf85f",
         "platform": "linux/arm64"
       }
     },
@@ -66,7 +66,9 @@
           "--vault",
           "/home/brain/vault",
           "--target-source",
-          "/home/brain/target-source"
+          "/home/brain/target-source",
+          "--historical-version",
+          "0.53.5"
         ],
         "working_directory": "/home/brain/vault",
         "environment": {

@@ -252,23 +252,38 @@ def migrate_profile_allow_lists(
     }
     _validate_migration_map(granular_entries)
     builtins = builtin_profile_allow_lists(catalogue)
-    exact_builtin_set = _is_exact_legacy_builtin_set(profiles)
-    exact_previous_granular_set = _is_exact_previous_granular_builtin_set(
+    legacy_builtins_present = _contains_exact_legacy_builtins(profiles)
+    previous_granular_builtins_present = _contains_exact_previous_granular_builtins(
         profiles,
         granular_entries,
         builtins,
     )
-    source_profiles = (
-        {
-            profile: profiles.get(
-                profile,
-                {"label": f"{profile} profile", "allow": []},
-            )
-            for profile in builtins
+    source_profiles = dict(profiles)
+    builtin_profiles_to_project = set()
+    if legacy_builtins_present:
+        builtin_profiles_to_project.update(_LEGACY_BUILTIN_ALLOW)
+        for profile in builtins:
+            if profile not in source_profiles:
+                source_profiles[profile] = {
+                    "label": f"{profile} profile",
+                    "allow": [],
+                }
+                builtin_profiles_to_project.add(profile)
+    elif previous_granular_builtins_present:
+        builtin_profiles_to_project.update(builtins)
+    if legacy_builtins_present or previous_granular_builtins_present:
+        source_profiles = {
+            **{
+                profile: source_profiles[profile]
+                for profile in builtins
+                if profile in source_profiles
+            },
+            **{
+                profile: definition
+                for profile, definition in source_profiles.items()
+                if profile not in builtins
+            },
         }
-        if exact_builtin_set
-        else dict(profiles)
-    )
     migrated = {}
     changes = []
     for profile, raw_definition in source_profiles.items():
@@ -285,7 +300,7 @@ def migrate_profile_allow_lists(
                 f"profile '{profile}' allow-list must contain only non-empty strings"
             )
         before = tuple(before_raw)
-        if (exact_builtin_set or exact_previous_granular_set) and profile in builtins:
+        if profile in builtin_profiles_to_project:
             after = builtins[profile]
             strategy = "builtin"
         elif profile in _LEGACY_BUILTIN_ALLOW and set(before) == set(
@@ -330,8 +345,8 @@ def migrate_profile_allow_lists(
     return ProfileMigrationResult(migrated, tuple(changes))
 
 
-def _is_exact_legacy_builtin_set(profiles: Mapping[str, object]) -> bool:
-    if set(profiles) != set(_LEGACY_BUILTIN_ALLOW):
+def _contains_exact_legacy_builtins(profiles: Mapping[str, object]) -> bool:
+    if not set(_LEGACY_BUILTIN_ALLOW) <= set(profiles):
         return False
     for profile, expected in _LEGACY_BUILTIN_ALLOW.items():
         definition = profiles.get(profile)
@@ -343,7 +358,7 @@ def _is_exact_legacy_builtin_set(profiles: Mapping[str, object]) -> bool:
     return True
 
 
-def _is_exact_previous_granular_builtin_set(
+def _contains_exact_previous_granular_builtins(
     profiles: Mapping[str, object],
     granular_entries: Mapping[str, object],
     builtins: Mapping[str, tuple[str, ...]],
@@ -355,7 +370,7 @@ def _is_exact_previous_granular_builtin_set(
     their projected meaning avoids embedding five large duplicate allow-lists.
     """
 
-    if set(profiles) != set(builtins):
+    if not set(builtins) <= set(profiles):
         return False
     new_access_tools = {
         "access.reduce",

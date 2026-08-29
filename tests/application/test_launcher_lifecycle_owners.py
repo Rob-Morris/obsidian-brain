@@ -322,7 +322,12 @@ def test_upgrade_projects_dry_run_and_closed_policies(tmp_path, monkeypatch):
             "files_added": ["one"],
             "files_modified": ["two", "three"],
             "files_removed": [],
-            "migrations": [{"id": "migration-one"}],
+            "precompile_patch_migrations_preview": [
+                {"version": "0.62.2", "target": "pre_compile_patch"}
+            ],
+            "migrations_preview": [
+                {"version": "0.55.0", "target": "post_compile"}
+            ],
         }
 
     monkeypatch.setattr(
@@ -339,7 +344,10 @@ def test_upgrade_projects_dry_run_and_closed_policies(tmp_path, monkeypatch):
 
     assert result.result.status is LifecycleStatus.PLANNED
     assert (result.result.files_added, result.result.files_modified) == (1, 2)
-    assert result.result.migrations == ("migration-one",)
+    assert result.result.migrations == (
+        "0.62.2@pre_compile_patch",
+        "0.55.0",
+    )
     assert result.committed_effects == ()
     assert calls[0][1]["sync"] is False
     assert calls[0][1]["sync_deps"] is True

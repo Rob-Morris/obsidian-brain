@@ -114,6 +114,13 @@ def test_acceptance_matrix_has_unique_executable_evidence_owners():
         )
     )
     assert acceptance["request"]["argv"][0] == CONTAINER_PYTHON
+    assert acceptance["request"]["argv"][-2:] == [
+        "--historical-version",
+        "0.53.5",
+    ]
+    assert historical["steps"][1]["request"]["ref"] == (
+        "7bf6db30efc9e132aa84755bc6f448d575fdf85f"
+    )
     assert historical["host_state"] is not False
 
 
@@ -151,6 +158,26 @@ def test_historical_upgrade_delta_uses_stable_check_severity_and_path_identity()
         ("error", "living_key_fields", "Designs/Inherited.md")
     ]
     assert delta["added"] == [("warning", "new_check", "")]
+
+
+def test_historical_upgrade_portable_manifest_excludes_only_local_runtime_state(
+    tmp_path: Path,
+):
+    helper = runpy.run_path(
+        str(TOOL_ROOT / "container" / "historical_upgrade_acceptance.py"),
+        run_name="historical_upgrade_manifest_test",
+    )
+    portable = tmp_path / "Notes" / "User.md"
+    portable.parent.mkdir()
+    portable.write_text("user state", encoding="utf-8")
+    local = tmp_path / ".brain" / "local" / "runtime.json"
+    local.parent.mkdir(parents=True)
+    local.write_text("runtime state", encoding="utf-8")
+
+    manifest = helper["_portable_manifest"](tmp_path)
+
+    assert "Notes/User.md" in manifest
+    assert ".brain/local/runtime.json" not in manifest
 
 
 def test_historical_upgrade_runner_stops_output_above_its_bound(tmp_path: Path):

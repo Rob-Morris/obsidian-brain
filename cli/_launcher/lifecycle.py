@@ -538,14 +538,24 @@ def _distribution_unavailable(request_type):
 
 def _migration_ids(result: dict) -> tuple[str, ...]:
     values = []
-    for key in ("precompile_patch_migrations", "migrations"):
+    for key in (
+        "precompile_patch_migrations",
+        "precompile_patch_migrations_preview",
+        "migrations",
+        "migrations_preview",
+    ):
         for item in result.get(key, []):
             if isinstance(item, dict):
                 value = item.get("id") or item.get("version") or item.get("name")
+                target = item.get("target")
             else:
                 value = item
+                target = None
             if value is not None:
-                values.append(str(value))
+                identifier = str(value)
+                if target not in (None, "post_compile"):
+                    identifier = f"{identifier}@{target}"
+                values.append(identifier)
     return tuple(values)
 
 

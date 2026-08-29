@@ -211,6 +211,57 @@ def test_custom_mutator_gains_only_the_required_outcome_query_closure():
     assert set(result.profiles["author"]["allow"]) == expected
 
 
+def test_legacy_builtins_with_custom_profile_add_the_missing_builtins():
+    profiles = _legacy_builtins()
+    profiles["author"] = {
+        "allow": ["brain_read", "brain_create"],
+        "description": "User-owned authority.",
+    }
+
+    result = migrate_profile_allow_lists(
+        profiles,
+        current_application_catalogue(),
+    )
+
+    expected_builtins = builtin_profile_allow_lists(current_application_catalogue())
+    assert set(result.profiles) == set(expected_builtins) | {"author"}
+    for profile, allow in expected_builtins.items():
+        assert tuple(result.profiles[profile]["allow"]) == allow
+    assert set(result.profiles["author"]["allow"]) == {
+        "artefact.create",
+        "artefact.read",
+        "invocation.read",
+        "resource.create",
+        "resource.read",
+        "runtime.read-environment",
+        "vault.read-file",
+        "vault.read-router",
+        "workspace.read",
+    }
+    assert result.profiles["author"]["description"] == "User-owned authority."
+
+
+def test_previous_granular_builtins_with_custom_profile_remain_recognisable():
+    profiles = _previous_granular_builtins()
+    profiles["custom"] = {
+        "allow": ["memory.read", "session.start"],
+        "description": "Custom profile.",
+    }
+
+    result = migrate_profile_allow_lists(
+        profiles,
+        current_application_catalogue(),
+    )
+
+    expected_builtins = builtin_profile_allow_lists(current_application_catalogue())
+    for profile, allow in expected_builtins.items():
+        assert tuple(result.profiles[profile]["allow"]) == allow
+    assert result.profiles["custom"] == {
+        "allow": ["resource.read", "session.start"],
+        "description": "Custom profile.",
+    }
+
+
 def test_mixed_and_already_granular_profiles_are_idempotent():
     catalogue = current_application_catalogue()
     first = migrate_profile_allow_lists(

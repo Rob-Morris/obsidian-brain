@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run the bounded v0.54-to-target Brain upgrade acceptance probe."""
+"""Run a bounded exact-release-to-target Brain upgrade acceptance probe."""
 
 from __future__ import annotations
 
@@ -9,6 +9,7 @@ import json
 import os
 from pathlib import Path
 import re
+import shutil
 import signal
 import subprocess
 import sys
@@ -26,6 +27,20 @@ REQUIRED_MIGRATION_RECORDS = {
     "0.62.2@pre_compile_patch",
     "0.62.4",
 }
+RETIRED_CORE_SKILLS = ("code-review", "superpowers-brain", "swarm-test")
+EXPECTED_CUSTOM_PROFILE_ALLOW = {
+    "artefact.create",
+    "artefact.read",
+    "invocation.read",
+    "resource.create",
+    "resource.read",
+    "runtime.read-environment",
+    "vault.read-file",
+    "vault.read-router",
+    "workspace.read",
+}
+CUSTOM_BOOTSTRAP_PROSE = "Keep this user-authored bootstrap guidance unchanged."
+CUSTOM_MEMORY_PROSE = "\nUpgrade acceptance user-memory marker.\n"
 
 
 class AcceptanceFailure(RuntimeError):
@@ -196,6 +211,121 @@ def _write_legacy_records(vault: Path) -> tuple[Path, Path]:
     return inherited, terminal
 
 
+def _yaml_helpers(target_source: Path):
+    scripts = str(target_source / "src" / "brain-core" / "scripts")
+    if scripts not in sys.path:
+        sys.path.insert(0, scripts)
+    from _common._yaml import dump_yaml_text, load_mapping_file
+
+    return dump_yaml_text, load_mapping_file
+
+
+def _prepare_upgrade_fixture(vault: Path, target_source: Path) -> dict[str, str]:
+    """Add representative legacy authority, bootstrap, and user-owned state."""
+
+    dump_yaml_text, load_mapping_file = _yaml_helpers(target_source)
+    old_defaults = load_mapping_file(vault / ".brain-core" / "defaults" / "config.yaml")
+    legacy_profiles = json.loads(json.dumps(old_defaults["vault"]["profiles"]))
+    if set(legacy_profiles) != {"reader", "contributor", "operator"}:
+        raise AcceptanceFailure("historical built-in profiles are not the expected three-profile set")
+    legacy_profiles["author"] = {
+        "allow": ["brain_read", "brain_create"],
+        "description": "User-owned read and create authority.",
+    }
+    config = {
+        "vault": {
+            "brain_name": "Upgrade Acceptance Brain",
+            "profiles": legacy_profiles,
+        },
+        "defaults": {"default_profile": "operator"},
+    }
+    config_path = vault / ".brain" / "config.yaml"
+    config_path.write_text(dump_yaml_text(config), encoding="utf-8")
+
+    for filename in ("AGENTS.md", "CLAUDE.md"):
+        path = vault / filename
+        content = path.read_text(encoding="utf-8")
+        if "brain_session" not in content:
+            raise AcceptanceFailure(f"historical {filename} does not carry the expected bootstrap")
+        path.write_text(f"{content.rstrip()}\n\n{CUSTOM_BOOTSTRAP_PROSE}\n", encoding="utf-8")
+
+    memory = vault / "_Config" / "Memories" / "README.md"
+    original_memory = memory.read_text(encoding="utf-8")
+    memory.write_text(original_memory + CUSTOM_MEMORY_PROSE, encoding="utf-8")
+    user_skill = vault / "_Config" / "Skills" / "upgrade-acceptance-user-skill" / "SKILL.md"
+    user_skill.parent.mkdir(parents=True)
+    user_skill.write_text(
+        "---\n"
+        "name: upgrade-acceptance-user-skill\n"
+        "description: User-owned upgrade acceptance skill.\n"
+        "---\n\n"
+        "# Upgrade acceptance user skill\n",
+        encoding="utf-8",
+    )
+    return {
+        str(memory.relative_to(vault)): memory.read_text(encoding="utf-8"),
+        str(user_skill.relative_to(vault)): user_skill.read_text(encoding="utf-8"),
+    }
+
+
+def _portable_manifest(vault: Path) -> dict[str, tuple[str, str]]:
+    """Hash upgrade-owned and user-owned state, excluding local runtime records."""
+
+    manifest = {}
+    for path in sorted(vault.rglob("*")):
+        relative = path.relative_to(vault)
+        if relative.parts[:2] == (".brain", "local"):
+            continue
+        key = relative.as_posix()
+        if path.is_symlink():
+            manifest[key] = ("symlink", os.readlink(path))
+        elif path.is_file():
+            manifest[key] = ("file", hashlib.sha256(path.read_bytes()).hexdigest())
+        elif path.is_dir():
+            manifest[key] = ("directory", "")
+    return manifest
+
+
+def _assert_migrated_user_state(
+    vault: Path,
+    target_source: Path,
+    preserved: dict[str, str],
+) -> None:
+    _, load_mapping_file = _yaml_helpers(target_source)
+    config = load_mapping_file(vault / ".brain" / "config.yaml")
+    profiles = config["vault"]["profiles"]
+    current_defaults = load_mapping_file(
+        vault / ".brain-core" / "defaults" / "config.yaml"
+    )["vault"]["profiles"]
+    expected_names = set(current_defaults) | {"author"}
+    if set(profiles) != expected_names:
+        raise AcceptanceFailure("upgrade did not produce the five built-ins plus the custom profile")
+    for name, expected in current_defaults.items():
+        if profiles[name]["allow"] != expected["allow"]:
+            raise AcceptanceFailure(f"upgrade did not migrate built-in profile {name!r} exactly")
+    if set(profiles["author"]["allow"]) != EXPECTED_CUSTOM_PROFILE_ALLOW:
+        raise AcceptanceFailure("upgrade changed or widened the custom profile unexpectedly")
+    if profiles["author"].get("description") != "User-owned read and create authority.":
+        raise AcceptanceFailure("upgrade did not preserve custom profile metadata")
+    if config["vault"].get("brain_name") != "Upgrade Acceptance Brain":
+        raise AcceptanceFailure("upgrade did not preserve the shared Brain name")
+    if config.get("defaults", {}).get("default_profile") != "operator":
+        raise AcceptanceFailure("upgrade did not preserve the configured default profile")
+
+    for filename in ("AGENTS.md", "CLAUDE.md"):
+        content = (vault / filename).read_text(encoding="utf-8")
+        if "Call MCP `session.start`" not in content or "brain_session" in content:
+            raise AcceptanceFailure(f"upgrade did not rewrite the {filename} bootstrap")
+        if CUSTOM_BOOTSTRAP_PROSE not in content:
+            raise AcceptanceFailure(f"upgrade did not preserve custom prose in {filename}")
+    for relative, expected in preserved.items():
+        if (vault / relative).read_text(encoding="utf-8") != expected:
+            raise AcceptanceFailure(f"upgrade did not preserve user-owned content: {relative}")
+    for skill in RETIRED_CORE_SKILLS:
+        if (vault / ".brain-core" / "skills" / skill).exists():
+            raise AcceptanceFailure(f"retired Core skill remains installed: {skill}")
+
+
 def _payload(value: dict[str, Any]) -> dict[str, Any]:
     result = value.get("result")
     return result if isinstance(result, dict) else value
@@ -246,12 +376,23 @@ def _target_versions(source: Path) -> tuple[str, str]:
     return core, matched.group(1)
 
 
-def run_acceptance(vault: Path, target_source: Path) -> dict[str, Any]:
+def run_acceptance(
+    vault: Path,
+    target_source: Path,
+    historical_version: str,
+) -> dict[str, Any]:
     vault = vault.resolve()
     target_source = target_source.resolve()
-    if (vault / ".brain-core" / "VERSION").read_text(encoding="utf-8").strip() != "0.54.0":
-        raise AcceptanceFailure("historical acceptance requires an exact v0.54.0 baseline")
+    installed_historical = (
+        vault / ".brain-core" / "VERSION"
+    ).read_text(encoding="utf-8").strip()
+    if installed_historical != historical_version:
+        raise AcceptanceFailure(
+            "historical acceptance requires the declared exact baseline "
+            f"{historical_version}, found {installed_historical}"
+        )
     target_core, target_cli = _target_versions(target_source)
+    preserved = _prepare_upgrade_fixture(vault, target_source)
     inherited, terminal = _write_legacy_records(vault)
     commands: list[dict[str, Any]] = []
 
@@ -271,19 +412,82 @@ def run_acceptance(vault: Path, target_source: Path) -> dict[str, Any]:
     if not any(item.get("file") == "Designs/Inherited.md" for item in before_findings):
         raise AcceptanceFailure("controlled inherited finding was not present before upgrade")
     if any(item.get("file") == "Designs/+Deprecated/Legacy.md" for item in before_findings):
-        raise AcceptanceFailure("terminal fixture was not valid under the v0.54 check contract")
+        raise AcceptanceFailure("terminal fixture was not valid under the historical check contract")
 
+    cli_binary = shutil.which("brain")
+    if cli_binary is None:
+        raise AcceptanceFailure("historical baseline did not install the brain CLI")
     _, receipt = _run(
         [
-            "bash",
-            str(target_source / "install.sh"),
-            "--non-interactive",
-            "--acknowledge-global-cli-cutover",
-            str(vault),
+            sys.executable,
+            str(target_source / "cli" / "_distribution.py"),
+            str(target_source),
+            cli_binary,
         ],
         cwd=vault,
     )
     commands.append(receipt)
+
+    upgrade_request = json.dumps(
+        {"acknowledge_global_cli_cutover": True},
+        separators=(",", ":"),
+    )
+    portable_before_preview = _portable_manifest(vault)
+    preview, receipt = _run_json(
+        [
+            "brain",
+            "--vault",
+            str(vault),
+            "upgrade",
+            "--request-json",
+            upgrade_request,
+            "--dry-run",
+            "--json",
+        ],
+        cwd=vault,
+    )
+    commands.append(receipt)
+    preview_result = _require_ok_envelope(preview, "brain.upgrade dry run")
+    if preview.get("committed_effects") != []:
+        raise AcceptanceFailure("brain.upgrade dry run reported committed effects")
+    if preview_result.get("status") != "planned":
+        raise AcceptanceFailure("brain.upgrade dry run did not return a planned result")
+    if preview_result.get("old_version") != historical_version:
+        raise AcceptanceFailure("brain.upgrade dry run selected the wrong historical version")
+    if preview_result.get("new_version") != target_core:
+        raise AcceptanceFailure("brain.upgrade dry run selected the wrong target version")
+    preview_migrations = preview_result.get("migrations")
+    if not isinstance(preview_migrations, list) or not REQUIRED_MIGRATION_RECORDS <= set(
+        preview_migrations
+    ):
+        raise AcceptanceFailure("brain.upgrade dry run omitted required migration previews")
+    if not all(
+        isinstance(preview_result.get(field), int) and preview_result[field] > 0
+        for field in ("files_modified", "files_removed")
+    ):
+        raise AcceptanceFailure("brain.upgrade dry run omitted Core replacement effects")
+    if _portable_manifest(vault) != portable_before_preview:
+        raise AcceptanceFailure("brain.upgrade dry run changed portable vault state")
+
+    applied, receipt = _run_json(
+        [
+            "brain",
+            "--vault",
+            str(vault),
+            "upgrade",
+            "--request-json",
+            upgrade_request,
+            "--json",
+        ],
+        cwd=vault,
+        timeout=1800,
+    )
+    commands.append(receipt)
+    applied_result = _require_ok_envelope(applied, "brain.upgrade")
+    if applied_result.get("status") != "changed":
+        raise AcceptanceFailure("brain.upgrade did not report a changed result")
+    if not applied.get("committed_effects"):
+        raise AcceptanceFailure("brain.upgrade did not report its committed effects")
 
     installed_core = (vault / ".brain-core" / "VERSION").read_text(encoding="utf-8").strip()
     if installed_core != target_core:
@@ -292,6 +496,8 @@ def run_acceptance(vault: Path, target_source: Path) -> dict[str, Any]:
     commands.append(receipt)
     if cli_version.stdout.strip() != f"brain {target_cli}":
         raise AcceptanceFailure("installed CLI version does not match the target source")
+
+    _assert_migrated_user_state(vault, target_source, preserved)
 
     upgrade_log = json.loads(
         (vault / ".brain" / "local" / "last-upgrade.json").read_text(encoding="utf-8")
@@ -346,6 +552,13 @@ def run_acceptance(vault: Path, target_source: Path) -> dict[str, Any]:
     session_result = _require_ok_envelope(session, "session.start")
     if session_result.get("brain_core_version") != target_core:
         raise AcceptanceFailure("first session.start selected the wrong Brain Core")
+    skill_names = {
+        item.get("name")
+        for item in session_result.get("skills", [])
+        if isinstance(item, dict)
+    }
+    if "upgrade-acceptance-user-skill" not in skill_names:
+        raise AcceptanceFailure("session.start did not preserve the user-owned skill")
 
     dry_cleanup, receipt = _run_json(
         ["brain", "runtime", "remove-orphans", "--dry-run", "--json"],
@@ -395,9 +608,14 @@ def run_acceptance(vault: Path, target_source: Path) -> dict[str, Any]:
 
     return {
         "schema": "brain-lab.historical-upgrade-acceptance/1",
-        "historical_core_version": "0.54.0",
+        "historical_core_version": historical_version,
         "target_core_version": target_core,
         "target_cli_version": target_cli,
+        "upgrade_preview_no_portable_effects": True,
+        "profiles_migrated": True,
+        "bootstraps_migrated": True,
+        "user_state_preserved": True,
+        "retired_core_skills_absent": list(RETIRED_CORE_SKILLS),
         "migration_records": sorted(REQUIRED_MIGRATION_RECORDS),
         "validation": {
             "before_count": len(before_findings),
@@ -418,9 +636,14 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--vault", required=True, type=Path)
     parser.add_argument("--target-source", required=True, type=Path)
+    parser.add_argument("--historical-version", required=True)
     args = parser.parse_args()
     try:
-        result = run_acceptance(args.vault, args.target_source)
+        result = run_acceptance(
+            args.vault,
+            args.target_source,
+            args.historical_version,
+        )
     except (AcceptanceFailure, OSError, ValueError, json.JSONDecodeError) as exc:
         print(str(exc), file=sys.stderr)
         return 1

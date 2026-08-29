@@ -930,10 +930,13 @@ def test_streamed_probe_generates_loader_from_the_selected_brain(tmp_path: Path)
     core = vault / ".brain-core"
     shutil.copytree(Path("src/brain-core"), core)
     user_skill = vault / "_Config" / "Skills" / "code-review"
-    shutil.copytree(core / "skills" / "code-review", user_skill)
-    skill_document = user_skill / "SKILL.md"
-    skill_document.write_text(
-        skill_document.read_text(encoding="utf-8") + "\n<!-- user override -->\n",
+    user_skill.mkdir(parents=True)
+    (user_skill / "SKILL.md").write_text(
+        "---\n"
+        "name: code-review\n"
+        "description: User-owned review workflow.\n"
+        "---\n\n"
+        "# Code review\n",
         encoding="utf-8",
     )
     managed_python = Path(sys.executable).resolve()

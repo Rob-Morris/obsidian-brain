@@ -299,8 +299,6 @@ rediscover colon-named nested skills.
   behaviour, while the Brain adaptor contributes independently selected target,
   persistence, taxonomy, provenance, and lifecycle capabilities. Installed
   vaults have no runtime dependency on the source repository.
-- `swarm-test` — one portable public skill routing directly to frontmatter-free `references/review.md` and `references/evaluate.md` multi-agent test workflows
-- `code-review` — one portable public skill routing review-only and review-with-fixes requests through frontmatter-free `references/investigate.md` and `references/fix.md` workflows
 - `software-design-principles` — lightweight reference skill for in-the-moment design decisions and trivial code evaluation
 - `software-design-review` — multi-agent design review skill for complex code, diffs, and proposed technical changes
 

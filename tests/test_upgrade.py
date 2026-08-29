@@ -835,11 +835,8 @@ class TestAgentSkillUpgradeFollowup:
         source, vault = source_and_vault
         source_skills = source / "skills"
         installed_skills = vault / ".brain-core" / "skills"
-        families = {
-            "code-review": ("investigate", "fix"),
-            "shaping": ("assess", "brainstorm", "discover", "refine"),
-            "swarm-test": ("review", "evaluate"),
-        }
+        families = {"shaping": ("assess", "brainstorm", "discover", "refine")}
+        retired = ("code-review", "swarm-test", "superpowers-brain")
 
         for family, workflows in families.items():
             family_source = source_skills / family
@@ -851,6 +848,10 @@ class TestAgentSkillUpgradeFollowup:
                 legacy = installed_skills / family / workflow / "SKILL.md"
                 legacy.parent.mkdir(parents=True)
                 legacy.write_text(f"---\nname: {family}:{workflow}\n---\n")
+        for family in retired:
+            legacy = installed_skills / family / "SKILL.md"
+            legacy.parent.mkdir(parents=True)
+            legacy.write_text(f"---\nname: {family}\n---\n")
 
         result = upgrade.upgrade(
             str(vault),
@@ -869,6 +870,11 @@ class TestAgentSkillUpgradeFollowup:
                 assert str(
                     Path("skills") / family / workflow / "SKILL.md"
                 ) in result["files_removed"]
+        for family in retired:
+            assert not (installed_skills / family).exists()
+            assert str(Path("skills") / family / "SKILL.md") in result[
+                "files_removed"
+            ]
 
     def test_failed_post_reconciliation_compile_restores_user_override(
         self, source_and_vault, monkeypatch
