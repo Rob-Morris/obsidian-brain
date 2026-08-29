@@ -9,9 +9,15 @@ Agents using Claude Code or Cursor need a way to interact with the vault without
 
 ## Decision
 
-A long-running MCP server lives at `.brain-core/brain_mcp/server.py`. It is a thin wrapper over the scripts in `.brain-core/scripts/`. The composition root may delegate tool bodies to sibling MCP modules, but vault logic still lives in scripts and is never duplicated in the transport layer. On startup it loads the compiled router and search index into memory, avoiding the cold-start cost that standalone scripts pay on each invocation.
+A long-running MCP server lives at `.brain-core/brain_mcp/server.py`. It is a thin wrapper over the scripts in `.brain-core/scripts/`. The composition root may delegate tool bodies to sibling MCP modules, but vault logic still lives in scripts and is never duplicated in the transport layer. It retains authenticated identity and parsed derived snapshots across calls, avoiding the cold-start cost that standalone scripts pay on each invocation.
 
-The server is the only component that holds in-memory state (compiled router, search index, Obsidian CLI availability). All vault operations are implemented in scripts; the server adds MCP transport and in-memory caching.
+All vault operations are implemented in the application/scripts packages; the
+server adds MCP transport and process-scoped composition policy. Cached config
+identity is reloaded when any of its three input signatures changes and fails
+closed while a changed input is invalid. Compiled-router and lexical-index
+snapshots are re-parsed when their file signatures change and are explicitly
+invalidated after their rebuild commands. The same loaders remain available to
+stateless direct scripts.
 
 ## Consequences
 
@@ -19,3 +25,5 @@ The server is the only component that holds in-memory state (compiled router, se
 - New operations are always implemented in scripts first, then exposed via the server.
 - Server failures are isolated from scripts — agents without MCP access can still use scripts directly.
 - The server is local to each vault; there is no shared server for multiple vaults.
+- Caching is an adapter concern, not an alternate implementation of application
+  semantics.

@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 import logging
 from pathlib import Path
+from typing import Mapping
 
 from _application.context import (
     Capability,
@@ -43,6 +44,18 @@ class BoundProvider:
     def __post_init__(self) -> None:
         if not self.provider_id.strip():
             raise ValueError("bound provider requires a non-empty provider_id")
+
+
+@dataclass(frozen=True, slots=True)
+class SynchronousSessionMirror:
+    """Persist a session mirror before returning to direct CLI/script callers."""
+
+    vault_root: Path
+
+    def publish(self, model: Mapping[str, object]) -> None:
+        import session
+
+        session.persist_session_markdown(model, self.vault_root)
 
 
 @dataclass(frozen=True, slots=True)
@@ -146,6 +159,8 @@ def compose_local_context(
     dry_run: bool = False,
     clock=None,
     diagnostics: DiagnosticReporter | None = None,
+    derived_snapshots=None,
+    session_mirror=None,
 ) -> InvocationContext:
     """Compose trusted state already resolved by a concrete local adapter."""
 
@@ -194,6 +209,12 @@ def compose_local_context(
             diagnostics
             if diagnostics is not None
             else OperationalDiagnosticReporter(root)
+        ),
+        derived_snapshots=derived_snapshots,
+        session_mirror=(
+            session_mirror
+            if session_mirror is not None
+            else SynchronousSessionMirror(root)
         ),
     )
 

@@ -13,6 +13,7 @@ from _application.context import (
 )
 from _application.registry import current_application_catalogue
 from _application.types import DependencyTier, SnapshotFreshness
+from _command_interface.context import SynchronousSessionMirror
 
 
 NOW = datetime.fromisoformat("2026-08-09T16:00:00+10:00")
@@ -75,5 +76,6 @@ def application_for(
         clock=_Clock(),
         dry_run=dry_run,
         workspace_dir=workspace_dir,
+        session_mirror=SynchronousSessionMirror(vault_root.resolve()),
     )
     return CommandApplication(context, current_application_catalogue())

@@ -39,13 +39,13 @@ helpers into `_common`.
 - This is an atomic replacement primitive, not a transaction manager. Parallel read-modify-write flows can still lose updates unless a higher layer coordinates them.
 - `exclusive=True` mode (used by `brain_create`) checks file existence before writing, providing a lightweight create-or-fail guarantee.
 
-## Session-mirror write path (v0.29.5)
+## Session-mirror write path (v0.29.5; retained by v0.62.12)
 
-The `.brain/local/session.md` mirror does **not** use `_run_with_timeout` or an abandon-on-timeout worker pattern. `v0.29.5` routes refreshes through a single long-lived daemon worker consuming a coalescing queue (`maxsize=1`). Callers enqueue a refresh request — non-blocking — and the worker drains the queue FIFO. Rapid-fire refreshes collapse to the latest intent because a pending slot is dropped on the next enqueue. The worker writes via `safe_write` inside `session.persist_session_markdown`, so each write is still atomic.
+The `.brain/local/session.md` mirror does **not** use `_run_with_timeout` or an abandon-on-timeout worker pattern. MCP `session.start` publishes through a single long-lived daemon worker consuming a coalescing queue (`maxsize=1`). The application owns model construction while the MCP adapter owns this non-blocking persistence policy. Rapid-fire refreshes collapse to the latest intent because a pending slot is dropped on the next enqueue. The worker writes via `safe_write` inside `session.persist_session_markdown`, so each write is still atomic. Direct CLI/script composition supplies a synchronous publisher instead, preserving direct-command completion semantics. Both paths skip a byte-identical mirror write.
 
 Invariants:
 
-- Startup never blocks on the mirror write; `_run_startup_phase("session_mirror_refresh", ...)` completes as soon as the request lands in the queue.
+- Mandatory MCP session bootstrap never blocks on the durable mirror write; `session.start` completes once the model is queued.
 - No abandoned threads: there is one worker per process, not one per refresh.
 - No late-writer clobber: a slow write delays subsequent writes, but the queue ordering guarantees the most recent enqueue wins once the worker unsticks.
 - Shutdown registers an `atexit` drain (2s cap) that signals the worker to exit after the in-flight write. If the filesystem is stuck longer than the cap, the daemon thread is killed on interpreter exit; any orphaned `session.md.*.tmp` file is swept by `_sweep_mirror_tmpfiles` at the next startup.

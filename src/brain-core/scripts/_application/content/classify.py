@@ -11,6 +11,7 @@ from typing import ClassVar, Mapping
 from .._search_support import (
     catalogue_entry as _catalogue_entry,
     error,
+    load_lexical_index,
     load_router,
     load_semantic_state,
     semantic_provider_ready,
@@ -78,7 +79,7 @@ class ContentClassifyRequest:
 
 def execute(context: InvocationContext, request: ContentClassifyRequest):
     import process
-    from _search.lexical_query import IndexNotFoundError, load_index
+    from _search.lexical_query import IndexNotFoundError
 
     router = load_router(context, ContentClassifyRequest)
     if isinstance(router, Error):
@@ -120,7 +121,7 @@ def execute(context: InvocationContext, request: ContentClassifyRequest):
     index = None
     if request.mode in {ContentClassifyMode.AUTO, ContentClassifyMode.BM25_ONLY}:
         try:
-            index = load_index(context.selected_brain.vault_root)
+            index = load_lexical_index(context)
         except IndexNotFoundError:
             index = None
         except (OSError, ValueError) as exc:

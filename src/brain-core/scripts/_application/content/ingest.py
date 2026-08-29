@@ -17,6 +17,7 @@ from .._mutation_support import (
     resolve_mutation_content,
 )
 from .._search_support import (
+    load_lexical_index,
     load_router,
     load_semantic_state,
     semantic_provider_ready,
@@ -173,7 +174,7 @@ def _prepare_retrieval_state(
     router,
 ):
     import process
-    from _search.lexical_query import IndexNotFoundError, load_index
+    from _search.lexical_query import IndexNotFoundError
 
     if request.type_key is not None and request.title is not None:
         exact = process.resolve_exact_content(
@@ -192,7 +193,7 @@ def _prepare_retrieval_state(
     index = None
     if not needs_classification_choice:
         try:
-            index = load_index(context.selected_brain.vault_root)
+            index = load_lexical_index(context)
         except (IndexNotFoundError, OSError, ValueError) as exc:
             return no_effect_error(
                 ContentIngestRequest,

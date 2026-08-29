@@ -355,3 +355,64 @@ def test_direct_provider_inventory_is_complete_and_refresh_is_deduplicated(
     assert code == 0
     assert json.loads(stdout.getvalue())["result"]["availability_freshness"] == "fresh"
     assert calls == {"obsidian": 1, "semantic": 1, "managed": 2}
+
+
+def test_long_lived_composer_reuses_identity_until_config_signature_changes(
+    tmp_path,
+    monkeypatch,
+):
+    vault = _vault(tmp_path)
+    (vault / ".brain").mkdir()
+    config_path = vault / ".brain" / "config.yaml"
+    config_path.write_text("vault: {}\n", encoding="utf-8")
+    identity = direct_context.DirectIdentity(
+        {"vault": {"profiles": {}}},
+        "reader",
+        "default:reader",
+        frozenset({"command.list"}),
+    )
+    calls = []
+
+    def resolve(**_kwargs):
+        calls.append("resolve")
+        return identity
+
+    monkeypatch.setattr(direct_context, "resolve_direct_identity", resolve)
+    composer = direct_context.DirectContextComposer(vault_root=vault)
+
+    assert composer.identity() is identity
+    assert composer.identity() is identity
+    assert calls == ["resolve"]
+
+    config_path.write_text("vault:\n  name: changed\n", encoding="utf-8")
+
+    assert composer.identity() is identity
+    assert calls == ["resolve", "resolve"]
+
+
+def test_long_lived_composer_reuses_brain_identity_until_registry_changes(
+    tmp_path,
+    monkeypatch,
+):
+    vault = _vault(tmp_path)
+    registry = tmp_path / "registry"
+    registry.write_text("first\n", encoding="utf-8")
+    calls = []
+
+    monkeypatch.setattr(direct_context.vault_registry, "registry_path", lambda: registry)
+
+    def resolve(_root):
+        calls.append("resolve")
+        return "test-brain"
+
+    monkeypatch.setattr(direct_context, "_brain_id", resolve)
+    composer = direct_context.DirectContextComposer(vault_root=vault)
+
+    assert composer._brain_id() == "test-brain"
+    assert composer._brain_id() == "test-brain"
+    assert calls == ["resolve"]
+
+    registry.write_text("second-registry-value\n", encoding="utf-8")
+
+    assert composer._brain_id() == "test-brain"
+    assert calls == ["resolve", "resolve"]

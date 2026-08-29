@@ -252,17 +252,24 @@ def list_from_vault(vault_root, **kwargs):
     return list_artefacts_page(index, router, **kwargs)
 
 
-def list_combined_from_vault(vault_root, *, location="active", **kwargs):
+def list_combined_from_vault(
+    vault_root,
+    *,
+    location="active",
+    router=None,
+    index=None,
+    **kwargs,
+):
     """List active, archived or all artefacts through one filter/page contract."""
 
     if location not in {"active", "archived", "all"}:
         raise ValueError("location must be active, archived, or all")
-    router = load_compiled_router(vault_root)
+    router = load_compiled_router(vault_root) if router is None else router
     if "error" in router:
         raise FileNotFoundError(router["error"])
     documents = []
     if location in {"active", "all"}:
-        index = lexical_query.load_index(vault_root)
+        index = lexical_query.load_index(vault_root) if index is None else index
         documents.extend(index.get("documents", ()))
     if location in {"archived", "all"}:
         from _portable.vault_files import list_archived_artefacts

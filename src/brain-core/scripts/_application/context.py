@@ -7,7 +7,7 @@ from datetime import datetime
 from pathlib import Path
 import sys
 import traceback
-from typing import Protocol
+from typing import Mapping, Protocol
 
 from .access_contracts import AccessController
 from .receipts import ReceiptReader, ReceiptWriter
@@ -116,6 +116,22 @@ class CapabilitySnapshotStore(Protocol):
     def read(self, token: str) -> "CapabilitySnapshot | None": ...
 
 
+class DerivedSnapshotStore(Protocol):
+    """Load signature-refreshed derived router and retrieval snapshots."""
+
+    def load_router(self) -> dict: ...
+
+    def load_lexical_index(self) -> dict: ...
+
+    def invalidate(self, *names: str) -> None: ...
+
+
+class SessionMirrorPublisher(Protocol):
+    """Publish the human-readable session mirror through an adapter-owned policy."""
+
+    def publish(self, model: Mapping[str, object]) -> None: ...
+
+
 @dataclass(frozen=True, slots=True)
 class ProviderBindings:
     """Immutable provider lookup keyed by unique provider identity."""
@@ -214,6 +230,8 @@ class InvocationContext:
     workspace_dir: Path | None = None
     capability_snapshots: CapabilitySnapshotStore | None = None
     diagnostics: DiagnosticReporter = NullDiagnosticReporter()
+    derived_snapshots: DerivedSnapshotStore | None = None
+    session_mirror: SessionMirrorPublisher | None = None
 
     def __post_init__(self) -> None:
         if not self.profile.strip():

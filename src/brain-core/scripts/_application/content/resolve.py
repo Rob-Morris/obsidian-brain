@@ -11,6 +11,7 @@ from typing import ClassVar, Mapping
 from .._search_support import (
     catalogue_entry as _catalogue_entry,
     error,
+    load_lexical_index,
     load_router,
     load_semantic_state,
     semantic_provider_ready,
@@ -59,7 +60,7 @@ class ContentResolveRequest:
 
 def execute(context: InvocationContext, request: ContentResolveRequest):
     import process
-    from _search.lexical_query import IndexNotFoundError, load_index
+    from _search.lexical_query import IndexNotFoundError
 
     router = load_router(context, ContentResolveRequest)
     if isinstance(router, Error):
@@ -92,7 +93,7 @@ def execute(context: InvocationContext, request: ContentResolveRequest):
             payload_from_result(exact),
         )
     try:
-        index = load_index(context.selected_brain.vault_root)
+        index = load_lexical_index(context)
     except (IndexNotFoundError, OSError, ValueError) as exc:
         return error(ContentResolveRequest, ErrorCode.CONFLICT, str(exc), None)
 

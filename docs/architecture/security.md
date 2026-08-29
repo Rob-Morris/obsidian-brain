@@ -348,14 +348,16 @@ shared managed runtimes, user-scope MCP state and the global CLI are never
 recursive-deletion targets. A recursive failure is reported as unknown rather
 than asserting a retry-safe partial deletion.
 
-During MCP startup, the non-critical session-mirror refresh is
+During MCP `session.start`, the non-critical session-mirror refresh is
 dispatched to a single long-lived daemon worker via a `maxsize=1` coalescing
-queue (see dd-036 "Session-mirror write path"). Startup only enqueues, so a
-stalled markdown-mirror write cannot block readiness; the single-worker
+queue (see dd-036 "Session-mirror write path"). The request only enqueues, so a
+stalled markdown-mirror write cannot block mandatory bootstrap; the single-worker
 invariant also means two concurrent mirror writes can never interleave on
 disk, and an `atexit` drain with a bounded cap lets any in-flight write
 finish cleanly on normal shutdown. An orphaned `session.md.*.tmp` left
-behind by a killed worker is swept on the next startup.
+behind by a killed worker is swept when the MCP mirror worker is composed.
+Direct CLI/script calls retain synchronous persistence, and both policies avoid
+byte-identical rewrites.
 
 `upgrade.py` carries its own self-contained sibling-temp write helper because it
 cannot import `_common` while replacing `.brain-core/` in place. Its rollback

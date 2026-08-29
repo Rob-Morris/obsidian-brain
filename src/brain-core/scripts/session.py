@@ -921,7 +921,16 @@ def render_session_markdown(model):
 def persist_session_markdown(model, vault_root):
     """Write the markdown session mirror to `.brain/local/session.md`."""
     output_path = os.path.join(vault_root, SESSION_MARKDOWN_REL)
-    safe_write(output_path, render_session_markdown(model), bounds=vault_root)
+    content = render_session_markdown(model)
+    if not os.path.islink(output_path):
+        try:
+            with open(output_path, "r", encoding="utf-8") as handle:
+                if handle.read() == content:
+                    return False
+        except FileNotFoundError:
+            pass
+    safe_write(output_path, content, bounds=vault_root)
+    return True
 
 
 def _bootstrap_reinstall_command(vault_root) -> str:

@@ -8,6 +8,7 @@ import hashlib
 import os
 from pathlib import Path
 import shutil
+import threading
 from typing import Callable
 import uuid
 
@@ -26,6 +27,7 @@ import config as brain_config
 import vault_registry
 
 from .context import SystemClock, compose_local_context
+from .derived_snapshots import FileDerivedSnapshotStore
 from .access import access_policy, compose_access_controller
 from .receipts import FileReceiptStore
 
@@ -93,76 +95,157 @@ def compose_direct_context(
 ):
     """Resolve one fresh direct-process invocation context without hand-off."""
 
-    clock = clock or SystemClock()
-    root = _require_vault(vault_root)
-    catalogue = catalogue or current_application_catalogue()
-    identity = resolve_direct_identity(
-        vault_root=root,
+    return DirectContextComposer(
+        vault_root=vault_root,
         catalogue=catalogue,
         operator_key=operator_key,
-    )
-    merged = identity.config
-    profile = identity.profile
-    allowed_tools = identity.allowed_tools
-    access = compose_access_controller(
-        vault_root=root,
-        config=merged,
-        principal=identity.principal,
-        ceiling_profile=profile,
-        ceiling_commands=allowed_tools,
+        workspace_dir=workspace_dir,
         clock=clock,
-    )
-    workspace = _resolve_workspace(root, workspace_dir)
-    tier = (
-        DependencyTier.MANAGED
-        if current_process_in_managed_runtime(root)
-        else DependencyTier.PORTABLE
-    )
-    observed_at = clock.now()
-    if not isinstance(observed_at, datetime) or observed_at.tzinfo is None:
-        raise DirectContextError("direct command clock must be timezone-aware")
-    refresher = _capability_refresher(root, workspace, merged, tier, clock)
-    relevant_providers = _relevant_providers(command_id, catalogue)
-    if relevant_providers:
-        snapshot = refresher.refresh(relevant_providers)
-        states = tuple(
-            (capability.name, capability.availability)
-            for capability in snapshot.capabilities
-        )
-        snapshot_token = snapshot.token
-        observed_at = snapshot.observed_at
-    else:
-        states = ()
-        snapshot_token = _snapshot_token(states, observed_at)
-    if invocation_id is None:
-        invocation_id = f"direct-{uuid.uuid4()}"
-    elif (
-        not isinstance(invocation_id, str)
-        or not invocation_id.strip()
-        or len(invocation_id) > 128
-    ):
-        raise DirectContextError("trusted invocation identity is invalid")
-    receipt_store = FileReceiptStore(root, clock)
-    return compose_local_context(
-        vault_root=root,
-        brain_id=_brain_id(root),
-        profile=profile,
-        allowed_tools=allowed_tools,
-        dependency_tier=tier,
-        provider_ids=_LOCAL_PROVIDERS,
-        capability_states=states,
-        snapshot_token=snapshot_token,
-        snapshot_freshness=SnapshotFreshness.FRESH,
-        snapshot_observed_at=observed_at,
-        correlation_id=invocation_id,
-        invocation_id=invocation_id,
-        receipt_store=receipt_store,
-        access=access,
-        workspace_dir=workspace,
-        capability_snapshots=refresher,
+    ).compose(
+        command_id=command_id,
         dry_run=dry_run,
-        clock=clock,
+        invocation_id=invocation_id,
     )
+
+
+class DirectContextComposer:
+    """Compose invocations while retaining safe process-scoped read state."""
+
+    def __init__(
+        self,
+        *,
+        vault_root: Path,
+        catalogue: ApplicationCatalogue | None = None,
+        operator_key: str | None = None,
+        workspace_dir: Path | None = None,
+        clock=None,
+        derived_snapshots=None,
+        session_mirror=None,
+    ):
+        self._clock = clock or SystemClock()
+        self._root = _require_vault(vault_root)
+        self._catalogue = catalogue or current_application_catalogue()
+        self._operator_key = operator_key
+        self._workspace_dir = workspace_dir
+        self._derived_snapshots = (
+            derived_snapshots
+            if derived_snapshots is not None
+            else FileDerivedSnapshotStore(self._root)
+        )
+        self._session_mirror = session_mirror
+        self._lock = threading.RLock()
+        self._identity_signature = None
+        self._identity: DirectIdentity | None = None
+        self._brain_id_signature = None
+        self._cached_brain_id: str | None = None
+
+    @property
+    def catalogue(self) -> ApplicationCatalogue:
+        return self._catalogue
+
+    def identity(self) -> DirectIdentity:
+        signature = _config_signature(self._root)
+        with self._lock:
+            if self._identity is not None and signature == self._identity_signature:
+                return self._identity
+            identity = resolve_direct_identity(
+                vault_root=self._root,
+                catalogue=self._catalogue,
+                operator_key=self._operator_key,
+            )
+            self._identity = identity
+            self._identity_signature = signature
+            return identity
+
+    def compose(
+        self,
+        *,
+        command_id: str | None = None,
+        dry_run: bool = False,
+        invocation_id: str | None = None,
+    ):
+        """Compose fresh authority/capability state over cached immutable inputs."""
+
+        identity = self.identity()
+        merged = identity.config
+        profile = identity.profile
+        allowed_tools = identity.allowed_tools
+        access = compose_access_controller(
+            vault_root=self._root,
+            config=merged,
+            principal=identity.principal,
+            ceiling_profile=profile,
+            ceiling_commands=allowed_tools,
+            clock=self._clock,
+        )
+        workspace = _resolve_workspace(self._root, self._workspace_dir)
+        tier = (
+            DependencyTier.MANAGED
+            if current_process_in_managed_runtime(self._root)
+            else DependencyTier.PORTABLE
+        )
+        observed_at = self._clock.now()
+        if not isinstance(observed_at, datetime) or observed_at.tzinfo is None:
+            raise DirectContextError("direct command clock must be timezone-aware")
+        refresher = _capability_refresher(
+            self._root, workspace, merged, tier, self._clock
+        )
+        relevant_providers = _relevant_providers(command_id, self._catalogue)
+        if relevant_providers:
+            snapshot = refresher.refresh(relevant_providers)
+            states = tuple(
+                (capability.name, capability.availability)
+                for capability in snapshot.capabilities
+            )
+            snapshot_token = snapshot.token
+            observed_at = snapshot.observed_at
+        else:
+            states = ()
+            snapshot_token = _snapshot_token(states, observed_at)
+        if invocation_id is None:
+            invocation_id = f"direct-{uuid.uuid4()}"
+        elif (
+            not isinstance(invocation_id, str)
+            or not invocation_id.strip()
+            or len(invocation_id) > 128
+        ):
+            raise DirectContextError("trusted invocation identity is invalid")
+        receipt_store = FileReceiptStore(self._root, self._clock)
+        return compose_local_context(
+            vault_root=self._root,
+            brain_id=self._brain_id(),
+            profile=profile,
+            allowed_tools=allowed_tools,
+            dependency_tier=tier,
+            provider_ids=_LOCAL_PROVIDERS,
+            capability_states=states,
+            snapshot_token=snapshot_token,
+            snapshot_freshness=SnapshotFreshness.FRESH,
+            snapshot_observed_at=observed_at,
+            correlation_id=invocation_id,
+            invocation_id=invocation_id,
+            receipt_store=receipt_store,
+            access=access,
+            workspace_dir=workspace,
+            capability_snapshots=refresher,
+            dry_run=dry_run,
+            clock=self._clock,
+            derived_snapshots=self._derived_snapshots,
+            session_mirror=self._session_mirror,
+        )
+
+    def _brain_id(self) -> str:
+        signature = _path_signature(Path(vault_registry.registry_path()))
+        with self._lock:
+            if (
+                self._cached_brain_id is not None
+                and signature == self._brain_id_signature
+            ):
+                return self._cached_brain_id
+            brain_id = _brain_id(self._root)
+            self._cached_brain_id = brain_id
+            self._brain_id_signature = signature
+            return brain_id
 
 
 def resolve_direct_identity(
@@ -195,6 +278,23 @@ def resolve_direct_identity(
         ),
         _profile_tools(merged, profile),
     )
+
+
+def _config_signature(root: Path):
+    return tuple(
+        _path_signature(Path(path))
+        for path in brain_config.config_input_paths(str(root))
+    )
+
+
+def _path_signature(path: Path):
+    try:
+        stat = path.stat()
+    except FileNotFoundError:
+        return None
+    except OSError as exc:
+        return ("error", type(exc).__name__, getattr(exc, "errno", None))
+    return (stat.st_dev, stat.st_ino, stat.st_mode, stat.st_size, stat.st_mtime_ns)
 
 
 def _require_vault(candidate: Path) -> Path:

@@ -103,9 +103,18 @@ def execute(context: InvocationContext, request: ArtefactListRequest):
     from _search.lexical_query import IndexNotFoundError
 
     try:
+        snapshots = context.derived_snapshots
         page = list_combined_from_vault(
             context.selected_brain.vault_root,
             location=request.location.value,
+            router=(snapshots.load_router() if snapshots is not None else None),
+            index=(
+                snapshots.load_lexical_index()
+                if snapshots is not None
+                and request.location
+                in {ArtefactListLocation.ACTIVE, ArtefactListLocation.ALL}
+                else None
+            ),
             type_filter=request.type_filter,
             since=request.since,
             until=request.until,

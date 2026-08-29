@@ -57,12 +57,23 @@ def validate_query_and_limit(command_id: str, query: str, top_k: int) -> None:
 
 
 def load_router(context: InvocationContext, request_type):
-    from _common import load_compiled_router
+    if context.derived_snapshots is not None:
+        router = context.derived_snapshots.load_router()
+    else:
+        from _common import load_compiled_router
 
-    router = load_compiled_router(context.selected_brain.vault_root)
+        router = load_compiled_router(context.selected_brain.vault_root)
     if "error" in router:
         return error(request_type, ErrorCode.CONFLICT, router["error"], None)
     return router
+
+
+def load_lexical_index(context: InvocationContext):
+    if context.derived_snapshots is not None:
+        return context.derived_snapshots.load_lexical_index()
+    from _search.lexical_query import load_index
+
+    return load_index(context.selected_brain.vault_root)
 
 
 def resource_search(

@@ -46,6 +46,27 @@ def _minimal_router(vault_root):
     }
 
 
+def test_persist_session_markdown_skips_byte_identical_write(tmp_path, monkeypatch):
+    output = tmp_path / ".brain/local/session.md"
+    output.parent.mkdir(parents=True)
+    output.write_text("same session\n", encoding="utf-8")
+    writes = []
+
+    monkeypatch.setattr(
+        session,
+        "render_session_markdown",
+        lambda _model: "same session\n",
+    )
+    monkeypatch.setattr(
+        session,
+        "safe_write",
+        lambda *_args, **_kwargs: writes.append("write"),
+    )
+
+    assert session.persist_session_markdown({}, tmp_path) is False
+    assert writes == []
+
+
 class TestBuildSessionModel:
     def test_includes_only_the_bounded_static_command_route(self, tmp_path):
         (tmp_path / ".brain-core").mkdir()

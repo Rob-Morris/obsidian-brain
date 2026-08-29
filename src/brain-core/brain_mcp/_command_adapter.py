@@ -201,6 +201,13 @@ def _handler(
                     entry.command_id,
                     canonical_wire_value(arguments),
                 )
+                if not projection.is_error and context.derived_snapshots is not None:
+                    invalidated = {
+                        "runtime.refresh-router": ("router",),
+                        "retrieval.refresh-lexical": ("lexical",),
+                    }.get(entry.command_id)
+                    if invalidated is not None:
+                        context.derived_snapshots.invalidate(*invalidated)
             except AdapterRequestError as exc:
                 projection = _error_projection(
                     entry,

@@ -299,9 +299,12 @@ def execute(context: InvocationContext, _request: SessionStartRequest):
 
     import config
     import session
-    from _common import load_compiled_router
+    if context.derived_snapshots is not None:
+        router = context.derived_snapshots.load_router()
+    else:
+        from _common import load_compiled_router
 
-    router = load_compiled_router(context.selected_brain.vault_root)
+        router = load_compiled_router(context.selected_brain.vault_root)
     if "error" in router:
         return command_error(
             SessionStartRequest,
@@ -326,7 +329,9 @@ def execute(context: InvocationContext, _request: SessionStartRequest):
             load_config_if_missing=False,
             include_command_catalogue=True,
         )
-        session.persist_session_markdown(model, context.selected_brain.vault_root)
+        if context.session_mirror is None:
+            raise RuntimeError("session mirror publisher is not available")
+        context.session_mirror.publish(model)
         payload = _payload(model)
     except (OSError, RuntimeError, ValueError) as exc:
         return command_error(SessionStartRequest, ErrorCode.CONFLICT, str(exc), None)

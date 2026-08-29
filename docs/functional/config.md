@@ -99,7 +99,7 @@ defaults:
 
 ### Startup behaviour
 
-On startup, the MCP server probes the three config inputs, loads them through the same shared Brain-owned YAML seam as `load_config()`, runs the merge, validates the result (unknown profile tool names raise warnings), and publishes the merged config into the long-lived server runtime.
+On startup, the MCP server probes the three config inputs, loads them through the same shared Brain-owned YAML seam as `load_config()`, runs the merge, validates the result (unknown profile tool names raise warnings), and publishes the merged config into the long-lived server runtime. Subsequent calls reuse that identity until an input file signature changes.
 
 Config freshness is checked before profile enforcement and before `session.start` authentication. Missing optional vault/local config files are treated as `{}`; malformed or unreadable YAML is a config error. While a config error is active, granular MCP commands fail closed. The last good config remains in memory internally, but runtime readers do not use it again until a later config signature change reloads cleanly.
 

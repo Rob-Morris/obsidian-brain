@@ -108,3 +108,10 @@ The installed proxy supplies protocol 2. On replacement it:
 Clients must restart and re-discover tools after the 0.55 cutover. There is no request translation map or legacy server mode.
 
 After startup, every generated tool handler checks the installed `.brain-core/VERSION` before composing trusted context or entering an executor. Drift exits with the proxy's distinguished code 10 so replacement and compatibility-checked replay occur within the triggering call.
+
+The long-lived child retains authenticated identity and parsed router/index
+snapshots between calls. Config and derived-file signatures trigger refresh,
+and the router/index rebuild commands invalidate their corresponding snapshot.
+MCP `session.start` returns after publishing its human-readable mirror to one
+bounded coalescing worker; direct CLI/script calls persist that mirror
+synchronously.

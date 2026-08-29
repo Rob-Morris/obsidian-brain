@@ -28,8 +28,7 @@ from _application.registry import (  # noqa: E402
 )
 from _common import _operational_log  # noqa: E402
 from _command_interface.direct import (  # noqa: E402
-    compose_direct_context,
-    resolve_direct_identity,
+    DirectContextComposer,
 )
 
 from ._command_adapter import (  # noqa: E402
@@ -37,6 +36,7 @@ from ._command_adapter import (  # noqa: E402
     register_application_tools,
 )
 from ._proxy_protocol_gate import install_proxy_protocol_gate  # noqa: E402
+from ._session_mirror import SessionMirrorWorker  # noqa: E402
 
 
 _EXIT_VERSION_DRIFT = 10
@@ -45,6 +45,8 @@ _LOADED_VERSION = (
     .read_text(encoding="utf-8")
     .strip()
 )
+_MCP_CONTEXT_COMPOSER: DirectContextComposer | None = None
+_SESSION_MIRROR: SessionMirrorWorker | None = None
 
 
 def _selected_vault() -> Path:
@@ -105,18 +107,32 @@ def _proxy_invocation_id(context: Context) -> str:
 
 
 def _mcp_context_factory(*, command_id, catalogue, mcp_context):
+    del catalogue
+    composer = _mcp_context_composer()
+    return composer.compose(
+        command_id=command_id,
+        invocation_id=_proxy_invocation_id(mcp_context),
+    )
+
+
+def _mcp_context_composer() -> DirectContextComposer:
+    global _MCP_CONTEXT_COMPOSER, _SESSION_MIRROR
+    if _MCP_CONTEXT_COMPOSER is not None:
+        return _MCP_CONTEXT_COMPOSER
+    root = _selected_vault()
     workspace_value = os.environ.get("BRAIN_WORKSPACE_DIR")
     workspace = Path(workspace_value).expanduser() if workspace_value else None
     if workspace is not None and not workspace.is_absolute():
         raise RuntimeError("BRAIN_WORKSPACE_DIR must be absolute")
-    return compose_direct_context(
-        vault_root=_selected_vault(),
-        command_id=command_id,
-        catalogue=catalogue,
+    _SESSION_MIRROR = SessionMirrorWorker(root)
+    _MCP_CONTEXT_COMPOSER = DirectContextComposer(
+        vault_root=root,
+        catalogue=current_application_catalogue(),
         operator_key=os.environ.get("BRAIN_OPERATOR_KEY"),
         workspace_dir=workspace,
-        invocation_id=_proxy_invocation_id(mcp_context),
+        session_mirror=_SESSION_MIRROR,
     )
+    return _MCP_CONTEXT_COMPOSER
 
 
 def _build_public_mcp() -> MCPServer:
@@ -124,11 +140,7 @@ def _build_public_mcp() -> MCPServer:
     catalogue = current_application_catalogue()
     allowed_tools = None
     if os.environ.get("BRAIN_VAULT_ROOT"):
-        identity = resolve_direct_identity(
-            vault_root=_selected_vault(),
-            catalogue=catalogue,
-            operator_key=os.environ.get("BRAIN_OPERATOR_KEY"),
-        )
+        identity = _mcp_context_composer().identity()
         allowed_tools = identity.allowed_tools
     register_application_tools(
         public,
@@ -164,9 +176,13 @@ def _install_diagnostics(root: Path) -> _operational_log.OperationalLogger | Non
 def main() -> None:
     root = _selected_vault()
     logger = _install_diagnostics(root)
-    mcp.run(transport="stdio")
-    if logger is not None:
-        logger.close(exit_code=0)
+    try:
+        mcp.run(transport="stdio")
+    finally:
+        if _SESSION_MIRROR is not None:
+            _SESSION_MIRROR.close()
+        if logger is not None:
+            logger.close(exit_code=0)
 
 
 if __name__ == "__main__":
