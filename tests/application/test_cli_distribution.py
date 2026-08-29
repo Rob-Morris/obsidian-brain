@@ -177,6 +177,39 @@ def test_every_install_failpoint_restores_the_old_verified_pair(tmp_path, failur
     assert not tuple((tmp_path / "prefix").rglob("*.backup"))
 
 
+def test_keyboard_interrupt_restores_the_old_verified_pair(tmp_path):
+    installed = _install(tmp_path)
+    old_manifest = verify_distribution(installed.distribution_root)["fingerprint"]
+    old_binary = installed.cli_binary.read_bytes()
+
+    def failpoint(name):
+        if name == "after_distribution_replace":
+            raise KeyboardInterrupt()
+
+    with pytest.raises(KeyboardInterrupt):
+        _install(tmp_path, failpoint=failpoint)
+
+    assert verify_distribution(installed.distribution_root)["fingerprint"] == old_manifest
+    assert installed.cli_binary.read_bytes() == old_binary
+
+
+def test_backup_cleanup_failure_is_committed_with_recovery_path(tmp_path):
+    _install(tmp_path)
+
+    def failpoint(name):
+        if name == "cleanup_old_distribution":
+            raise OSError("injected cleanup failure")
+
+    installed = _install(tmp_path, failpoint=failpoint)
+
+    assert verify_distribution(installed.distribution_root)["fingerprint"] == (
+        installed.manifest_fingerprint
+    )
+    assert len(installed.cleanup_recovery_paths) == 1
+    assert installed.cleanup_recovery_paths[0].name.endswith(".backup")
+    assert installed.cleanup_recovery_paths[0].is_dir()
+
+
 def test_unverified_old_distribution_is_reported_honestly_on_failure(tmp_path):
     binary = tmp_path / "prefix" / "bin" / "brain"
     distribution = tmp_path / "prefix" / "lib" / "brain-cli" / CLI_VERSION

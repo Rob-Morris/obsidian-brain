@@ -321,8 +321,9 @@ The launcher-owned MCP configuration flow supplies that higher-level fixed-file
 coordination for its own bounded machine-local targets. It rejects symlinks in
 each destination chain, strictly decodes every affected file before writing,
 records its original bytes, checks again for concurrent change, then applies
-sibling-temp atomic replacements. An application failure restores every written
-file and removes transaction-created empty directories. If restoration cannot
+sibling-temp atomic replacements. An application failure or process-level
+interruption restores every written file and removes transaction-created empty
+directories before the interruption is re-raised. If restoration cannot
 be proven complete, the command returns a known-partial receipt naming each
 surviving path. This transaction does not expand ordinary vault content write
 permissions: it is limited to the trusted selected Brain, caller workspace and
@@ -354,9 +355,13 @@ cannot import `_common` while replacing `.brain-core/` in place. Its rollback
 snapshot path now stores raw bytes and restores them through the same temp +
 fsync + replace shape, so binary or non-UTF-8 files under `.brain/` and
 `_Config/` do not break pre-compile rollback. Post-compile migrations also
-snapshot the affected artefact roots before mutating them, so a failed migration
-restores both vault content and `.brain-core/` instead of leaving a half-moved
-artefact tree behind.
+snapshot the affected artefact roots before mutating them. A migration that may
+write any additional root, project or machine file declares each exact path
+through `prospective_effects()` before its first write; upgrade snapshots those
+paths and verifies their restoration alongside vault content and `.brain-core/`.
+The coordinated CLI replacement commits once the new binary/distribution pair
+is verified. Failure to remove an old backup is post-commit recovery work, not a
+reason to roll Brain Core back underneath the installed CLI.
 
 `rename.py` now also fails closed on unsafe move sets before any wikilink
 rewrite begins: existing-destination collisions, duplicate/cyclic batch moves,

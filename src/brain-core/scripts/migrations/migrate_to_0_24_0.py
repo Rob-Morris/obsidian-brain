@@ -27,6 +27,16 @@ NEW_BOOTSTRAP = "ALWAYS DO FIRST: Call brain_session. Read [[.brain-core/index]]
 STALE_ROUTER_LINE = "Always read [[.brain-core/index]]."
 
 
+def prospective_effects(vault_root):
+    """Declare root bootstrap files that sit outside normal upgrade snapshots."""
+    effects = []
+    for canonical_name in BOOTSTRAP_VARIANTS:
+        path = find_root_bootstrap_file(vault_root, canonical_name)
+        if path is not None:
+            effects.append(os.path.realpath(path))
+    return effects
+
+
 def migrate(vault_root):
     """Update bootstrap text and router directives.
 

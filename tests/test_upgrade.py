@@ -1531,6 +1531,57 @@ class TestPrecompileDefinitionRemediation:
         assert result["cutover_commit"]["external_rollback_verified"] is True
         assert before == after
 
+    def test_cutover_failure_restores_declared_migration_effects(self, tmp_path):
+        source = _make_real_compile_source(tmp_path, version=CORE_VERSION)
+        migration = source / "scripts" / "migrations" / "migrate_to_0_62_9.py"
+        migration.write_text(
+            "from pathlib import Path\n"
+            "def prospective_effects(vault_root):\n"
+            "    return [Path(vault_root) / 'AGENTS.md']\n"
+            "def migrate(vault_root):\n"
+            "    (Path(vault_root) / 'AGENTS.md').write_text('migrated\\n')\n"
+            "    return {'status': 'ok'}\n",
+            encoding="utf-8",
+        )
+        vault = _make_minimal_upgrade_vault(tmp_path, version="0.62.8")
+        bootstrap = vault / "AGENTS.md"
+        bootstrap.write_text("original\n", encoding="utf-8")
+
+        class CheckedExternalFailure(RuntimeError):
+            rollback_verified = True
+
+        result = upgrade.upgrade(
+            str(vault),
+            str(source),
+            sync=False,
+            sync_deps=False,
+            commit_callback=lambda _result: (_ for _ in ()).throw(
+                CheckedExternalFailure("injected CLI commit failure")
+            ),
+        )
+
+        assert result["status"] == "error"
+        assert result["rollback_verified"] is True
+        assert bootstrap.read_text(encoding="utf-8") == "original\n"
+
+    def test_cutover_interrupt_restores_the_old_core_before_reraising(self, tmp_path):
+        source = _make_real_compile_source(tmp_path, version=CORE_VERSION)
+        vault = _make_minimal_upgrade_vault(tmp_path, version="0.62.8")
+        original = (vault / ".brain-core" / "VERSION").read_text(encoding="utf-8")
+
+        with pytest.raises(KeyboardInterrupt):
+            upgrade.upgrade(
+                str(vault),
+                str(source),
+                sync=False,
+                sync_deps=False,
+                commit_callback=lambda _result: (_ for _ in ()).throw(
+                    KeyboardInterrupt()
+                ),
+            )
+
+        assert (vault / ".brain-core" / "VERSION").read_text(encoding="utf-8") == original
+
     def test_cutover_commits_matching_core_and_cli_without_touching_other_brain(
         self, tmp_path
     ):

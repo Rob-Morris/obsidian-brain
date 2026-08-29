@@ -435,3 +435,19 @@ def test_upgrade_completion_projects_readiness_failure_and_orphan_follow_up():
     assert steps["mcp_registration"].status is LifecycleStatus.CHANGED
     assert steps["runtime_readiness"].status is LifecycleStatus.CHANGED
     assert steps["runtime_orphans"].status is LifecycleStatus.PLANNED
+
+
+def test_upgrade_completion_projects_committed_cli_cleanup_recovery():
+    recovery = "/machine/lib/brain-cli/.old.backup"
+    result = {
+        "cutover_commit": {
+            "cleanup_recovery_paths": [recovery],
+        }
+    }
+
+    steps = lifecycle._reconciliation_steps(result)
+
+    assert lifecycle._reconciliation_failed(result) is True
+    assert len(steps) == 1
+    assert steps[0].name == "cli_backup_cleanup"
+    assert recovery in steps[0].message

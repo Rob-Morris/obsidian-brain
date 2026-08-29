@@ -92,7 +92,7 @@ def _write_bytes(path: Path, content: bytes) -> None:
             handle.flush()
             os.fsync(handle.fileno())
         os.replace(temporary, path)
-    except Exception:
+    except BaseException:
         try:
             os.unlink(temporary)
         except OSError:
@@ -164,12 +164,12 @@ def apply_file_changes(changes: tuple[FileChange, ...]) -> None:
         for change in changes:
             _apply(change.path, change.after)
             applied.append(change)
-    except Exception as exc:
+    except BaseException as exc:
         rollback_errors: list[str] = []
         for change in reversed(applied):
             try:
                 _apply(change.path, change.before)
-            except Exception as rollback_exc:
+            except BaseException as rollback_exc:
                 rollback_errors.append(f"{change.path}: {rollback_exc}")
 
         for directory in created_dirs:
@@ -177,7 +177,7 @@ def apply_file_changes(changes: tuple[FileChange, ...]) -> None:
                 directory.rmdir()
             except FileNotFoundError:
                 pass
-            except OSError as rollback_exc:
+            except BaseException as rollback_exc:
                 rollback_errors.append(f"{directory}: {rollback_exc}")
 
         surviving: list[Path] = []
@@ -193,7 +193,11 @@ def apply_file_changes(changes: tuple[FileChange, ...]) -> None:
             if rollback_errors
             else " All written files were restored."
         )
-        raise FileTransactionError(
+        error = FileTransactionError(
             f"MCP file transaction failed: {exc}.{suffix}",
             tuple(sorted(set(surviving), key=str)),
-        ) from exc
+        )
+        if isinstance(exc, (KeyboardInterrupt, SystemExit)):
+            exc.add_note(str(error))
+            raise
+        raise error from exc

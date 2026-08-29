@@ -576,6 +576,28 @@ def _migration_record_key(version_str: str, target: str) -> str:
     return f"{version_str}{_MIGRATION_RECORD_SEP}{target}"
 
 
+def _prospective_migration_effects(module, vault_root: str) -> tuple[str, ...]:
+    """Resolve a migration's exact extra file effects before its first write."""
+
+    declare = getattr(module, "prospective_effects", None)
+    if declare is None:
+        return ()
+    raw_paths = declare(vault_root)
+    if not isinstance(raw_paths, (list, tuple)):
+        raise TypeError("migration prospective_effects() must return a list or tuple")
+    effects = []
+    for raw_path in raw_paths:
+        if not isinstance(raw_path, (str, os.PathLike)):
+            raise TypeError("migration effect paths must be strings or path-like values")
+        path = os.path.abspath(os.fspath(raw_path))
+        if os.path.isdir(path) and not os.path.islink(path):
+            raise ValueError(
+                f"migration effect must name an exact file, not a directory: {path}"
+            )
+        effects.append(path)
+    return tuple(dict.fromkeys(effects))
+
+
 def _select_pending_migrations(
     all_migrations: list,
     old_version: Optional[str],
@@ -619,6 +641,7 @@ def _run_migrations(
     target: str = _DEFAULT_MIGRATION_TARGET,
     context: Optional[dict] = None,
     raise_on_error: bool = False,
+    prepare_effects=None,
 ) -> tuple[list[dict], dict]:
     """Run pending migrations between old_version and new_version.
 
@@ -663,6 +686,9 @@ def _run_migrations(
                     raise RuntimeError(
                         f"Migration {os.path.basename(script_path)} no longer exposes target {target!r}",
                     )
+                effects = _prospective_migration_effects(mod, vault_root)
+                if prepare_effects is not None and effects:
+                    prepare_effects(effects)
                 if target == _DEFAULT_MIGRATION_TARGET:
                     result = handler(vault_root)
                 else:
@@ -1908,6 +1934,10 @@ def upgrade(
     postcompile_snapshots: dict[str, dict] = {}
     postcompile_snapshot_roots: set[str] = set()
 
+    def _snapshot_declared_effects(paths, snapshots):
+        for path in paths:
+            _snapshot_file(path, snapshots)
+
     def _rollback(msg, *, migration_result: Optional[dict] = None):
         restore_errors = []
         for snapshots, roots, label in (
@@ -1918,11 +1948,11 @@ def upgrade(
                 continue
             try:
                 _restore_snapshots(snapshots, roots=roots)
-            except Exception as exc:
+            except BaseException as exc:
                 restore_errors.append(f"{label}: {exc}")
         try:
             _restore_brain_core(backup_dir, target)
-        except Exception as exc:
+        except BaseException as exc:
             restore_errors.append(f"Brain Core: {exc}")
         try:
             core_verified = _tree_fingerprint(target) == old_core_fingerprint
@@ -2017,6 +2047,9 @@ def upgrade(
                 target=_PRECOMPILE_PATCH_TARGET,
                 context=compile_context,
                 raise_on_error=True,
+                prepare_effects=lambda paths: _snapshot_declared_effects(
+                    paths, precompile_snapshots
+                ),
             )
         except MigrationResultError as e:
             return _rollback(
@@ -2033,6 +2066,10 @@ def upgrade(
 
     except (OSError, shutil.Error, RuntimeError) as e:
         return _rollback(f"copy failed: {e}")
+    except BaseException as exc:
+        rollback = _rollback(f"copy interrupted: {exc}")
+        exc.add_note(rollback["message"])
+        raise
 
     compiled_router_path = os.path.join(vault_root, ".brain", "local", "compiled-router.json")
     try:
@@ -2065,7 +2102,14 @@ def upgrade(
             message="Running post-compile migrations",
         )
         migrations, ledger = _run_migrations(
-            vault_root, old_version, new_version, force=force, raise_on_error=True,
+            vault_root,
+            old_version,
+            new_version,
+            force=force,
+            raise_on_error=True,
+            prepare_effects=lambda paths: _snapshot_declared_effects(
+                paths, postcompile_snapshots
+            ),
         )
     except MigrationResultError as e:
         return _rollback(
@@ -2074,6 +2118,10 @@ def upgrade(
         )
     except RuntimeError as e:
         return _rollback(f"post-compile migration failed: {e}")
+    except BaseException as exc:
+        rollback = _rollback(f"post-compile migration interrupted: {exc}")
+        exc.add_note(rollback["message"])
+        raise
     if migrations:
         result["migrations"] = migrations
     if _all_migrations_recorded(vault_root, new_version, ledger=ledger):
@@ -2111,6 +2159,10 @@ def upgrade(
                 )
     except (OSError, ValueError, RuntimeError) as exc:
         return _rollback(f"skill override reconciliation failed: {exc}")
+    except BaseException as exc:
+        rollback = _rollback(f"skill override reconciliation interrupted: {exc}")
+        exc.add_note(rollback["message"])
+        raise
 
     if commit_callback is not None:
         try:
@@ -2125,6 +2177,10 @@ def upgrade(
                 ),
             }
             return rolled_back
+        except BaseException as exc:
+            rollback = _rollback(f"coordinated cutover commit interrupted: {exc}")
+            exc.add_note(rollback["message"])
+            raise
 
     shutil.rmtree(backup_dir, ignore_errors=True)
 

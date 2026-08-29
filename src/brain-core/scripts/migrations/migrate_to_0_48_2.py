@@ -28,6 +28,18 @@ from _lifecycle_common import exit_code_for_result, make_result_envelope
 VERSION = "0.48.2"
 
 
+def prospective_effects(vault_root: str) -> list[Path]:
+    """Declare every project-scoped file the registration repair may change."""
+    vault = Path(find_vault_root(vault_root)).resolve()
+    return [
+        vault / mcp_transport.CLAUDE_PROJECT_CONFIG_FILE,
+        vault / mcp_transport.CLAUDE_MD_FILE,
+        vault / mcp_transport.CLAUDE_LOCAL_SETTINGS_FILE,
+        vault / mcp_transport.CODEX_CONFIG_REL,
+        vault / mcp_transport.INIT_STATE_REL,
+    ]
+
+
 def converge_mcp(vault_root: str, *, dry_run: bool = False) -> dict:
     """Converge Brain-managed MCP project registration state."""
     vault = Path(find_vault_root(vault_root))

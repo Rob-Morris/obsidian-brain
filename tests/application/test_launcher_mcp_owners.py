@@ -7,6 +7,8 @@ import json
 from pathlib import Path
 import sys
 
+import pytest
+
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 CLI_DIR = REPO_ROOT / "cli"
@@ -235,6 +237,30 @@ def test_apply_failure_rolls_back_files_and_created_directories(tmp_path, monkey
 
     assert result.error.code is ErrorCode.CONFLICT
     assert result.effects == "none"
+    assert not (vault / ".mcp.json").exists()
+    assert not (vault / ".brain").exists()
+
+
+def test_keyboard_interrupt_rolls_back_files_and_created_directories(
+    tmp_path, monkeypatch
+):
+    vault = _vault(tmp_path)
+    _healthy_runtime(monkeypatch, vault)
+    original_apply = file_transaction._apply
+    calls = 0
+
+    def interrupt_second(path, content):
+        nonlocal calls
+        calls += 1
+        if calls == 2:
+            raise KeyboardInterrupt()
+        return original_apply(path, content)
+
+    monkeypatch.setattr(file_transaction, "_apply", interrupt_second)
+
+    with pytest.raises(KeyboardInterrupt):
+        _invocation(vault).invoke(McpConfigureRequest(client=McpClient.CLAUDE))
+
     assert not (vault / ".mcp.json").exists()
     assert not (vault / ".brain").exists()
 

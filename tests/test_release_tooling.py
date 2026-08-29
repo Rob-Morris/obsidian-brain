@@ -251,6 +251,35 @@ def test_release_write_attempts_every_rollback_and_reports_recovery_paths(
     assert (root / "c.txt").read_text(encoding="utf-8") == "old-c.txt\n"
 
 
+def test_release_keyboard_interrupt_restores_every_replaced_file(
+    tmp_path, monkeypatch
+):
+    root = tmp_path / "release"
+    root.mkdir()
+    for name in ("a.txt", "b.txt"):
+        (root / name).write_text(f"old-{name}\n", encoding="utf-8")
+    real_replace = release.os.replace
+
+    def _replace(source, destination):
+        if (
+            Path(source).name.endswith(".release")
+            and Path(destination).name == "b.txt"
+        ):
+            raise KeyboardInterrupt()
+        real_replace(source, destination)
+
+    monkeypatch.setattr(release.os, "replace", _replace)
+
+    with pytest.raises(KeyboardInterrupt):
+        release._write_transaction(
+            root,
+            {"a.txt": "new-a\n", "b.txt": "new-b\n"},
+        )
+
+    assert (root / "a.txt").read_text(encoding="utf-8") == "old-a.txt\n"
+    assert (root / "b.txt").read_text(encoding="utf-8") == "old-b.txt\n"
+
+
 def test_release_stage_cleanup_failure_does_not_mask_initiating_error(
     tmp_path,
     monkeypatch,

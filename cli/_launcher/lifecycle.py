@@ -617,6 +617,17 @@ def _checked_preflight(
 
 def _reconciliation_steps(result: dict) -> tuple[LifecycleStep, ...]:
     steps = []
+    cutover = result.get("cutover_commit")
+    if isinstance(cutover, dict) and cutover.get("cleanup_recovery_paths"):
+        rendered = ", ".join(cutover["cleanup_recovery_paths"])
+        steps.append(
+            LifecycleStep(
+                "cli_backup_cleanup",
+                LifecycleStatus.CHANGED,
+                "The Brain/CLI cutover committed, but old CLI backup material "
+                f"could not be removed: {rendered}",
+            )
+        )
     for item in result.get("skill_reconciliation", ()):
         if not isinstance(item, dict) or not isinstance(item.get("name"), str):
             continue
@@ -680,7 +691,11 @@ def _reconciliation_steps(result: dict) -> tuple[LifecycleStep, ...]:
 
 
 def _reconciliation_failed(result: dict) -> bool:
-    return isinstance(result.get("sync_error"), str) or any(
+    cutover = result.get("cutover_commit")
+    return (
+        isinstance(cutover, dict)
+        and bool(cutover.get("cleanup_recovery_paths"))
+    ) or isinstance(result.get("sync_error"), str) or any(
         isinstance(result.get(key), dict)
         and result[key].get("outcome") in {"error", "partial", "unknown"}
         for key in (
@@ -724,6 +739,9 @@ def execute_upgrade(context: LauncherContext, request: BrainUpgradeRequest):
             "cli_binary": str(installed_distribution.cli_binary),
             "distribution_root": str(installed_distribution.distribution_root),
             "manifest_fingerprint": installed_distribution.manifest_fingerprint,
+            "cleanup_recovery_paths": [
+                str(path) for path in installed_distribution.cleanup_recovery_paths
+            ],
         }
 
     result = upgrade_script.upgrade(

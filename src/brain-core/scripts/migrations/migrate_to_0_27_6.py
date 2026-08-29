@@ -395,12 +395,8 @@ def _repair_init_state(
     return actions
 
 
-def migrate(vault_root: str) -> dict[str, Any]:
-    """Repair legacy Brain MCP launch config for this vault."""
-    vault_root = os.path.realpath(str(vault_root))
-    actions: list[str] = []
-    rewritten_by_path: dict[str, dict[str, Any]] = {}
-
+def _migration_candidates(vault_root: str) -> list[tuple[str, Path, str | None]]:
+    """Return every config file this migration may rewrite."""
     candidates: list[tuple[str, Path, str | None]] = [
         ("json", Path(vault_root) / ".mcp.json", vault_root),
         ("json", Path(vault_root) / ".claude" / "settings.local.json", vault_root),
@@ -421,6 +417,24 @@ def migrate(vault_root: str) -> dict[str, Any]:
         workspace_dir = target_path if isinstance(target_path, str) and target_path else None
         kind = "toml" if client == "codex" else "json"
         candidates.append((kind, Path(config_path), workspace_dir))
+    return candidates
+
+
+def prospective_effects(vault_root: str) -> list[Path]:
+    """Declare external config and ledger files before any repair writes."""
+    root = os.path.realpath(str(vault_root))
+    return [
+        *(path for _kind, path, _workspace in _migration_candidates(root)),
+        _state_path(root),
+    ]
+
+
+def migrate(vault_root: str) -> dict[str, Any]:
+    """Repair legacy Brain MCP launch config for this vault."""
+    vault_root = os.path.realpath(str(vault_root))
+    actions: list[str] = []
+    rewritten_by_path: dict[str, dict[str, Any]] = {}
+    candidates = _migration_candidates(vault_root)
 
     seen: set[tuple[str, str]] = set()
     for kind, path, workspace_dir in candidates:

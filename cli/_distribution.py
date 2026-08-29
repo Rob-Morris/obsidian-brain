@@ -46,6 +46,7 @@ class InstalledDistribution:
     cli_version: str
     brain_core_version: str
     manifest_fingerprint: str
+    cleanup_recovery_paths: tuple[Path, ...] = ()
 
 
 def source_versions(source_root: Path) -> SourceVersions:
@@ -141,7 +142,7 @@ def install_distribution(
             source_binary,
         )
         _fire(failpoint, "after_verify")
-    except Exception as exc:
+    except BaseException as exc:
         rollback_verified, recovery_paths = _rollback(
             distribution=distribution,
             distribution_backup=backup,
@@ -162,19 +163,34 @@ def install_distribution(
                 for path in (*recovery_paths, stage, binary_stage)
                 if path.exists() or path.is_symlink()
             )
-        raise DistributionInstallError(
+        error = DistributionInstallError(
             f"CLI distribution install failed: {exc}",
             rollback_verified=rollback_verified,
             recovery_paths=recovery_paths,
-        ) from exc
-    _remove_tree(backup)
-    _remove_file(binary_backup)
+        )
+        if isinstance(exc, (KeyboardInterrupt, SystemExit)):
+            exc.rollback_verified = rollback_verified
+            exc.recovery_paths = recovery_paths
+            exc.add_note(str(error))
+            raise
+        raise error from exc
+    cleanup_recovery_paths = []
+    for name, path, cleanup in (
+        ("cleanup_old_distribution", backup, _remove_tree),
+        ("cleanup_old_cli", binary_backup, _remove_file),
+    ):
+        try:
+            _fire(failpoint, name)
+            cleanup(path)
+        except Exception:
+            cleanup_recovery_paths.append(path)
     return InstalledDistribution(
         binary,
         distribution,
         cli_version,
         expected_brain_core_version,
         manifest["fingerprint"],
+        tuple(cleanup_recovery_paths),
     )
 
 
@@ -379,7 +395,7 @@ def _rollback(
         try:
             _fire(failpoint, name)
             action()
-        except Exception as exc:
+        except BaseException as exc:
             errors.append(f"{name}: {exc}")
 
     if replaced_binary:

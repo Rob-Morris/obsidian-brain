@@ -20,6 +20,7 @@ from _bootstrap.mcp_state import (
     CLAUDE_PROJECT_CONFIG_FILE,
     CLAUDE_USER_CONFIG_FILE,
     CODEX_CONFIG_REL,
+    INIT_STATE_REL,
     bootstrap_line_for_target,
     build_mcp_config,
     build_session_hook_command,

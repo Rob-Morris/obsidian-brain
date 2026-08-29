@@ -365,7 +365,7 @@ def _write_transaction(root: Path, changes: dict[str, str]) -> None:
         for path, stage in staged.items():
             os.replace(stage, root / path)
             replaced.append(path)
-    except Exception as initiating_error:
+    except BaseException as initiating_error:
         recovery_paths: list[Path] = []
         for path in reversed(replaced):
             original = originals[path]
@@ -382,16 +382,20 @@ def _write_transaction(root: Path, changes: dict[str, str]) -> None:
                 restore.write_bytes(data)
                 os.chmod(restore, mode)
                 os.replace(restore, target)
-            except Exception:
+            except BaseException:
                 recovery_paths.append(target)
                 if restore is not None and restore.exists():
                     recovery_paths.append(restore)
         recovery_paths.extend(_remove_staged_files(staged.values()))
-        raise ReleaseTransactionError(
+        error = ReleaseTransactionError(
             initiating_error,
             rollback_complete=not recovery_paths,
             recovery_paths=tuple(recovery_paths),
-        ) from initiating_error
+        )
+        if isinstance(initiating_error, (KeyboardInterrupt, SystemExit)):
+            initiating_error.add_note(str(error))
+            raise
+        raise error from initiating_error
     cleanup_failures = _remove_staged_files(staged.values())
     if cleanup_failures:
         rendered = ", ".join(str(path) for path in cleanup_failures)

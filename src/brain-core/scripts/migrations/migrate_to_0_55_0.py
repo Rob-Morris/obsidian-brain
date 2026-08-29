@@ -45,6 +45,16 @@ BOOTSTRAP_REPLACEMENTS = (
 )
 
 
+def prospective_effects(vault_root: str) -> list[str]:
+    """Declare exact profile/bootstrap files before the migration mutates them."""
+    effects = [os.path.join(os.path.realpath(vault_root), CONFIG_PATH)]
+    for canonical_name in BOOTSTRAP_VARIANTS:
+        path = find_root_bootstrap_file(vault_root, canonical_name)
+        if path is not None:
+            effects.append(os.path.realpath(path))
+    return effects
+
+
 def migrate(vault_root: str) -> dict[str, object]:
     """Replace known v0.54 profile and bootstrap contracts fail-closed."""
 
