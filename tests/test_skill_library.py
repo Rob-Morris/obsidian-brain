@@ -76,6 +76,16 @@ def _advance(repository: Path, name: str, body: str) -> str:
     return _git(["rev-parse", "HEAD"], cwd=repository)
 
 
+@pytest.fixture
+def allow_local_git(monkeypatch):
+    """Keep lifecycle tests local while boundary tests exercise remote validation."""
+    monkeypatch.setattr(
+        git_source,
+        "validate_remote_repository",
+        lambda repository: repository,
+    )
+
+
 def _core_manifest(vault: Path, name: str, repository: Path, commit: str) -> None:
     core = vault / ".brain-core"
     core.mkdir(parents=True, exist_ok=True)
@@ -183,7 +193,43 @@ def test_git_archive_capture_is_bounded_before_extraction(monkeypatch):
         )
 
 
-def test_git_import_rejects_a_repository_skill_symlink(tmp_path):
+@pytest.mark.parametrize(
+    "repository",
+    (
+        "/srv/private/repository",
+        "file:///srv/private/repository",
+        "../repository",
+        "ext::sh -c command",
+        "http://example.com/repository.git",
+    ),
+)
+def test_git_source_rejects_local_and_unapproved_repository_forms(repository):
+    with pytest.raises(git_source.GitSourceError, match="approved https or ssh"):
+        git_source.validate_remote_repository(repository)
+
+
+@pytest.mark.parametrize(
+    "repository",
+    (
+        "https://example.com/owner/repository.git",
+        "ssh://git@example.com/owner/repository.git",
+        "git@example.com:owner/repository.git",
+    ),
+)
+def test_git_source_accepts_approved_remote_repository_forms(repository):
+    assert git_source.validate_remote_repository(repository) == repository
+
+
+@pytest.mark.parametrize(
+    "configured_ref",
+    ("--upload-pack=command", "refs/heads/main^{}", "../main", "main lock"),
+)
+def test_git_source_rejects_option_shaped_and_unsafe_refs(configured_ref):
+    with pytest.raises(git_source.GitSourceError, match="unsafe or unsupported"):
+        git_source.validate_configured_ref(configured_ref)
+
+
+def test_git_import_rejects_a_repository_skill_symlink(tmp_path, allow_local_git):
     repository, commit = _source_repo(tmp_path)
     linked = repository / "skills/shaping/linked.md"
     linked.symlink_to("reference.md")
@@ -200,7 +246,7 @@ def test_git_import_rejects_a_repository_skill_symlink(tmp_path):
         )
 
 
-def test_add_refresh_update_and_detach_managed_user_skill(tmp_path):
+def test_add_refresh_update_and_detach_managed_user_skill(tmp_path, allow_local_git):
     repository, first_commit = _source_repo(tmp_path)
     vault = tmp_path / "vault"
     vault.mkdir()
@@ -228,7 +274,9 @@ def test_add_refresh_update_and_detach_managed_user_skill(tmp_path):
     assert list_skill_status(vault, name="shaping")[0].state is SkillState.USER_OWNED
 
 
-def test_refresh_reports_moving_branch_update_without_mutating_package(tmp_path):
+def test_refresh_reports_moving_branch_update_without_mutating_package(
+    tmp_path, allow_local_git
+):
     repository, _first_commit = _source_repo(tmp_path)
     branch = _git(["branch", "--show-current"], cwd=repository)
     vault = tmp_path / "vault"
@@ -252,7 +300,9 @@ def test_refresh_reports_moving_branch_update_without_mutating_package(tmp_path)
     assert installed.read_bytes() == installed_before
 
 
-def test_conflict_stages_upstream_and_replacement_archives_local(tmp_path):
+def test_conflict_stages_upstream_and_replacement_archives_local(
+    tmp_path, allow_local_git
+):
     repository, first_commit = _source_repo(tmp_path)
     vault = tmp_path / "vault"
     vault.mkdir()
@@ -289,7 +339,9 @@ def test_conflict_stages_upstream_and_replacement_archives_local(tmp_path):
     assert "upstream edit" in local.read_text()
 
 
-def test_manually_reconciled_conflict_rebaselines_without_replacement(tmp_path):
+def test_manually_reconciled_conflict_rebaselines_without_replacement(
+    tmp_path, allow_local_git
+):
     repository, first_commit = _source_repo(tmp_path)
     vault = tmp_path / "vault"
     vault.mkdir()
@@ -318,7 +370,9 @@ def test_manually_reconciled_conflict_rebaselines_without_replacement(tmp_path):
     assert tracking["installed_baseline_sha256"] == reconciled.package_sha256
 
 
-def test_conflict_stage_rolls_back_when_tracking_write_fails(tmp_path, monkeypatch):
+def test_conflict_stage_rolls_back_when_tracking_write_fails(
+    tmp_path, monkeypatch, allow_local_git
+):
     repository, first_commit = _source_repo(tmp_path)
     vault = tmp_path / "vault"
     vault.mkdir()
@@ -348,7 +402,9 @@ def test_conflict_stage_rolls_back_when_tracking_write_fails(tmp_path, monkeypat
     assert "local edit" in local.read_text()
 
 
-def test_conflict_stage_reports_displaced_stage_cleanup_failure(tmp_path, monkeypatch):
+def test_conflict_stage_reports_displaced_stage_cleanup_failure(
+    tmp_path, monkeypatch, allow_local_git
+):
     repository, first_commit = _source_repo(tmp_path)
     vault = tmp_path / "vault"
     vault.mkdir()
@@ -380,7 +436,9 @@ def test_conflict_stage_reports_displaced_stage_cleanup_failure(tmp_path, monkey
     assert comparison["upstream_commit"] == third_commit
 
 
-def test_core_update_materialises_only_when_no_user_copy_exists(tmp_path):
+def test_core_update_materialises_only_when_no_user_copy_exists(
+    tmp_path, allow_local_git
+):
     repository, first_commit = _source_repo(tmp_path)
     vault = tmp_path / "vault"
     _write_skill(vault / ".brain-core/skills", "shaping", "bundled")

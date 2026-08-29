@@ -595,7 +595,10 @@ def run_acceptance(
         cwd=vault,
     )
     commands.append(receipt)
-    if mcp.get("read_only_round_trip") != "tools/list" or not mcp.get("tool_count"):
+    if (
+        mcp.get("read_only_round_trip") != "tools/call:command.list"
+        or not mcp.get("tool_count")
+    ):
         raise AcceptanceFailure("MCP read-only health probe did not pass")
 
     paths, receipt = _run_json(

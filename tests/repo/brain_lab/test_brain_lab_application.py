@@ -922,6 +922,21 @@ def test_attempt_destroy_records_exact_survivor_after_partial_cleanup(tmp_path: 
     assert receipt["cleanup"]["survivors"] == result.payload["survivors"]
 
 
+def test_attempt_resources_treats_cleanup_survivors_as_authoritative():
+    from brain_lab.baselines import _attempt_resources
+
+    receipt = {
+        "container": {"id": "already-removed-container"},
+        "image": {"id": "stale-image"},
+        "cleanup": {
+            "complete": False,
+            "survivors": [{"kind": "image", "id": "surviving-image"}],
+        },
+    }
+
+    assert _attempt_resources(receipt) == (None, "surviving-image")
+
+
 def test_baseline_receipt_keeps_its_successful_attempt_referenced(tmp_path: Path):
     application = _application(tmp_path)
     application.store.write("attempt", "attempt-a", {"status": "succeeded"})

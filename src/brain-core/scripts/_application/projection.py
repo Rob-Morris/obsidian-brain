@@ -219,6 +219,12 @@ def canonical_wire_value(value):
 
     if isinstance(value, Enum):
         return canonical_wire_value(value.value)
+    if isinstance(value, datetime):
+        if value.tzinfo is None or value.utcoffset() is None:
+            raise TypeError("canonical datetimes must be timezone-aware")
+        return value.isoformat()
+    if isinstance(value, date):
+        return value.isoformat()
     if value is None or isinstance(value, (str, int, float, bool)):
         return value
     if isinstance(value, Path):

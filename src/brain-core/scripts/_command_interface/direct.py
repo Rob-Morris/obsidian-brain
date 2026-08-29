@@ -7,6 +7,7 @@ from datetime import datetime
 import hashlib
 import os
 from pathlib import Path
+import shutil
 from typing import Callable
 import uuid
 
@@ -32,6 +33,7 @@ from .receipts import FileReceiptStore
 _LOCAL_PROVIDERS = (
     "caller_filesystem",
     "document_renderer",
+    "git_remote",
     "obsidian_cli",
     "semantic_retrieval",
     "semantic_runtime",
@@ -296,6 +298,11 @@ def _capability_refresher(
             Availability.AVAILABLE if workspace is not None else Availability.UNAVAILABLE
         ),
         "document_renderer": lambda: _managed_provider_availability(tier),
+        "git_remote": lambda: (
+            Availability.AVAILABLE
+            if shutil.which("git") is not None
+            else Availability.UNAVAILABLE
+        ),
         "obsidian_cli": _probe_obsidian_cli,
         "semantic_retrieval": lambda: _probe_semantic_retrieval(root, config),
         "semantic_runtime": lambda: _managed_provider_availability(tier),

@@ -5,6 +5,7 @@ from __future__ import annotations
 from contextlib import nullcontext
 from copy import deepcopy
 from datetime import datetime, timezone
+from enum import Enum
 import os
 from pathlib import Path
 import shutil
@@ -42,6 +43,36 @@ class SkillLibraryError(RuntimeError):
 
 class SkillMutationOutcomeUncertain(RuntimeError):
     """A failed recovery could not prove whether a skill mutation committed."""
+
+
+class _SkillTransition(str, Enum):
+    MATCHES_SOURCE = "matches_source"
+    CONFLICT = "conflict"
+    LOCAL_ONLY = "local_only"
+    SOURCE_ONLY = "source_only"
+    INCONSISTENT_BASELINES = "inconsistent_baselines"
+
+
+def _classify_transition(
+    *,
+    current: str,
+    installed_baseline: str,
+    source_baseline: str,
+    available_source: str,
+) -> _SkillTransition:
+    """Classify one installed/baseline/available package relationship."""
+
+    if current == available_source:
+        return _SkillTransition.MATCHES_SOURCE
+    local_changed = current != installed_baseline
+    source_changed = available_source != source_baseline
+    if local_changed and source_changed:
+        return _SkillTransition.CONFLICT
+    if local_changed:
+        return _SkillTransition.LOCAL_ONLY
+    if source_changed:
+        return _SkillTransition.SOURCE_ONLY
+    return _SkillTransition.INCONSISTENT_BASELINES
 
 
 def list_skill_status(
@@ -436,9 +467,13 @@ def _update_existing(root, name, record, to_commit, replace_conflict):
                 current = _require_user_snapshot(root, name)
                 baseline = str(current_record["installed_baseline_sha256"])
                 source_baseline = str(current_record["source_package_sha256"])
-                local_changed = current.package_sha256 != baseline
-                source_changed = source.package.package_sha256 != source_baseline
-                if current.package_sha256 == source.package.package_sha256:
+                transition = _classify_transition(
+                    current=current.package_sha256,
+                    installed_baseline=baseline,
+                    source_baseline=source_baseline,
+                    available_source=source.package.package_sha256,
+                )
+                if transition is _SkillTransition.MATCHES_SOURCE:
                     updated_record = _record_from_existing(current_record, source)
                     tracking["managed"][name] = updated_record
                     write_tracking(root, tracking)
@@ -450,7 +485,7 @@ def _update_existing(root, name, record, to_commit, replace_conflict):
                         source.resolved_commit,
                         (str(Path(".brain") / "skill-sources.json"),),
                     )
-                if local_changed and source_changed and not replace_conflict:
+                if transition is _SkillTransition.CONFLICT and not replace_conflict:
                     current_record["available_commit"] = source.resolved_commit
                     current_record["available_package_sha256"] = (
                         source.package.package_sha256
@@ -498,24 +533,29 @@ def _update_existing(root, name, record, to_commit, replace_conflict):
                         None,
                         detail,
                     )
-                if local_changed and not source_changed:
+                if transition is _SkillTransition.LOCAL_ONLY:
                     raise SkillLibraryError(
                         f"skill {name!r} is locally customised and upstream is unchanged"
                     )
+                if transition is _SkillTransition.INCONSISTENT_BASELINES:
+                    raise SkillLibraryError(
+                        f"skill {name!r} tracking baselines disagree with the installed package"
+                    )
                 updated_record = _record_from_existing(current_record, source)
+                archive_existing = transition is _SkillTransition.CONFLICT
                 changed, backup, cleanup_warning = _commit_package_and_tracking(
                     root,
                     source.package,
                     tracking,
                     updated_record,
                     replace=True,
-                    archive_existing=local_changed,
+                    archive_existing=archive_existing,
                 )
             return SkillMutation(
                 name,
                 (
                     SkillMutationAction.REPLACED
-                    if local_changed
+                    if archive_existing
                     else SkillMutationAction.UPDATED
                 ),
                 SkillState.IN_SYNC,
@@ -894,17 +934,24 @@ def _classify_managed(snapshot, record):
     baseline = str(record["installed_baseline_sha256"])
     source_baseline = str(record["source_package_sha256"])
     available = record.get("available_package_sha256") or source_baseline
-    local_changed = current != baseline
-    source_changed = available != source_baseline
-    if current == available:
+    transition = _classify_transition(
+        current=current,
+        installed_baseline=baseline,
+        source_baseline=source_baseline,
+        available_source=str(available),
+    )
+    if transition is _SkillTransition.MATCHES_SOURCE:
         return SkillState.IN_SYNC, "local and available source packages match"
-    if local_changed and source_changed:
+    if transition is _SkillTransition.CONFLICT:
         return SkillState.CONFLICT, "local and source packages both changed"
-    if local_changed:
+    if transition is _SkillTransition.LOCAL_ONLY:
         return SkillState.LOCALLY_CUSTOMISED, "local package changed"
-    if source_changed:
+    if transition is _SkillTransition.SOURCE_ONLY:
         return SkillState.UPDATE_READY, "source update is available"
-    return SkillState.IN_SYNC, None
+    return (
+        SkillState.SOURCE_MISSING,
+        "tracking baselines disagree with the installed package",
+    )
 
 
 def _optional_snapshot(path, expected_name):

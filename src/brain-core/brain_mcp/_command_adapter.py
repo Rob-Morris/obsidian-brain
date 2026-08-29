@@ -149,7 +149,7 @@ def _annotations(entry: ApplicationEntry) -> ToolAnnotations:
         readOnlyHint=read_only,
         destructiveHint=destructive,
         idempotentHint=entry.retry_class is RetryClass.SAFE,
-        openWorldHint=False,
+        openWorldHint=entry.open_world,
     )
 
 

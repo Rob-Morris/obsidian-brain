@@ -233,6 +233,12 @@ Git provenance is optional and independent of core/user ownership. Bundled
 source descriptors live in `.brain-core/skill-sources.json`; user tracking and
 baselines live in `.brain/skill-sources.json`.
 
+Application-facing Git acquisition accepts only explicit HTTPS, SSH URL, or
+SCP-style SSH repository locations. Local paths, `file://` repositories,
+option-shaped refs and refs containing Git revision expressions are rejected at
+the request boundary. A machine-local repository is therefore not readable
+through contributor-level MCP authority.
+
 ```bash
 brain skill add-git --request-json \
   '{"repository":"https://github.com/example/skills.git","skill_path":"skills/example","configured_ref":"main"}' --json

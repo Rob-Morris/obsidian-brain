@@ -85,3 +85,11 @@ Git acquisition fetches into a temporary repository and stages blobs with
 filters. Package validation rejects symlinks and unsupported entries, enforces
 portable collision-free paths and bounded size/count, and hashes every file path,
 content digest, and executable bit.
+
+Application-facing acquisition accepts only explicit HTTPS, SSH URL, or
+SCP-style SSH repositories and safe literal refs. Local paths, `file://` and Git
+remote-helper transports, embedded URL credentials, option-shaped refs and
+revision expressions are rejected before Git runs. Git-backed commands declare
+the external provider and open-world MCP metadata. A future machine-local import,
+if justified, must be a distinct launcher operation rather than widening this
+contributor-facing boundary.

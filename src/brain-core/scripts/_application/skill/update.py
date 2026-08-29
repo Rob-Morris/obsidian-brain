@@ -7,7 +7,7 @@ from typing import ClassVar, Mapping
 
 from .._decoding import reject_unexpected
 from ..context import InvocationContext
-from ._support import execute_mutation, mutation_catalogue_entry
+from ._support import execute_mutation, git_mutation_catalogue_entry
 from ._types import SkillMutationPayload
 
 
@@ -62,4 +62,4 @@ def decode(payload: Mapping[str, object]) -> SkillUpdateRequest:
 
 
 def catalogue_entry():
-    return mutation_catalogue_entry(SkillUpdateRequest, execute)
+    return git_mutation_catalogue_entry(SkillUpdateRequest, execute)

@@ -679,8 +679,16 @@ def destroy_baseline(context: OperationContext, request: dict[str, Any]) -> Hand
 
 def _attempt_resources(receipt: Mapping[str, Any]) -> tuple[str | None, str | None]:
     cleanup = receipt.get("cleanup") or {}
-    if cleanup.get("complete") and not cleanup.get("survivors"):
-        return None, None
+    if isinstance(cleanup, Mapping) and isinstance(cleanup.get("survivors"), list):
+        survivors = {
+            item.get("kind"): item.get("id")
+            for item in cleanup["survivors"]
+            if isinstance(item, Mapping)
+            and item.get("kind") in {"container", "image"}
+            and isinstance(item.get("id"), str)
+            and item.get("id")
+        }
+        return survivors.get("container"), survivors.get("image")
     container = receipt.get("container") or {}
     image = receipt.get("image") or {}
     return (

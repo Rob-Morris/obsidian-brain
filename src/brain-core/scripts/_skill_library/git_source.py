@@ -4,12 +4,14 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 from pathlib import Path
+import re
 import shutil
 import subprocess
 import tarfile
 import tempfile
 import threading
 from typing import Iterator
+from urllib.parse import urlsplit
 
 from _common import validate_portable_relative_path
 
@@ -22,6 +24,49 @@ class GitSourceError(RuntimeError):
 
 
 MAX_ARCHIVE_BYTES = MAX_PACKAGE_BYTES + (MAX_PACKAGE_FILES + 4) * 1024
+_REMOTE_SCHEMES = frozenset(("https", "ssh"))
+_SCP_REMOTE = re.compile(
+    r"^(?:[A-Za-z0-9._-]+@)?[A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9])?:[^\s]+$"
+)
+_SAFE_REF = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._/-]{0,255}$")
+
+
+def validate_remote_repository(repository: str) -> str:
+    """Return one approved remote Git location or reject local/helper forms."""
+
+    if not isinstance(repository, str) or not repository:
+        raise GitSourceError("Git repository must be a non-empty string")
+    if repository != repository.strip() or any(ord(char) < 32 for char in repository):
+        raise GitSourceError("Git repository contains unsafe whitespace or control characters")
+    parsed = urlsplit(repository)
+    if parsed.scheme:
+        if parsed.scheme.casefold() not in _REMOTE_SCHEMES:
+            raise GitSourceError("Git repository must use an approved https or ssh remote")
+        if parsed.hostname is None or not parsed.path or parsed.path == "/":
+            raise GitSourceError("Git repository remote must include a host and repository path")
+        if parsed.password is not None or parsed.query or parsed.fragment:
+            raise GitSourceError("Git repository remote contains unsupported credentials or suffixes")
+        return repository
+    if _SCP_REMOTE.fullmatch(repository):
+        return repository
+    raise GitSourceError("Git repository must use an approved https or ssh remote")
+
+
+def validate_configured_ref(configured_ref: str) -> str:
+    """Return a fetch-safe branch, tag, symbolic ref, or commit identity."""
+
+    if not isinstance(configured_ref, str) or not configured_ref:
+        raise GitSourceError("Git ref must be a non-empty string")
+    if (
+        configured_ref != configured_ref.strip()
+        or not _SAFE_REF.fullmatch(configured_ref)
+        or ".." in configured_ref
+        or "//" in configured_ref
+        or "@{" in configured_ref
+        or configured_ref.endswith(("/", ".", ".lock"))
+    ):
+        raise GitSourceError("Git ref contains unsafe or unsupported syntax")
+    return configured_ref
 
 
 @contextmanager
@@ -33,10 +78,8 @@ def checkout_source(
     expected_name: str | None = None,
 ) -> Iterator[SourceCheckout]:
     """Fetch, bound, validate, and temporarily expose one Git skill package."""
-    if not isinstance(repository, str) or not repository.strip():
-        raise GitSourceError("Git repository must be a non-empty string")
-    if not isinstance(configured_ref, str) or not configured_ref.strip():
-        raise GitSourceError("Git ref must be a non-empty string")
+    repository = validate_remote_repository(repository)
+    configured_ref = validate_configured_ref(configured_ref)
     if skill_path == ".":
         normalized_skill_path = "."
     else:
@@ -54,8 +97,6 @@ def checkout_source(
         _run(git, "-C", str(checkout), "remote", "add", "origin", repository)
         _run(
             git,
-            "-c",
-            "protocol.file.allow=always",
             "-C",
             str(checkout),
             "fetch",

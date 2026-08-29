@@ -88,7 +88,8 @@ Tool summaries are short and contain no parameter manuals. Every reachable reque
 - read-only commands set `readOnlyHint`;
 - effect-bearing commands set `destructiveHint` as appropriate;
 - safe retry commands set `idempotentHint`;
-- `openWorldHint` is false.
+- commands that can contact an external service set `openWorldHint`; all others
+  leave it false.
 
 The supported-client gate uses real Claude Code and Codex CLI projections with pinned capture tooling. The catalogue must stay within 16,384 deterministic tokens per supported client. Ordinary tools remain within 512 tokens; the explicitly cohesive `document.structured-edit` and `resource.create` schemas may use up to 3,072 so strict structural variants remain typed rather than opaque or artificially split.
 

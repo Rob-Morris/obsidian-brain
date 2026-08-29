@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from _skill_library.models import (
     SkillMutation,
+    SkillMutationAction,
     SkillState,
     SkillStatus,
     SkillSubstrate,
@@ -37,7 +38,7 @@ class SkillStatusPayload:
 @dataclass(frozen=True, slots=True)
 class SkillMutationPayload:
     name: str
-    action: str
+    action: SkillMutationAction
     state: SkillState
     package_sha256: str | None
     resolved_commit: str | None
@@ -75,7 +76,7 @@ def status_payload(
 def mutation_payload(value: SkillMutation) -> SkillMutationPayload:
     return SkillMutationPayload(
         value.name,
-        value.action.value,
+        SkillMutationAction(value.action.value),
         SkillState(value.state.value),
         value.package_sha256,
         value.resolved_commit,

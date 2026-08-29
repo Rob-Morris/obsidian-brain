@@ -163,7 +163,7 @@
         {
           "id": "mcp-read-only",
           "command": ["{container_python}", "/usr/local/lib/brain-lab/mcp_probe.py", "--vault", "{vault}"],
-          "expected_json": {"read_only_round_trip": "tools/list"},
+          "expected_json": {"read_only_round_trip": "tools/call:command.list"},
           "required_for": ["template", "rehydrate"]
         },
         {
@@ -309,7 +309,7 @@
         {
           "id": "mcp-read-only",
           "command": ["{container_python}", "/usr/local/lib/brain-lab/mcp_probe.py", "--vault", "{vault}"],
-          "expected_json": {"read_only_round_trip": "tools/list"},
+          "expected_json": {"read_only_round_trip": "tools/call:command.list"},
           "required_for": ["template", "rehydrate"]
         },
         {

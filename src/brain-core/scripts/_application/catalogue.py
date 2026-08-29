@@ -50,6 +50,7 @@ class ApplicationEntry:
     retry_class: RetryClass
     projections: tuple[ProjectionEligibility, ...]
     summary: str = ""
+    open_world: bool = False
     lifecycle: CommandLifecycle = CommandLifecycle.ACTIVE
     replacement_command_id: str | None = None
 
@@ -90,6 +91,8 @@ class ApplicationEntry:
             object.__setattr__(self, "summary", _summary(self.command_id))
         if not self.summary.strip() or not self.summary.endswith("."):
             raise ValueError("application entry summary must be one non-empty sentence")
+        if not isinstance(self.open_world, bool):
+            raise ValueError("application entry open_world must be a boolean")
         if not isinstance(self.lifecycle, CommandLifecycle):
             raise ValueError("application entry lifecycle must be closed and typed")
         if self.lifecycle is CommandLifecycle.REPLACED:
@@ -169,6 +172,7 @@ class ApplicationCatalogue:
                     "effect_class": entry.effect_class.value,
                     "retry_class": entry.retry_class.value,
                     "summary": entry.summary,
+                    "open_world": entry.open_world,
                     "lifecycle": entry.lifecycle.value,
                     "replacement_command_id": entry.replacement_command_id,
                     "projections": tuple(

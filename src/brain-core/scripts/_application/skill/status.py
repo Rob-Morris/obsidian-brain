@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import ClassVar, Mapping
 
 from .._decoding import reject_unexpected
@@ -60,4 +60,8 @@ def decode(payload: Mapping[str, object]) -> SkillStatusRequest:
 
 
 def catalogue_entry():
-    return contributor_mutation_entry(SkillStatusRequest, execute)
+    return replace(
+        contributor_mutation_entry(SkillStatusRequest, execute),
+        required_providers=("git_remote",),
+        open_world=True,
+    )

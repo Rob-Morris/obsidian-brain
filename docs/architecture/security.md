@@ -300,6 +300,13 @@ invokes configured checkout filters. Package validation rejects links and
 special files, traversal and case-folding collisions, missing or mismatched root
 metadata, and over-limit trees before installation.
 
+The application boundary accepts only explicit HTTPS, SSH URL, or SCP-style SSH
+repositories and safe literal refs. It rejects local paths, `file://` and Git
+remote-helper transports, embedded URL credentials, option-shaped refs and Git
+revision expressions. Git-backed status and mutation commands declare their
+external Git provider and publish an open-world MCP annotation; local-repository
+imports are not part of the remote application surface.
+
 **Exclusive mode:** `safe_write(exclusive=True)` (used by `artefact.create`) checks file
 existence before writing, providing a lightweight create-or-fail guarantee.
 

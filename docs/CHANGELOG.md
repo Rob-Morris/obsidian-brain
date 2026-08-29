@@ -8,6 +8,7 @@ Never edit past changelog entries. Only add new entries at the top.
 
 | Version | Date | Summary |
 |---|---|---|
+| [v0.62.11](changelog/v0.62.11.md) | 2026-08-29 | Constrain Git skill sources and complete adapter acceptance |
 | [v0.62.10](changelog/v0.62.10.md) | 2026-08-29 | Make brain.upgrade rollback cover every declared effect |
 | [v0.62.9](changelog/v0.62.9.md) | 2026-08-29 | Use the authorised document mutation names |
 | [v0.62.8](changelog/v0.62.8.md) | 2026-08-29 | Correct and prove the complete v0.53.5 upgrade path |

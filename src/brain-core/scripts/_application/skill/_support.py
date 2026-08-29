@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 from .._mutation_support import contributor_mutation_entry, no_effect_error
 from ..receipts import CommittedEffect
 from ..results import ErrorCode, Ok
@@ -31,3 +33,11 @@ def execute_mutation(context, request, operation):
 
 def mutation_catalogue_entry(request_type, executor):
     return contributor_mutation_entry(request_type, executor)
+
+
+def git_mutation_catalogue_entry(request_type, executor):
+    return replace(
+        contributor_mutation_entry(request_type, executor),
+        required_providers=("git_remote",),
+        open_world=True,
+    )

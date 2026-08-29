@@ -7,6 +7,8 @@ import re
 
 from jsonschema import Draft202012Validator
 
+from _application.projection import project_identity
+from _application.registry import current_application_catalogue
 from brain_mcp import server
 
 
@@ -71,10 +73,14 @@ def test_every_projected_tool_has_strict_valid_described_schema():
 
 
 def test_mcp_safety_hints_are_complete_and_closed():
+    expected_open_world = {
+        project_identity(entry.command_id).mcp_tool: entry.open_world
+        for entry in current_application_catalogue().entries
+    }
     for tool in _tools():
         annotations = tool.annotations
         assert annotations is not None
         assert isinstance(annotations.read_only_hint, bool)
         assert isinstance(annotations.destructive_hint, bool)
         assert isinstance(annotations.idempotent_hint, bool)
-        assert annotations.open_world_hint is False
+        assert annotations.open_world_hint is expected_open_world[tool.name]

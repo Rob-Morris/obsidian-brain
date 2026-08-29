@@ -59,6 +59,7 @@ def _context_factory(tmp_path, allowed_tools):
             provider_ids=(
                 "caller_filesystem",
                 "document_renderer",
+                "git_remote",
                 "obsidian_cli",
                 "semantic_retrieval",
                 "semantic_runtime",
@@ -68,6 +69,7 @@ def _context_factory(tmp_path, allowed_tools):
                 for name in (
                     "caller_filesystem",
                     "document_renderer",
+                    "git_remote",
                     "obsidian_cli",
                     "semantic_retrieval",
                     "semantic_runtime",
@@ -130,7 +132,7 @@ def test_every_mcp_eligible_command_registers_one_flat_canonical_schema(tmp_path
         assert tool.annotations.idempotent_hint is (
             entry.retry_class is RetryClass.SAFE
         )
-        assert tool.annotations.open_world_hint is False
+        assert tool.annotations.open_world_hint is entry.open_world
 
 
 def test_registration_and_proxy_header_share_one_ceiling_projection(tmp_path):

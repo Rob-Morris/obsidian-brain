@@ -116,9 +116,29 @@ def probe(vault: Path, timeout: float) -> dict:
         tools = listed.get("result", {}).get("tools")
         if not isinstance(tools, list) or not tools:
             raise RuntimeError("MCP tools/list returned no tools")
+        if not any(tool.get("name") == "command.list" for tool in tools):
+            raise RuntimeError("MCP tools/list did not expose command.list")
+        send(
+            {
+                "jsonrpc": "2.0",
+                "id": 3,
+                "method": "tools/call",
+                "params": {
+                    "name": "command.list",
+                    "arguments": {"dependency_tier": "portable", "page_size": 1},
+                },
+            }
+        )
+        called = _await_response(messages, errors, 3, timeout)
+        call_result = called.get("result")
+        if not isinstance(call_result, dict) or call_result.get("isError") is True:
+            raise RuntimeError("MCP command.list tools/call returned an error")
+        structured = call_result.get("structuredContent")
+        if not isinstance(structured, dict) or structured.get("command") != "command.list":
+            raise RuntimeError("MCP command.list tools/call returned no canonical envelope")
         return {
             "server": initialised.get("result", {}).get("serverInfo", {}),
-            "read_only_round_trip": "tools/list",
+            "read_only_round_trip": "tools/call:command.list",
             "tool_count": len(tools),
         }
     finally:

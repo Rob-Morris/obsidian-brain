@@ -13,6 +13,7 @@ from _application.context import (
     SelectedBrain,
 )
 from _application.foundation import build_application_catalogue, build_request_resolver
+from _application.projection import canonical_result_envelope
 from _application.receipts import (
     OutcomeReceipt,
     OutcomeReference,
@@ -252,6 +253,8 @@ def test_invocation_read_returns_receipt_or_explicit_still_unknown(tmp_path):
 
     assert found.result.state is ReceiptLookupState.FOUND
     assert found.result.receipt == receipt
+    projected = canonical_result_envelope(found)
+    assert projected["result"]["receipt"]["recorded_at"] == NOW.isoformat()
     assert unknown.result.state is ReceiptLookupState.STILL_UNKNOWN
     assert unknown.result.receipt is None
 
