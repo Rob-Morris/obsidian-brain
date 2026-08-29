@@ -11,7 +11,7 @@ venv:
 	python3.12 -m venv $(VENV)
 
 install: venv
-	$(PIP) install -r src/brain-core/brain_mcp/requirements.txt "pytest>=9.0" "pytest-bdd>=8.0" "pytest-xdist>=3.6" "interrogate>=1.7" "pytest-cov>=6.0" "tiktoken==0.12.0"
+	$(PIP) install -r src/brain-core/brain_mcp/requirements.txt "pytest>=9.0" "pytest-bdd>=8.0" "pytest-xdist>=3.6" "interrogate>=1.7" "pytest-cov>=6.0" "tiktoken==0.12.0" "PyYAML==6.0.3"
 
 install-semantic: install
 	$(PYTHON) -c "import platform, sys; sys.exit('semantic retrieval dependencies are unsupported on Intel macOS in this branch; use lexical mode only' if platform.system() == 'Darwin' and platform.machine() == 'x86_64' else 0)"

@@ -36,6 +36,12 @@ def test_supported_mcp_major_is_shared_by_install_and_test_surfaces():
     ).read_text(encoding="utf-8")
 
 
+def test_contributor_install_declares_the_test_only_yaml_dependency():
+    makefile = (REPO_ROOT / "Makefile").read_text(encoding="utf-8")
+
+    assert '"PyYAML==6.0.3"' in makefile
+
+
 def _copy_source(tmp_path: Path) -> Path:
     source = tmp_path / "source"
     source.mkdir()
