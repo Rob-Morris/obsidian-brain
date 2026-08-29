@@ -365,9 +365,9 @@ def test_upgrade_runner_applies_the_v059_document_profile_expansion(tmp_path):
             "allow": sorted(
                 set(commands)
                 - {
-                    "document.patch",
+                    "document.replace-text",
                     "document.update-frontmatter",
-                    "document.write",
+                    "document.write-body",
                 }
             )
         }

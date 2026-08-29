@@ -75,6 +75,7 @@ def _release_repo(tmp_path: Path) -> Path:
         release.USER_REFERENCE_PATH,
         "Reference for Brain Core 1.0.0 and CLI 2.0.0.\n",
     )
+    _write(root, release.COMMAND_CATALOGUE_PATH, '{"stale": true}\n')
     _git(root, "add", ".")
     _git(root, "commit", "-m", "initial")
     return root
@@ -133,8 +134,21 @@ def test_status_distinguishes_head_index_and_worktree_release_facts(tmp_path):
     assert release.release_facts(root, "worktree").coherent is True
 
 
-def test_prepare_is_dry_run_first_and_applies_explicit_release_intent(tmp_path, capsys):
+def test_prepare_is_dry_run_first_and_applies_explicit_release_intent(
+    tmp_path, capsys, monkeypatch
+):
     root = _release_repo(tmp_path)
+    expected_route = {
+        "schema": "brain.command-catalogue/1",
+        "interface_epoch": 1,
+        "static_fingerprint": "sha256:test",
+        "installed_application_command_count": 2,
+    }
+    monkeypatch.setattr(
+        release,
+        "_render_command_catalogue_route",
+        lambda _root: json.dumps(expected_route, indent=2) + "\n",
+    )
     args = [
         "--repo",
         str(root),
@@ -165,7 +179,15 @@ def test_prepare_is_dry_run_first_and_applies_explicit_release_intent(tmp_path, 
     assert 'BRAIN_CLI_VERSION="2.1.0"' in (root / release.UNIX_CLI_PATH).read_text()
     assert 'PROXY_VERSION = "0.4.0"' in (root / release.PROXY_PATH).read_text()
     assert (root / "docs/changelog/v1.1.0.md").is_file()
+    assert json.loads((root / release.COMMAND_CATALOGUE_PATH).read_text()) == expected_route
     assert release.release_facts(root, "worktree").coherent is True
+
+
+def test_command_catalogue_route_renders_from_selected_source_tree():
+    rendered = json.loads(release._render_command_catalogue_route(REPO_ROOT))
+    tracked = json.loads((REPO_ROOT / release.COMMAND_CATALOGUE_PATH).read_text())
+
+    assert rendered == tracked
 
 
 def test_export_materialises_only_the_selected_commit(tmp_path, capsys):

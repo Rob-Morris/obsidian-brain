@@ -120,12 +120,12 @@ def _final_replacements(command_ids):
         _REMOVED_GRANULAR_COMMANDS.get(command_id, command_id)
         for command_id in command_ids
     }
-    if "document.edit" in replacements:
+    if "document.structured-edit" in replacements:
         replacements.update(
             {
-                "document.patch",
+                "document.replace-text",
                 "document.update-frontmatter",
-                "document.write",
+                "document.write-body",
             }
         )
     return replacements
@@ -596,9 +596,9 @@ def test_v059_upgrade_expands_exact_v058_builtins(tmp_path):
             "allow": sorted(
                 set(commands)
                 - {
-                    "document.patch",
+                    "document.replace-text",
                     "document.update-frontmatter",
-                    "document.write",
+                    "document.write-body",
                 }
             ),
             "label": f"{name} profile",
@@ -618,7 +618,7 @@ def test_v059_upgrade_expands_exact_v058_builtins(tmp_path):
     assert result["status"] == "ok"
     assert result["profiles"] == [
         name for name, commands in current.items()
-        if "document.edit" in commands
+        if "document.structured-edit" in commands
     ]
     assert {
         name: tuple(definition["allow"])
@@ -652,9 +652,9 @@ def test_v059_upgrade_expands_an_explicit_custom_document_edit_grant(tmp_path):
     assert load_mapping_file(config_path)["vault"]["profiles"]["author"][
         "allow"
     ] == [
-        "document.edit",
-        "document.patch",
+        "document.replace-text",
+        "document.structured-edit",
         "document.update-frontmatter",
-        "document.write",
+        "document.write-body",
         "invocation.read",
     ]

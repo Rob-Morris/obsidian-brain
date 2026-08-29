@@ -157,8 +157,8 @@ from brain_application.context import (
 from brain_application.documents import (
     DocumentLocator,
     DocumentResource,
-    DocumentWriteOperation,
-    DocumentWriteRequest,
+    DocumentWriteBodyOperation,
+    DocumentWriteBodyRequest,
     InlineContent,
 )
 from brain_application.requests import ArtefactReadRequest
@@ -204,10 +204,10 @@ def application(invocation_id):
 read = application("read-invocation").invoke(ArtefactReadRequest(PATH))
 assert read.status == "ok", read
 mutation = application("write-invocation").invoke(
-    DocumentWriteRequest(
+    DocumentWriteBodyRequest(
         DocumentLocator(DocumentResource.ARTEFACT, PATH),
         read.result.revision,
-        DocumentWriteOperation.APPEND,
+        DocumentWriteBodyOperation.APPEND,
         InlineContent("\nTyped façade mutation.\n"),
     )
 )

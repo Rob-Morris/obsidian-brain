@@ -40,6 +40,7 @@ PROXY_PATH = "src/brain-core/brain_mcp/proxy.py"
 CHANGELOG_INDEX_PATH = "docs/CHANGELOG.md"
 FUNCTIONAL_CLI_PATH = "docs/functional/cli.md"
 USER_REFERENCE_PATH = "docs/user/user-reference.md"
+COMMAND_CATALOGUE_PATH = "src/brain-core/command-catalogue.json"
 
 
 class ReleaseError(RuntimeError):
@@ -169,6 +170,46 @@ def _index_with_release(index: str, version: str, release_date: str, summary: st
     return index.replace(marker, marker + expected + "\n", 1)
 
 
+def _render_command_catalogue_route(root: Path) -> str:
+    """Render the derived catalogue route from the selected source tree."""
+    scripts_root = root / "src" / "brain-core" / "scripts"
+    source = """
+import json
+from _application.registry import current_application_catalogue
+
+catalogue = current_application_catalogue()
+print(json.dumps({
+    "schema": catalogue.schema,
+    "interface_epoch": catalogue.interface_epoch,
+    "static_fingerprint": catalogue.fingerprint,
+    "installed_application_command_count": len(catalogue.entries),
+}, indent=2))
+"""
+    environment = os.environ.copy()
+    existing_path = environment.get("PYTHONPATH")
+    environment["PYTHONPATH"] = os.pathsep.join(
+        value for value in (str(scripts_root), existing_path) if value
+    )
+    completed = subprocess.run(
+        [sys.executable, "-c", source],
+        cwd=root,
+        env=environment,
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+    if completed.returncode != 0:
+        diagnostic = completed.stderr.strip() or completed.stdout.strip() or "unknown error"
+        raise ReleaseError(f"cannot render {COMMAND_CATALOGUE_PATH}: {diagnostic}")
+    try:
+        route = json.loads(completed.stdout)
+    except json.JSONDecodeError as exc:
+        raise ReleaseError(f"cannot render {COMMAND_CATALOGUE_PATH}: invalid JSON") from exc
+    if not isinstance(route, dict):
+        raise ReleaseError(f"cannot render {COMMAND_CATALOGUE_PATH}: expected an object")
+    return json.dumps(route, indent=2) + "\n"
+
+
 def _prepare_changes(args: argparse.Namespace) -> dict[str, str]:
     for name, value in (
         ("core version", args.core_version),
@@ -195,9 +236,11 @@ def _prepare_changes(args: argparse.Namespace) -> dict[str, str]:
         CHANGELOG_INDEX_PATH,
         FUNCTIONAL_CLI_PATH,
         USER_REFERENCE_PATH,
+        COMMAND_CATALOGUE_PATH,
     )
     original = {path: (root / path).read_text(encoding="utf-8") for path in paths}
     changed = dict(original)
+    changed[COMMAND_CATALOGUE_PATH] = _render_command_catalogue_route(root)
     changed[VERSION_PATH] = args.core_version + "\n"
     changed[README_PATH] = _replace_one(
         original[README_PATH],

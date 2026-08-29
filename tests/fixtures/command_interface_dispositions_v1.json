@@ -55,39 +55,39 @@
       ],
       "mappings": {
         "artefact": {
-          "append": "document.edit",
-          "delete_section": "document.edit",
-          "edit": "document.edit",
-          "prepend": "document.edit",
-          "replace_text": "document.edit"
+          "append": "document.structured-edit",
+          "delete_section": "document.structured-edit",
+          "edit": "document.structured-edit",
+          "prepend": "document.structured-edit",
+          "replace_text": "document.structured-edit"
         },
         "memory": {
-          "append": "document.edit",
-          "delete_section": "document.edit",
-          "edit": "document.edit",
-          "prepend": "document.edit",
-          "replace_text": "document.edit"
+          "append": "document.structured-edit",
+          "delete_section": "document.structured-edit",
+          "edit": "document.structured-edit",
+          "prepend": "document.structured-edit",
+          "replace_text": "document.structured-edit"
         },
         "skill": {
-          "append": "document.edit",
-          "delete_section": "document.edit",
-          "edit": "document.edit",
-          "prepend": "document.edit",
-          "replace_text": "document.edit"
+          "append": "document.structured-edit",
+          "delete_section": "document.structured-edit",
+          "edit": "document.structured-edit",
+          "prepend": "document.structured-edit",
+          "replace_text": "document.structured-edit"
         },
         "style": {
-          "append": "document.edit",
-          "delete_section": "document.edit",
-          "edit": "document.edit",
-          "prepend": "document.edit",
-          "replace_text": "document.edit"
+          "append": "document.structured-edit",
+          "delete_section": "document.structured-edit",
+          "edit": "document.structured-edit",
+          "prepend": "document.structured-edit",
+          "replace_text": "document.structured-edit"
         },
         "template": {
-          "append": "document.edit",
-          "delete_section": "document.edit",
-          "edit": "document.edit",
-          "prepend": "document.edit",
-          "replace_text": "document.edit"
+          "append": "document.structured-edit",
+          "delete_section": "document.structured-edit",
+          "edit": "document.structured-edit",
+          "prepend": "document.structured-edit",
+          "replace_text": "document.structured-edit"
         }
       }
     },
@@ -955,7 +955,7 @@
         "artefact.set-status",
         "artefact.unarchive",
         "attachment.upload",
-        "document.edit",
+        "document.structured-edit",
         "links.fix",
         "memory.create",
         "shaping.start",

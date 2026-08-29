@@ -62,10 +62,10 @@ links.fix(
 
 ### `fix_links` convenience flag
 
-`artefact.create`, `document.write`, `document.patch`, and `document.edit` accept an optional `fix_links` boolean (default `false`) for artefact targets. When `true`, every resolvable link in the written artefact is rewritten to its canonical target immediately after the mutation. Remaining broken or ambiguous links are still reported as warnings.
+`artefact.create`, `document.write-body`, `document.replace-text`, and `document.structured-edit` accept an optional `fix_links` boolean (default `false`) for artefact targets. When `true`, every resolvable link in the written artefact is rewritten to its canonical target immediately after the mutation. Remaining broken or ambiguous links are still reported as warnings.
 
 ```python
-document.edit(
+document.structured-edit(
     document={"resource": "artefact", "reference": "People/Fidel.md"},
     expected_revision="sha256:...",
     change={

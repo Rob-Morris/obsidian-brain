@@ -91,8 +91,8 @@ def test_granular_targets_are_unique_canonical_command_ids() -> None:
     ]
     assert all(COMMAND_ID.fullmatch(target) for target in targets)
     duplicates = {target for target in targets if targets.count(target) > 1}
-    assert duplicates == {"document.edit"}
-    assert targets.count("document.edit") == 25
+    assert duplicates == {"document.structured-edit"}
+    assert targets.count("document.structured-edit") == 25
 
 
 def test_body_source_variants_have_explicit_behaviour() -> None:

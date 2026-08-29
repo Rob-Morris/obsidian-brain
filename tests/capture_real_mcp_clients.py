@@ -4,11 +4,13 @@
 from __future__ import annotations
 
 import argparse
+from datetime import datetime
 from http.server import BaseHTTPRequestHandler, HTTPServer
 import hashlib
 import json
 import os
 from pathlib import Path
+import re
 import subprocess
 import tempfile
 from threading import Thread
@@ -38,7 +40,7 @@ SUCCESSFUL_CALLS = (
     ),
     ("artefact.list", {"location": "all", "page_size": 1}),
     (
-        "document.patch",
+        "document.replace-text",
         {
             "document": {
                 "resource": "artefact",
@@ -357,7 +359,7 @@ def _mcp_config(vault: Path) -> dict:
     }
 
 
-def _capture_codex(temp: Path, vault: Path) -> dict:
+def _capture_codex(temp: Path, vault: Path, client_version: str) -> dict:
     successful_calls = _resolved_successful_calls(vault)
     codex_home = temp / "codex-home"
     codex_home.mkdir()
@@ -399,10 +401,10 @@ def _capture_codex(temp: Path, vault: Path) -> dict:
         )
     if completed.returncode != 0:
         raise RuntimeError(completed.stderr or completed.stdout)
-    return _codex_evidence(server.requests, successful_calls)
+    return _codex_evidence(server.requests, successful_calls, client_version)
 
 
-def _capture_claude(temp: Path, vault: Path) -> dict:
+def _capture_claude(temp: Path, vault: Path, client_version: str) -> dict:
     successful_calls = _resolved_successful_calls(vault)
     config = temp / "claude-mcp.json"
     config.write_text(json.dumps(_mcp_config(vault)), encoding="utf-8")
@@ -444,7 +446,7 @@ def _capture_claude(temp: Path, vault: Path) -> dict:
         )
     if completed.returncode != 0:
         raise RuntimeError(completed.stderr or completed.stdout)
-    return _claude_evidence(server.requests, successful_calls)
+    return _claude_evidence(server.requests, successful_calls, client_version)
 
 
 def _resolved_successful_calls(vault: Path) -> tuple[tuple[str, dict], ...]:
@@ -458,7 +460,7 @@ def _resolved_successful_calls(vault: Path) -> tuple[tuple[str, dict], ...]:
     resolved = []
     for command_id, request in SUCCESSFUL_CALLS:
         materialised = json.loads(json.dumps(request))
-        if command_id == "document.patch":
+        if command_id == "document.replace-text":
             materialised["expected_revision"] = revision
         resolved.append((command_id, materialised))
     return tuple(resolved)
@@ -476,7 +478,9 @@ def _toml_inline(value) -> str:
     raise TypeError(f"unsupported TOML capture value: {value!r}")
 
 
-def _codex_evidence(requests: list[dict], successful_calls) -> dict:
+def _codex_evidence(
+    requests: list[dict], successful_calls, client_version: str
+) -> dict:
     expected_requests = len(successful_calls) + 2
     if len(requests) != expected_requests:
         summaries = [
@@ -511,7 +515,7 @@ def _codex_evidence(requests: list[dict], successful_calls) -> dict:
         ) from exc
     successes = _codex_successes(requests, successful_calls)
     return {
-        "client_version": "0.147.0",
+        "client_version": client_version,
         "capture_path": "deferred client tool search",
         "initial_brain_declarations": 0,
         "declaration": declaration,
@@ -540,7 +544,9 @@ def _codex_successes(requests: list[dict], successful_calls) -> dict[str, dict]:
     return successes
 
 
-def _claude_evidence(requests: list[dict], successful_calls) -> dict:
+def _claude_evidence(
+    requests: list[dict], successful_calls, client_version: str
+) -> dict:
     requests = [
         request
         for request in requests
@@ -565,7 +571,7 @@ def _claude_evidence(requests: list[dict], successful_calls) -> dict:
     )
     successes = _claude_successes(requests, successful_calls)
     return {
-        "client_version": "2.1.226",
+        "client_version": client_version,
         "capture_path": "eager model request declarations",
         "initial_brain_declarations": len(declarations),
         "catalogue_hash": _sha256(declarations),
@@ -607,7 +613,29 @@ def _sha256(value) -> str:
     return "sha256:" + hashlib.sha256(canonical_json(value).encode()).hexdigest()
 
 
+def _installed_client_version(command: str) -> str:
+    completed = subprocess.run(
+        [command, "--version"],
+        cwd=REPO_ROOT,
+        stdin=subprocess.DEVNULL,
+        capture_output=True,
+        text=True,
+        timeout=15,
+    )
+    output = (completed.stdout or completed.stderr).strip()
+    if completed.returncode != 0:
+        raise RuntimeError(f"{command} --version failed: {output}")
+    match = re.search(r"\b\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?\b", output)
+    if match is None:
+        raise RuntimeError(f"{command} --version returned an unknown shape: {output}")
+    return match.group(0)
+
+
 def build_capture() -> dict:
+    client_versions = {
+        "claude-code": _installed_client_version("claude"),
+        "codex-cli": _installed_client_version("codex"),
+    }
     with tempfile.TemporaryDirectory(prefix="brain-real-client-capture-") as directory:
         temp = Path(directory)
         from command_vault import assemble_command_vault_baseline
@@ -636,12 +664,20 @@ def build_capture() -> dict:
         claude_vault = assemble("Brain-claude")
         return {
             "schema": "brain.command-interface-real-client-evidence/1",
-            "captured_at": "2026-08-11T17:00:00+10:00",
+            "captured_at": datetime.now().astimezone().isoformat(timespec="seconds"),
             "localhost_model_endpoint": True,
             "external_model_request": False,
             "clients": {
-                "claude-code": _capture_claude(temp, claude_vault),
-                "codex-cli": _capture_codex(temp, codex_vault),
+                "claude-code": _capture_claude(
+                    temp,
+                    claude_vault,
+                    client_versions["claude-code"],
+                ),
+                "codex-cli": _capture_codex(
+                    temp,
+                    codex_vault,
+                    client_versions["codex-cli"],
+                ),
             },
         }
 

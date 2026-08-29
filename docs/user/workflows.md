@@ -313,7 +313,7 @@ missing parent field from folder structure.
 ### Agents Edit Without Losing Concurrent Changes
 
 Agents first read an artefact or editable named resource, then supply that
-read's exact revision to `document.write`, `document.patch`, `document.edit`, or
+read's exact revision to `document.write-body`, `document.replace-text`, `document.structured-edit`, or
 `document.update-frontmatter`. If another editor changes the file first, Brain
 rejects the stale mutation and directs the agent to re-read rather than silently
 overwriting the intervening work.

@@ -1,4 +1,4 @@
-"""Typed ``document.edit`` owner for structural Markdown mutation."""
+"""Typed ``document.structured-edit`` owner for structural Markdown mutation."""
 
 from __future__ import annotations
 
@@ -8,8 +8,8 @@ from typing import ClassVar, Literal, Mapping
 
 from .._decoding import decode_bool, reject_unexpected
 from .._document_mutation import (
-    DocumentEditPayload,
-    DocumentEditIntent,
+    DocumentStructuredEditPayload,
+    DocumentStructuredEditIntent,
     execute_document_mutation,
 )
 from .._mutation_support import (
@@ -157,7 +157,7 @@ class InsertStructure:
     def __post_init__(self) -> None:
         _validate_editable_selection(self.selection)
         if not isinstance(self.position, InsertPosition):
-            raise ValueError("document.edit insert position is invalid")
+            raise ValueError("document.structured-edit insert position is invalid")
         if (
             isinstance(self.selection, HeadingSelection)
             and self.selection.part is HeadingPart.HEADING
@@ -166,7 +166,7 @@ class InsertStructure:
             and self.selection.part is CalloutPart.HEADER
         ):
             raise ValueError(
-                "document.edit insert requires a content range, not a heading or "
+                "document.structured-edit insert requires a content range, not a heading or "
                 "callout header"
             )
         _validate_content(self.content)
@@ -182,17 +182,17 @@ class DeleteStructure:
             self.selection,
             (HeadingBlockSelection, CalloutBlockSelection),
         ):
-            raise ValueError("document.edit delete selection must be a complete structure")
+            raise ValueError("document.structured-edit delete selection must be a complete structure")
 
 
 DocumentStructuralChange = ReplaceStructure | InsertStructure | DeleteStructure
 
 
 @dataclass(frozen=True, slots=True)
-class DocumentEditRequest:
-    COMMAND_ID: ClassVar[str] = "document.edit"
+class DocumentStructuredEditRequest:
+    COMMAND_ID: ClassVar[str] = "document.structured-edit"
     COMMAND_VERSION: ClassVar[int] = 2
-    RESULT_TYPE: ClassVar[type] = DocumentEditPayload
+    RESULT_TYPE: ClassVar[type] = DocumentStructuredEditPayload
     FIELD_DESCRIPTIONS: ClassVar[dict[str, str]] = {
         "document": "Existing editable Brain document.",
         "expected_revision": "Revision returned by the most recent document read.",
@@ -217,10 +217,10 @@ class DocumentEditRequest:
     def __post_init__(self) -> None:
         validate_document_request(self)
         if not isinstance(self.change, (ReplaceStructure, InsertStructure, DeleteStructure)):
-            raise ValueError("document.edit change has an invalid variant")
+            raise ValueError("document.structured-edit change has an invalid variant")
 
 
-def execute(context: InvocationContext, request: DocumentEditRequest):
+def execute(context: InvocationContext, request: DocumentStructuredEditRequest):
     change = request.change
     target, selector, scope = _engine_selection(change.selection)
     if isinstance(change, ReplaceStructure):
@@ -239,7 +239,7 @@ def execute(context: InvocationContext, request: DocumentEditRequest):
     return execute_document_mutation(
         context,
         request,
-        DocumentEditIntent(
+        DocumentStructuredEditIntent(
             resource=request.document.resource.value,
             reference=request.document.reference,
             expected_revision=request.expected_revision,
@@ -254,7 +254,7 @@ def execute(context: InvocationContext, request: DocumentEditRequest):
     )
 
 
-def decode(payload: Mapping[str, object]) -> DocumentEditRequest:
+def decode(payload: Mapping[str, object]) -> DocumentStructuredEditRequest:
     reject_unexpected(payload, {"document", "expected_revision", "change", "fix_links"})
     expected_revision = payload.get("expected_revision")
     if not isinstance(expected_revision, str):
@@ -262,7 +262,7 @@ def decode(payload: Mapping[str, object]) -> DocumentEditRequest:
     raw_change = payload.get("change")
     if not isinstance(raw_change, Mapping):
         raise ValueError("change must be an object")
-    return DocumentEditRequest(
+    return DocumentStructuredEditRequest(
         decode_document(payload.get("document")),
         expected_revision,
         _decode_change(raw_change),
@@ -488,12 +488,12 @@ def _validate_ancestors(value: tuple[StructuralAncestor, ...]) -> None:
 
 def _validate_editable_selection(value: EditableSelection) -> None:
     if not isinstance(value, (DocumentIntroSelection, HeadingSelection, CalloutSelection)):
-        raise ValueError("document.edit selection is invalid")
+        raise ValueError("document.structured-edit selection is invalid")
 
 
 def _validate_content(value: MutationContent) -> None:
     if not isinstance(value, (InlineContent, StagedContent)):
-        raise ValueError("document.edit content has an invalid variant")
+        raise ValueError("document.structured-edit content has an invalid variant")
 
 
 def _optional_int(value: object, label: str) -> int | None:
@@ -505,4 +505,4 @@ def _optional_int(value: object, label: str) -> int | None:
 
 
 def catalogue_entry():
-    return contributor_mutation_entry(DocumentEditRequest, execute)
+    return contributor_mutation_entry(DocumentStructuredEditRequest, execute)

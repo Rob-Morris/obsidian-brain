@@ -1,4 +1,4 @@
-"""Typed ``document.patch`` owner for guarded exact-text substitution."""
+"""Typed ``document.replace-text`` owner for guarded exact-text substitution."""
 
 from __future__ import annotations
 
@@ -7,8 +7,8 @@ from typing import ClassVar, Literal, Mapping
 
 from .._decoding import decode_bool, reject_unexpected
 from .._document_mutation import (
-    DocumentPatchIntent,
-    DocumentPatchPayload,
+    DocumentReplaceTextIntent,
+    DocumentReplaceTextPayload,
     execute_document_mutation,
 )
 from .._mutation_support import contributor_mutation_entry
@@ -28,7 +28,7 @@ class OccurrenceMatch:
 
     def __post_init__(self) -> None:
         if type(self.occurrence) is not int or self.occurrence < 1:
-            raise ValueError("document.patch occurrence must be a positive integer")
+            raise ValueError("document.replace-text occurrence must be a positive integer")
 
 
 @dataclass(frozen=True, slots=True)
@@ -36,14 +36,14 @@ class AllMatches:
     mode: Literal["all"] = field(default="all", init=False)
 
 
-DocumentPatchMatch = UniqueMatch | OccurrenceMatch | AllMatches
+DocumentReplaceTextMatch = UniqueMatch | OccurrenceMatch | AllMatches
 
 
 @dataclass(frozen=True, slots=True)
-class DocumentPatchRequest:
-    COMMAND_ID: ClassVar[str] = "document.patch"
+class DocumentReplaceTextRequest:
+    COMMAND_ID: ClassVar[str] = "document.replace-text"
     COMMAND_VERSION: ClassVar[int] = 1
-    RESULT_TYPE: ClassVar[type] = DocumentPatchPayload
+    RESULT_TYPE: ClassVar[type] = DocumentReplaceTextPayload
     FIELD_DESCRIPTIONS: ClassVar[dict[str, str]] = {
         "document": "Existing editable Brain document.",
         "expected_revision": "Revision returned by the most recent document read.",
@@ -64,25 +64,25 @@ class DocumentPatchRequest:
     expected_revision: str
     old_text: str
     new_text: str
-    match: DocumentPatchMatch
+    match: DocumentReplaceTextMatch
     fix_links: bool = False
 
     def __post_init__(self) -> None:
         validate_document_request(self)
         if not isinstance(self.old_text, str) or not self.old_text:
-            raise ValueError("document.patch old_text must be non-empty")
+            raise ValueError("document.replace-text old_text must be non-empty")
         if not isinstance(self.new_text, str):
-            raise ValueError("document.patch new_text must be a string")
+            raise ValueError("document.replace-text new_text must be a string")
         if not isinstance(self.match, (UniqueMatch, OccurrenceMatch, AllMatches)):
-            raise ValueError("document.patch match has an invalid variant")
+            raise ValueError("document.replace-text match has an invalid variant")
 
 
-def execute(context: InvocationContext, request: DocumentPatchRequest):
+def execute(context: InvocationContext, request: DocumentReplaceTextRequest):
     occurrence = request.match.occurrence if isinstance(request.match, OccurrenceMatch) else None
     return execute_document_mutation(
         context,
         request,
-        DocumentPatchIntent(
+        DocumentReplaceTextIntent(
             resource=request.document.resource.value,
             reference=request.document.reference,
             expected_revision=request.expected_revision,
@@ -95,7 +95,7 @@ def execute(context: InvocationContext, request: DocumentPatchRequest):
     )
 
 
-def decode(payload: Mapping[str, object]) -> DocumentPatchRequest:
+def decode(payload: Mapping[str, object]) -> DocumentReplaceTextRequest:
     reject_unexpected(
         payload,
         {"document", "expected_revision", "old_text", "new_text", "match", "fix_links"},
@@ -105,7 +105,7 @@ def decode(payload: Mapping[str, object]) -> DocumentPatchRequest:
     new_text = payload.get("new_text")
     if not all(isinstance(value, str) for value in (expected_revision, old_text, new_text)):
         raise ValueError("expected_revision, old_text and new_text must be strings")
-    return DocumentPatchRequest(
+    return DocumentReplaceTextRequest(
         decode_document(payload.get("document")),
         expected_revision,
         old_text,
@@ -115,7 +115,7 @@ def decode(payload: Mapping[str, object]) -> DocumentPatchRequest:
     )
 
 
-def _decode_match(value: object) -> DocumentPatchMatch:
+def _decode_match(value: object) -> DocumentReplaceTextMatch:
     if not isinstance(value, Mapping):
         raise ValueError("match must be an object")
     mode = value.get("mode")
@@ -135,4 +135,4 @@ def _decode_match(value: object) -> DocumentPatchMatch:
 
 
 def catalogue_entry():
-    return contributor_mutation_entry(DocumentPatchRequest, execute)
+    return contributor_mutation_entry(DocumentReplaceTextRequest, execute)

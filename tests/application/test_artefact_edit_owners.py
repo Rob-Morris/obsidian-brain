@@ -12,11 +12,11 @@ import _common
 from _application._mutation_support import FrontmatterField, InlineContent, StagedContent
 from _application.artefact.read import ArtefactReadRequest
 from _application.document._types import DocumentLocator, DocumentResource
-from _application.document.edit import (
+from _application.document.structured_edit import (
     CalloutPart,
     CalloutSelection,
     DeleteStructure,
-    DocumentEditRequest,
+    DocumentStructuredEditRequest,
     HeadingBlockSelection,
     HeadingPart,
     HeadingSelection,
@@ -24,14 +24,14 @@ from _application.document.edit import (
     InsertStructure,
     ReplaceStructure,
 )
-from _application.document.patch import (
+from _application.document.replace_text import (
     AllMatches,
-    DocumentPatchRequest,
+    DocumentReplaceTextRequest,
     OccurrenceMatch,
     UniqueMatch,
 )
 from _application.document.update_frontmatter import DocumentUpdateFrontmatterRequest
-from _application.document.write import DocumentWriteOperation, DocumentWriteRequest
+from _application.document.write_body import DocumentWriteBodyOperation, DocumentWriteBodyRequest
 from _application.registry import current_request_resolver
 from _application.results import ErrorCode
 from _common import document_revision_at, parse_frontmatter
@@ -50,9 +50,9 @@ def _revision(vault_root):
 @pytest.mark.parametrize(
     ("operation", "content", "present"),
     (
-        (DocumentWriteOperation.REPLACE, "# Replaced\n", "# Replaced"),
-        (DocumentWriteOperation.APPEND, "\nAppended.\n", "Appended."),
-        (DocumentWriteOperation.PREPEND, "Prepended.\n\n", "Prepended."),
+        (DocumentWriteBodyOperation.REPLACE, "# Replaced\n", "# Replaced"),
+        (DocumentWriteBodyOperation.APPEND, "\nAppended.\n", "Appended."),
+        (DocumentWriteBodyOperation.PREPEND, "Prepended.\n\n", "Prepended."),
     ),
 )
 def test_document_write_mutates_only_the_complete_body(
@@ -65,7 +65,7 @@ def test_document_write_mutates_only_the_complete_body(
     before_fields, _before_body = parse_frontmatter(path.read_text())
 
     result = application_for(command_vault_clone.vault_root).invoke(
-        DocumentWriteRequest(
+        DocumentWriteBodyRequest(
             DOCUMENT,
             _revision(command_vault_clone.vault_root),
             operation,
@@ -84,7 +84,7 @@ def test_document_write_mutates_only_the_complete_body(
 def test_document_patch_exposes_explicit_match_policies(command_vault_clone):
     application = application_for(command_vault_clone.vault_root)
     ambiguous = application.invoke(
-        DocumentPatchRequest(
+        DocumentReplaceTextRequest(
             DOCUMENT,
             _revision(command_vault_clone.vault_root),
             "occurrence.",
@@ -95,7 +95,7 @@ def test_document_patch_exposes_explicit_match_policies(command_vault_clone):
     assert ambiguous.error.code is ErrorCode.INVALID_REQUEST
 
     one = application.invoke(
-        DocumentPatchRequest(
+        DocumentReplaceTextRequest(
             DOCUMENT,
             _revision(command_vault_clone.vault_root),
             "occurrence.",
@@ -108,7 +108,7 @@ def test_document_patch_exposes_explicit_match_policies(command_vault_clone):
     assert one.result.replacement_count == 1
 
     all_matches = application.invoke(
-        DocumentPatchRequest(
+        DocumentReplaceTextRequest(
             DOCUMENT,
             _revision(command_vault_clone.vault_root),
             "Repeated Target",
@@ -122,7 +122,7 @@ def test_document_patch_exposes_explicit_match_policies(command_vault_clone):
 
 def test_document_edit_uses_typed_markdown_selection(command_vault_clone):
     result = application_for(command_vault_clone.vault_root).invoke(
-        DocumentEditRequest(
+        DocumentStructuredEditRequest(
             DOCUMENT,
             _revision(command_vault_clone.vault_root),
             ReplaceStructure(
@@ -151,7 +151,7 @@ def test_document_edit_insert_and_delete_are_distinct_structural_changes(
 ):
     application = application_for(command_vault_clone.vault_root)
     inserted = application.invoke(
-        DocumentEditRequest(
+        DocumentStructuredEditRequest(
             DOCUMENT,
             _revision(command_vault_clone.vault_root),
             InsertStructure(
@@ -164,7 +164,7 @@ def test_document_edit_insert_and_delete_are_distinct_structural_changes(
     assert inserted.status == "ok"
 
     deleted = application.invoke(
-        DocumentEditRequest(
+        DocumentStructuredEditRequest(
             DOCUMENT,
             _revision(command_vault_clone.vault_root),
             DeleteStructure(HeadingBlockSelection("Repeated Target", level=2, occurrence=1)),
@@ -199,7 +199,7 @@ def test_document_edit_exposes_callouts_as_semantic_selections(command_vault_clo
 
     path.write_text(serialize_frontmatter(fields) + body)
     result = application_for(vault_root).invoke(
-        DocumentEditRequest(
+        DocumentStructuredEditRequest(
             DOCUMENT,
             _revision(vault_root),
             ReplaceStructure(
@@ -220,10 +220,10 @@ def test_successful_staged_write_consumes_handle_after_commit(command_vault_clon
     handle = stage_body(str(vault_root), "# Staged replacement\n")['handle']
 
     result = application_for(vault_root).invoke(
-        DocumentWriteRequest(
+        DocumentWriteBodyRequest(
             DOCUMENT,
             _revision(vault_root),
-            DocumentWriteOperation.REPLACE,
+            DocumentWriteBodyOperation.REPLACE,
             StagedContent(handle),
         )
     )
@@ -271,10 +271,10 @@ def test_stale_revision_fails_before_stage_consumption_or_effect(command_vault_c
     before = path.read_bytes()
 
     result = application_for(vault_root).invoke(
-        DocumentWriteRequest(
+        DocumentWriteBodyRequest(
             DOCUMENT,
             stale_revision,
-            DocumentWriteOperation.REPLACE,
+            DocumentWriteBodyOperation.REPLACE,
             StagedContent(handle),
         )
     )
@@ -293,7 +293,7 @@ def test_reads_and_mutations_share_the_same_revision(command_vault_clone):
     assert read_result.result.revision == _revision(command_vault_clone.vault_root)
 
     mutation = application.invoke(
-        DocumentPatchRequest(
+        DocumentReplaceTextRequest(
             DOCUMENT,
             read_result.result.revision,
             "Second occurrence.",
@@ -322,7 +322,7 @@ def test_document_mutation_reuses_one_prewrite_snapshot(
 
     monkeypatch.setattr(edit, "read_exact_file_content", count_target_read)
     result = application_for(vault_root).invoke(
-        DocumentPatchRequest(
+        DocumentReplaceTextRequest(
             DOCUMENT,
             _revision(vault_root),
             "Second occurrence.",
@@ -348,7 +348,7 @@ def test_crlf_read_revision_can_be_used_for_an_immediate_mutation(
     assert "\r" not in read_result.result.content
     assert read_result.result.revision == document_revision_at(path)
     mutation = application.invoke(
-        DocumentPatchRequest(
+        DocumentReplaceTextRequest(
             DOCUMENT,
             read_result.result.revision,
             "Second occurrence.",
@@ -374,7 +374,7 @@ def test_document_mutation_post_commit_failure_is_honestly_unknown(
 
     monkeypatch.setattr(edit, "edit_resource", commit_then_fail)
     result = application_for(command_vault_clone.vault_root).invoke(
-        DocumentPatchRequest(
+        DocumentReplaceTextRequest(
             DOCUMENT,
             _revision(command_vault_clone.vault_root),
             "Second occurrence.",
@@ -418,7 +418,7 @@ def test_post_failure_revision_classification_occurs_under_mutation_lock(
     monkeypatch.setattr(edit, "current_document_revision", classify_revision)
 
     result = application_for(command_vault_clone.vault_root).invoke(
-        DocumentPatchRequest(
+        DocumentReplaceTextRequest(
             DOCUMENT,
             _revision(command_vault_clone.vault_root),
             "Second occurrence.",
@@ -439,10 +439,10 @@ def test_requested_wikilink_failure_reports_known_partial_commit(
 
     monkeypatch.setattr(fix_links, "check_wikilinks_in_file", fail_processing)
     result = application_for(command_vault_clone.vault_root).invoke(
-        DocumentWriteRequest(
+        DocumentWriteBodyRequest(
             DOCUMENT,
             _revision(command_vault_clone.vault_root),
-            DocumentWriteOperation.APPEND,
+            DocumentWriteBodyOperation.APPEND,
             InlineContent("\nCommitted with [[missing-link]].\n"),
             fix_links=True,
         )
@@ -461,7 +461,7 @@ def test_document_command_transport_rejects_old_aggregate_shape():
     resolver = current_request_resolver()
     with pytest.raises(ValueError, match="unexpected fields"):
         resolver.resolve(
-            "document.edit",
+            "document.structured-edit",
             {
                 "target": {"resource": "artefact", "reference": PATH},
                 "change": {"operation": "replace-text", "old_text": "old", "new_text": "new"},
@@ -485,10 +485,10 @@ def test_link_bearing_document_mutation_supplies_a_prewrite_file_index(
     monkeypatch.setattr(fix_links, "file_index_for_mutation", file_index)
 
     result = application_for(command_vault_clone.vault_root).invoke(
-        DocumentWriteRequest(
+        DocumentWriteBodyRequest(
             DOCUMENT,
             _revision(command_vault_clone.vault_root),
-            DocumentWriteOperation.APPEND,
+            DocumentWriteBodyOperation.APPEND,
             InlineContent("\nSee [[missing-link]].\n"),
         )
     )

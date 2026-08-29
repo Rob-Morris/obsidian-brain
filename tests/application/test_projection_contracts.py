@@ -53,9 +53,12 @@ def test_every_application_command_has_one_collision_free_mechanical_projection(
     assert len({item.mcp_tool for item in projections}) == len(projections)
     assert len({item.cli_argv for item in projections}) == len(projections)
     assert project_identity("vault.check").mcp_tool == "vault.check"
-    assert project_identity("document.edit").cli_argv == ("document", "edit")
-    assert project_identity("document.edit").module_path == (
-        "_application/document/edit.py"
+    assert project_identity("document.structured-edit").cli_argv == (
+        "document",
+        "structured-edit",
+    )
+    assert project_identity("document.structured-edit").module_path == (
+        "_application/document/structured_edit.py"
     )
     assert all(
         1 <= len(entry.summary.removesuffix(".").split()) <= 12
@@ -68,8 +71,8 @@ def test_name_resolvers_reject_aliases_stutter_and_unowned_mcp_names():
         entry.command_id for entry in current_application_catalogue().entries
     )
     assert command_id_from_argv(
-        "document", "edit", command_ids
-    ) == "document.edit"
+        "document", "structured-edit", command_ids
+    ) == "document.structured-edit"
     assert command_id_from_mcp_tool("vault.check", command_ids) == "vault.check"
 
     for noun, verb in (("brain", "vault-check"), ("artefact", "replace_text")):
@@ -129,11 +132,11 @@ def test_every_discovery_example_resolves_through_the_real_dynamic_boundary():
 
 
 def test_document_mutation_schemas_preserve_typed_intents_and_revisions():
-    from _application.document.edit import DocumentEditRequest
-    from _application.document.patch import DocumentPatchRequest
-    from _application.document.write import DocumentWriteRequest
+    from _application.document.structured_edit import DocumentStructuredEditRequest
+    from _application.document.replace_text import DocumentReplaceTextRequest
+    from _application.document.write_body import DocumentWriteBodyRequest
 
-    schema = request_schema(DocumentEditRequest)
+    schema = request_schema(DocumentStructuredEditRequest)
 
     assert schema["required"] == ["document", "expected_revision", "change"]
     assert schema["properties"]["fix_links"]["default"] is False
@@ -157,14 +160,14 @@ def test_document_mutation_schemas_preserve_typed_intents_and_revisions():
     assert '"target"' not in encoded
     assert '"scope"' not in encoded
 
-    write_schema = request_schema(DocumentWriteRequest)
+    write_schema = request_schema(DocumentWriteBodyRequest)
     assert write_schema["properties"]["operation"]["enum"] == [
         "replace",
         "append",
         "prepend",
     ]
 
-    patch_schema = request_schema(DocumentPatchRequest)
+    patch_schema = request_schema(DocumentReplaceTextRequest)
     assert {
         branch["properties"]["mode"]["enum"][0]
         for branch in patch_schema["properties"]["match"]["anyOf"]

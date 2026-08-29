@@ -9,7 +9,7 @@ from _application.artefact.reparent_children import ReparentChildrenMode
 from _application.artefact.search import ArtefactSearchMode
 from _application.content.classify import ContentClassifyMode
 from _application.document._types import DocumentLocator, DocumentResource
-from _application.document.edit import (
+from _application.document.structured_edit import (
     CalloutAncestor,
     CalloutBlockSelection,
     CalloutPart,
@@ -24,8 +24,8 @@ from _application.document.edit import (
     InsertStructure,
     ReplaceStructure,
 )
-from _application.document.patch import AllMatches, OccurrenceMatch, UniqueMatch
-from _application.document.write import DocumentWriteOperation
+from _application.document.replace_text import AllMatches, OccurrenceMatch, UniqueMatch
+from _application.document.write_body import DocumentWriteBodyOperation
 from _application.requests import CatalogueCursor
 from _application.resource.create import (
     MemoryCreateTarget,
@@ -76,7 +76,7 @@ __all__ = (
     "DocumentIntroSelection",
     "DocumentLocator",
     "DocumentResource",
-    "DocumentWriteOperation",
+    "DocumentWriteBodyOperation",
     "EffectClass",
     "FrontmatterField",
     "HeadingAncestor",

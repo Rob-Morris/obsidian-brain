@@ -814,7 +814,7 @@ def _reject_handler_owned_frontmatter(art, changes):
     field = protected[0]
     raise ValueError(
         f"frontmatter.{field} is lifecycle-owned and cannot be changed with "
-        f"document.edit. Use {handlers[field]} so Brain can preflight and preserve "
+        f"document.structured-edit. Use {handlers[field]} so Brain can preflight and preserve "
         "derived paths, ownership, links, and indexes."
     )
 
@@ -1103,12 +1103,12 @@ def edit_resource(vault_root, router, resource="artefact", operation="edit",
 
     if resource not in EDITABLE_RESOURCES:
         raise ValueError(
-            f"Resource '{resource}' is not editable via document.edit. "
+            f"Resource '{resource}' is not editable via document.structured-edit. "
             f"Editable resources: {', '.join(EDITABLE_RESOURCES)}"
         )
 
     if not name:
-        raise ValueError(f"document.edit for resource '{resource}' requires a reference.")
+        raise ValueError(f"document.structured-edit for resource '{resource}' requires a reference.")
 
     document = opened or open_document(vault_root, router, resource, name)
     _validate_open_document(document, resource, name)

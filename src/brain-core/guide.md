@@ -149,8 +149,8 @@ Only wikilink to targets that already exist. If the artefact doesn't exist yet, 
 `artefact.create` auto-disambiguates basename collisions across type folders by appending the type key (e.g. `My Page (idea).md`).
 
 For existing Markdown, read the document first and pass its returned revision to
-the mutation: `document.write` changes the complete body, `document.patch`
-replaces literal text, `document.edit` targets Markdown structures, and
+the mutation: `document.write-body` changes the complete body, `document.replace-text`
+replaces literal text, `document.structured-edit` targets Markdown structures, and
 `document.update-frontmatter` changes metadata. A stale revision is rejected so
 an agent cannot silently overwrite a newer human or agent edit.
 

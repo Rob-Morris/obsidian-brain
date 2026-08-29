@@ -26,10 +26,10 @@ from .attachment import upload as attachment_upload
 from .content import classify as content_classify
 from .content import ingest as content_ingest
 from .content import resolve as content_resolve
-from .document import edit as document_edit
-from .document import patch as document_patch
+from .document import replace_text as document_replace_text
+from .document import structured_edit as document_structured_edit
 from .document import update_frontmatter as document_update_frontmatter
-from .document import write as document_write
+from .document import write_body as document_write_body
 from .foundation import build_application_catalogue, build_request_resolver
 from .links import check as links_check
 from .links import fix as links_fix
@@ -107,10 +107,10 @@ _COMMAND_OWNERS = (
     content_classify,
     content_ingest,
     content_resolve,
-    document_edit,
-    document_patch,
+    document_replace_text,
+    document_structured_edit,
     document_update_frontmatter,
-    document_write,
+    document_write_body,
     links_check,
     links_fix,
     plugin_create,

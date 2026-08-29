@@ -70,8 +70,8 @@ readiness snapshot. Presentation and printable rendering share
 `shaping.render` with a strict `output.kind` variant.
 
 Editable artefacts and named resources share four document intents:
-`document.write` for whole-body writes, `document.patch` for exact text,
-`document.edit` for typed Markdown structures, and `document.update-frontmatter`
+`document.write-body` for whole-body writes, `document.replace-text` for exact text,
+`document.structured-edit` for typed Markdown structures, and `document.update-frontmatter`
 for metadata. Each requires the exact persisted revision returned by the
 corresponding read command.
 

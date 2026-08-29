@@ -29,10 +29,10 @@ from .attachment.upload import AttachmentUploadRequest
 from .content.classify import ContentClassifyRequest
 from .content.ingest import ContentIngestRequest
 from .content.resolve import ContentResolveRequest
-from .document.edit import DocumentEditRequest
-from .document.patch import DocumentPatchRequest
+from .document.structured_edit import DocumentStructuredEditRequest
+from .document.replace_text import DocumentReplaceTextRequest
 from .document.update_frontmatter import DocumentUpdateFrontmatterRequest
-from .document.write import DocumentWriteRequest
+from .document.write_body import DocumentWriteBodyRequest
 from .links.check import LinksCheckRequest
 from .links.fix import LinksFixRequest
 from .plugin.create import PluginCreateRequest
@@ -126,10 +126,10 @@ __all__ = (
     "ContentClassifyRequest",
     "ContentIngestRequest",
     "ContentResolveRequest",
-    "DocumentEditRequest",
-    "DocumentPatchRequest",
+    "DocumentStructuredEditRequest",
+    "DocumentReplaceTextRequest",
     "DocumentUpdateFrontmatterRequest",
-    "DocumentWriteRequest",
+    "DocumentWriteBodyRequest",
     "InvocationReadRequest",
     "LinksCheckRequest",
     "LinksFixRequest",
@@ -456,10 +456,10 @@ CommandRequest = (
     | ContentClassifyRequest
     | ContentIngestRequest
     | ContentResolveRequest
-    | DocumentEditRequest
-    | DocumentPatchRequest
+    | DocumentStructuredEditRequest
+    | DocumentReplaceTextRequest
     | DocumentUpdateFrontmatterRequest
-    | DocumentWriteRequest
+    | DocumentWriteBodyRequest
     | LinksCheckRequest
     | LinksFixRequest
     | PluginCreateRequest

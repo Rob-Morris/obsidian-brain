@@ -62,7 +62,7 @@ target or non-Brain persistence, or obtain the required authority before any
 write.
 
 For document mutations, read the current revision immediately before calling
-`document.edit`, `document.patch`, `document.write`, or
+`document.structured-edit`, `document.replace-text`, `document.write-body`, or
 `document.update-frontmatter`. Use `artefact.set-status` for lifecycle changes
 so folder moves, timestamps, hooks, and links remain coherent.
 

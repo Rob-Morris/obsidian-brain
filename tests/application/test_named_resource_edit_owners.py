@@ -9,15 +9,15 @@ import pytest
 
 from _application._mutation_support import FrontmatterField, InlineContent
 from _application.document._types import DocumentLocator, DocumentResource
-from _application.document.edit import (
-    DocumentEditRequest,
+from _application.document.structured_edit import (
+    DocumentStructuredEditRequest,
     HeadingPart,
     HeadingSelection,
     ReplaceStructure,
 )
-from _application.document.patch import DocumentPatchRequest, UniqueMatch
+from _application.document.replace_text import DocumentReplaceTextRequest, UniqueMatch
 from _application.document.update_frontmatter import DocumentUpdateFrontmatterRequest
-from _application.document.write import DocumentWriteOperation, DocumentWriteRequest
+from _application.document.write_body import DocumentWriteBodyOperation, DocumentWriteBodyRequest
 from _application.resource.read import ReadableResource, ResourceReadRequest
 from _application.results import ErrorCode
 from _common import document_revision_at, load_compiled_router, parse_frontmatter
@@ -52,7 +52,7 @@ def test_all_named_documents_support_write_patch_and_structural_edit(
     initial = _read(application, resource, name)
     if operation == "patch":
         result = application.invoke(
-            DocumentPatchRequest(
+            DocumentReplaceTextRequest(
                 document,
                 initial.revision,
                 old_text,
@@ -64,7 +64,7 @@ def test_all_named_documents_support_write_patch_and_structural_edit(
         heading_level = len(heading) - len(heading.lstrip("#"))
         heading_text = heading.lstrip("# ")
         result = application.invoke(
-            DocumentEditRequest(
+            DocumentStructuredEditRequest(
                 document,
                 initial.revision,
                 ReplaceStructure(
@@ -75,10 +75,10 @@ def test_all_named_documents_support_write_patch_and_structural_edit(
         )
     else:
         result = application.invoke(
-            DocumentWriteRequest(
+            DocumentWriteBodyRequest(
                 document,
                 initial.revision,
-                DocumentWriteOperation.APPEND,
+                DocumentWriteBodyOperation.APPEND,
                 InlineContent("\nWritten at body end.\n"),
             )
         )
@@ -121,10 +121,10 @@ def test_editing_core_only_skill_materialises_user_copy_without_mutating_core(
     core_before = core_path.read_text(encoding="utf-8")
 
     result = application.invoke(
-        DocumentWriteRequest(
+        DocumentWriteBodyRequest(
             DocumentLocator(DocumentResource.SKILL, "shaping"),
             initial.revision,
-            DocumentWriteOperation.APPEND,
+            DocumentWriteBodyOperation.APPEND,
             InlineContent("\nUser-owned addition.\n"),
         )
     )
@@ -148,10 +148,10 @@ def test_stale_core_skill_edit_does_not_materialise_user_override(
     document = DocumentLocator(DocumentResource.SKILL, "shaping")
 
     result = application.invoke(
-        DocumentWriteRequest(
+        DocumentWriteBodyRequest(
             document,
             "sha256:" + "0" * 64,
-            DocumentWriteOperation.APPEND,
+            DocumentWriteBodyOperation.APPEND,
             InlineContent("\nShould not be written.\n"),
         )
     )
@@ -189,7 +189,7 @@ def test_crlf_named_resource_revision_can_be_used_for_an_immediate_mutation(
     assert "\r" not in initial.content
     assert initial.revision == document_revision_at(path)
     result = application.invoke(
-        DocumentPatchRequest(
+        DocumentReplaceTextRequest(
             DocumentLocator(DocumentResource.MEMORY, "brain-core-reference"),
             initial.revision,
             "Brain-core is",

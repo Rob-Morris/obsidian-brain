@@ -5,13 +5,13 @@ this module exposes construction types without executor or registration hooks.
 """
 
 from _application.document._types import DocumentLocator, DocumentResource
-from _application.document.edit import (
+from _application.document.structured_edit import (
     CalloutAncestor,
     CalloutBlockSelection,
     CalloutPart,
     CalloutSelection,
     DeleteStructure,
-    DocumentEditRequest,
+    DocumentStructuredEditRequest,
     DocumentIntroSelection,
     HeadingAncestor,
     HeadingBlockSelection,
@@ -21,14 +21,14 @@ from _application.document.edit import (
     InsertStructure,
     ReplaceStructure,
 )
-from _application.document.patch import (
+from _application.document.replace_text import (
     AllMatches,
-    DocumentPatchRequest,
+    DocumentReplaceTextRequest,
     OccurrenceMatch,
     UniqueMatch,
 )
 from _application.document.update_frontmatter import DocumentUpdateFrontmatterRequest
-from _application.document.write import DocumentWriteOperation, DocumentWriteRequest
+from _application.document.write_body import DocumentWriteBodyOperation, DocumentWriteBodyRequest
 from _application._mutation_support import FrontmatterField, InlineContent, StagedContent
 
 __all__ = (
@@ -38,14 +38,14 @@ __all__ = (
     "CalloutPart",
     "CalloutSelection",
     "DeleteStructure",
-    "DocumentEditRequest",
+    "DocumentStructuredEditRequest",
     "DocumentIntroSelection",
     "DocumentLocator",
-    "DocumentPatchRequest",
+    "DocumentReplaceTextRequest",
     "DocumentResource",
     "DocumentUpdateFrontmatterRequest",
-    "DocumentWriteOperation",
-    "DocumentWriteRequest",
+    "DocumentWriteBodyOperation",
+    "DocumentWriteBodyRequest",
     "FrontmatterField",
     "HeadingAncestor",
     "HeadingBlockSelection",

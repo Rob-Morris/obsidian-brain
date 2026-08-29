@@ -72,11 +72,17 @@ _LEGACY_BUILTIN_ALLOW = {
 }
 
 _DOCUMENT_MUTATION_COMMANDS = (
-    "document.edit",
-    "document.patch",
+    "document.replace-text",
+    "document.structured-edit",
     "document.update-frontmatter",
-    "document.write",
+    "document.write-body",
 )
+
+_PREVIOUS_DOCUMENT_COMMANDS = {
+    "document.edit": "document.structured-edit",
+    "document.patch": "document.replace-text",
+    "document.write": "document.write-body",
+}
 
 _LEGACY_COMMANDS = {
     "brain_action": (
@@ -160,13 +166,14 @@ _PROFILE_EXPANSIONS = {
 
 
 _REMOVED_GRANULAR_COMMANDS = {
+    **_PREVIOUS_DOCUMENT_COMMANDS,
     **{
         f"{resource}.{operation}": (
-            "document.write"
+            "document.write-body"
             if operation in ("append", "prepend")
-            else "document.patch"
+            else "document.replace-text"
             if operation == "replace-text"
-            else "document.edit"
+            else "document.structured-edit"
         )
         for resource in ("artefact", "memory", "skill", "style", "template")
         for operation in ("append", "delete-section", "prepend", "replace-text")
@@ -345,6 +352,56 @@ def migrate_profile_allow_lists(
     return ProfileMigrationResult(migrated, tuple(changes))
 
 
+def migrate_current_document_command_names(
+    profiles: Mapping[str, object],
+    catalogue: ApplicationCatalogue,
+) -> ProfileMigrationResult:
+    """Rename the v0.62.8 document grants without widening their authority.
+
+    ``document.edit`` had broad semantics in an earlier granular catalogue, so
+    the historical migration deliberately expands it. By v0.62.8 the same
+    spelling meant only structural editing. This version-specific migration
+    therefore owns the unambiguous one-to-one cutover instead of adding a
+    runtime alias or guessing inside the historical projection.
+    """
+
+    current_tools = {
+        project_identity(entry.command_id).mcp_tool for entry in catalogue.entries
+    }
+    migrated = {}
+    changes = []
+    for profile, raw_definition in profiles.items():
+        if not isinstance(profile, str) or not profile.strip():
+            raise ProfileMigrationError("profile names must be non-empty strings")
+        if not isinstance(raw_definition, Mapping):
+            raise ProfileMigrationError(f"profile '{profile}' must be a mapping")
+        definition = dict(raw_definition)
+        before_raw = definition.get("allow", [])
+        if not isinstance(before_raw, list) or any(
+            not isinstance(item, str) or not item.strip() for item in before_raw
+        ):
+            raise ProfileMigrationError(
+                f"profile '{profile}' allow-list must contain only non-empty strings"
+            )
+
+        before = tuple(before_raw)
+        after_list = []
+        for tool in before:
+            replacement = _PREVIOUS_DOCUMENT_COMMANDS.get(tool, tool)
+            if replacement not in current_tools:
+                raise ProfileMigrationError(
+                    f"profile '{profile}' contains unknown tool '{tool}'"
+                )
+            if replacement not in after_list:
+                after_list.append(replacement)
+        after = tuple(after_list)
+        definition["allow"] = list(after)
+        migrated[profile] = definition
+        if before != after:
+            changes.append(ProfileMigrationChange(profile, "rename", before, after))
+    return ProfileMigrationResult(migrated, tuple(changes))
+
+
 def _contains_exact_legacy_builtins(profiles: Mapping[str, object]) -> bool:
     if not set(_LEGACY_BUILTIN_ALLOW) <= set(profiles):
         return False
@@ -382,9 +439,9 @@ def _contains_exact_previous_granular_builtins(
         "runtime.warmup",
     }
     new_document_tools = {
-        "document.patch",
+        "document.replace-text",
         "document.update-frontmatter",
-        "document.write",
+        "document.write-body",
     }
     for additions in (
         set(),

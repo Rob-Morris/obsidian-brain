@@ -37,7 +37,7 @@ class StructuralTargetResult:
 
 
 @dataclass(frozen=True, slots=True)
-class DocumentWritePayload:
+class DocumentWriteBodyPayload:
     path: str
     resolved_path: str
     operation: str
@@ -51,7 +51,7 @@ class DocumentWritePayload:
 
 
 @dataclass(frozen=True, slots=True)
-class DocumentPatchPayload:
+class DocumentReplaceTextPayload:
     path: str
     resolved_path: str
     match_count: int
@@ -65,7 +65,7 @@ class DocumentPatchPayload:
 
 
 @dataclass(frozen=True, slots=True)
-class DocumentEditPayload:
+class DocumentStructuredEditPayload:
     path: str
     resolved_path: str
     operation: str
@@ -89,7 +89,7 @@ class DocumentFrontmatterUpdatePayload:
 
 
 @dataclass(frozen=True, slots=True)
-class DocumentWriteIntent:
+class DocumentWriteBodyIntent:
     resource: str
     reference: str
     expected_revision: str
@@ -100,7 +100,7 @@ class DocumentWriteIntent:
 
 
 @dataclass(frozen=True, slots=True)
-class DocumentPatchIntent:
+class DocumentReplaceTextIntent:
     resource: str
     reference: str
     expected_revision: str
@@ -112,7 +112,7 @@ class DocumentPatchIntent:
 
 
 @dataclass(frozen=True, slots=True)
-class DocumentEditIntent:
+class DocumentStructuredEditIntent:
     resource: str
     reference: str
     expected_revision: str
@@ -134,9 +134,9 @@ class DocumentFrontmatterIntent:
 
 
 DocumentMutationIntent = (
-    DocumentWriteIntent
-    | DocumentPatchIntent
-    | DocumentEditIntent
+    DocumentWriteBodyIntent
+    | DocumentReplaceTextIntent
+    | DocumentStructuredEditIntent
     | DocumentFrontmatterIntent
 )
 
@@ -335,14 +335,14 @@ def execute_document_mutation(
 
 
 def _preflight_request(edit, intent: DocumentMutationIntent) -> None:
-    if isinstance(intent, DocumentWriteIntent):
+    if isinstance(intent, DocumentWriteBodyIntent):
         edit.preflight_request_contract(
             intent.operation,
             has_body=True,
             target=":body",
             scope="section",
         )
-    elif isinstance(intent, DocumentEditIntent):
+    elif isinstance(intent, DocumentStructuredEditIntent):
         edit.preflight_request_contract(
             intent.operation,
             has_body=intent.content is not None,
@@ -364,7 +364,7 @@ def _resolve_body(
 ) -> tuple[str, str | None]:
     content = (
         intent.content
-        if isinstance(intent, (DocumentWriteIntent, DocumentEditIntent))
+        if isinstance(intent, (DocumentWriteBodyIntent, DocumentStructuredEditIntent))
         else None
     )
     if content is None:
@@ -375,7 +375,7 @@ def _resolve_body(
 def _may_contain_wikilinks(opened, intent: DocumentMutationIntent, body: str) -> bool:
     if "[[" in opened.body or "[[" in repr(opened.fields) or "[[" in body:
         return True
-    if isinstance(intent, DocumentPatchIntent):
+    if isinstance(intent, DocumentReplaceTextIntent):
         return "[[" in intent.new_text
     if isinstance(intent, DocumentFrontmatterIntent):
         return "[[" in repr(frontmatter_mapping(intent.frontmatter))
@@ -383,14 +383,14 @@ def _may_contain_wikilinks(opened, intent: DocumentMutationIntent, body: str) ->
 
 
 def _edit_arguments(intent: DocumentMutationIntent) -> dict:
-    if isinstance(intent, DocumentWriteIntent):
+    if isinstance(intent, DocumentWriteBodyIntent):
         return {
             "operation": intent.operation,
             "target": ":body",
             "scope": "section",
             "fix_links": intent.fix_links,
         }
-    if isinstance(intent, DocumentPatchIntent):
+    if isinstance(intent, DocumentReplaceTextIntent):
         return {
             "operation": "replace_text",
             "old_text": intent.old_text,
@@ -399,7 +399,7 @@ def _edit_arguments(intent: DocumentMutationIntent) -> dict:
             "replace_all": intent.replace_all,
             "fix_links": intent.fix_links,
         }
-    if isinstance(intent, DocumentEditIntent):
+    if isinstance(intent, DocumentStructuredEditIntent):
         return {
             "operation": intent.operation,
             "target": intent.target,
@@ -420,8 +420,8 @@ def _payload(intent, result, staged_handle, staging_warning):
         "resolved_path": result["resolved_path"],
         "revision": result["revision"],
     }
-    if isinstance(intent, DocumentWriteIntent):
-        return DocumentWritePayload(
+    if isinstance(intent, DocumentWriteBodyIntent):
+        return DocumentWriteBodyPayload(
             **common,
             operation=intent.result_operation,
             old_body_line_count=int(result["old_body_line_count"]),
@@ -431,8 +431,8 @@ def _payload(intent, result, staged_handle, staging_warning):
             wikilink_substitutions=substitutions,
             staged_handle_consumed=staged_handle is not None and staging_warning is None,
         )
-    if isinstance(intent, DocumentPatchIntent):
-        return DocumentPatchPayload(
+    if isinstance(intent, DocumentReplaceTextIntent):
+        return DocumentReplaceTextPayload(
             **common,
             match_count=int(result["match_count"]),
             replacement_count=int(result["replacement_count"]),
@@ -442,11 +442,11 @@ def _payload(intent, result, staged_handle, staging_warning):
             wikilink_fixes=fixes,
             wikilink_substitutions=substitutions,
         )
-    if isinstance(intent, DocumentEditIntent):
+    if isinstance(intent, DocumentStructuredEditIntent):
         raw_target = result.get("structural_target")
         if raw_target is None:
             raise RuntimeError("semantic document edit did not resolve a structural target")
-        return DocumentEditPayload(
+        return DocumentStructuredEditPayload(
             **common,
             operation=intent.result_operation,
             old_body_line_count=int(result["old_body_line_count"]),
