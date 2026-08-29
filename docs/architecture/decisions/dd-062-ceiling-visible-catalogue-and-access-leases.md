@@ -46,5 +46,5 @@ Rejected. Connections are transient, remote requests may be sessionless, and aut
 - Routine agents start with a compact Reader grant while retaining discoverable tools up to their authenticated ceiling.
 - Claude and Codex can use their own lazy-loading policies; Brain correctness does not depend on either client loading or refreshing schemas in a particular way.
 - External human confirmation has a real non-MCP path, while automatic elevation remains honest about its limits.
-- Catalogue/profile counts differ: the application owns 74 commands, 63 are MCP-eligible, and each server exposes only its ceiling subset.
+- Catalogue/profile counts differ and evolve with the catalogue: the application owns the full installed inventory, MCP marks eligible projections explicitly, and each server exposes only its ceiling subset.
 - Custom profiles are not silently widened. Exact shipped profiles migrate to include the three access controls.

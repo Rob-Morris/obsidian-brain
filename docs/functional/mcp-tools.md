@@ -1,6 +1,6 @@
 # MCP Command Interface
 
-Brain Core 0.57 exposes the selected-Brain application catalogue as granular MCP tools. `server.py` is a small composition root: it registers catalogue projections, composes trusted local invocation context and installs the replacement-proxy protocol gate. Semantic logic belongs to application commands, not the MCP adapter.
+Brain Core exposes the selected-Brain application catalogue as granular MCP tools. `server.py` is a small composition root: it registers catalogue projections, composes trusted local invocation context and installs the replacement-proxy protocol gate. Semantic logic belongs to application commands, not the MCP adapter.
 
 The transport boundary uses the official Python `MCPServer` API at the exact
 reviewed `mcp==2.0.0` pin. It continues to serve supported 2025 protocol clients;
@@ -19,7 +19,7 @@ An MCP-eligible command exposes its canonical `<noun>.<verb>` identifier directl
 
 The MCP server name remains `brain`; it is not repeated inside every tool name. Clients may encode dots and hyphens internally when projecting MCP tools into a model API. That private encoding does not change the raw MCP name or the command contract.
 
-The application catalogue owns 74 commands and marks 63 as MCP-eligible. A running server exposes only the authenticated profile ceiling, so the actual list is 26, 50, 61, 62 or 63 tools for the cumulative built-in profiles. Those numbers and every tool schema are checked from the authoritative catalogue; this document deliberately does not duplicate the full list.
+The application catalogue owns the installed command inventory and marks each projection explicitly. A running server exposes only the MCP-eligible commands within the authenticated profile ceiling. Exact catalogue and profile counts are generated and checked from the authoritative catalogue; use MCP discovery or `command.list` for the selected installation rather than treating prose counts as a compatibility contract.
 
 Start a session with `session.start`. On a cold Brain it starts or joins background warm-up and returns the shared `brain.runtime-status/1` snapshot with guidance to poll `runtime.status`; retry `session.start` when ready. `runtime.status` is a cheap read-only observation, while `runtime.warmup` explicitly starts, joins or retries warm-up. Discover commands with `command.list`, and inspect one exact request/result contract with `command.describe`. Default discovery uses static catalogue facts and does not probe optional providers; request an explicit refresh only when current provider availability matters.
 
@@ -79,7 +79,7 @@ Warnings, stable error codes, typed details and next actions survive every proje
 
 ## Authority profiles
 
-Profiles authorise exact command names. The built-in `reader`, `contributor`, `maintainer`, `operator` and `administrator` application ceilings contain 26, 51, 64, 73 and 74 commands; their MCP-eligible subsets contain 26, 50, 61, 62 and 63 tools. Profile migration preserves an older broad document-mutation grant by granting all four replacements; custom profiles otherwise retain only their explicit grants. There is no runtime fallback or compatibility alias after cutover. Ceiling and active-grant checks both occur before dynamic request resolution.
+Profiles authorise exact command names. The built-in `reader`, `contributor`, `maintainer`, `operator` and `administrator` ceilings are cumulative, while MCP exposes only each ceiling's eligible subset. Profile migration preserves an older broad document-mutation grant by granting all four replacements; custom profiles otherwise retain only their explicit grants. There is no runtime fallback or compatibility alias after cutover. Ceiling and active-grant checks both occur before dynamic request resolution.
 
 ## Metadata and client budgets
 
@@ -96,7 +96,7 @@ The supported-client gate uses real Claude Code and Codex CLI projections with p
 
 The server advertises `brain.command-interface-header/1` during initialise. It binds proxy protocol range, interface epoch, catalogue and result schemas, catalogue fingerprint, and the exact tool-to-command/version/mutation mapping.
 
-Proxy 0.7.0 supplies protocol 2. On replacement it:
+The installed proxy supplies protocol 2. On replacement it:
 
 1. rejects an incompatible server before tool lookup;
 2. records accepted calls before dispatch;

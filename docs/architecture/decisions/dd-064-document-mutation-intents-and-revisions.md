@@ -15,10 +15,10 @@ change between an agent's read and write without the caller noticing.
 Brain owns four cohesive document mutation commands across artefacts, memories,
 skills, styles, and templates:
 
-- `document.write` replaces, appends, or prepends the complete Markdown body;
-- `document.patch` replaces literal text using `unique`, `occurrence`, or `all`
+- `document.write-body` replaces, appends, or prepends the complete Markdown body;
+- `document.replace-text` replaces literal text using `unique`, `occurrence`, or `all`
   match policy and has no structural scope;
-- `document.edit` replaces, inserts into, or deletes typed heading, callout, or
+- `document.structured-edit` replaces, inserts into, or deletes typed heading, callout, or
   document-intro structures;
 - `document.update-frontmatter` sets or removes metadata fields without a body
   operation.
