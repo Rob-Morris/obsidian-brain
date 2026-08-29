@@ -98,6 +98,7 @@ Never edit past changelog entries. Only add new entries at the top.
 | [v0.54.2](changelog/v0.54.2.md) | 2026-08-09 | Establish receipt, version, capability, and launcher contracts |
 | [v0.54.1](changelog/v0.54.1.md) | 2026-08-09 | Establish typed `_application` command invocation contracts |
 | [v0.54.0](changelog/v0.54.0.md) | 2026-08-09 | BREAKING — Require explicit reparenting and recover degraded MCP schemas |
+| [v0.53.5](changelog/v0.53.5.md) | 2026-08-22 | Replace legacy review skills with `superpowers-brain` workflows |
 | [v0.53.4](changelog/v0.53.4.md) | 2026-07-31 | Add `brain_upload_attachment` for vault-safe asset uploads |
 | [v0.53.3](changelog/v0.53.3.md) | 2026-07-28 | Surface local workspace binding guidance through `brain_session` |
 | [v0.53.2](changelog/v0.53.2.md) | 2026-07-23 | Keep replaced skill backups outside client discovery roots |
