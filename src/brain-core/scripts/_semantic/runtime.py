@@ -36,9 +36,9 @@ class CompiledRouterMissingError(RouterMetadataError):
 
 def semantic_runtime_dependencies_available():
     """Return True when lightweight semantic-search deps appear importable."""
-    return (
-        importlib.util.find_spec("numpy") is not None
-        and importlib.util.find_spec("sentence_transformers") is not None
+    return all(
+        importlib.util.find_spec(module) is not None
+        for module in ("numpy", "onnxruntime", "tokenizers")
     )
 
 
@@ -63,9 +63,9 @@ def encode_query(vault_root, query, *, query_encoder=None):
 def rank_against(query_vec, matrix, meta_entries, *, filter_fn=None, top_k=None):
     """Rank `meta_entries` by cosine similarity of `query_vec` against `matrix` rows.
 
-    Assumes embeddings are L2-normalized (as SentenceTransformer produces with
-    `normalize_embeddings=True`), so `matrix @ query_vec` equals cosine
-    similarity per row.
+    Assumes embeddings are L2-normalized (the local encoder always produces
+    them with `normalize_embeddings=True`), so `matrix @ query_vec` equals
+    cosine similarity per row.
     """
     assert matrix.shape[0] == len(meta_entries), (
         "embedding matrix row count must match metadata entry count"

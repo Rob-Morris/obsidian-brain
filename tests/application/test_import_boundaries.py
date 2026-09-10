@@ -24,6 +24,8 @@ FORBIDDEN_APPLICATION_IMPORTS = {
     "mcp",
     "pydantic",
     "numpy",
+    "onnxruntime",
+    "tokenizers",
     "torch",
     "transformers",
     "brain_mcp",
@@ -100,7 +102,7 @@ def test_contract_modules_import_in_isolated_interpreter_without_runtime_depende
         "_application.results, _application.requests, _application.catalogue, "
         "_application.resolver, _application.availability, "
         "_application.application, _application.foundation, _application.registry; "
-        "forbidden={'argparse','mcp','pydantic','numpy','torch','transformers','brain_mcp'}; "
+        "forbidden={'argparse','mcp','pydantic','numpy','onnxruntime','tokenizers','torch','transformers','brain_mcp'}; "
         "loaded=forbidden.intersection(sys.modules); "
         "assert not loaded, loaded"
     )

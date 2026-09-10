@@ -109,6 +109,7 @@ Each DD captures the reasoning behind an architectural decision at the time it w
 | DD-067 | Always-on content-free operational diagnostics logging | Implemented (v0.61.0) | [dd-067](dd-067-operational-diagnostics-logging.md) |
 | DD-068 | Skill ownership is separate from source and client exposure | Implemented (v0.62.0) | [dd-068](dd-068-git-backed-skill-sources-and-managed-exposure.md) |
 | DD-069 | Portable shaping is composed with a narrow Brain adaptor | Implemented (v0.62.2) | [dd-069](dd-069-portable-shaping-brain-adaptor.md) |
+| DD-070 | The semantic encoder runs on onnxruntime, not torch | Implemented (v0.62.14) | [dd-070](dd-070-onnxruntime-semantic-encoder.md) |
 
 ---
 
@@ -117,7 +118,7 @@ Each DD captures the reasoning behind an architectural decision at the time it w
 Related decisions grouped by domain. Arrows show supersede/extend chains.
 
 - **MCP tool surface:** DD-010 → DD-044 → DD-060 → DD-061 → DD-062, DD-010 → DD-045 → DD-046 → DD-047, DD-045 → DD-057, DD-045 → DD-059, DD-011 → DD-020 → DD-025 → DD-045 → DD-061, DD-026, DD-027, DD-028
-- **Config & install:** DD-003 → DD-049 → DD-054, DD-049 → DD-055 → DD-058 → DD-068, DD-015, DD-023 → DD-039 → DD-043 → DD-048 → DD-049 → DD-054, DD-023 → DD-055, DD-023/DD-039 → DD-051 → DD-055, DD-032, DD-033
+- **Config & install:** DD-003 → DD-049 → DD-054, DD-049 → DD-055 → DD-058 → DD-068, DD-015, DD-023 → DD-039 → DD-043 → DD-048 → DD-049 → DD-054, DD-048 → DD-070, DD-023 → DD-055, DD-023/DD-039 → DD-051 → DD-055, DD-032, DD-033
 - **Router & bootstrap:** DD-008, DD-009, DD-012, DD-013, DD-014, DD-017, DD-019, DD-038, DD-042, DD-054
 - **Security & integrity:** DD-031 → DD-059, DD-033 → DD-062, DD-036, DD-043, DD-067
 - **Plugins & platforms:** DD-004, DD-005, DD-006, DD-007, DD-021, DD-022

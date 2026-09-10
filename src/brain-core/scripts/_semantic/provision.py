@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-import platform
 import subprocess
 from pathlib import Path
 
@@ -22,11 +21,10 @@ import _semantic.model as semantic_model
 SEMANTIC_RUNTIME_PACKAGES = (
     "huggingface-hub==1.13.0",
     "numpy==2.4.4",
-    "torch==2.11.0",
-    "transformers==5.5.4",
-    "sentence-transformers==5.4.1",
+    "onnxruntime==1.30.0",
+    "tokenizers==0.23.2",
 )
-SEMANTIC_RUNTIME_MODULES = ("huggingface_hub", "numpy", "sentence_transformers")
+SEMANTIC_RUNTIME_MODULES = ("huggingface_hub", "numpy", "onnxruntime", "tokenizers")
 SEMANTIC_RUNTIME_TIMEOUT = 900
 _SEMANTIC_ASSET_REFRESH_SUMMARIES = {
     UnreadableRetrievalSourceError: (
@@ -71,14 +69,13 @@ def refresh_semantic_assets(vault_root: str | Path) -> list[str]:
 
 
 def semantic_runtime_supported_platform(*, system: str | None = None, machine: str | None = None) -> tuple[bool, str | None]:
-    """Return whether semantic runtime provisioning is supported on this platform."""
-    system = system or platform.system()
-    machine = machine or platform.machine()
-    if system == "Darwin" and machine == "x86_64":
-        return (
-            False,
-            "semantic runtime is unsupported on Intel macOS; use lexical mode only",
-        )
+    """Return whether semantic runtime provisioning is supported on this platform.
+
+    onnxruntime and tokenizers publish wheels for every platform Brain runs on,
+    so no platform is currently excluded. The seam stays so a future runtime
+    pin with narrower wheel coverage has one place to declare it.
+    """
+    del system, machine
     return True, None
 
 

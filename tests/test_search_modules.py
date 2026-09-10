@@ -76,23 +76,23 @@ def test_semantic_query_encode_query_wraps_runtime_importerror(vault, monkeypatc
         semantic_query.encode_query_or_unavailable(vault, "python")
 
 
-def test_semantic_model_load_sentence_transformer_wraps_missing_runtime_dependency(
+def test_semantic_model_load_local_encoder_wraps_missing_runtime_dependency(
     vault, monkeypatch
 ):
     real_import = builtins.__import__
 
     def fake_import(name, globals=None, locals=None, fromlist=(), level=0):
-        if name == "sentence_transformers":
-            raise ImportError("missing sentence_transformers")
+        if name == "onnxruntime":
+            raise ImportError("missing onnxruntime")
         return real_import(name, globals, locals, fromlist, level)
 
     monkeypatch.setattr(builtins, "__import__", fake_import)
 
     with pytest.raises(
         semantic_model.SemanticRuntimeUnavailableError,
-        match="missing sentence_transformers",
+        match="missing onnxruntime",
     ):
-        semantic_model._load_sentence_transformer(vault / "missing-snapshot")
+        semantic_model._load_local_encoder(vault / "missing-snapshot")
 
 
 def test_semantic_model_provision_does_not_redownload_on_runtime_unavailable(vault, monkeypatch):
@@ -111,10 +111,10 @@ def test_semantic_model_provision_does_not_redownload_on_runtime_unavailable(vau
 
     monkeypatch.setattr(
         semantic_model,
-        "_load_sentence_transformer",
+        "_load_local_encoder",
         lambda *_a, **_k: (_ for _ in ()).throw(
             semantic_model.SemanticRuntimeUnavailableError(
-                "semantic runtime dependencies are unavailable: missing sentence_transformers",
+                "semantic runtime dependencies are unavailable: missing onnxruntime",
                 operation="loading semantic model",
             )
         ),
@@ -129,7 +129,7 @@ def test_semantic_model_provision_does_not_redownload_on_runtime_unavailable(vau
 
     with pytest.raises(
         semantic_model.SemanticRuntimeUnavailableError,
-        match="missing sentence_transformers",
+        match="missing onnxruntime",
     ):
         semantic_model.provision_semantic_model(vault)
 

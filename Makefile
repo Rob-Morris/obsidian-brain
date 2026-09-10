@@ -14,8 +14,7 @@ install: venv
 	$(PIP) install -r src/brain-core/brain_mcp/requirements.txt "pytest>=9.0" "pytest-bdd>=8.0" "pytest-xdist>=3.6" "interrogate>=1.7" "pytest-cov>=6.0" "tiktoken==0.12.0" "PyYAML==6.0.3"
 
 install-semantic: install
-	$(PYTHON) -c "import platform, sys; sys.exit('semantic retrieval dependencies are unsupported on Intel macOS in this branch; use lexical mode only' if platform.system() == 'Darwin' and platform.machine() == 'x86_64' else 0)"
-	$(PIP) install "numpy==2.4.4" "torch==2.11.0" "transformers==5.5.4" "sentence-transformers==5.4.1"
+	$(PIP) install "numpy==2.4.4" "onnxruntime==1.30.0" "tokenizers==0.23.2"
 
 dev-link:
 	@[ -e template-vault/.brain-core ] || ln -s ../src/brain-core template-vault/.brain-core

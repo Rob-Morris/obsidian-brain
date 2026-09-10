@@ -18,6 +18,24 @@ SEMANTIC_MODEL_MANIFEST_REL = os.path.join(".brain", "local", "semantic-model-ma
 SEMANTIC_MODELS_DIR_REL = os.path.join(".brain", "local", "semantic-models")
 SHIPPED_MODEL_NAME = "sentence-transformers/all-MiniLM-L6-v2"
 SHIPPED_MODEL_REVISION = "c9745ed1d9f207416be6d2e6f8de32d1f16199bf"
+# The snapshot files the local encoder reads. Provisioning downloads exactly
+# these, so the loader and the download filter cannot disagree.
+SNAPSHOT_MODEL_FILE = "onnx/model.onnx"
+SNAPSHOT_TOKENIZER_FILE = "tokenizer.json"
+SNAPSHOT_SEQUENCE_CONFIG_FILE = "sentence_bert_config.json"
+SNAPSHOT_POOLING_CONFIG_FILE = "1_Pooling/config.json"
+SNAPSHOT_FILES = (
+    SNAPSHOT_MODEL_FILE,
+    SNAPSHOT_TOKENIZER_FILE,
+    SNAPSHOT_SEQUENCE_CONFIG_FILE,
+    SNAPSHOT_POOLING_CONFIG_FILE,
+    "config.json",
+)
+ENCODE_BATCH_SIZE = 32
+# Keep inference on the CPU provider. Letting onnxruntime pick an accelerator
+# (CoreML on macOS) reintroduces the GPU-owned memory this backend exists to
+# avoid, and MiniLM-sized models gain nothing from it at query time.
+_EXECUTION_PROVIDERS = ("CPUExecutionProvider",)
 
 _CACHED_QUERY_ENCODER = None
 _CACHED_QUERY_ENCODER_LOCK = threading.Lock()
@@ -84,6 +102,48 @@ class ModelState:
             or self.model_revision_mismatch
             or self.load_error is not None
         )
+
+
+class LocalSentenceEncoder:
+    """Encode texts with the pinned ONNX model: mean-pool tokens, then L2-normalise.
+
+    Reproduces the shipped sentence-transformers pipeline (Transformer →
+    mean Pooling → Normalize) so vectors match the persisted sidecars exactly.
+    """
+
+    def __init__(self, session, tokenizer, *, max_seq_length: int):
+        self._session = session
+        self._tokenizer = tokenizer
+        self._tokenizer.enable_truncation(max_seq_length)
+        self._tokenizer.enable_padding()
+        self._input_names = frozenset(item.name for item in session.get_inputs())
+        self.dimension = int(session.get_outputs()[0].shape[-1])
+
+    def encode(self, texts, *, normalize_embeddings: bool = True, batch_size: int = ENCODE_BATCH_SIZE):
+        """Return one embedding row per text as a float32 array."""
+        import numpy as np
+
+        batches = [
+            self._encode_batch(np, list(texts[start : start + batch_size]), normalize_embeddings)
+            for start in range(0, len(texts), batch_size)
+        ]
+        if not batches:
+            return np.zeros((0, self.dimension), dtype=np.float32)
+        return np.vstack(batches)
+
+    def _encode_batch(self, np, texts, normalize_embeddings):
+        encodings = self._tokenizer.encode_batch(texts)
+        input_ids = np.array([item.ids for item in encodings], dtype=np.int64)
+        attention_mask = np.array([item.attention_mask for item in encodings], dtype=np.int64)
+        feeds = {"input_ids": input_ids, "attention_mask": attention_mask}
+        if "token_type_ids" in self._input_names:
+            feeds["token_type_ids"] = np.zeros_like(input_ids)
+        token_embeddings = self._session.run(None, feeds)[0]
+        mask = attention_mask[:, :, np.newaxis].astype(np.float32)
+        pooled = (token_embeddings * mask).sum(axis=1) / np.maximum(mask.sum(axis=1), 1e-9)
+        if normalize_embeddings:
+            pooled = pooled / np.maximum(np.linalg.norm(pooled, axis=1, keepdims=True), 1e-12)
+        return pooled.astype(np.float32)
 
 
 def shipped_model_pin() -> tuple[str, str]:
@@ -202,7 +262,7 @@ def verify_local_model_load(state: ModelState) -> ModelState:
     ):
         return state
     try:
-        _load_sentence_transformer(state.snapshot_path)
+        _load_local_encoder(state.snapshot_path)
     except SemanticModelLoadError as exc:
         return replace(state, load_error=str(exc))
     return state
@@ -228,13 +288,13 @@ def provision_semantic_model(vault_root: str | Path) -> SemanticModelProvisionOu
     needs_download = not (manifest_matches and expected_path.is_dir())
     if not needs_download:
         try:
-            _load_sentence_transformer(expected_path)
+            _load_local_encoder(expected_path)
         except SemanticModelLoadError:
             needs_download = True
 
     if needs_download:
         _download_snapshot(model_name, revision, expected_path)
-        _load_sentence_transformer(expected_path)
+        _load_local_encoder(expected_path)
 
     manifest_changed = False
     if needs_download or not manifest_matches:
@@ -273,7 +333,7 @@ def load_local_model_with_manifest(vault_root: str | Path):
         raise SemanticModelMissingError(
             "semantic model snapshot is missing; run `python3 .brain-core/scripts/repair.py semantic`"
         )
-    return (_load_sentence_transformer(snapshot_path), manifest)
+    return (_load_local_encoder(snapshot_path), manifest)
 
 
 def load_local_model(vault_root: str | Path):
@@ -323,6 +383,7 @@ def _download_snapshot(model_name: str, revision: str, snapshot_path: Path) -> N
             repo_id=model_name,
             revision=revision,
             local_dir=snapshot_path,
+            allow_patterns=list(SNAPSHOT_FILES),
         )
     except (
         EntryNotFoundError,
@@ -338,18 +399,62 @@ def _download_snapshot(model_name: str, revision: str, snapshot_path: Path) -> N
         ) from exc
 
 
-def _load_sentence_transformer(snapshot_path: Path):
-    """Load a local semantic model snapshot without network access."""
+def _load_local_encoder(snapshot_path: Path) -> LocalSentenceEncoder:
+    """Load the pinned ONNX model and tokenizer from a local snapshot, offline."""
     try:
-        from sentence_transformers import SentenceTransformer
+        import onnxruntime
+        from tokenizers import Tokenizer
     except ImportError as exc:
         raise SemanticRuntimeUnavailableError(
             f"semantic runtime dependencies are unavailable: {exc}",
             operation="loading semantic model",
         ) from exc
+
+    for rel_path in SNAPSHOT_FILES:
+        if not (snapshot_path / rel_path).is_file():
+            raise SemanticModelLoadError(
+                f"semantic model snapshot at {snapshot_path} is incomplete: missing {rel_path}"
+            )
+    max_seq_length = _read_snapshot_int(snapshot_path, SNAPSHOT_SEQUENCE_CONFIG_FILE, "max_seq_length")
+    pooling = _read_snapshot_json(snapshot_path, SNAPSHOT_POOLING_CONFIG_FILE)
+    if pooling.get("pooling_mode_mean_tokens") is not True:
+        raise SemanticModelLoadError(
+            f"semantic model snapshot at {snapshot_path} does not use mean pooling; "
+            "the local encoder only reproduces mean-pooled sentence-transformers models"
+        )
+    # onnxruntime and tokenizers raise bare Exception subclasses for unreadable
+    # or malformed files; this is the trust boundary where they become typed.
     try:
-        return SentenceTransformer(str(snapshot_path), local_files_only=True)
-    except (OSError, ValueError) as exc:
+        session = onnxruntime.InferenceSession(
+            str(snapshot_path / SNAPSHOT_MODEL_FILE),
+            providers=list(_EXECUTION_PROVIDERS),
+        )
+        tokenizer = Tokenizer.from_file(str(snapshot_path / SNAPSHOT_TOKENIZER_FILE))
+    except Exception as exc:
         raise SemanticModelLoadError(
             f"semantic model snapshot at {snapshot_path} could not be loaded locally: {exc}"
         ) from exc
+    return LocalSentenceEncoder(session, tokenizer, max_seq_length=max_seq_length)
+
+
+def _read_snapshot_json(snapshot_path: Path, rel_path: str) -> dict:
+    try:
+        payload = json.loads((snapshot_path / rel_path).read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        raise SemanticModelLoadError(
+            f"semantic model snapshot at {snapshot_path} has unreadable {rel_path}: {exc}"
+        ) from exc
+    if not isinstance(payload, dict):
+        raise SemanticModelLoadError(
+            f"semantic model snapshot at {snapshot_path} has malformed {rel_path}"
+        )
+    return payload
+
+
+def _read_snapshot_int(snapshot_path: Path, rel_path: str, key: str) -> int:
+    value = _read_snapshot_json(snapshot_path, rel_path).get(key)
+    if not isinstance(value, int) or isinstance(value, bool) or value <= 0:
+        raise SemanticModelLoadError(
+            f"semantic model snapshot at {snapshot_path} has no positive integer {key} in {rel_path}"
+        )
+    return value

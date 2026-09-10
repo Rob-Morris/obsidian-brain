@@ -65,9 +65,10 @@ That flow writes the local semantic flags first, then provisions the pinned
 runtime packages, snapshots the pinned model under
 `.brain/local/semantic-models/`, records
 `.brain/local/semantic-model-manifest.json`, and refreshes semantic sidecars.
-Ordinary semantic runtime paths then load from that local snapshot only. Intel
-macOS remains unsupported for semantic runtime provisioning and should stay on
-lexical search.
+Ordinary semantic runtime paths then load from that local snapshot only. The
+encoder runs the snapshot's ONNX export through `onnxruntime` on the CPU with
+the `tokenizers` library; no torch, GPU or accelerator is involved, so a
+long-lived MCP server that answers semantic queries stays under about 200 MB.
 
 Example local opt-in:
 

@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import builtins
+import json
 import os
+from pathlib import Path
 import sys
 import types
 
@@ -59,27 +61,196 @@ def test_inspect_model_state_treats_corrupt_manifest_as_load_error(tmp_path):
     assert "manifest" in state.load_error
 
 
-def test_load_sentence_transformer_uses_local_files_only(tmp_path, monkeypatch):
+def _write_snapshot(snapshot_path, *, pooling='{"pooling_mode_mean_tokens": true}'):
+    (snapshot_path / "onnx").mkdir(parents=True, exist_ok=True)
+    (snapshot_path / "1_Pooling").mkdir(exist_ok=True)
+    (snapshot_path / "onnx" / "model.onnx").write_bytes(b"stub")
+    (snapshot_path / "tokenizer.json").write_text("{}", encoding="utf-8")
+    (snapshot_path / "sentence_bert_config.json").write_text(
+        '{"max_seq_length": 256}', encoding="utf-8"
+    )
+    (snapshot_path / "1_Pooling" / "config.json").write_text(pooling, encoding="utf-8")
+    (snapshot_path / "config.json").write_text("{}", encoding="utf-8")
+
+
+class _FakeTensor:
+    def __init__(self, name, shape):
+        self.name = name
+        self.shape = shape
+
+
+class _FakeSession:
+    """Emit token embedding (t + 1, 2.0) for token position t, in two dimensions."""
+
+    calls: list = []
+
+    def __init__(self, path, providers):
+        _FakeSession.calls.append((path, providers))
+
+    def get_inputs(self):
+        return [_FakeTensor(name, [None, None]) for name in ("input_ids", "attention_mask", "token_type_ids")]
+
+    def get_outputs(self):
+        return [_FakeTensor("last_hidden_state", [None, None, 2])]
+
+    def run(self, _outputs, feeds):
+        import numpy as np
+
+        assert set(feeds) == {"input_ids", "attention_mask", "token_type_ids"}
+        batch, length = feeds["input_ids"].shape
+        positions = np.arange(1, length + 1, dtype=np.float32)
+        hidden = np.stack([positions, np.full(length, 2.0, dtype=np.float32)], axis=1)
+        return [np.broadcast_to(hidden, (batch, length, 2)).copy()]
+
+
+class _FakeEncoding:
+    def __init__(self, ids, attention_mask):
+        self.ids = ids
+        self.attention_mask = attention_mask
+
+
+class _FakeTokenizer:
+    """One token per character, padded to the longest text in the batch."""
+
+    calls: dict = {}
+
+    @classmethod
+    def from_file(cls, path):
+        cls.calls["path"] = path
+        return cls()
+
+    def enable_truncation(self, max_length):
+        _FakeTokenizer.calls["truncation"] = max_length
+
+    def enable_padding(self):
+        _FakeTokenizer.calls["padding"] = True
+
+    def encode_batch(self, texts):
+        longest = max(len(text) for text in texts)
+        return [
+            _FakeEncoding(
+                list(range(1, len(text) + 1)) + [0] * (longest - len(text)),
+                [1] * len(text) + [0] * (longest - len(text)),
+            )
+            for text in texts
+        ]
+
+
+def _install_fake_runtime(monkeypatch):
+    _FakeSession.calls = []
+    _FakeTokenizer.calls = {}
+    fake_ort = types.ModuleType("onnxruntime")
+    fake_ort.InferenceSession = _FakeSession
+    fake_tokenizers = types.ModuleType("tokenizers")
+    fake_tokenizers.Tokenizer = _FakeTokenizer
+    monkeypatch.setitem(sys.modules, "onnxruntime", fake_ort)
+    monkeypatch.setitem(sys.modules, "tokenizers", fake_tokenizers)
+
+
+def test_load_local_encoder_pins_cpu_provider_and_snapshot_files(tmp_path, monkeypatch):
     snapshot_path = tmp_path / "snapshot"
-    snapshot_path.mkdir()
-    calls = []
+    _write_snapshot(snapshot_path)
+    _install_fake_runtime(monkeypatch)
 
-    class FakeSentenceTransformer:
-        def __init__(self, path, **kwargs):
-            calls.append((path, kwargs))
+    encoder = semantic_model._load_local_encoder(snapshot_path)
 
-    fake_module = types.ModuleType("sentence_transformers")
-    fake_module.SentenceTransformer = FakeSentenceTransformer
-    monkeypatch.setitem(sys.modules, "sentence_transformers", fake_module)
-
-    semantic_model._load_sentence_transformer(snapshot_path)
-
-    assert calls == [
-        (str(snapshot_path), {"local_files_only": True}),
+    assert _FakeSession.calls == [
+        (str(snapshot_path / "onnx" / "model.onnx"), ["CPUExecutionProvider"]),
     ]
+    assert _FakeTokenizer.calls == {
+        "path": str(snapshot_path / "tokenizer.json"),
+        "truncation": 256,
+        "padding": True,
+    }
+    assert encoder.dimension == 2
 
 
-def test_load_local_model_stays_local_under_offline_env(tmp_path, monkeypatch):
+def test_load_local_encoder_rejects_incomplete_snapshot(tmp_path, monkeypatch):
+    snapshot_path = tmp_path / "snapshot"
+    _write_snapshot(snapshot_path)
+    (snapshot_path / "onnx" / "model.onnx").unlink()
+    _install_fake_runtime(monkeypatch)
+
+    with pytest.raises(semantic_model.SemanticModelLoadError, match="missing onnx/model.onnx"):
+        semantic_model._load_local_encoder(snapshot_path)
+    assert _FakeSession.calls == []
+
+
+def test_load_local_encoder_rejects_non_mean_pooling(tmp_path, monkeypatch):
+    snapshot_path = tmp_path / "snapshot"
+    _write_snapshot(snapshot_path, pooling='{"pooling_mode_cls_token": true}')
+    _install_fake_runtime(monkeypatch)
+
+    with pytest.raises(semantic_model.SemanticModelLoadError, match="mean pooling"):
+        semantic_model._load_local_encoder(snapshot_path)
+
+
+def test_load_local_encoder_wraps_runtime_load_failures(tmp_path, monkeypatch):
+    snapshot_path = tmp_path / "snapshot"
+    _write_snapshot(snapshot_path)
+    _install_fake_runtime(monkeypatch)
+
+    class ExplodingSession:
+        def __init__(self, _path, providers):
+            raise Exception("INVALID_PROTOBUF")
+
+    sys.modules["onnxruntime"].InferenceSession = ExplodingSession
+
+    with pytest.raises(semantic_model.SemanticModelLoadError, match="INVALID_PROTOBUF"):
+        semantic_model._load_local_encoder(snapshot_path)
+
+
+@pytest.mark.semantic
+def test_local_sentence_encoder_mean_pools_masked_tokens_then_normalises(tmp_path, monkeypatch):
+    np = pytest.importorskip("numpy")
+    snapshot_path = tmp_path / "snapshot"
+    _write_snapshot(snapshot_path)
+    _install_fake_runtime(monkeypatch)
+    encoder = semantic_model._load_local_encoder(snapshot_path)
+
+    vectors = encoder.encode(["ab", "abc"])
+
+    # "ab" pads to length 3 with mask [1, 1, 0]: mean of (1, 2) and (2, 2) is (1.5, 2).
+    # "abc" has mask [1, 1, 1]: mean of (1, 2), (2, 2), (3, 2) is (2, 2).
+    assert vectors.dtype == np.float32
+    assert vectors.shape == (2, 2)
+    np.testing.assert_allclose(vectors[0], [0.6, 0.8], rtol=1e-6)
+    np.testing.assert_allclose(vectors[1], [2 ** -0.5, 2 ** -0.5], rtol=1e-6)
+
+    raw = encoder.encode(["ab"], normalize_embeddings=False)
+    np.testing.assert_allclose(raw[0], [1.5, 2.0], rtol=1e-6)
+    assert encoder.encode([]).shape == (0, 2)
+
+
+@pytest.mark.semantic
+def test_local_encoder_matches_sentence_transformers_reference_vectors():
+    """Opt-in parity gate against vectors recorded from the torch pipeline.
+
+    Set BRAIN_TEST_SEMANTIC_SNAPSHOT to a provisioned snapshot directory for the
+    shipped model pin to run it; it needs the real 86 MB ONNX export.
+    """
+    snapshot = os.environ.get("BRAIN_TEST_SEMANTIC_SNAPSHOT")
+    if not snapshot:
+        pytest.skip("BRAIN_TEST_SEMANTIC_SNAPSHOT is not set")
+    np = pytest.importorskip("numpy")
+    pytest.importorskip("onnxruntime")
+    pytest.importorskip("tokenizers")
+    fixture = json.loads(
+        (Path(__file__).parent / "fixtures" / "semantic" / "minilm_l6_v2_reference_vectors.json")
+        .read_text(encoding="utf-8")
+    )
+    assert fixture["revision"] == semantic_model.SHIPPED_MODEL_REVISION
+
+    encoder = semantic_model._load_local_encoder(Path(snapshot))
+    vectors = encoder.encode(fixture["texts"])
+    reference = np.array(fixture["vectors"], dtype=np.float32)
+
+    assert encoder.dimension == semantic_runtime.EMBEDDING_DIM
+    cosines = (vectors * reference).sum(axis=1)
+    assert cosines.min() >= 0.9999, cosines
+
+
+def test_load_local_model_loads_the_manifest_snapshot(tmp_path, monkeypatch):
     vault = _make_vault(tmp_path)
     semantic_model.write_manifest(vault, _manifest())
     snapshot_path = semantic_model.model_snapshot_path(
@@ -88,25 +259,16 @@ def test_load_local_model_stays_local_under_offline_env(tmp_path, monkeypatch):
         semantic_model.SHIPPED_MODEL_REVISION,
     )
     snapshot_path.mkdir(parents=True)
-    calls = []
-
-    class FakeSentenceTransformer:
-        def __init__(self, path, **kwargs):
-            calls.append((path, kwargs))
-
-    fake_module = types.ModuleType("sentence_transformers")
-    fake_module.SentenceTransformer = FakeSentenceTransformer
-    monkeypatch.setitem(sys.modules, "sentence_transformers", fake_module)
-    monkeypatch.setenv("HF_HUB_OFFLINE", "1")
-    monkeypatch.setenv("TRANSFORMERS_OFFLINE", "1")
+    loaded = []
+    monkeypatch.setattr(
+        semantic_model,
+        "_load_local_encoder",
+        lambda path: loaded.append(path) or object(),
+    )
 
     semantic_model.load_local_model(vault)
 
-    assert os.environ["HF_HUB_OFFLINE"] == "1"
-    assert os.environ["TRANSFORMERS_OFFLINE"] == "1"
-    assert calls == [
-        (str(snapshot_path), {"local_files_only": True}),
-    ]
+    assert loaded == [snapshot_path]
 
 
 def test_embeddings_sidecars_match_manifest_keeps_present_honest_without_manifest(tmp_path):
@@ -300,7 +462,7 @@ def test_get_query_encoder_cache_is_vault_scoped(tmp_path, monkeypatch):
         load_calls.append(str(snapshot_path))
         return object()
 
-    monkeypatch.setattr(semantic_model, "_load_sentence_transformer", fake_load)
+    monkeypatch.setattr(semantic_model, "_load_local_encoder", fake_load)
 
     semantic_model.clear_query_encoder()
     try:
@@ -337,7 +499,7 @@ def test_provision_semantic_model_downloads_then_becomes_noop(tmp_path, monkeypa
         return object()
 
     monkeypatch.setattr(semantic_model, "_download_snapshot", fake_download)
-    monkeypatch.setattr(semantic_model, "_load_sentence_transformer", fake_load)
+    monkeypatch.setattr(semantic_model, "_load_local_encoder", fake_load)
 
     first = semantic_model.provision_semantic_model(vault)
     second = semantic_model.provision_semantic_model(vault)
@@ -357,7 +519,7 @@ def test_provision_semantic_model_records_replaced_manifest_note(tmp_path, monke
         snapshot_path.mkdir(parents=True, exist_ok=True)
 
     monkeypatch.setattr(semantic_model, "_download_snapshot", fake_download)
-    monkeypatch.setattr(semantic_model, "_load_sentence_transformer", lambda _path: object())
+    monkeypatch.setattr(semantic_model, "_load_local_encoder", lambda _path: object())
 
     outcome = semantic_model.provision_semantic_model(vault)
 
