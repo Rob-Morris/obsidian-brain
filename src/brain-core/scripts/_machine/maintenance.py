@@ -18,6 +18,11 @@ from _repair_common import build_repair_argv
 
 from ._labels import brain_label
 from .discovery import discover_brains, inspect_machine_registry, sync_machine_registry
+from .process_footprint import (
+    PROCESS_FOOTPRINT_WARN_BYTES,
+    TOTAL_FOOTPRINT_WARN_BYTES,
+    measure_footprint_bytes,
+)
 from .topology import (
     classify_brain_runtime,
     find_live_brain_runtime_processes,
@@ -85,7 +90,10 @@ def inspect_machine_runtime_state(
             for brain in brains
             if brain["runtime"]["selected_runtime"] == runtime["python"]
         ]
-        live_processes = live_usage["processes"].get(runtime["python"], [])
+        live_processes = [
+            {**process, "footprint_bytes": measure_footprint_bytes(process["pid"])}
+            for process in live_usage["processes"].get(runtime["python"], [])
+        ]
         orphan_candidate = live_usage["available"] and not selected_by and not live_processes
         if orphan_candidate:
             orphan_candidates.append(runtime["python"])
@@ -110,12 +118,14 @@ def inspect_machine_runtime_state(
         )
     )
     tidy = healthy and live_usage["available"] and not orphan_candidates
+    memory = _summarise_runtime_memory(runtime_rows, scan_available=live_usage["available"])
 
     return {
         "healthy": healthy,
         "tidy": tidy,
         "launcher_python": launcher_python,
         "live_process_scan_available": live_usage["available"],
+        "memory": memory,
         "machine_registry": machine_registry,
         "venvs_root": str(central_venvs_root()),
         "brains": brains,
@@ -131,7 +141,40 @@ def inspect_machine_runtime_state(
             "stale_registry_entries": len(discovery["stale_registry_entries"]),
             "runtimes": len(runtime_rows),
             "orphan_candidates": len(orphan_candidates),
+            "heavy_processes": len(memory["heavy_processes"]),
         },
+    }
+
+
+def _summarise_runtime_memory(runtime_rows: list[dict[str, Any]], *, scan_available: bool) -> dict[str, Any]:
+    """Total the physical footprint of live runtime processes and flag heavy ones.
+
+    A footprint past the per-process threshold means a corpus encode or a
+    heavyweight runtime is resident in a long-lived process; the total
+    threshold catches many moderately heavy sessions adding up. Both are
+    advisory: they never change `healthy` or `tidy`.
+    """
+    processes = [
+        process
+        for runtime in runtime_rows
+        for process in runtime["live_processes"]
+    ]
+    measured = [process for process in processes if process["footprint_bytes"] is not None]
+    total = sum(process["footprint_bytes"] for process in measured)
+    heavy = sorted(
+        (process for process in measured if process["footprint_bytes"] > PROCESS_FOOTPRINT_WARN_BYTES),
+        key=lambda process: process["footprint_bytes"],
+        reverse=True,
+    )
+    return {
+        "available": scan_available and (not processes or bool(measured)),
+        "process_count": len(processes),
+        "measured_count": len(measured),
+        "total_bytes": total,
+        "process_warn_bytes": PROCESS_FOOTPRINT_WARN_BYTES,
+        "total_warn_bytes": TOTAL_FOOTPRINT_WARN_BYTES,
+        "total_over_threshold": total > TOTAL_FOOTPRINT_WARN_BYTES,
+        "heavy_processes": heavy,
     }
 
 

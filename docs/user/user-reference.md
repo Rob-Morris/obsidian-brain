@@ -1,6 +1,6 @@
 # Brain Reference
 
-This page is the stable user-facing reference for Brain Core 0.62.15 and CLI 3.1.5. Exact command schemas, examples and availability come from the installed Brain rather than a duplicated hand-maintained inventory.
+This page is the stable user-facing reference for Brain Core 0.62.16 and CLI 3.1.5. Exact command schemas, examples and availability come from the installed Brain rather than a duplicated hand-maintained inventory.
 
 Document changes use a read–mutate loop. Read an editable artefact or named
 resource, retain its returned `revision`, then pass that value as
@@ -170,6 +170,8 @@ brain retrieval repair-semantic --vault /path/to/brain --json
 brain workspace repair-registry --vault /path/to/brain --json
 brain mcp repair --vault /path/to/brain --json
 ```
+
+`brain doctor` also reports the physical memory footprint of live Brain runtime processes and warns when one process exceeds 512 MB or the total exceeds 2 GB. A session server that has answered semantic queries sits near 200 MB; anything heavier means a corpus encode or a heavyweight runtime is resident in a long-lived process, and restarting that MCP session reclaims it.
 
 Run `brain command describe <command-id> --json` before relying on an example here: the installed catalogue is authoritative.
 

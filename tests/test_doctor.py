@@ -13,6 +13,16 @@ MACHINE_SUMMARY = {
     "stale_registry_entries": [],
     "stale_machine_registry_entries": [],
     "live_process_scan_available": True,
+    "memory": {
+        "available": True,
+        "process_count": 1,
+        "measured_count": 1,
+        "total_bytes": 104 * 1024**2,
+        "process_warn_bytes": 512 * 1024**2,
+        "total_warn_bytes": 2 * 1024**3,
+        "total_over_threshold": False,
+        "heavy_processes": [],
+    },
     "counts": {
         "brains": 1,
         "stale_registry_entries": 0,

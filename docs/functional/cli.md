@@ -133,4 +133,4 @@ The installer writes a versioned distribution under the selected prefix and a sm
 
 The distribution contains the launcher application plus the Brain Core payload needed for install, upgrade and selected-Brain execution. Installation and replacement verify a content manifest and executable identity; failed replacement restores the proven old binary/distribution pair or retains recovery material and reports the outcome as unverified. Once the new pair is verified, failure to remove an old backup is committed post-upgrade recovery work and never rolls Brain Core back to an older version.
 
-The bootloader requires Python 3.12 or newer. `BRAIN_CLI_VERSION` is `3.1.5`; `BRAIN_INSTALL_REF` is `v0.62.15`.
+The bootloader requires Python 3.12 or newer. `BRAIN_CLI_VERSION` is `3.1.5`; `BRAIN_INSTALL_REF` is `v0.62.16`.

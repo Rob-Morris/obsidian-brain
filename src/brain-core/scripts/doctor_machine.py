@@ -12,6 +12,7 @@ from _machine.discovery import (
     MACHINE_REGISTRY_BLOCK_MESSAGES,
 )
 from _machine.maintenance import collect_machine_summary
+from _machine.process_footprint import format_bytes
 
 
 def _counted_label(count: int, singular: str, plural: str) -> str:
@@ -59,6 +60,27 @@ def _render_repair_findings(findings: list[dict]) -> list[str]:
     return lines
 
 
+def _memory_lines(memory: dict) -> list[str]:
+    if not memory["available"]:
+        return ["memory:    runtime footprint unavailable"]
+    process_label = _counted_label(memory["process_count"], "runtime process", "runtime processes")
+    lines = [
+        "memory:    "
+        f"{format_bytes(memory['total_bytes'])} across {memory['process_count']} live {process_label}"
+    ]
+    if memory["total_over_threshold"]:
+        lines.append(
+            f"  total exceeds {format_bytes(memory['total_warn_bytes'])}; "
+            "restart idle MCP sessions to reclaim it"
+        )
+    for process in memory["heavy_processes"]:
+        lines.append(
+            f"  pid {process['pid']} holds {format_bytes(process['footprint_bytes'])} "
+            f"(over {format_bytes(memory['process_warn_bytes'])}): {process['command']}"
+        )
+    return lines
+
+
 def render_human_lines(summary: dict) -> list[str]:
     counts = summary["counts"]
     registry = summary["machine_registry"]
@@ -87,6 +109,8 @@ def render_human_lines(summary: dict) -> list[str]:
             f"{summary['venvs_root']} "
             f"({counts['runtimes']} present, orphan detection unavailable)"
         )
+
+    lines.extend(_memory_lines(summary["memory"]))
 
     if summary["stale_registry_entries"]:
         lines.append("stale vault registry:")
