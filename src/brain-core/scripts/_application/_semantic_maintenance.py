@@ -41,83 +41,58 @@ class SemanticMaintenancePayload:
 
 
 def execute_enable(context: InvocationContext, request):
-    from _lifecycle.semantic_enable import enable_semantic
-
     return _execute_lifecycle(
         context,
         request,
         operation="enable",
-        invoke=lambda root: enable_semantic(
-            root,
-            provision=True,
-            dry_run=context.dry_run,
-        ),
+        target="_lifecycle.semantic_enable:enable_semantic",
+        provision=True,
+        dry_run=context.dry_run,
     )
 
 
 def execute_repair(context: InvocationContext, request):
-    from _lifecycle.semantic_repairs import repair_semantic
-
     return _execute_lifecycle(
         context,
         request,
         operation="repair",
-        invoke=lambda root: repair_semantic(root, dry_run=context.dry_run),
+        target="_lifecycle.semantic_repairs:repair_semantic",
+        dry_run=context.dry_run,
     )
 
 
 def execute_rebuild(context: InvocationContext, request):
-    from _bootstrap.runtime import step
-    from _lifecycle.retrieval_assets import refresh_retrieval_assets
-
-    def rebuild(root):
-        if context.dry_run:
-            return {
-                "status": "planned",
-                "dry_run": True,
-                "steps": [
-                    step(
-                        "semantic_assets",
-                        "planned",
-                        "Would rebuild the compiled router, retrieval index, and "
-                        "semantic embeddings sidecars.",
-                    )
-                ],
-            }
-        notes = refresh_retrieval_assets(root, force_embeddings=True)
-        return {
-            "status": "ok",
-            "dry_run": False,
-            "steps": [
-                step(
-                    "semantic_assets",
-                    "changed",
-                    "Rebuilt the compiled router, retrieval index, and semantic "
-                    "embeddings sidecars.",
-                )
-            ],
-            "notes": notes,
-        }
-
     return _execute_lifecycle(
         context,
         request,
         operation="rebuild",
-        invoke=rebuild,
+        target="_lifecycle.retrieval_assets:rebuild_semantic_assets",
+        dry_run=context.dry_run,
     )
 
 
-def _execute_lifecycle(context, request, *, operation: str, invoke):
+def _execute_lifecycle(context, request, *, operation: str, target: str, **kwargs):
+    """Run one semantic lifecycle owner under the vault mutation lock.
+
+    The owner runs in a fresh interpreter: corpus encoding leaves hundreds of
+    megabytes resident in whichever process performs it, and this application
+    layer is hosted by long-lived adapters such as the MCP server.
+    """
     from _common import (
         MutationLockError,
         public_mutation_error_message,
         vault_mutation_lock,
     )
+    from _lifecycle import fresh_interpreter
 
     root = context.selected_brain.vault_root
     try:
         with vault_mutation_lock(root):
-            result = invoke(root)
+            result = fresh_interpreter.run_lifecycle_in_fresh_interpreter(
+                target,
+                root,
+                **kwargs,
+            )
     except MutationLockError as exc:
         return no_effect_error(
             type(request),

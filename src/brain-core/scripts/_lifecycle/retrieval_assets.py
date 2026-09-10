@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
+from _bootstrap.runtime import step
 from _common import load_compiled_router, read_artefact
 from _lifecycle.document_parts import EmbeddingParts, embedding_parts_from_body
 from _lifecycle.retrieval_errors import (
@@ -134,6 +135,37 @@ def refresh_retrieval_assets(
     else:
         notes.append("Semantic sidecars refreshed.")
     return notes
+
+
+def rebuild_semantic_assets(vault_root: str | Path, *, dry_run: bool) -> dict:
+    """Force-refresh router, lexical index and semantic sidecars as one lifecycle result."""
+    if dry_run:
+        return {
+            "status": "planned",
+            "dry_run": True,
+            "steps": [
+                step(
+                    "semantic_assets",
+                    "planned",
+                    "Would rebuild the compiled router, retrieval index, and "
+                    "semantic embeddings sidecars.",
+                )
+            ],
+        }
+    notes = refresh_retrieval_assets(vault_root, force_embeddings=True)
+    return {
+        "status": "ok",
+        "dry_run": False,
+        "steps": [
+            step(
+                "semantic_assets",
+                "changed",
+                "Rebuilt the compiled router, retrieval index, and semantic "
+                "embeddings sidecars.",
+            )
+        ],
+        "notes": notes,
+    }
 
 
 def _persist_step(rel_path, operation, fn):

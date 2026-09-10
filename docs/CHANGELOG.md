@@ -8,6 +8,7 @@ Never edit past changelog entries. Only add new entries at the top.
 
 | Version | Date | Summary |
 |---|---|---|
+| [v0.62.15](changelog/v0.62.15.md) | 2026-09-11 | Run semantic rebuilds in a fresh interpreter, not the MCP server |
 | [v0.62.14](changelog/v0.62.14.md) | 2026-09-11 | Load semantic embeddings via onnxruntime instead of torch on Metal |
 | [v0.62.13](changelog/v0.62.13.md) | 2026-08-29 | Batch skill refreshes and enforce vendor membership |
 | [v0.62.12](changelog/v0.62.12.md) | 2026-08-29 | Restore long-lived MCP state and non-blocking session mirrors |

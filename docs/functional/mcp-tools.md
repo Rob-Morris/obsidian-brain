@@ -2,6 +2,8 @@
 
 Brain Core exposes the selected-Brain application catalogue as granular MCP tools. `server.py` is a small composition root: it registers catalogue projections, composes trusted local invocation context and installs the replacement-proxy protocol gate. Semantic logic belongs to application commands, not the MCP adapter.
 
+The server is long-lived, so work whose memory would otherwise stay resident for the rest of the session runs elsewhere: `session.start` warm-up spawns a detached worker, and the semantic maintenance commands (`retrieval.repair-semantic`, `retrieval.rebuild-semantic`, `retrieval.enable`) run their lifecycle owner in a fresh interpreter through `_lifecycle/fresh_interpreter.py` while the calling process holds the vault mutation lock. Query encoding for `artefact.search` stays in-process on the CPU-only `onnxruntime` encoder.
+
 The transport boundary uses the official Python `MCPServer` API at the exact
 reviewed `mcp==2.0.0` pin. It continues to serve supported 2025 protocol clients;
 the dependency admission and runtime policy are recorded in

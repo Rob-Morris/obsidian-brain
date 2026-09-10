@@ -19,8 +19,7 @@ from _application.types import (
     RetryClass,
 )
 from command_application import application_for
-import _lifecycle.retrieval_assets as retrieval_assets
-import _lifecycle.semantic_enable as semantic_enable
+import _lifecycle.fresh_interpreter as fresh_interpreter
 
 
 class _SemanticProvider:
@@ -66,8 +65,8 @@ def test_semantic_enable_reports_committed_config_and_assets(
     root = command_vault_clone.vault_root
 
     monkeypatch.setattr(
-        semantic_enable,
-        "enable_semantic",
+        fresh_interpreter,
+        "run_lifecycle_in_fresh_interpreter",
         lambda *_args, **_kwargs: {
             "status": "ok",
             "steps": [
@@ -90,8 +89,8 @@ def test_semantic_enable_failure_after_flag_write_is_partial(
     monkeypatch,
 ):
     monkeypatch.setattr(
-        semantic_enable,
-        "enable_semantic",
+        fresh_interpreter,
+        "run_lifecycle_in_fresh_interpreter",
         lambda *_args, **_kwargs: {
             "status": "partial",
             "steps": [
@@ -123,13 +122,17 @@ def test_semantic_repair_is_noop_when_vault_has_not_opted_in(command_vault_clone
 
 def test_semantic_rebuild_forces_full_asset_refresh(command_vault_clone, monkeypatch):
     calls = []
-    monkeypatch.setattr(
-        retrieval_assets,
-        "refresh_retrieval_assets",
-        lambda root, *, force_embeddings=False: calls.append(
-            (root, force_embeddings)
-        ) or ["refreshed"],
-    )
+
+    def fake_run(target, root, **kwargs):
+        calls.append((target, root, kwargs))
+        return {
+            "status": "ok",
+            "dry_run": False,
+            "steps": [{"name": "semantic_assets", "status": "changed", "message": "rebuilt"}],
+            "notes": ["refreshed"],
+        }
+
+    monkeypatch.setattr(fresh_interpreter, "run_lifecycle_in_fresh_interpreter", fake_run)
 
     result = _managed_application(command_vault_clone.vault_root).invoke(
         RetrievalRebuildSemanticRequest()
@@ -138,7 +141,13 @@ def test_semantic_rebuild_forces_full_asset_refresh(command_vault_clone, monkeyp
     assert result.status == "ok"
     assert result.result.operation == "rebuild"
     assert result.result.status is SemanticMaintenanceStatus.CHANGED
-    assert calls == [(command_vault_clone.vault_root, True)]
+    assert calls == [
+        (
+            "_lifecycle.retrieval_assets:rebuild_semantic_assets",
+            command_vault_clone.vault_root,
+            {"dry_run": False},
+        )
+    ]
     assert len(result.committed_effects) == 5
 
 

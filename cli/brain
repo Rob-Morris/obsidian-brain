@@ -2,7 +2,7 @@
 set -euo pipefail
 
 BRAIN_CLI_VERSION="3.1.5"
-BRAIN_INSTALL_REF="v0.62.14"
+BRAIN_INSTALL_REF="v0.62.15"
 
 SELF_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd -P)"
 SELF_PATH="$SELF_DIR/$(basename -- "$0")"
