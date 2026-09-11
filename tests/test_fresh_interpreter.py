@@ -40,13 +40,25 @@ def test_run_lifecycle_rejects_owners_outside_the_lifecycle_package(tmp_path, mo
 def test_run_lifecycle_surfaces_owner_exceptions_as_typed_errors(tmp_path):
     with pytest.raises(
         fresh_interpreter.FreshInterpreterError,
-        match="rebuild_semantic failed with",
+        match="rebuild_semantic failed with TypeError",
     ):
         fresh_interpreter.run_lifecycle_in_fresh_interpreter(
             rebuild_semantic,
-            tmp_path / "not-a-vault",
-            dry_run=False,
+            tmp_path,
+            dry_run=True,
+            unexpected_argument=1,
         )
+
+
+def test_rebuild_semantic_reports_a_missing_model_as_an_error_step(command_vault_clone):
+    pytest.importorskip("numpy")
+
+    result = rebuild_semantic(command_vault_clone.vault_root, dry_run=False)
+
+    assert result["status"] == "error"
+    assert result["steps"][0]["name"] == "semantic_assets"
+    assert result["steps"][0]["status"] == "error"
+    assert "semantic model" in result["steps"][0]["message"]
 
 
 def test_run_lifecycle_reports_missing_reply(tmp_path, monkeypatch):

@@ -91,7 +91,7 @@ def sync_runtime_packages(python_executable: str) -> None:
     importlib.invalidate_caches()
 
 
-def _format_asset_refresh_error(exc: BaseException) -> str:
+def format_asset_refresh_error(exc: BaseException) -> str:
     """Return an operator-facing semantic refresh failure summary."""
     for error_type, summary in _SEMANTIC_ASSET_REFRESH_SUMMARIES.items():
         if isinstance(exc, error_type):
@@ -267,7 +267,7 @@ def provision_semantic_runtime(
             notes.extend(refresh_semantic_assets(vault_root))
             assets_changed = True
         except SEMANTIC_ASSET_REFRESH_ERRORS as exc:
-            assets_error = _format_asset_refresh_error(exc)
+            assets_error = format_asset_refresh_error(exc)
 
     marker_installed = assets_error is None
     marker_changed = semantic_config.set_semantic_engine_installed(
