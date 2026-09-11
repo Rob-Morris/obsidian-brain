@@ -128,9 +128,9 @@ After provisioning the target managed runtime, upgrade reconciles any existing c
 
 The installer writes a versioned distribution under the selected prefix and a small platform bootloader under `bin/`:
 
-- Unix-like user install: `~/.local/bin/brain` and `~/.local/lib/brain-cli/3.1.5/`.
-- Native Windows user install: `%LOCALAPPDATA%\Programs\Brain\bin\brain.cmd` and the adjacent `lib\brain-cli\3.1.5\` distribution.
+- Unix-like user install: `~/.local/bin/brain` and `~/.local/lib/brain-cli/3.1.6/`.
+- Native Windows user install: `%LOCALAPPDATA%\Programs\Brain\bin\brain.cmd` and the adjacent `lib\brain-cli\3.1.6\` distribution.
 
 The distribution contains the launcher application plus the Brain Core payload needed for install, upgrade and selected-Brain execution. Installation and replacement verify a content manifest and executable identity; failed replacement restores the proven old binary/distribution pair or retains recovery material and reports the outcome as unverified. Once the new pair is verified, failure to remove an old backup is committed post-upgrade recovery work and never rolls Brain Core back to an older version.
 
-The bootloader requires Python 3.12 or newer. `BRAIN_CLI_VERSION` is `3.1.5`; `BRAIN_INSTALL_REF` is `v0.62.17`.
+The bootloader requires Python 3.12 or newer. `BRAIN_CLI_VERSION` is `3.1.6`; `BRAIN_INSTALL_REF` is `v0.62.18`.

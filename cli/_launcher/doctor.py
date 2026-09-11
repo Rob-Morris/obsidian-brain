@@ -162,6 +162,42 @@ class DoctorMachineCounts:
 
 
 @dataclass(frozen=True, slots=True)
+class DoctorHeavyProcess:
+    pid: int
+    footprint_bytes: int
+    command: str
+
+    def __post_init__(self) -> None:
+        if self.pid <= 0 or self.footprint_bytes < 0 or not self.command:
+            raise ValueError("Doctor heavy process must have a pid, footprint and command")
+
+
+@dataclass(frozen=True, slots=True)
+class DoctorMemoryStatus:
+    """Advisory physical footprint of live Brain runtime processes."""
+
+    process_count: int
+    measured_count: int
+    total_bytes: int
+    process_warn_bytes: int
+    total_warn_bytes: int
+    total_over_threshold: bool
+    heavy_processes: tuple[DoctorHeavyProcess, ...]
+
+    def __post_init__(self) -> None:
+        if min(self.process_count, self.measured_count, self.total_bytes) < 0:
+            raise ValueError("Doctor memory counts cannot be negative")
+        if self.measured_count > self.process_count:
+            raise ValueError("Doctor memory cannot measure more processes than are live")
+        if any(not isinstance(item, DoctorHeavyProcess) for item in self.heavy_processes):
+            raise ValueError("Doctor heavy processes must be typed")
+        if any(item.footprint_bytes <= self.process_warn_bytes for item in self.heavy_processes):
+            raise ValueError("Doctor heavy processes must exceed the per-process threshold")
+        if self.total_over_threshold != (self.total_bytes > self.total_warn_bytes):
+            raise ValueError("Doctor memory total flag must agree with the threshold")
+
+
+@dataclass(frozen=True, slots=True)
 class DoctorMachineStatus:
     healthy: bool
     tidy: bool
@@ -173,8 +209,11 @@ class DoctorMachineStatus:
     stale_machine_registry_entries: tuple[DoctorPathEntry, ...]
     brains: tuple[DoctorBrainStatus, ...]
     orphan_runtime_pythons: tuple[str, ...]
+    memory: DoctorMemoryStatus | None
 
     def __post_init__(self) -> None:
+        if self.memory is not None and not isinstance(self.memory, DoctorMemoryStatus):
+            raise ValueError("Doctor machine memory must be typed")
         if any(
             not isinstance(value, bool)
             for value in (
@@ -391,6 +430,24 @@ def _machine_status(raw: dict) -> DoctorMachineStatus:
                 for item in raw["runtimes"]
                 if item["orphan_candidate"]
             )
+        ),
+        _memory_status(raw.get("memory")),
+    )
+
+
+def _memory_status(raw: dict | None) -> DoctorMemoryStatus | None:
+    if raw is None:
+        return None
+    return DoctorMemoryStatus(
+        raw["process_count"],
+        raw["measured_count"],
+        raw["total_bytes"],
+        raw["process_warn_bytes"],
+        raw["total_warn_bytes"],
+        raw["total_over_threshold"],
+        tuple(
+            DoctorHeavyProcess(item["pid"], item["footprint_bytes"], item["command"])
+            for item in raw["heavy_processes"]
         ),
     )
 

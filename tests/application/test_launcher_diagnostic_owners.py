@@ -137,6 +137,17 @@ def _machine_report(tmp_path):
                 ],
             }
         ],
+        "memory": {
+            "process_count": 2,
+            "measured_count": 1,
+            "total_bytes": 1650 * 1024**2,
+            "process_warn_bytes": 512 * 1024**2,
+            "total_warn_bytes": 2 * 1024**3,
+            "total_over_threshold": False,
+            "heavy_processes": [
+                {"pid": 4242, "footprint_bytes": 1650 * 1024**2, "command": "python -m brain_mcp.server"}
+            ],
+        },
         "runtimes": [
             {
                 "python": str(orphan),
@@ -223,6 +234,8 @@ def test_doctor_returns_bounded_typed_diagnosis_without_registry_sync(
     assert result.result.exit_code == 1
     assert result.result.machine.registry.state is DoctorRegistryState.DRIFTED
     assert result.result.machine.counts.orphan_candidates == 1
+    assert result.result.machine.memory.measured_count == 1
+    assert result.result.machine.memory.heavy_processes[0].pid == 4242
     assert result.result.machine.brains[0].repair_findings[0].command_id == "mcp.repair"
     assert not hasattr(result.result.machine.brains[0].repair_findings[0], "command")
     assert result.result.vault.state is DoctorVaultState.CHECKED

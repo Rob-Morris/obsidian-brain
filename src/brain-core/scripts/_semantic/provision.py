@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import importlib
 import subprocess
 from pathlib import Path
 
@@ -85,6 +86,9 @@ def sync_runtime_packages(python_executable: str) -> None:
         check=True,
         timeout=SEMANTIC_RUNTIME_TIMEOUT,
     )
+    # The same interpreter imports the freshly installed packages next; make
+    # sure its path finders notice the new site-packages entries.
+    importlib.invalidate_caches()
 
 
 def _format_asset_refresh_error(exc: BaseException) -> str:

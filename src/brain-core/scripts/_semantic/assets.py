@@ -18,22 +18,25 @@ import _semantic.runtime as semantic_runtime
 from _taxonomy_descriptions import extract_type_description
 
 
-try:
-    import numpy as np
-
-    _HAS_NUMPY = True
-except ImportError:
-    np = None
-    _HAS_NUMPY = False
+# Resolved on first use rather than at import time: semantic provisioning
+# installs NumPy into the running interpreter's environment after this module
+# has already been imported, and the first asset refresh follows in the same
+# process.
+np = None
 
 
 def _require_numpy():
     """Return NumPy or raise the typed semantic-runtime unavailability error."""
-    if not _HAS_NUMPY:
-        raise SemanticRuntimeUnavailableError(
-            "semantic runtime dependencies are unavailable: numpy is not installed",
-            operation="building semantic embeddings",
-        )
+    global np
+    if np is None:
+        try:
+            import numpy
+        except ImportError as exc:
+            raise SemanticRuntimeUnavailableError(
+                "semantic runtime dependencies are unavailable: numpy is not installed",
+                operation="building semantic embeddings",
+            ) from exc
+        np = numpy
     return np
 
 

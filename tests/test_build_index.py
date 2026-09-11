@@ -1,5 +1,6 @@
 """Tests for build_index.py — BM25 retrieval index builder."""
 
+import builtins
 import io
 import copy
 import importlib.util
@@ -539,14 +540,41 @@ class TestIncrementalIndex:
 # ---------------------------------------------------------------------------
 
 class TestBuildEmbeddings:
-    def test_raises_typed_runtime_error_without_numpy(self, vault):
+    def test_raises_typed_runtime_error_without_numpy(self, vault, monkeypatch):
         """When NumPy is unavailable, semantic sidecar build fails explicitly."""
-        with patch.object(semantic_assets, "_HAS_NUMPY", False):
-            with pytest.raises(
-                retrieval_errors.SemanticRuntimeUnavailableError,
-                match="numpy is not installed",
-            ):
-                semantic_assets.build_embeddings(vault, {"artefacts": []}, [])
+        real_import = builtins.__import__
+
+        def fake_import(name, *args, **kwargs):
+            if name == "numpy":
+                raise ModuleNotFoundError("No module named 'numpy'", name="numpy")
+            return real_import(name, *args, **kwargs)
+
+        monkeypatch.setattr(semantic_assets, "np", None)
+        monkeypatch.setattr(builtins, "__import__", fake_import)
+        with pytest.raises(
+            retrieval_errors.SemanticRuntimeUnavailableError,
+            match="numpy is not installed",
+        ):
+            semantic_assets.build_embeddings(vault, {"artefacts": []}, [])
+
+    def test_numpy_is_resolved_on_first_use_not_at_import(self, monkeypatch):
+        """Provisioning installs NumPy after import; the next use must see it."""
+        pytest.importorskip("numpy")
+        real_import = builtins.__import__
+        available = {"numpy": False}
+
+        def fake_import(name, *args, **kwargs):
+            if name == "numpy" and not available["numpy"]:
+                raise ModuleNotFoundError("No module named 'numpy'", name="numpy")
+            return real_import(name, *args, **kwargs)
+
+        monkeypatch.setattr(semantic_assets, "np", None)
+        monkeypatch.setattr(builtins, "__import__", fake_import)
+        with pytest.raises(retrieval_errors.SemanticRuntimeUnavailableError):
+            semantic_assets._require_numpy()
+
+        available["numpy"] = True
+        assert semantic_assets._require_numpy().__name__ == "numpy"
 
     def test_routes_npy_writes_through_safe_save_wrapper(self, vault, monkeypatch):
         """build_embeddings writes both arrays through the local atomic wrapper path."""
@@ -572,7 +600,6 @@ class TestBuildEmbeddings:
             calls.append((path, kwargs.get("bounds"), handle.getvalue()))
             return str(path)
 
-        monkeypatch.setattr(semantic_assets, "_HAS_NUMPY", True)
         monkeypatch.setattr(semantic_assets, "np", FakeNumpy(), raising=False)
         monkeypatch.setattr(
             semantic_assets.semantic_model,
@@ -611,7 +638,6 @@ class TestBuildEmbeddings:
             def encode(self, texts, normalize_embeddings=True):
                 return [[0.0] for _ in texts]
 
-        monkeypatch.setattr(semantic_assets, "_HAS_NUMPY", True)
         monkeypatch.setattr(semantic_assets, "np", FakeNumpy(), raising=False)
         monkeypatch.setattr(
             semantic_assets.semantic_model,
@@ -658,7 +684,6 @@ class TestEmbeddingsOutputs:
             def encode(self, texts, normalize_embeddings=True):
                 return [[0.0] for _ in texts]
 
-        monkeypatch.setattr(semantic_assets, "_HAS_NUMPY", True)
         monkeypatch.setattr(semantic_assets, "np", FakeNumpy(), raising=False)
         monkeypatch.setattr(
             semantic_assets.semantic_model,
@@ -695,7 +720,6 @@ class TestEmbeddingsOutputs:
         }
 
     def test_build_embeddings_propagates_missing_uncached_document_reads(self, vault, monkeypatch):
-        monkeypatch.setattr(semantic_assets, "_HAS_NUMPY", True)
 
         with pytest.raises(
             retrieval_errors.UnreadableRetrievalSourceError,
@@ -731,7 +755,6 @@ class TestEmbeddingsOutputs:
             def encode(self, texts, normalize_embeddings=True):
                 return [[0.0] for _ in texts]
 
-        monkeypatch.setattr(semantic_assets, "_HAS_NUMPY", True)
         monkeypatch.setattr(semantic_assets, "np", FakeNumpy(), raising=False)
         monkeypatch.setattr(
             semantic_assets.semantic_model,
@@ -769,7 +792,6 @@ class TestEmbeddingsOutputs:
             def encode(self, texts, normalize_embeddings=True):
                 return [[0.0] for _ in texts]
 
-        monkeypatch.setattr(semantic_assets, "_HAS_NUMPY", True)
         monkeypatch.setattr(semantic_assets, "np", FakeNumpy(), raising=False)
         monkeypatch.setattr(
             semantic_assets.semantic_model,
