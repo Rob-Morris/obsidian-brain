@@ -14,7 +14,6 @@ MACHINE_SUMMARY = {
     "stale_machine_registry_entries": [],
     "live_process_scan_available": True,
     "memory": {
-        "available": True,
         "process_count": 1,
         "measured_count": 1,
         "total_bytes": 104 * 1024**2,
@@ -316,3 +315,32 @@ def test_overall_exit_code_rolls_up_cli_machine_and_vault_states():
 
     for cli, machine, vault, expected in cases:
         assert doctor.overall_exit_code(cli=cli, machine=machine, vault=vault) == expected
+
+
+def _summary_with_memory(**memory_overrides):
+    summary = json.loads(json.dumps(MACHINE_SUMMARY))
+    summary["memory"].update(memory_overrides)
+    return summary
+
+
+def test_doctor_machine_memory_line_reports_scan_failure():
+    summary = _summary_with_memory()
+    summary["live_process_scan_available"] = False
+
+    lines = doctor.doctor_machine.render_human_lines(summary)
+
+    assert "memory:    runtime footprint unavailable (process scan failed)" in lines
+
+
+def test_doctor_machine_memory_line_warns_when_total_exceeds_threshold():
+    summary = _summary_with_memory(
+        process_count=3,
+        measured_count=3,
+        total_bytes=int(2.5 * 1024**3),
+        total_over_threshold=True,
+    )
+
+    lines = doctor.doctor_machine.render_human_lines(summary)
+
+    assert "memory:    2.5 GB across 3 live runtime processes" in lines
+    assert "  total exceeds 2.0 GB; restart idle MCP sessions to reclaim it" in lines

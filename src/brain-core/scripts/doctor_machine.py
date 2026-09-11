@@ -60,14 +60,26 @@ def _render_repair_findings(findings: list[dict]) -> list[str]:
     return lines
 
 
-def _memory_lines(memory: dict) -> list[str]:
-    if not memory["available"]:
-        return ["memory:    runtime footprint unavailable"]
-    process_label = _counted_label(memory["process_count"], "runtime process", "runtime processes")
-    lines = [
-        "memory:    "
-        f"{format_bytes(memory['total_bytes'])} across {memory['process_count']} live {process_label}"
-    ]
+def _memory_lines(summary: dict) -> list[str]:
+    memory = summary.get("memory")
+    if memory is None:
+        return []
+    if not summary["live_process_scan_available"]:
+        return ["memory:    runtime footprint unavailable (process scan failed)"]
+    if memory["process_count"] == 0:
+        return ["memory:    no live runtime processes"]
+    unmeasured = memory["process_count"] - memory["measured_count"]
+    if unmeasured:
+        coverage = (
+            f"{memory['measured_count']} of {memory['process_count']} live runtime processes "
+            f"({unmeasured} unmeasured)"
+        )
+    else:
+        coverage = (
+            f"{memory['process_count']} live "
+            f"{_counted_label(memory['process_count'], 'runtime process', 'runtime processes')}"
+        )
+    lines = [f"memory:    {format_bytes(memory['total_bytes'])} across {coverage}"]
     if memory["total_over_threshold"]:
         lines.append(
             f"  total exceeds {format_bytes(memory['total_warn_bytes'])}; "
@@ -110,7 +122,7 @@ def render_human_lines(summary: dict) -> list[str]:
             f"({counts['runtimes']} present, orphan detection unavailable)"
         )
 
-    lines.extend(_memory_lines(summary["memory"]))
+    lines.extend(_memory_lines(summary))
 
     if summary["stale_registry_entries"]:
         lines.append("stale vault registry:")
@@ -177,6 +189,7 @@ def main() -> int:
         current_vault=args.current_vault,
         launcher_python=args.launcher,
         synchronise_registry=True,
+        measure_memory=True,
     )
     if args.json:
         print(json.dumps(summary, indent=2))

@@ -222,6 +222,7 @@ def build_report(*, args) -> tuple[dict, int]:
         current_vault=args.current_vault,
         launcher_python=args.launcher,
         synchronise_registry=True,
+        measure_memory=True,
     )
     vault = collect_vault_diagnosis(
         current_vault=args.current_vault,

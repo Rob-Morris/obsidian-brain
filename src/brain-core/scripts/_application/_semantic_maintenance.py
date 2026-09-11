@@ -41,37 +41,43 @@ class SemanticMaintenancePayload:
 
 
 def execute_enable(context: InvocationContext, request):
+    from _lifecycle.semantic_enable import enable_semantic
+
     return _execute_lifecycle(
         context,
         request,
         operation="enable",
-        target="_lifecycle.semantic_enable:enable_semantic",
+        owner=enable_semantic,
         provision=True,
         dry_run=context.dry_run,
     )
 
 
 def execute_repair(context: InvocationContext, request):
+    from _lifecycle.semantic_repairs import repair_semantic
+
     return _execute_lifecycle(
         context,
         request,
         operation="repair",
-        target="_lifecycle.semantic_repairs:repair_semantic",
+        owner=repair_semantic,
         dry_run=context.dry_run,
     )
 
 
 def execute_rebuild(context: InvocationContext, request):
+    from _lifecycle.semantic_rebuild import rebuild_semantic
+
     return _execute_lifecycle(
         context,
         request,
         operation="rebuild",
-        target="_lifecycle.retrieval_assets:rebuild_semantic_assets",
+        owner=rebuild_semantic,
         dry_run=context.dry_run,
     )
 
 
-def _execute_lifecycle(context, request, *, operation: str, target: str, **kwargs):
+def _execute_lifecycle(context, request, *, operation: str, owner, **kwargs):
     """Run one semantic lifecycle owner under the vault mutation lock.
 
     The owner runs in a fresh interpreter: corpus encoding leaves hundreds of
@@ -89,7 +95,7 @@ def _execute_lifecycle(context, request, *, operation: str, target: str, **kwarg
     try:
         with vault_mutation_lock(root):
             result = fresh_interpreter.run_lifecycle_in_fresh_interpreter(
-                target,
+                owner,
                 root,
                 **kwargs,
             )

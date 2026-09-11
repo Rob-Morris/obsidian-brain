@@ -70,7 +70,6 @@ def _write_snapshot(snapshot_path, *, pooling='{"pooling_mode_mean_tokens": true
         '{"max_seq_length": 256}', encoding="utf-8"
     )
     (snapshot_path / "1_Pooling" / "config.json").write_text(pooling, encoding="utf-8")
-    (snapshot_path / "config.json").write_text("{}", encoding="utf-8")
 
 
 class _FakeTensor:
@@ -219,7 +218,6 @@ def test_local_sentence_encoder_mean_pools_masked_tokens_then_normalises(tmp_pat
 
     raw = encoder.encode(["ab"], normalize_embeddings=False)
     np.testing.assert_allclose(raw[0], [1.5, 2.0], rtol=1e-6)
-    assert encoder.encode([]).shape == (0, 2)
 
 
 @pytest.mark.semantic

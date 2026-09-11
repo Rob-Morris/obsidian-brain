@@ -38,7 +38,7 @@ def semantic_runtime_dependencies_available():
     """Return True when lightweight semantic-search deps appear importable."""
     return all(
         importlib.util.find_spec(module) is not None
-        for module in ("numpy", "onnxruntime", "tokenizers")
+        for module in semantic_model.ENCODER_MODULES
     )
 
 

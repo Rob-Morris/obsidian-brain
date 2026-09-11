@@ -456,6 +456,7 @@ def execute_doctor(context: LauncherContext, request: BrainDoctorRequest):
         current_vault=current_vault,
         launcher_python=launcher_python,
         synchronise_registry=False,
+        measure_memory=True,
     )
     vault = doctor.collect_vault_diagnosis(
         current_vault=current_vault,

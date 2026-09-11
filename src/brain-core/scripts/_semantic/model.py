@@ -29,9 +29,15 @@ SNAPSHOT_FILES = (
     SNAPSHOT_TOKENIZER_FILE,
     SNAPSHOT_SEQUENCE_CONFIG_FILE,
     SNAPSHOT_POOLING_CONFIG_FILE,
-    "config.json",
 )
+# Third-party modules the local encoder imports; provisioning and the
+# availability probe derive their module lists from this one tuple.
+ENCODER_MODULES = ("numpy", "onnxruntime", "tokenizers")
 ENCODE_BATCH_SIZE = 32
+# Mirror the sentence-transformers Pooling clamp and Normalize epsilon the
+# persisted sidecars were built with; changing either drifts the vectors.
+_POOLING_MASK_CLAMP = 1e-9
+_NORMALISE_EPSILON = 1e-12
 # Keep inference on the CPU provider. Letting onnxruntime pick an accelerator
 # (CoreML on macOS) reintroduces the GPU-owned memory this backend exists to
 # avoid, and MiniLM-sized models gain nothing from it at query time.
@@ -119,19 +125,20 @@ class LocalSentenceEncoder:
         self._input_names = frozenset(item.name for item in session.get_inputs())
         self.dimension = int(session.get_outputs()[0].shape[-1])
 
-    def encode(self, texts, *, normalize_embeddings: bool = True, batch_size: int = ENCODE_BATCH_SIZE):
-        """Return one embedding row per text as a float32 array."""
+    def encode(self, texts, *, normalize_embeddings: bool = True):
+        """Return one embedding row per text as a float32 array; ``texts`` must be non-empty."""
         import numpy as np
 
-        batches = [
-            self._encode_batch(np, list(texts[start : start + batch_size]), normalize_embeddings)
-            for start in range(0, len(texts), batch_size)
-        ]
-        if not batches:
-            return np.zeros((0, self.dimension), dtype=np.float32)
-        return np.vstack(batches)
+        return np.vstack(
+            [
+                self._encode_batch(list(texts[start : start + ENCODE_BATCH_SIZE]), normalize_embeddings)
+                for start in range(0, len(texts), ENCODE_BATCH_SIZE)
+            ]
+        )
 
-    def _encode_batch(self, np, texts, normalize_embeddings):
+    def _encode_batch(self, texts, normalize_embeddings):
+        import numpy as np
+
         encodings = self._tokenizer.encode_batch(texts)
         input_ids = np.array([item.ids for item in encodings], dtype=np.int64)
         attention_mask = np.array([item.attention_mask for item in encodings], dtype=np.int64)
@@ -140,9 +147,10 @@ class LocalSentenceEncoder:
             feeds["token_type_ids"] = np.zeros_like(input_ids)
         token_embeddings = self._session.run(None, feeds)[0]
         mask = attention_mask[:, :, np.newaxis].astype(np.float32)
-        pooled = (token_embeddings * mask).sum(axis=1) / np.maximum(mask.sum(axis=1), 1e-9)
+        pooled = (token_embeddings * mask).sum(axis=1) / np.maximum(mask.sum(axis=1), _POOLING_MASK_CLAMP)
         if normalize_embeddings:
-            pooled = pooled / np.maximum(np.linalg.norm(pooled, axis=1, keepdims=True), 1e-12)
+            norms = np.linalg.norm(pooled, axis=1, keepdims=True)
+            pooled = pooled / np.maximum(norms, _NORMALISE_EPSILON)
         return pooled.astype(np.float32)
 
 

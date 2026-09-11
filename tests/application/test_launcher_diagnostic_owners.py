@@ -235,6 +235,7 @@ def test_doctor_returns_bounded_typed_diagnosis_without_registry_sync(
             "current_vault": str((tmp_path / "Brain").resolve()),
             "launcher_python": str(Path(sys.executable).resolve()),
             "synchronise_registry": False,
+            "measure_memory": True,
         }
     ]
     assert receipts.values[-1].state is ReceiptState.NONE

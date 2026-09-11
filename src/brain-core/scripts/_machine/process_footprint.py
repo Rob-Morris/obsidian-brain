@@ -12,6 +12,7 @@ from pathlib import Path
 import re
 import subprocess
 import sys
+from typing import Any
 
 # A baseline session server sits near 100 MB and one that has answered
 # semantic queries near 200 MB. Anything past 512 MB means a corpus encode or
@@ -31,6 +32,32 @@ def measure_footprint_bytes(pid: int) -> int | None:
     if sys.platform.startswith("linux"):
         return _linux_footprint(pid)
     return None
+
+
+def summarise_runtime_memory(runtime_rows: list[dict[str, Any]]) -> dict[str, Any]:
+    """Total the measured footprint of live runtime processes and flag heavy ones.
+
+    Advisory only: a footprint past the per-process threshold means a corpus
+    encode or a heavyweight runtime is resident in a long-lived process; the
+    total threshold catches many moderately heavy sessions adding up.
+    """
+    processes = [process for runtime in runtime_rows for process in runtime["live_processes"]]
+    measured = [process for process in processes if process.get("footprint_bytes") is not None]
+    total = sum(process["footprint_bytes"] for process in measured)
+    heavy = sorted(
+        (process for process in measured if process["footprint_bytes"] > PROCESS_FOOTPRINT_WARN_BYTES),
+        key=lambda process: process["footprint_bytes"],
+        reverse=True,
+    )
+    return {
+        "process_count": len(processes),
+        "measured_count": len(measured),
+        "total_bytes": total,
+        "process_warn_bytes": PROCESS_FOOTPRINT_WARN_BYTES,
+        "total_warn_bytes": TOTAL_FOOTPRINT_WARN_BYTES,
+        "total_over_threshold": total > TOTAL_FOOTPRINT_WARN_BYTES,
+        "heavy_processes": heavy,
+    }
 
 
 def format_bytes(value: int) -> str:

@@ -24,7 +24,7 @@ SEMANTIC_RUNTIME_PACKAGES = (
     "onnxruntime==1.30.0",
     "tokenizers==0.23.2",
 )
-SEMANTIC_RUNTIME_MODULES = ("huggingface_hub", "numpy", "onnxruntime", "tokenizers")
+SEMANTIC_RUNTIME_MODULES = ("huggingface_hub", *semantic_model.ENCODER_MODULES)
 SEMANTIC_RUNTIME_TIMEOUT = 900
 _SEMANTIC_ASSET_REFRESH_SUMMARIES = {
     UnreadableRetrievalSourceError: (
@@ -68,14 +68,13 @@ def refresh_semantic_assets(vault_root: str | Path) -> list[str]:
     return refresh_retrieval_assets(vault_root, force_embeddings=True)
 
 
-def semantic_runtime_supported_platform(*, system: str | None = None, machine: str | None = None) -> tuple[bool, str | None]:
+def semantic_runtime_supported_platform() -> tuple[bool, str | None]:
     """Return whether semantic runtime provisioning is supported on this platform.
 
     onnxruntime and tokenizers publish wheels for every platform Brain runs on,
     so no platform is currently excluded. The seam stays so a future runtime
     pin with narrower wheel coverage has one place to declare it.
     """
-    del system, machine
     return True, None
 
 

@@ -10,6 +10,9 @@ duration of the command.
 
 from __future__ import annotations
 
+from collections.abc import Callable
+import contextlib
+import importlib
 import json
 import os
 from pathlib import Path
@@ -22,7 +25,7 @@ LIFECYCLE_TARGET_PREFIX = "_lifecycle."
 FRESH_INTERPRETER_TIMEOUT_SECONDS = 1800
 
 _CHILD_BOOTSTRAP = """
-import io, json, sys
+import sys
 sys.path.insert(0, sys.argv[1])
 from _lifecycle.fresh_interpreter import run_target_from_stdin
 run_target_from_stdin()
@@ -34,19 +37,20 @@ class FreshInterpreterError(RuntimeError):
 
 
 def run_lifecycle_in_fresh_interpreter(
-    target: str,
+    owner: Callable[..., dict],
     vault_root: str | Path,
     *,
     timeout: float = FRESH_INTERPRETER_TIMEOUT_SECONDS,
     **kwargs,
 ) -> dict:
-    """Invoke ``_lifecycle.<module>:<function>(vault_root, **kwargs)`` in a child process.
+    """Invoke ``owner(vault_root, **kwargs)`` in a child process and return its result.
 
+    ``owner`` must be a module-level function in the ``_lifecycle`` package;
     ``kwargs`` and the returned value must be JSON-serialisable. Exceptions
-    raised by the target are re-raised here as ``FreshInterpreterError`` carrying
-    the child's exception type and message.
+    raised by the owner are re-raised here as ``FreshInterpreterError``
+    carrying the child's exception type and message.
     """
-    _validate_target(target)
+    target = _target_for(owner)
     request = {"target": target, "vault_root": str(vault_root), "kwargs": kwargs}
     try:
         completed = subprocess.run(
@@ -56,7 +60,6 @@ def run_lifecycle_in_fresh_interpreter(
             text=True,
             timeout=timeout,
             check=False,
-            env=os.environ.copy(),
         )
     except subprocess.TimeoutExpired as exc:
         raise FreshInterpreterError(
@@ -80,17 +83,41 @@ def run_lifecycle_in_fresh_interpreter(
 def run_target_from_stdin() -> None:
     """Child entry point: read one request from stdin, write one JSON reply to stdout."""
     request = json.load(sys.stdin)
-    reply_stream = sys.stdout
-    # Owners may print progress; keep the reply channel clean.
+    with reply_channel() as reply_stream:
+        try:
+            function = _resolve_target(request["target"])
+            reply = {"result": function(request["vault_root"], **request["kwargs"])}
+        except Exception as exc:  # the parent re-raises this as a typed error
+            reply = {"error": {"type": type(exc).__name__, "message": str(exc)}}
+        reply_stream.write(json.dumps(reply))
+
+
+@contextlib.contextmanager
+def reply_channel():
+    """Yield a stream on the original stdout while everything else goes to stderr.
+
+    Owners and the subprocesses they spawn (pip, native downloaders) write to
+    file descriptor 1 directly, so swapping ``sys.stdout`` alone is not enough:
+    the descriptor itself is pointed at stderr for the duration.
+    """
+    sys.stdout.flush()
+    original_stdout_fd = os.dup(1)
+    saved_stdout = sys.stdout
+    os.dup2(2, 1)
     sys.stdout = sys.stderr
     try:
-        function = _resolve_target(request["target"])
-        result = function(request["vault_root"], **request["kwargs"])
-        reply = {"result": result}
-    except BaseException as exc:  # the parent re-raises this as a typed error
-        reply = {"error": {"type": type(exc).__name__, "message": str(exc)}}
-    reply_stream.write(json.dumps(reply))
-    reply_stream.flush()
+        with os.fdopen(os.dup(original_stdout_fd), "w", encoding="utf-8") as reply_stream:
+            yield reply_stream
+    finally:
+        sys.stdout = saved_stdout
+        os.dup2(original_stdout_fd, 1)
+        os.close(original_stdout_fd)
+
+
+def _target_for(owner: Callable[..., dict]) -> str:
+    target = f"{getattr(owner, '__module__', None)}:{getattr(owner, '__qualname__', None)}"
+    _validate_target(target)
+    return target
 
 
 def _validate_target(target: str) -> None:
@@ -101,14 +128,12 @@ def _validate_target(target: str) -> None:
         or not function_name.isidentifier()
     ):
         raise ValueError(
-            f"fresh-interpreter target must be '_lifecycle.<module>:<function>', got {target!r}"
+            f"fresh-interpreter target must be a module-level function in {LIFECYCLE_TARGET_PREFIX}*, got {target!r}"
         )
 
 
 def _resolve_target(target: str):
     _validate_target(target)
     module_name, _, function_name = target.partition(":")
-    import importlib
-
     module = importlib.import_module(module_name)
     return getattr(module, function_name)

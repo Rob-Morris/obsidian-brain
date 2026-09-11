@@ -20,6 +20,7 @@ from _application.types import (
 )
 from command_application import application_for
 import _lifecycle.fresh_interpreter as fresh_interpreter
+from _lifecycle.semantic_rebuild import rebuild_semantic
 
 
 class _SemanticProvider:
@@ -123,8 +124,8 @@ def test_semantic_repair_is_noop_when_vault_has_not_opted_in(command_vault_clone
 def test_semantic_rebuild_forces_full_asset_refresh(command_vault_clone, monkeypatch):
     calls = []
 
-    def fake_run(target, root, **kwargs):
-        calls.append((target, root, kwargs))
+    def fake_run(owner, root, **kwargs):
+        calls.append((owner, root, kwargs))
         return {
             "status": "ok",
             "dry_run": False,
@@ -141,13 +142,7 @@ def test_semantic_rebuild_forces_full_asset_refresh(command_vault_clone, monkeyp
     assert result.status == "ok"
     assert result.result.operation == "rebuild"
     assert result.result.status is SemanticMaintenanceStatus.CHANGED
-    assert calls == [
-        (
-            "_lifecycle.retrieval_assets:rebuild_semantic_assets",
-            command_vault_clone.vault_root,
-            {"dry_run": False},
-        )
-    ]
+    assert calls == [(rebuild_semantic, command_vault_clone.vault_root, {"dry_run": False})]
     assert len(result.committed_effects) == 5
 
 

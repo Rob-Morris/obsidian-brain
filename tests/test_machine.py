@@ -917,7 +917,6 @@ def test_prune_orphaned_runtimes_keeps_live_unclaimed_runtime(monkeypatch, tmp_p
             },
         },
     )
-    monkeypatch.setattr("_machine.maintenance.measure_footprint_bytes", lambda _pid: None)
 
     discovery = discover_brains(current_vault=vault)
     machine_registry = sync_machine_registry(discovery["brains"])
@@ -930,9 +929,7 @@ def test_prune_orphaned_runtimes_keeps_live_unclaimed_runtime(monkeypatch, tmp_p
     assert summary["counts"]["orphan_candidates"] == 0
     row = next(runtime for runtime in summary["runtimes"] if runtime["python"] == str(orphan_runtime))
     assert row["orphan_candidate"] is False
-    assert row["live_processes"] == [
-        {"pid": 456, "command": f"{orphan_runtime} -m brain_mcp.server", "footprint_bytes": None}
-    ]
+    assert row["live_processes"] == [{"pid": 456, "command": f"{orphan_runtime} -m brain_mcp.server"}]
 
     result = prune_orphaned_runtimes(summary, dry_run=False)
 
@@ -1227,10 +1224,10 @@ def test_inspect_machine_runtime_state_reports_runtime_memory(monkeypatch, tmp_p
         launcher_python=sys.executable,
         discovery=discovery,
         machine_registry=machine_registry,
+        measure_memory=True,
     )
 
     memory = summary["memory"]
-    assert memory["available"] is True
     assert memory["process_count"] == 3
     assert memory["measured_count"] == 2
     assert memory["total_bytes"] == 1800 * 1024**2
@@ -1240,5 +1237,30 @@ def test_inspect_machine_runtime_state_reports_runtime_memory(monkeypatch, tmp_p
     assert summary["healthy"] and summary["tidy"]
 
     lines = doctor_machine.render_human_lines(summary)
-    assert "memory:    1.8 GB across 3 live runtime processes" in lines
+    assert "memory:    1.8 GB across 2 of 3 live runtime processes (1 unmeasured)" in lines
     assert any(line.startswith("  pid 202 holds 1.6 GB (over 512 MB): ") for line in lines)
+
+
+def test_inspect_machine_runtime_state_skips_footprints_unless_asked(monkeypatch, tmp_path, fake_home):
+    vault = _make_vault(tmp_path, "Active Brain")
+    selected_runtime = resolve_vault_venv_python(vault, launcher=Path(sys.executable))
+    _install_central_runtime(selected_runtime)
+    monkeypatch.setattr(
+        "_machine.maintenance.find_live_brain_runtime_processes",
+        lambda _pythons: {"available": True, "processes": {str(selected_runtime): [{"pid": 7, "command": "x"}]}},
+    )
+    monkeypatch.setattr(
+        "_machine.maintenance.measure_footprint_bytes",
+        lambda _pid: pytest.fail("topology-only callers must not measure footprints"),
+    )
+
+    discovery = discover_brains(current_vault=vault)
+    summary = inspect_machine_runtime_state(
+        launcher_python=sys.executable,
+        discovery=discovery,
+        machine_registry=sync_machine_registry(discovery["brains"]),
+    )
+
+    assert "memory" not in summary
+    assert "heavy_processes" not in summary["counts"]
+    assert doctor_machine.render_human_lines(summary)

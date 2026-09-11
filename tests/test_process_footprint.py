@@ -52,3 +52,22 @@ def test_measure_footprint_bytes_uses_platform_reader(monkeypatch):
 
     monkeypatch.setattr(process_footprint.sys, "platform", "win32")
     assert process_footprint.measure_footprint_bytes(7) is None
+
+
+def test_summarise_runtime_memory_totals_measured_processes_and_flags_heavy_ones():
+    rows = [
+        {"live_processes": [
+            {"pid": 1, "command": "a", "footprint_bytes": 100 * 1024**2},
+            {"pid": 2, "command": "b", "footprint_bytes": None},
+        ]},
+        {"live_processes": [{"pid": 3, "command": "c", "footprint_bytes": 3 * 1024**3}]},
+    ]
+
+    memory = process_footprint.summarise_runtime_memory(rows)
+
+    assert memory["process_count"] == 3
+    assert memory["measured_count"] == 2
+    assert memory["total_bytes"] == 100 * 1024**2 + 3 * 1024**3
+    assert memory["total_over_threshold"] is True
+    assert [process["pid"] for process in memory["heavy_processes"]] == [3]
+    assert process_footprint.summarise_runtime_memory([])["process_count"] == 0
