@@ -109,6 +109,10 @@ class InternalErrorDetails:
 @dataclass(frozen=True, slots=True)
 class OutcomeUnknownDetails:
     reference: OutcomeReference
+    recovery_paths: tuple[str, ...] = ()
+
+    def __post_init__(self) -> None:
+        _validate_recovery_paths(self.recovery_paths)
 
 
 @dataclass(frozen=True, slots=True)
@@ -121,10 +125,7 @@ class RecoveryRequiredDetails:
             raise ValueError("launcher recovery details require a reason")
         if not self.recovery_paths:
             raise ValueError("launcher recovery details require at least one path")
-        if self.recovery_paths != tuple(sorted(set(self.recovery_paths))):
-            raise ValueError("launcher recovery paths must be ordered and unique")
-        if any(not Path(path).is_absolute() for path in self.recovery_paths):
-            raise ValueError("launcher recovery paths must be absolute")
+        _validate_recovery_paths(self.recovery_paths)
 
 
 ErrorDetails = (
@@ -238,6 +239,7 @@ class OutcomeReceipt:
     state: ReceiptState
     recorded_at: datetime
     committed_effects: tuple[CommittedEffect, ...] = ()
+    recovery_paths: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         _validate_identity(self.command_id, self.command_version)
@@ -247,6 +249,12 @@ class OutcomeReceipt:
             raise ValueError("known-partial launcher receipts require effects")
         if self.state in {ReceiptState.NONE, ReceiptState.UNKNOWN} and self.committed_effects:
             raise ValueError("none/unknown launcher receipts cannot claim effects")
+        _validate_recovery_paths(self.recovery_paths)
+        if self.recovery_paths and self.state not in {
+            ReceiptState.KNOWN_PARTIAL,
+            ReceiptState.UNKNOWN,
+        }:
+            raise ValueError("recovery paths require partial or unknown receipt state")
 
 
 class ReceiptWriter(Protocol):
@@ -270,3 +278,10 @@ def _validate_identity(command_id: str, command_version: int) -> None:
     validate_command_id(command_id)
     if not isinstance(command_version, int) or command_version < 1:
         raise ValueError("launcher command version must be positive")
+
+
+def _validate_recovery_paths(paths: tuple[str, ...]) -> None:
+    if paths != tuple(sorted(set(paths))):
+        raise ValueError("launcher recovery paths must be ordered and unique")
+    if any(not isinstance(path, str) or not Path(path).is_absolute() for path in paths):
+        raise ValueError("launcher recovery paths must be absolute")

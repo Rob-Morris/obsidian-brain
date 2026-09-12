@@ -211,6 +211,25 @@ def test_git_archive_capture_is_bounded_before_extraction(monkeypatch):
         )
 
 
+def test_repository_checkout_releases_each_package_stage_after_scope(
+    tmp_path,
+    allow_local_git,
+):
+    repository, commit = _source_repo(tmp_path)
+
+    with git_source.checkout_repository(
+        str(repository),
+        configured_ref=commit,
+    ) as checkout:
+        with checkout.checkout_source(
+            skill_path="skills/shaping",
+            expected_name="shaping",
+        ) as source:
+            package_root = source.package.root
+            assert package_root.is_dir()
+        assert not package_root.exists()
+
+
 @pytest.mark.parametrize(
     ("repository", "message"),
     (
@@ -453,9 +472,10 @@ def test_unscoped_refresh_bounds_independent_groups_and_isolates_failures(
         def __init__(self, repository):
             self.repository = repository
 
+        @contextmanager
         def checkout_source(self, *, skill_path, expected_name):
             assert skill_path == f"skills/{expected_name}"
-            return SimpleNamespace(
+            yield SimpleNamespace(
                 resolved_commit=f"new-{expected_name}",
                 package=SimpleNamespace(package_sha256=f"sha-{expected_name}"),
             )

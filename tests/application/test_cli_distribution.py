@@ -18,6 +18,7 @@ import _distribution  # noqa: E402
 from _distribution import (  # noqa: E402
     DistributionInstallError,
     InstalledDistribution,
+    distribution_cutover_commit,
     install_distribution,
     verify_distribution,
 )
@@ -194,9 +195,10 @@ def test_keyboard_interrupt_restores_the_old_verified_pair(tmp_path):
     assert installed.cli_binary.read_bytes() == old_binary
 
 
+@pytest.mark.parametrize("interruption", (KeyboardInterrupt, SystemExit))
 @pytest.mark.parametrize("target_kind", ("distribution", "binary"))
 def test_after_effect_interrupt_restores_the_old_verified_pair(
-    tmp_path, monkeypatch, target_kind
+    tmp_path, monkeypatch, target_kind, interruption
 ):
     installed = _install(tmp_path)
     old_manifest = verify_distribution(installed.distribution_root)["fingerprint"]
@@ -210,9 +212,41 @@ def test_after_effect_interrupt_restores_the_old_verified_pair(
         if target_kind == "distribution" and source.name.endswith(".stage") and (
             destination == installed.distribution_root
         ):
-            raise KeyboardInterrupt()
+            raise interruption()
         if target_kind == "binary" and source.name.endswith(".stage") and (
             destination == installed.cli_binary
+        ):
+            raise interruption()
+
+    monkeypatch.setattr(_distribution.os, "replace", replace_then_interrupt)
+
+    with pytest.raises(interruption):
+        _install(tmp_path)
+
+    assert verify_distribution(installed.distribution_root)["fingerprint"] == old_manifest
+    assert installed.cli_binary.read_bytes() == old_binary
+
+
+@pytest.mark.parametrize("target_kind", ("distribution", "binary"))
+def test_after_effect_interrupt_removes_a_new_install_pair(
+    tmp_path,
+    monkeypatch,
+    target_kind,
+):
+    binary = tmp_path / "prefix" / "bin" / "brain"
+    distribution = tmp_path / "prefix" / "lib" / "brain-cli" / CLI_VERSION
+    real_replace = _distribution.os.replace
+
+    def replace_then_interrupt(source, destination):
+        real_replace(source, destination)
+        source = Path(source)
+        destination = Path(destination)
+        if target_kind == "distribution" and source.name.endswith(".stage") and (
+            destination == distribution
+        ):
+            raise KeyboardInterrupt()
+        if target_kind == "binary" and source.name.endswith(".stage") and (
+            destination == binary
         ):
             raise KeyboardInterrupt()
 
@@ -221,8 +255,44 @@ def test_after_effect_interrupt_restores_the_old_verified_pair(
     with pytest.raises(KeyboardInterrupt):
         _install(tmp_path)
 
-    assert verify_distribution(installed.distribution_root)["fingerprint"] == old_manifest
-    assert installed.cli_binary.read_bytes() == old_binary
+    assert not binary.exists()
+    assert not distribution.exists()
+    assert not tuple((tmp_path / "prefix").rglob("*.stage"))
+    assert not tuple((tmp_path / "prefix").rglob("*.backup"))
+
+
+def test_stage_cleanup_failure_preserves_the_initiating_install_error(
+    tmp_path,
+    monkeypatch,
+):
+    real_remove_tree = _distribution._remove_tree
+    removed_files = []
+
+    def fail_staged_tree(path):
+        if path.name.endswith(".stage"):
+            raise OSError("cleanup blocked")
+        return real_remove_tree(path)
+
+    def record_remove_file(path):
+        removed_files.append(path)
+        return path.unlink(missing_ok=True)
+
+    monkeypatch.setattr(_distribution, "_remove_tree", fail_staged_tree)
+    monkeypatch.setattr(_distribution, "_remove_file", record_remove_file)
+
+    def failpoint(name):
+        if name == "after_stage":
+            raise OSError("initiating install failure")
+
+    with pytest.raises(
+        DistributionInstallError,
+        match="initiating install failure",
+    ) as caught:
+        _install(tmp_path, failpoint=failpoint)
+
+    assert caught.value.rollback_verified is True
+    assert any(path.name.endswith(".stage") for path in caught.value.recovery_paths)
+    assert removed_files
 
 
 def test_keyboard_interrupt_during_backup_cleanup_is_committed(tmp_path):
@@ -341,6 +411,26 @@ def test_standalone_projection_includes_cleanup_recovery_paths(
 
     payload = json.loads(capsys.readouterr().out)
     assert payload["cleanup_recovery_paths"] == [str(recovery)]
+
+
+def test_cutover_projection_has_one_canonical_shape(tmp_path):
+    recovery = (tmp_path / "old.backup").resolve()
+    installed = InstalledDistribution(
+        (tmp_path / "bin" / "brain").resolve(),
+        (tmp_path / "lib" / "brain-cli" / CLI_VERSION).resolve(),
+        CLI_VERSION,
+        CORE_VERSION,
+        "sha256:abc",
+        (recovery,),
+    )
+
+    assert distribution_cutover_commit(installed) == {
+        "status": "committed",
+        "cli_binary": str(installed.cli_binary),
+        "distribution_root": str(installed.distribution_root),
+        "manifest_fingerprint": "sha256:abc",
+        "cleanup_recovery_paths": [str(recovery)],
+    }
 
 
 def test_unverified_old_distribution_is_reported_honestly_on_failure(tmp_path):

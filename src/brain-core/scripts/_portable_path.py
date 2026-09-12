@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import re
-
 
 _WINDOWS_FORBIDDEN_FILENAME_CHARS = frozenset('<>:"|?*')
 _WINDOWS_RESERVED_FILE_STEMS = frozenset(
@@ -18,6 +16,18 @@ _WINDOWS_RESERVED_FILE_STEMS = frozenset(
         *(f"LPT{number}" for number in range(1, 10)),
     }
 )
+
+
+def has_windows_drive_prefix(path):
+    """Return whether *path* begins with Windows drive-local syntax."""
+
+    return (
+        isinstance(path, str)
+        and len(path) >= 2
+        and path[0].isascii()
+        and path[0].isalpha()
+        and path[1] == ":"
+    )
 
 
 def validate_windows_portable_filename_segment(name):
@@ -44,7 +54,7 @@ def validate_portable_relative_path(path, *, allow_trailing_slash=False):
 
     if not isinstance(path, str) or not path:
         raise ValueError("path must be a non-empty string")
-    if "\\" in path or path.startswith("/") or re.match(r"^[A-Za-z]:", path):
+    if "\\" in path or path.startswith("/") or has_windows_drive_prefix(path):
         raise ValueError(f"path must be portable and relative: {path!r}")
 
     trailing_slash = path.endswith("/")

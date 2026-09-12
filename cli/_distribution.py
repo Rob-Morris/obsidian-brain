@@ -49,6 +49,20 @@ class InstalledDistribution:
     cleanup_recovery_paths: tuple[Path, ...] = ()
 
 
+def distribution_cutover_commit(installed: InstalledDistribution) -> dict[str, object]:
+    """Project one installed distribution into the shared cutover contract."""
+
+    return {
+        "status": "committed",
+        "cli_binary": str(installed.cli_binary),
+        "distribution_root": str(installed.distribution_root),
+        "manifest_fingerprint": installed.manifest_fingerprint,
+        "cleanup_recovery_paths": [
+            str(path) for path in installed.cleanup_recovery_paths
+        ],
+    }
+
+
 def source_versions(source_root: Path) -> SourceVersions:
     """Read the canonical CLI/Core pair from one complete source tree."""
 
@@ -160,24 +174,38 @@ def install_distribution(
             replacement_binary_fingerprint=new_binary_fingerprint,
             failpoint=failpoint,
         )
+        cleanup_failures = []
         if rollback_verified:
-            _remove_tree(stage)
-            _remove_file(binary_stage)
+            for name, path, cleanup in (
+                ("cleanup_staged_distribution", stage, _remove_tree),
+                ("cleanup_staged_cli", binary_stage, _remove_file),
+            ):
+                try:
+                    cleanup(path)
+                except BaseException as cleanup_exc:
+                    cleanup_failures.append(f"{name}: {cleanup_exc}")
+                    if path.exists() or path.is_symlink():
+                        recovery_paths = (*recovery_paths, path)
         else:
             recovery_paths = tuple(
                 path
                 for path in (*recovery_paths, stage, binary_stage)
                 if path.exists() or path.is_symlink()
             )
+        recovery_paths = tuple(dict.fromkeys(recovery_paths))
         error = DistributionInstallError(
             f"CLI distribution install failed: {exc}",
             rollback_verified=rollback_verified,
             recovery_paths=recovery_paths,
         )
+        for failure in cleanup_failures:
+            error.add_note(failure)
         if isinstance(exc, (KeyboardInterrupt, SystemExit)):
             exc.rollback_verified = rollback_verified
             exc.recovery_paths = recovery_paths
             exc.add_note(str(error))
+            for failure in cleanup_failures:
+                exc.add_note(failure)
             raise
         raise error from exc
     cleanup_recovery_paths = []

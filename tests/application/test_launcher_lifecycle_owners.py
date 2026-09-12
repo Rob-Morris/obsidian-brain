@@ -418,6 +418,8 @@ def test_upgrade_fails_closed_when_external_rollback_is_not_proven(
 ):
     vault = _vault(tmp_path)
     _register(monkeypatch, tmp_path, vault)
+    recovery = str((tmp_path / "machine" / "old-cli.backup").resolve())
+    receipts = _Receipts()
     monkeypatch.setattr(
         lifecycle,
         "_load_upgrade",
@@ -430,9 +432,11 @@ def test_upgrade_fails_closed_when_external_rollback_is_not_proven(
                         "status": "error",
                         "message": "CLI rollback could not be verified",
                         "rollback_verified": True,
+                        "recovery_paths": [recovery],
                         "cutover_commit": {
                             "status": "error",
                             "external_rollback_verified": None,
+                            "recovery_paths": [recovery],
                         },
                     }
                 )
@@ -440,10 +444,71 @@ def test_upgrade_fails_closed_when_external_rollback_is_not_proven(
         ),
     )
 
-    result = _invocation(tmp_path, vault=vault).invoke(BrainUpgradeRequest())
+    result = _invocation(
+        tmp_path,
+        vault=vault,
+        receipts=receipts,
+    ).invoke(BrainUpgradeRequest())
 
     assert result.error.code is ErrorCode.COMMAND_OUTCOME_UNKNOWN
     assert result.effects == "unknown"
+    assert result.error.details.recovery_paths == (recovery,)
+    assert receipts.values[-1].recovery_paths == (recovery,)
+    projected = project_launcher_result(result)
+    assert projected.structured_content["error"]["details"][
+        "recovery_paths"
+    ] == [recovery]
+
+
+def test_verified_upgrade_rollback_with_residual_staging_is_known_partial(
+    tmp_path,
+    monkeypatch,
+):
+    vault = _vault(tmp_path)
+    _register(monkeypatch, tmp_path, vault)
+    recovery = str((tmp_path / "machine" / ".cli.stage").resolve())
+    receipts = _Receipts()
+    monkeypatch.setattr(
+        lifecycle,
+        "_load_upgrade",
+        lambda _core: type(
+            "Upgrade",
+            (),
+            {
+                "upgrade": staticmethod(
+                    lambda *_args, **_kwargs: {
+                        "status": "error",
+                        "message": "Upgrade rolled back; staging cleanup failed.",
+                        "rollback_verified": True,
+                        "recovery_paths": [recovery],
+                        "cutover_commit": {
+                            "status": "error",
+                            "external_rollback_verified": True,
+                            "recovery_paths": [recovery],
+                        },
+                    }
+                )
+            },
+        ),
+    )
+
+    result = _invocation(
+        tmp_path,
+        vault=vault,
+        receipts=receipts,
+    ).invoke(BrainUpgradeRequest())
+
+    assert result.status == "partial"
+    assert result.error.details.recovery_paths == (recovery,)
+    assert tuple(effect.subject for effect in result.committed_effects) == (
+        f"recovery:{recovery}",
+    )
+    assert receipts.values[-1].state is ReceiptState.KNOWN_PARTIAL
+    assert receipts.values[-1].recovery_paths == (recovery,)
+    projected = project_launcher_result(result)
+    assert projected.structured_content["error"]["details"][
+        "recovery_paths"
+    ] == [recovery]
 
 
 def test_upgrade_completion_projects_readiness_failure_and_orphan_follow_up():

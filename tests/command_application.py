@@ -55,6 +55,8 @@ def application_for(
     providers=(),
     authority=None,
     dry_run=False,
+    derived_snapshots=None,
+    session_mirror=None,
 ):
     receipts = _Receipts()
     context = InvocationContext(
@@ -76,6 +78,11 @@ def application_for(
         clock=_Clock(),
         dry_run=dry_run,
         workspace_dir=workspace_dir,
-        session_mirror=SynchronousSessionMirror(vault_root.resolve()),
+        derived_snapshots=derived_snapshots,
+        session_mirror=(
+            session_mirror
+            if session_mirror is not None
+            else SynchronousSessionMirror(vault_root.resolve())
+        ),
     )
     return CommandApplication(context, current_application_catalogue())

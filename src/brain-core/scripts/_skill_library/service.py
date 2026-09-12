@@ -435,15 +435,15 @@ def _refresh_source_group(source_key, entries, checked_at):
         ) as repository_checkout:
             for name, _record, descriptor in entries:
                 try:
-                    source = repository_checkout.checkout_source(
+                    with repository_checkout.checkout_source(
                         skill_path=str(descriptor["skill_path"]),
                         expected_name=name,
-                    )
-                    check = _source_check(
-                        checked_at=checked_at,
-                        resolved_commit=source.resolved_commit,
-                        package_sha256=source.package.package_sha256,
-                    )
+                    ) as source:
+                        check = _source_check(
+                            checked_at=checked_at,
+                            resolved_commit=source.resolved_commit,
+                            package_sha256=source.package.package_sha256,
+                        )
                 except (GitSourceError, OSError, ValueError) as exc:
                     check = _source_check(checked_at=checked_at, error=str(exc))
                 results.append((name, check))

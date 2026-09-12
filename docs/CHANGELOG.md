@@ -8,6 +8,7 @@ Never edit past changelog entries. Only add new entries at the top.
 
 | Version | Date | Summary |
 |---|---|---|
+| [v0.62.25](changelog/v0.62.25.md) | 2026-09-12 | Preserve recovery evidence across command-interface boundaries |
 | [v0.62.24](changelog/v0.62.24.md) | 2026-09-12 | Reject Windows local paths at the Git skill boundary |
 | [v0.62.23](changelog/v0.62.23.md) | 2026-09-12 | Make MCP shutdown truthful and consolidate shared rules |
 | [v0.62.22](changelog/v0.62.22.md) | 2026-09-12 | Constrain and parallelise Git skill-source refreshes |

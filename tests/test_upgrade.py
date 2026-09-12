@@ -1113,6 +1113,47 @@ class TestAgentSkillUpgradeFollowup:
         payload = json.loads(capsys.readouterr().out)
         assert payload["followups"] == [followup]
 
+    def test_human_error_output_lists_every_recovery_path(
+        self,
+        tmp_path,
+        monkeypatch,
+        capsys,
+    ):
+        source = _make_real_compile_source(tmp_path)
+        vault = _make_minimal_upgrade_vault(tmp_path)
+        recovery_paths = [
+            str((tmp_path / "recovery" / "brain-core").resolve()),
+            str((tmp_path / "recovery" / "old-cli.backup").resolve()),
+        ]
+        monkeypatch.setattr(
+            upgrade,
+            "upgrade",
+            lambda *_args, **_kwargs: {
+                "status": "error",
+                "message": "Upgrade rollback is incomplete.",
+                "rollback_verified": False,
+                "recovery_paths": recovery_paths,
+            },
+        )
+        monkeypatch.setattr(
+            sys,
+            "argv",
+            [
+                "upgrade.py",
+                "--source",
+                str(source),
+                "--vault",
+                str(vault),
+            ],
+        )
+
+        with pytest.raises(SystemExit):
+            upgrade.main()
+
+        error = capsys.readouterr().err
+        assert "Recovery paths:" in error
+        assert all(path in error for path in recovery_paths)
+
 
 class TestPostUpgradeSync:
     def test_upgrade_with_auto_preference_syncs(self, source_and_vault):
@@ -1506,8 +1547,11 @@ class TestPrecompileDefinitionRemediation:
             if path.is_file()
         }
 
+        recovery_path = (tmp_path / "machine" / "old-cli.backup").resolve()
+
         class CheckedExternalFailure(RuntimeError):
             rollback_verified = True
+            recovery_paths = (recovery_path,)
 
         def fail_commit(_result):
             assert (vault / ".brain-core" / "VERSION").read_text().strip() == CORE_VERSION
@@ -1529,6 +1573,8 @@ class TestPrecompileDefinitionRemediation:
         assert result["status"] == "error"
         assert result["rollback_verified"] is True
         assert result["cutover_commit"]["external_rollback_verified"] is True
+        assert result["cutover_commit"]["recovery_paths"] == [str(recovery_path)]
+        assert result["recovery_paths"] == [str(recovery_path)]
         assert before == after
 
     def test_cutover_failure_restores_declared_migration_effects(self, tmp_path):
@@ -1786,6 +1832,40 @@ class TestPrecompileDefinitionRemediation:
         assert upgrade._snapshots_verified(
             {}, roots={str(vault): {str(vault)}}
         ) is False
+
+    def test_snapshot_restore_treats_cross_drive_paths_as_outside_root(
+        self,
+        tmp_path,
+        monkeypatch,
+    ):
+        vault = tmp_path / "vault"
+        vault.mkdir()
+        external = tmp_path / "external.txt"
+        external.write_text("changed\n", encoding="utf-8")
+        snapshots = {
+            str(external): {"exists": True, "content": b"original\n"},
+        }
+        real_commonpath = upgrade.os.path.commonpath
+
+        def cross_drive_commonpath(paths):
+            if str(external) in paths:
+                raise ValueError("Paths are on different drives")
+            return real_commonpath(paths)
+
+        monkeypatch.setattr(upgrade.os.path, "commonpath", cross_drive_commonpath)
+
+        report = upgrade._restore_snapshots(
+            snapshots,
+            roots={str(vault): {str(vault)}},
+            recovery_dir=str(tmp_path / "recovery"),
+        )
+
+        assert report.errors == ()
+        assert external.read_bytes() == b"original\n"
+        assert upgrade._snapshots_verified(
+            snapshots,
+            roots={str(vault): {str(vault)}},
+        ) is True
 
     def test_direct_cutover_projection_retains_cleanup_recovery_paths(
         self, tmp_path, monkeypatch

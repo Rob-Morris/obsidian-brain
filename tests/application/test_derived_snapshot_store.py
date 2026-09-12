@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import copy
+
 import _command_interface.derived_snapshots as snapshots
 import pytest
 
@@ -32,8 +34,10 @@ def test_router_and_index_snapshots_reparse_only_after_file_change(
 
     first_router = store.load_router()
     first_index = store.load_lexical_index()
-    assert store.load_router() is first_router
-    assert store.load_lexical_index() is first_index
+    assert store.load_router() == first_router
+    assert store.load_router() is not first_router
+    assert store.load_lexical_index() == first_index
+    assert store.load_lexical_index() is not first_index
     assert calls == {"router": 1, "index": 1}
 
     router_path.write_text("router-two-longer", encoding="utf-8")
@@ -141,11 +145,11 @@ def test_callers_cannot_mutate_cached_nested_snapshot_state(tmp_path, monkeypatc
     store = snapshots.FileDerivedSnapshotStore(root)
 
     first = store.load_router()
-    with pytest.raises(TypeError, match="read-only"):
-        first["nested"]["values"].append("caller-change")
-    with pytest.raises(TypeError, match="read-only"):
-        first["nested"] = {"values": []}
+    first["nested"]["values"].append("ordinary-mutation")
+    dict.update(first["nested"], {"base-method": "mutation"})
+    list.append(first["nested"]["values"], "base-method-mutation")
+    copied = copy.deepcopy(first)
 
     assert store.load_router() == {"nested": {"values": ["original"]}}
-    assert store.load_router() is first
+    assert copied == first
     assert calls == ["load"]

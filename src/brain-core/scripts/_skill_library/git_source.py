@@ -14,6 +14,7 @@ import threading
 from typing import Iterator
 
 from _common import validate_portable_relative_path
+from _portable_path import has_windows_drive_prefix
 
 from .models import SourceCheckout
 from .packages import MAX_PACKAGE_BYTES, MAX_PACKAGE_FILES, inspect_package
@@ -40,7 +41,6 @@ _SCP_REMOTE = re.compile(
     rf"(?P<host>{_HOST})"
     r":(?P<path>[^\s]+)$"
 )
-_WINDOWS_DRIVE_PREFIX = re.compile(r"^[A-Za-z]:")
 _HOST_LABEL = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9_-]{0,61}[A-Za-z0-9])?$")
 _SAFE_REF = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._/-]{0,255}$")
 
@@ -65,13 +65,14 @@ class RepositoryCheckout:
         self.configured_ref = configured_ref
         self.resolved_commit = resolved_commit
 
+    @contextmanager
     def checkout_source(
         self,
         *,
         skill_path: str,
         expected_name: str | None = None,
-    ) -> SourceCheckout:
-        """Stage and validate one package from the fetched revision."""
+    ) -> Iterator[SourceCheckout]:
+        """Temporarily stage and validate one package from the fetched revision."""
 
         normalized_skill_path = _normalise_skill_path(skill_path)
         archive_arguments = [
@@ -87,25 +88,28 @@ class RepositoryCheckout:
         package_stage = Path(
             tempfile.mkdtemp(prefix="package-", dir=self._staging_root)
         )
-        _extract_archive(archive, package_stage)
-        package_root = (
-            package_stage
-            if normalized_skill_path == "."
-            else package_stage / normalized_skill_path
-        )
         try:
-            package = inspect_package(package_root, expected_name=expected_name)
-        except ValueError as exc:
-            raise GitSourceError(
-                f"invalid skill package at {skill_path!r}: {exc}"
-            ) from exc
-        return SourceCheckout(
-            self.repository,
-            self.configured_ref,
-            self.resolved_commit,
-            normalized_skill_path,
-            package,
-        )
+            _extract_archive(archive, package_stage)
+            package_root = (
+                package_stage
+                if normalized_skill_path == "."
+                else package_stage / normalized_skill_path
+            )
+            try:
+                package = inspect_package(package_root, expected_name=expected_name)
+            except ValueError as exc:
+                raise GitSourceError(
+                    f"invalid skill package at {skill_path!r}: {exc}"
+                ) from exc
+            yield SourceCheckout(
+                self.repository,
+                self.configured_ref,
+                self.resolved_commit,
+                normalized_skill_path,
+                package,
+            )
+        finally:
+            shutil.rmtree(package_stage, ignore_errors=True)
 
 
 def validate_remote_repository(repository: str) -> str:
@@ -119,7 +123,7 @@ def validate_remote_repository(repository: str) -> str:
         raise GitSourceError(
             "Git repository contains unsafe whitespace or control characters"
         )
-    if _WINDOWS_DRIVE_PREFIX.match(repository):
+    if has_windows_drive_prefix(repository):
         raise GitSourceError("Git repository must use an approved https or ssh remote")
     url = _URL_REMOTE.fullmatch(repository)
     if url is not None:
@@ -240,10 +244,11 @@ def checkout_source(
         repository,
         configured_ref=configured_ref,
     ) as checkout:
-        yield checkout.checkout_source(
+        with checkout.checkout_source(
             skill_path=skill_path,
             expected_name=expected_name,
-        )
+        ) as source:
+            yield source
 
 
 def _normalise_skill_path(skill_path: str) -> str:

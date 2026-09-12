@@ -156,6 +156,9 @@ class LauncherInvocation:
         )
 
     def _record(self, entry, result) -> None:
+        error = getattr(result, "error", None)
+        details = getattr(error, "details", None)
+        recovery_paths = tuple(getattr(details, "recovery_paths", ()))
         if isinstance(result, Partial):
             state = ReceiptState.KNOWN_PARTIAL
             effects = result.committed_effects
@@ -176,6 +179,7 @@ class LauncherInvocation:
                 state,
                 self._context.clock.now(),
                 effects,
+                recovery_paths,
             )
         )
 

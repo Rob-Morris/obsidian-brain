@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 from dataclasses import dataclass
 from pathlib import Path
 import threading
@@ -22,56 +23,8 @@ class DerivedSnapshotChangedError(RuntimeError):
     """The authoritative derived file did not stabilise during a bounded load."""
 
 
-def _reject_mutation(*_args, **_kwargs):
-    raise TypeError("derived snapshots are read-only")
-
-
-class _FrozenDict(dict):
-    """A recursively read-only dict that preserves consumer type compatibility."""
-
-    def __init__(self, value: dict):
-        dict.__init__(self, ((key, _freeze(item)) for key, item in value.items()))
-
-    __setitem__ = _reject_mutation
-    __delitem__ = _reject_mutation
-    clear = _reject_mutation
-    pop = _reject_mutation
-    popitem = _reject_mutation
-    setdefault = _reject_mutation
-    update = _reject_mutation
-    __ior__ = _reject_mutation
-
-
-class _FrozenList(list):
-    """A recursively read-only list that preserves consumer type compatibility."""
-
-    def __init__(self, value: list):
-        list.__init__(self, (_freeze(item) for item in value))
-
-    __setitem__ = _reject_mutation
-    __delitem__ = _reject_mutation
-    __iadd__ = _reject_mutation
-    __imul__ = _reject_mutation
-    append = _reject_mutation
-    clear = _reject_mutation
-    extend = _reject_mutation
-    insert = _reject_mutation
-    pop = _reject_mutation
-    remove = _reject_mutation
-    reverse = _reject_mutation
-    sort = _reject_mutation
-
-
-def _freeze(value):
-    if isinstance(value, dict):
-        return _FrozenDict(value)
-    if isinstance(value, list):
-        return _FrozenList(value)
-    return value
-
-
 class FileDerivedSnapshotStore:
-    """Reuse parsed router/index state until the authoritative file changes."""
+    """Reuse parsed state while returning caller-owned defensive values."""
 
     _MAX_STABILITY_ATTEMPTS = 3
 
@@ -109,15 +62,15 @@ class FileDerivedSnapshotStore:
             signature = _signature(path)
             cached = self._cache.get(name)
             if cached is not None and cached.signature == signature:
-                return cached.value
+                return copy.deepcopy(cached.value)
             for _attempt in range(self._MAX_STABILITY_ATTEMPTS):
                 before = _signature(path)
                 value = loader()
                 after = _signature(path)
                 if before == after:
-                    frozen = _freeze(value)
-                    self._cache[name] = _CachedSnapshot(after, frozen)
-                    return frozen
+                    stored = copy.deepcopy(value)
+                    self._cache[name] = _CachedSnapshot(after, stored)
+                    return copy.deepcopy(stored)
             raise DerivedSnapshotChangedError(
                 f"{name} derived snapshot changed during "
                 f"{self._MAX_STABILITY_ATTEMPTS} consecutive loads"

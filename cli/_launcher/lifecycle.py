@@ -18,7 +18,10 @@ from .contracts import (
     CommittedEffect,
     Error,
     ErrorCode,
+    InstructionNextAction,
     Ok,
+    OutcomeReference,
+    OutcomeUnknownDetails,
     Partial,
     RecoveryRequiredDetails,
     RequestErrorDetails,
@@ -711,12 +714,14 @@ def _reconciliation_failed(result: dict) -> bool:
 
 
 def _reconciliation_recovery_paths(result: dict) -> tuple[str, ...]:
+    direct_paths = result.get("recovery_paths")
+    raw_paths = list(direct_paths) if isinstance(direct_paths, (list, tuple)) else []
     cutover = result.get("cutover_commit")
-    if not isinstance(cutover, dict):
-        return ()
-    raw_paths = cutover.get("cleanup_recovery_paths")
-    if not isinstance(raw_paths, (list, tuple)):
-        return ()
+    if isinstance(cutover, dict):
+        for key in ("cleanup_recovery_paths", "recovery_paths"):
+            values = cutover.get(key)
+            if isinstance(values, (list, tuple)):
+                raw_paths.extend(values)
     return tuple(
         sorted(
             {
@@ -751,17 +756,10 @@ def execute_upgrade(context: LauncherContext, request: BrainUpgradeRequest):
 
     def commit_cutover(_upgrade_result):
         nonlocal installed_distribution
-        from _distribution import install_from_source
+        from _distribution import distribution_cutover_commit, install_from_source
 
         installed_distribution = install_from_source(source_root, context.cli_binary)
-        return {
-            "cli_binary": str(installed_distribution.cli_binary),
-            "distribution_root": str(installed_distribution.distribution_root),
-            "manifest_fingerprint": installed_distribution.manifest_fingerprint,
-            "cleanup_recovery_paths": [
-                str(path) for path in installed_distribution.cleanup_recovery_paths
-            ],
-        }
+        return distribution_cutover_commit(installed_distribution)
 
     result = upgrade_script.upgrade(
         str(vault),
@@ -775,13 +773,50 @@ def execute_upgrade(context: LauncherContext, request: BrainUpgradeRequest):
     status = result.get("status")
     if status == "error":
         commit = result.get("cutover_commit")
+        recovery_paths = _reconciliation_recovery_paths(result)
         if result.get("rollback_verified") is False or (
             isinstance(commit, dict)
             and commit.get("status") == "error"
             and commit.get("external_rollback_verified") is not True
         ):
-            raise RuntimeError(
-                result.get("message") or "Brain/CLI cutover rollback could not be proven."
+            message = (
+                result.get("message")
+                or "Brain/CLI cutover rollback could not be proven."
+            )
+            reference = OutcomeReference(context.invocation_id)
+            recovery_paths = _reconciliation_recovery_paths(result)
+            return Error(
+                request.COMMAND_ID,
+                request.COMMAND_VERSION,
+                CommandError(
+                    ErrorCode.COMMAND_OUTCOME_UNKNOWN,
+                    message,
+                    OutcomeUnknownDetails(reference, recovery_paths),
+                    InstructionNextAction(
+                        "Inspect the recorded launcher outcome and every recovery "
+                        "path before attempting the upgrade again."
+                    ),
+                ),
+                effects="unknown",
+                outcome_reference=reference,
+            )
+        if recovery_paths:
+            message = (
+                result.get("message")
+                or "The Brain/CLI upgrade was rolled back, but recovery material remains."
+            )
+            return Partial(
+                request.COMMAND_ID,
+                request.COMMAND_VERSION,
+                CommandError(
+                    ErrorCode.CONFLICT,
+                    message,
+                    RecoveryRequiredDetails(recovery_paths, message),
+                ),
+                tuple(
+                    CommittedEffect(request.COMMAND_ID, f"recovery:{path}")
+                    for path in recovery_paths
+                ),
             )
         return no_effect_error(
             type(request),

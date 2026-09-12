@@ -252,6 +252,16 @@ class SnapshotRestoreReport:
     recovery_paths: tuple[str, ...]
 
 
+def _path_within_root(path: str, root: str) -> bool:
+    """Return containment without raising for different Windows drives."""
+
+    try:
+        absolute_root = os.path.abspath(root)
+        return os.path.commonpath((absolute_root, os.path.abspath(path))) == absolute_root
+    except ValueError:
+        return False
+
+
 def _snapshot_recovery_copy(
     recovery_dir: Optional[str],
     path: str,
@@ -379,7 +389,7 @@ def _restore_snapshots(
         expected = {
             path
             for path, state in snapshots.items()
-            if state.get("exists") and os.path.commonpath((root, path)) == root
+            if state.get("exists") and _path_within_root(path, root)
         }
         for dirpath, _dirnames, filenames in os.walk(root):
             for filename in filenames:
@@ -1204,7 +1214,7 @@ def _snapshots_verified(
         expected = {
             path
             for path, state in snapshots.items()
-            if state.get("exists") and os.path.commonpath((root, path)) == root
+            if state.get("exists") and _path_within_root(path, root)
         }
         actual = set()
         if os.path.exists(root):
@@ -1694,7 +1704,7 @@ def _prepare_cli_cutover(
 
 
 def _commit_cli_cutover(plan: dict) -> dict:
-    from _distribution import install_distribution
+    from _distribution import distribution_cutover_commit, install_distribution
 
     installed = install_distribution(
         plan["repo_root"],
@@ -1702,15 +1712,7 @@ def _commit_cli_cutover(plan: dict) -> dict:
         cli_version=plan["cli_version"],
         expected_brain_core_version=plan["source_version"],
     )
-    return {
-        "status": "committed",
-        "cli_binary": str(installed.cli_binary),
-        "distribution_root": str(installed.distribution_root),
-        "manifest_fingerprint": installed.manifest_fingerprint,
-        "cleanup_recovery_paths": [
-            str(path) for path in installed.cleanup_recovery_paths
-        ],
-    }
+    return distribution_cutover_commit(installed)
 
 
 def _load_post_upgrade_semantic_config(vault_root: Path):
@@ -2118,6 +2120,12 @@ def upgrade(
         rollback_verified = not restore_errors and core_verified and snapshots_verified
         if rollback_verified:
             shutil.rmtree(backup_dir, ignore_errors=True)
+        unresolved_paths = sorted(
+            set(
+                recovery_paths
+                + ([] if rollback_verified else [backup_dir])
+            )
+        )
         err_result = {
             "status": "error",
             "old_version": old_version,
@@ -2128,12 +2136,13 @@ def upgrade(
                 else f"Upgrade rollback is incomplete or unverified — {msg}"
             ),
             "rollback_verified": rollback_verified,
+            "recovery_paths": unresolved_paths,
             "rollback": {
                 "brain_core": "restored" if core_verified else "unverified",
                 "vault_state": "restored" if snapshots_verified else "unverified",
                 "recovery_backup": None if rollback_verified else backup_dir,
                 "errors": restore_errors,
-                "recovery_paths": sorted(set(recovery_paths)),
+                "recovery_paths": unresolved_paths,
             },
         }
         if migration_result is not None:
@@ -2319,17 +2328,30 @@ def upgrade(
             result["cutover_commit"] = commit_callback(result)
         except Exception as exc:
             rolled_back = _rollback(f"coordinated cutover commit failed: {exc}")
+            external_recovery_paths = tuple(
+                str(path)
+                for path in getattr(exc, "recovery_paths", ())
+                if isinstance(path, (str, os.PathLike))
+            )
             rolled_back["cutover_commit"] = {
                 "status": "error",
                 "message": str(exc),
                 "external_rollback_verified": getattr(
                     exc, "rollback_verified", None
                 ),
+                "recovery_paths": list(external_recovery_paths),
             }
+            rolled_back["recovery_paths"] = sorted(
+                set((*rolled_back.get("recovery_paths", ()), *external_recovery_paths))
+            )
             return rolled_back
         except BaseException as exc:
             rollback = _rollback(f"coordinated cutover commit interrupted: {exc}")
             exc.add_note(rollback["message"])
+            if rollback.get("recovery_paths"):
+                exc.add_note(
+                    "Recovery paths: " + ", ".join(rollback["recovery_paths"])
+                )
             raise
 
     shutil.rmtree(backup_dir, ignore_errors=True)
@@ -2577,6 +2599,11 @@ def main() -> None:
 
     # Human-readable output
     if result["status"] == "error":
+        recovery_paths = result.get("recovery_paths", ())
+        if recovery_paths:
+            info("Recovery paths:")
+            for path in recovery_paths:
+                info(f"  - {path}")
         fatal(result["message"])
 
     if result["status"] == "skipped":

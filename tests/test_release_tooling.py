@@ -280,13 +280,19 @@ def test_release_keyboard_interrupt_restores_every_replaced_file(
     assert (root / "b.txt").read_text(encoding="utf-8") == "old-b.txt\n"
 
 
+@pytest.mark.parametrize("interruption", (KeyboardInterrupt, SystemExit))
+@pytest.mark.parametrize("preexisting", (False, True))
 def test_release_after_effect_interrupt_restores_every_attempted_file(
-    tmp_path, monkeypatch
+    tmp_path,
+    monkeypatch,
+    interruption,
+    preexisting,
 ):
     root = tmp_path / "release"
     root.mkdir()
-    for name in ("a.txt", "b.txt"):
-        (root / name).write_text(f"old-{name}\n", encoding="utf-8")
+    if preexisting:
+        for name in ("a.txt", "b.txt"):
+            (root / name).write_text(f"old-{name}\n", encoding="utf-8")
     real_replace = release.os.replace
 
     def _replace(source, destination):
@@ -295,18 +301,23 @@ def test_release_after_effect_interrupt_restores_every_attempted_file(
             Path(source).name.endswith(".release")
             and Path(destination).name == "b.txt"
         ):
-            raise KeyboardInterrupt()
+            raise interruption()
 
     monkeypatch.setattr(release.os, "replace", _replace)
 
-    with pytest.raises(KeyboardInterrupt):
+    with pytest.raises(interruption):
         release._write_transaction(
             root,
             {"a.txt": "new-a\n", "b.txt": "new-b\n"},
         )
 
-    assert (root / "a.txt").read_text(encoding="utf-8") == "old-a.txt\n"
-    assert (root / "b.txt").read_text(encoding="utf-8") == "old-b.txt\n"
+    if preexisting:
+        assert (root / "a.txt").read_text(encoding="utf-8") == "old-a.txt\n"
+        assert (root / "b.txt").read_text(encoding="utf-8") == "old-b.txt\n"
+    else:
+        assert not (root / "a.txt").exists()
+        assert not (root / "b.txt").exists()
+    assert not tuple(root.glob(".*.release"))
 
 
 def test_release_reconciles_interrupt_after_restore_effect(tmp_path, monkeypatch):
