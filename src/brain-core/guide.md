@@ -57,10 +57,10 @@ Pick the artefact type that fits, create the file in the right folder with the r
 | Design | `Designs/` | `{Title}.md` |
 | Documentation | `Documentation/` | `{Title}.md` |
 | Idea | `Ideas/` | `{Title}.md` |
-| Note | `Notes/` | `yyyymmdd - {Title}.md` |
+| Note | `Notes/` | `{Title}.md` |
 | Person | `People/` | `{Title}.md` |
 | Project | `Projects/` | `{Title}.md` |
-| Release | `Releases/{scope}/` | `{Title}.md` pre-ship; `{Version} - {Title}.md` when `shipped` |
+| Release | `Releases/` | `{Title}.md` pre-ship; `{Version} - {Title}.md` when `shipped` |
 | Task | `Tasks/` | `{Title}.md` |
 | Workspace | `Workspaces/` | `{Title}.md` |
 | Writing | `Writing/` | `{Title}.md` |

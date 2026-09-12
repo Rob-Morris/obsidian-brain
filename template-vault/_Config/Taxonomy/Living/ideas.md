@@ -35,14 +35,14 @@ Adoption is a provenance pattern. When an idea is adopted into a downstream arte
 
 1. Create the downstream artefact — carry forward open questions, carry forward the project tag (e.g. `project/my-project`)
 2. Follow [[.brain-core/standards/provenance]] for lineage between the idea and the new artefact
-3. Set the idea's `status: adopted` and move to `Ideas/+Adopted/`
+3. Set the idea's `status: adopted`; the lifecycle handler moves it to the `+Adopted/` folder within its ownership location
 
 ## Terminal Status
 
 When an idea reaches a terminal status (`adopted` or `deprecated`), move it to the corresponding `+Status` folder:
 
-- **Adopted:** set `status: adopted`, move to `Ideas/+Adopted/`. The adoption callout links to the downstream artefact.
-- **Deprecated:** set `status: deprecated`, add a reason callout, move to `Ideas/+Deprecated/`:
+- **Adopted:** set `status: adopted`; the lifecycle handler moves it to the `+Adopted/` folder within its ownership location. The adoption callout links to the downstream artefact.
+- **Deprecated:** set `status: deprecated`, add a reason callout, and let the lifecycle handler move it to the `+Deprecated/` folder within its ownership location:
   ```markdown
   > [!info] Deprecated — rejected: idea didn't survive shaping
   > [!info] Deprecated — superseded by [[link|idea or design]]
@@ -61,7 +61,7 @@ When an idea originates from another artefact, follow [[.brain-core/standards/pr
 
 `{Title}.md` in `Ideas/`.
 
-Example: `Ideas/voice-controlled-task-manager.md`
+Example: `Ideas/Voice-controlled Task Manager.md`
 
 ## Frontmatter
 

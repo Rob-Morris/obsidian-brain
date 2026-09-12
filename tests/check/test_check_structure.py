@@ -109,7 +109,7 @@ class TestCheckNaming:
 
     def test_freeform_title_passes(self, vault):
         tmp_path, router = vault
-        # Already created: "20260315 - Rust Lifetimes.md" in Notes
+        # Already created: "Rust Lifetimes.md" in Notes
         findings = check.check_naming(str(tmp_path), router)
         note_findings = [f for f in findings if "Notes" in f.get("file", "")]
         assert len(note_findings) == 0

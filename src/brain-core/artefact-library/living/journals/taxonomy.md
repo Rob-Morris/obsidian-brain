@@ -6,7 +6,7 @@ Living artefact. Named journal streams.
 
 A journal is a living summary of a personal stream — its themes, patterns, and the current arc. One file per journal. The journal hub evolves as entries accumulate, reflecting what the stream is about *now*, not just what it started as. Journal entries are the moments; the hub is the interpreted picture of the whole.
 
-Follows the same hub pattern as Projects and People. Journal entries remain temporal artefacts: they always use the `journal/{key}` relationship tag, and an explicitly owned entry may also persist `parent: journal/{key}` without leaving its date folder.
+Follows the same hub pattern as Projects and People. Journal entries remain temporal artefacts: use the `journal/{key}` relationship tag for stream membership and `parent: journal/{key}` when the journal structurally owns the entry.
 
 ## When To Use
 
@@ -53,7 +53,7 @@ The `journal/{key}` tag (e.g. `journal/personal`) is the relationship tag that c
 
 ## Terminal Status
 
-When a journal reaches `deprecated` status, set `status: deprecated`, add a reason callout, and move the hub to `Journals/+Deprecated/`:
+When a journal reaches `deprecated` status, set `status: deprecated`, add a reason callout, and let the lifecycle handler move the hub to the `+Deprecated/` folder within its ownership location:
 
 ```markdown
 > [!info] Deprecated — superseded by [[link|new journal]]

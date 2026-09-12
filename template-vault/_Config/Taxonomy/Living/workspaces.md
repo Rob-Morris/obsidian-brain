@@ -16,7 +16,7 @@ When connecting vault artefacts to an external bounded container of working file
 
 `{Title}.md` in `Workspaces/`.
 
-Example: `Workspaces/yearly-taxes-2026.md`
+Example: `Workspaces/Yearly Taxes 2026.md`
 
 ## Frontmatter
 
@@ -52,8 +52,8 @@ Every file related to a workspace should use the nested workspace tag, e.g. `wor
 
 When a workspace reaches a terminal status (`completed` or `deprecated`), move the hub file to the corresponding `+Status` folder:
 
-- **Completed:** set `status: completed`, move to `Workspaces/+Completed/`.
-- **Deprecated:** set `status: deprecated`, add a reason callout, move to `Workspaces/+Deprecated/`:
+- **Completed:** set `status: completed`; the lifecycle handler moves the hub to the `+Completed/` folder within its ownership location.
+- **Deprecated:** set `status: deprecated`, add a reason callout, and let the lifecycle handler move the hub to the `+Deprecated/` folder within its ownership location:
   ```markdown
   > [!info] Deprecated — superseded by [[link|new workspace]]
   > [!info] Deprecated — abandoned: work was not pursued

@@ -58,8 +58,6 @@ Examples:
 - `20260322-journal~Knee Rehab.md` (tagged `journal/health`)
 - `20260322-journal~Evening Reflection.md` (general entry, tagged `journal/personal`)
 
-> Folder-scoping temporal entries by their parent hub (e.g. `_Temporal/Journal Entries/{journal-key}/yyyy-mm/`) is a deliberate deferred question. See [[Hub Key Folder Scoping For Temporal Artefacts]].
-
 ## Frontmatter
 
 ```yaml
@@ -71,7 +69,7 @@ tags:
 ---
 ```
 
-The `journal/{journal-key}` tag identifies which journal stream the entry belongs to. Substitute the stream key at create time (e.g. `journal/personal`, `journal/health`). If the entry is structurally owned by a journal, persist `parent: journal/{journal-key}` as well; the entry still stays in `_Temporal/Journal Entries/yyyy-mm/`.
+The `journal/{journal-key}` tag identifies which journal stream the entry belongs to. Substitute the stream key at create time (e.g. `journal/personal`, `journal/health`). If the entry is structurally owned by a journal, persist `parent: journal/{journal-key}` as well.
 
 No lifecycle. Optional `status: shaping` or `status: ready` when shaping is active or complete.
 

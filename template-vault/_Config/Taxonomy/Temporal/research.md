@@ -4,7 +4,7 @@ Temporal artefact. Investigation into a subject and capture of what is found.
 
 ## Purpose
 
-Research captures what was found when investigating a subject at a point in time. All artefacts sit flat in the month folder — no subfolders. Include the project tag if the research is tied to a specific project.
+Research captures what was found when investigating a subject at a point in time. Connect it to the project, design, or other context that prompted the investigation through ownership where structural, or links and tags where associative.
 
 ## When To Use
 

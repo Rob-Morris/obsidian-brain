@@ -30,7 +30,7 @@ Named journal streams that relate personal journal entries via a `journal/{key}`
 
 ### Notes
 
-A flat, date-prefixed knowledge base for low-friction capture. Use notes when you want to write something down without the overhead of deciding exactly where it fits. Unlike wiki, notes are intentionally flat and require no curation — just write and link.
+Personal working documents for developing provisional or subjective understanding. Use notes when knowledge is worth retaining and revising but does not yet warrant a formal artefact. Notes can remain exploratory, be reorganised as understanding develops, or be converted when their role becomes clearer.
 
 ### People
 
@@ -38,11 +38,11 @@ Person index files — one per person, serving as the living source of truth for
 
 ### Projects
 
-Project index files linking to all related artefacts — designs, research, plans, releases, transcripts. Use a project file as the hub for any body of work. Owned child artefacts can use `parent: project/{key}`; living children then file into canonical child folders (same-type `{key}/`, cross-type `{scope}/`), while temporal children stay date-filed. Related artefacts can still use a `project/{key}` relationship tag so everything connected to a project is findable from one place.
+Project index files linking to all related artefacts — designs, research, plans, releases, transcripts. Use a project file as the hub for any body of work. Structurally owned children use `parent: project/{key}` and follow the shared owner-chain filing convention; related artefacts can instead use a `project/{key}` relationship tag so everything connected to a project remains findable without implying ownership.
 
 ### Releases
 
-Release milestone records. Use a release artefact when a project, workstream, or product area has a named milestone or release cut worth planning, tracking, or recording separately from a broader hub. Before shipment, each release captures the goal, acceptance criteria, in-scope designs, and sources for that milestone; after shipment, it becomes the canonical historical record for the shipped release and its internal release notes. A release must set a canonical `parent` (any owning living artefact type — projects are the canonical case but designs, books, standards, and other living owners are also valid); the file then lives under `Releases/{scope}/`, where `scope` is the tokenised form of the owner's canonical key (for example `project/brain` → `project~brain`).
+Release milestone records. Use a release artefact when a project, workstream, or product area has a named milestone or release cut worth planning, tracking, or recording separately from a broader hub. Before shipment, each release captures the goal, acceptance criteria, in-scope designs, and sources for that milestone; after shipment, it becomes the canonical historical record for the shipped release and its internal release notes. Every release has a canonical living `parent`; projects are the common case, but designs, books, standards, and other living artefacts are also valid owners.
 
 ### Tasks
 
@@ -50,7 +50,7 @@ Persistent units of work — tracked, prioritised, and linked to artefacts. Task
 
 ### Wiki
 
-A human-curated knowledge base — one page per concept. Use wiki when you want a polished, comprehensive reference that you maintain deliberately. Unlike notes, wiki requires curation and intent — it's selective. Pages are updated as understanding deepens; duplicates are merged.
+A human-curated knowledge base — one page per concept. Use Wiki when you want a polished, comprehensive reference that you maintain deliberately. Unlike Notes, Wiki requires curation and intent — it is selective. Pages are updated as understanding deepens; duplicates are merged.
 
 ### Workspaces
 
@@ -156,7 +156,7 @@ Conversation transcripts — person-to-person, AI conversations, Q&A sessions. U
 
 Some types are easily confused. Here is guidance on the common decision points.
 
-**Notes vs Wiki vs Zettelkasten** — Three types serve knowledge management. Notes are low-friction flat pages with no curation overhead. Wiki is a deliberately maintained, polished reference — selective and comprehensive. Zettelkasten is an auto-maintained atomic mesh suited to surfacing implicit structure across a growing corpus. Notes are for capturing; wiki is for reference; zettelkasten is for discovery. Wiki and zettelkasten work well as complementary layers in the same vault.
+**Notes vs Wiki vs Zettelkasten** — Three types serve knowledge management. Notes are personal working documents whose structure can evolve with your understanding. Wiki is deliberately maintained shared reference — selective and comprehensive. Zettelkasten is an auto-maintained atomic mesh suited to surfacing implicit structure across a growing corpus. Notes are for developing understanding; wiki is for reference; zettelkasten is for discovery. Wiki and zettelkasten work well as complementary layers in the same vault.
 
 **Thoughts vs Idea Logs vs Ideas** — A thought is the rawest form: unformed, captured in the moment, no obligation to develop it. An idea log is a quick capture with a specific idea worth tracking, with a path toward adoption. A living idea is an articulated concept being shaped to clarity. Capture a thought freely; promote to an idea log or idea when you want to do something with it.
 

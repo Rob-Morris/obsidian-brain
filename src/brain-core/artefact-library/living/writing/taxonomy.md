@@ -4,7 +4,7 @@ Living artefact. Atomic pieces of written work.
 
 ## Purpose
 
-Each file is one self-contained piece of writing — an essay, a blog post, a chapter, a snippet, a letter, a script. Writing is the atom; complex writing projects (a book, a series, a long-form guide) compose atoms together using an index file that links to its constituent pieces. Subfolders within `Writing/` can group related files (e.g. `Writing/my-novel/index.md`, `Writing/my-novel/chapter-1.md`). Other artefact types like Projects can serve as the organising hub — Writing doesn't prescribe the orchestration layer, only the atoms.
+Each file is one self-contained piece of writing — an essay, a blog post, a chapter, a snippet, a letter, a script. Writing is the atom; complex works such as books, series, and long-form guides compose those atoms through canonical ownership and an index that links to their constituent pieces. Writing defines the pieces, while the owning artefact provides their wider structure.
 
 ## When To Use
 
@@ -25,8 +25,8 @@ When crafting a self-contained piece of written work — essay, post, chapter, l
 
 When a piece reaches a terminal status (`published` or `deprecated`), move it to the corresponding `+Status` folder:
 
-- **Published:** use `artefact.set-status(..., status="published")`. The handler moves it to `Writing/+Published/` and renames the file with a `yyyymmdd-` prefix (rendered from `publisheddate`). The `publisheddate` is set to today on the transition unless already present. Companion files (HTML pastes, exports) belong in `Assets/Attachments/` or `Assets/Generated/`, not alongside the writing file.
-- **Deprecated:** set `status: deprecated`, add a reason callout, move to `Writing/+Deprecated/`:
+- **Published:** use `artefact.set-status(..., status="published")`. The handler moves it to the `+Published/` folder within its ownership location and renames the file with a `yyyymmdd-` prefix (rendered from `publisheddate`). The `publisheddate` is set to today on the transition unless already present. Companion files (HTML pastes, exports) belong in `Assets/Attachments/` or `Assets/Generated/`, not alongside the writing file.
+- **Deprecated:** set `status: deprecated`, add a reason callout, and let the lifecycle handler move it to the `+Deprecated/` folder within its ownership location:
   ```markdown
   > [!info] Deprecated — superseded by [[link|successor piece]]
   > [!info] Deprecated — retired: no longer current

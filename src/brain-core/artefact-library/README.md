@@ -15,12 +15,12 @@ The template vault ships with a curated set of defaults (marked below). This lib
 | [Documentation](living/documentation/) | `documentation` | Guides, standards, and reference material. **Template vault default.** |
 | [Ideas](living/ideas/) | `ideas` | Concepts articulated and shaped to clarity through iterative refinement. **Template vault default.** |
 | [Journals](living/journals/) | `journals` | Named journal streams relating personal journal entries via `journal/{key}` tags. |
-| [Notes](living/notes/) | `notes` | Flat knowledge base of date-prefixed interconnected notes. **Template vault default.** |
+| [Notes](living/notes/) | `notes` | Personal working knowledge that develops over time. **Template vault default.** |
 | [People](living/people/) | `people` | Person index files — living hub for everything you know about someone. **Template vault default.** |
 | [Projects](living/projects/) | `projects` | Project index files that can own child artefacts and relate wider work via project tags. **Template vault default.** |
-| [Releases](living/releases/) | `releases` | Release milestone records owned by a living artefact and filed under `Releases/{scope}/`. **Template vault default.** |
+| [Releases](living/releases/) | `releases` | Release milestone records owned by a living artefact. **Template vault default.** |
 | [Tasks](living/tasks/) | `tasks` | Persistent units of work — tracked, prioritised, and linked to artefacts. **Template vault default.** |
-| [Wiki](living/wiki/) | `wiki` | Interconnected knowledge base. One page per concept. |
+| [Wiki](living/wiki/) | `wiki` | Human-curated reference knowledge. One page per concept. |
 | [Workspaces](living/workspaces/) | `workspaces` | Workspace hub files linking brain artefacts to bounded data containers (`_Workspaces/`). **Template vault default.** |
 | [Writing](living/writing/) | `writing` | Long-form written works with lifecycle: draft → published. **Template vault default.** |
 | [Zettelkasten](living/zettelkasten/) | `zettelkasten` | Auto-maintained atomic concept mesh. One card per concept. |
@@ -56,7 +56,7 @@ Three living types serve knowledge management. Pick based on your workflow:
 
 - **Wiki** — Human-curated knowledge base. Comprehensive, selective, deliberately maintained. Best for a polished reference library.
 - **Zettelkasten** — Auto-maintained atomic concept mesh. One card per concept, dense links. Best for surfacing implicit structure across a growing corpus. Designed as a complementary layer with wiki — see each type's taxonomy for details.
-- **Notes** — Low-friction flat notes for when you just want to write something down without thinking too hard about where it fits. No automated graph, no strict structure — just date-prefixed interconnected pages.
+- **Notes** — Low-friction personal working documents for developing provisional or subjective understanding. They can be revised, reorganised, split, combined, or converted as their role becomes clearer.
 
 Wiki and zettelkasten can coexist in the same vault as complementary layers (fine-grained concept mesh + coarse-grained knowledge base).
 

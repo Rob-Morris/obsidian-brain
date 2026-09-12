@@ -182,10 +182,10 @@
       ]
     },
     {
-      "id": "brain-0.55-0.62",
+      "id": "brain-0.55-0.63",
       "revision": 8,
       "minimum_version": "0.55.0",
-      "maximum_version_exclusive": "0.63.0",
+      "maximum_version_exclusive": "0.64.0",
       "install": [
         "bash",
         "{source}/install.sh",

@@ -8,7 +8,7 @@ One file per release milestone. Before shipment, a release artefact tracks the m
 
 ## When To Use
 
-When a project, workstream, or product area has a named milestone, version target, or release cut worth planning, tracking, or recording separately from a broader hub. A release must set a canonical `parent` to its owning living artefact (any owner type is valid — projects are the canonical case but not the only one) and lives under `Releases/{scope}/`, where `scope` is the tokenised form of the owner's canonical key (for example `project/brain` → `project~brain`).
+When a project, workstream, or product area has a named milestone, version target, or release cut worth planning, tracking, or recording separately from a broader hub. A release must set a canonical `parent` to its owning living artefact; projects are the common case, but any living artefact can own a release.
 
 ## Lifecycle
 
@@ -23,8 +23,8 @@ When a project, workstream, or product area has a named milestone, version targe
 
 When a release reaches a terminal status (`shipped` or `deprecated`):
 
-- **Shipped:** set `status: shipped`, move to `Releases/{scope}/+Shipped/`. The filename leads with the shipped version (see Naming).
-- **Deprecated:** set `status: deprecated`, add a reason callout, move to `Releases/{scope}/+Deprecated/`:
+- **Shipped:** set `status: shipped`; the lifecycle handler moves the release to the `+Shipped/` folder within its ownership location. The filename leads with the shipped version (see Naming).
+- **Deprecated:** set `status: deprecated`, add a reason callout, and let the lifecycle handler move the release to the `+Deprecated/` folder within its ownership location:
   ```markdown
   > [!info] Deprecated — cancelled: scope absorbed into next milestone
   > [!info] Deprecated — superseded by [[link|new release]]
@@ -35,7 +35,7 @@ Shipped and deprecated releases remain searchable and indexed in their terminal 
 
 ## Naming
 
-Primary folder: `Releases/{scope}/` (for example `Releases/project~brain/`). The release follows the standard living-child convention rooted at the canonical `parent`; `scope` is the tokenised form of that canonical key.
+Primary folder: `Releases/`. Every release follows the shared living-artefact ownership convention rooted at its required canonical `parent`.
 
 Before ship a release is identified by its human title. Once `status` is `shipped` the filename leads with the shipped terminal version so the canonical record on disk is version-led.
 
@@ -55,6 +55,7 @@ Before ship a release is identified by its human title. Once `status` is `shippe
 Examples:
 
 - Planned: `Releases/project~brain/Operational Maturity.md`
+- Nested ownership: `Releases/project~brain/design~command-interface/Interface Cutover.md`
 - Shipped: `Releases/project~brain/+Shipped/v0.28.6 - Release Artefact Type.md`
 
 ## Frontmatter
@@ -78,7 +79,7 @@ shipped:
 
 `status` is required because the naming rules select a filename pattern from it.
 
-`parent` is required and uses a canonical artefact key such as `project/brain` (any owning living artefact type is valid — projects are the canonical case but not the only one). Tooling keeps the `Releases/{scope}/` path and matching relationship tag aligned. `version`, `tag`, `commit`, and `shipped` become load-bearing at ship time; until then they may stay blank.
+`parent` is required and uses a canonical artefact key such as `project/brain`. Tooling keeps the owner-derived path and matching relationship tag aligned. `version`, `tag`, `commit`, and `shipped` become load-bearing at ship time; until then they may stay blank.
 
 ## Template
 

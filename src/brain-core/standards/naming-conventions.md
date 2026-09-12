@@ -50,7 +50,6 @@ When creating a new temporal artefact type, choose a short prefix that matches t
 Most living types use the title directly as the filename with no date or type prefix — the folder provides the type context (e.g. `Designs/Brain App Auth.md` is a design, `Wiki/Rust Lifetimes.md` is a wiki page).
 
 **Date-prefixed living types:** Some user-facing living types prepend a date for chronological sort ordering in Obsidian's file explorer:
-- **Notes** — `yyyymmdd - {Title}.md` (e.g. `20260315 - Rust Lifetimes.md`). Date helps users browse notes chronologically. The note itself is a living document — meant to be updated and expanded over time.
 - **Daily Notes** — `yyyy-mm-dd ddd.md` (e.g. `2026-03-15 Sun.md`). A daily working document that the user builds throughout the day.
 - **Writing** — `yyyymmdd-{Title}.md` once published (drafts use `{Title}.md`).
 
@@ -103,7 +102,7 @@ In the canonical advanced form, every other placeholder must be declared with a 
 ```md
 ## Naming
 
-Primary folder: `Releases/{scope}/`.
+Primary folder: `Releases/`.
 
 ### Rules
 

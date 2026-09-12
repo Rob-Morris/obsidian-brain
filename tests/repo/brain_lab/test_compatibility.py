@@ -16,12 +16,13 @@ def test_compatibility_families_are_non_overlapping_and_cover_selected_versions(
 
     assert manifest.select("0.51.0").adapter_id == "brain-0.51-0.54"
     assert manifest.select("0.54.9").adapter_id == "brain-0.51-0.54"
-    assert manifest.select("0.55.0").adapter_id == "brain-0.55-0.62"
-    assert manifest.select("0.62.0").adapter_id == "brain-0.55-0.62"
+    assert manifest.select("0.55.0").adapter_id == "brain-0.55-0.63"
+    assert manifest.select("0.62.0").adapter_id == "brain-0.55-0.63"
+    assert manifest.select("0.63.0").adapter_id == "brain-0.55-0.63"
     with pytest.raises(ValueError, match="no unique"):
         manifest.select("0.50.0")
     with pytest.raises(ValueError, match="no unique"):
-        manifest.select("0.63.0")
+        manifest.select("0.64.0")
 
 
 def test_commands_render_argv_without_shell_interpolation():

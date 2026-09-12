@@ -16,11 +16,11 @@
       }
     },
     "living/designs": {
-      "brain_core_version": "0.59.1",
-      "installed_at": "2026-08-14T11:22:45.084020+00:00",
+      "brain_core_version": "0.63.0",
+      "installed_at": "2026-09-12T09:49:12.021399+00:00",
       "files": {
         "taxonomy": {
-          "source_hash": "sha256:08734f90285c8ceb3603ef91aacb6ab5e1229404340a58b6ad98ca68022606a9",
+          "source_hash": "sha256:737b9b56be24c395d76c0230d176b9a9e1fb5b4722a1b719eccb2894ac3307c8",
           "target": "_Config/Taxonomy/Living/designs.md"
         },
         "template": {
@@ -30,11 +30,11 @@
       }
     },
     "living/documentation": {
-      "brain_core_version": "0.59.1",
-      "installed_at": "2026-08-14T11:22:45.084020+00:00",
+      "brain_core_version": "0.63.0",
+      "installed_at": "2026-09-12T09:49:12.021399+00:00",
       "files": {
         "taxonomy": {
-          "source_hash": "sha256:1c1e4fb6ad9949b3ff6e33c47ccd22d653256b61eca0b8f2d2f3131ac3927f3c",
+          "source_hash": "sha256:42b0bca8666965e4341dc3c42c95f23aea12e4bb8e9013f7079022e8aaf3a490",
           "target": "_Config/Taxonomy/Living/documentation.md"
         },
         "template": {
@@ -44,11 +44,11 @@
       }
     },
     "living/ideas": {
-      "brain_core_version": "0.59.1",
-      "installed_at": "2026-08-14T11:22:45.084020+00:00",
+      "brain_core_version": "0.63.0",
+      "installed_at": "2026-09-12T09:49:12.021399+00:00",
       "files": {
         "taxonomy": {
-          "source_hash": "sha256:f112daaca9c9097f3dcc189c68362f9de3ddcb1daec05d4a1b731d69485162b5",
+          "source_hash": "sha256:df0d5637e10b914f5dc366bee98e9aab130355f1806549a5bfc78efd06c52261",
           "target": "_Config/Taxonomy/Living/ideas.md"
         },
         "template": {
@@ -58,11 +58,11 @@
       }
     },
     "living/notes": {
-      "brain_core_version": "0.59.1",
-      "installed_at": "2026-08-14T07:13:23.057860+00:00",
+      "brain_core_version": "0.63.0",
+      "installed_at": "2026-09-12T09:49:12.021399+00:00",
       "files": {
         "taxonomy": {
-          "source_hash": "sha256:e1edf6fad1130ac6db701b84a117631a1018850ab1284e5adf72b6aa4355a983",
+          "source_hash": "sha256:6644ad08a5ccbcf08ef5d471ae714c823613d60c6e5ace25a68fca2ca3fe34b0",
           "target": "_Config/Taxonomy/Living/notes.md"
         },
         "template": {
@@ -72,11 +72,11 @@
       }
     },
     "living/people": {
-      "brain_core_version": "0.59.1",
-      "installed_at": "2026-08-14T11:22:45.084020+00:00",
+      "brain_core_version": "0.63.0",
+      "installed_at": "2026-09-12T09:49:12.021399+00:00",
       "files": {
         "taxonomy": {
-          "source_hash": "sha256:da17a3ca38a7dd7462c2a09837da1cba82ea85b6fbf90e9568b2b31713a68612",
+          "source_hash": "sha256:ad76f2f515e70f8f3ab2f78c84faf51855ef2971d6f292d256252908ca5233cc",
           "target": "_Config/Taxonomy/Living/people.md"
         },
         "template": {
@@ -86,11 +86,11 @@
       }
     },
     "living/projects": {
-      "brain_core_version": "0.59.1",
-      "installed_at": "2026-08-14T07:13:23.057860+00:00",
+      "brain_core_version": "0.63.0",
+      "installed_at": "2026-09-12T09:49:12.021399+00:00",
       "files": {
         "taxonomy": {
-          "source_hash": "sha256:f44c1ea4bca3b1fd75778f2b766ece36e48084f1787b4b62fc8d62edcb0026d1",
+          "source_hash": "sha256:b90f79db8377dcb850735d61b17517381915c1a42c6c159524889630ff9af64f",
           "target": "_Config/Taxonomy/Living/projects.md"
         },
         "template": {
@@ -100,11 +100,11 @@
       }
     },
     "living/tasks": {
-      "brain_core_version": "0.59.1",
-      "installed_at": "2026-08-14T11:22:45.084020+00:00",
+      "brain_core_version": "0.63.0",
+      "installed_at": "2026-09-12T09:49:12.021399+00:00",
       "files": {
         "taxonomy": {
-          "source_hash": "sha256:061931d5006dfc637a6288a7c723031d69632fdee8fceb881f04fe6416b18ec7",
+          "source_hash": "sha256:7d7a623157ec22569bd6aa984aa3a63a69ac04e3ff57042726f6f76fe5cf3e52",
           "target": "_Config/Taxonomy/Living/tasks.md"
         },
         "template": {
@@ -114,11 +114,11 @@
       }
     },
     "living/workspaces": {
-      "brain_core_version": "0.59.1",
-      "installed_at": "2026-08-14T11:22:45.084020+00:00",
+      "brain_core_version": "0.63.0",
+      "installed_at": "2026-09-12T09:49:12.021399+00:00",
       "files": {
         "taxonomy": {
-          "source_hash": "sha256:2e5d68c202edf777f997db89cd236a9c49a583dd54837b807e3a9dc210f15f16",
+          "source_hash": "sha256:1a3acccad1b439f93290a9115d2e2b392d6db4b577c12e3afc4392e344c44d07",
           "target": "_Config/Taxonomy/Living/workspaces.md"
         },
         "template": {
@@ -128,11 +128,11 @@
       }
     },
     "living/writing": {
-      "brain_core_version": "0.59.1",
-      "installed_at": "2026-08-14T11:24:27.979354+00:00",
+      "brain_core_version": "0.63.0",
+      "installed_at": "2026-09-12T09:49:12.021399+00:00",
       "files": {
         "taxonomy": {
-          "source_hash": "sha256:56bd68311c74277fb1ba32c9fe9a8dac0e7893b9a0b62b36cfd6fc76772ef1b5",
+          "source_hash": "sha256:276ce57296b61faba5f9d5ed3fa016d3d26c733091ae24b68e30430a7607c456",
           "target": "_Config/Taxonomy/Living/writing.md"
         },
         "template": {
@@ -322,11 +322,11 @@
       }
     },
     "temporal/research": {
-      "brain_core_version": "0.53.2",
-      "installed_at": "2026-07-22T09:03:12.736165+00:00",
+      "brain_core_version": "0.63.0",
+      "installed_at": "2026-09-12T09:49:12.021399+00:00",
       "files": {
         "taxonomy": {
-          "source_hash": "sha256:d24acf1541ffe9dae52afa990b476413cbefee1626d321573f4ab49563413d4a",
+          "source_hash": "sha256:fd8baac07332ac3862f044a07bd7dcb6e5f8543ea12aa46f80d6d25e7d53c919",
           "target": "_Config/Taxonomy/Temporal/research.md"
         },
         "template": {
@@ -392,15 +392,15 @@
       }
     },
     "living/releases": {
-      "brain_core_version": "0.59.1",
-      "installed_at": "2026-08-14T11:24:27.979354+00:00",
+      "brain_core_version": "0.63.0",
+      "installed_at": "2026-09-12T09:49:12.021399+00:00",
       "files": {
         "taxonomy": {
-          "source_hash": "sha256:e74a71a003cb503a8727928787eb5ee64d7d7a1d11e522f2fc81c566e7195930",
+          "source_hash": "sha256:49d706026916288c3369e0c62fdb35515936d14fea1faeebe95abbb36766f832",
           "target": "_Config/Taxonomy/Living/releases.md"
         },
         "template": {
-          "source_hash": "sha256:cd99212cc55017b781ae8ff2c2cfb468f055558c0f4e91c0afc74c22693c96da",
+          "source_hash": "sha256:2a987a0a5980efda4f1cc52bc7aea703630194715a7a57ac7b99667737218f78",
           "target": "_Config/Templates/Living/Releases.md"
         }
       }

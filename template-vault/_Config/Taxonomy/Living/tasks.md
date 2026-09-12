@@ -4,7 +4,7 @@ Living artefact. Persistent units of work — tracked, prioritised, and linked t
 
 ## Purpose
 
-Tasks track work that needs doing. Each task is a durable record of a deliverable — what it is, why it matters, and whether it's done. Tasks link to designs, projects, and other artefacts via the board-per-artefact pattern, keeping specs and status cleanly separated.
+Tasks track work that needs doing. Each task is a durable record of a deliverable — what it is, why it matters, and whether it is done. Tasks use canonical ownership when work is structurally part of a design, project, or other living artefact, keeping specifications and execution status cleanly separated.
 
 Brain-native tasks are deliberately minimal. They don't compete with dedicated task tools (Undertask, Linear, Beads) — they're markdown files with status frontmatter and wikilinks. If you want boards, drag-and-drop, or rich nesting, use a task plugin. Brain-native tasks can serve as the sync target for external tools (see Mode 3 in the task management design).
 
@@ -47,36 +47,19 @@ Optional classification of the work:
 
 Optional named priority levels: `critical`, `high`, `medium`, `low`.
 
-## Board-per-Artefact Pattern
+## Ownership and Grouping
 
-Each artefact with associated work gets a **board** — a parent task that connects the task system to the artefact graph.
+Set `parent` when a task is a structural part of the artefact it delivers. Use ordinary links and tags when the relationship is contextual rather than ownership. An optional parent task can group a substantial workstream, but an extra board file is not required merely to connect tasks to another artefact.
 
-```
-Tasks/
-  Design~Tooling Architecture.md           (board — links to design)
-  Design~Tooling Architecture/             (child tasks)
-    Brain CLI Wrapper.md
-    Capability Registry.md
-    Obsidian CLI Rewrite.md
-```
+### Subtasks
 
-The board file uses the `ParentType~Name` naming convention. It wikilinks up to the design and carries the relevant tag. Individual child tasks inherit context from the board — they don't need to link back or tag themselves.
-
-To find tasks for a design: follow backlinks from the board, query the tag, or use MCP search.
-
-### Standalone tasks
-
-Tasks not tied to any artefact sit at the root of `Tasks/`.
-
-### Subtask nesting
-
-Tasks that need decomposition get their own subfolder in the same recursive pattern:
+When a task needs decomposition, make each subtask canonically owned by that task:
 
 ```
 Tasks/
-  Design~Tooling Architecture/
+  design~tooling-architecture/
     Obsidian CLI Rewrite.md
-    Obsidian CLI Rewrite/              (subtasks)
+    obsidian-cli-rewrite/
       Binary Detection.md
       Availability Probing.md
 ```
@@ -85,8 +68,8 @@ Tasks/
 
 When a task reaches a terminal status (`done` or `deprecated`):
 
-- **Done:** set `status: done`, move to `Tasks/+Done/` (or the parent subfolder's `+Done/`).
-- **Deprecated:** set `status: deprecated`, add a reason callout, move to `Tasks/+Deprecated/` (or the parent subfolder's `+Deprecated/`):
+- **Done:** set `status: done`; the lifecycle handler moves the task to the `+Done/` folder within its ownership location.
+- **Deprecated:** set `status: deprecated`, add a reason callout, and let the lifecycle handler move the task to the `+Deprecated/` folder within its ownership location:
   ```markdown
   > [!info] Deprecated — cancelled: scope absorbed into [[link|task or design]]
   > [!info] Deprecated — replaced by [[link|new task]]
@@ -104,8 +87,6 @@ Terminal tasks remain searchable and indexed in their `+Status` folder. No renam
 ## Naming
 
 `{Title}.md` in `Tasks/`.
-
-Board tasks: `{ParentType}~{Name}.md` (e.g. `Design~Brain Inbox.md`).
 
 ## Frontmatter
 

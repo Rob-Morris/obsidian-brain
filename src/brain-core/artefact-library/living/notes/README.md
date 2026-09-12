@@ -1,6 +1,6 @@
 # Notes
 
-Flat knowledge base of interconnected notes. One page per concept, date-prefixed.
+Personal working documents for developing provisional or subjective understanding.
 
 ## Install
 

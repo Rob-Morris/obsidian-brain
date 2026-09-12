@@ -126,7 +126,7 @@ The log is the raw timeline. The daily note is the digest.
 
 **Tasks** (`Tasks/`) are persistent units of work — things you're tracking across sessions, not one-off to-dos. They have status values (`open`, `in-progress`, `done`, `parked`, `deprecated`) and link to related artefacts.
 
-**Notes** (`Notes/`) are low-friction knowledge captures — things you want to record but that don't need the structure of a wiki page. Write first, organise later. A note can always be promoted to a wiki page when it earns it.
+**Notes** (`Notes/`) are low-friction personal working documents for knowledge you want to retain and develop. They can stay exploratory, be reorganised as understanding grows, or be converted into Wiki, Documentation, Design, or another more formal artefact when their role changes.
 
 The daily note's task list is a digest of what happened, not the authoritative record. Authoritative task status lives on the task artefact itself.
 
@@ -145,7 +145,7 @@ You had that idea about shared token validation. It's sitting in an idea log —
 A week later, you keep thinking about it. Time to flesh it out:
 
 ```
-Ideas/shared-token-validation.md
+Ideas/Shared Token Validation.md
 ```
 
 ```yaml
@@ -180,7 +180,7 @@ The shaping skill reads the design taxonomy, chooses its conversational mode, an
 The source artefact remains the current truth, while transcript reconciliation events preserve how decisions, work, possible questions, and body content were added, narrowed, resolved, reopened, or propagated. Each turn asks for one user commitment; question numbers identify transcript turns while stable decision numbers identify the artefact's evolving choices. At a candidate stopping point, the skill explains at a high level why the taxonomy bar is met and recommends an optional four-Cs review—independent when a separate reviewer is available. The review checks correctness, clarity, consistency, and completeness, asks before applying fixes, and either supports completion or returns decision-worthy gaps to shaping. The user chooses to run the review, skip it and complete or hand off the pass, or stop without asserting completion; status changes only when the taxonomy and chosen outcome require one.
 
 ```
-Designs/shared-token-validation.md
+Designs/Shared Token Validation.md
 ```
 
 ```yaml
@@ -216,7 +216,7 @@ Not everything follows the idea-to-design path. Some artefacts are about accumul
 Your wiki is a curated knowledge base. One page per concept, polished and comprehensive. You write a wiki page about JWT refresh strategies after going through the auth redesign — distilling what you learned into reusable reference:
 
 ```
-Wiki/jwt-refresh-strategies.md
+Wiki/JWT Refresh Strategies.md
 ```
 
 Wiki pages are evergreen. You come back and update them as your understanding deepens. They're deliberately selective — not everything needs a wiki page, just the things worth explaining properly.
@@ -236,7 +236,7 @@ The research doc captures findings at a point in time — what you found, what s
 When you're working on something with many moving parts, a project index keeps it all connected:
 
 ```
-Projects/my-app.md
+Projects/My App.md
 ```
 
 ```yaml

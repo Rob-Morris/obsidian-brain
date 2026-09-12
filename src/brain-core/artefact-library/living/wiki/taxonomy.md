@@ -20,20 +20,11 @@ When building reference knowledge about a concept you want to understand, refere
 - **Tags for broad categories, links for specific relationships.** Tags group pages by domain (`programming`, `design`). Links connect pages by meaning.
 - **No prescribed structure.** Pages shape themselves around their subject. A page about a tool looks different from a page about a principle.
 
-## Topic Clusters
+## Page Structure
 
-Wiki pages are flat by default — one file per concept in `Wiki/`. When a broad topic spawns multiple related pages, use the master/sub-artefact convention (see [[.brain-core/standards/subfolders]]):
+Use one page per independently referenceable subject. When a page forms a structural part of a broader subject or artefact, represent that relationship through canonical ownership; use links and tags for association rather than containment.
 
-- The **master page** stays in `Wiki/` as the entry point (e.g. `Wiki/Claude Code.md`, key `claude-code`)
-- **Sub-pages** live in `Wiki/{key}/` (e.g. `Wiki/claude-code/Claude Code Tool Search.md`)
-- Sub-pages inherit the wiki type — no separate taxonomy needed
-- Use `artefact.create` with the `parent` field to place sub-pages directly
-
-The subfolder makes the relationship implicit in the filesystem. You don't need to read the files to understand the hierarchy.
-
-**When to split:** A sub-topic deserves its own page when it is independently referenceable — someone might search for it directly — or substantial enough that embedding it would make the parent unwieldy. If it's only meaningful in the context of the parent, keep it as a section.
-
-**Naming sub-pages:** Prefix with the parent topic so the page is identifiable outside the subfolder context. "Claude Code Tool Search", not just "Tool Search". The prefix disambiguates and makes wikilinks readable elsewhere in the vault.
+**When to split:** A sub-topic deserves its own page when it is independently referenceable — someone might search for it directly — or substantial enough that embedding it would make the owner unwieldy. If it is only meaningful as part of the owner's explanation, keep it as a section.
 
 ## Relationship with Zettelkasten
 
@@ -47,15 +38,16 @@ Wiki and zettelkasten form a two-layer semantic graph: a fine-grained concept me
 
 ## Naming
 
-`{Title}.md` in `Wiki/`.
+Name each Wiki page using the clearest conventional name for the concept — the term a reader would naturally search for or use in prose — adding a concise qualifier only when needed to distinguish it from another concept.
 
-For sub-pages within a topic cluster: `{Title}.md` in `Wiki/{key}/`. The subfolder is the parent page's key (lowercase, URL-safe); the filename stays the human-readable title.
+The filename is `{Title}.md` in `Wiki/`.
 
 Examples:
 - `Wiki/Rust Lifetimes.md`
-- `Wiki/claude-code/Claude Code Tool Search.md`
 
 ## Frontmatter
+
+Basic page:
 
 ```yaml
 ---
@@ -65,6 +57,21 @@ tags:
   - topic-tag
 ---
 ```
+
+Owned page:
+
+```yaml
+---
+type: living/wiki
+key: tool-search
+parent: wiki/claude-code
+tags:
+  - topic-tag
+  - wiki/claude-code
+---
+```
+
+The owner tag mirrors `parent` for relationship scans; ownership itself comes from `parent`. `artefact.create` generates `key`, canonicalises `parent`, adds the owner tag and selects the derived folder automatically.
 
 ## Template
 

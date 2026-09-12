@@ -81,7 +81,7 @@ Zettelkasten and wiki form a two-layer semantic graph:
 
 ## Folder Structure
 
-Zettels stay flat in `Zettelkasten/`. Do not use living-type subfolders for topic groupings or sequence chains — the graph carries those relationships. Ordered lineage uses `follows`, not folder nesting.
+Prefer a flat graph for topic groupings and sequence chains: the graph carries those relationships, and ordered lineage uses `follows`. Use structural ownership only when a zettel genuinely forms part of a broader owned artefact rather than merely relating to it.
 
 ## Naming
 

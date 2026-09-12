@@ -36,12 +36,12 @@ When a design at `proposed` status is ready for a decision:
 
 When a design reaches a terminal status (`implemented` or `deprecated`), move it to the corresponding `+Status` folder:
 
-- **Implemented:** set `status: implemented`, add a context callout, move to `Designs/+Implemented/`
+- **Implemented:** set `status: implemented`, add a context callout, and let the lifecycle handler move it to the `+Implemented/` folder within its ownership location
   ```markdown
   > [!info] Implemented
   > This design has been implemented. See [[link|title]] for the current source of truth.
   ```
-- **Deprecated:** set `status: deprecated`, add a reason callout, move to `Designs/+Deprecated/`. The reason captures why the design is no longer the source of truth:
+- **Deprecated:** set `status: deprecated`, add a reason callout, and let the lifecycle handler move it to the `+Deprecated/` folder within its ownership location. The reason captures why the design is no longer the source of truth:
   ```markdown
   > [!info] Deprecated — superseded by [[link|title]]
   > [!info] Deprecated — rejected: design failed shaping bar
@@ -81,7 +81,7 @@ See [[.brain-core/standards/shaping]] for the shaping process.
 
 `{Title}.md` in `Designs/`.
 
-Example: `Designs/pistols-at-dawn-discord-bot.md`
+Example: `Designs/Pistols at Dawn Discord Bot.md`
 
 ## Frontmatter
 

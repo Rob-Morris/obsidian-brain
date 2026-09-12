@@ -1,8 +1,6 @@
 # Wiki
 
-Interconnected knowledge base. One page per concept, linked liberally.
-
-Included in the template vault.
+Human-curated reference knowledge. One page per concept, linked liberally.
 
 ## Install
 

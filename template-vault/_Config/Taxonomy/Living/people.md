@@ -45,7 +45,7 @@ Every file related to a person should use the nested person tag, e.g. `person/al
 
 ## Terminal Status
 
-When a person card reaches `deprecated` status, set `status: deprecated`, add a reason callout, and move it to `People/+Deprecated/`:
+When a person card reaches `deprecated` status, set `status: deprecated`, add a reason callout, and let the lifecycle handler move it to the `+Deprecated/` folder within its ownership location:
 
 ```markdown
 > [!info] Deprecated — duplicate of [[link|primary card]]

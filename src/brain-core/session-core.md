@@ -20,7 +20,7 @@ The system is self-extending. When content has no appropriate home, add a new ar
 3. **Always link related things** — connect artefacts with wikilinks when they relate by origin, topic, or reference
 4. **Save each step before building on it** — multi-stage work produces an artefact at each stage
 5. **Keep instruction files lean** — routing tables, not encyclopaedias; detail lives in core docs
-6. **Start simple, grow organically** — flat files first, add structure when complexity demands it
+6. **Let structure express ownership** — use canonical parent relationships for containment and links or tags for association
 7. **Separate concerns** — one topic per artefact; split when a file serves two purposes
 8. **Actively seek signal** — notice gaps, ambiguities, and opportunities; ask small questions at natural moments; capture answers as artefacts
 

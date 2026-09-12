@@ -34,10 +34,10 @@ Brain classifies every file as either **living** or **temporal**.
 | `living/design` | `Designs/` | `proposed` → `shaping` → `ready` → `active` → terminal | Design documents and implementation proposals. |
 | `living/documentation` | `Documentation/` | `new` → `shaping` → `ready` → `active` → `deprecated` | Prescriptive reference material that governs work. |
 | `living/idea` | `Ideas/` | `new` → `shaping` → `ready` → `adopted`/`parked` | Concepts being articulated to clarity. |
-| `living/note` | `Notes/` | none | Low-friction knowledge capture. |
+| `living/note` | `Notes/` | none | Personal working knowledge that develops over time. |
 | `living/person` | `People/` | `active` / `parked` / explicit `shaping` → `deprecated` | Living hub for what you know about a person; discovery preserves its current non-terminal status. |
 | `living/project` | `Projects/` | none | Living hub for project state and related artefacts. |
-| `living/release` | `Releases/{scope}/` | `planned` → `active` → `shipped`/`deprecated` | Milestone record before ship, historical release record after ship. |
+| `living/release` | `Releases/` | `planned` → `active` → `shipped`/`deprecated` | Owned milestone record before ship, historical release record after ship. |
 | `living/task` | `Tasks/` | `open` → `shaping` → `in-progress` → `done`/`parked`/`deprecated` | Persistent unit of work linked to the artefacts it serves. |
 | `living/workspace` | `Workspaces/` | `active` → `parked` → `completed` | Hub linking brain artefacts to a bounded data container. |
 | `living/writing` | `Writing/` | `draft` → `editing` → `review` → `published`/`parked` | Long-form written work crafted for an audience. |
@@ -160,8 +160,8 @@ Why? Obsidian's backlinks and graph view resolve body wikilinks. Body text is vi
 - Root-level folder, one per type
 - Freeform naming for most types: `{Title}.md` (spaces and mixed case allowed)
 - Some types use date prefixes — see the type's taxonomy file for the exact pattern
-- Start flat; subfolders emerge organically when a single work outgrows one file
-- When a living artefact owns children, same-type child folders use `{key}/` and cross-type child folders use `{scope}/`
+- Canonical `parent` expresses structural ownership; unowned files remain directly in the type folder
+- When a living artefact owns children, its complete owner chain is projected into same-type `{key}/` and cross-type `{scope}/` path segments
 - `scope` is the tokenised form of the owner's canonical key (for example `project/brain` → `project~brain`)
 
 ### Temporal Artefacts
@@ -169,7 +169,7 @@ Why? Obsidian's backlinks and graph view resolve body wikilinks. Body text is vi
 - All under `_Temporal/{Type Name}/`
 - Monthly subfolders: `yyyy-mm/`
 - Date-prefixed filenames (exact format varies by type — see individual type taxonomy files)
-- Flat within month folders
+- Canonical owner chains, when present, appear before the monthly folder
 
 ### Archives
 
@@ -203,7 +203,7 @@ At each transition, use provenance links (origin on child, callout on parent). C
 
 ### Hub Pattern
 
-Hub artefacts (a living type like People, Projects, or Workspaces) are living summaries that other artefacts gather around. Child artefacts use canonical `parent` when they are structurally owned; living children also project that ownership into same-type `{key}/` folders or cross-type `{scope}/` folders, while temporal children stay in their date folders. Additional temporal or thematic relationships still use tags and prose links. See `.brain-core/standards/hub-pattern` for the full standard.
+Hub artefacts (a living type like People, Projects, or Workspaces) are living summaries that other artefacts gather around. Child artefacts use canonical `parent` when they are structurally owned; the complete owner chain is projected into living child paths and before the month folder in temporal child paths. Additional temporal or thematic relationships still use tags and prose links. See `.brain-core/standards/hub-pattern` for the full standard.
 
 **Temporal handshake:** Related temporal artefacts feed their hub. When a temporal changes the current picture, distil the change into the hub. Temporals preserve *when*; the hub reflects *now*.
 
@@ -253,7 +253,7 @@ Before creating a new artefact type, check:
 - **Distinct lifecycle** — different naming, frontmatter, or archiving rules from existing types
 - **Worth the overhead** — each type needs taxonomy, colour, CSS, and optionally a router trigger
 
-If it's a one-off, consider a subfolder or tag within an existing type instead.
+If it is a one-off, use an existing type with the appropriate canonical parent, link, or tag instead.
 
 ### The Artefact Library
 

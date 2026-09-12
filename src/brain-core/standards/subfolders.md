@@ -1,6 +1,6 @@
 # Subfolders Within Living Artefact Folders
 
-Artefacts start as flat files in their type folder. Structure is not planned upfront — it emerges when a single logical work grows to span multiple files. When subfolders appear, they are a projection of canonical ownership, not an informal folder label.
+Artefact paths reflect their canonical ownership. Unowned artefacts live directly in their type folder; owned artefacts project their complete owner chain into subfolders rather than using informal folder labels.
 
 ## Organic growth
 

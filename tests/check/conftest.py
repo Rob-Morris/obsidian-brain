@@ -58,12 +58,12 @@ def vault(tmp_path):
         "template_file": None, "trigger": None,
     }
 
-    # Notes — living, configured, yyyymmdd - {Title}.md
+    # Notes — living, configured, {Title}.md
     notes_art = {
         "folder": "Notes", "type": "living/note", "key": "notes",
         "classification": "living", "configured": True,
         "path": "Notes",
-        "naming": {"pattern": "yyyymmdd - {Title}.md", "folder": "Notes/"},
+        "naming": {"pattern": "{Title}.md", "folder": "Notes/"},
         "frontmatter": {
             "type": "living/note",
             "required": ["type", "tags"],
@@ -204,7 +204,7 @@ def vault(tmp_path):
             "children_count": 0,
         },
         "note/rust-lifetimes": {
-            "path": "Notes/20260315 - Rust Lifetimes.md",
+            "path": "Notes/Rust Lifetimes.md",
             "type": "living/note",
             "type_key": "notes",
             "type_prefix": "note",
@@ -257,7 +257,7 @@ def vault(tmp_path):
     write_md(tmp_path / "Designs" / "auth-redesign.md",
              {"type": "living/design", "tags": ["design"], "status": "shaping", "key": "auth-redesign"},
              "# Auth Redesign")
-    write_md(tmp_path / "Notes" / "20260315 - Rust Lifetimes.md",
+    write_md(tmp_path / "Notes" / "Rust Lifetimes.md",
              {"type": "living/note", "tags": ["rust"], "key": "rust-lifetimes"}, "# Rust Lifetimes")
     write_md(tmp_path / "Daily Notes" / "2026-03-15 Sat.md",
              {"type": "living/daily-note", "tags": ["daily-note"], "key": "2026-03-15-sat"}, "# Saturday")

@@ -48,7 +48,7 @@ Deprecated docs remain searchable and indexed in `+Deprecated/`. No rename, no `
 
 `{Title}.md` in `Documentation/`.
 
-Example: `Documentation/ai-writing-style-guide.md`
+Example: `Documentation/AI Writing Style Guide.md`
 
 ## Frontmatter
 
