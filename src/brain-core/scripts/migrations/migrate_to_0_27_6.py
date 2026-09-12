@@ -234,7 +234,7 @@ def _upsert_toml_section(
     sections.append({"name": name, "header": f"[{name}]\n", "body": body_lines})
 
 
-def _read_codex_server_config(path: Path) -> dict[str, Any] | None:
+def _read_toml_server_config(path: Path) -> dict[str, Any] | None:
     if not path.is_file():
         return None
     try:
@@ -314,7 +314,7 @@ def _scan_codex_config(
     *,
     workspace_dir: str | None = None,
 ) -> tuple[dict[str, Any], str] | None:
-    server_config = _read_codex_server_config(path)
+    server_config = _read_toml_server_config(path)
     if server_config is None:
         return None
     if not _belongs_to_vault(server_config, vault_root) or not _is_legacy_config(server_config, vault_root):

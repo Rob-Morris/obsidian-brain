@@ -15,13 +15,17 @@ def test_ensure_brain_ignore_rules_updates_gitignore(project, monkeypatch):
     monkeypatch.setattr(workspace_scaffold, "_git_repo_root", lambda _target: project)
     monkeypatch.setattr(workspace_scaffold, "_git_dir", lambda _target: project / ".git")
 
-    ensure_brain_ignore_rules(project, "project", ["claude", "codex"], skip_mcp=False)
+    ensure_brain_ignore_rules(
+        project, "project", ["claude", "codex", "grok"], skip_mcp=False
+    )
 
     content = gitignore.read_text(encoding="utf-8")
     assert "node_modules/" in content
     assert ".brain/local/" in content
     assert ".claude/settings.local.json" in content
     assert ".codex/config.toml" in content
+    assert ".grok/config.toml" in content
+    assert ".grok/rules/brain.md" not in content
 
 
 def test_ensure_brain_ignore_rules_falls_back_to_git_info_exclude(project, monkeypatch):

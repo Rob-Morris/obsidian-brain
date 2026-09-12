@@ -14,6 +14,7 @@ from .contracts import CommittedEffect, ErrorCode, Ok, no_effect_error
 class AgentSkillClient(str, Enum):
     CLAUDE = "claude"
     CODEX = "codex"
+    GROK = "grok"
     ALL = "all"
 
 
@@ -62,7 +63,9 @@ class AgentSkillConfigurePayload:
         if not self.steps or any(not isinstance(step, AgentSkillStep) for step in self.steps):
             raise ValueError("agent-skill payload requires typed client steps")
         clients = tuple(step.client.value for step in self.steps)
-        expected = tuple(client for client in ("claude", "codex") if client in clients)
+        expected = tuple(
+            client for client in ("claude", "codex", "grok") if client in clients
+        )
         if clients != expected or len(clients) != len(set(clients)):
             raise ValueError("agent-skill result clients must be ordered and unique")
 
@@ -70,7 +73,7 @@ class AgentSkillConfigurePayload:
 @dataclass(frozen=True, slots=True)
 class AgentSkillConfigureRequest:
     COMMAND_ID: ClassVar[str] = "agent-skill.configure"
-    COMMAND_VERSION: ClassVar[int] = 1
+    COMMAND_VERSION: ClassVar[int] = 2
     RESULT_TYPE: ClassVar[type] = AgentSkillConfigurePayload
 
     client: AgentSkillClient = AgentSkillClient.ALL
@@ -115,7 +118,7 @@ class SkillExposurePayload:
 @dataclass(frozen=True, slots=True)
 class SkillExposeRequest:
     COMMAND_ID: ClassVar[str] = "skill.expose"
-    COMMAND_VERSION: ClassVar[int] = 1
+    COMMAND_VERSION: ClassVar[int] = 2
     RESULT_TYPE: ClassVar[type] = SkillExposurePayload
 
     name: str
@@ -132,7 +135,7 @@ class SkillExposeRequest:
 @dataclass(frozen=True, slots=True)
 class SkillUnexposeRequest:
     COMMAND_ID: ClassVar[str] = "skill.unexpose"
-    COMMAND_VERSION: ClassVar[int] = 1
+    COMMAND_VERSION: ClassVar[int] = 2
     RESULT_TYPE: ClassVar[type] = SkillExposurePayload
 
     name: str
@@ -154,7 +157,7 @@ def _validate_exposure_request(name, client, scope):
 
 def _clients(client: AgentSkillClient) -> tuple[AgentSkillClient, ...]:
     if client is AgentSkillClient.ALL:
-        return (AgentSkillClient.CLAUDE, AgentSkillClient.CODEX)
+        return (AgentSkillClient.CLAUDE, AgentSkillClient.CODEX, AgentSkillClient.GROK)
     return (client,)
 
 

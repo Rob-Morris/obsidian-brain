@@ -99,7 +99,12 @@ def _scrub_machine_local_template_state(vault_root: Path) -> None:
         path = vault_root / rel
         if path.exists() or path.is_symlink():
             _remove_existing(path)
-    for rel in (".mcp.json", ".codex/config.toml"):
+    for rel in (
+        ".mcp.json",
+        ".codex/config.toml",
+        ".grok/config.toml",
+        ".grok/rules/brain.md",
+    ):
         path = vault_root / rel
         if path.exists() or path.is_symlink():
             path.unlink()
@@ -182,7 +187,7 @@ def _set_default_brain(brain_id: str | None) -> dict:
 
 
 def _ensure_git_ignore_rules(vault_root: Path, *, client: str, mcp_scope: str) -> dict:
-    clients = ["claude", "codex"] if client == "all" else [client]
+    clients = ["claude", "codex", "grok"] if client == "all" else [client]
     try:
         message = ensure_brain_ignore_rules(
             vault_root,
@@ -291,7 +296,7 @@ def install_vault_action(
     if mcp_scope not in SUPPORTED_MCP_SCOPES:
         steps.append(_step("install_args", "error", f"invalid mcp_scope '{mcp_scope}'"))
         return result()
-    if client not in {"claude", "codex", "all"}:
+    if client not in {"claude", "codex", "grok", "all"}:
         steps.append(_step("install_args", "error", f"invalid client '{client}'"))
         return result()
 
@@ -360,7 +365,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--source-root", help="Source checkout root containing template-vault/ and src/brain-core/.")
     parser.add_argument("--launcher", help="Python launcher used to create the managed runtime.")
     parser.add_argument("--mcp-scope", choices=SUPPORTED_MCP_SCOPES, default="project")
-    parser.add_argument("--client", choices=("claude", "codex", "all"), default="all")
+    parser.add_argument(
+        "--client", choices=("claude", "codex", "grok", "all"), default="all"
+    )
     parser.add_argument("--id", dest="brain_id", help="Explicit local Brain ID for the machine registry.")
     parser.add_argument("--json", action="store_true", help="Emit machine-readable JSON.")
     return parser.parse_args(argv)

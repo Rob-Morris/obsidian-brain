@@ -77,7 +77,7 @@ def _make_apply_result(vault_root, *, vault_self, scope="project", client_arg="a
             "_bootstrap.mcp_transport.write_project_mcp_json",
         ) as mock_write_project,
         patch(
-            "_bootstrap.mcp_transport.write_codex_config",
+            "_bootstrap.mcp_transport.write_toml_config",
         ) as mock_write_codex,
         patch(
             "_bootstrap.mcp_transport.ensure_claude_md",

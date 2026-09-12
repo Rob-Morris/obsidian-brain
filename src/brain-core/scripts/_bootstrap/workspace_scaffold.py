@@ -74,6 +74,8 @@ def _brain_ignore_entries(
             entries.append(CLAUDE_LOCAL_MD_IGNORE)
     if "codex" in clients and scope == "project":
         entries.extend(CODEX_PROJECT_IGNORE_ENTRIES)
+    if "grok" in clients and scope == "project":
+        entries.append(".grok/config.toml")
     return entries
 
 

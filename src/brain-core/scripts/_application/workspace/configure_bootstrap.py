@@ -20,15 +20,15 @@ from ..results import Error
 @dataclass(frozen=True, slots=True)
 class WorkspaceConfigureBootstrapRequest:
     COMMAND_ID: ClassVar[str] = "workspace.configure-bootstrap"
-    COMMAND_VERSION: ClassVar[int] = 1
+    COMMAND_VERSION: ClassVar[int] = 2
     RESULT_TYPE: ClassVar[type] = CallerWorkspacePayload
 
-    surface: Literal["all", "agents", "claude"] = "all"
+    surface: Literal["all", "agents", "claude", "grok"] = "all"
     remove: bool = False
 
     def __post_init__(self) -> None:
-        if self.surface not in {"all", "agents", "claude"}:
-            raise ValueError("surface must be all, agents or claude")
+        if self.surface not in {"all", "agents", "claude", "grok"}:
+            raise ValueError("surface must be all, agents, claude or grok")
         if not isinstance(self.remove, bool):
             raise ValueError("remove must be a boolean")
 
@@ -49,6 +49,8 @@ def execute(context: InvocationContext, request: WorkspaceConfigureBootstrapRequ
                 subjects.append("caller-workspace:AGENTS.md")
             elif step.get("name") == "workspace_bootstrap_claude":
                 subjects.append("caller-workspace:CLAUDE.md")
+            elif step.get("name") == "workspace_bootstrap_grok":
+                subjects.append("caller-workspace:.grok/rules/brain.md")
         return tuple(subjects)
 
     return execute_workspace_lifecycle(

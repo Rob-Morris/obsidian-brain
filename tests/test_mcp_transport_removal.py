@@ -8,11 +8,10 @@ from _bootstrap import mcp_transport
 from _bootstrap.mcp_state import (
     _load_init_state,
     build_mcp_config,
-    read_codex_server_config,
+    read_toml_server_config,
     record_init_target,
-    write_codex_config,
+    write_toml_config,
 )
-
 
 def test_remove_claude_project_registration_cleans_bootstrap_and_hook(bootstrap_vault, project, monkeypatch):
     monkeypatch.setattr(mcp_transport, "_has_claude_cli", lambda: False)
@@ -116,7 +115,7 @@ def test_remove_codex_skips_mismatched_entry(bootstrap_vault, project):
     expected = build_mcp_config("/usr/bin/python3", bootstrap_vault)
     other = build_mcp_config("/usr/local/bin/python3", bootstrap_vault)
     config_path = project / ".codex" / "config.toml"
-    write_codex_config(other, config_path)
+    write_toml_config(other, config_path)
 
     record = {
         "client": "codex",
@@ -130,6 +129,6 @@ def test_remove_codex_skips_mismatched_entry(bootstrap_vault, project):
 
     assert removed is False
     assert config_path.is_file()
-    assert read_codex_server_config(config_path) == other
+    assert read_toml_server_config(config_path) == other
     payload = tomllib.loads(config_path.read_text(encoding="utf-8"))
     assert payload["mcp_servers"]["brain"]["command"] == other["command"]

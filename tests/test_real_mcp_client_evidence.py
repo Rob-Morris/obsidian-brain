@@ -119,3 +119,15 @@ def test_grok_fresh_and_resumed_sessions_discover_portable_names_and_invoke():
             "artefact.read",
             "artefact.create",
         }
+
+
+def test_grok_capture_uses_brain_native_setup():
+    path = EVIDENCE_PATH.with_name("command_interface_grok_client_evidence_v1.json")
+    setup = json.loads(path.read_text())["native_setup"]
+    assert setup == {
+        "owner": "Brain",
+        "config": ".grok/config.toml",
+        "rule_discovered": True,
+        "shaping_discovered": True,
+        "inherited_registration_required": False,
+    }

@@ -21,16 +21,19 @@ from capture_real_mcp_clients import (
 )
 from command_vault import assemble_command_vault_baseline
 from _bootstrap.readiness import ensure_runtime_warmup, read_runtime_status
+from _bootstrap import agent_skills, grok_mcp
+from _bootstrap.file_transaction import FilePlan, apply_file_changes
 
 OUTPUT = REPO_ROOT / "tests/fixtures/command_interface_grok_client_evidence_v1.json"
 
 
 def build_capture():
     with tempfile.TemporaryDirectory(prefix="brain-grok-capture-") as directory:
-        temp = Path(directory)
-        grok_home = temp / "grok-home"
+        temp = Path(directory).resolve()
+        client_home = temp / "home"
+        grok_home = client_home / ".grok"
         project = temp / "project"
-        grok_home.mkdir()
+        grok_home.mkdir(parents=True)
         project.mkdir()
         config = grok_home / "config.toml"
         config.write_text(
@@ -181,20 +184,24 @@ def build_capture():
             "sessions": {},
         }
         try:
-            subprocess.run(
-                [
-                    "grok",
-                    "mcp",
-                    "add",
-                    "--scope",
-                    "user",
-                    "brain",
-                    "-e",
-                    f"BRAIN_CAPTURE_VAULT={vault}",
-                    "--",
-                    str(PYTHON),
-                    str(MCP_SERVER),
-                ],
+            plan = FilePlan()
+            grok_mcp.plan_configure(
+                plan,
+                client_home,
+                {
+                    "command": str(PYTHON),
+                    "args": [str(MCP_SERVER)],
+                    "env": {"BRAIN_CAPTURE_VAULT": str(vault)},
+                },
+            )
+            apply_file_changes(plan.changes())
+            steps = agent_skills.configure_agent_skill_adapters(
+                home_dir=client_home, client="grok"
+            )
+            if steps[0]["status"] != "changed":
+                raise RuntimeError("Brain did not install the Grok skill adapter")
+            inspected = subprocess.run(
+                ["grok", "inspect", "--json"],
                 cwd=project,
                 env=environment,
                 capture_output=True,
@@ -202,6 +209,34 @@ def build_capture():
                 check=True,
                 timeout=15,
             )
+            discovery = json.loads(inspected.stdout)
+            native_mcp = next(
+                item for item in discovery["mcpServers"] if item["name"] == "brain"
+            )
+            rule = grok_home / "rules" / "brain.md"
+            skill = grok_home / "skills" / "shaping" / "SKILL.md"
+            if not any(
+                Path(item["path"]) == rule for item in discovery["projectInstructions"]
+            ):
+                raise RuntimeError("Grok did not discover Brain's native startup rule")
+            if not any(
+                Path(item["source"].get("path", "")) == skill
+                for item in discovery["skills"]
+            ):
+                raise RuntimeError(
+                    "Grok did not discover Brain's native shaping adapter"
+                )
+            if Path(native_mcp["source"]["path"]) != config:
+                raise RuntimeError(
+                    "Grok selected an inherited registration instead of Brain's native one"
+                )
+            evidence["native_setup"] = {
+                "owner": "Brain",
+                "config": ".grok/config.toml",
+                "rule_discovered": True,
+                "shaping_discovered": True,
+                "inherited_registration_required": False,
+            }
             for phase in ("fresh", "resumed"):
                 calls = [
                     ("session.start", {}),

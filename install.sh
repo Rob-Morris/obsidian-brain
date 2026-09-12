@@ -22,7 +22,7 @@
 #   2. Copies template-vault to your chosen location
 #   3. Copies brain-core into the vault as .brain-core
 #   4. Installs Python dependencies into the central managed runtime under ~/.brain/venvs/ (unless skipped)
-#   5. Registers the Brain MCP server for Claude Code and Codex (unless skipped)
+#   5. Registers the Brain MCP server for Claude Code, Codex and Grok (unless skipped)
 #   6. Optionally delegates semantic setup to configure.py
 #   7. Installs the `brain` CLI to ~/.local/bin (or /usr/local/bin with --system) unless --skip-cli
 #
@@ -385,13 +385,13 @@ if [ "${1:-}" = "--uninstall" ]; then
     info "  - .brain/       (compiled data, caches)"
     info "  - .venv/        (legacy Python virtual environment, if present)"
     info "  - Brain bootstrap line in CLAUDE.md (deletes the file only if it becomes empty)"
-    info "  - recorded Brain-managed project MCP entries in .mcp.json / .codex/config.toml"
+    info "  - recorded Brain-managed project MCP entries in .mcp.json / .codex/config.toml / .grok/config.toml"
     info "  - recorded Brain-managed Claude local MCP state in .claude/"
     printf '\n'
     info "Brain runtimes at ~/.brain/venvs/ are kept — they may be shared with other vaults."
     info "The brain CLI binary (e.g. ~/.local/bin/brain) is kept — other vaults may rely on it."
     printf '\n'
-    info "User-scope Claude/Codex cleanup is explicit and is not run automatically."
+    info "User-scope Claude/Codex/Grok cleanup is explicit and is not run automatically."
     info "If this vault owns a user-scope registration, remove it before uninstalling:"
     info "  python3 \"$VAULT_PATH/.brain-core/scripts/configure.py\" mcp --vault \"$VAULT_PATH\" --user --client all --remove"
 

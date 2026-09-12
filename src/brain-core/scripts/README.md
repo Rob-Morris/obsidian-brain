@@ -134,3 +134,11 @@ Use the immutable installed command-vault seed and isolated clones for filesyste
 The release gates reconstruct generated facts from the authoritative catalogue, validate every eligible projection, exercise real supported-client MCP declarations, rehearse fresh install and checked upgrade, and run the full serial repository suite.
 
 See [`docs/functional/scripts.md`](../../../docs/functional/scripts.md), [`docs/functional/mcp-tools.md`](../../../docs/functional/mcp-tools.md), and [`docs/functional/cli.md`](../../../docs/functional/cli.md).
+
+## Native Grok client boundary
+
+`_bootstrap/grok_mcp.py` owns Grok TOML preservation, the exact Brain startup
+rule and paired-file preflight. `_bootstrap/mcp_transport.py` and the native
+CLI transaction owner share those plans; diagnostics and repair recognise
+Grok alongside Claude and Codex. `_bootstrap/agent_skills.py` owns native Grok
+skill adapters through the same marker and backup rules as other clients.

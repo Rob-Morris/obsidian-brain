@@ -18,6 +18,7 @@ if TYPE_CHECKING:
 CLIENT_SKILLS_DIRS = {
     "claude": Path(".claude") / "skills",
     "codex": Path(".codex") / "skills",
+    "grok": Path(".grok") / "skills",
 }
 ADAPTER_SKILL = "shaping"
 BACKUP_DIR = ".brain-skill-backups"
@@ -469,7 +470,7 @@ def configure_agent_skill_adapters(
     remove: bool = False,
     dry_run: bool = False,
 ) -> list[dict]:
-    """Configure shaping adapters for one or both supported agent clients."""
+    """Configure shaping adapters for one or all supported agent clients."""
     if client not in {*SUPPORTED_CLIENTS, "all"}:
         raise ValueError(f"unsupported agent-skill client '{client}'")
     if replace and remove:

@@ -211,7 +211,7 @@ class TestCheckRepairHints:
         stale = dict(expected)
         stale["command"] = "/usr/bin/python3.12"
         stale["args"] = ["-m", "brain_mcp.proxy", "/usr/bin/python3.12", "brain_mcp.server"]
-        repair_runtime.mcp_transport.write_codex_config(
+        repair_runtime.mcp_transport.write_toml_config(
             stale,
             repair_vault / ".codex" / "config.toml",
         )
@@ -232,7 +232,7 @@ class TestCheckRepairHints:
         stale = dict(expected)
         stale["command"] = "/usr/bin/python3.12"
         stale["args"] = ["-m", "brain_mcp.proxy", "/usr/bin/python3.12", "brain_mcp.server"]
-        repair_runtime.mcp_transport.write_codex_config(
+        repair_runtime.mcp_transport.write_toml_config(
             stale,
             repair_vault / ".codex" / "config.toml",
         )

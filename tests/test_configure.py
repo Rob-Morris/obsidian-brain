@@ -636,6 +636,11 @@ def test_configure_workspace_bootstrap_remove_default_surface_skips_agents_and_c
             "status": "changed",
             "message": "Removed Brain bootstrap instructions from CLAUDE.md.",
         },
+        {
+            "name": "workspace_bootstrap_grok",
+            "status": "noop",
+            "message": "Reconciled native Grok Brain startup rule.",
+        },
     ]
     assert claude_md.read_text(encoding="utf-8") == "# Demo\n"
 

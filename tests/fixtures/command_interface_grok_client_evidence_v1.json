@@ -1,8 +1,15 @@
 {
-  "captured_at": "2026-09-12T22:11:38.685748+10:00",
+  "captured_at": "2026-09-13T01:39:49.762288+10:00",
   "client_version": "1.0.30",
   "external_model_request": false,
   "localhost_model_endpoint": true,
+  "native_setup": {
+    "config": ".grok/config.toml",
+    "inherited_registration_required": false,
+    "owner": "Brain",
+    "rule_discovered": true,
+    "shaping_discovered": true
+  },
   "schema": "brain.command-interface-grok-evidence/1",
   "sessions": {
     "fresh": {

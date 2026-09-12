@@ -123,7 +123,36 @@ def repair_mcp(vault_root: Path, dry_run: bool, bootstrap_steps: list[dict] | No
     except (OSError, ValueError) as exc:
         steps.append(_step("codex_project", "error", str(exc)))
 
+    try:
+        grok = state["grok"]
+        if not grok["present"] or grok["healthy"]:
+            steps.append(
+                _step("grok_project", "noop", "Grok project MCP needs no repair.")
+            )
+        elif dry_run:
+            steps.append(
+                _step(
+                    "grok_project",
+                    "planned",
+                    "Would repair native Grok MCP, startup rule and init-state record.",
+                )
+            )
+        else:
+            record = mcp_transport.register_grok(server_config, "project", vault_root)
+            mcp_transport.record_init_target(vault_root, record)
+            steps.append(
+                _step(
+                    "grok_project",
+                    "changed",
+                    "Repaired native Grok MCP, startup rule and init-state record.",
+                )
+            )
+    except (OSError, ValueError, RuntimeError) as exc:
+        steps.append(_step("grok_project", "error", str(exc)))
+
     notes = mcp_transport.claude_project_followup_notes(vault_root) if state["claude"]["present"] else []
+    if state["grok"]["present"]:
+        notes.extend(mcp_transport.mcp_followup_notes(["grok"], "project", vault_root))
     return _finalise_result("mcp", vault_root, dry_run, steps, notes=notes)
 
 

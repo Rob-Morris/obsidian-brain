@@ -170,6 +170,7 @@ def test_agent_skill_dry_run_uses_real_plan_without_writing(tmp_path):
     assert tuple(step.client for step in result.result.steps) == (
         AgentSkillClient.CLAUDE,
         AgentSkillClient.CODEX,
+        AgentSkillClient.GROK,
     )
     assert all(
         step.status is AgentSkillMutationStatus.PLANNED
@@ -253,9 +254,11 @@ def test_generic_shaping_exposure_adopts_existing_adapter_without_rewrite(tmp_pa
     assert (destination / agent_skills.MARKER_FILE).read_bytes() == marker_before
 
 
+@pytest.mark.parametrize("client", [AgentSkillClient.CODEX, AgentSkillClient.GROK])
 def test_project_exposure_requires_matching_canonical_binding(
     tmp_path,
     monkeypatch,
+    client,
 ):
     import vault_registry
 
@@ -283,13 +286,13 @@ def test_project_exposure_requires_matching_canonical_binding(
     result = invocation.invoke(
         SkillExposeRequest(
             "example",
-            client=AgentSkillClient.CODEX,
+            client=client,
             scope=SkillExposureScope.PROJECT,
         )
     )
 
     assert result.status == "ok"
-    assert (workspace / ".codex/skills/example/SKILL.md").is_file()
+    assert (workspace / f".{client.value}/skills/example/SKILL.md").is_file()
     assert manifest.read_bytes() == manifest_bytes
     assert Path(registry_before).read_bytes() == registry_bytes
 

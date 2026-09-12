@@ -59,14 +59,14 @@ def _marker_for(content):
     }
 
 
-def test_install_configures_both_clients_from_one_adapter(tmp_path):
+def test_install_configures_all_clients_from_one_adapter(tmp_path):
     steps = agent_skills.configure_agent_skill_adapters(
         home_dir=tmp_path,
         client="all",
     )
 
-    assert [step["status"] for step in steps] == ["changed", "changed"]
-    for client in ("claude", "codex"):
+    assert [step["status"] for step in steps] == ["changed", "changed", "changed"]
+    for client in ("claude", "codex", "grok"):
         skill_dir = _skill_dir(tmp_path, client)
         content = (skill_dir / "SKILL.md").read_text()
         marker = json.loads((skill_dir / agent_skills.MARKER_FILE).read_text())
@@ -122,7 +122,7 @@ def test_dry_run_uses_real_install_resolution_without_writing(tmp_path):
         dry_run=True,
     )
 
-    assert [step["status"] for step in steps] == ["planned", "planned"]
+    assert [step["status"] for step in steps] == ["planned", "planned", "planned"]
     assert "Would archive" in steps[0]["message"]
     assert (skill_dir / "SKILL.md").read_text() == "custom workflow"
     assert not _backup_dir(tmp_path, "claude").exists()
@@ -231,7 +231,7 @@ def test_missing_template_is_a_scoped_configuration_error(tmp_path, monkeypatch)
         client="all",
     )
 
-    assert [step["status"] for step in steps] == ["error", "error"]
+    assert [step["status"] for step in steps] == ["error", "error", "error"]
     assert all("cannot read shaping adapter template" in step["message"] for step in steps)
     assert not (tmp_path / ".claude").exists()
     assert not (tmp_path / ".codex").exists()
@@ -406,7 +406,7 @@ def test_all_clients_report_partial_success_independently(tmp_path):
         client="all",
     )
 
-    assert [step["status"] for step in steps] == ["error", "changed"]
+    assert [step["status"] for step in steps] == ["error", "changed", "changed"]
     assert (_skill_dir(tmp_path, "codex") / "SKILL.md").is_file()
 
 
@@ -431,7 +431,7 @@ def test_value_error_is_contained_to_the_failing_client(tmp_path, monkeypatch):
         client="all",
     )
 
-    assert [step["status"] for step in steps] == ["changed", "error"]
+    assert [step["status"] for step in steps] == ["changed", "error", "changed"]
     assert steps[1]["message"] == "path bounds mismatch"
 
 
@@ -447,5 +447,5 @@ def test_symlinked_home_bounds_errors_are_structured_per_client(tmp_path):
         client="all",
     )
 
-    assert [step["status"] for step in steps] == ["error", "error"]
+    assert [step["status"] for step in steps] == ["error", "error", "error"]
     assert all("outside allowed boundary" in step["message"] for step in steps)

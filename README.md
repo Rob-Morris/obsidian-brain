@@ -1,6 +1,6 @@
 # Obsidian Brain
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE) ![Version](https://img.shields.io/badge/version-0.64.0-blue) ![Platform](https://img.shields.io/badge/platform-Obsidian-7C3AED) ![Python](https://img.shields.io/badge/python-≥3.12-3776AB?logo=python&logoColor=white) ![MCP](https://img.shields.io/badge/MCP-server-green)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE) ![Version](https://img.shields.io/badge/version-0.64.1-blue) ![Platform](https://img.shields.io/badge/platform-Obsidian-7C3AED) ![Python](https://img.shields.io/badge/python-≥3.12-3776AB?logo=python&logoColor=white) ![MCP](https://img.shields.io/badge/MCP-server-green)
 
 A self-evolving knowledge base for agents and humans working together on what matters.
 
@@ -31,7 +31,7 @@ The [Getting Started guide](docs/user/getting-started.md) walks through all of t
 
 ## Quick Start
 
-**You need:** git, Python 3.12+, plus an agent you can run in the vault folder. An MCP-capable agent such as [Claude Code](https://docs.anthropic.com/en/docs/claude-code) or Codex gives the best tool-backed experience, but Brain also has a markdown bootstrap fallback for agents without MCP. [Obsidian](https://obsidian.md) is strongly recommended — the brain is designed for it — but you can use any markdown editor or just talk to your agent directly.
+**You need:** git, Python 3.12+, plus an agent you can run in the vault folder. An MCP-capable agent such as [Claude Code](https://docs.anthropic.com/en/docs/claude-code), Codex or [Grok Build](https://docs.x.ai/build/overview) gives the best tool-backed experience, but Brain also has a markdown bootstrap fallback for agents without MCP. [Obsidian](https://obsidian.md) is strongly recommended — the brain is designed for it — but you can use any markdown editor or just talk to your agent directly.
 
 **Create your vault:**
 
@@ -39,7 +39,7 @@ The [Getting Started guide](docs/user/getting-started.md) walks through all of t
 bash <(curl -fsSL https://raw.githubusercontent.com/rob-morris/obsidian-brain/main/install.sh)
 ```
 
-This downloads the repo, creates the vault in the current directory, and then attempts project-scope MCP setup for Claude Code and Codex. Pass a path to install elsewhere. If you want the vault scaffold without the managed runtime / MCP setup, pass `--skip-mcp` (or add `--non-interactive` for non-interactive agent installs). From a local clone, use `bash install.sh` instead.
+This downloads the repo, creates the vault in the current directory, and then attempts project-scope MCP setup for Claude Code, Codex and Grok. Pass a path to install elsewhere. If you want the vault scaffold without the managed runtime / MCP setup, pass `--skip-mcp` (or add `--non-interactive` for non-interactive agent installs). From a local clone, use `bash install.sh` instead.
 
 On native Windows, use the PowerShell launcher from a local clone:
 
@@ -144,7 +144,7 @@ bash install.sh --non-interactive --skip-mcp /path/to/brain
 bash install.sh --uninstall --non-interactive /path/to/brain
 ```
 
-Skips all prompts. Useful for scripted or agent-driven installs. Add `--skip-mcp` to scaffold the vault without provisioning the central runtime or registering Claude/Codex MCP — useful in network-restricted agent sandboxes. Python 3.12+ is still required because the shell launcher now hands scaffold policy to the Python installer core. If MCP dependency install or registration fails, the installer leaves the vault in place and prints manual retry steps instead of aborting the whole install. On uninstall, `--non-interactive` removes system files without prompting and skips the vault-deletion offer entirely. On upgrade, `install.sh` just delegates to `upgrade.py`; it does not own upgrade override semantics or re-run MCP setup. If you need same-version re-apply, downgrade, or migration rerun behaviour, call `upgrade.py --force` directly.
+Skips all prompts. Useful for scripted or agent-driven installs. Add `--skip-mcp` to scaffold the vault without provisioning the central runtime or registering Claude/Codex/Grok MCP — useful in network-restricted agent sandboxes. Python 3.12+ is still required because the shell launcher now hands scaffold policy to the Python installer core. If MCP dependency install or registration fails, the installer leaves the vault in place and prints manual retry steps instead of aborting the whole install. On uninstall, `--non-interactive` removes system files without prompting and skips the vault-deletion offer entirely. On upgrade, `install.sh` just delegates to `upgrade.py`; it does not own upgrade override semantics or re-run MCP setup. If you need same-version re-apply, downgrade, or migration rerun behaviour, call `upgrade.py --force` directly.
 
 > **Full reference:** [Scripts — install.sh](docs/functional/scripts.md#installsh) covers all flags, safety guards, and edge-case behaviour.
 
@@ -159,8 +159,8 @@ If you prefer to do it yourself:
 4. Install the CLI and its versioned distribution: `python3.12 cli/_distribution.py . ~/.local/bin/brain` (choose an equivalent user bin path on other platforms).
 5. Provision the central managed runtime: `cd /path/to/brain && python3.12 .brain-core/scripts/_common/_venv.py ensure --vault . --launcher python3.12`. This creates `~/.brain/venvs/py3.12-<sha16>/` if missing and installs `requirements.txt` into it.
 6. Optionally configure MCP transport with `brain mcp configure --vault /path/to/brain --request-json '{"scope":"project","client":"all"}'`. This launcher command and the installer share the same launcher-safe transport owner.
-   For project scope, the file write is not the whole story: Claude still needs `/mcp` approval for `brain`, and Codex still needs the project trusted with `brain` enabled.
-7. Optionally install the active-Brain shaping discovery adapter for both clients: `brain agent-skill configure --vault /path/to/brain --request-json '{"client":"all"}'`. If an older unmanaged shaping skill is already installed, review it and rerun with `{"client":"all","replace":true}`; Brain archives the old directory instead of deleting it. Restart the clients after installation.
+   For project scope, the file write is not the whole story: Claude still needs `/mcp` approval for `brain`, Codex needs the project trusted with `brain` enabled, and Grok needs folder trust.
+7. Optionally install the active-Brain shaping discovery adapter for all three clients: `brain agent-skill configure --vault /path/to/brain --request-json '{"client":"all"}'`. If an older unmanaged shaping skill is already installed, review it and rerun with `{"client":"all","replace":true}`; Brain archives the old directory instead of deleting it. Restart the clients after installation.
 8. Open the folder as an Obsidian vault.
 9. Enable the CSS snippet in **Settings > Appearance > CSS Snippets** (`brain-folder-colours`).
 
@@ -168,14 +168,14 @@ If you prefer to do it yourself:
 
 ### Connecting from Other Projects
 
-When MCP setup is enabled, the installer registers the server for the vault directory at project scope for Claude Code and Codex. Workspace binding and machine-global transport policy remain separate granular commands:
+When MCP setup is enabled, the installer registers the server for the vault directory at project scope for Claude Code, Codex and Grok. Workspace binding and machine-global transport policy remain separate granular commands:
 
 ```bash
-# Make the Brain available to all projects for both clients
+# Make the Brain available to all projects for all three clients
 brain mcp configure --vault /path/to/brain \
   --request-json '{"scope":"user","client":"all"}' --json
 
-# Bind and configure a specific project for both clients
+# Bind and configure a specific project for all three clients
 brain workspace bind --vault /path/to/brain --workspace /path/to/project \
   --request-json '{}' --json
 brain mcp configure --vault /path/to/brain --workspace /path/to/project \
@@ -185,7 +185,7 @@ brain mcp configure --vault /path/to/brain --workspace /path/to/project \
 brain workspace configure-bootstrap --vault /path/to/brain \
   --workspace /path/to/project --json
 
-# Claude-only local scope for a specific project (gitignored; Codex has no local scope)
+# Claude-only local scope for a specific project (gitignored; Codex and Grok have no local scope)
 brain mcp configure --vault /path/to/brain --workspace /path/to/project \
   --request-json '{"scope":"local","client":"claude"}' --json
 ```
@@ -226,3 +226,15 @@ Good starting points:
 - [User Docs](docs/user/README.md) — user-facing guides, workflows, and reference
 - [Contributing](docs/CONTRIBUTING.md) — repo contribution guide, including links to contributor-specific docs
 - [Changelog](docs/CHANGELOG.md) — release history
+
+### Grok client support
+
+Brain configures Grok natively; Claude compatibility settings are not required.
+Use `brain mcp configure --request-json '{"client":"grok","scope":"project"}'`
+from a bound workspace or vault, or choose `"scope":"user"` for the standard
+user configuration. `"client":"all"` includes Claude, Codex and Grok.
+Grok stores registration in `.grok/config.toml` and receives a small Brain-owned
+startup rule at `.grok/rules/brain.md`. Review Grok's folder-trust prompt before
+using project configuration, then verify with `grok inspect` and
+`grok mcp doctor brain`. See [client configuration](docs/functional/config.md#grok-client-configuration)
+for ownership, removal and skill setup.

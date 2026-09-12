@@ -163,7 +163,9 @@ def _run_guided_workspace_setup(
 
     if _prompt_yes_no("Configure MCP transport now?", default=True):
         mcp_scope = _prompt_choice("MCP scope", ("user", "project", "local"), default="user")
-        mcp_client = _prompt_choice("MCP client", ("all", "claude", "codex"), default="all")
+        mcp_client = _prompt_choice(
+            "MCP client", ("all", "claude", "codex", "grok"), default="all"
+        )
         mcp_result = configure.configure_mcp_action(
             vault_root,
             client=mcp_client,
@@ -176,7 +178,9 @@ def _run_guided_workspace_setup(
         _merge_result(steps, notes, mcp_result)
 
     if _prompt_yes_no("Add agent bootstrap instructions now?", default=False):
-        bootstrap_surface = _prompt_choice("Bootstrap surface", ("all", "agents", "claude"), default="all")
+        bootstrap_surface = _prompt_choice(
+            "Bootstrap surface", ("all", "agents", "claude", "grok"), default="all"
+        )
         bootstrap_result = configure.configure_workspace_bootstrap_action(
             vault_root,
             workspace_dir=workspace_dir,

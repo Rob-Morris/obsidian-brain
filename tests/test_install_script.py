@@ -45,6 +45,12 @@ def test_install_ignores_machine_local_template_state(tmp_path):
     leaked_codex.write_text(
         '[mcp_servers.brain]\ncommand = "stale-template-python"\n'
     )
+    leaked_grok = source / "template-vault" / ".grok" / "config.toml"
+    leaked_grok.parent.mkdir(parents=True, exist_ok=True)
+    leaked_grok.write_text('[mcp_servers.brain]\ncommand = "stale-template-python"\n')
+    leaked_rule = leaked_grok.parent / "rules" / "brain.md"
+    leaked_rule.parent.mkdir(parents=True)
+    leaked_rule.write_text("stale template rule")
     local = source / "template-vault" / ".brain" / "local"
     local.mkdir(parents=True, exist_ok=True)
     (local / "session.md").write_text("stale session\n")
@@ -73,6 +79,12 @@ def test_install_ignores_machine_local_template_state(tmp_path):
     assert result.returncode == 0, result.stderr
     assert (target / ".mcp.json").is_file()
     assert (target / ".codex" / "config.toml").is_file()
+    assert (target / ".grok/config.toml").is_file()
+    assert "stale-template-python" not in (target / ".grok/config.toml").read_text()
+    assert "session_start" in (target / ".grok/rules/brain.md").read_text()
+    assert "stale template rule" not in (target / ".grok/rules/brain.md").read_text()
+    assert "grok mcp doctor brain" in result.stderr
+
     claude_config = json.loads((target / ".mcp.json").read_text())["mcpServers"]["brain"]
     assert claude_config["env"]["BRAIN_WORKSPACE_DIR"] == str(target)
     assert "open Claude Code in this directory and use /mcp to approve `brain` if prompted" in result.stderr

@@ -16,6 +16,8 @@ from _bootstrap.mcp_state import (
     CLAUDE_MD_FILE,
     CLAUDE_PROJECT_CONFIG_FILE,
     CODEX_CONFIG_REL,
+    GROK_CONFIG_REL,
+    GROK_RULE_REL,
     INIT_STATE_REL,
     bootstrap_line_for_target,
     build_mcp_config,
@@ -23,7 +25,7 @@ from _bootstrap.mcp_state import (
     configured_vault_root,
     is_session_hook_command,
     matching_records,
-    read_codex_server_config,
+    read_toml_server_config,
     session_hook_python,
 )
 from _common import resolve_vault_venv_python, same_executable_path
@@ -218,7 +220,12 @@ def _record_matches(record: dict, *, client: str, config_path: Path, server_conf
     return (
         record.get("client") == client
         and record.get("scope") == "project"
-        and record.get("target_path") == str(config_path.parent.parent if client == "codex" else config_path.parent)
+        and record.get("target_path")
+        == str(
+            config_path.parent.parent
+            if client in {"codex", "grok"}
+            else config_path.parent
+        )
         and record.get("config_path") == str(config_path)
         and record.get("server_config") == server_config
     )
@@ -267,7 +274,7 @@ def _session_hook_state(settings: dict, expected_command: str, vault_root: Path,
 def _project_records_for_vault(vault_root: Path) -> list[dict]:
     return matching_records(
         vault_root,
-        ["claude", "codex"],
+        ["claude", "codex", "grok"],
         "project",
         vault_root,
     )
@@ -302,7 +309,7 @@ def inspect_mcp(vault_root: Path) -> dict:
     expected_bootstrap = bootstrap_line_for_target(vault_root)
 
     claude_server = _read_claude_project_server(claude_config_path)
-    codex_server = read_codex_server_config(codex_config_path)
+    codex_server = read_toml_server_config(codex_config_path)
     expected_command = server_config["command"]
     claude_command = claude_server.get("command") if isinstance(claude_server, dict) else None
     codex_command = codex_server.get("command") if isinstance(codex_server, dict) else None
@@ -337,12 +344,59 @@ def inspect_mcp(vault_root: Path) -> dict:
     claude_present = claude_server is not None or _has_project_record(records, "claude")
     codex_present = codex_server is not None or _has_project_record(records, "codex")
 
+    from _bootstrap.grok_mcp import RULE_CONTENT, read_server
+
+    grok_path = vault_root / GROK_CONFIG_REL
+    grok_invalid = False
+    try:
+        grok_content = grok_path.read_text(encoding="utf-8")
+        grok_server = read_server(grok_content)
+    except (OSError, ValueError):
+        grok_server = None
+        grok_invalid = grok_path.exists()
+    try:
+        grok_bootstrap_ok = (vault_root / GROK_RULE_REL).read_text(
+            encoding="utf-8"
+        ) == RULE_CONTENT
+    except (OSError, UnicodeError):
+        grok_bootstrap_ok = False
+    grok_command = grok_server.get("command") if grok_server else None
+    grok_config_ok = (
+        grok_server is not None
+        and all(grok_server.get(key) == value for key, value in server_config.items())
+        and not any(key in grok_server for key in ("url", "headers", "http_headers"))
+    )
+    grok_record_ok = any(
+        _record_matches(
+            record, client="grok", config_path=grok_path, server_config=server_config
+        )
+        for record in records
+    )
     return {
+        "grok": {
+            "config_path": grok_path,
+            "present": grok_invalid
+            or grok_server is not None
+            or _has_project_record(records, "grok"),
+            "healthy": grok_config_ok and grok_bootstrap_ok and grok_record_ok,
+            "config_ok": grok_config_ok,
+            "command": grok_command,
+            "command_ok": grok_server is None
+            or (
+                isinstance(grok_command, str)
+                and same_executable_path(grok_command, expected_command)
+            ),
+            "bootstrap_ok": grok_bootstrap_ok,
+            "record_ok": grok_record_ok,
+        },
         "server_config": server_config,
         "claude": {
             "config_path": claude_config_path,
             "present": claude_present,
-            "healthy": claude_config_ok and bootstrap_ok and hook_ok and claude_record_ok,
+            "healthy": claude_config_ok
+            and bootstrap_ok
+            and hook_ok
+            and claude_record_ok,
             "config_ok": claude_config_ok,
             "command": claude_command,
             "command_ok": claude_command_ok,
@@ -369,6 +423,8 @@ def local_mcp_state_present(vault_root: Path) -> bool:
         for rel in (
             CLAUDE_PROJECT_CONFIG_FILE,
             CODEX_CONFIG_REL,
+            GROK_CONFIG_REL,
+            GROK_RULE_REL,
             INIT_STATE_REL,
         )
     )
@@ -457,8 +513,23 @@ def collect_mcp_check_findings(vault_root: str | Path) -> list[dict]:
                 "message": "Claude SessionStart contains stale or duplicate Brain hooks.",
             }, vault_root, "mcp"))
 
-    client_labels = {"claude": "Claude", "codex": "Codex"}
-    for client in ("claude", "codex"):
+    if mcp["grok"]["command"] is not None and not mcp["grok"]["command_ok"]:
+        specifically_reported_clients.add("grok")
+        findings.append(
+            attach_repair_guidance(
+                {
+                    "check": "mcp_registration:grok_python_mismatch",
+                    "severity": "warning",
+                    "file": GROK_CONFIG_REL,
+                    "message": "Grok Brain MCP config does not point at the canonical managed Python.",
+                },
+                vault_root,
+                "mcp",
+            )
+        )
+
+    client_labels = {"claude": "Claude", "codex": "Codex", "grok": "Grok"}
+    for client in ("claude", "codex", "grok"):
         if (
             mcp[client]["present"]
             and not mcp[client]["healthy"]
@@ -488,12 +559,13 @@ def collect_mcp_legacy_vault_root_findings(vault_root: str | Path) -> list[dict]
     clients: list[tuple[str, Path]] = [
         ("claude", vault_root / CLAUDE_PROJECT_CONFIG_FILE),
         ("codex", vault_root / CODEX_CONFIG_REL),
+        ("grok", vault_root / GROK_CONFIG_REL),
     ]
     for client, config_path in clients:
         if client == "claude":
             server = _read_claude_project_server(config_path)
         else:
-            server = read_codex_server_config(config_path)
+            server = read_toml_server_config(config_path)
         if server is None:
             continue
         legacy_root = configured_vault_root(server)

@@ -13,10 +13,9 @@ from _bootstrap import mcp_state, mcp_transport
 from _bootstrap.mcp_state import (
     build_mcp_config,
     build_session_hook_command,
-    read_codex_server_config,
-    write_codex_config,
+    read_toml_server_config,
+    write_toml_config,
 )
-
 
 def test_project_claude_json_merges_existing(bootstrap_vault, project):
     mcp_path = project / ".mcp.json"
@@ -52,7 +51,9 @@ def test_all_local_skips_codex_with_warning():
     clients, warnings = mcp_transport._resolve_clients_or_error("all", "local")
 
     assert clients == ["claude"]
-    assert warnings == ["Codex has no supported local scope. Applying Claude local setup only."]
+    assert warnings == [
+        "Codex and Grok have no supported local scope. Applying Claude local setup only."
+    ]
 
 
 def test_codex_local_exits():
@@ -365,7 +366,7 @@ def test_claude_project_followup_returns_no_notes_when_approved(project, fake_ho
 
 def test_codex_project_warning_qualifies_precedence(bootstrap_vault, project, fake_home, capsys):
     config = build_mcp_config("/usr/bin/python3", bootstrap_vault, workspace_dir=project)
-    write_codex_config(config, fake_home / ".codex" / "config.toml")
+    write_toml_config(config, fake_home / ".codex" / "config.toml")
 
     mcp_transport._warn_if_user_scope_exists("codex", "project", config)
     err = capsys.readouterr().err

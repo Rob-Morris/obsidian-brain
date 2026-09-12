@@ -33,6 +33,8 @@ CLAUDE_MD_FILE = "CLAUDE.md"
 CLAUDE_LOCAL_MD_FILE = ".claude/CLAUDE.local.md"
 
 CODEX_CONFIG_REL = ".codex/config.toml"
+GROK_CONFIG_REL = ".grok/config.toml"
+GROK_RULE_REL = ".grok/rules/brain.md"
 INIT_STATE_REL = ".brain/local/init-state.json"
 INIT_STATE_VERSION = 1
 
@@ -297,10 +299,14 @@ def _parse_toml_sections(content: str) -> Tuple[List[str], List[Dict[str, Any]]]
         is_header = (
             stripped.startswith("[")
             and stripped.endswith("]")
-            and not stripped.startswith("[[")
         )
         if is_header:
-            current = {"name": stripped[1:-1].strip(), "header": line, "body": []}
+            name = (
+                stripped[2:-2].strip()
+                if stripped.startswith("[[")
+                else stripped[1:-1].strip()
+            )
+            current = {"name": name, "header": line, "body": []}
             sections.append(current)
             continue
         if current is None:
@@ -422,8 +428,8 @@ def _parse_toml_mapping(body_lines: List[str]) -> Dict[str, Any]:
     return result
 
 
-def read_codex_server_config(config_path: Path) -> Optional[Dict[str, Any]]:
-    """Read the Brain MCP entry from a Codex TOML config file."""
+def read_toml_server_config(config_path: Path) -> Optional[Dict[str, Any]]:
+    """Read the Brain MCP entry from a client TOML config file."""
     if not config_path.is_file():
         return None
 
@@ -453,18 +459,22 @@ def read_codex_server_config(config_path: Path) -> Optional[Dict[str, Any]]:
     }
 
 
-def write_codex_config(server_config: Dict[str, Any], config_path: Path) -> None:
-    """Write the Brain MCP entry into a Codex TOML config file."""
+# Brain Lab probes use this name across older installed Brain versions.
+read_codex_server_config = read_toml_server_config
+
+
+def write_toml_config(server_config: Dict[str, Any], config_path: Path) -> None:
+    """Write the Brain MCP entry into a client TOML config file."""
     try:
         content = config_path.read_text(encoding="utf-8") if config_path.is_file() else ""
     except OSError:
         content = ""
 
-    safe_write(config_path, render_codex_config(content, server_config))
+    safe_write(config_path, render_toml_config(content, server_config))
 
 
-def render_codex_config(content: str, server_config: Dict[str, Any]) -> str:
-    """Render a Codex config with the canonical Brain server entry."""
+def render_toml_config(content: str, server_config: Dict[str, Any]) -> str:
+    """Render a client TOML config with the canonical Brain server entry."""
     preamble, sections = _parse_toml_sections(content)
     _upsert_toml_section(
         sections,
@@ -484,7 +494,9 @@ def render_codex_config(content: str, server_config: Dict[str, Any]) -> str:
     return _render_toml(preamble, sections)
 
 
-def render_codex_without_server(content: str, server_config: Dict[str, Any]) -> str | None:
+def render_toml_without_server(
+    content: str, server_config: Dict[str, Any]
+) -> str | None:
     """Render removal of an exactly matching Brain entry, or return unchanged intent."""
     preamble, sections = _parse_toml_sections(content)
     main_index = _find_section_index(sections, "mcp_servers.brain")
@@ -506,9 +518,9 @@ def render_codex_without_server(content: str, server_config: Dict[str, Any]) -> 
     return _render_toml(preamble, kept_sections)
 
 
-def remove_codex_server(config_path: Path, server_config: Dict[str, Any]) -> bool:
-    """Remove the Brain MCP entry from a Codex TOML config file when it matches."""
-    current = read_codex_server_config(config_path)
+def remove_toml_server(config_path: Path, server_config: Dict[str, Any]) -> bool:
+    """Remove the Brain MCP entry from a client TOML config file when it matches."""
+    current = read_toml_server_config(config_path)
     if current is None or current != server_config:
         return False
 
@@ -517,7 +529,7 @@ def remove_codex_server(config_path: Path, server_config: Dict[str, Any]) -> boo
     except OSError:
         return False
 
-    rendered = render_codex_without_server(content, server_config)
+    rendered = render_toml_without_server(content, server_config)
     if rendered is None:
         return False
     if rendered:

@@ -269,7 +269,7 @@ manually reconcile then update to rebaseline, or explicitly replace it with
 
 ### Client discovery adapters
 
-Claude Code and Codex discover native skills in global and project directories.
+Claude Code, Codex and Grok discover native skills in global and project directories.
 Brain can explicitly expose any valid effective skill through a thin adapter
 without duplicating the package:
 
@@ -358,3 +358,56 @@ python3.12 -m venv .venv
 ### Test configuration
 
 `pyproject.toml` configures pytest with `pythonpath` entries for `src/brain-core` and `src/brain-core/scripts`, so test files can `import check` and `from brain_mcp import server` without `sys.path` manipulation.
+
+## Grok client configuration
+
+The supported client selectors are `claude`, `codex`, `grok` and `all`.
+Grok has project and user scope. Explicit Grok local scope is rejected;
+`all` with local scope selects only Claude and reports the excluded clients.
+Brain's configuration commands target the standard client directories beneath
+the supplied home or workspace root. They do not change Grok's authentication,
+folder trust, permission policy or model settings.
+
+| Surface | Grok destination |
+|---|---|
+| Project MCP | `<workspace>/.grok/config.toml` |
+| User MCP | `~/.grok/config.toml` |
+| Bootstrap rule | `.grok/rules/brain.md` beneath the selected workspace or home |
+| Global skill adapter | `~/.grok/skills/<name>/` |
+| Project skill adapter | `<workspace>/.grok/skills/<name>/` |
+
+MCP registration uses the same managed Python, Brain proxy and workspace binding
+as the other clients. Native configuration takes precedence over inherited
+Claude registrations. Project setup adds only `.grok/config.toml` to Brain's
+machine-local ignore entries; the portable startup rule remains discoverable.
+Open Grok in the target directory, review its trust prompt and check
+`grok inspect` and `grok mcp doctor brain`.
+
+The owned startup rule calls MCP `session_start`, using local
+`brain session start --json` as fallback. Grok ignores passive SessionStart hook
+stdout, so Brain supplies a rule instead of installing a Claude-style hook.
+`workspace.configure-bootstrap` also accepts `{"surface":"grok"}`.
+
+Setup preflights TOML and rule writes together. It preserves unrelated tables
+and existing Brain timeout/enabled options. Conflicting rule content, symlinked
+state and unsupported TOML layouts fail without overwriting them. Removal
+matches the complete recorded Brain server; added options or changed fields
+are preserved for review. It removes only the exact authored rule and retains
+an ownership record while an edited rule remains, even if the config was
+already removed. An inherited Claude registration can become visible again
+when the native Grok entry is removed.
+
+`brain agent-skill configure --request-json '{"client":"grok"}'` installs the
+active-Brain shaping adapter. `skill.expose` and `skill.unexpose` accept Grok
+for global or project scope and use the existing ownership marker, dry-run and
+backup-on-replacement rules. Upgrade repairs existing project registrations;
+it does not install new user-global adapters or register an absent client.
+
+These paths describe the standard client home. If Grok is launched with a
+custom `GROK_HOME`, its configuration must be provisioned under that home;
+Brain does not currently resolve client-specific home overrides.
+
+Client behaviour references: [MCP](https://docs.x.ai/build/features/mcp-servers),
+[rules](https://docs.x.ai/build/features/project-rules),
+[hooks](https://docs.x.ai/build/features/hooks), and
+[skills](https://docs.x.ai/build/features/skills-plugins-marketplaces).

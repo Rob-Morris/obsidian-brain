@@ -28,6 +28,7 @@ from .contracts import (
 class McpClient(str, Enum):
     CLAUDE = "claude"
     CODEX = "codex"
+    GROK = "grok"
     ALL = "all"
 
 
@@ -105,7 +106,7 @@ class McpMutationPayload:
 @dataclass(frozen=True, slots=True)
 class McpConfigureRequest:
     COMMAND_ID: ClassVar[str] = "mcp.configure"
-    COMMAND_VERSION: ClassVar[int] = 1
+    COMMAND_VERSION: ClassVar[int] = 2
     RESULT_TYPE: ClassVar[type] = McpMutationPayload
 
     client: McpClient = McpClient.ALL
@@ -119,14 +120,19 @@ class McpConfigureRequest:
             raise ValueError("MCP scope must be closed and typed")
         if not isinstance(self.action, McpConfigureAction):
             raise ValueError("MCP configure action must be closed and typed")
-        if self.scope is McpScope.LOCAL and self.client is McpClient.CODEX:
-            raise ValueError("Codex does not support local MCP scope")
+        if self.scope is McpScope.LOCAL and self.client in (
+            McpClient.CODEX,
+            McpClient.GROK,
+        ):
+            raise ValueError(
+                f"{self.client.value.title()} does not support local MCP scope"
+            )
 
 
 @dataclass(frozen=True, slots=True)
 class McpRepairRequest:
     COMMAND_ID: ClassVar[str] = "mcp.repair"
-    COMMAND_VERSION: ClassVar[int] = 1
+    COMMAND_VERSION: ClassVar[int] = 2
     RESULT_TYPE: ClassVar[type] = McpMutationPayload
 
 
@@ -135,7 +141,7 @@ def _clients(client: McpClient, scope: McpScope) -> tuple[McpClient, ...]:
         return (
             (McpClient.CLAUDE,)
             if scope is McpScope.LOCAL
-            else (McpClient.CLAUDE, McpClient.CODEX)
+            else (McpClient.CLAUDE, McpClient.CODEX, McpClient.GROK)
         )
     return (client,)
 
@@ -171,6 +177,8 @@ def _config_path(client: McpClient, scope: McpScope, target: Path | None, home: 
             return target / mcp_state.CLAUDE_LOCAL_SETTINGS_FILE
         assert target is not None
         return target / mcp_state.CLAUDE_PROJECT_CONFIG_FILE
+    if client is McpClient.GROK:
+        return (home if scope is McpScope.USER else target) / mcp_state.GROK_CONFIG_REL
     if scope is McpScope.USER:
         return home / mcp_state.CODEX_CONFIG_REL
     assert target is not None
@@ -364,10 +372,16 @@ def _configure_client(
             hook_path, hook_command = _ensure_hook(
                 plan, target, vault, server["command"]
             )
+    elif client is McpClient.GROK:
+        from _bootstrap import grok_mcp
+
+        config_path, bootstrap_path = grok_mcp.plan_configure(
+            plan, home if scope is McpScope.USER else target, server
+        )
     else:
         content = plan.read_text(config_path) or ""
         _validate_toml(content, config_path)
-        plan.write_text(config_path, mcp_state.render_codex_config(content, server))
+        plan.write_text(config_path, mcp_state.render_toml_config(content, server))
     return _record_for(
         client,
         scope,
@@ -451,11 +465,20 @@ def _remove_plan(vault: Path, home: Path, target: Path | None, scope: McpScope, 
                     target,
                     None,
                 )
+        elif client is McpClient.GROK:
+            from _bootstrap import grok_mcp
+
+            removed = grok_mcp.plan_remove(
+                plan, home if scope is McpScope.USER else target, server
+            )
+            if not removed:
+                retained.append(record)
+            continue
         else:
             content = plan.read_text(config_path)
             if content is not None:
                 _validate_toml(content, config_path)
-                rendered = mcp_state.render_codex_without_server(content, server)
+                rendered = mcp_state.render_toml_without_server(content, server)
                 if rendered is not None:
                     removed = True
                     if rendered:
@@ -512,7 +535,7 @@ def _warnings(client: McpClient, scope: McpScope) -> tuple[CommandWarning, ...]:
         return (
             CommandWarning(
                 WarningCode.DEGRADED_CAPABILITY,
-                "Codex has no local MCP scope; only Claude was selected.",
+                "Codex and Grok have no local MCP scope; only Claude was selected.",
             ),
         )
     return ()
@@ -674,8 +697,9 @@ def execute_repair(context: LauncherContext, request: McpRepairRequest):
             BRAIN_SERVER_NAME,
             CLAUDE_PROJECT_CONFIG_FILE,
             CODEX_CONFIG_REL,
+            GROK_CONFIG_REL,
             build_mcp_config,
-            render_codex_without_server,
+            render_toml_without_server,
         )
         from _bootstrap.file_transaction import FilePlan
 
@@ -693,7 +717,13 @@ def execute_repair(context: LauncherContext, request: McpRepairRequest):
         codex_present = (
             codex_content is not None
             and bool(current_codex)
-            and render_codex_without_server(codex_content, current_codex) is not None
+            and render_toml_without_server(codex_content, current_codex) is not None
+        )
+        from _bootstrap.grok_mcp import read_server
+
+        grok_content = probe.read_text(target / GROK_CONFIG_REL)
+        grok_present = (
+            grok_content is not None and read_server(grok_content) is not None
         )
         _, records = _init_records(probe, vault)
         recorded = {
@@ -706,6 +736,7 @@ def execute_repair(context: LauncherContext, request: McpRepairRequest):
             for client, present in (
                 (McpClient.CLAUDE, claude_present or "claude" in recorded),
                 (McpClient.CODEX, codex_present or "codex" in recorded),
+                (McpClient.GROK, grok_present or "grok" in recorded),
             )
             if present
         )
@@ -747,9 +778,9 @@ def execute_repair(context: LauncherContext, request: McpRepairRequest):
 
 
 def _read_codex(path: Path) -> dict:
-    from _bootstrap.mcp_state import read_codex_server_config
+    from _bootstrap.mcp_state import read_toml_server_config
 
-    return read_codex_server_config(path) or {}
+    return read_toml_server_config(path) or {}
 
 
 def configure_owner():

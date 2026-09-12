@@ -40,7 +40,7 @@ For non-interactive agent installs in restricted environments, scaffold the vaul
 bash install.sh --non-interactive --skip-mcp /path/to/brain
 ```
 
-The installer creates the vault from the template, copies `.brain-core/` into it, provisions the light machine resolution runtime used by no-MCP `brain session`, and then offers an MCP registration choice for Claude Code and Codex — register this Brain for this vault only (project scope, the default) or as your machine default brain (user scope) — provisioning the managed Python runtime as needed. `install.sh` and `install.ps1` both hand fresh/existing-vault install policy to the shared Python installer core at `src/brain-core/scripts/install.py`. The POSIX wrapper can also install brain-core into an existing Obsidian vault and detect already-installed Brain vaults; for those, the canonical upgrade path is `upgrade.py` and `install.sh` only delegates to it. In network-restricted environments you can pass `--skip-mcp` to scaffold the vault without runtime / MCP setup, or rerun the printed retry steps later if dependency installation fails. Use `--non-interactive` when you want installer automation without prompts; it selects the this-vault-only (project) scope. When upgrade changes `.brain-core/brain_mcp/requirements.txt`, `upgrade.py` provisions the matching shared runtime under `~/.brain/venvs/` itself; `install.sh --skip-mcp` passes through the opt-out. Same-version re-apply, downgrade, or explicit migration rerun flows remain explicit `upgrade.py --force` operations. Project scope still outranks user scope for both clients once the project-scoped MCP is active: in Claude, approve `brain` via `/mcp`; in Codex, trust the project and ensure `brain` is enabled for that project. See [install.sh](../functional/scripts.md#installsh) and [install.py](../functional/scripts.md#installpy) for full details, modes, and flags.
+The installer creates the vault from the template, copies `.brain-core/` into it, provisions the light machine resolution runtime used by no-MCP `brain session`, and then offers an MCP registration choice for Claude Code, Codex and Grok — register this Brain for this vault only (project scope, the default) or as your machine default brain (user scope) — provisioning the managed Python runtime as needed. `install.sh` and `install.ps1` both hand fresh/existing-vault install policy to the shared Python installer core at `src/brain-core/scripts/install.py`. The POSIX wrapper can also install brain-core into an existing Obsidian vault and detect already-installed Brain vaults; for those, the canonical upgrade path is `upgrade.py` and `install.sh` only delegates to it. In network-restricted environments you can pass `--skip-mcp` to scaffold the vault without runtime / MCP setup, or rerun the printed retry steps later if dependency installation fails. Use `--non-interactive` when you want installer automation without prompts; it selects the this-vault-only (project) scope. When upgrade changes `.brain-core/brain_mcp/requirements.txt`, `upgrade.py` provisions the matching shared runtime under `~/.brain/venvs/` itself; `install.sh --skip-mcp` passes through the opt-out. Same-version re-apply, downgrade, or explicit migration rerun flows remain explicit `upgrade.py --force` operations. Project scope still outranks user scope for all three clients once the project-scoped MCP is active: in Claude, approve `brain` via `/mcp`; in Codex, trust the project and ensure `brain` is enabled for that project; in Grok, review its folder-trust prompt. See [install.sh](../functional/scripts.md#installsh) and [install.py](../functional/scripts.md#installpy) for full details, modes, and flags.
 
 Semantic retrieval remains optional. Enable it later with
 `brain retrieval enable --vault /path/to/brain --json`. That command
@@ -88,7 +88,7 @@ brain workspace bind --vault /path/to/brain --workspace /path/to/project \
 That creates or repairs `.brain/local/workspace.yaml` with the workspace's `brain + slug` binding and adds Brain-owned machine-local ignore rules in git-backed targets without writing `.mcp.json`, `.codex/config.toml`, or SessionStart hooks. Configure transport later only if you want it, for example:
 
 ```bash
-# Project scope for one workspace and both clients
+# Project scope for one workspace and all three clients
 brain mcp configure --vault /path/to/brain --workspace /path/to/project \
   --request-json '{"scope":"project","client":"all"}' --json
 
@@ -280,7 +280,7 @@ result in `.brain/local/last-upgrade.json`. If readiness cannot complete it
 returns a known partial outcome with `brain runtime warmup` and `brain runtime
 status` recovery guidance. It never silently deletes shared machine runtimes;
 when read-only topology inspection proves orphan candidates, it reports `brain
-runtime remove-orphans --dry-run` and the explicit removal command. When the Claude/Codex shaping discovery
+runtime remove-orphans --dry-run` and the explicit removal command. When the Claude/Codex/Grok shaping discovery
 adapter is first introduced or its template changes, it recommends
 `configure.py agent-skills --client all` but does not run it automatically.
 Ordinary updates to the active Brain's shaping workflow produce no adapter
@@ -336,3 +336,13 @@ the narrower generated-state scopes.
 - **[Workflows](workflows.md)** — day-to-day usage patterns: logging, ideas, knowledge building, working with agents
 - **[Configuration](../functional/config.md)** — operator profiles, privilege levels, and vault configuration
 - **[MCP Tools](../functional/mcp-tools.md)** — the agent tools: search, create, edit, and vault operations
+
+## Using Grok
+
+Choose `grok` wherever Brain asks for a client, or `all` to configure Claude,
+Codex and Grok together. Grok-only setup writes native configuration and a
+startup rule; it does not require Claude to be installed. Open Grok in the
+vault or bound workspace, review its folder-trust prompt, then run
+`grok inspect` and `grok mcp doctor brain` to check discovery and connectivity.
+Ask Grok to call `session_start` and check the returned vault and workspace.
+See [native client setup](../functional/cli.md#native-grok-setup).

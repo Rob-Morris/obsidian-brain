@@ -17,11 +17,10 @@ from _bootstrap.mcp_state import (
     config_targets_vault,
     configured_vault_root,
     is_session_hook_command,
-    read_codex_server_config,
+    read_toml_server_config,
     record_init_target,
-    write_codex_config,
+    write_toml_config,
 )
-
 
 def test_build_mcp_config_structure(bootstrap_vault):
     config = build_mcp_config("/usr/bin/python3", bootstrap_vault)
@@ -91,7 +90,9 @@ def test_config_targets_vault_rejects_missing_or_invalid_roots(bootstrap_vault):
     assert not config_targets_vault({"env": {"BRAIN_VAULT_ROOT": ""}}, bootstrap_vault)
 
 
-def test_write_codex_config_preserves_other_sections_and_brain_tools(bootstrap_vault, project):
+def test_write_toml_config_preserves_other_sections_and_brain_tools(
+    bootstrap_vault, project
+):
     config_path = project / ".codex" / "config.toml"
     config_path.parent.mkdir(parents=True)
     config_path.write_text(
@@ -106,7 +107,7 @@ def test_write_codex_config_preserves_other_sections_and_brain_tools(bootstrap_v
     )
 
     config = build_mcp_config("/usr/bin/python3", bootstrap_vault)
-    write_codex_config(config, config_path)
+    write_toml_config(config, config_path)
 
     content = config_path.read_text(encoding="utf-8")
     assert 'model = "gpt-5.4"' in content
@@ -121,7 +122,9 @@ def test_write_codex_config_preserves_other_sections_and_brain_tools(bootstrap_v
     assert payload["mcp_servers"]["brain"]["tools"]["search"]["approval_mode"] == "approve"
 
 
-def test_write_codex_config_updates_spaced_brain_headers_in_place(bootstrap_vault, project):
+def test_write_toml_config_updates_spaced_brain_headers_in_place(
+    bootstrap_vault, project
+):
     config_path = project / ".codex" / "config.toml"
     config_path.parent.mkdir(parents=True)
     config_path.write_text(
@@ -135,7 +138,7 @@ def test_write_codex_config_updates_spaced_brain_headers_in_place(bootstrap_vaul
     )
 
     config = build_mcp_config("/usr/bin/python3", bootstrap_vault)
-    write_codex_config(config, config_path)
+    write_toml_config(config, config_path)
 
     payload = tomllib.loads(config_path.read_text(encoding="utf-8"))
     assert payload["mcp_servers"]["brain"]["command"] == config["command"]
@@ -151,7 +154,7 @@ def test_write_codex_config_updates_spaced_brain_headers_in_place(bootstrap_vaul
     assert sum(1 for header in headers if header.replace(" ", "") == "[mcp_servers.brain.env]") == 1
 
 
-def test_read_codex_server_config_accepts_spaced_brain_headers(project):
+def test_read_toml_server_config_accepts_spaced_brain_headers(project):
     config_path = project / ".codex" / "config.toml"
     config_path.parent.mkdir(parents=True)
     config_path.write_text(
@@ -164,7 +167,7 @@ def test_read_codex_server_config_accepts_spaced_brain_headers(project):
         encoding="utf-8",
     )
 
-    assert read_codex_server_config(config_path) == {
+    assert read_toml_server_config(config_path) == {
         "command": "/usr/bin/python3",
         "args": ["-m", "brain"],
         "env": {"BRAIN_VAULT_ROOT": "/bootstrap_vault"},

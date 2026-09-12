@@ -52,6 +52,7 @@ class InstallMcpScope(str, Enum):
 class InstallClient(str, Enum):
     CLAUDE = "claude"
     CODEX = "codex"
+    GROK = "grok"
     ALL = "all"
 
 
@@ -151,7 +152,7 @@ class BrainUpgradePayload:
 @dataclass(frozen=True, slots=True)
 class BrainInstallRequest:
     COMMAND_ID: ClassVar[str] = "brain.install"
-    COMMAND_VERSION: ClassVar[int] = 1
+    COMMAND_VERSION: ClassVar[int] = 2
     RESULT_TYPE: ClassVar[type] = BrainInstallPayload
 
     vault_root: Path
@@ -171,7 +172,7 @@ class BrainInstallRequest:
 @dataclass(frozen=True, slots=True)
 class BrainUninstallRequest:
     COMMAND_ID: ClassVar[str] = "brain.uninstall"
-    COMMAND_VERSION: ClassVar[int] = 1
+    COMMAND_VERSION: ClassVar[int] = 2
     RESULT_TYPE: ClassVar[type] = BrainUninstallPayload
 
 

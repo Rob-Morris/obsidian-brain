@@ -136,10 +136,12 @@ def _read(command_id: str, owner_ref: str, *entry_point: str) -> LauncherEntry:
     return LauncherEntry(command_id, 1, owner_ref, entry_point, "reader", "none", "safe")
 
 
-def _mutation(command_id: str, owner_ref: str, *entry_point: str) -> LauncherEntry:
+def _mutation(
+    command_id: str, owner_ref: str, *entry_point: str, version: int = 1
+) -> LauncherEntry:
     return LauncherEntry(
         command_id,
-        1,
+        version,
         owner_ref,
         entry_point,
         "operator",
@@ -182,21 +184,89 @@ LAUNCHER_CATALOGUE = LauncherCatalogue(
     tuple(
         sorted(
             (
-                _mutation("access.approve", "_launcher.access:approve", "brain", "access", "approve"),
-                _mutation("agent-skill.configure", "_launcher.agent_skill:configure", "brain", "agent-skill", "configure"),
-                _mutation("skill.expose", "_launcher.agent_skill:expose", "brain", "skill", "expose"),
-                _mutation("skill.unexpose", "_launcher.agent_skill:unexpose", "brain", "skill", "unexpose"),
-                _mutation("brain.clear-default", "_launcher.registry:clear_default", "brain", "clear-default"),
+                _mutation(
+                    "access.approve",
+                    "_launcher.access:approve",
+                    "brain",
+                    "access",
+                    "approve",
+                ),
+                _mutation(
+                    "agent-skill.configure",
+                    "_launcher.agent_skill:configure",
+                    "brain",
+                    "agent-skill",
+                    "configure",
+                    version=2,
+                ),
+                _mutation(
+                    "skill.expose",
+                    "_launcher.agent_skill:expose",
+                    "brain",
+                    "skill",
+                    "expose",
+                    version=2,
+                ),
+                _mutation(
+                    "skill.unexpose",
+                    "_launcher.agent_skill:unexpose",
+                    "brain",
+                    "skill",
+                    "unexpose",
+                    version=2,
+                ),
+                _mutation(
+                    "brain.clear-default",
+                    "_launcher.registry:clear_default",
+                    "brain",
+                    "clear-default",
+                ),
                 _read("brain.doctor", "_launcher.doctor:doctor", "brain", "doctor"),
-                _read("brain.get-default", "_launcher.registry:get_default", "brain", "get-default"),
-                _mutation("brain.install", "_launcher.lifecycle:install", "brain", "install"),
+                _read(
+                    "brain.get-default",
+                    "_launcher.registry:get_default",
+                    "brain",
+                    "get-default",
+                ),
+                _mutation(
+                    "brain.install",
+                    "_launcher.lifecycle:install",
+                    "brain",
+                    "install",
+                    version=2,
+                ),
                 _read("brain.list", "_launcher.registry:list", "brain", "list"),
-                _mutation("brain.migrate-legacy-installations", "_launcher.machine:migrate_legacy_installations", "brain", "migrate-legacy-installations"),
-                _mutation("brain.register", "_launcher.registry:register", "brain", "register"),
-                _read("brain.resolve", "_launcher.registry:resolve", "brain", "resolve"),
-                _mutation("brain.set-default", "_launcher.registry:set_default", "brain", "set-default"),
-                _mutation("brain.uninstall", "_launcher.lifecycle:uninstall", "brain", "uninstall"),
-                _mutation("brain.unregister", "_launcher.registry:unregister", "brain", "unregister"),
+                _mutation(
+                    "brain.migrate-legacy-installations",
+                    "_launcher.machine:migrate_legacy_installations",
+                    "brain",
+                    "migrate-legacy-installations",
+                ),
+                _mutation(
+                    "brain.register", "_launcher.registry:register", "brain", "register"
+                ),
+                _read(
+                    "brain.resolve", "_launcher.registry:resolve", "brain", "resolve"
+                ),
+                _mutation(
+                    "brain.set-default",
+                    "_launcher.registry:set_default",
+                    "brain",
+                    "set-default",
+                ),
+                _mutation(
+                    "brain.uninstall",
+                    "_launcher.lifecycle:uninstall",
+                    "brain",
+                    "uninstall",
+                    version=2,
+                ),
+                _mutation(
+                    "brain.unregister",
+                    "_launcher.registry:unregister",
+                    "brain",
+                    "unregister",
+                ),
                 LauncherEntry(
                     "brain.upgrade",
                     2,
@@ -208,13 +278,59 @@ LAUNCHER_CATALOGUE = LauncherCatalogue(
                     required_providers=("caller_filesystem",),
                 ),
                 _read("brain.version", "_launcher.version:version", "brain", "version"),
-                _mutation("mcp.configure", "_launcher.mcp:configure", "brain", "mcp", "configure"),
-                _mutation("mcp.repair", "_launcher.mcp:repair", "brain", "mcp", "repair"),
-                LauncherEntry("operator.generate-key", 1, "_launcher.operator:generate_key", ("brain", "operator", "generate-key"), "operator", "none", "safe"),
-                _mutation("runtime.repair", "_launcher.runtime:repair", "brain", "runtime", "repair"),
-                _read("runtime.inspect", "_launcher.managed_runtime:inspect", "brain", "runtime", "inspect"),
-                _mutation("runtime.remove-orphans", "_launcher.machine:remove_orphans", "brain", "runtime", "remove-orphans"),
-                _mutation("registry.remove-stale", "_launcher.registry:remove_stale", "brain", "registry", "remove-stale"),
+                _mutation(
+                    "mcp.configure",
+                    "_launcher.mcp:configure",
+                    "brain",
+                    "mcp",
+                    "configure",
+                    version=2,
+                ),
+                _mutation(
+                    "mcp.repair",
+                    "_launcher.mcp:repair",
+                    "brain",
+                    "mcp",
+                    "repair",
+                    version=2,
+                ),
+                LauncherEntry(
+                    "operator.generate-key",
+                    1,
+                    "_launcher.operator:generate_key",
+                    ("brain", "operator", "generate-key"),
+                    "operator",
+                    "none",
+                    "safe",
+                ),
+                _mutation(
+                    "runtime.repair",
+                    "_launcher.runtime:repair",
+                    "brain",
+                    "runtime",
+                    "repair",
+                ),
+                _read(
+                    "runtime.inspect",
+                    "_launcher.managed_runtime:inspect",
+                    "brain",
+                    "runtime",
+                    "inspect",
+                ),
+                _mutation(
+                    "runtime.remove-orphans",
+                    "_launcher.machine:remove_orphans",
+                    "brain",
+                    "runtime",
+                    "remove-orphans",
+                ),
+                _mutation(
+                    "registry.remove-stale",
+                    "_launcher.registry:remove_stale",
+                    "brain",
+                    "registry",
+                    "remove-stale",
+                ),
             ),
             key=lambda entry: entry.command_id,
         )

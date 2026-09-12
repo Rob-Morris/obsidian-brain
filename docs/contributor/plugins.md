@@ -108,7 +108,7 @@ args = []
 MY_TOOL_DATA = "/path/to/your-vault/_Plugins/MyTool"
 ```
 
-When your plugin supports both Claude and Codex, document both surfaces. The exact installation-local paths belong in the plugin's own install README, not in Brain's shared docs.
+When your plugin supports multiple clients, document each supported surface, including Grok where applicable. The exact installation-local paths belong in the plugin's own install README, not in Brain's shared docs.
 
 ### 4. Package the integration files in your repo
 

@@ -77,3 +77,13 @@ Application foundations remain tier-strict:
 These are ordered dependency tiers only. Locality, authority and providers remain orthogonal. Lower-tier packages do not import adapter, MCP SDK, terminal renderer or higher-tier implementation packages.
 
 Portable `vault.check` inspects semantic metadata locally and verifies model loading in the selected managed interpreter. Missing dependencies produce findings; timeout or malformed managed output produces a bounded inspection finding. Warm-up also isolates semantic work in that interpreter, and explicit `runtime.warmup` retries a previously deferred component.
+
+## Grok in setup and maintenance
+
+The supported `install.py --client`, `configure.py mcp --client`,
+`configure.py agent-skills --client` and interactive `setup.py` selections
+include `grok`; `all` includes all three clients. Grok supports user and project
+scope, including vault-self registration. The native CLI commands are shown in
+[native Grok setup](cli.md#native-grok-setup). `repair.py mcp` and upgrade
+reconciliation inspect existing Grok project registrations and their owned
+startup rules. Standalone workspace bootstrap also accepts `--surface grok`.

@@ -28,12 +28,12 @@ from _bootstrap.mcp_state import (
     configured_vault_root,
     is_session_hook_command,
     matching_records,
-    read_codex_server_config,
+    read_toml_server_config,
     record_init_target,
-    remove_codex_server,
+    remove_toml_server,
     remove_init_records as _remove_init_records,
     session_hook_python,
-    write_codex_config,
+    write_toml_config,
 )
 from _bootstrap.runtime import ensure_managed_runtime, find_launcher_python, required_modules_for_scope
 from _bootstrap.workspace_binding import (
@@ -45,7 +45,7 @@ from _bootstrap.workspace_scaffold import GitInspectionError, ensure_brain_ignor
 from _common import join_argv, safe_write, safe_write_json
 
 
-SUPPORTED_CLIENTS = ("claude", "codex")
+SUPPORTED_CLIENTS = ("claude", "codex", "grok")
 SUPPORTED_SCOPES = ("project", "local", "user")
 
 
@@ -105,15 +105,15 @@ def _resolve_clients_or_error(client_arg: str, scope: str) -> Tuple[List[str], L
     if scope != "local":
         return clients, warnings
 
-    if client_arg == "codex":
+    if client_arg in {"codex", "grok"}:
         raise InitTransportError(
-            "Codex does not support local scope.\n"
-            "Use --client claude --local, or choose project/user scope for Codex."
+            f"{client_arg.title()} does not support local scope.\n"
+            "Use --client claude --local, or choose project/user scope."
         )
 
     if client_arg == "all":
         warnings.append(
-            "Codex has no supported local scope. Applying Claude local setup only."
+            "Codex and Grok have no supported local scope. Applying Claude local setup only."
         )
         return ["claude"], warnings
 
@@ -563,7 +563,10 @@ def _warn_if_user_scope_exists(client: str, scope: str, server_config: Dict[str,
                 )
         return
 
-    current_codex = read_codex_server_config(Path.home() / CODEX_CONFIG_REL)
+    if client != "codex":
+        return
+
+    current_codex = read_toml_server_config(Path.home() / CODEX_CONFIG_REL)
     if current_codex:
         info(
             f'Note: "{BRAIN_SERVER_NAME}" is already registered globally '
@@ -619,13 +622,38 @@ def register_claude(
     return record
 
 
+def register_grok(
+    server_config: Dict[str, Any], scope: str, target_dir: Optional[Path]
+) -> Dict[str, Any]:
+    """Install native Grok transport and bootstrap as one preflighted mutation."""
+    from _bootstrap import grok_mcp
+    from _bootstrap.file_transaction import FilePlan, apply_file_changes
+
+    if scope not in {"user", "project"}:
+        raise InitTransportError("Grok supports project and user MCP scopes only")
+    root = Path.home() if scope == "user" else (target_dir or Path.cwd())
+    plan = FilePlan()
+    config_path, rule_path = grok_mcp.plan_configure(plan, root, server_config)
+    apply_file_changes(plan.changes())
+    return {
+        "client": "grok",
+        "scope": scope,
+        "target_path": str(target_dir) if target_dir else None,
+        "config_path": str(config_path),
+        "server_name": BRAIN_SERVER_NAME,
+        "server_config": server_config,
+        "bootstrap_path": str(rule_path),
+        "method": f"{config_path} (transactional direct)",
+    }
+
+
 def register_codex(
     server_config: Dict[str, Any],
     scope: str,
     target_dir: Optional[Path],
 ) -> Dict[str, Any]:
     config_path = _codex_config_path(scope, target_dir)
-    write_codex_config(server_config, config_path)
+    write_toml_config(server_config, config_path)
     info(f"Wrote {BRAIN_SERVER_NAME} -> {config_path}")
     return {
         "client": "codex",
@@ -638,15 +666,15 @@ def register_codex(
     }
 
 
-def _remove_codex_server(config_path: Path, server_config: Dict[str, Any]) -> bool:
-    current = read_codex_server_config(config_path)
+def _remove_toml_server(config_path: Path, server_config: Dict[str, Any]) -> bool:
+    current = read_toml_server_config(config_path)
     if current is None:
         info(f"No recorded {BRAIN_SERVER_NAME} entry found in {config_path}")
         return False
     if current != server_config:
         info(f"Skipping {config_path}: current {BRAIN_SERVER_NAME} entry does not match recorded config")
         return False
-    if not remove_codex_server(config_path, server_config):
+    if not remove_toml_server(config_path, server_config):
         return False
     _remove_empty_parent_dirs(config_path, _config_cleanup_stop(config_path))
     info(f"Removed {BRAIN_SERVER_NAME} from {config_path}")
@@ -682,8 +710,27 @@ def _remove_record(vault_root: Path, record: Dict[str, Any]) -> bool:
             )
         return removed
 
+    if client == "grok":
+        from _bootstrap import grok_mcp
+        from _bootstrap.file_transaction import FilePlan, apply_file_changes
+
+        plan = FilePlan()
+        root = config_path.parent.parent
+        try:
+            removed = grok_mcp.plan_remove(plan, root, server_config)
+            apply_file_changes(plan.changes())
+        except (OSError, ValueError, RuntimeError) as exc:
+            surviving = getattr(exc, "surviving_paths", ())
+            detail = (
+                f"; surviving files: {', '.join(map(str, surviving))}"
+                if surviving
+                else ""
+            )
+            raise InitTransportError(str(exc) + detail) from exc
+        return removed
+
     if client == "codex":
-        return _remove_codex_server(config_path, server_config)
+        return _remove_toml_server(config_path, server_config)
 
     info(f"Unknown client in init state: {client}")
     return False
@@ -726,6 +773,15 @@ def mcp_followup_notes(clients: List[str], scope: str, target_dir: Optional[Path
             notes.append("Health:   codex mcp list")
         else:
             notes.append("Verify:   codex mcp list")
+    if "grok" in clients:
+        if project_scope:
+            notes.append(
+                "Grok: open this directory and review its folder-trust prompt to load project MCP and rules"
+            )
+        notes.append("Verify: grok inspect; grok mcp doctor brain")
+        notes.append(
+            "Bootstrap: ask Grok to call `session_start` and confirm `environment.vault_root`"
+        )
     return notes
 
 
@@ -811,13 +867,25 @@ def apply_mcp_transport_action(
             header(f"Registering {client} MCP server")
             if client == "claude":
                 record = register_claude(vault_root, server_config, scope, target_dir)
+            elif client == "grok":
+                record = register_grok(server_config, scope, target_dir)
             else:
                 record = register_codex(server_config, scope, target_dir)
             record_init_target(vault_root, record)
             results.append(record)
 
-    except (WorkspaceBindingError, GitInspectionError, OSError) as exc:
-        raise InitTransportError(str(exc)) from exc
+    except (
+        WorkspaceBindingError,
+        GitInspectionError,
+        OSError,
+        ValueError,
+        RuntimeError,
+    ) as exc:
+        surviving = getattr(exc, "surviving_paths", ())
+        detail = (
+            f"; surviving files: {', '.join(map(str, surviving))}" if surviving else ""
+        )
+        raise InitTransportError(str(exc) + detail) from exc
 
     has_claude = any(result["client"] == "claude" for result in results)
     project_scope = _is_project_scope(scope, target_dir)

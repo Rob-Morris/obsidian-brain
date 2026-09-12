@@ -225,22 +225,22 @@ Full details in the [Template Library Guide — Extending Your Vault](https://gi
 
 ## Setup
 
-To bind a workspace and optionally configure Claude Code and Codex to use this vault's MCP server:
+To bind a workspace and optionally configure Claude Code, Codex and Grok to use this vault's MCP server:
 
 ```bash
 # Bind one workspace to this Brain
 brain workspace bind --vault /path/to/vault --workspace /my/project --request-json '{}'
 
-# Configure project-scoped MCP transport for both clients
+# Configure project-scoped MCP transport for all three clients
 brain mcp configure --vault /path/to/vault --workspace /my/project --request-json '{"scope":"project","client":"all"}'
 
-# Claude-only local scope (gitignored; Codex has no local scope)
+# Claude-only local scope (gitignored; Codex and Grok have no local scope)
 brain mcp configure --vault /path/to/vault --workspace /my/project --request-json '{"scope":"local","client":"claude"}'
 
-# Register as your default brain for all projects for both clients
+# Register as your default brain for all projects for all three clients
 brain mcp configure --vault /path/to/vault --request-json '{"scope":"user","client":"all"}'
 
-# Install the active-Brain shaping discovery adapter for both clients
+# Install the active-Brain shaping discovery adapter for all three clients
 brain agent-skill configure --vault /path/to/vault --request-json '{"client":"all"}'
 ```
 

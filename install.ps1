@@ -15,7 +15,7 @@ param(
     [ValidateSet("project", "user", "skip")]
     [string]$McpScope,
 
-    [ValidateSet("claude", "codex", "all")]
+    [ValidateSet("claude", "codex", "grok", "all")]
     [string]$Client = "all",
 
     [string]$Id,

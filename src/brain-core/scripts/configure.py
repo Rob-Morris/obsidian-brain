@@ -254,9 +254,14 @@ def configure_workspace_bootstrap_action(
     surface: str,
     remove: bool = False,
 ) -> dict:
+    steps: list[dict] = []
     try:
-        surfaces = ["agents", "claude"] if surface == "all" else [surface]
-        steps: list[dict] = []
+        surfaces = ["agents", "claude", "grok"] if surface == "all" else [surface]
+        if "grok" in surfaces:
+            from _bootstrap.grok_mcp import plan_rule
+            from _bootstrap.file_transaction import FilePlan
+
+            plan_rule(FilePlan(), workspace_dir, remove=remove)
         if remove and "agents" in surfaces:
             status = "noop" if surface == "all" else "error"
             steps.append(_step("workspace_bootstrap_agents", status, "AGENTS.md bootstrap removal is not supported."))
@@ -280,22 +285,44 @@ def configure_workspace_bootstrap_action(
                     bootstrap_line_for_target(workspace_dir),
                 )
             steps.append(_step("workspace_bootstrap_claude", status, message))
+        if "grok" in surfaces:
+            from _bootstrap.grok_mcp import configure_rule
+
+            changed = configure_rule(workspace_dir, remove=remove)
+            steps.append(
+                _step(
+                    "workspace_bootstrap_grok",
+                    "changed" if changed else "noop",
+                    "Reconciled native Grok Brain startup rule.",
+                )
+            )
         return _result_envelope("workspace_bootstrap", vault_root, steps)
     except WorkspaceBindingError as exc:
         return _result_envelope(
             "workspace_bootstrap",
             vault_root,
-            [_step("workspace_bootstrap", "error", str(exc))],
+            [*steps, _step("workspace_bootstrap", "error", str(exc))],
         )
-    except mcp_transport.InitTransportError as exc:
+    except (mcp_transport.InitTransportError, OSError, ValueError, RuntimeError) as exc:
+        surviving = getattr(exc, "surviving_paths", ())
+        if surviving:
+            steps.append(
+                _step(
+                    "workspace_bootstrap_grok",
+                    "changed",
+                    f"Bootstrap rollback left files requiring recovery: {', '.join(map(str, surviving))}",
+                )
+            )
         return _result_envelope(
             "workspace_bootstrap",
             vault_root,
-            [_step("workspace_bootstrap", "error", str(exc))],
+            [*steps, _step("workspace_bootstrap", "error", str(exc))],
         )
 
 
-def _configure_semantic_enable(vault_root: Path, *, provision: bool, bootstrap_steps: list[dict]) -> dict:
+def _configure_semantic_enable(
+    vault_root: Path, *, provision: bool, bootstrap_steps: list[dict]
+) -> dict:
     from _lifecycle.semantic_enable import enable_semantic
 
     return enable_semantic(
@@ -373,7 +400,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
     bootstrap_sub.add_argument(
         "--surface",
-        choices=("agents", "claude", "all"),
+        choices=("agents", "claude", "grok", "all"),
         default="all",
         help="Which bootstrap surfaces to manage (default: all).",
     )
@@ -387,7 +414,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
     mcp.add_argument(
         "--client",
-        choices=("claude", "codex", "all"),
+        choices=("claude", "codex", "grok", "all"),
         default="all",
         help="Which client config to write (default: all).",
     )
@@ -395,7 +422,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     mcp.add_argument(
         "--local",
         action="store_true",
-        help="Use Claude local scope (.claude/settings.local.json). Unsupported for Codex.",
+        help="Use Claude local scope (.claude/settings.local.json). Unsupported for Codex and Grok.",
     )
     mcp.add_argument(
         "--workspace",
@@ -420,7 +447,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
     agent_skill_parser.add_argument(
         "--client",
-        choices=("claude", "codex", "all"),
+        choices=("claude", "codex", "grok", "all"),
         default="all",
         help="Which client skill directory to configure (default: all).",
     )

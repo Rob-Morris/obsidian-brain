@@ -1126,8 +1126,8 @@ def run_pending_migrations(vault_root: str, *, force: bool = False) -> list[dict
 # ---------------------------------------------------------------------------
 
 _COMPILE_TIMEOUT = 60  # seconds (longer than server's 30s startup timeout
-                       # because upgrade runs interactively and compile is
-                       # the validation gate — worth waiting longer)
+# because upgrade runs interactively and compile is
+# the validation gate — worth waiting longer)
 
 
 def _walk_exact_tree(root: str) -> set[str]:
@@ -1877,6 +1877,7 @@ def _repair_mcp_registration_after_upgrade(vault_root: Path) -> dict:
     local_state_paths = (
         vault_root / ".mcp.json",
         vault_root / ".codex" / "config.toml",
+        vault_root / ".grok" / "config.toml",
         vault_root / ".brain" / "local" / "init-state.json",
     )
     if not any(path.exists() for path in local_state_paths):

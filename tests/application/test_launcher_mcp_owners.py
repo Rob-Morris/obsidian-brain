@@ -30,8 +30,7 @@ from _launcher.mcp import (
 )
 from _launcher.owners import LAUNCHER_OWNERS
 from _bootstrap import diagnostics, file_transaction
-from _bootstrap.mcp_state import read_codex_server_config
-
+from _bootstrap.mcp_state import read_toml_server_config
 
 NOW = datetime.fromisoformat("2026-08-10T08:00:00+10:00")
 
@@ -137,13 +136,23 @@ def test_configure_project_commits_all_files_transactionally(tmp_path, monkeypat
     result = _invocation(vault, receipts=receipts).invoke(McpConfigureRequest())
 
     assert result.result.status is McpMutationStatus.CHANGED
-    assert tuple(client.value for client in result.result.clients) == ("claude", "codex")
+    assert tuple(client.value for client in result.result.clients) == (
+        "claude",
+        "codex",
+        "grok",
+    )
     assert (vault / ".mcp.json").is_file()
-    assert read_codex_server_config(vault / ".codex" / "config.toml")["command"] == python
+    assert (
+        read_toml_server_config(vault / ".codex" / "config.toml")["command"] == python
+    )
     assert "ALWAYS DO FIRST" in (vault / "CLAUDE.md").read_text()
     assert (vault / ".claude" / "settings.local.json").is_file()
     state = json.loads((vault / ".brain" / "local" / "init-state.json").read_text())
-    assert [record["client"] for record in state["records"]] == ["claude", "codex"]
+    assert [record["client"] for record in state["records"]] == [
+        "claude",
+        "codex",
+        "grok",
+    ]
     assert not (vault / ".brain" / "local" / "workspace.yaml").exists()
     assert not (vault / ".gitignore").exists()
     assert receipts.values[-1].state is ReceiptState.COMMITTED
@@ -482,3 +491,39 @@ def test_repair_is_noop_when_no_project_client_is_present(tmp_path, monkeypatch)
     assert result.result.clients == ()
     assert result.committed_effects == ()
     assert not (vault / ".brain").exists()
+
+
+@pytest.mark.parametrize("scope", [McpScope.PROJECT, McpScope.USER])
+def test_grok_native_transaction_dry_run_configure_repair_remove(
+    tmp_path, monkeypatch, scope
+):
+    from _bootstrap.grok_mcp import RULE_CONTENT
+
+    vault = _vault(tmp_path)
+    _healthy_runtime(monkeypatch, vault)
+    home = tmp_path / "home"
+    root = home if scope is McpScope.USER else vault
+    request = McpConfigureRequest(client=McpClient.GROK, scope=scope)
+    result = _invocation(vault, home=home, dry_run=True).invoke(request)
+    assert result.result.status is McpMutationStatus.PLANNED
+    assert len(result.result.files) == 3
+    assert not (root / ".grok").exists()
+    result = _invocation(vault, home=home).invoke(request)
+    assert result.result.status is McpMutationStatus.CHANGED
+    assert (root / ".grok/rules/brain.md").read_text() == RULE_CONTENT
+    assert not (root / ".claude").exists()
+    assert not (root / ".codex").exists()
+    if scope is McpScope.PROJECT:
+        (root / ".grok/rules/brain.md").unlink()
+        result = _invocation(vault).invoke(McpRepairRequest())
+        assert result.result.status is McpMutationStatus.CHANGED
+        assert tuple(result.result.clients) == (McpClient.GROK,)
+    (root / ".grok/config.toml").unlink()
+    result = _invocation(vault, home=home).invoke(
+        McpConfigureRequest(
+            client=McpClient.GROK, scope=scope, action=McpConfigureAction.REMOVE
+        )
+    )
+    assert result.result.status is McpMutationStatus.CHANGED
+    assert not (root / ".grok/rules/brain.md").exists()
+    assert not (vault / ".brain/local/init-state.json").exists()

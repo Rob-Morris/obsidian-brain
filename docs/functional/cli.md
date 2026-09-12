@@ -67,7 +67,7 @@ Launcher commands may run without a selected Brain when their schema permits it.
 
 Selected-Brain commands `skill.list`, `skill.status`, `skill.add-git`,
 `skill.update` and `skill.detach` own package source state. Launcher commands
-`skill.expose` and `skill.unexpose` own explicit writes to Claude and Codex
+`skill.expose` and `skill.unexpose` own explicit writes to Claude, Codex and Grok
 discovery directories. For example:
 
 ```bash
@@ -124,20 +124,37 @@ CLI 3 can identify and recover an installed Brain older than 0.55.0, but it does
 
 `brain.upgrade` v2 performs a complete-registry preflight and coordinates Brain Core 0.55+, the installed CLI, catalogue, manifest and proxy contracts. Known other pre-cutover Brains require `acknowledge_global_cli_cutover: true`. Stale registry IDs require an exact sorted `excluded_stale_brain_ids` list; unknown registry scope cannot be waived.
 
-After provisioning the target managed runtime, upgrade reconciles any existing current-vault Claude and Codex MCP registrations through the canonical `repair.py mcp` owner; vaults without project registrations remain untouched. Registration or readiness failure is a known partial outcome with explicit recovery guidance, not a false success. Upgrade then starts or joins the selected Brain's canonical runtime warm-up and waits for a recorded `ready` state. It also performs a read-only machine-topology inspection; when unused shared runtimes are proven orphan candidates, it reports `brain runtime remove-orphans --dry-run` and the explicit removal command without deleting machine-global state itself.
+After provisioning the target managed runtime, upgrade reconciles any existing current-vault Claude, Codex and Grok MCP registrations through the canonical `repair.py mcp` owner; vaults without project registrations remain untouched. Registration or readiness failure is a known partial outcome with explicit recovery guidance, not a false success. Upgrade then starts or joins the selected Brain's canonical runtime warm-up and waits for a recorded `ready` state. It also performs a read-only machine-topology inspection; when unused shared runtimes are proven orphan candidates, it reports `brain runtime remove-orphans --dry-run` and the explicit removal command without deleting machine-global state itself.
 
 ## Installation
 
 The installer writes a versioned distribution under the selected prefix and a small platform bootloader under `bin/`:
 
-- Unix-like user install: `~/.local/bin/brain` and `~/.local/lib/brain-cli/3.1.9/`.
-- Native Windows user install: `%LOCALAPPDATA%\Programs\Brain\bin\brain.cmd` and the adjacent `lib\brain-cli\3.1.9\` distribution.
+- Unix-like user install: `~/.local/bin/brain` and `~/.local/lib/brain-cli/3.1.10/`.
+- Native Windows user install: `%LOCALAPPDATA%\Programs\Brain\bin\brain.cmd` and the adjacent `lib\brain-cli\3.1.10\` distribution.
 
 The distribution contains the launcher application plus the Brain Core payload needed for install, upgrade and selected-Brain execution. Installation and replacement verify a content manifest and executable identity; failed replacement restores the proven old binary/distribution pair or retains recovery material and reports the outcome as unverified. Failed upgrade results carry every known absolute recovery path in the structural error and durable launcher receipt: residual staging material after a verified rollback is a known partial outcome, while unverified rollback remains outcome-unknown. Standalone human output lists the same paths before the failure message. Once the new pair is verified, failure or interruption while removing an old backup is committed post-upgrade recovery work and never rolls Brain Core back to an older version. Both the launcher result and standalone distribution JSON list the surviving `cleanup_recovery_paths`.
 
-The bootloader requires Python 3.12 or newer. `BRAIN_CLI_VERSION` is `3.1.9`; `BRAIN_INSTALL_REF` is `v0.64.0`.
+The bootloader requires Python 3.12 or newer. `BRAIN_CLI_VERSION` is `3.1.10`; `BRAIN_INSTALL_REF` is `v0.64.1`.
 
 JSON command invocations validate the structural stdout envelope, including
 command identity, version and exit category. Incidental child stderr does not
 replace a valid result. Portable diagnostics may delegate an active semantic
 check to the selected managed Python runtime.
+
+## Native Grok setup
+
+`brain install`, `brain mcp configure`, `brain agent-skill configure`,
+`brain skill expose` and `brain skill unexpose` accept `"client":"grok"`;
+`"all"` includes all three supported clients. `brain mcp repair` recognises
+existing Grok project state, and recorded uninstall removes owned Grok files.
+For the native paths, startup rule and preservation contract, see
+[Grok client configuration](config.md#grok-client-configuration).
+
+```bash
+brain mcp configure --request-json '{"client":"grok","scope":"project"}' --dry-run --json
+brain mcp configure --request-json '{"client":"grok","scope":"project"}' --json
+brain agent-skill configure --request-json '{"client":"grok"}' --json
+brain skill expose --request-json '{"name":"shaping","client":"grok","scope":"project"}' --json
+brain mcp configure --request-json '{"client":"grok","scope":"project","action":"remove"}' --json
+```
