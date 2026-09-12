@@ -110,8 +110,10 @@ def install_distribution(
     binary_backup = binary.parent / f".{binary.name}.{token}.backup"
     old_distribution_fingerprint = _installed_fingerprint(distribution)
     old_binary = _file_fingerprint(binary)
-    replaced_distribution = False
-    replaced_binary = False
+    distribution_cutover_started = False
+    binary_cutover_started = False
+    new_distribution_fingerprint = None
+    new_binary_fingerprint = None
     try:
         _copy_distribution(source, stage)
         manifest = _write_manifest(
@@ -121,19 +123,21 @@ def install_distribution(
         )
         _fire(failpoint, "after_stage")
         _validate_staged(stage, manifest)
+        new_distribution_fingerprint = str(manifest["fingerprint"])
         source_binary = _source_bootloader(source, binary)
         shutil.copyfile(source_binary, binary_stage)
         os.chmod(binary_stage, 0o755)
+        new_binary_fingerprint = _file_fingerprint(binary_stage)
         _fire(failpoint, "after_cli_stage")
+        distribution_cutover_started = True
         if distribution.exists():
             os.replace(distribution, backup)
         os.replace(stage, distribution)
-        replaced_distribution = True
         _fire(failpoint, "after_distribution_replace")
+        binary_cutover_started = True
         if binary.exists():
             os.replace(binary, binary_backup)
         os.replace(binary_stage, binary)
-        replaced_binary = True
         _fire(failpoint, "after_cli_replace")
         _verify_pair(
             distribution,
@@ -146,12 +150,14 @@ def install_distribution(
         rollback_verified, recovery_paths = _rollback(
             distribution=distribution,
             distribution_backup=backup,
-            replaced_distribution=replaced_distribution,
+            distribution_cutover_started=distribution_cutover_started,
             expected_distribution_fingerprint=old_distribution_fingerprint,
+            replacement_distribution_fingerprint=new_distribution_fingerprint,
             binary=binary,
             binary_backup=binary_backup,
-            replaced_binary=replaced_binary,
+            binary_cutover_started=binary_cutover_started,
             expected_binary_fingerprint=old_binary,
+            replacement_binary_fingerprint=new_binary_fingerprint,
             failpoint=failpoint,
         )
         if rollback_verified:
@@ -182,8 +188,9 @@ def install_distribution(
         try:
             _fire(failpoint, name)
             cleanup(path)
-        except Exception:
-            cleanup_recovery_paths.append(path)
+        except BaseException:
+            if path.exists() or path.is_symlink():
+                cleanup_recovery_paths.append(path)
     return InstalledDistribution(
         binary,
         distribution,
@@ -381,50 +388,122 @@ def _rollback(
     *,
     distribution: Path,
     distribution_backup: Path,
-    replaced_distribution: bool,
+    distribution_cutover_started: bool,
     expected_distribution_fingerprint: str | None,
+    replacement_distribution_fingerprint: str | None,
     binary: Path,
     binary_backup: Path,
-    replaced_binary: bool,
+    binary_cutover_started: bool,
     expected_binary_fingerprint: str | None,
+    replacement_binary_fingerprint: str | None,
     failpoint=None,
 ) -> tuple[bool, tuple[Path, ...]]:
     errors = []
+    recovery_paths: list[Path] = []
 
-    def attempt(name, action) -> None:
+    def restore_target(
+        *,
+        name: str,
+        target: Path,
+        backup_path: Path,
+        started: bool,
+        expected_fingerprint: str | None,
+        replacement_fingerprint: str | None,
+        fingerprint,
+        remove,
+        remove_name: str,
+        restore_name: str,
+    ) -> None:
+        if not started and not backup_path.exists():
+            return
         try:
-            _fire(failpoint, name)
-            action()
+            current = fingerprint(target)
+            if current == expected_fingerprint:
+                if backup_path.exists():
+                    _fire(failpoint, remove_name)
+                    remove(backup_path)
+                return
+            if backup_path.exists():
+                if fingerprint(backup_path) != expected_fingerprint:
+                    raise OSError("backup does not match the recorded original state")
+                _fire(failpoint, remove_name)
+                remove(target)
+                _fire(failpoint, restore_name)
+                os.replace(backup_path, target)
+                return
+            if expected_fingerprint is None and current == replacement_fingerprint:
+                _fire(failpoint, remove_name)
+                remove(target)
+                return
+            raise OSError(
+                "target differs from the recorded original and no verified backup can restore it"
+            )
+        except BaseException as exc:
+            try:
+                restored = fingerprint(target) == expected_fingerprint
+                backup_survives = backup_path.exists() or backup_path.is_symlink()
+            except BaseException:
+                restored = False
+                backup_survives = True
+            if restored and not backup_survives:
+                return
+            errors.append(f"{name}: {exc}")
+            for path in (target, backup_path):
+                if path.exists() or path.is_symlink():
+                    recovery_paths.append(path)
+
+    restore_target(
+        name="rollback_cli",
+        target=binary,
+        backup_path=binary_backup,
+        started=binary_cutover_started,
+        expected_fingerprint=expected_binary_fingerprint,
+        replacement_fingerprint=replacement_binary_fingerprint,
+        fingerprint=_file_fingerprint,
+        remove=_remove_file,
+        remove_name="rollback_remove_new_cli",
+        restore_name="rollback_restore_old_cli",
+    )
+    restore_target(
+        name="rollback_distribution",
+        target=distribution,
+        backup_path=distribution_backup,
+        started=distribution_cutover_started,
+        expected_fingerprint=expected_distribution_fingerprint,
+        replacement_fingerprint=replacement_distribution_fingerprint,
+        fingerprint=_installed_fingerprint,
+        remove=_remove_tree,
+        remove_name="rollback_remove_new_distribution",
+        restore_name="rollback_restore_old_distribution",
+    )
+    def verify_target(name: str, path: Path, fingerprint, expected) -> bool:
+        try:
+            return fingerprint(path) == expected
         except BaseException as exc:
             errors.append(f"{name}: {exc}")
+            if path.exists() or path.is_symlink():
+                recovery_paths.append(path)
+            return False
 
-    if replaced_binary:
-        attempt("rollback_remove_new_cli", lambda: _remove_file(binary))
-    if binary_backup.exists():
-        attempt(
-            "rollback_restore_old_cli",
-            lambda: os.replace(binary_backup, binary),
-        )
-    if replaced_distribution:
-        attempt(
-            "rollback_remove_new_distribution",
-            lambda: _remove_tree(distribution),
-        )
-    if distribution_backup.exists():
-        attempt(
-            "rollback_restore_old_distribution",
-            lambda: os.replace(distribution_backup, distribution),
-        )
-    verified = not errors and (
-        _installed_fingerprint(distribution) == expected_distribution_fingerprint
-        and _file_fingerprint(binary) == expected_binary_fingerprint
+    distribution_verified = verify_target(
+        "verify_restored_distribution",
+        distribution,
+        _installed_fingerprint,
+        expected_distribution_fingerprint,
     )
-    recovery_paths = tuple(
+    binary_verified = verify_target(
+        "verify_restored_cli",
+        binary,
+        _file_fingerprint,
+        expected_binary_fingerprint,
+    )
+    verified = not errors and distribution_verified and binary_verified
+    recovery_paths.extend(
         path
         for path in (distribution_backup, binary_backup)
         if path.exists() or path.is_symlink()
     )
-    return verified, recovery_paths
+    return verified, tuple(dict.fromkeys(recovery_paths))
 
 
 def _remove_tree(path: Path) -> None:
@@ -465,6 +544,9 @@ def main(argv: list[str] | None = None) -> int:
                 "cli_version": result.cli_version,
                 "brain_core_version": result.brain_core_version,
                 "manifest_fingerprint": result.manifest_fingerprint,
+                "cleanup_recovery_paths": [
+                    str(path) for path in result.cleanup_recovery_paths
+                ],
             },
             separators=(",", ":"),
         )

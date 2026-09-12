@@ -1633,6 +1633,53 @@ class TestPrecompileDefinitionRemediation:
         assert manifest["brain_core_version"] == CORE_VERSION
         assert other_before == other_after
 
+    def test_cutover_cleanup_interrupt_cannot_roll_back_committed_core(
+        self, tmp_path
+    ):
+        source = _make_real_compile_source(tmp_path, version=CORE_VERSION)
+        vault = _make_minimal_upgrade_vault(tmp_path, version="0.54.59")
+        cli_binary = tmp_path / "machine" / "bin" / "brain"
+        install_distribution(
+            REPO_ROOT,
+            cli_binary,
+            cli_version=CLI_VERSION,
+            expected_brain_core_version=CORE_VERSION,
+        )
+
+        def commit_cli(_result):
+            installed = install_distribution(
+                REPO_ROOT,
+                cli_binary,
+                cli_version=CLI_VERSION,
+                expected_brain_core_version=CORE_VERSION,
+                failpoint=lambda name: (
+                    (_ for _ in ()).throw(KeyboardInterrupt())
+                    if name == "cleanup_old_distribution"
+                    else None
+                ),
+            )
+            return {
+                "status": "changed",
+                "cli_version": installed.cli_version,
+                "brain_core_version": installed.brain_core_version,
+                "fingerprint": installed.manifest_fingerprint,
+                "cleanup_recovery_paths": [
+                    str(path) for path in installed.cleanup_recovery_paths
+                ],
+            }
+
+        result = upgrade.upgrade(
+            str(vault),
+            str(source),
+            sync=False,
+            sync_deps=False,
+            commit_callback=commit_cli,
+        )
+
+        assert result["status"] == "ok"
+        assert (vault / ".brain-core" / "VERSION").read_text().strip() == CORE_VERSION
+        assert result["cutover_commit"]["cleanup_recovery_paths"]
+
     def test_unverified_core_rollback_retains_recovery_backup(
         self, tmp_path, monkeypatch
     ):
@@ -1663,6 +1710,113 @@ class TestPrecompileDefinitionRemediation:
         assert result["rollback"]["brain_core"] == "unverified"
         assert recovery.is_dir()
         assert (recovery / ".brain-core" / "VERSION").read_text().strip() == "0.54.59"
+
+    def test_snapshot_restore_attempts_every_path_and_preserves_originals(
+        self, tmp_path, monkeypatch
+    ):
+        vault = tmp_path / "vault"
+        vault.mkdir()
+        first = vault / "first.md"
+        second = vault / "second.md"
+        introduced = vault / "introduced.md"
+        untracked = vault / "untracked.md"
+        for path in (first, second, introduced, untracked):
+            path.write_text("changed\n", encoding="utf-8")
+        snapshots = {
+            str(first): {"exists": True, "content": b"original-first\n"},
+            str(second): {"exists": True, "content": b"original-second\n"},
+            str(introduced): {"exists": False},
+        }
+        real_safe_write = upgrade._safe_write
+        real_remove = upgrade.os.remove
+
+        def fail_target_restores(path, content):
+            if str(path) in {str(first), str(second)}:
+                raise OSError(f"cannot restore {Path(path).name}")
+            return real_safe_write(path, content)
+
+        def fail_target_removals(path):
+            if str(path) in {str(introduced), str(untracked)}:
+                raise OSError(f"cannot remove {Path(path).name}")
+            return real_remove(path)
+
+        monkeypatch.setattr(upgrade, "_safe_write", fail_target_restores)
+        monkeypatch.setattr(upgrade.os, "remove", fail_target_removals)
+
+        report = upgrade._restore_snapshots(
+            snapshots,
+            roots={str(vault): {str(vault)}},
+            recovery_dir=str(tmp_path / "recovery"),
+        )
+
+        assert len(report.errors) == 4
+        assert {str(first), str(second), str(introduced), str(untracked)} <= set(
+            report.recovery_paths
+        )
+        preserved = [
+            Path(path).read_bytes()
+            for path in report.recovery_paths
+            if path.endswith(".original")
+        ]
+        assert sorted(preserved) == [b"original-first\n", b"original-second\n"]
+
+    def test_snapshot_restore_reports_introduced_directory_failure(
+        self, tmp_path, monkeypatch
+    ):
+        vault = tmp_path / "vault"
+        introduced = vault / "introduced"
+        introduced.mkdir(parents=True)
+        real_rmdir = upgrade.os.rmdir
+
+        def fail_introduced_directory(path):
+            if str(path) == str(introduced):
+                raise OSError("cannot remove introduced directory")
+            return real_rmdir(path)
+
+        monkeypatch.setattr(upgrade.os, "rmdir", fail_introduced_directory)
+
+        report = upgrade._restore_snapshots(
+            {},
+            roots={str(vault): {str(vault)}},
+            recovery_dir=str(tmp_path / "recovery"),
+        )
+
+        assert any(str(introduced) in error for error in report.errors)
+        assert str(introduced) in report.recovery_paths
+        assert upgrade._snapshots_verified(
+            {}, roots={str(vault): {str(vault)}}
+        ) is False
+
+    def test_direct_cutover_projection_retains_cleanup_recovery_paths(
+        self, tmp_path, monkeypatch
+    ):
+        import _distribution
+
+        recovery = (tmp_path / "old.backup").resolve()
+        installed = _distribution.InstalledDistribution(
+            (tmp_path / "bin" / "brain").resolve(),
+            (tmp_path / "lib" / "brain-cli" / CLI_VERSION).resolve(),
+            CLI_VERSION,
+            CORE_VERSION,
+            "sha256:abc",
+            (recovery,),
+        )
+        monkeypatch.setattr(
+            _distribution,
+            "install_distribution",
+            lambda *_args, **_kwargs: installed,
+        )
+
+        result = upgrade._commit_cli_cutover(
+            {
+                "repo_root": REPO_ROOT,
+                "target": installed.cli_binary,
+                "cli_version": CLI_VERSION,
+                "source_version": CORE_VERSION,
+            }
+        )
+
+        assert result["cleanup_recovery_paths"] == [str(recovery)]
 
 
 class TestPostUpgradeSyncOverrides:

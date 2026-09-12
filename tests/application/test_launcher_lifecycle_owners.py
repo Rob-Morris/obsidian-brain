@@ -18,6 +18,7 @@ from launcher_catalogue import LAUNCHER_CATALOGUE
 from _launcher import lifecycle
 from _launcher.context import LauncherContext, ProviderBindings
 from _launcher.contracts import ErrorCode, ReceiptState
+from _launcher.contracts import RecoveryRequiredDetails
 from _launcher.invocation import LauncherInvocation
 from _launcher.lifecycle import (
     BrainInstallRequest,
@@ -30,6 +31,7 @@ from _launcher.lifecycle import (
     UpgradePolicy,
 )
 from _launcher.owners import LAUNCHER_OWNERS
+from _launcher.adapter import project_launcher_result
 
 
 NOW = datetime.fromisoformat("2026-08-10T08:00:00+10:00")
@@ -411,6 +413,39 @@ def test_upgrade_success_receipts_core_and_error_is_unknown(tmp_path, monkeypatc
     assert failed.effects == "unknown"
 
 
+def test_upgrade_fails_closed_when_external_rollback_is_not_proven(
+    tmp_path, monkeypatch
+):
+    vault = _vault(tmp_path)
+    _register(monkeypatch, tmp_path, vault)
+    monkeypatch.setattr(
+        lifecycle,
+        "_load_upgrade",
+        lambda _core: type(
+            "Upgrade",
+            (),
+            {
+                "upgrade": staticmethod(
+                    lambda *_args, **_kwargs: {
+                        "status": "error",
+                        "message": "CLI rollback could not be verified",
+                        "rollback_verified": True,
+                        "cutover_commit": {
+                            "status": "error",
+                            "external_rollback_verified": None,
+                        },
+                    }
+                )
+            },
+        ),
+    )
+
+    result = _invocation(tmp_path, vault=vault).invoke(BrainUpgradeRequest())
+
+    assert result.error.code is ErrorCode.COMMAND_OUTCOME_UNKNOWN
+    assert result.effects == "unknown"
+
+
 def test_upgrade_completion_projects_readiness_failure_and_orphan_follow_up():
     result = {
         "mcp_registration_repair": {
@@ -451,3 +486,50 @@ def test_upgrade_completion_projects_committed_cli_cleanup_recovery():
     assert len(steps) == 1
     assert steps[0].name == "cli_backup_cleanup"
     assert recovery in steps[0].message
+    assert lifecycle._reconciliation_recovery_paths(result) == (recovery,)
+
+
+def test_upgrade_partial_carries_typed_cli_cleanup_recovery_paths(
+    tmp_path, monkeypatch
+):
+    import _distribution
+
+    vault = _vault(tmp_path)
+    _register(monkeypatch, tmp_path, vault)
+    recovery = (tmp_path / "prefix" / "old.backup").resolve()
+    installed = _distribution.InstalledDistribution(
+        (tmp_path / "bin" / "brain").resolve(),
+        (tmp_path / "lib" / "brain-cli" / _distribution.source_versions(REPO_ROOT).cli_version).resolve(),
+        _distribution.source_versions(REPO_ROOT).cli_version,
+        CORE_VERSION,
+        "sha256:abc",
+        (recovery,),
+    )
+    monkeypatch.setattr(_distribution, "install_from_source", lambda *_args: installed)
+
+    def fake_upgrade(*_args, **kwargs):
+        return {
+            "status": "ok",
+            "old_version": "0.54.41",
+            "new_version": CORE_VERSION,
+            "files_added": [],
+            "files_modified": ["VERSION"],
+            "files_removed": [],
+            "cutover_commit": kwargs["commit_callback"]({}),
+        }
+
+    monkeypatch.setattr(
+        lifecycle,
+        "_load_upgrade",
+        lambda _core: type("Upgrade", (), {"upgrade": staticmethod(fake_upgrade)}),
+    )
+
+    result = _invocation(tmp_path, vault=vault).invoke(BrainUpgradeRequest())
+
+    assert result.status == "partial"
+    assert isinstance(result.error.details, RecoveryRequiredDetails)
+    assert result.error.details.recovery_paths == (str(recovery),)
+    projected = project_launcher_result(result)
+    assert projected.structured_content["error"]["details"][
+        "recovery_paths"
+    ] == [str(recovery)]

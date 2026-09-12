@@ -8,6 +8,7 @@ Never edit past changelog entries. Only add new entries at the top.
 
 | Version | Date | Summary |
 |---|---|---|
+| [v0.62.20](changelog/v0.62.20.md) | 2026-09-12 | Make Brain/CLI cutover rollback complete and truthful |
 | [v0.62.19](changelog/v0.62.19.md) | 2026-09-11 | Report semantic rebuild failures as structured conflicts |
 | [v0.62.18](changelog/v0.62.18.md) | 2026-09-11 | Resolve NumPy after provisioning and type the doctor memory report |
 | [v0.62.17](changelog/v0.62.17.md) | 2026-09-11 | Keep owner output off the fresh-interpreter reply and scope doctor memory scans |

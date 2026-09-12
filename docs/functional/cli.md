@@ -102,7 +102,9 @@ The command catalogue declares `bootstrap`, `portable` or `managed` as an ordere
 `--json` emits exactly one `brain.command-result/1` envelope. Human mode renders the same envelope without changing its semantics.
 
 - `ok` contains a typed result.
-- `partial` lists each known committed effect.
+- `partial` lists each known committed effect. When machine-local cleanup is
+  still required, typed `error.details.recovery_paths` lists the exact absolute
+  paths that remain.
 - `error` has `effects: none` or `effects: unknown`.
 - Unknown mutation outcomes are non-retryable and include an outcome reference for `invocation.read`.
 
@@ -128,9 +130,9 @@ After provisioning the target managed runtime, upgrade reconciles any existing c
 
 The installer writes a versioned distribution under the selected prefix and a small platform bootloader under `bin/`:
 
-- Unix-like user install: `~/.local/bin/brain` and `~/.local/lib/brain-cli/3.1.6/`.
-- Native Windows user install: `%LOCALAPPDATA%\Programs\Brain\bin\brain.cmd` and the adjacent `lib\brain-cli\3.1.6\` distribution.
+- Unix-like user install: `~/.local/bin/brain` and `~/.local/lib/brain-cli/3.1.7/`.
+- Native Windows user install: `%LOCALAPPDATA%\Programs\Brain\bin\brain.cmd` and the adjacent `lib\brain-cli\3.1.7\` distribution.
 
-The distribution contains the launcher application plus the Brain Core payload needed for install, upgrade and selected-Brain execution. Installation and replacement verify a content manifest and executable identity; failed replacement restores the proven old binary/distribution pair or retains recovery material and reports the outcome as unverified. Once the new pair is verified, failure to remove an old backup is committed post-upgrade recovery work and never rolls Brain Core back to an older version.
+The distribution contains the launcher application plus the Brain Core payload needed for install, upgrade and selected-Brain execution. Installation and replacement verify a content manifest and executable identity; failed replacement restores the proven old binary/distribution pair or retains recovery material and reports the outcome as unverified. Once the new pair is verified, failure or interruption while removing an old backup is committed post-upgrade recovery work and never rolls Brain Core back to an older version. Both the launcher result and standalone distribution JSON list the surviving `cleanup_recovery_paths`.
 
-The bootloader requires Python 3.12 or newer. `BRAIN_CLI_VERSION` is `3.1.6`; `BRAIN_INSTALL_REF` is `v0.62.19`.
+The bootloader requires Python 3.12 or newer. `BRAIN_CLI_VERSION` is `3.1.7`; `BRAIN_INSTALL_REF` is `v0.62.20`.

@@ -280,6 +280,65 @@ def test_release_keyboard_interrupt_restores_every_replaced_file(
     assert (root / "b.txt").read_text(encoding="utf-8") == "old-b.txt\n"
 
 
+def test_release_after_effect_interrupt_restores_every_attempted_file(
+    tmp_path, monkeypatch
+):
+    root = tmp_path / "release"
+    root.mkdir()
+    for name in ("a.txt", "b.txt"):
+        (root / name).write_text(f"old-{name}\n", encoding="utf-8")
+    real_replace = release.os.replace
+
+    def _replace(source, destination):
+        real_replace(source, destination)
+        if (
+            Path(source).name.endswith(".release")
+            and Path(destination).name == "b.txt"
+        ):
+            raise KeyboardInterrupt()
+
+    monkeypatch.setattr(release.os, "replace", _replace)
+
+    with pytest.raises(KeyboardInterrupt):
+        release._write_transaction(
+            root,
+            {"a.txt": "new-a\n", "b.txt": "new-b\n"},
+        )
+
+    assert (root / "a.txt").read_text(encoding="utf-8") == "old-a.txt\n"
+    assert (root / "b.txt").read_text(encoding="utf-8") == "old-b.txt\n"
+
+
+def test_release_reconciles_interrupt_after_restore_effect(tmp_path, monkeypatch):
+    root = tmp_path / "release"
+    root.mkdir()
+    for name in ("a.txt", "b.txt"):
+        (root / name).write_text(f"old-{name}\n", encoding="utf-8")
+    real_replace = release.os.replace
+
+    def _replace(source, destination):
+        source = Path(source)
+        destination = Path(destination)
+        if source.name.endswith(".release") and destination.name == "b.txt":
+            raise OSError("injected release write failure")
+        real_replace(source, destination)
+        if source.name.endswith(".restore") and destination.name == "a.txt":
+            raise KeyboardInterrupt()
+
+    monkeypatch.setattr(release.os, "replace", _replace)
+
+    with pytest.raises(release.ReleaseTransactionError) as caught:
+        release._write_transaction(
+            root,
+            {"a.txt": "new-a\n", "b.txt": "new-b\n"},
+        )
+
+    assert caught.value.rollback_complete is True
+    assert caught.value.recovery_paths == ()
+    assert (root / "a.txt").read_text(encoding="utf-8") == "old-a.txt\n"
+    assert (root / "b.txt").read_text(encoding="utf-8") == "old-b.txt\n"
+
+
 def test_release_stage_cleanup_failure_does_not_mask_initiating_error(
     tmp_path,
     monkeypatch,

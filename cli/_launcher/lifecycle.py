@@ -20,6 +20,7 @@ from .contracts import (
     ErrorCode,
     Ok,
     Partial,
+    RecoveryRequiredDetails,
     RequestErrorDetails,
     no_effect_error,
 )
@@ -709,6 +710,24 @@ def _reconciliation_failed(result: dict) -> bool:
     )
 
 
+def _reconciliation_recovery_paths(result: dict) -> tuple[str, ...]:
+    cutover = result.get("cutover_commit")
+    if not isinstance(cutover, dict):
+        return ()
+    raw_paths = cutover.get("cleanup_recovery_paths")
+    if not isinstance(raw_paths, (list, tuple)):
+        return ()
+    return tuple(
+        sorted(
+            {
+                path
+                for path in raw_paths
+                if isinstance(path, str) and Path(path).is_absolute()
+            }
+        )
+    )
+
+
 def execute_upgrade(context: LauncherContext, request: BrainUpgradeRequest):
     source = _source(context)
     vault = context.current_vault
@@ -758,7 +777,8 @@ def execute_upgrade(context: LauncherContext, request: BrainUpgradeRequest):
         commit = result.get("cutover_commit")
         if result.get("rollback_verified") is False or (
             isinstance(commit, dict)
-            and commit.get("external_rollback_verified") is False
+            and commit.get("status") == "error"
+            and commit.get("external_rollback_verified") is not True
         ):
             raise RuntimeError(
                 result.get("message") or "Brain/CLI cutover rollback could not be proven."
@@ -815,13 +835,19 @@ def execute_upgrade(context: LauncherContext, request: BrainUpgradeRequest):
         )
     if _reconciliation_failed(result):
         message = "The Brain/CLI cutover committed, but post-commit reconciliation requires recovery."
+        recovery_paths = _reconciliation_recovery_paths(result)
+        details = (
+            RecoveryRequiredDetails(recovery_paths, message)
+            if recovery_paths
+            else RequestErrorDetails(None, message)
+        )
         return Partial(
             request.COMMAND_ID,
             request.COMMAND_VERSION,
             CommandError(
                 ErrorCode.CONFLICT,
                 message,
-                RequestErrorDetails(None, message),
+                details,
             ),
             effects,
         )

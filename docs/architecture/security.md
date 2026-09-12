@@ -368,6 +368,9 @@ snapshot the affected artefact roots before mutating them. A migration that may
 write any additional root, project or machine file declares each exact path
 through `prospective_effects()` before its first write; upgrade snapshots those
 paths and verifies their restoration alongside vault content and `.brain-core/`.
+Rollback records both file bytes and the original directory topology, attempts
+every independent restoration, and retains original bytes plus exact recovery
+paths when any file or introduced directory cannot be restored.
 The coordinated CLI replacement commits once the new binary/distribution pair
 is verified. Failure to remove an old backup is post-commit recovery work, not a
 reason to roll Brain Core back underneath the installed CLI.

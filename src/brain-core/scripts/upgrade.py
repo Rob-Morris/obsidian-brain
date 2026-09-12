@@ -31,7 +31,7 @@ import subprocess
 import sys
 import tempfile
 import time
-from dataclasses import asdict
+from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
@@ -226,22 +226,82 @@ def _snapshot_file(path: str, snapshots: dict[str, dict]) -> None:
         snapshots[path] = {"exists": False}
 
 
-def _snapshot_tree(root: str, snapshots: dict[str, dict], *, roots: Optional[set[str]] = None) -> None:
+def _snapshot_tree(
+    root: str,
+    snapshots: dict[str, dict],
+    *,
+    roots: Optional[dict[str, set[str]]] = None,
+) -> None:
     """Capture every file currently under ``root`` for rollback."""
     if roots is not None:
-        roots.add(root)
+        roots[root] = set()
     if not os.path.exists(root):
         return
     for dirpath, _dirnames, filenames in os.walk(root):
+        if roots is not None:
+            roots[root].add(dirpath)
         for filename in filenames:
             _snapshot_file(os.path.join(dirpath, filename), snapshots)
 
 
-def _restore_snapshots(snapshots: dict[str, dict], *, roots: Optional[set[str]] = None) -> None:
-    """Restore files captured by ``_snapshot_file`` and remove new files under roots."""
+@dataclass(frozen=True)
+class SnapshotRestoreReport:
+    """Complete outcome of restoring migration-owned vault state."""
+
+    errors: tuple[str, ...]
+    recovery_paths: tuple[str, ...]
+
+
+def _snapshot_recovery_copy(
+    recovery_dir: Optional[str],
+    path: str,
+    content: bytes,
+) -> tuple[Optional[str], Optional[str]]:
+    if recovery_dir is None:
+        return None, None
+    digest = hashlib.sha256(os.path.abspath(path).encode("utf-8")).hexdigest()[:16]
+    recovery_path = os.path.join(
+        recovery_dir,
+        f"{digest}-{os.path.basename(path) or 'file'}.original",
+    )
+    try:
+        _safe_write(recovery_path, content)
+    except BaseException as exc:
+        return None, f"could not preserve original bytes for {path}: {exc}"
+    return recovery_path, None
+
+
+def _restore_snapshots(
+    snapshots: dict[str, dict],
+    *,
+    roots: Optional[dict[str, set[str]]] = None,
+    recovery_dir: Optional[str] = None,
+) -> SnapshotRestoreReport:
+    """Attempt every vault-state restore and retain material for unresolved paths."""
+    errors: list[str] = []
+    recovery_paths: list[str] = []
+    failed_paths: set[str] = set()
+
+    def record_failure(action: str, path: str, exc: BaseException, state=None) -> None:
+        if path in failed_paths:
+            return
+        failed_paths.add(path)
+        errors.append(f"{action} {path}: {exc}")
+        recovery_paths.append(path)
+        if state is not None and state.get("exists"):
+            copy, copy_error = _snapshot_recovery_copy(
+                recovery_dir,
+                path,
+                state["content"],
+            )
+            if copy is not None:
+                recovery_paths.append(copy)
+            if copy_error is not None:
+                errors.append(copy_error)
+
     if roots:
         known_paths = set(snapshots)
-        for root in roots:
+        for root, original_dirs in roots.items():
             if not os.path.exists(root):
                 continue
             for dirpath, dirnames, filenames in os.walk(root, topdown=False):
@@ -251,21 +311,98 @@ def _restore_snapshots(snapshots: dict[str, dict], *, roots: Optional[set[str]] 
                         continue
                     try:
                         os.remove(path)
-                    except OSError:
-                        pass
+                    except BaseException as exc:
+                        if os.path.exists(path):
+                            record_failure("remove new file", path, exc)
                 for dirname in dirnames:
+                    path = os.path.join(dirpath, dirname)
+                    if path in original_dirs:
+                        continue
                     try:
-                        os.rmdir(os.path.join(dirpath, dirname))
-                    except OSError:
-                        pass
+                        os.rmdir(path)
+                    except BaseException as exc:
+                        if os.path.exists(path):
+                            record_failure("remove new directory", path, exc)
+            if root not in original_dirs:
+                try:
+                    os.rmdir(root)
+                except BaseException as exc:
+                    if os.path.exists(root):
+                        record_failure("remove new directory", root, exc)
     for path, state in snapshots.items():
         if not state.get("exists"):
             try:
                 os.remove(path)
-            except OSError:
-                pass
+            except FileNotFoundError:
+                continue
+            except BaseException as exc:
+                record_failure("remove introduced file", path, exc)
             continue
-        _safe_write(path, state["content"])
+        try:
+            _safe_write(path, state["content"])
+        except BaseException as exc:
+            try:
+                with open(path, "rb") as handle:
+                    restored = handle.read() == state["content"]
+            except OSError:
+                restored = False
+            if not restored:
+                record_failure("restore original file", path, exc, state)
+
+    for path, state in snapshots.items():
+        if path in failed_paths:
+            continue
+        try:
+            restored = (
+                Path(path).read_bytes() == state["content"]
+                if state.get("exists")
+                else not os.path.exists(path)
+            )
+        except OSError:
+            restored = False
+        if not restored:
+            record_failure(
+                "verify restored file",
+                path,
+                OSError("restored state does not match the captured snapshot"),
+                state,
+            )
+    for root, original_dirs in (roots or {}).items():
+        if not os.path.exists(root):
+            if original_dirs:
+                record_failure(
+                    "verify restored directory",
+                    root,
+                    OSError("original snapshot root is missing after rollback"),
+                )
+            continue
+        expected = {
+            path
+            for path, state in snapshots.items()
+            if state.get("exists") and os.path.commonpath((root, path)) == root
+        }
+        for dirpath, _dirnames, filenames in os.walk(root):
+            for filename in filenames:
+                path = os.path.join(dirpath, filename)
+                if path not in expected:
+                    record_failure(
+                        "verify removed file",
+                        path,
+                        OSError("introduced file remains after rollback"),
+                    )
+        actual_dirs = {
+            dirpath for dirpath, _dirnames, _filenames in os.walk(root)
+        }
+        for path in sorted(actual_dirs ^ original_dirs):
+            record_failure(
+                "verify restored directory",
+                path,
+                OSError("directory topology differs from the captured snapshot"),
+            )
+    return SnapshotRestoreReport(
+        tuple(errors),
+        tuple(dict.fromkeys(recovery_paths)),
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -1051,7 +1188,7 @@ def _tree_fingerprint(root: str) -> str:
 def _snapshots_verified(
     snapshots: dict[str, dict],
     *,
-    roots: Optional[set[str]] = None,
+    roots: Optional[dict[str, set[str]]] = None,
 ) -> bool:
     for path, state in snapshots.items():
         if state.get("exists"):
@@ -1063,7 +1200,7 @@ def _snapshots_verified(
                 return False
         elif os.path.exists(path):
             return False
-    for root in roots or ():
+    for root, original_dirs in (roots or {}).items():
         expected = {
             path
             for path, state in snapshots.items()
@@ -1074,6 +1211,11 @@ def _snapshots_verified(
             for dirpath, _dirnames, filenames in os.walk(root):
                 actual.update(os.path.join(dirpath, name) for name in filenames)
         if actual != expected:
+            return False
+        actual_dirs = {
+            dirpath for dirpath, _dirnames, _filenames in os.walk(root)
+        }
+        if actual_dirs != original_dirs:
             return False
     return True
 
@@ -1565,6 +1707,9 @@ def _commit_cli_cutover(plan: dict) -> dict:
         "cli_binary": str(installed.cli_binary),
         "distribution_root": str(installed.distribution_root),
         "manifest_fingerprint": installed.manifest_fingerprint,
+        "cleanup_recovery_paths": [
+            str(path) for path in installed.cleanup_recovery_paths
+        ],
     }
 
 
@@ -1930,9 +2075,9 @@ def upgrade(
         }
 
     precompile_snapshots: dict[str, dict] = {}
-    precompile_snapshot_roots: set[str] = set()
+    precompile_snapshot_roots: dict[str, set[str]] = {}
     postcompile_snapshots: dict[str, dict] = {}
-    postcompile_snapshot_roots: set[str] = set()
+    postcompile_snapshot_roots: dict[str, set[str]] = {}
 
     def _snapshot_declared_effects(paths, snapshots):
         for path in paths:
@@ -1940,16 +2085,20 @@ def upgrade(
 
     def _rollback(msg, *, migration_result: Optional[dict] = None):
         restore_errors = []
+        recovery_paths = []
         for snapshots, roots, label in (
             (precompile_snapshots, precompile_snapshot_roots, "pre-compile state"),
             (postcompile_snapshots, postcompile_snapshot_roots, "post-compile state"),
         ):
             if not snapshots:
                 continue
-            try:
-                _restore_snapshots(snapshots, roots=roots)
-            except BaseException as exc:
-                restore_errors.append(f"{label}: {exc}")
+            report = _restore_snapshots(
+                snapshots,
+                roots=roots,
+                recovery_dir=os.path.join(backup_dir, "vault-state-recovery"),
+            )
+            restore_errors.extend(f"{label}: {error}" for error in report.errors)
+            recovery_paths.extend(report.recovery_paths)
         try:
             _restore_brain_core(backup_dir, target)
         except BaseException as exc:
@@ -1984,6 +2133,7 @@ def upgrade(
                 "vault_state": "restored" if snapshots_verified else "unverified",
                 "recovery_backup": None if rollback_verified else backup_dir,
                 "errors": restore_errors,
+                "recovery_paths": sorted(set(recovery_paths)),
             },
         }
         if migration_result is not None:
@@ -2447,6 +2597,21 @@ def main() -> None:
         for f in result["files_removed"]:
             info(f"    - {f}")
     info(f"  Unchanged: {result['files_unchanged']} files")
+
+    cutover_commit = result.get("cutover_commit")
+    cleanup_recovery_paths = (
+        cutover_commit.get("cleanup_recovery_paths", [])
+        if isinstance(cutover_commit, dict)
+        else []
+    )
+    if cleanup_recovery_paths:
+        info("")
+        info(
+            "The Brain/CLI cutover committed, but old CLI backup material "
+            "still requires cleanup:"
+        )
+        for path in cleanup_recovery_paths:
+            info(f"  - {path}")
 
     followups = result.get("followups", [])
     if followups:

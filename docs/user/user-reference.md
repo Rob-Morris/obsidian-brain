@@ -1,6 +1,6 @@
 # Brain Reference
 
-This page is the stable user-facing reference for Brain Core 0.62.19 and CLI 3.1.6. Exact command schemas, examples and availability come from the installed Brain rather than a duplicated hand-maintained inventory.
+This page is the stable user-facing reference for Brain Core 0.62.20 and CLI 3.1.7. Exact command schemas, examples and availability come from the installed Brain rather than a duplicated hand-maintained inventory.
 
 Document changes use a read–mutate loop. Read an editable artefact or named
 resource, retain its returned `revision`, then pass that value as
@@ -97,6 +97,11 @@ failure returns the known-partial exit category with recovery commands. Shared
 runtime cleanup remains explicit: upgrade only recommends `brain runtime
 remove-orphans --dry-run` and `brain runtime remove-orphans` after read-only
 inspection proves candidates.
+
+If the Brain/CLI cutover commits but an old CLI backup cannot be removed, the
+upgrade remains committed and returns a known partial result. JSON output names
+the exact absolute paths in `error.details.recovery_paths`; remove those backup
+paths only after confirming the installed CLI works.
 
 Use `--request-json -` to read one object from stdin. `--vault`, `--brain` and workspace binding select the Brain; they are adapter inputs, never semantic command fields. `--dry-run` is trusted execution context. Exit categories are stable: 0 success, 1 known partial, 2 request/domain failure, 3 authority/capability unavailable, and 4 infrastructure failure or unknown mutation outcome.
 

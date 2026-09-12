@@ -152,7 +152,7 @@ def apply_file_changes(changes: tuple[FileChange, ...]) -> None:
                 f"MCP state changed after preflight: {change.path}"
             )
 
-    applied: list[FileChange] = []
+    attempted: list[FileChange] = []
     created_dirs = tuple(
         sorted(
             {directory for change in changes for directory in _missing_parent_dirs(change.path)},
@@ -162,14 +162,26 @@ def apply_file_changes(changes: tuple[FileChange, ...]) -> None:
     )
     try:
         for change in changes:
+            attempted.append(change)
             _apply(change.path, change.after)
-            applied.append(change)
     except BaseException as exc:
         rollback_errors: list[str] = []
-        for change in reversed(applied):
+        for change in reversed(attempted):
             try:
+                current = _current(change.path)
+                if current == change.before:
+                    continue
+                if current != change.after:
+                    raise OSError(
+                        "state differs from both the recorded before and intended after value"
+                    )
                 _apply(change.path, change.before)
             except BaseException as rollback_exc:
+                try:
+                    if _current(change.path) == change.before:
+                        continue
+                except OSError:
+                    pass
                 rollback_errors.append(f"{change.path}: {rollback_exc}")
 
         for directory in created_dirs:
@@ -181,7 +193,7 @@ def apply_file_changes(changes: tuple[FileChange, ...]) -> None:
                 rollback_errors.append(f"{directory}: {rollback_exc}")
 
         surviving: list[Path] = []
-        for change in applied:
+        for change in attempted:
             try:
                 if _current(change.path) != change.before:
                     surviving.append(change.path)

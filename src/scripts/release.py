@@ -349,7 +349,8 @@ def _diff(root: Path, changes: dict[str, str]) -> str:
 def _write_transaction(root: Path, changes: dict[str, str]) -> None:
     staged: dict[str, Path] = {}
     originals: dict[str, tuple[bytes, int] | None] = {}
-    replaced: list[str] = []
+    attempted: list[str] = []
+    staged_states: dict[str, tuple[bytes, int]] = {}
     try:
         for path, content in changes.items():
             target = root / path
@@ -362,16 +363,28 @@ def _write_transaction(root: Path, changes: dict[str, str]) -> None:
             stage.write_text(content, encoding="utf-8")
             if target.exists():
                 os.chmod(stage, target.stat().st_mode)
+            staged_states[path] = (stage.read_bytes(), stage.stat().st_mode)
         for path, stage in staged.items():
+            attempted.append(path)
             os.replace(stage, root / path)
-            replaced.append(path)
     except BaseException as initiating_error:
         recovery_paths: list[Path] = []
-        for path in reversed(replaced):
+        for path in reversed(attempted):
             original = originals[path]
             target = root / path
             restore: Path | None = None
             try:
+                current = (
+                    (target.read_bytes(), target.stat().st_mode)
+                    if target.exists()
+                    else None
+                )
+                if current == original:
+                    continue
+                if current != staged_states[path]:
+                    raise OSError(
+                        "target differs from both the recorded original and staged release value"
+                    )
                 if original is None:
                     target.unlink(missing_ok=True)
                     continue
@@ -383,6 +396,16 @@ def _write_transaction(root: Path, changes: dict[str, str]) -> None:
                 os.chmod(restore, mode)
                 os.replace(restore, target)
             except BaseException:
+                try:
+                    restored = (
+                        (target.read_bytes(), target.stat().st_mode)
+                        if target.exists()
+                        else None
+                    ) == original
+                except OSError:
+                    restored = False
+                if restored and (restore is None or not restore.exists()):
+                    continue
                 recovery_paths.append(target)
                 if restore is not None and restore.exists():
                     recovery_paths.append(restore)

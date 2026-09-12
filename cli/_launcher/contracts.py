@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
 import re
+from pathlib import Path
 from typing import Generic, Literal, Protocol, TypeVar
 
 
@@ -110,12 +111,29 @@ class OutcomeUnknownDetails:
     reference: OutcomeReference
 
 
+@dataclass(frozen=True, slots=True)
+class RecoveryRequiredDetails:
+    recovery_paths: tuple[str, ...]
+    reason: str
+
+    def __post_init__(self) -> None:
+        if not self.reason.strip():
+            raise ValueError("launcher recovery details require a reason")
+        if not self.recovery_paths:
+            raise ValueError("launcher recovery details require at least one path")
+        if self.recovery_paths != tuple(sorted(set(self.recovery_paths))):
+            raise ValueError("launcher recovery paths must be ordered and unique")
+        if any(not Path(path).is_absolute() for path in self.recovery_paths):
+            raise ValueError("launcher recovery paths must be absolute")
+
+
 ErrorDetails = (
     RequestErrorDetails
     | AuthorityDeniedDetails
     | CapabilityUnavailableDetails
     | InternalErrorDetails
     | OutcomeUnknownDetails
+    | RecoveryRequiredDetails
 )
 
 

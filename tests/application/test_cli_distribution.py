@@ -17,6 +17,7 @@ if str(CLI_ROOT) not in sys.path:
 import _distribution  # noqa: E402
 from _distribution import (  # noqa: E402
     DistributionInstallError,
+    InstalledDistribution,
     install_distribution,
     verify_distribution,
 )
@@ -193,6 +194,118 @@ def test_keyboard_interrupt_restores_the_old_verified_pair(tmp_path):
     assert installed.cli_binary.read_bytes() == old_binary
 
 
+@pytest.mark.parametrize("target_kind", ("distribution", "binary"))
+def test_after_effect_interrupt_restores_the_old_verified_pair(
+    tmp_path, monkeypatch, target_kind
+):
+    installed = _install(tmp_path)
+    old_manifest = verify_distribution(installed.distribution_root)["fingerprint"]
+    old_binary = installed.cli_binary.read_bytes()
+    real_replace = _distribution.os.replace
+
+    def replace_then_interrupt(source, destination):
+        real_replace(source, destination)
+        source = Path(source)
+        destination = Path(destination)
+        if target_kind == "distribution" and source.name.endswith(".stage") and (
+            destination == installed.distribution_root
+        ):
+            raise KeyboardInterrupt()
+        if target_kind == "binary" and source.name.endswith(".stage") and (
+            destination == installed.cli_binary
+        ):
+            raise KeyboardInterrupt()
+
+    monkeypatch.setattr(_distribution.os, "replace", replace_then_interrupt)
+
+    with pytest.raises(KeyboardInterrupt):
+        _install(tmp_path)
+
+    assert verify_distribution(installed.distribution_root)["fingerprint"] == old_manifest
+    assert installed.cli_binary.read_bytes() == old_binary
+
+
+def test_keyboard_interrupt_during_backup_cleanup_is_committed(tmp_path):
+    _install(tmp_path)
+
+    def failpoint(name):
+        if name == "cleanup_old_distribution":
+            raise KeyboardInterrupt()
+
+    installed = _install(tmp_path, failpoint=failpoint)
+
+    assert verify_distribution(installed.distribution_root)["fingerprint"] == (
+        installed.manifest_fingerprint
+    )
+    assert len(installed.cleanup_recovery_paths) == 1
+    assert installed.cleanup_recovery_paths[0].name.endswith(".backup")
+
+
+def test_interrupt_after_rollback_restore_effect_is_reconciled(
+    tmp_path, monkeypatch
+):
+    installed = _install(tmp_path)
+    installed.cli_binary.write_text("distinct old CLI\n", encoding="utf-8")
+    installed.cli_binary.chmod(0o755)
+    old_binary = installed.cli_binary.read_bytes()
+    real_replace = _distribution.os.replace
+
+    def replace_then_interrupt(source, destination):
+        real_replace(source, destination)
+        if (
+            Path(source).name.endswith(".backup")
+            and Path(destination) == installed.cli_binary
+        ):
+            raise KeyboardInterrupt()
+
+    monkeypatch.setattr(_distribution.os, "replace", replace_then_interrupt)
+
+    def failpoint(name):
+        if name == "after_cli_replace":
+            raise OSError("injected post-install failure")
+
+    with pytest.raises(DistributionInstallError) as caught:
+        _install(tmp_path, failpoint=failpoint)
+
+    assert caught.value.rollback_verified is True
+    assert caught.value.recovery_paths == ()
+    assert installed.cli_binary.read_bytes() == old_binary
+
+
+def test_final_rollback_verification_failure_is_explicitly_unverified(
+    tmp_path, monkeypatch
+):
+    installed = _install(tmp_path)
+    installed.cli_binary.write_text("distinct old CLI\n", encoding="utf-8")
+    installed.cli_binary.chmod(0o755)
+    real_fingerprint = _distribution._file_fingerprint
+    target_reads = 0
+
+    def fail_final_target_verification(path):
+        nonlocal target_reads
+        if Path(path) == installed.cli_binary:
+            target_reads += 1
+            if target_reads == 3:
+                raise OSError("cannot verify restored CLI")
+        return real_fingerprint(path)
+
+    monkeypatch.setattr(
+        _distribution,
+        "_file_fingerprint",
+        fail_final_target_verification,
+    )
+
+    def failpoint(name):
+        if name == "after_cli_replace":
+            raise OSError("injected post-install failure")
+
+    with pytest.raises(DistributionInstallError) as caught:
+        _install(tmp_path, failpoint=failpoint)
+
+    assert caught.value.rollback_verified is False
+    assert installed.cli_binary in caught.value.recovery_paths
+
+
 def test_backup_cleanup_failure_is_committed_with_recovery_path(tmp_path):
     _install(tmp_path)
 
@@ -208,6 +321,26 @@ def test_backup_cleanup_failure_is_committed_with_recovery_path(tmp_path):
     assert len(installed.cleanup_recovery_paths) == 1
     assert installed.cleanup_recovery_paths[0].name.endswith(".backup")
     assert installed.cleanup_recovery_paths[0].is_dir()
+
+
+def test_standalone_projection_includes_cleanup_recovery_paths(
+    tmp_path, monkeypatch, capsys
+):
+    recovery = (tmp_path / "old.backup").resolve()
+    installed = InstalledDistribution(
+        (tmp_path / "bin" / "brain").resolve(),
+        (tmp_path / "lib" / "brain-cli" / CLI_VERSION).resolve(),
+        CLI_VERSION,
+        CORE_VERSION,
+        "sha256:abc",
+        (recovery,),
+    )
+    monkeypatch.setattr(_distribution, "install_from_source", lambda *_args: installed)
+
+    assert _distribution.main([str(REPO_ROOT), str(installed.cli_binary)]) == 0
+
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["cleanup_recovery_paths"] == [str(recovery)]
 
 
 def test_unverified_old_distribution_is_reported_honestly_on_failure(tmp_path):
@@ -232,6 +365,8 @@ def test_unverified_old_distribution_is_reported_honestly_on_failure(tmp_path):
 
 def test_rollback_failure_is_unverified_and_retains_recovery_material(tmp_path):
     installed = _install(tmp_path)
+    installed.cli_binary.write_text("distinct old CLI\n", encoding="utf-8")
+    installed.cli_binary.chmod(0o755)
 
     def failpoint(name):
         if name in {"after_cli_replace", "rollback_restore_old_cli"}:

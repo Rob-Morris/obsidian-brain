@@ -265,6 +265,61 @@ def test_keyboard_interrupt_rolls_back_files_and_created_directories(
     assert not (vault / ".brain").exists()
 
 
+def test_after_effect_interrupt_rolls_back_files_and_created_directories(
+    tmp_path, monkeypatch
+):
+    vault = _vault(tmp_path)
+    _healthy_runtime(monkeypatch, vault)
+    original_apply = file_transaction._apply
+    calls = 0
+
+    def interrupt_after_second_effect(path, content):
+        nonlocal calls
+        calls += 1
+        original_apply(path, content)
+        if calls == 2:
+            raise KeyboardInterrupt()
+
+    monkeypatch.setattr(file_transaction, "_apply", interrupt_after_second_effect)
+
+    with pytest.raises(KeyboardInterrupt):
+        _invocation(vault).invoke(McpConfigureRequest(client=McpClient.CLAUDE))
+
+    assert not (vault / ".mcp.json").exists()
+    assert not (vault / ".brain").exists()
+
+
+def test_after_rollback_effect_interrupt_is_reconciled(tmp_path, monkeypatch):
+    vault = _vault(tmp_path)
+    _healthy_runtime(monkeypatch, vault)
+    original_apply = file_transaction._apply
+    calls = 0
+
+    def fail_write_then_interrupt_after_restore(path, content):
+        nonlocal calls
+        calls += 1
+        if calls == 2:
+            raise OSError("disk full")
+        original_apply(path, content)
+        if calls == 3:
+            raise KeyboardInterrupt()
+
+    monkeypatch.setattr(
+        file_transaction,
+        "_apply",
+        fail_write_then_interrupt_after_restore,
+    )
+
+    result = _invocation(vault).invoke(
+        McpConfigureRequest(client=McpClient.CLAUDE)
+    )
+
+    assert result.status == "error"
+    assert result.effects == "none"
+    assert not (vault / ".mcp.json").exists()
+    assert not (vault / ".brain").exists()
+
+
 def test_failed_rollback_reports_known_partial_files(tmp_path, monkeypatch):
     vault = _vault(tmp_path)
     _healthy_runtime(monkeypatch, vault)
