@@ -40,6 +40,7 @@ _SCP_REMOTE = re.compile(
     rf"(?P<host>{_HOST})"
     r":(?P<path>[^\s]+)$"
 )
+_WINDOWS_DRIVE_PREFIX = re.compile(r"^[A-Za-z]:")
 _HOST_LABEL = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9_-]{0,61}[A-Za-z0-9])?$")
 _SAFE_REF = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._/-]{0,255}$")
 
@@ -118,6 +119,8 @@ def validate_remote_repository(repository: str) -> str:
         raise GitSourceError(
             "Git repository contains unsafe whitespace or control characters"
         )
+    if _WINDOWS_DRIVE_PREFIX.match(repository):
+        raise GitSourceError("Git repository must use an approved https or ssh remote")
     url = _URL_REMOTE.fullmatch(repository)
     if url is not None:
         scheme = url.group("scheme").casefold()

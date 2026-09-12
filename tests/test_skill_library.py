@@ -220,6 +220,9 @@ def test_git_archive_capture_is_bounded_before_extraction(monkeypatch):
         ("ext::sh -c command", "unsafe whitespace"),
         ("http://example.com/repository.git", "approved https or ssh"),
         (r"C:\private\repository", "approved https or ssh"),
+        ("C:/private/repository", "approved https or ssh"),
+        ("C:relative-repository", "approved https or ssh"),
+        ("z:/repo.git", "approved https or ssh"),
     ),
 )
 def test_git_source_rejects_local_and_unapproved_repository_forms(
@@ -267,6 +270,9 @@ def test_git_source_rejects_https_user_information_without_echoing_it(repository
         "example.com:owner/repository.git#PatientSSN123",
         "https:/PatientSSN123/repository.git",
         "-p@example.com:owner/repository.git",
+        "C:/private/repository",
+        "C:relative-repository",
+        "z:/repo.git",
     ),
 )
 def test_rejected_remote_grammar_never_reaches_git_or_echoes_secret(
