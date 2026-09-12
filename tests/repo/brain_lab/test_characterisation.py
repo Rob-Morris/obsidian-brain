@@ -510,3 +510,46 @@ def test_mcp_probe_uses_codex_brain_server_not_unrelated_claude_server(tmp_path:
 
     assert argv == ["/usr/bin/python3.12", "server.py"]
     assert environment["BRAIN_VAULT_ROOT"] == "/home/brain/vault"
+
+
+def test_mcp_probe_validates_revision_appropriate_read_only_contracts():
+    helper = runpy.run_path(str(TOOL_ROOT / "container" / "mcp_probe.py"))
+
+    assert helper["_probe_request"]("legacy") == ("brain_init", {})
+    helper["_validate_probe_payload"](
+        "legacy",
+        {"version": "1", "readiness": "ready", "warmup_state": "complete"},
+    )
+    assert helper["_probe_request"]("canonical") == (
+        "command.list",
+        {"dependency_tier": "portable", "page_size": 1},
+    )
+    helper["_validate_probe_payload"](
+        "canonical",
+        {"command": "command.list", "ok": True, "result": {}},
+    )
+
+
+def test_mcp_probe_extracts_legacy_json_text_and_canonical_structured_content():
+    payload = runpy.run_path(str(TOOL_ROOT / "container" / "mcp_probe.py"))[
+        "_tool_call_payload"
+    ]
+
+    assert payload(
+        {
+            "content": [
+                {
+                    "type": "text",
+                    "text": '{"version":"1","readiness":"ready"}',
+                }
+            ]
+        }
+    ) == {"version": "1", "readiness": "ready"}
+    assert payload(
+        {
+            "structuredContent": {
+                "command": "command.list",
+                "ok": True,
+            }
+        }
+    ) == {"command": "command.list", "ok": True}

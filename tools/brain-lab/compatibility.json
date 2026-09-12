@@ -3,7 +3,7 @@
   "adapters": [
     {
       "id": "brain-0.51-0.54",
-      "revision": 11,
+      "revision": 12,
       "minimum_version": "0.51.0",
       "maximum_version_exclusive": "0.55.0",
       "install": [
@@ -162,8 +162,8 @@
         },
         {
           "id": "mcp-read-only",
-          "command": ["{container_python}", "/usr/local/lib/brain-lab/mcp_probe.py", "--vault", "{vault}"],
-          "expected_json": {"read_only_round_trip": "tools/call:command.list"},
+          "command": ["{container_python}", "/usr/local/lib/brain-lab/mcp_probe.py", "--vault", "{vault}", "--contract", "legacy"],
+          "expected_json": {"read_only_round_trip": "tools/call:brain_init"},
           "required_for": ["template", "rehydrate"]
         },
         {
@@ -308,7 +308,7 @@
         },
         {
           "id": "mcp-read-only",
-          "command": ["{container_python}", "/usr/local/lib/brain-lab/mcp_probe.py", "--vault", "{vault}"],
+          "command": ["{container_python}", "/usr/local/lib/brain-lab/mcp_probe.py", "--vault", "{vault}", "--contract", "canonical"],
           "expected_json": {"read_only_round_trip": "tools/call:command.list"},
           "required_for": ["template", "rehydrate"]
         },

@@ -591,7 +591,14 @@ def run_acceptance(
         raise AcceptanceFailure("machine runtime state is not tidy after canonical cleanup")
 
     mcp, receipt = _run_json(
-        [sys.executable, "/usr/local/lib/brain-lab/mcp_probe.py", "--vault", str(vault)],
+        [
+            sys.executable,
+            "/usr/local/lib/brain-lab/mcp_probe.py",
+            "--vault",
+            str(vault),
+            "--contract",
+            "canonical",
+        ],
         cwd=vault,
     )
     commands.append(receipt)

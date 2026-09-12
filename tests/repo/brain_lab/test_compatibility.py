@@ -64,6 +64,9 @@ def test_commands_render_argv_without_shell_interpolation():
         "launcher_python": "{container_python}",
         "counts.repair_findings": 0,
     }
+    mcp = next(gate for gate in adapter.health if gate.gate_id == "mcp-read-only")
+    assert mcp.command[-2:] == ("--contract", "canonical")
+    assert mcp.expected_json == {"read_only_round_trip": "tools/call:command.list"}
     paths = next(gate for gate in adapter.health if gate.gate_id == "active-paths")
     assert paths.expected_json == {"safe": True}
 
@@ -92,7 +95,7 @@ def test_historical_adapter_owns_future_dependency_break_and_generated_template_
     )
     rehydrate = [adapter.render(command, values) for command in adapter.rehydrate]
     restore = rehydrate[-1]
-    assert adapter.revision == 11
+    assert adapter.revision == 12
     assert rehydrate[0][1] == "/usr/local/lib/brain-lab/clear_imported_state.py"
     assert "codex" in rehydrate[2]
     assert any("mcp" in command and any(part.endswith("/repair.py") for part in command) for command in rehydrate)
@@ -103,6 +106,9 @@ def test_historical_adapter_owns_future_dependency_break_and_generated_template_
     assert machine_doctor.required_for == ("rehydrate",)
     assert session.command == ("brain", "session", "--json")
     assert session.retry is None
+    mcp = next(gate for gate in adapter.health if gate.gate_id == "mcp-read-only")
+    assert mcp.command[-2:] == ("--contract", "legacy")
+    assert mcp.expected_json == {"read_only_round_trip": "tools/call:brain_init"}
 
 
 @pytest.mark.parametrize("value", ["1", "1.2", "v1.2.x", "1.2.3.4"])

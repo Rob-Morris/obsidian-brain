@@ -65,7 +65,7 @@
       "id": "worktree-upgrade",
       "setup": "Start a run from the historical baseline and copy the target source bundle into it.",
       "command": "run start with bridge, run copy-in by source_id, then run exec for the selected source installer, target rehydration and health gates",
-      "predicate": "The exact v0.54.0 baseline reaches the target Core and CLI through every pending migration; no unexplained validation finding is added; first-call session readiness, canonical runtime cleanup, machine tidiness, MCP health and path isolation all pass.",
+      "predicate": "The exact v0.53.5 baseline reaches the target Core and CLI through every pending migration; no unexplained validation finding is added; first-call session readiness, canonical runtime cleanup, machine tidiness, MCP health and path isolation all pass.",
       "evidence": "historical-upgrade scenario result, bounded command receipts and run filesystem evidence",
       "owner": "automated-docker"
     },
