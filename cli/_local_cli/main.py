@@ -26,6 +26,7 @@ from .discovery import (
 )
 from .execution import (
     ApplicationProcessInvoker,
+    validate_application_envelope,
     LauncherCommandInvoker,
     LocalCliExecution,
     LocalExecutionProjection,
@@ -337,14 +338,16 @@ def _invoke_application(
     if common.operator_key:
         argv.extend(("--operator-key", common.operator_key))
     completed = subprocess.run(argv, capture_output=True, text=True, check=False)
-    if completed.stderr or completed.returncode not in range(5):
+    if completed.returncode not in range(5):
         raise CliError("selected Brain discovery failed its structural process contract")
     try:
         result = json.loads(completed.stdout)
     except json.JSONDecodeError as exc:
         raise CliError("selected Brain discovery returned invalid JSON") from exc
-    if not isinstance(result, dict):
-        raise CliError("selected Brain discovery returned a non-object result")
+    try:
+        validate_application_envelope(result, command_id, completed.returncode)
+    except RuntimeError as exc:
+        raise CliError(str(exc)) from exc
     return result
 
 

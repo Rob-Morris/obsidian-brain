@@ -39,7 +39,7 @@ def test_content_ingest_creates_typed_artefact(command_vault_clone):
 
     assert result.status == "ok"
     assert result.result.action is ContentIngestAction.CREATED
-    assert result.result.artefact_type == "living/ideas"
+    assert result.result.artefact_type == "living/idea"
     assert result.result.needs_decision is False
     assert result.committed_effects[0].subject == result.result.path
     assert (root / result.result.path).is_file()

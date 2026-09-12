@@ -232,7 +232,7 @@ def test_command_describe_returns_installed_identity_or_not_found(tmp_path):
     assert found.result.owner.value == "application"
     assert found.result.request_schema_json
     assert found.result.result_schema_json
-    assert found.result.examples[0].mcp_tool == "invocation.read"
+    assert found.result.examples[0].mcp_tool == "invocation_read"
     assert missing.error.code is ErrorCode.NOT_FOUND
 
 

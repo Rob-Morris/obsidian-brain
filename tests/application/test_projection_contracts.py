@@ -5,6 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import Enum
 import json
+import re
+import pytest
 from pathlib import Path
 
 from _application.projection import (
@@ -51,8 +53,18 @@ def test_every_application_command_has_one_collision_free_mechanical_projection(
     projections = tuple(project_identity(entry.command_id) for entry in catalogue.entries)
 
     assert len({item.mcp_tool for item in projections}) == len(projections)
+    command_ids = tuple(entry.command_id for entry in catalogue.entries)
+    for item in projections:
+        assert re.fullmatch(r"[a-zA-Z0-9_-]{1,64}", item.mcp_tool)
+        assert command_id_from_mcp_tool(item.mcp_tool, command_ids) == item.command_id
+        with pytest.raises(ValueError):
+            command_id_from_mcp_tool(item.command_id, command_ids)
+    assert (
+        project_identity("document.structured-edit").mcp_tool
+        == "document_structured-edit"
+    )
     assert len({item.cli_argv for item in projections}) == len(projections)
-    assert project_identity("vault.check").mcp_tool == "vault.check"
+    assert project_identity("vault.check").mcp_tool == "vault_check"
     assert project_identity("document.structured-edit").cli_argv == (
         "document",
         "structured-edit",
@@ -73,7 +85,7 @@ def test_name_resolvers_reject_aliases_stutter_and_unowned_mcp_names():
     assert command_id_from_argv(
         "document", "structured-edit", command_ids
     ) == "document.structured-edit"
-    assert command_id_from_mcp_tool("vault.check", command_ids) == "vault.check"
+    assert command_id_from_mcp_tool("vault_check", command_ids) == "vault.check"
 
     for noun, verb in (("brain", "vault-check"), ("artefact", "replace_text")):
         try:
@@ -84,7 +96,7 @@ def test_name_resolvers_reject_aliases_stutter_and_unowned_mcp_names():
             raise AssertionError("non-canonical CLI alias unexpectedly resolved")
 
     try:
-        command_id_from_mcp_tool("one.two", command_ids)
+        command_id_from_mcp_tool("one_two", command_ids)
     except ValueError as exc:
         assert "not owned" in str(exc)
     else:
@@ -231,3 +243,90 @@ def test_canonical_result_projection_is_structural_and_deterministic():
         "invocation_id": "inv-unknown"
     }
     assert json.loads(canonical_result_json(unknown)) == unknown_wire
+
+
+def test_catalogue_examples_are_valid_against_their_own_wire_schemas():
+    from jsonschema import Draft202012Validator
+
+    resolver = current_request_resolver()
+    for entry in current_application_catalogue().entries:
+        payload = minimal_request_payload(entry.request_type)
+        Draft202012Validator(request_schema(entry.request_type)).validate(payload)
+        assert type(resolver.resolve(entry.command_id, payload)) is entry.request_type
+
+
+def test_frontmatter_wire_objects_round_trip_through_all_request_variants():
+    from jsonschema import Draft202012Validator
+    from _application.projection import canonical_wire_value
+    import pytest
+
+    fields = {
+        "enabled": True,
+        "empty": [],
+        "missing": None,
+        "rank": 2,
+        "tags": ["one", None, 3.5],
+    }
+    catalogue = current_application_catalogue()
+    resolver = current_request_resolver()
+    cases = [
+        (
+            "artefact.create",
+            {"type": "temporal/plan", "title": "Example", "frontmatter": fields},
+            ("frontmatter",),
+        )
+    ]
+    cases.extend(
+        (
+            "resource.create",
+            {
+                "target": {
+                    "resource": resource,
+                    "name": "example",
+                    "frontmatter": fields,
+                },
+                "content": {"source": "inline", "content": "Example"},
+            },
+            ("target", "frontmatter"),
+        )
+        for resource in ("memory", "skill", "style")
+    )
+    cases.append(
+        (
+            "document.update-frontmatter",
+            {
+                "document": {"resource": "memory", "reference": "example"},
+                "expected_revision": "sha256:" + "0" * 64,
+                "updates": fields,
+            },
+            ("updates",),
+        )
+    )
+    for command_id, payload, path in cases:
+        import copy
+
+        entry = next(
+            entry for entry in catalogue.entries if entry.command_id == command_id
+        )
+        validator = Draft202012Validator(request_schema(entry.request_type))
+        validator.validate(payload)
+        encoded = canonical_wire_value(resolver.resolve(command_id, payload))
+        for part in path:
+            encoded = encoded[part]
+        assert encoded == fields
+        for invalid in (
+            None,
+            [],
+            [{"name": "tags", "value": ["one"]}],
+            {"nested": {"x": 1}},
+            {"tags": [["nested"]]},
+            {" ": "value"},
+        ):
+            bad = copy.deepcopy(payload)
+            target = bad
+            for part in path[:-1]:
+                target = target[part]
+            target[path[-1]] = invalid
+            assert not validator.is_valid(bad), (command_id, invalid)
+            with pytest.raises(ValueError):
+                resolver.resolve(command_id, bad)

@@ -116,7 +116,7 @@ class ApplicationCatalogue:
     entries: tuple[ApplicationEntry, ...]
     schema: str = CATALOGUE_SCHEMA
     result_schema: str = RESULT_SCHEMA
-    interface_epoch: int = 1
+    interface_epoch: int = 2
 
     def __post_init__(self) -> None:
         if self.schema != CATALOGUE_SCHEMA:

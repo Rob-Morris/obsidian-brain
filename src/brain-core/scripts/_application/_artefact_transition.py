@@ -144,7 +144,41 @@ def execute_transition(
 
     try:
         with vault_mutation_lock(vault_root):
-            raw_result = operation(vault_root, router)
+            partial_error = None
+            try:
+                raw_result = operation(vault_root, router)
+            except PartialApplyError as exc:
+                partial_error = exc
+            if request.COMMAND_ID in {
+                "artefact.archive",
+                "artefact.unarchive",
+                "artefact.delete",
+            }:
+                from _portable.router_maintenance import maintain_router
+                from _portable.lexical_maintenance import maintain_lexical_index
+
+                try:
+                    router_result = maintain_router(
+                        vault_root, dry_run=False, force=True
+                    )
+                    maintain_lexical_index(vault_root, dry_run=False, force=True)
+                    if router_result.status == "partial":
+                        raise RuntimeError("Session mirror refresh failed")
+                except (OSError, RuntimeError, ValueError) as exc:
+                    raise PartialApplyError(
+                        (
+                            public_mutation_error_message(partial_error) + " "
+                            if partial_error
+                            else ""
+                        )
+                        + "Artefact mutation committed effects, but derived index refresh failed; "
+                        "run runtime.refresh-router and retrieval.refresh-lexical."
+                    ) from exc
+                finally:
+                    if context.derived_snapshots is not None:
+                        context.derived_snapshots.invalidate()
+            if partial_error is not None:
+                raise partial_error
     except MutationLockError as exc:
         return no_effect_error(
             type(request),

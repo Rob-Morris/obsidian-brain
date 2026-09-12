@@ -53,7 +53,7 @@ def test_mcpserver_serves_a_2025_06_18_stdio_client(tmp_path):
             "jsonrpc": "2.0",
             "id": 3,
             "method": "tools/call",
-            "params": {"name": "command.list", "arguments": {"page_size": 1}},
+            "params": {"name": "command_list", "arguments": {"page_size": 1}},
         },
     )
     process = subprocess.Popen(
@@ -99,7 +99,7 @@ def test_mcpserver_serves_a_2026_07_28_stdio_client(tmp_path):
                 )
                 session.adopt(discovery)
                 tools = await session.list_tools()
-                result = await session.call_tool("command.list", {"page_size": 1})
+                result = await session.call_tool("command_list", {"page_size": 1})
 
         assert session.protocol_version == "2026-07-28"
         assert discovery.supported_versions == ["2026-07-28"]
@@ -138,7 +138,7 @@ def test_public_server_supports_stateless_2026_streamable_http(monkeypatch):
                         )
                         session.adopt(discovery)
                         tools = await session.list_tools()
-                        result = await session.call_tool("command.list", {})
+                        result = await session.call_tool("command_list", {})
 
         assert session.protocol_version == "2026-07-28"
         assert len(tools.tools) == 68
@@ -166,6 +166,6 @@ def test_public_server_projects_only_the_authenticated_profile_ceiling(
     names = tuple(tool.name for tool in tools)
 
     assert len(names) == 27
-    assert "access.request" in names
-    assert "artefact.delete" not in names
-    assert "invocation.read" not in names
+    assert "access_request" in names
+    assert "artefact_delete" not in names
+    assert "invocation_read" not in names

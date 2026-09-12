@@ -1,6 +1,6 @@
 # Brain Reference
 
-This page is the stable user-facing reference for Brain Core 0.63.0 and CLI 3.1.8. Exact command schemas, examples and availability come from the installed Brain rather than a duplicated hand-maintained inventory.
+This page is the stable user-facing reference for Brain Core 0.64.0 and CLI 3.1.9. Exact command schemas, examples and availability come from the installed Brain rather than a duplicated hand-maintained inventory.
 
 Document changes use a read–mutate loop. Read an editable artefact or named
 resource, retain its returned `revision`, then pass that value as
@@ -184,7 +184,7 @@ Run `brain command describe <command-id> --json` before relying on an example he
 
 Agents degrade in this order:
 
-1. MCP `session.start` returns the canonical JSON session model.
+1. MCP `session_start` returns the canonical JSON session model.
 2. CLI `brain session start --json` returns the same application result through the selected Brain.
 3. Read `.brain-core/index.md`, then the generated `.brain/local/session.md`.
 4. Follow `.brain-core/md-bootstrap.md` when generated state is unavailable.

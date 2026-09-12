@@ -23,7 +23,6 @@ from brain_mcp._command_adapter import register_application_tools
 from _application.receipts import MemoryReceiptStore
 from _application.registry import current_application_catalogue, current_request_resolver
 from _application.types import Availability, DependencyTier, Projection, SnapshotFreshness
-from _application.projection import project_identity
 from _command_interface.context import compose_local_context
 
 
@@ -64,7 +63,7 @@ def main() -> int:
     vault_root = Path(os.environ["BRAIN_CAPTURE_VAULT"]).resolve()
     catalogue = current_application_catalogue()
     allowed_tools = frozenset(
-        project_identity(entry.command_id).mcp_tool
+        entry.command_id
         for entry in catalogue.entries
         if Projection.MCP in entry.eligible_projections
     )

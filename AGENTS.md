@@ -2,7 +2,7 @@
 
 A self-evolving knowledge base, for agents and humans working together on what matters. 
 
-ALWAYS DO FIRST: Call MCP `session.start`.
+ALWAYS DO FIRST: Call MCP `session_start`.
 
 ## Agent Contributors
 

@@ -695,7 +695,7 @@ class OperationalLogger:
                     return
         except Exception as error:  # the writer must never take the daemon down
             self._disabled = True
-            _stderr_note(f"operational log writer stopped: {error!r}")
+            _stderr_note(f"operational log writer stopped: {type(error).__name__}")
 
     def _write_batch(self, batch: list[tuple]) -> bool:
         finished = False
@@ -751,7 +751,9 @@ class OperationalLogger:
             )
             if persistent or self._consecutive_failures >= _MAX_CONSECUTIVE_WRITE_FAILURES:
                 self._disabled = True
-                _stderr_note(f"operational log disabled after write failure: {error}")
+                _stderr_note(
+                    f"operational log disabled after write failure: {type(error).__name__}"
+                )
         return finished
 
 
@@ -795,7 +797,7 @@ def append_record(vault_root: Path, process: str, event: str, **fields: object) 
         )
         append_lines(Path(vault_root), "command", [line])
     except Exception as error:
-        _stderr_note(f"operational log append failed: {error}")
+        _stderr_note(f"operational log append failed: {type(error).__name__}")
 
 
 def _stderr_note(message: str) -> None:

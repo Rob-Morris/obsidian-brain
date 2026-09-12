@@ -6,7 +6,6 @@ from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 import sys
-import traceback
 from typing import Mapping, Protocol
 
 from .access_contracts import AccessController
@@ -88,9 +87,8 @@ def report_failure_safely(
         try:
             sys.__stderr__.write(
                 "Brain command diagnostic reporter failed while handling "
-                f"{phase} for {command_id}:\n"
+                f"{phase} for {command_id} ({type(reporter_error).__name__}).\n"
             )
-            traceback.print_exception(reporter_error, file=sys.__stderr__)
         except Exception:
             # Diagnostic fallback must never change the command outcome.
             pass

@@ -13,8 +13,9 @@ from .._document_mutation import (
 )
 from .._mutation_support import (
     FrontmatterField,
+    FrontmatterPatch,
+    FRONTMATTER_PATCH_CODEC,
     contributor_mutation_entry,
-    decode_frontmatter,
 )
 from ..context import InvocationContext
 from ._types import DocumentLocator, decode_document, validate_document_request
@@ -23,7 +24,7 @@ from ._types import DocumentLocator, decode_document, validate_document_request
 @dataclass(frozen=True, slots=True)
 class DocumentUpdateFrontmatterRequest:
     COMMAND_ID: ClassVar[str] = "document.update-frontmatter"
-    COMMAND_VERSION: ClassVar[int] = 1
+    COMMAND_VERSION: ClassVar[int] = 2
     RESULT_TYPE: ClassVar[type] = DocumentFrontmatterUpdatePayload
     FIELD_DESCRIPTIONS: ClassVar[dict[str, str]] = {
         "document": "Existing editable Brain document.",
@@ -38,7 +39,7 @@ class DocumentUpdateFrontmatterRequest:
 
     document: DocumentLocator
     expected_revision: str
-    updates: tuple[FrontmatterField, ...]
+    updates: FrontmatterPatch
 
     def __post_init__(self) -> None:
         validate_document_request(self)
@@ -74,7 +75,7 @@ def decode(payload: Mapping[str, object]) -> DocumentUpdateFrontmatterRequest:
     return DocumentUpdateFrontmatterRequest(
         decode_document(payload.get("document")),
         expected_revision,
-        decode_frontmatter(payload.get("updates")),
+        FRONTMATTER_PATCH_CODEC.decode(payload.get("updates")),
     )
 
 

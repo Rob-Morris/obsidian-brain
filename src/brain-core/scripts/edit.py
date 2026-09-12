@@ -2276,7 +2276,7 @@ def convert_artefact(vault_root, router, path, target_type, parent=None, recursi
     conversion_result = {
         "old_path": path,
         "new_path": new_path,
-        "type": target_art["type"],
+        "type": fields["type"],
         "links_updated": links_updated,
     }
     if attachment_transition["moved"]:
@@ -2306,10 +2306,17 @@ def _refuse_living_descendants(operation, source, descendants):
         raise HasDescendantsError(operation, source, descendant_payload(descendants))
 
 
-def _archive_destination(path, art, today):
+def _intrinsic_date_prefix(art, fields):
+    from _common._naming import select_rule
+
+    rule = select_rule(art.get("naming"), fields)
+    return bool(rule and rule.get("pattern", "").startswith("yyyymmdd-"))
+
+
+def _archive_destination(path, art, today, fields):
     filename = os.path.basename(path)
     date_prefix = today.replace("-", "")
-    if not _DATE_PREFIX_RE.match(filename):
+    if not _intrinsic_date_prefix(art, fields):
         filename = f"{date_prefix}-{filename}"
 
     type_folder = art["path"]
@@ -2335,25 +2342,11 @@ def _read_open_path(vault_root, router, path):
     return resolved_path, abs_path, fields, body, art
 
 
-def _plan_archive_entry(vault_root, router, path, today, *, require_terminal):
+def _plan_archive_entry(vault_root, router, path, today):
     path, abs_path, fields, body, art = _read_open_path(vault_root, router, path)
     if is_archived_path(path):
         raise ValueError(f"'{path}' is already archived.")
     check_write_allowed(path)
-
-    if require_terminal:
-        terminal = art.get("frontmatter", {}).get("terminal_statuses") or []
-        if not terminal:
-            raise ValueError(
-                f"Type '{art['type']}' has no terminal statuses — cannot archive."
-            )
-
-        status = fields.get("status", "")
-        if status not in terminal:
-            raise ValueError(
-                f"Cannot archive '{path}': status '{status}' is not terminal. "
-                f"Terminal statuses for {art['type']}: {', '.join(terminal)}"
-            )
 
     archived_fields = dict(fields)
     if "archiveddate" not in archived_fields:
@@ -2364,7 +2357,7 @@ def _plan_archive_entry(vault_root, router, path, today, *, require_terminal):
         "abs_path": abs_path,
         "fields": archived_fields,
         "body": body,
-        "dest": _archive_destination(path, art, today),
+        "dest": _archive_destination(path, art, today, fields),
     }
 
 
@@ -2498,16 +2491,7 @@ def reparent_children(vault_root, router, source, to_marker=None, *, to_provided
 
 
 def archive_artefact(vault_root, router, path, recursive=False):
-    """Archive a living artefact to the top-level _Archive/ directory.
-
-    1. Resolve path, read frontmatter, validate type has terminal statuses.
-    2. Validate current status is terminal (caller must set it first).
-    3. Add archiveddate if not present.
-    4. Prepend yyyymmdd- date prefix to filename if not present.
-    5. Move to _Archive/{type_folder}/{project}/.
-
-    Returns dict with old_path, new_path, links_updated.
-    """
+    """Archive any artefact while preserving lifecycle state and ownership."""
     vault_root = str(vault_root)
     path, abs_path, fields, body, art = _open_artefact(vault_root, router, path)
 
@@ -2524,9 +2508,8 @@ def archive_artefact(vault_root, router, path, recursive=False):
             router,
             rel_path,
             today,
-            require_terminal=(idx == 0),
         )
-        for idx, rel_path in enumerate(archive_paths)
+        for rel_path in archive_paths
     ]
     moves = [{"source": plan["path"], "dest": plan["dest"]} for plan in plans]
     preflight_move_set(
@@ -2578,7 +2561,9 @@ def _plan_unarchive_entry(vault_root, router, path):
     with open(abs_path, "r", encoding="utf-8") as handle:
         fields, body = parse_frontmatter(handle.read())
     art = resolve_type(router, fields.get("type"))
-    filename = _DATE_PREFIX_RE.sub("", os.path.basename(path))
+    filename = os.path.basename(path)
+    if not _intrinsic_date_prefix(art, fields):
+        filename = _DATE_PREFIX_RE.sub("", filename)
     restored_fields = dict(fields)
     restored_fields.pop("archiveddate", None)
     restored_parent = normalize_artefact_key(restored_fields.get("parent"))
@@ -2592,7 +2577,8 @@ def _plan_unarchive_entry(vault_root, router, path):
         # metadata has no authoritative parent. Preserve that recorded path;
         # doctor will separately report any missing-parent contract violation.
         rel_from_archive = os.path.relpath(os.path.dirname(path), "_Archive")
-        dest = os.path.join(rel_from_archive, filename)
+        folder = apply_terminal_status_folder(rel_from_archive, art, restored_fields)
+        dest = os.path.join(folder, filename)
     return {
         "path": path,
         "abs_path": abs_path,

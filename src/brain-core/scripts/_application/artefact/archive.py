@@ -20,7 +20,7 @@ from ..context import InvocationContext
 @dataclass(frozen=True, slots=True)
 class ArtefactArchiveRequest:
     COMMAND_ID: ClassVar[str] = "artefact.archive"
-    COMMAND_VERSION: ClassVar[int] = 1
+    COMMAND_VERSION: ClassVar[int] = 2
     RESULT_TYPE: ClassVar[type] = ArtefactArchivePayload
 
     path: str

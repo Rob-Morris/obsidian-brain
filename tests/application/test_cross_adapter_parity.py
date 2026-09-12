@@ -106,7 +106,7 @@ def _mcp(vault, payload):
         context_factory=_context_factory(vault),
         invocation_guard=lambda: None,
     )
-    return asyncio.run(mcp.call_tool("command.list", payload))
+    return asyncio.run(mcp.call_tool("command_list", payload))
 
 
 def _local_cli(vault, payload):

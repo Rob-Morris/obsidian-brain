@@ -4,10 +4,15 @@
 from __future__ import annotations
 
 import sys
+from dataclasses import replace
+from _lifecycle.fresh_interpreter import (
+    FreshInterpreterError,
+    run_lifecycle_in_fresh_interpreter,
+)
 from pathlib import Path
 
 from _bootstrap.runtime import iso_now, probe_python, step as _step
-from _common import resolve_vault_venv_python
+from _common._venv import find_existing_central_venv
 from _lifecycle_common import make_result_envelope
 from _repair_common import attach_repair_guidance
 
@@ -17,6 +22,7 @@ import _semantic.provision as semantic_provision
 import _semantic.runtime as semantic_runtime
 
 
+ISSUE_SEMANTIC_INSPECTION_FAILED = "semantic-inspection-failed"
 ISSUE_CONFIG_LOAD_ERROR = "config-load-error"
 ISSUE_UNSUPPORTED_PLATFORM = "unsupported-platform"
 ISSUE_RUNTIME_NOT_PROVISIONED = "runtime-not-provisioned"
@@ -59,6 +65,8 @@ def _semantic_message(
         return unsupported_message or "Semantic runtime is unsupported on this platform."
 
     issue_set = set(issues)
+    if ISSUE_SEMANTIC_INSPECTION_FAILED in issue_set:
+        return "Managed semantic inspection could not complete; retry vault.check."
     if ISSUE_SEMANTIC_MODEL_LOAD_ERROR in issue_set:
         return "Semantic retrieval is configured on, but the provisioned semantic model failed to load locally."
     if ISSUE_SEMANTIC_MODEL_REVISION_MISMATCH in issue_set:
@@ -83,6 +91,7 @@ def _semantic_message(
 def semantic_issue_message(issue: str) -> str:
     """Return a specific user-facing message for one semantic health issue."""
     messages = {
+        ISSUE_SEMANTIC_INSPECTION_FAILED: "Managed semantic inspection could not complete; retry vault.check.",
         ISSUE_CONFIG_LOAD_ERROR: "Semantic config could not be loaded for this vault.",
         ISSUE_UNSUPPORTED_PLATFORM: "Semantic runtime is unsupported on this platform.",
         ISSUE_RUNTIME_NOT_PROVISIONED: "Semantic retrieval is configured on, but the local semantic runtime marker is not set.",
@@ -100,6 +109,14 @@ def semantic_issue_message(issue: str) -> str:
 def clear_semantic_embeddings_outputs(vault_root: Path) -> None:
     """Drop persisted semantic sidecars after router rebuilds."""
     semantic_runtime.clear_embeddings_outputs(str(vault_root))
+
+
+def inspect_local_model_load(vault_root: str | Path) -> dict:
+    """Actively verify the local model inside the selected managed interpreter."""
+    state = semantic_model.verify_local_model_load(
+        semantic_model.inspect_model_state(vault_root)
+    )
+    return {"loaded": state.healthy}
 
 
 def inspect_semantic(vault_root: Path) -> dict:
@@ -139,20 +156,44 @@ def inspect_semantic(vault_root: Path) -> dict:
             "supported": supported,
         }
 
-    managed_probe = probe_python(
-        str(resolve_vault_venv_python(vault_root)),
-        modules=semantic_provision.SEMANTIC_RUNTIME_MODULES,
+    managed_python = find_existing_central_venv(vault_root)
+    managed_probe = (
+        probe_python(
+            str(managed_python),
+            modules=semantic_provision.SEMANTIC_RUNTIME_MODULES,
+        )
+        if managed_python is not None
+        else {"ok": False}
     )
     dependencies_ok = bool(managed_probe.get("ok"))
     model_state = semantic_model.inspect_model_state(vault_root)
-    if dependencies_ok:
-        model_state = semantic_model.verify_local_model_load(model_state)
+    inspection_failed = False
+    if dependencies_ok and model_state.healthy:
+        try:
+            load_check = run_lifecycle_in_fresh_interpreter(
+                inspect_local_model_load,
+                vault_root,
+                python_executable=managed_python,
+                timeout=60,
+            )
+            if not isinstance(load_check, dict) or not isinstance(
+                load_check.get("loaded"), bool
+            ):
+                raise FreshInterpreterError("Invalid managed model inspection result")
+            if not load_check["loaded"]:
+                model_state = replace(
+                    model_state, load_error="Managed model failed to load locally."
+                )
+        except FreshInterpreterError:
+            inspection_failed = True
     sidecars_present, sidecars_outdated = semantic_runtime.embeddings_sidecars_match_manifest(
         vault_root,
         model_state.manifest,
     )
 
     issues: list[str] = []
+    if inspection_failed:
+        issues.append(ISSUE_SEMANTIC_INSPECTION_FAILED)
     if not supported:
         issues.append(ISSUE_UNSUPPORTED_PLATFORM)
     if not marker:
@@ -198,6 +239,10 @@ def repair_semantic(
 
     if ISSUE_CONFIG_LOAD_ERROR in state["issues"]:
         steps.append(_step("semantic_config", "error", state["message"]))
+        return _finalise_result("semantic", vault_root, dry_run, steps)
+
+    if ISSUE_SEMANTIC_INSPECTION_FAILED in state["issues"]:
+        steps.append(_step("semantic_inspection", "error", state["message"]))
         return _finalise_result("semantic", vault_root, dry_run, steps)
 
     if not state["configured"]:

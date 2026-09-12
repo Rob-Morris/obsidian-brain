@@ -9,7 +9,18 @@ import json
 from pathlib import Path
 import types
 from collections.abc import Mapping as AbcMapping
-from typing import ClassVar, Literal, Mapping, Union, get_args, get_origin, get_type_hints
+from typing import (
+    Annotated,
+    ClassVar,
+    Literal,
+    Mapping,
+    Union,
+    get_args,
+    get_origin,
+    get_type_hints,
+)
+
+from ._mutation_support import FrontmatterCodec
 
 from .requests import CommandRequest
 from .results import CommandError, CommandResult, Error, Ok, Partial
@@ -47,7 +58,7 @@ def project_identity(command_id: str) -> ProjectionIdentity:
         command_id=command_id,
         noun=noun,
         verb=verb,
-        mcp_tool=command_id,
+        mcp_tool=command_id.replace(".", "_"),
         cli_argv=(noun, verb),
         script_argv=(noun, verb),
         module_path=f"_application/{projected_noun}/{projected_verb}.py",
@@ -74,10 +85,13 @@ def command_id_from_argv(
 def command_id_from_mcp_tool(tool_name: str, command_ids: tuple[str, ...]) -> str:
     """Resolve an exact canonical MCP name owned by the selected catalogue."""
 
-    validate_command_id(tool_name)
-    if tool_name not in command_ids:
+    if not isinstance(tool_name, str) or tool_name.count("_") != 1 or "." in tool_name:
+        raise ValueError("MCP tool name must use noun_verb grammar")
+    command_id = tool_name.replace("_", ".")
+    validate_command_id(command_id)
+    if command_id not in command_ids:
         raise ValueError("MCP tool name is not owned by this catalogue")
-    return tool_name
+    return command_id
 
 
 def request_schema(request_type: type[CommandRequest]) -> dict[str, object]:
@@ -94,7 +108,7 @@ def request_schema(request_type: type[CommandRequest]) -> dict[str, object]:
     descriptions = getattr(request_type, "FIELD_DESCRIPTIONS", {})
     if not isinstance(descriptions, Mapping):
         raise TypeError("request FIELD_DESCRIPTIONS must be a mapping")
-    hints = get_type_hints(request_type)
+    hints = get_type_hints(request_type, include_extras=True)
     properties: dict[str, object] = {}
     required = []
     for field in fields(request_type):
@@ -109,7 +123,7 @@ def request_schema(request_type: type[CommandRequest]) -> dict[str, object]:
             raise ValueError(f"{command_id} field description must be non-empty: {field.name}")
         schema["description"] = description
         if field.default is not MISSING:
-            schema["default"] = _wire_value(field.default)
+            schema["default"] = _field_wire_value(field.default, annotation)
         properties[field.name] = schema
         if field.default is MISSING and field.default_factory is MISSING:
             required.append(field.name)
@@ -230,8 +244,11 @@ def canonical_wire_value(value):
     if isinstance(value, Path):
         return str(value)
     if is_dataclass(value) and not isinstance(value, type):
+        hints = get_type_hints(type(value), include_extras=True)
         return {
-            field.name: canonical_wire_value(getattr(value, field.name))
+            field.name: _field_wire_value(
+                getattr(value, field.name), hints.get(field.name, field.type)
+            )
             for field in fields(value)
         }
     if isinstance(value, Mapping):
@@ -246,9 +263,22 @@ def canonical_wire_value(value):
 _wire_value = canonical_wire_value
 
 
+def _field_wire_value(value, annotation):
+    if get_origin(annotation) is Annotated:
+        for codec in get_args(annotation)[1:]:
+            if isinstance(codec, FrontmatterCodec):
+                return _wire_value(codec.encode(value))
+    return _wire_value(value)
+
+
 def _type_schema(annotation, *, command_id: str, trail: tuple[type, ...]) -> dict[str, object]:
     origin = get_origin(annotation)
     arguments = get_args(annotation)
+    if origin is Annotated:
+        for codec in arguments[1:]:
+            if isinstance(codec, FrontmatterCodec):
+                return codec.schema()
+        return _type_schema(arguments[0], command_id=command_id, trail=trail)
     if origin is ClassVar:
         raise TypeError("ClassVar is not a semantic request field")
     if origin is Literal:
@@ -318,7 +348,7 @@ def _type_schema(annotation, *, command_id: str, trail: tuple[type, ...]) -> dic
     if isinstance(annotation, type) and is_dataclass(annotation):
         if annotation in trail:
             raise TypeError(f"recursive request type is not transport-projectable: {annotation.__name__}")
-        hints = get_type_hints(annotation)
+        hints = get_type_hints(annotation, include_extras=True)
         descriptions = getattr(annotation, "FIELD_DESCRIPTIONS", {})
         if not isinstance(descriptions, Mapping):
             raise TypeError(f"{annotation.__name__} FIELD_DESCRIPTIONS must be a mapping")

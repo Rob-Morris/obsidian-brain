@@ -379,7 +379,7 @@ def test_mcp_followup_notes_are_shared_for_project_scope(project):
     notes = mcp_transport.mcp_followup_notes(["claude", "codex"], "project", project)
 
     assert any("/mcp" in note for note in notes)
-    assert any("session.start" in note for note in notes)
+    assert any("session_start" in note for note in notes)
     assert any("codex mcp list" in note for note in notes)
 
 

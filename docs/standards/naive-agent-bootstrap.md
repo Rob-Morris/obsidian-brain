@@ -13,7 +13,7 @@ follow the vault owner's standing instructions.
 
 Progressive degradation, richest first:
 
-1. **MCP** — `session.start` returns the compiled payload.
+1. **MCP** — `session_start` returns the compiled payload.
 2. **Scripts / CLI** — `brain` or `command.py`; compiled routing reflects the
    vault's actual installed types.
 3. **Naive** — shipped markdown only, routed from `.brain-core/md-bootstrap.md`.

@@ -1,10 +1,10 @@
 {
-  "captured_at": "2026-08-29T10:58:11+10:00",
+  "captured_at": "2026-09-12T22:16:40+10:00",
   "clients": {
     "claude-code": {
       "capture_path": "eager model request declarations",
-      "catalogue_hash": "sha256:3f6963100a2fc4f55d83949f71acb3d6b5ece5a8bfe397d9d2c35d1b575ac141",
-      "client_version": "2.1.251",
+      "catalogue_hash": "sha256:59c722ef4b2a273b8dd601f8e1bf4f362f02465b02d3b1670b3fd191acc96222",
+      "client_version": "2.1.269",
       "declaration": {
         "description": "List command resources.",
         "input_schema": {
@@ -189,6 +189,24 @@
         "command": "command.list",
         "status": "ok"
       },
+      "resumed": {
+        "same_session": true,
+        "successful_requests": {
+          "artefact.create": {
+            "frontmatter": {
+              "tags": [
+                "capture"
+              ]
+            },
+            "title": "Resumed Client Capture",
+            "type": "thought"
+          },
+          "artefact.read": {
+            "reference": "Projects/Command Fixture.md"
+          },
+          "session.start": {}
+        }
+      },
       "successful_requests": {
         "artefact.list": {
           "location": "all",
@@ -224,6 +242,7 @@
         },
         "retrieval.refresh-lexical": {},
         "runtime.refresh-router": {},
+        "session.start": {},
         "type.sync": {
           "type_key": "living/journals"
         },
@@ -234,7 +253,7 @@
     },
     "codex-cli": {
       "capture_path": "deferred client tool search",
-      "client_version": "0.150.1",
+      "client_version": "0.154.0",
       "declaration": {
         "defer_loading": true,
         "description": "List command resources.",
@@ -409,6 +428,24 @@
         "command": "command.list",
         "status": "ok"
       },
+      "resumed": {
+        "same_session": true,
+        "successful_requests": {
+          "artefact.create": {
+            "frontmatter": {
+              "tags": [
+                "capture"
+              ]
+            },
+            "title": "Resumed Client Capture",
+            "type": "thought"
+          },
+          "artefact.read": {
+            "reference": "Projects/Command Fixture.md"
+          },
+          "session.start": {}
+        }
+      },
       "successful_requests": {
         "artefact.list": {
           "location": "all",
@@ -444,6 +481,7 @@
         },
         "retrieval.refresh-lexical": {},
         "runtime.refresh-router": {},
+        "session.start": {},
         "type.sync": {
           "type_key": "living/journals"
         },

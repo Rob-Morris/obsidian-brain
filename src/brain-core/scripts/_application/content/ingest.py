@@ -73,7 +73,7 @@ class ContentIngestPayload:
 @dataclass(frozen=True, slots=True)
 class ContentIngestRequest:
     COMMAND_ID: ClassVar[str] = "content.ingest"
-    COMMAND_VERSION: ClassVar[int] = 1
+    COMMAND_VERSION: ClassVar[int] = 2
     RESULT_TYPE: ClassVar[type] = ContentIngestPayload
 
     content: MutationContent

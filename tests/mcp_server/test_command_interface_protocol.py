@@ -38,7 +38,7 @@ def _add_unknown_field(value):
 
 
 def _change_command_version(value):
-    value["tools"]["artefact.create"]["command_version"] = 999
+    value["tools"]["artefact_create"]["command_version"] = 999
 
 
 def _invert_protocol_range(value):
@@ -46,17 +46,15 @@ def _invert_protocol_range(value):
 
 
 def _make_tool_name_irregular(value):
-    value["tools"]["irregular"] = value["tools"].pop("artefact.create")
+    value["tools"]["irregular"] = value["tools"].pop("artefact_create")
 
 
 def _contradict_tool_mapping(value):
-    value["tools"]["artefact.delete"] = value["tools"].pop(
-        "artefact.create"
-    )
+    value["tools"]["artefact_delete"] = value["tools"].pop("artefact_create")
 
 
 def _make_command_identifier_non_ascii(value):
-    value["tools"]["artefact.create"]["command_id"] = "artefact.créate"
+    value["tools"]["artefact_create"]["command_id"] = "artefact.créate"
 
 
 def test_application_header_is_exact_catalogue_derived_mcp_mapping():
@@ -73,10 +71,8 @@ def test_application_header_is_exact_catalogue_derived_mcp_mapping():
     assert header.catalogue_schema == catalogue.schema
     assert header.result_schema == catalogue.result_schema
     assert header.catalogue_fingerprint == catalogue.fingerprint
-    assert header.tool("artefact.create").command_id == "artefact.create"
-    assert header.tool("artefact.create").mutation_class == (
-        "selected_brain_mutation"
-    )
+    assert header.tool("artefact_create").command_id == "artefact.create"
+    assert header.tool("artefact_create").mutation_class == ("selected_brain_mutation")
 
 
 def test_initialize_header_round_trips_and_supports_current_proxy_protocol():
@@ -104,7 +100,7 @@ def test_initialize_header_round_trips_and_supports_current_proxy_protocol():
         (_add_unknown_field, "unknown"),
         (_change_command_version, "fingerprint"),
         (_invert_protocol_range, "inverted"),
-        (_make_tool_name_irregular, "canonical noun.verb"),
+        (_make_tool_name_irregular, "noun_verb"),
         (_contradict_tool_mapping, "contradicts"),
         (_make_command_identifier_non_ascii, "canonical noun.verb"),
     ),
@@ -138,7 +134,7 @@ def _accepted_call(header=None):
         "id": "call-1",
         "method": "tools/call",
         "params": {
-            "name": "artefact.create",
+            "name": "artefact_create",
             "arguments": {"type": "living/wiki", "title": "Example"},
             "_meta": {"clientTrace": "trace-1"},
         },
@@ -157,7 +153,7 @@ def test_accepted_call_preserves_raw_request_and_injects_proxy_owned_identity():
 
     assert record.raw_request == request
     assert record.request_id == "call-1"
-    assert record.projected_tool == "artefact.create"
+    assert record.projected_tool == "artefact_create"
     assert record.command_id == "artefact.create"
     assert record.command_version == header.tool(record.projected_tool).command_version
     assert record.interface_epoch == header.interface_epoch
@@ -187,7 +183,7 @@ def test_accepted_call_rejects_unknown_tool_and_caller_owned_invocation_identity
             accepted_at=datetime.now(timezone.utc),
         )
     request["params"] = {
-        "name": "artefact.create",
+        "name": "artefact_create",
         "arguments": {},
         "_meta": {"brainInvocation": {"invocationId": "caller"}},
     }
@@ -203,12 +199,15 @@ def test_accepted_call_rejects_unknown_tool_and_caller_owned_invocation_identity
 @pytest.mark.parametrize(
     "replacement, reason",
     (
-        (lambda header: replace(header, interface_epoch=2), "interface_epoch_changed"),
+        (
+            lambda header: replace(header, interface_epoch=header.interface_epoch + 1),
+            "interface_epoch_changed",
+        ),
         (
             lambda header: replace(
                 header,
                 tools=tuple(
-                    item for item in header.tools if item[0] != "artefact.create"
+                    item for item in header.tools if item[0] != "artefact_create"
                 ),
             ),
             "projected_tool_removed",
@@ -218,11 +217,15 @@ def test_accepted_call_rejects_unknown_tool_and_caller_owned_invocation_identity
                 header,
                 tools=tuple(
                     (
-                        name,
-                        replace(mapping, command_version=mapping.command_version + 1),
+                        (
+                            name,
+                            replace(
+                                mapping, command_version=mapping.command_version + 1
+                            ),
+                        )
+                        if name == "artefact_create"
+                        else (name, mapping)
                     )
-                    if name == "artefact.create"
-                    else (name, mapping)
                     for name, mapping in header.tools
                 ),
             ),
@@ -232,9 +235,11 @@ def test_accepted_call_rejects_unknown_tool_and_caller_owned_invocation_identity
             lambda header: replace(
                 header,
                 tools=tuple(
-                    (name, replace(mapping, mutation_class="none"))
-                    if name == "artefact.create"
-                    else (name, mapping)
+                    (
+                        (name, replace(mapping, mutation_class="none"))
+                        if name == "artefact_create"
+                        else (name, mapping)
+                    )
                     for name, mapping in header.tools
                 ),
             ),

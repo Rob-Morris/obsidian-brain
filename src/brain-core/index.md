@@ -1,8 +1,8 @@
 # Brain Bootstrap
 
-Use this file as the bootstrap entry point only. The full session payload lives in `session.start` JSON or the generated markdown mirror at `.brain/local/session.md`.
+Use this file as the bootstrap entry point only. The full session payload lives in `session_start` JSON or the generated markdown mirror at `.brain/local/session.md`.
 
-1. If MCP is available, call `session.start`.
+1. If MCP is available, call `session_start`.
 2. Otherwise, read `.brain/local/session.md` if it exists.
 3. Otherwise, read `.brain-core/md-bootstrap.md` and follow the degraded fallback path from there.
 

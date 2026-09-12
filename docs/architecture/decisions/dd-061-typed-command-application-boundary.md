@@ -1123,3 +1123,21 @@ promptly with the identical snapshot and polling guidance; it creates the
 managed session only after readiness. The 0.56 migration recognises the exact
 shipped 0.55 profile set and adopts refreshed built-ins, while custom profiles
 receive only command-for-command replacements.
+
+
+## v0.64 corrective MCP projection
+
+Supersedes the raw dotted-name decision above. Strict clients may reject dots
+before exposing MCP tools to a model. Application IDs remain `noun.verb`; all
+MCP transports now replace that single dot with `_`, preserving hyphens. There
+are no per-client catalogues or aliases. The proxy validates the same reversible
+mapping and interface epoch 2 prevents replay across the breaking cutover.
+Authority and access leases continue to use canonical IDs independently of the
+transport name. Bootstrap discovery instructions use `session_start`.
+
+Frontmatter wire objects now share a codec with request schemas and examples.
+Artefact-facing types use configured frontmatter values; definition status keeps
+its bundle identity and exposes the corresponding canonical artefact type.
+Portable diagnostics coordinate active semantic inspection in the selected
+managed interpreter, and CLI structural envelopes take precedence over incidental
+stderr without relaxing their identity or exit validation.

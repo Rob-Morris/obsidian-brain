@@ -64,7 +64,7 @@ class ContentClassifyPayload:
 @dataclass(frozen=True, slots=True)
 class ContentClassifyRequest:
     COMMAND_ID: ClassVar[str] = "content.classify"
-    COMMAND_VERSION: ClassVar[int] = 1
+    COMMAND_VERSION: ClassVar[int] = 2
     RESULT_TYPE: ClassVar[type] = ContentClassifyPayload
 
     content: str

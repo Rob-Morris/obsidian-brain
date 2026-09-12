@@ -159,7 +159,7 @@ class SessionStartPayload:
 @dataclass(frozen=True, slots=True)
 class SessionStartRequest:
     COMMAND_ID: ClassVar[str] = "session.start"
-    COMMAND_VERSION: ClassVar[int] = 3
+    COMMAND_VERSION: ClassVar[int] = 4
     RESULT_TYPE: ClassVar[type] = SessionStartPayload
 
 

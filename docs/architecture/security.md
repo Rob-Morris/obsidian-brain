@@ -351,7 +351,7 @@ shared managed runtimes, user-scope MCP state and the global CLI are never
 recursive-deletion targets. A recursive failure is reported as unknown rather
 than asserting a retry-safe partial deletion.
 
-During MCP `session.start`, the non-critical session-mirror refresh is
+During MCP `session_start`, the non-critical session-mirror refresh is
 dispatched to a single long-lived daemon worker via a `maxsize=1` coalescing
 queue (see dd-036 "Session-mirror write path"). The request only enqueues, so a
 stalled markdown-mirror write cannot block mandatory bootstrap; the single-worker

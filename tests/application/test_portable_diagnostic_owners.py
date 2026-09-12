@@ -113,3 +113,30 @@ def test_portable_diagnostic_transport_contracts_are_strict():
         resolver.resolve("runtime.read-environment", {"verbose": True})
     with pytest.raises(ValueError, match="type_keys must be an array"):
         resolver.resolve("type.status", {"type_keys": "living/designs"})
+
+
+@pytest.mark.parametrize(
+    "definition,canonical",
+    [("temporal/plans", "temporal/plan"), ("living/journals", "living/journal")],
+)
+def test_type_status_exposes_installed_and_library_canonical_types(
+    command_vault_baseline, definition, canonical
+):
+    result = application_for(command_vault_baseline.vault_root).invoke(
+        TypeStatusRequest((definition,))
+    )
+    assert result.status == "ok"
+    item = result.result.items[0]
+    assert item.type_key == definition
+    assert item.artefact_type == canonical
+
+
+def test_type_status_prefers_locally_customised_taxonomy_identity(command_vault_clone):
+    root = command_vault_clone.vault_root
+    taxonomy = root / "_Config/Taxonomy/Temporal/plans.md"
+    taxonomy.write_text(
+        taxonomy.read_text().replace("type: temporal/plan", "type: temporal/proposal")
+    )
+    result = application_for(root).invoke(TypeStatusRequest(("temporal/plans",)))
+    assert result.status == "ok"
+    assert result.result.items[0].artefact_type == "temporal/proposal"

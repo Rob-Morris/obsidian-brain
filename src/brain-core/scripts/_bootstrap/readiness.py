@@ -65,7 +65,9 @@ def ensure_runtime_warmup(
         )
     with exclusive_file_lock(lock_path, timeout=2.0):
         current = read_runtime_status(root)
-        if current["state"] == "ready":
+        if current["state"] == "ready" and not (
+            retry_failed and current["components"]["semantic"] == "deferred"
+        ):
             return "already_ready", current
         if current["state"] == "warming":
             return "already_running", current
@@ -164,39 +166,33 @@ def _run_worker(root: Path, run_id: str) -> None:
 
 
 def _warm_semantic(root: Path, load_compiled_router) -> tuple[str, dict | None]:
-    import _semantic.config as semantic_config
-    import _semantic.runtime as semantic_runtime
-    from _lifecycle.retrieval_assets import (
-        embeddings_should_refresh,
-        refresh_embeddings_for_loaded_state,
-    )
-    from _search.lexical_query import load_index
+    from _common._venv import find_existing_central_venv
+    from _bootstrap.runtime import probe_python
+    from _lifecycle.fresh_interpreter import run_lifecycle_in_fresh_interpreter
+    from _lifecycle.runtime_warmup import warm_semantic
+    from _semantic.config import embeddings_enabled
+    from _semantic.provision import SEMANTIC_RUNTIME_MODULES
 
-    if not semantic_config.embeddings_enabled(root):
+    if not embeddings_enabled(root):
         return "disabled", None
-    if not embeddings_should_refresh(root):
-        return (
-            "deferred",
-            _error(
-                "semantic_unavailable",
-                "semantic",
-                "Semantic warm-up is deferred because its managed runtime is unavailable.",
-                False,
-            ),
+    python = find_existing_central_venv(root)
+    if python is None or not probe_python(
+        str(python), modules=SEMANTIC_RUNTIME_MODULES
+    ).get("ok"):
+        return "deferred", _error(
+            "semantic_unavailable",
+            "semantic",
+            "Semantic warm-up is deferred because its managed runtime is unavailable.",
+            True,
         )
-    router = load_compiled_router(str(root))
-    if "error" in router:
-        raise RuntimeError(router["error"])
-    index = load_index(str(root))
-    type_embeddings, doc_embeddings, meta = semantic_runtime.load_embeddings_state(root)
-    current = (
-        type_embeddings is not None
-        and doc_embeddings is not None
-        and meta is not None
-        and semantic_runtime.embeddings_meta_matches_router(meta, router)
+    result = run_lifecycle_in_fresh_interpreter(
+        warm_semantic,
+        root,
+        python_executable=python,
+        timeout=480,
     )
-    if not current:
-        refresh_embeddings_for_loaded_state(root, router, index["documents"])
+    if result != {"state": "ready"}:
+        raise RuntimeError("Managed semantic warm-up returned an invalid result")
     return "ready", None
 
 
@@ -300,8 +296,12 @@ def _finish_failed(
             started_at=started_at,
             last_error=_error(
                 "warmup_failed",
-                component if component in {"router", "lexical", "semantic"} else "runtime",
-                str(exc) or type(exc).__name__,
+                (
+                    component
+                    if component in {"router", "lexical", "semantic"}
+                    else "runtime"
+                ),
+                f"Runtime {component} warm-up failed ({type(exc).__name__}); retry runtime.warmup.",
                 True,
             ),
         ),

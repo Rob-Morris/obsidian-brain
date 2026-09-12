@@ -33,7 +33,7 @@ def test_artefact_create_uses_type_placement_and_typed_parent_context(
     )
 
     assert result.status == "ok"
-    assert result.result.type == "living/ideas"
+    assert result.result.type == "living/idea"
     assert result.result.key == "typed-command-candidate"
     assert result.result.parent == "project/command-fixture"
     assert result.result.parent_context.placed_under == "project/command-fixture"

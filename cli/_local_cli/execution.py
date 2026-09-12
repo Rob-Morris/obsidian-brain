@@ -128,9 +128,6 @@ class ApplicationProcessInvoker:
         if completed.returncode not in range(5):
             raise RuntimeError("selected Brain command returned an invalid exit category")
         stdout = completed.stdout
-        stderr = completed.stderr
-        if stderr:
-            raise RuntimeError("selected Brain JSON command wrote unexpected stderr")
         if not stdout.strip():
             raise RuntimeError("selected Brain command returned no structural result")
         try:
@@ -220,13 +217,30 @@ def _validate_child_envelope(
     envelope,
     exit_code: int,
 ) -> None:
+    validate_application_envelope(
+        envelope, entry.command_id, exit_code, command_version=entry.command_version
+    )
+
+
+def validate_application_envelope(
+    envelope,
+    command_id: str,
+    exit_code: int,
+    *,
+    command_version: int | None = None,
+) -> None:
+    """Validate selected-Brain identity and process status on both CLI routes."""
     if not isinstance(envelope, dict):
         raise RuntimeError("selected Brain command result must be a JSON object")
     if envelope.get("schema") != "brain.command-result/1":
         raise RuntimeError("selected Brain command result schema is unsupported")
-    if (envelope.get("command"), envelope.get("command_version")) != (
-        entry.command_id,
-        entry.command_version,
+    version = envelope.get("command_version")
+    if (
+        envelope.get("command") != command_id
+        or not isinstance(version, int)
+        or isinstance(version, bool)
+        or version < 1
+        or (command_version is not None and version != command_version)
     ):
         raise RuntimeError("selected Brain command result identity changed after discovery")
     try:

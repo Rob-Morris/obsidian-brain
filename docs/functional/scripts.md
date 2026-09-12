@@ -40,6 +40,8 @@ Adapter-only concerns remain outside the semantic request. `--vault`, `--workspa
 
 The direct projection honours the same ceiling and Reader-default active grant as MCP. Use `access.status`, `access.request` and `access.reduce` through `command.py` when appropriate. External approval is deliberately excluded: `access.approve` belongs only to the machine-global CLI launcher and cannot be invoked through this script or typed application catalogue.
 
+Frontmatter transport fields are JSON objects; typed Python constructors retain immutable field tuples. Artefact selectors resolve short or qualified singular/plural names through the configured taxonomy and return its canonical frontmatter type. MCP projects the dotted command ID to `noun_verb`; direct scripts keep noun/verb arguments.
+
 ## Exit categories
 
 | Exit | Meaning |
@@ -73,3 +75,5 @@ Application foundations remain tier-strict:
 - `managed` may use the selected Brain's managed dependencies.
 
 These are ordered dependency tiers only. Locality, authority and providers remain orthogonal. Lower-tier packages do not import adapter, MCP SDK, terminal renderer or higher-tier implementation packages.
+
+Portable `vault.check` inspects semantic metadata locally and verifies model loading in the selected managed interpreter. Missing dependencies produce findings; timeout or malformed managed output produces a bounded inspection finding. Warm-up also isolates semantic work in that interpreter, and explicit `runtime.warmup` retries a previously deferred component.

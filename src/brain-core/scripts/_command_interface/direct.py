@@ -14,7 +14,6 @@ import uuid
 from _application.availability import CapabilityRefresher
 from _application.catalogue import ApplicationCatalogue
 from _application.context import CapabilitySnapshot
-from _application.projection import project_identity
 from _application.registry import current_application_catalogue
 from _application.types import (
     Availability,
@@ -301,8 +300,7 @@ def resolve_direct_identity(
     merged = brain_config.load_config(
         str(vault_root),
         additional_valid_tools=frozenset(
-            project_identity(entry.command_id).mcp_tool
-            for entry in catalogue.entries
+            entry.command_id for entry in catalogue.entries
         ),
     )
     try:

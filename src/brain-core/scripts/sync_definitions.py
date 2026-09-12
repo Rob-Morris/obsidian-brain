@@ -395,6 +395,22 @@ def classify_type(
     return {"type": type_key, "state": worst, "files": per_file}
 
 
+def definition_artefact_type(vault_root: str, type_info: dict) -> str | None:
+    """Read the canonical document type from installed or library taxonomy."""
+    from compile_router import parse_taxonomy_file
+
+    taxonomy = type_info["manifest"]["files"].get("taxonomy")
+    if taxonomy is None:
+        return None
+    target = os.path.join(vault_root, taxonomy["target"])
+    source = os.path.join(type_info["library_dir"], taxonomy["source"])
+    path = target if os.path.isfile(target) else source
+    if not os.path.isfile(path):
+        return None
+    parsed = parse_taxonomy_file(path)
+    return (parsed.get("frontmatter") or {}).get("type")
+
+
 def status_definitions(
     vault_root: str,
     *,
@@ -443,17 +459,23 @@ def status_definitions(
             if not os.path.isfile(os.path.join(lib_dir, file_info["source"]))
         ]
         if missing_sources:
-            not_installable.append({
-                "type": type_key,
-                "reason": f"library source(s) missing: {', '.join(missing_sources)}",
-            })
+            not_installable.append(
+                {
+                    "type": type_key,
+                    "artefact_type": definition_artefact_type(vault_root, type_info),
+                    "reason": f"library source(s) missing: {', '.join(missing_sources)}",
+                }
+            )
             continue
 
         classified = classify_type(vault_root, type_info, tracking)
-        groups[classified["state"]].append({
-            "type": type_key,
-            **({"files": classified["files"]} if "files" in classified else {}),
-        })
+        groups[classified["state"]].append(
+            {
+                "type": type_key,
+                "artefact_type": definition_artefact_type(vault_root, type_info),
+                **({"files": classified["files"]} if "files" in classified else {}),
+            }
+        )
 
     return {
         "status": "ok",

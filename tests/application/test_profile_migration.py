@@ -8,7 +8,6 @@ from pathlib import Path
 import pytest
 
 from _common._yaml import dump_yaml_text, load_mapping_file
-from _application.projection import project_identity
 from _application.registry import current_application_catalogue
 from _command_interface.profile_migration import (
     _LEGACY_BUILTIN_ALLOW,
@@ -187,10 +186,7 @@ def test_custom_profile_expands_only_its_legacy_capabilities():
     )
 
     assert result.profiles["auditor"] == {
-        "allow": sorted(
-            project_identity(command_id).mcp_tool
-            for command_id in expected_commands
-        ),
+        "allow": sorted(command_id for command_id in expected_commands),
         "description": "Read and search only.",
     }
     assert result.changes[0].strategy == "custom"
@@ -202,10 +198,7 @@ def test_custom_mutator_gains_only_the_required_outcome_query_closure():
         {"author": {"allow": ["brain_create"]}},
         current_application_catalogue(),
     )
-    expected = {
-        project_identity(command_id).mcp_tool
-        for command_id in _LEGACY_COMMANDS["brain_create"]
-    }
+    expected = {command_id for command_id in _LEGACY_COMMANDS["brain_create"]}
     expected.add("invocation.read")
 
     assert set(result.profiles["author"]["allow"]) == expected

@@ -257,7 +257,7 @@ change.
 
 ## Tooling
 
-If your vault has the Brain MCP server running, every command within the authenticated MCP ceiling appears under its canonical dotted `<noun>.<verb>` name. Start with `session.start`, discover with `command.list`, and inspect an exact schema and minimal request with `command.describe`. Active access starts at Reader by default: use `access.status`, `access.request` and `access.reduce` for exact expiring within-ceiling leases. The removed aggregate 1.x tools are not aliases.
+If your vault has the Brain MCP server running, every command within the authenticated MCP ceiling appears under its projected `<noun>_<verb>` name. Start with `session_start`, discover with `command_list`, and inspect an exact schema and minimal request with `command_describe`. Canonical command IDs in results and permission arguments remain dotted. Active access starts at Reader by default: use `access_status`, `access_request` and `access_reduce` for exact expiring within-ceiling leases. The removed aggregate 1.x tools are not aliases.
 
 Common families include `artefact.*`, `document.*`, `resource.*` (skills, memories, styles and templates all resolve through this family), `plugin.*`, `trigger.*`, `type.*`, `content.*`, `retrieval.*`, `links.*`, `shaping.*`, `workspace.*`, `vault.*`, `runtime.*`, `stage.*`, `access.*` and `attachment.upload`. Profiles authorise exact leaves rather than aggregate buckets.
 
@@ -273,3 +273,7 @@ Without MCP, read `.brain-core/index.md` first. Use `brain <noun> <verb>` or the
 - [Reference](https://github.com/rob-morris/obsidian-brain/blob/main/docs/user/user-reference.md) — every artefact type, configuration point, and system in detail
 - `.brain-core/standards/extending/` — extension procedures (developer reference)
 - `.brain-core/index.md` — bootstrap entry point for MCP, generated markdown, and degraded fallback paths
+
+Any artefact can be archived independently of its status, including Thoughts.
+Use `artefact_archive` and `artefact_unarchive` through MCP. These transitions
+preserve lifecycle state and keep the active lexical index consistent.

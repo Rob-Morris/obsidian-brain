@@ -160,7 +160,7 @@ def test_registration_and_proxy_header_share_one_ceiling_projection(tmp_path):
     )
     header = application_interface_header(catalogue, allowed_tools=allowed)
 
-    assert names == ("access.status", "command.list")
+    assert names == ("access_status", "command_list")
     assert tuple(tool.name for tool in asyncio.run(mcp.list_tools())) == names
     assert tuple(name for name, _mapping in header.tools) == names
 
@@ -171,11 +171,11 @@ def test_real_mcpserver_call_returns_structural_content_and_error_state(tmp_path
 
     ok = asyncio.run(
         mcp.call_tool(
-            "command.list",
+            "command_list",
             {"dependency_tier": "managed", "page_size": 1},
         )
     )
-    denied = asyncio.run(mcp.call_tool("artefact.list", {}))
+    denied = asyncio.run(mcp.call_tool("artefact_list", {}))
 
     assert ok.structured_content["command"] == "command.list"
     assert ok.structured_content["status"] == "ok"
@@ -233,13 +233,13 @@ def test_real_mcp_calls_reuse_a_command_list_snapshot_with_an_advancing_clock(
 
     first = asyncio.run(
         mcp.call_tool(
-            "command.list",
+            "command_list",
             {"refresh": refresh, "page_size": 1},
         )
     )
     cursor = first.structured_content["result"]["next_cursor"]
     second = asyncio.run(
-        mcp.call_tool("command.list", {"cursor": cursor, "page_size": 1})
+        mcp.call_tool("command_list", {"cursor": cursor, "page_size": 1})
     )
 
     assert first.is_error is False
@@ -265,7 +265,7 @@ def test_real_mcpserver_call_writes_paired_tool_diagnostics(
     )
 
     result = asyncio.run(
-        mcp.call_tool("command.list", {"dependency_tier": "managed", "page_size": 1})
+        mcp.call_tool("command_list", {"dependency_tier": "managed", "page_size": 1})
     )
     logger.close(exit_code=0)
 
@@ -302,7 +302,7 @@ def test_invocation_guard_runs_before_context_composition(tmp_path):
     )
 
     with pytest.raises(SystemExit) as exc:
-        asyncio.run(mcp.call_tool("command.list", {}))
+        asyncio.run(mcp.call_tool("command_list", {}))
 
     assert exc.value.code == 10
     assert context_calls == []
@@ -325,7 +325,7 @@ def test_real_mcpserver_maps_envelopes_wrong_types_and_unknown_fields(
         ("command.list",),
     )
 
-    result = asyncio.run(mcp.call_tool("command.list", payload))
+    result = asyncio.run(mcp.call_tool("command_list", payload))
 
     assert result.structured_content["command"] == "command.list"
     assert result.structured_content["error"]["code"] == "invalid_request"
@@ -349,3 +349,11 @@ def test_every_minimal_request_survives_real_mcpserver_projection(tmp_path):
             result.structured_content["error"]["code"] == "authority_denied"
         ), (entry.command_id, payload, result.structured_content)
         assert result.is_error is True
+
+
+def test_dotted_canonical_id_is_not_a_callable_mcp_alias(tmp_path):
+    from mcp.server.mcpserver.exceptions import ToolError
+
+    mcp, _, _, _ = _registered(tmp_path, ("command.list",))
+    with pytest.raises(ToolError, match="Unknown tool"):
+        asyncio.run(mcp.call_tool("command.list", {}))

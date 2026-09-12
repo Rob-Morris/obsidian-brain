@@ -1,0 +1,639 @@
+{
+  "captured_at": "2026-09-12T22:11:38.685748+10:00",
+  "client_version": "1.0.30",
+  "external_model_request": false,
+  "localhost_model_endpoint": true,
+  "schema": "brain.command-interface-grok-evidence/1",
+  "sessions": {
+    "fresh": {
+      "catalogue_hash": "sha256:d24e18d6418f27101a07daa25f64776cb53e27fccfe5be1c87bcabc6e286f140",
+      "declarations": [
+        {
+          "description": "Create one artefact.",
+          "input_schema": {
+            "additionalProperties": false,
+            "properties": {
+              "content": {
+                "anyOf": [
+                  {
+                    "additionalProperties": false,
+                    "properties": {
+                      "content": {
+                        "description": "Content",
+                        "type": "string"
+                      },
+                      "source": {
+                        "description": "Source",
+                        "enum": [
+                          "inline"
+                        ],
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "content",
+                      "source"
+                    ],
+                    "type": "object"
+                  },
+                  {
+                    "additionalProperties": false,
+                    "properties": {
+                      "handle": {
+                        "description": "Handle",
+                        "type": "string"
+                      },
+                      "source": {
+                        "description": "Source",
+                        "enum": [
+                          "stage"
+                        ],
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "handle",
+                      "source"
+                    ],
+                    "type": "object"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Content"
+              },
+              "fix_links": {
+                "default": false,
+                "description": "Fix links",
+                "type": "boolean"
+              },
+              "frontmatter": {
+                "additionalProperties": {
+                  "items": {
+                    "type": [
+                      "string",
+                      "number",
+                      "boolean",
+                      "null"
+                    ]
+                  },
+                  "type": [
+                    "string",
+                    "number",
+                    "boolean",
+                    "null",
+                    "array"
+                  ]
+                },
+                "default": {},
+                "description": "Frontmatter",
+                "propertyNames": {
+                  "pattern": "\\S"
+                },
+                "type": "object"
+              },
+              "key": {
+                "default": null,
+                "description": "Key",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "parent": {
+                "default": null,
+                "description": "Parent",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "title": {
+                "description": "Title",
+                "type": "string"
+              },
+              "type": {
+                "description": "Type",
+                "type": "string"
+              }
+            },
+            "required": [
+              "type",
+              "title"
+            ],
+            "type": "object"
+          },
+          "tool_name": "brain__artefact_create"
+        },
+        {
+          "description": "Read one artefact.",
+          "input_schema": {
+            "additionalProperties": false,
+            "properties": {
+              "location": {
+                "default": "active",
+                "description": "Location",
+                "enum": [
+                  "active",
+                  "archived"
+                ],
+                "type": "string"
+              },
+              "reference": {
+                "description": "Reference",
+                "type": "string"
+              }
+            },
+            "required": [
+              "reference"
+            ],
+            "type": "object"
+          },
+          "tool_name": "brain__artefact_read"
+        },
+        {
+          "description": "Update frontmatter for document.",
+          "input_schema": {
+            "additionalProperties": false,
+            "properties": {
+              "document": {
+                "additionalProperties": false,
+                "description": "Existing editable Brain document.",
+                "properties": {
+                  "reference": {
+                    "description": "Artefact key/path or named memory, skill, style or template.",
+                    "type": "string"
+                  },
+                  "resource": {
+                    "description": "Kind of editable Brain document.",
+                    "enum": [
+                      "artefact",
+                      "memory",
+                      "skill",
+                      "style",
+                      "template"
+                    ],
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "resource",
+                  "reference"
+                ],
+                "type": "object"
+              },
+              "expected_revision": {
+                "description": "Revision returned by the most recent document read.",
+                "type": "string"
+              },
+              "updates": {
+                "additionalProperties": {
+                  "items": {
+                    "type": [
+                      "string",
+                      "number",
+                      "boolean",
+                      "null"
+                    ]
+                  },
+                  "type": [
+                    "string",
+                    "number",
+                    "boolean",
+                    "null",
+                    "array"
+                  ]
+                },
+                "description": "Non-empty field patch; null removes a field and omission preserves it.",
+                "minProperties": 1,
+                "propertyNames": {
+                  "pattern": "\\S"
+                },
+                "type": "object"
+              }
+            },
+            "required": [
+              "document",
+              "expected_revision",
+              "updates"
+            ],
+            "type": "object"
+          },
+          "tool_name": "brain__document_update-frontmatter"
+        },
+        {
+          "description": "Start session.",
+          "input_schema": {
+            "additionalProperties": false,
+            "properties": {},
+            "type": "object"
+          },
+          "tool_name": "brain__session_start"
+        }
+      ],
+      "same_session": true,
+      "successful_requests": {
+        "artefact.create": {
+          "frontmatter": {
+            "tags": [
+              "capture"
+            ]
+          },
+          "title": "Grok fresh Capture",
+          "type": "thought"
+        },
+        "artefact.read": {
+          "reference": "Projects/Command Fixture.md"
+        },
+        "session.start": {}
+      },
+      "tool_names": [
+        "brain__access_reduce",
+        "brain__access_request",
+        "brain__access_status",
+        "brain__artefact_archive",
+        "brain__artefact_convert",
+        "brain__artefact_create",
+        "brain__artefact_delete",
+        "brain__artefact_list",
+        "brain__artefact_outline",
+        "brain__artefact_read",
+        "brain__artefact_rename",
+        "brain__artefact_repair",
+        "brain__artefact_reparent",
+        "brain__artefact_reparent-children",
+        "brain__artefact_search",
+        "brain__artefact_set-key",
+        "brain__artefact_set-naming-field",
+        "brain__artefact_set-status",
+        "brain__artefact_unarchive",
+        "brain__attachment_upload",
+        "brain__command_describe",
+        "brain__command_list",
+        "brain__content_classify",
+        "brain__content_ingest",
+        "brain__content_resolve",
+        "brain__document_replace-text",
+        "brain__document_structured-edit",
+        "brain__document_update-frontmatter",
+        "brain__document_write-body",
+        "brain__invocation_read",
+        "brain__links_check",
+        "brain__links_fix",
+        "brain__plugin_create",
+        "brain__plugin_replace",
+        "brain__resource_create",
+        "brain__resource_list",
+        "brain__resource_read",
+        "brain__resource_search",
+        "brain__retrieval_rebuild-semantic",
+        "brain__retrieval_refresh-lexical",
+        "brain__retrieval_repair-semantic",
+        "brain__runtime_read-environment",
+        "brain__runtime_refresh-router",
+        "brain__runtime_status",
+        "brain__runtime_warmup",
+        "brain__session_start",
+        "brain__shaping_render",
+        "brain__shaping_start",
+        "brain__skill_add-git",
+        "brain__skill_detach",
+        "brain__skill_list",
+        "brain__skill_status",
+        "brain__skill_update",
+        "brain__stage_create",
+        "brain__stage_discard",
+        "brain__trigger_create",
+        "brain__trigger_delete",
+        "brain__trigger_replace",
+        "brain__type_create",
+        "brain__type_replace",
+        "brain__type_status",
+        "brain__type_sync",
+        "brain__vault_check",
+        "brain__vault_read-config",
+        "brain__vault_read-file",
+        "brain__vault_read-router",
+        "brain__workspace_list",
+        "brain__workspace_read"
+      ]
+    },
+    "resumed": {
+      "catalogue_hash": "sha256:d24e18d6418f27101a07daa25f64776cb53e27fccfe5be1c87bcabc6e286f140",
+      "declarations": [
+        {
+          "description": "Create one artefact.",
+          "input_schema": {
+            "additionalProperties": false,
+            "properties": {
+              "content": {
+                "anyOf": [
+                  {
+                    "additionalProperties": false,
+                    "properties": {
+                      "content": {
+                        "description": "Content",
+                        "type": "string"
+                      },
+                      "source": {
+                        "description": "Source",
+                        "enum": [
+                          "inline"
+                        ],
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "content",
+                      "source"
+                    ],
+                    "type": "object"
+                  },
+                  {
+                    "additionalProperties": false,
+                    "properties": {
+                      "handle": {
+                        "description": "Handle",
+                        "type": "string"
+                      },
+                      "source": {
+                        "description": "Source",
+                        "enum": [
+                          "stage"
+                        ],
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "handle",
+                      "source"
+                    ],
+                    "type": "object"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "default": null,
+                "description": "Content"
+              },
+              "fix_links": {
+                "default": false,
+                "description": "Fix links",
+                "type": "boolean"
+              },
+              "frontmatter": {
+                "additionalProperties": {
+                  "items": {
+                    "type": [
+                      "string",
+                      "number",
+                      "boolean",
+                      "null"
+                    ]
+                  },
+                  "type": [
+                    "string",
+                    "number",
+                    "boolean",
+                    "null",
+                    "array"
+                  ]
+                },
+                "default": {},
+                "description": "Frontmatter",
+                "propertyNames": {
+                  "pattern": "\\S"
+                },
+                "type": "object"
+              },
+              "key": {
+                "default": null,
+                "description": "Key",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "parent": {
+                "default": null,
+                "description": "Parent",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "title": {
+                "description": "Title",
+                "type": "string"
+              },
+              "type": {
+                "description": "Type",
+                "type": "string"
+              }
+            },
+            "required": [
+              "type",
+              "title"
+            ],
+            "type": "object"
+          },
+          "tool_name": "brain__artefact_create"
+        },
+        {
+          "description": "Read one artefact.",
+          "input_schema": {
+            "additionalProperties": false,
+            "properties": {
+              "location": {
+                "default": "active",
+                "description": "Location",
+                "enum": [
+                  "active",
+                  "archived"
+                ],
+                "type": "string"
+              },
+              "reference": {
+                "description": "Reference",
+                "type": "string"
+              }
+            },
+            "required": [
+              "reference"
+            ],
+            "type": "object"
+          },
+          "tool_name": "brain__artefact_read"
+        },
+        {
+          "description": "Update frontmatter for document.",
+          "input_schema": {
+            "additionalProperties": false,
+            "properties": {
+              "document": {
+                "additionalProperties": false,
+                "description": "Existing editable Brain document.",
+                "properties": {
+                  "reference": {
+                    "description": "Artefact key/path or named memory, skill, style or template.",
+                    "type": "string"
+                  },
+                  "resource": {
+                    "description": "Kind of editable Brain document.",
+                    "enum": [
+                      "artefact",
+                      "memory",
+                      "skill",
+                      "style",
+                      "template"
+                    ],
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "resource",
+                  "reference"
+                ],
+                "type": "object"
+              },
+              "expected_revision": {
+                "description": "Revision returned by the most recent document read.",
+                "type": "string"
+              },
+              "updates": {
+                "additionalProperties": {
+                  "items": {
+                    "type": [
+                      "string",
+                      "number",
+                      "boolean",
+                      "null"
+                    ]
+                  },
+                  "type": [
+                    "string",
+                    "number",
+                    "boolean",
+                    "null",
+                    "array"
+                  ]
+                },
+                "description": "Non-empty field patch; null removes a field and omission preserves it.",
+                "minProperties": 1,
+                "propertyNames": {
+                  "pattern": "\\S"
+                },
+                "type": "object"
+              }
+            },
+            "required": [
+              "document",
+              "expected_revision",
+              "updates"
+            ],
+            "type": "object"
+          },
+          "tool_name": "brain__document_update-frontmatter"
+        },
+        {
+          "description": "Start session.",
+          "input_schema": {
+            "additionalProperties": false,
+            "properties": {},
+            "type": "object"
+          },
+          "tool_name": "brain__session_start"
+        }
+      ],
+      "same_session": true,
+      "successful_requests": {
+        "artefact.create": {
+          "frontmatter": {
+            "tags": [
+              "capture"
+            ]
+          },
+          "title": "Grok resumed Capture",
+          "type": "thought"
+        },
+        "artefact.read": {
+          "reference": "Projects/Command Fixture.md"
+        },
+        "session.start": {}
+      },
+      "tool_names": [
+        "brain__access_reduce",
+        "brain__access_request",
+        "brain__access_status",
+        "brain__artefact_archive",
+        "brain__artefact_convert",
+        "brain__artefact_create",
+        "brain__artefact_delete",
+        "brain__artefact_list",
+        "brain__artefact_outline",
+        "brain__artefact_read",
+        "brain__artefact_rename",
+        "brain__artefact_repair",
+        "brain__artefact_reparent",
+        "brain__artefact_reparent-children",
+        "brain__artefact_search",
+        "brain__artefact_set-key",
+        "brain__artefact_set-naming-field",
+        "brain__artefact_set-status",
+        "brain__artefact_unarchive",
+        "brain__attachment_upload",
+        "brain__command_describe",
+        "brain__command_list",
+        "brain__content_classify",
+        "brain__content_ingest",
+        "brain__content_resolve",
+        "brain__document_replace-text",
+        "brain__document_structured-edit",
+        "brain__document_update-frontmatter",
+        "brain__document_write-body",
+        "brain__invocation_read",
+        "brain__links_check",
+        "brain__links_fix",
+        "brain__plugin_create",
+        "brain__plugin_replace",
+        "brain__resource_create",
+        "brain__resource_list",
+        "brain__resource_read",
+        "brain__resource_search",
+        "brain__retrieval_rebuild-semantic",
+        "brain__retrieval_refresh-lexical",
+        "brain__retrieval_repair-semantic",
+        "brain__runtime_read-environment",
+        "brain__runtime_refresh-router",
+        "brain__runtime_status",
+        "brain__runtime_warmup",
+        "brain__session_start",
+        "brain__shaping_render",
+        "brain__shaping_start",
+        "brain__skill_add-git",
+        "brain__skill_detach",
+        "brain__skill_list",
+        "brain__skill_status",
+        "brain__skill_update",
+        "brain__stage_create",
+        "brain__stage_discard",
+        "brain__trigger_create",
+        "brain__trigger_delete",
+        "brain__trigger_replace",
+        "brain__type_create",
+        "brain__type_replace",
+        "brain__type_status",
+        "brain__type_sync",
+        "brain__vault_check",
+        "brain__vault_read-config",
+        "brain__vault_read-file",
+        "brain__vault_read-router",
+        "brain__workspace_list",
+        "brain__workspace_read"
+      ]
+    }
+  }
+}

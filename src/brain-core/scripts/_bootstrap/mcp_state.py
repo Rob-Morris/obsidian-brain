@@ -36,12 +36,8 @@ CODEX_CONFIG_REL = ".codex/config.toml"
 INIT_STATE_REL = ".brain/local/init-state.json"
 INIT_STATE_VERSION = 1
 
-CLAUDE_MD_BOOTSTRAP_VAULT = (
-    "ALWAYS DO FIRST: Call MCP `session.start`, else read `.brain-core/index.md` if it exists."
-)
-CLAUDE_MD_BOOTSTRAP_PROJECT = (
-    "ALWAYS DO FIRST: Call MCP `session.start`; if MCP is unavailable, run `brain session start --json` from this workspace."
-)
+CLAUDE_MD_BOOTSTRAP_VAULT = "ALWAYS DO FIRST: Call MCP `session_start`, else read `.brain-core/index.md` if it exists."
+CLAUDE_MD_BOOTSTRAP_PROJECT = "ALWAYS DO FIRST: Call MCP `session_start`; if MCP is unavailable, run `brain session start --json` from this workspace."
 
 
 def build_mcp_config(
@@ -533,3 +529,20 @@ def remove_codex_server(config_path: Path, server_config: Dict[str, Any]) -> boo
     except FileNotFoundError:
         return True
     return True
+
+
+def migrate_bootstrap_text(content: str) -> str:
+    """Replace only complete Brain-authored bootstrap lines from the dotted epoch."""
+    current = (
+        CLAUDE_MD_BOOTSTRAP_VAULT,
+        CLAUDE_MD_BOOTSTRAP_PROJECT,
+        "ALWAYS DO FIRST: Call MCP `session_start`.",
+    )
+    replacements = {
+        line.replace("session_start", "session.start"): line for line in current
+    }
+    return "".join(
+        replacements.get(line.rstrip("\r\n"), line.rstrip("\r\n"))
+        + line[len(line.rstrip("\r\n")) :]
+        for line in content.splitlines(keepends=True)
+    )

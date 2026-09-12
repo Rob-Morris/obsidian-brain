@@ -286,7 +286,7 @@ class TestCreateArtefact:
 
     def test_create_temporal_type(self, vault, router):
         result = create.create_artefact(str(vault), router, "logs", "My Session")
-        assert result["type"] == "temporal/logs"
+        assert result["type"] == "temporal/log"
         # Path should include yyyy-mm subfolder
         assert "_Temporal/Logs/" in result["path"]
         parts = result["path"].split(os.sep)
@@ -341,7 +341,7 @@ class TestCreateArtefact:
             frontmatter_overrides={"status": "shipped", "version": "v0.28.6"},
             parent="project/brain",
         )
-        assert result["type"] == "living/releases"
+        assert result["type"] == "living/release"
         assert result["path"] == os.path.join(
             "Releases",
             "project~brain",
@@ -411,7 +411,7 @@ class TestCreateArtefact:
     def test_resolve_singular_form(self, vault, router):
         """Agents often pass singular type keys like 'log' instead of 'logs'."""
         result = create.create_artefact(str(vault), router, "log", "Singular Test")
-        assert result["type"] == "temporal/logs"
+        assert result["type"] == "temporal/log"
 
     def test_unknown_type_error(self, vault, router):
         with pytest.raises(ValueError, match="Unknown artefact type"):
@@ -481,7 +481,6 @@ class TestCreateArtefact:
         content = open(os.path.join(str(vault), result["path"])).read()
         fields, _ = parse_frontmatter(content)
         assert fields["created"].startswith("2026-06-15")
-
 
     def test_template_vars_substituted_in_body(self, vault, router):
         """Template vars should be substituted when using the template body."""

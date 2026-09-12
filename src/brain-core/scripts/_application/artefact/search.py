@@ -34,7 +34,7 @@ class ArtefactSearchMode(str, Enum):
 @dataclass(frozen=True, slots=True)
 class ArtefactSearchRequest:
     COMMAND_ID: ClassVar[str] = "artefact.search"
-    COMMAND_VERSION: ClassVar[int] = 1
+    COMMAND_VERSION: ClassVar[int] = 2
     RESULT_TYPE: ClassVar[type] = SearchPayload
 
     query: str
@@ -59,6 +59,7 @@ class ArtefactSearchRequest:
 
 
 def execute(context: InvocationContext, request: ArtefactSearchRequest):
+    from _common import resolve_type
     from _search.filters import SearchFilters
     from _search.lexical_query import IndexNotFoundError, load_index
     from _search.mode import SearchModeUnavailableError, dispatch_search
@@ -66,17 +67,17 @@ def execute(context: InvocationContext, request: ArtefactSearchRequest):
     router = load_router(context, ArtefactSearchRequest)
     if isinstance(router, Error):
         return router
+    canonical_type = None
     if request.type_filter is not None:
-        configured_types = {
-            item.get("frontmatter_type")
-            for item in router.get("artefacts", ())
-            if item.get("configured")
-        }
-        if request.type_filter not in configured_types:
+        try:
+            canonical_type = resolve_type(router, request.type_filter)[
+                "frontmatter_type"
+            ]
+        except ValueError as exc:
             return error(
                 ArtefactSearchRequest,
                 ErrorCode.INVALID_REQUEST,
-                f"unknown configured artefact type: {request.type_filter}",
+                str(exc),
                 "type_filter",
             )
     semantic_ready = semantic_provider_ready(context)
@@ -98,7 +99,10 @@ def execute(context: InvocationContext, request: ArtefactSearchRequest):
             selection="documents",
         )
         if isinstance(semantic_state, Error):
-            return semantic_state
+            if request.mode is not ArtefactSearchMode.AUTO:
+                return semantic_state
+            resolved_mode = "lexical"
+            semantic_state = (None, None, None, None)
     config, _type_embeddings, doc_embeddings, metadata = semantic_state
     index = None
     if resolved_mode in {"lexical", "hybrid"}:
@@ -107,7 +111,7 @@ def execute(context: InvocationContext, request: ArtefactSearchRequest):
         except (IndexNotFoundError, OSError, ValueError) as exc:
             return error(ArtefactSearchRequest, ErrorCode.CONFLICT, str(exc), None)
     filters = SearchFilters(
-        type=request.type_filter,
+        type=canonical_type,
         tag=request.tag,
         status=request.status,
     )

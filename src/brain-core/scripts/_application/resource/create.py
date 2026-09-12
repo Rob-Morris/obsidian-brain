@@ -9,11 +9,12 @@ from typing import ClassVar, Literal, Mapping
 
 from .._mutation_support import (
     FrontmatterField,
+    Frontmatter,
+    FRONTMATTER_CODEC,
     InlineContent,
     MutationContent,
     StagedContent,
     contributor_mutation_entry,
-    decode_frontmatter,
     decode_mutation_content,
 )
 from .._named_create import (
@@ -27,21 +28,21 @@ from ..context import InvocationContext
 class MemoryCreateTarget:
     resource: Literal["memory"]
     name: str
-    frontmatter: tuple[FrontmatterField, ...] = ()
+    frontmatter: Frontmatter = ()
 
 
 @dataclass(frozen=True, slots=True)
 class SkillCreateTarget:
     resource: Literal["skill"]
     name: str
-    frontmatter: tuple[FrontmatterField, ...] = ()
+    frontmatter: Frontmatter = ()
 
 
 @dataclass(frozen=True, slots=True)
 class StyleCreateTarget:
     resource: Literal["style"]
     name: str
-    frontmatter: tuple[FrontmatterField, ...] = ()
+    frontmatter: Frontmatter = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -61,10 +62,14 @@ ResourceCreateTarget = (
 @dataclass(frozen=True, slots=True)
 class ResourceCreateRequest:
     COMMAND_ID: ClassVar[str] = "resource.create"
-    COMMAND_VERSION: ClassVar[int] = 1
+    COMMAND_VERSION: ClassVar[int] = 2
     RESULT_TYPE: ClassVar[type] = NamedResourceCreatePayload
     MINIMAL_EXAMPLE: ClassVar[dict[str, object]] = {
-        "target": {"resource": "memory", "name": "example"},
+        "target": {
+            "resource": "memory",
+            "name": "example",
+            "frontmatter": {"triggers": ["example"]},
+        },
         "content": {"source": "inline", "content": "Example"},
     }
     FIELD_DESCRIPTIONS: ClassVar[dict[str, str]] = {
@@ -146,7 +151,7 @@ def decode(payload: Mapping[str, object]) -> ResourceCreateRequest:
             {"resource", "name", "frontmatter"},
             label=f"{resource} target fields",
         )
-        frontmatter = decode_frontmatter(target.get("frontmatter"))
+        frontmatter = FRONTMATTER_CODEC.decode(target.get("frontmatter", {}))
         target_type = {
             "memory": MemoryCreateTarget,
             "skill": SkillCreateTarget,

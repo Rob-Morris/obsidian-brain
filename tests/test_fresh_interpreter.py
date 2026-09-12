@@ -71,7 +71,7 @@ def test_run_lifecycle_reports_missing_reply(tmp_path, monkeypatch):
 
     with pytest.raises(
         fresh_interpreter.FreshInterpreterError,
-        match=r"returned no result \(exit 1\): Traceback: boom",
+        match=r"returned no structural result \(exit 1\)",
     ):
         fresh_interpreter.run_lifecycle_in_fresh_interpreter(rebuild_semantic, tmp_path, dry_run=True)
 
@@ -87,3 +87,72 @@ def test_reply_channel_keeps_owner_and_subprocess_output_off_the_reply_stream(ca
     assert captured.out == '{"result": 1}after\n'
     assert "owner progress" in captured.err
     assert "native progress" in captured.err
+
+
+def test_selected_interpreter_preserves_venv_symlink(tmp_path, monkeypatch):
+    from pathlib import Path
+    import sys
+
+    python = tmp_path / "managed/bin/python"
+    python.parent.mkdir(parents=True)
+    python.symlink_to(Path(sys.executable).resolve())
+    calls = []
+
+    def run(argv, **kwargs):
+        calls.append(argv)
+        return subprocess.CompletedProcess(
+            argv, 0, '{"result": {"loaded": true}}', "private diagnostic"
+        )
+
+    monkeypatch.setattr(fresh_interpreter.subprocess, "run", run)
+    result = fresh_interpreter.run_lifecycle_in_fresh_interpreter(
+        rebuild_semantic,
+        tmp_path,
+        python_executable=python,
+        timeout=12,
+    )
+    assert calls[0][0] == str(python)
+    assert calls[0][0] != str(python.resolve())
+    assert result == {"loaded": True}
+
+
+@pytest.mark.parametrize(
+    "stdout, exit_code",
+    [
+        ("null", 0),
+        ("[]", 0),
+        ("{}", 0),
+        ('{"result": {}}', 1),
+        ('{"error": []}', 0),
+        ('{"result": {}, "error": {}}', 0),
+    ],
+)
+def test_malformed_reply_is_bounded_and_never_exposes_stderr(
+    tmp_path, monkeypatch, stdout, exit_code
+):
+    monkeypatch.setattr(
+        fresh_interpreter.subprocess,
+        "run",
+        lambda *_a, **_k: subprocess.CompletedProcess(
+            [], exit_code, stdout, "PRIVATE-DIAGNOSTIC"
+        ),
+    )
+    with pytest.raises(fresh_interpreter.FreshInterpreterError) as exc:
+        fresh_interpreter.run_lifecycle_in_fresh_interpreter(rebuild_semantic, tmp_path)
+    assert "PRIVATE-DIAGNOSTIC" not in str(exc.value)
+
+
+def test_child_timeout_is_bounded_and_content_free(tmp_path, monkeypatch):
+    def timeout(*_args, **_kwargs):
+        raise subprocess.TimeoutExpired(
+            "private command", 7, output="PRIVATE-OUTPUT", stderr="PRIVATE-ERROR"
+        )
+
+    monkeypatch.setattr(fresh_interpreter.subprocess, "run", timeout)
+    with pytest.raises(
+        fresh_interpreter.FreshInterpreterError, match="within 7 seconds"
+    ) as exc:
+        fresh_interpreter.run_lifecycle_in_fresh_interpreter(
+            rebuild_semantic, tmp_path, timeout=7
+        )
+    assert "PRIVATE" not in str(exc.value)

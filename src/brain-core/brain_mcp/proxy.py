@@ -64,7 +64,7 @@ from ._interface_protocol import (
 # Constants
 # ---------------------------------------------------------------------------
 
-PROXY_VERSION = "0.8.1"
+PROXY_VERSION = "0.9.0"
 
 _DEFAULT_BACKOFF = [0, 4, 8, 16, 32]
 _CHILD_ALIVE_RESET_SECS = 60  # reset backoff if child lives this long
@@ -1203,7 +1203,7 @@ class Proxy:
                 _outcome_unknown_response(record, diagnostic=header_error)
             )
             return
-        mapping = header.tool("invocation.read")
+        mapping = header.tool("invocation_read")
         if mapping is None or mapping.command_id != "invocation.read":
             self._send_to_client(
                 _outcome_unknown_response(
@@ -1218,7 +1218,7 @@ class Proxy:
             "id": query_id,
             "method": "tools/call",
             "params": {
-                "name": "invocation.read",
+                "name": "invocation_read",
                 "arguments": {"invocation_id": record.invocation_id},
             },
         }

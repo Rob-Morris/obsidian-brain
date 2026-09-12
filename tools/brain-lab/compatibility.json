@@ -326,6 +326,222 @@
           "required_for": ["template"]
         }
       ]
+    },
+    {
+      "id": "brain-0.64",
+      "revision": 1,
+      "minimum_version": "0.64.0",
+      "maximum_version_exclusive": "0.65.0",
+      "install": [
+        "bash",
+        "{source}/install.sh",
+        "--non-interactive",
+        "{vault}"
+      ],
+      "post_install": [
+        [
+          "{container_python}",
+          "{vault}/.brain-core/scripts/doctor_machine.py",
+          "--vault",
+          "{vault}",
+          "--current-vault",
+          "{vault}",
+          "--launcher",
+          "{container_python}",
+          "--json"
+        ]
+      ],
+      "template_prepare": [],
+      "rehydrate": [
+        [
+          "{container_python}",
+          "/usr/local/lib/brain-lab/clear_imported_state.py",
+          "--vault",
+          "{vault}"
+        ],
+        [
+          "brain",
+          "register",
+          "--request-json",
+          "{{\"vault_root\":\"{vault}\"}}",
+          "--json"
+        ],
+        [
+          "{container_python}",
+          "{vault}/.brain-core/scripts/configure.py",
+          "mcp",
+          "--vault",
+          "{vault}",
+          "--project",
+          "{vault}",
+          "--vault-self",
+          "--client",
+          "codex",
+          "--json"
+        ],
+        [
+          "{container_python}",
+          "/usr/local/lib/brain-lab/restore_seed_paths.py",
+          "--seed",
+          "/opt/brain-lab/seed",
+          "--vault",
+          "{vault}",
+          "--path",
+          ".gitignore"
+        ]
+      ],
+      "health": [
+        {
+          "id": "core-version",
+          "command": [
+            "cat",
+            "{vault}/.brain-core/VERSION"
+          ],
+          "expected_stdout": "{version}",
+          "required_for": [
+            "template",
+            "preserve",
+            "rehydrate"
+          ]
+        },
+        {
+          "id": "cli-version",
+          "command": [
+            "brain",
+            "--version"
+          ],
+          "expected_stdout": "brain {cli_version}",
+          "required_for": [
+            "template",
+            "rehydrate"
+          ]
+        },
+        {
+          "id": "session",
+          "command": [
+            "brain",
+            "session",
+            "start",
+            "--request-json",
+            "{{}}",
+            "--json"
+          ],
+          "expected_json": {
+            "status": "ok",
+            "result.brain_core_version": "{version}"
+          },
+          "retry": {
+            "maximum_attempts": 40,
+            "retryable_error_codes": [
+              "conflict"
+            ],
+            "maximum_delay_seconds": 1.0
+          },
+          "required_for": [
+            "template",
+            "rehydrate"
+          ]
+        },
+        {
+          "id": "machine-doctor",
+          "command": [
+            "{container_python}",
+            "{vault}/.brain-core/scripts/doctor_machine.py",
+            "--vault",
+            "{vault}",
+            "--current-vault",
+            "{vault}",
+            "--launcher",
+            "{container_python}",
+            "--json"
+          ],
+          "expected_json": {
+            "healthy": true,
+            "tidy": true,
+            "launcher_python": "{container_python}",
+            "counts.repair_findings": 0
+          },
+          "required_for": [
+            "rehydrate"
+          ]
+        },
+        {
+          "id": "doctor",
+          "command": [
+            "brain",
+            "doctor",
+            "--request-json",
+            "{{\"current_vault\":\"{vault}\"}}",
+            "--json"
+          ],
+          "expected_json": {
+            "status": "ok",
+            "result.healthy": true,
+            "result.exit_code": 0,
+            "result.cli.version": "{cli_version}",
+            "result.cli.path_ok": true,
+            "result.machine.healthy": true,
+            "result.machine.registry.state": "current",
+            "result.vault.state": "checked",
+            "result.vault.vault_root": "{vault}",
+            "result.vault.exit_code": 0
+          },
+          "required_for": [
+            "template"
+          ]
+        },
+        {
+          "id": "mcp-read-only",
+          "command": [
+            "{container_python}",
+            "/usr/local/lib/brain-lab/mcp_probe.py",
+            "--vault",
+            "{vault}",
+            "--contract",
+            "portable"
+          ],
+          "expected_json": {
+            "read_only_round_trip": "tools/call:command_list"
+          },
+          "required_for": [
+            "template",
+            "rehydrate"
+          ]
+        },
+        {
+          "id": "active-paths",
+          "command": [
+            "{container_python}",
+            "/usr/local/lib/brain-lab/active_path_probe.py"
+          ],
+          "expected_json": {
+            "safe": true
+          },
+          "required_for": [
+            "template",
+            "rehydrate"
+          ]
+        },
+        {
+          "id": "vault-compliance",
+          "command": [
+            "brain",
+            "vault",
+            "check",
+            "--request-json",
+            "{{}}",
+            "--json"
+          ],
+          "expected_json": {
+            "status": "ok",
+            "result.errors": 0
+          },
+          "preserve_safe": true,
+          "required_for": [
+            "template"
+          ]
+        }
+      ]
     }
   ]
 }

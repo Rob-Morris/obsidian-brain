@@ -263,7 +263,11 @@ class CommandExample:
     def __post_init__(self) -> None:
         if not self.label.strip():
             raise ValueError("command example requires a label and MCP tool")
-        validate_command_id(self.mcp_tool)
+        if self.mcp_tool != "_".join(self.cli_argv):
+            raise ValueError(
+                "command example requires the projected MCP noun_verb name"
+            )
+        validate_command_id(".".join(self.cli_argv))
         if len(self.cli_argv) != 2 or any(not item.strip() for item in self.cli_argv):
             raise ValueError("command example requires canonical CLI noun and verb")
 

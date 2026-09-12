@@ -15,8 +15,8 @@ from granular_mcp_metadata import (
 from capture_real_mcp_clients import (
     SUCCESSFUL_CALLS,
     _CAPTURE_REVISION_PLACEHOLDER,
+    RESUMED_CALLS,
 )
-
 
 EVIDENCE_PATH = (
     REPO_ROOT
@@ -33,7 +33,7 @@ def _hash(value) -> str:
 def test_pinned_real_clients_observe_current_command_list_declaration():
     evidence = json.loads(EVIDENCE_PATH.read_text(encoding="utf-8"))
     command_list = next(
-        tool for tool in _registered_tools() if tool["name"] == "command.list"
+        tool for tool in _registered_tools() if tool["name"] == "command_list"
     )
 
     assert evidence["schema"] == "brain.command-interface-real-client-evidence/1"
@@ -60,6 +60,8 @@ def test_pinned_real_clients_observe_current_command_list_declaration():
             "expected_revision"
         ] = _CAPTURE_REVISION_PLACEHOLDER
         assert successful_requests == dict(SUCCESSFUL_CALLS)
+        assert observed["resumed"]["same_session"]
+        assert observed["resumed"]["successful_requests"] == dict(RESUMED_CALLS)
 
 
 def test_pinned_real_clients_cover_eager_and_deferred_projection_paths():
@@ -70,5 +72,50 @@ def test_pinned_real_clients_cover_eager_and_deferred_projection_paths():
         _registered_tools()
     )
     assert clients["claude-code"]["catalogue_hash"].startswith("sha256:")
-    assert clients["codex-cli"]["capture_path"] == "deferred client tool search"
-    assert clients["codex-cli"]["initial_brain_declarations"] == 0
+    assert clients["codex-cli"]["capture_path"] in {
+        "deferred client tool search",
+        "eager and deferred client tools",
+    }
+    assert (
+        0
+        <= clients["codex-cli"]["initial_brain_declarations"]
+        < len(_registered_tools())
+    )
+
+
+def test_grok_fresh_and_resumed_sessions_discover_portable_names_and_invoke():
+    import re
+
+    path = EVIDENCE_PATH.with_name("command_interface_grok_client_evidence_v1.json")
+    evidence = json.loads(path.read_text())
+    assert evidence["client_version"] == "1.0.30"
+    assert (
+        evidence["localhost_model_endpoint"] and not evidence["external_model_request"]
+    )
+    tools = _registered_tools()
+    expected = sorted(
+        (
+            {
+                "tool_name": "brain__" + tool["name"],
+                "description": tool["description"],
+                "input_schema": tool["input_schema"],
+            }
+            for tool in tools
+        ),
+        key=lambda item: item["tool_name"],
+    )
+    expected_by_name = {item["tool_name"]: item for item in expected}
+    for phase in ("fresh", "resumed"):
+        observed = evidence["sessions"][phase]
+        assert observed["same_session"]
+        assert observed["tool_names"] == sorted(expected_by_name)
+        assert all(
+            re.fullmatch(r"[a-zA-Z0-9_-]+", name) for name in observed["tool_names"]
+        )
+        for declaration in observed["declarations"]:
+            assert declaration == expected_by_name[declaration["tool_name"]]
+        assert set(observed["successful_requests"]) == {
+            "session.start",
+            "artefact.read",
+            "artefact.create",
+        }

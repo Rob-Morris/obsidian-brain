@@ -305,7 +305,12 @@ def test_launcher_projection_matches_application_structural_wire_vocabulary():
     assert project_launcher_result(pairs[0][0]).exit_code == 0
 
 
-def test_application_process_invoker_executes_the_selected_brain_command(tmp_path):
+@pytest.mark.parametrize(
+    "child_stderr", ["", "native runtime warning\nprivate diagnostic\n"]
+)
+def test_application_process_invoker_executes_the_selected_brain_command(
+    tmp_path, child_stderr
+):
     vault = (tmp_path / "Brain").resolve()
     script = vault / ".brain-core" / "scripts" / "command.py"
     script.parent.mkdir(parents=True)
@@ -323,7 +328,9 @@ def test_application_process_invoker_executes_the_selected_brain_command(tmp_pat
 
     def runner(argv, **options):
         calls.append((argv, options))
-        return subprocess.CompletedProcess(argv, 0, json.dumps(envelope) + "\n", "")
+        return subprocess.CompletedProcess(
+            argv, 0, json.dumps(envelope) + "\n", child_stderr
+        )
 
     target = SelectedBrainProcess(
         vault,

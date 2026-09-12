@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Literal, Mapping
+from typing import Annotated, Literal, Mapping
 
 from ._decoding import reject_unexpected
 from .results import request_error
@@ -90,14 +90,12 @@ def resolve_mutation_content(vault_root: str, content: MutationContent):
 
 
 def decode_frontmatter(value: object) -> tuple[FrontmatterField, ...]:
-    if value is None:
-        return ()
     if not isinstance(value, Mapping):
         raise ValueError("frontmatter must be an object")
+    if any(not isinstance(name, str) for name in value):
+        raise ValueError("frontmatter field names must be strings")
     fields = []
     for name in sorted(value):
-        if not isinstance(name, str):
-            raise ValueError("frontmatter field names must be strings")
         item = value[name]
         if isinstance(item, list):
             item = tuple(item)
@@ -112,6 +110,42 @@ def frontmatter_mapping(fields: tuple[FrontmatterField, ...]) -> dict:
         item.name: list(item.value) if isinstance(item.value, tuple) else item.value
         for item in fields
     }
+
+
+@dataclass(frozen=True, slots=True)
+class FrontmatterCodec:
+    """Project immutable frontmatter fields as one bounded JSON object."""
+
+    nonempty: bool = False
+
+    def schema(self) -> dict:
+        scalar = ["string", "number", "boolean", "null"]
+        result = {
+            "type": "object",
+            "propertyNames": {"pattern": r"\S"},
+            "additionalProperties": {
+                "type": [*scalar, "array"],
+                "items": {"type": scalar},
+            },
+        }
+        if self.nonempty:
+            result["minProperties"] = 1
+        return result
+
+    def encode(self, value):
+        return frontmatter_mapping(value)
+
+    def decode(self, value):
+        fields = decode_frontmatter(value)
+        if self.nonempty and not fields:
+            raise ValueError("frontmatter updates must be non-empty")
+        return fields
+
+
+FRONTMATTER_CODEC = FrontmatterCodec()
+FRONTMATTER_PATCH_CODEC = FrontmatterCodec(nonempty=True)
+Frontmatter = Annotated[tuple[FrontmatterField, ...], FRONTMATTER_CODEC]
+FrontmatterPatch = Annotated[tuple[FrontmatterField, ...], FRONTMATTER_PATCH_CODEC]
 
 
 no_effect_error = request_error

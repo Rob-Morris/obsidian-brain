@@ -13,6 +13,7 @@ from pathlib import Path
 
 CANONICAL_CONTRACT = "canonical"
 LEGACY_CONTRACT = "legacy"
+PORTABLE_CONTRACT = "portable"
 
 
 def _read_message(stream, output: queue.Queue, errors: queue.Queue) -> None:
@@ -104,6 +105,8 @@ def _tool_call_payload(call_result: dict) -> dict:
 def _probe_request(contract: str) -> tuple[str, dict]:
     if contract == LEGACY_CONTRACT:
         return "brain_init", {}
+    if contract == PORTABLE_CONTRACT:
+        return "command_list", {"dependency_tier": "portable", "page_size": 1}
     if contract == CANONICAL_CONTRACT:
         return "command.list", {"dependency_tier": "portable", "page_size": 1}
     raise ValueError(f"unsupported MCP probe contract: {contract}")
@@ -203,7 +206,7 @@ def main() -> int:
     parser.add_argument("--timeout", type=float, default=30)
     parser.add_argument(
         "--contract",
-        choices=(LEGACY_CONTRACT, CANONICAL_CONTRACT),
+        choices=(LEGACY_CONTRACT, CANONICAL_CONTRACT, PORTABLE_CONTRACT),
         default=CANONICAL_CONTRACT,
         help="MCP interface generation to verify (default: canonical)",
     )

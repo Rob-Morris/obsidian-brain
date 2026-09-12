@@ -67,7 +67,10 @@ Related named resources are owned publicly by `resource.create`,
 `resource.list`, `resource.read` and `resource.search`; their older target-only
 modules remain lower implementation seams. `runtime.status`, `runtime.warmup`
 and cold `session.start` share the stdlib-safe `brain.runtime-status/1`
-readiness snapshot. Presentation and printable rendering share
+readiness snapshot. `_bootstrap/readiness.py` coordinates portable router/lexical
+work and delegates semantic loading to `_lifecycle/runtime_warmup.py` through
+`_lifecycle/fresh_interpreter.py`. `_lifecycle/semantic_repairs.py` uses the same
+selected managed interpreter for active model health checks. Presentation and printable rendering share
 `shaping.render` with a strict `output.kind` variant.
 
 Editable artefacts and named resources share four document intents:

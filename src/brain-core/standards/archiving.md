@@ -1,12 +1,15 @@
-# Archiving Living Artefacts
+# Archiving Artefacts
 
-When a living artefact reaches a terminal status (e.g. `implemented` for designs, `adopted` for ideas), it can be archived to remove it from the active vault namespace. Use the `artefact.archive` MCP command — it handles everything automatically.
+Any artefact can be archived to remove it from the active vault namespace,
+regardless of lifecycle status. This includes statusless temporal Thoughts.
+Use the `artefact_archive` MCP tool (canonical command `artefact.archive`).
+Archiving preserves status; deletion is a separate administrator command.
 
 ## What `artefact.archive` does
 
-1. Validates the artefact has a terminal status
+1. Validates the artefact, ownership constraints and destination
 2. Adds `archiveddate: YYYY-MM-DD` to frontmatter
-3. Renames the file to `yyyymmdd-{Title}.md` (disambiguates from any successor)
+3. Adds an archival `yyyymmdd-` prefix unless the naming rule already requires a date
 4. Moves the file to `_Archive/{Type}/{Project}/` at the vault root
 5. Updates all wikilinks vault-wide
 
@@ -20,8 +23,8 @@ Ideas/Brain/my-idea.md  →  _Archive/Ideas/Brain/20260405-my-idea.md
 
 ## What `artefact.unarchive` does
 
-1. Strips the `yyyymmdd-` date prefix from the filename
-2. Moves the file back to its original type folder
+1. Removes the archival date prefix while preserving dates required by the naming rule
+2. Restores the type/ownership folder and current terminal-status placement
 3. Removes `archiveddate` from frontmatter
 4. Updates all wikilinks vault-wide
 
@@ -77,7 +80,12 @@ is never used to invent missing parent metadata.
 
 ## Notes
 
-- Not all types need archiving — only types with terminal statuses opt in
+- Every artefact type supports archiving; terminal status is not a prerequisite
 - `_Archive/` is excluded from the vault file index, search, and all normal operations
 - Archived files are frozen snapshots — their internal wikilinks are not updated on rename operations
 - Legacy per-type `_Archive/` directories (e.g. `Ideas/_Archive/`) are supported for backward compatibility but new archives go to the top-level `_Archive/`
+
+Archive, restore and delete reconcile the active router and lexical index before
+returning success. A derived refresh failure reports committed effects and the
+commands needed to repair the index. Search AUTO can use lexical results while
+semantic sidecars await rebuilding.

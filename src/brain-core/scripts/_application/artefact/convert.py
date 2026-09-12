@@ -20,7 +20,7 @@ from ..context import InvocationContext
 @dataclass(frozen=True, slots=True)
 class ArtefactConvertRequest:
     COMMAND_ID: ClassVar[str] = "artefact.convert"
-    COMMAND_VERSION: ClassVar[int] = 1
+    COMMAND_VERSION: ClassVar[int] = 2
     RESULT_TYPE: ClassVar[type] = ArtefactConvertPayload
 
     path: str

@@ -63,7 +63,7 @@ class CommandInterfaceHeader:
             _tool_name(name)
             if not isinstance(mapping, InterfaceTool):
                 raise TypeError("interface tool mappings must use InterfaceTool")
-            if name != mapping.command_id:
+            if name != mapping.command_id.replace(".", "_"):
                 raise ValueError(
                     "projected MCP tool name contradicts its command identifier"
                 )
@@ -387,11 +387,11 @@ def _command_id(value: object) -> None:
 def _tool_name(value: object) -> None:
     text = _non_empty(value, "projected MCP tool name")
     try:
-        _command_id(text)
+        if text.count("_") != 1 or "." in text:
+            raise ValueError("invalid tool separator")
+        _command_id(text.replace("_", "."))
     except ValueError as exc:
-        raise ValueError(
-            "projected MCP tool name must use canonical noun.verb grammar"
-        ) from exc
+        raise ValueError("projected MCP tool name must use noun_verb grammar") from exc
 
 
 def _canonical_part(value: str) -> bool:

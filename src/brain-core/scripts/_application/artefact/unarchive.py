@@ -21,7 +21,7 @@ from ..context import InvocationContext
 @dataclass(frozen=True, slots=True)
 class ArtefactUnarchiveRequest:
     COMMAND_ID: ClassVar[str] = "artefact.unarchive"
-    COMMAND_VERSION: ClassVar[int] = 1
+    COMMAND_VERSION: ClassVar[int] = 2
     RESULT_TYPE: ClassVar[type] = ArtefactUnarchivePayload
 
     path: str

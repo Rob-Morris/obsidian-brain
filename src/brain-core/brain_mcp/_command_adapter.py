@@ -56,10 +56,7 @@ def application_interface_header(
         )
         for entry in catalogue.entries
         if Projection.MCP in entry.eligible_projections
-        and (
-            allowed_tools is None
-            or project_identity(entry.command_id).mcp_tool in allowed_tools
-        )
+        and (allowed_tools is None or entry.command_id in allowed_tools)
     }
     return command_interface_header(
         interface_epoch=catalogue.interface_epoch,
@@ -105,7 +102,7 @@ def register_application_tools(
         if Projection.MCP not in entry.eligible_projections:
             continue
         name = project_identity(entry.command_id).mcp_tool
-        if allowed_tools is not None and name not in allowed_tools:
+        if allowed_tools is not None and entry.command_id not in allowed_tools:
             continue
         handler = _handler(
             entry,

@@ -10,7 +10,6 @@ import os
 from pathlib import Path
 import sys
 
-from _application.projection import project_identity
 from _application.registry import current_application_catalogue
 from _command_interface.access import (
     approve_external_request,
@@ -53,8 +52,7 @@ def run(argv: list[str] | None = None) -> int:
         config = brain_config.load_config(
             str(root),
             additional_valid_tools=frozenset(
-                project_identity(entry.command_id).mcp_tool
-                for entry in catalogue.entries
+                entry.command_id for entry in catalogue.entries
             ),
         )
         profile, operator_id = brain_config.authenticate_operator(key, config)

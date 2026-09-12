@@ -36,7 +36,7 @@ class RuntimeWarmupPayload:
 @dataclass(frozen=True, slots=True)
 class RuntimeWarmupRequest:
     COMMAND_ID: ClassVar[str] = "runtime.warmup"
-    COMMAND_VERSION: ClassVar[int] = 1
+    COMMAND_VERSION: ClassVar[int] = 2
     RESULT_TYPE: ClassVar[type] = RuntimeWarmupPayload
 
 

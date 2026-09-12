@@ -25,7 +25,7 @@ def test_current_repository_version_has_an_exact_compatibility_owner():
     version = (REPO_ROOT / "src" / "brain-core" / "VERSION").read_text().strip()
     adapter = CompatibilityManifest(TOOL_ROOT / "compatibility.json").select(version)
 
-    assert adapter.adapter_id == "brain-0.55-0.63"
+    assert adapter.adapter_id == "brain-0.64"
     assert any(gate.gate_id == "session" for gate in adapter.health)
     session = next(gate for gate in adapter.health if gate.gate_id == "session")
     assert session.command[:3] == ("brain", "session", "start")
@@ -520,6 +520,11 @@ def test_mcp_probe_validates_revision_appropriate_read_only_contracts():
         "legacy",
         {"version": "1", "readiness": "ready", "warmup_state": "complete"},
     )
+    assert helper["_probe_request"]("portable") == (
+        "command_list",
+        {"dependency_tier": "portable", "page_size": 1},
+    )
+    helper["_validate_probe_payload"]("portable", {"command": "command.list"})
     assert helper["_probe_request"]("canonical") == (
         "command.list",
         {"dependency_tier": "portable", "page_size": 1},

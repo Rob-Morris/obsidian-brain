@@ -273,7 +273,7 @@ def create_artefact(vault_root, router, type_key, title, body="", frontmatter_ov
 
     result = {
         "path": rel_path,
-        "type": artefact["type"],
+        "type": fields["type"],
         "title": title,
     }
     if fields.get("key"):

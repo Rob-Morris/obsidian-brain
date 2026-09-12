@@ -5,7 +5,6 @@ from __future__ import annotations
 from types import MappingProxyType
 
 from _application.catalogue import ApplicationCatalogue
-from _application.projection import project_identity
 from _application.types import Authority
 
 
@@ -35,7 +34,7 @@ def builtin_profile_allow_lists(
     result = {}
     for profile, maximum in _PROFILE_AUTHORITY.items():
         tools = tuple(
-            project_identity(entry.command_id).mcp_tool
+            entry.command_id
             for entry in catalogue.entries
             if _AUTHORITY_RANK[entry.authority] <= _AUTHORITY_RANK[maximum]
         )

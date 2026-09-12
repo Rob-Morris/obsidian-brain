@@ -68,6 +68,10 @@ def classify_content(
             query_encoder=query_encoder,
         )
         if result is not None:
+            for candidate in (result, *result["alternatives"]):
+                candidate["type"] = create_mod.resolve_type(router, candidate["key"])[
+                    "frontmatter_type"
+                ]
             return result
 
     if mode == "bm25_only" or (mode == "auto" and index is not None):
@@ -162,11 +166,13 @@ def _classify_bm25(router, vault_root, content, index):
                 idf = math.log((total_docs - token_df + 0.5) / (token_df + 0.5) + 1)
                 score += idf * count
 
-        scored.append({
-            "type": artefact["type"],
-            "key": artefact["key"],
-            "score": score,
-        })
+        scored.append(
+            {
+                "type": artefact["frontmatter_type"],
+                "key": artefact["key"],
+                "score": score,
+            }
+        )
 
     if not scored:
         return None
@@ -206,11 +212,13 @@ def _classify_context_assembly(router, vault_root):
     for artefact in artefacts:
         desc = extract_type_description(vault_root, artefact)
         if desc:
-            type_descriptions.append({
-                "type": artefact["type"],
-                "key": artefact["key"],
-                "description": desc,
-            })
+            type_descriptions.append(
+                {
+                    "type": artefact["frontmatter_type"],
+                    "key": artefact["key"],
+                    "description": desc,
+                }
+            )
 
     return {
         "mode": "context_assembly",

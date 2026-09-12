@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import pytest
+from _common import load_compiled_router, resolve_type
 
 import _application.artefact.search as artefact_search
 import _application.content.classify as content_classify
@@ -214,7 +215,12 @@ def test_content_classify_exposes_typed_context_without_an_open_result_bag(
     assert isinstance(result.result.classification, ClassificationContext)
     assert result.result.classification.type_descriptions
     assert all(
-        item.artefact_type and item.type_key and item.description
+        item.artefact_type
+        == resolve_type(
+            load_compiled_router(command_vault_baseline.vault_root),
+            item.type_key,
+        )["frontmatter_type"]
+        and item.description
         for item in result.result.classification.type_descriptions
     )
 
@@ -359,3 +365,32 @@ def test_optional_semantic_transport_shapes_are_granular_and_strict():
             "resource.search",
             {"query": "shape", "resource": "plugin", "top_k": "ten"},
         )
+
+
+@pytest.mark.parametrize(
+    "selector", ["plan", "plans", "temporal/plan", "temporal/plans"]
+)
+def test_artefact_type_selectors_agree_across_create_list_and_search(
+    command_vault_clone, selector
+):
+    from _application.artefact.create import ArtefactCreateRequest
+    from _application.artefact.list import ArtefactListRequest
+    from _portable.lexical_maintenance import maintain_lexical_index
+
+    root = command_vault_clone.vault_root
+    app = application_for(root)
+    created = app.invoke(ArtefactCreateRequest(selector, "Selector Regression"))
+    assert created.status == "ok"
+    assert created.result.type == "temporal/plan"
+    maintain_lexical_index(root, dry_run=False, force=True)
+    listed = app.invoke(ArtefactListRequest(type_filter=selector))
+    searched = app.invoke(
+        ArtefactSearchRequest(
+            "Selector Regression", type_filter=selector, mode=ArtefactSearchMode.LEXICAL
+        )
+    )
+    assert listed.status == searched.status == "ok"
+    assert created.result.path in {item.path for item in listed.result.items}
+    assert created.result.path in {item.path for item in searched.result.items}
+    assert all(item.artefact_type == "temporal/plan" for item in listed.result.items)
+    assert all(item.resource_type == "temporal/plan" for item in searched.result.items)

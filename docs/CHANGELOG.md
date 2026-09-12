@@ -8,6 +8,7 @@ Never edit past changelog entries. Only add new entries at the top.
 
 | Version | Date | Summary |
 |---|---|---|
+| [v0.64.0](changelog/v0.64.0.md) | 2026-09-12 | Correct command contracts and portable MCP names |
 | [v0.63.0](changelog/v0.63.0.md) | 2026-09-12 | Modernise artefact definitions and Note naming |
 | [v0.62.25](changelog/v0.62.25.md) | 2026-09-12 | Preserve recovery evidence across command-interface boundaries |
 | [v0.62.24](changelog/v0.62.24.md) | 2026-09-12 | Reject Windows local paths at the Git skill boundary |

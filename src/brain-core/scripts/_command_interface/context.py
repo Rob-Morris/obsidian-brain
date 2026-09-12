@@ -18,7 +18,6 @@ from _application.context import (
     SelectedBrain,
 )
 from _application.access_contracts import AccessController
-from _application.projection import project_identity
 from _application.receipts import ReceiptReader, ReceiptWriter
 from _application.types import (
     Authority,
@@ -74,7 +73,7 @@ class ProfileAuthority:
                 validate_command_id(tool)
         except (TypeError, ValueError) as exc:
             raise ValueError(
-                "profile authority accepts only canonical Brain MCP tool names"
+                "profile authority accepts only canonical Brain command identifiers"
             ) from exc
 
     def allows(
@@ -85,16 +84,16 @@ class ProfileAuthority:
         effect: EffectClass,
     ) -> bool:
         del required, effect
-        tool = project_identity(command_id).mcp_tool
+        tool = command_id
         return tool in self.allowed_tools and (
             self.access is None or self.access.allows(tool)
         )
 
     def ceiling_allows(self, command_id: str) -> bool:
-        return project_identity(command_id).mcp_tool in self.allowed_tools
+        return command_id in self.allowed_tools
 
     def consume(self, command_id: str) -> bool:
-        tool = project_identity(command_id).mcp_tool
+        tool = command_id
         return tool in self.allowed_tools and (
             self.access is None or self.access.consume(tool)
         )

@@ -6,7 +6,6 @@ from dataclasses import dataclass
 from typing import Mapping
 
 from _application.catalogue import ApplicationCatalogue
-from _application.projection import project_identity
 from _application.types import RetryClass
 
 from .profiles import builtin_profile_allow_lists
@@ -249,10 +248,7 @@ def migrate_profile_allow_lists(
 ) -> ProfileMigrationResult:
     """Project raw shared profile definitions once; never provide runtime fallback."""
 
-    granular_entries = {
-        project_identity(entry.command_id).mcp_tool: entry
-        for entry in catalogue.entries
-    }
+    granular_entries = {entry.command_id: entry for entry in catalogue.entries}
     entries_by_command = {
         entry.command_id: entry
         for entry in catalogue.entries
@@ -341,9 +337,7 @@ def migrate_profile_allow_lists(
                 for command_id in command_ids
             ):
                 command_ids.add("invocation.read")
-            after = tuple(
-                sorted(project_identity(command_id).mcp_tool for command_id in command_ids)
-            )
+            after = tuple(sorted(command_id for command_id in command_ids))
             strategy = "custom"
         definition["allow"] = list(after)
         migrated[profile] = definition
@@ -365,9 +359,7 @@ def migrate_current_document_command_names(
     runtime alias or guessing inside the historical projection.
     """
 
-    current_tools = {
-        project_identity(entry.command_id).mcp_tool for entry in catalogue.entries
-    }
+    current_tools = {entry.command_id for entry in catalogue.entries}
     migrated = {}
     changes = []
     for profile, raw_definition in profiles.items():
@@ -511,7 +503,7 @@ def _validate_migration_map(granular_entries: Mapping[str, object]) -> None:
             + ", ".join(malformed)
         )
     command_tools = {
-        project_identity(command_id).mcp_tool
+        command_id
         for command_ids in _LEGACY_COMMANDS.values()
         for command_id in command_ids
     }

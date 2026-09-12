@@ -62,7 +62,7 @@ class VaultCheckPayload:
 @dataclass(frozen=True, slots=True)
 class VaultCheckRequest:
     COMMAND_ID: ClassVar[str] = "vault.check"
-    COMMAND_VERSION: ClassVar[int] = 1
+    COMMAND_VERSION: ClassVar[int] = 2
     RESULT_TYPE: ClassVar[type] = VaultCheckPayload
 
     severity: CheckSeverity | None = None

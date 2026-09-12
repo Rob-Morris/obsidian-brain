@@ -273,3 +273,46 @@ def test_launcher_description_carries_exact_schema_and_example(tmp_path):
     schema = json.loads(payload["payload"]["request_schema_json"])
     assert "acknowledge_global_cli_cutover" in schema["properties"]
     assert "excluded_stale_brain_ids" in schema["properties"]
+
+
+def test_valid_error_and_stderr_survive_the_released_cli(tmp_path):
+    brain = _brain(tmp_path)
+    _command_stub(brain)
+    script = brain / ".brain-core/scripts/command.py"
+    script.write_text(
+        script.read_text().replace(
+            "print(json.dumps(base, separators=(',', ':')))",
+            """print('PRIVATE dependency diagnostic', file=sys.stderr)
+if command == 'vault.check':
+    base.update(status='error', result=None, error={
+        'code':'internal_error', 'message':'Bounded failure.',
+        'effects':'none', 'retryable':False})
+print(json.dumps(base, separators=(',', ':')))
+sys.exit(4 if command == 'vault.check' else 0)""",
+        )
+    )
+    result = _run(tmp_path, "vault", "check", "--vault", str(brain), "--json")
+    payload = json.loads(result.stdout)
+    assert result.returncode == 4
+    assert payload["command"] == "vault.check"
+    assert payload["error"]["message"] == "Bounded failure."
+    assert result.stderr == ""
+    assert "PRIVATE" not in result.stdout
+
+
+def test_released_cli_checks_a_disposable_installed_brain(
+    command_vault_clone, tmp_path
+):
+    result = _run(
+        tmp_path,
+        "vault",
+        "check",
+        "--vault",
+        str(command_vault_clone.vault_root),
+        "--json",
+    )
+    payload = json.loads(result.stdout)
+    assert result.returncode == 0, payload
+    assert payload["command"] == "vault.check"
+    assert payload["status"] == "ok"
+    assert result.stderr == ""

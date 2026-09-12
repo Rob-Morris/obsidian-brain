@@ -12,4 +12,4 @@ Feature: Artefact creation lifecycle
     When I create a "log" artefact titled "Morning Session"
     Then the created artefact path matches "^_Temporal/Logs/\d{4}-\d{2}/log~Morning Session\.md$"
     And the created artefact file exists
-    And the created artefact result type is "temporal/logs"
+    And the created artefact result type is "temporal/log"

@@ -8,7 +8,7 @@ shared conventions that shipped brain-core docs refer to.
 - [Wikilinks](wikilinks.md) — how links resolve and how to keep them healthy
 - [Linking](linking.md) — doc link policy and link-maintenance rules
 - [Provenance](provenance.md) — origin, supersession, and transcript-linking patterns
-- [Archiving](archiving.md) — how living artefacts reach terminal status and move to archive
+- [Archiving](archiving.md) — how artefacts leave the active namespace and are restored
 - [Hub pattern](hub-pattern.md) — grouping related artefacts around a hub
 - [Subfolders](subfolders.md) — when living artefact folders should gain subfolders
 - [Shaping](shaping.md) — the artefact shaping process and transcript conventions

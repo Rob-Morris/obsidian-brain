@@ -41,7 +41,7 @@ TOKENISER = "tiktoken/0.12.0:o200k_base"
 TOKEN_ENCODING = "o200k_base"
 COMPACT_TOOL_TOKENS = 512
 MAX_TOOL_TOKENS = 3_072
-LARGE_TOOL_ALLOWLIST = frozenset({"document.structured-edit", "resource.create"})
+LARGE_TOOL_ALLOWLIST = frozenset({"document_structured-edit", "resource_create"})
 MAX_CATALOGUE_TOKENS = 16_384
 
 

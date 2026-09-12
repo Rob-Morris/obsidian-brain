@@ -34,6 +34,7 @@ class TypeDefinitionFileState:
 @dataclass(frozen=True, slots=True)
 class TypeStatusItem:
     type_key: str
+    artefact_type: str | None
     state: TypeDefinitionState
     files: tuple[TypeDefinitionFileState, ...]
     reason: str | None = None
@@ -48,7 +49,7 @@ class TypeStatusPayload:
 @dataclass(frozen=True, slots=True)
 class TypeStatusRequest:
     COMMAND_ID: ClassVar[str] = "type.status"
-    COMMAND_VERSION: ClassVar[int] = 1
+    COMMAND_VERSION: ClassVar[int] = 2
     RESULT_TYPE: ClassVar[type] = TypeStatusPayload
 
     type_keys: tuple[str, ...] = ()
@@ -81,11 +82,14 @@ def execute(context: InvocationContext, request: TypeStatusRequest):
                 TypeDefinitionFileState(role, TypeDefinitionState(file_state))
                 for role, file_state in sorted(entry.get("files", {}).items())
             )
-            items.append(TypeStatusItem(entry["type"], state, files))
+            items.append(
+                TypeStatusItem(entry["type"], entry["artefact_type"], state, files)
+            )
     for entry in result["not_installable"]:
         items.append(
             TypeStatusItem(
                 entry["type"],
+                entry["artefact_type"],
                 TypeDefinitionState.NOT_INSTALLABLE,
                 (),
                 entry["reason"],

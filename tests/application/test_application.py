@@ -305,7 +305,9 @@ def test_diagnostic_reporter_failure_uses_local_fallback(tmp_path, capfd):
 
     fallback = capfd.readouterr().err
     assert "diagnostic reporter failed" in fallback
-    assert "diagnostic sink unavailable" in fallback
+    assert "diagnostic sink unavailable" not in fallback
+    assert "original failure" not in fallback
+    assert "Traceback" not in fallback
 
 
 def test_diagnostic_reporter_failure_preserves_command_result(tmp_path, capfd):

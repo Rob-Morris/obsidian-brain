@@ -119,7 +119,7 @@ The current CLI refuses application discovery against a pre-cutover Brain but re
 
 Agents bootstrap in this order:
 
-1. MCP `session.start` returns the canonical JSON session model.
+1. MCP `session_start` returns the canonical JSON session model.
 2. CLI `brain session start --json` invokes the same selected-Brain command.
 3. `.brain-core/index.md` routes to the generated `.brain/local/session.md`.
 4. `.brain-core/md-bootstrap.md` routes to raw config when generated state is unavailable.

@@ -41,6 +41,7 @@ def run_lifecycle_in_fresh_interpreter(
     vault_root: str | Path,
     *,
     timeout: float = FRESH_INTERPRETER_TIMEOUT_SECONDS,
+    python_executable: str | Path | None = None,
     **kwargs,
 ) -> dict:
     """Invoke ``owner(vault_root, **kwargs)`` in a child process and return its result.
@@ -54,7 +55,12 @@ def run_lifecycle_in_fresh_interpreter(
     request = {"target": target, "vault_root": str(vault_root), "kwargs": kwargs}
     try:
         completed = subprocess.run(
-            [sys.executable, "-c", _CHILD_BOOTSTRAP, str(SCRIPTS_DIR)],
+            [
+                str(python_executable or sys.executable),
+                "-c",
+                _CHILD_BOOTSTRAP,
+                str(SCRIPTS_DIR),
+            ],
             input=json.dumps(request),
             capture_output=True,
             text=True,
@@ -72,11 +78,27 @@ def run_lifecycle_in_fresh_interpreter(
         payload = json.loads(completed.stdout)
     except ValueError as exc:
         raise FreshInterpreterError(
-            f"{target} returned no result (exit {completed.returncode}): {completed.stderr.strip()[-2000:]}"
+            f"{target} returned no structural result (exit {completed.returncode})"
         ) from exc
+    if (
+        completed.returncode != 0
+        or not isinstance(payload, dict)
+        or set(payload) not in ({"result"}, {"error"})
+    ):
+        raise FreshInterpreterError(
+            f"{target} returned an invalid reply envelope (exit {completed.returncode})"
+        )
     if "error" in payload:
         error = payload["error"]
+        if (
+            not isinstance(error, dict)
+            or set(error) != {"type", "message"}
+            or not all(isinstance(value, str) for value in error.values())
+        ):
+            raise FreshInterpreterError(f"{target} returned an invalid error envelope")
         raise FreshInterpreterError(f"{target} failed with {error['type']}: {error['message']}")
+    if not isinstance(payload["result"], dict):
+        raise FreshInterpreterError(f"{target} returned an invalid lifecycle result")
     return payload["result"]
 
 

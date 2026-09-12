@@ -451,7 +451,7 @@ def _load_core_docs(core_body):
                     "title": title.strip(),
                     "path": path,
                     "load_with": {
-                        "tool": "vault.read-file",
+                        "tool": "vault_read-file",
                         "path": path,
                     },
                 }
@@ -473,14 +473,16 @@ def _condense_artefacts(artefacts):
         if pattern is None:
             rule_patterns = [r.get("pattern") for r in (naming.get("rules") or []) if r.get("pattern")]
             pattern = " | ".join(rule_patterns) if rule_patterns else None
-        condensed.append({
-            "type": a.get("type"),
-            "key": a.get("key"),
-            "path": a.get("path"),
-            "naming_pattern": pattern,
-            "status_enum": fm.get("status_enum"),
-            "configured": a.get("configured", False),
-        })
+        condensed.append(
+            {
+                "type": a.get("frontmatter_type"),
+                "key": a.get("key"),
+                "path": a.get("path"),
+                "naming_pattern": pattern,
+                "status_enum": fm.get("status_enum"),
+                "configured": a.get("configured", False),
+            }
+        )
     return condensed
 
 

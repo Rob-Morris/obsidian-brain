@@ -89,3 +89,77 @@ def test_runtime_transports_are_empty_and_strict():
 
     assert type(resolver.resolve("runtime.status", {})) is RuntimeStatusRequest
     assert type(resolver.resolve("runtime.warmup", {})) is RuntimeWarmupRequest
+
+
+def test_explicit_warmup_retries_ready_with_deferred_semantics(
+    command_vault_clone, monkeypatch
+):
+    root = command_vault_clone.vault_root
+    state = readiness._state_document(
+        root,
+        run_id="old",
+        state="ready",
+        phase=None,
+        router="ready",
+        lexical="ready",
+        semantic="deferred",
+        started_at=readiness._now(),
+        last_error=None,
+    )
+    readiness._write_state(root, state)
+    starts = []
+    monkeypatch.setattr(readiness, "_spawn_worker", lambda *args: starts.append(args))
+    assert (
+        readiness.ensure_runtime_warmup(root, retry_failed=False)[0] == "already_ready"
+    )
+    assert readiness.ensure_runtime_warmup(root, retry_failed=True)[0] == "started"
+    assert len(starts) == 1
+
+
+def test_semantic_warmup_selects_managed_interpreter(command_vault_clone, monkeypatch):
+    from pathlib import Path
+    from _lifecycle import fresh_interpreter
+    from _bootstrap import runtime
+    import _common._venv as venv
+    import _semantic.config as config
+
+    root = command_vault_clone.vault_root
+    python = root / "managed/bin/python"
+    calls = []
+    monkeypatch.setattr(config, "embeddings_enabled", lambda _root: True)
+    monkeypatch.setattr(venv, "find_existing_central_venv", lambda _root: python)
+    monkeypatch.setattr(
+        runtime, "probe_python", lambda path, **kw: {"ok": path == str(python)}
+    )
+
+    def run(owner, vault, **kwargs):
+        calls.append((owner.__module__, Path(vault), kwargs))
+        return {"state": "ready"}
+
+    monkeypatch.setattr(fresh_interpreter, "run_lifecycle_in_fresh_interpreter", run)
+    assert readiness._warm_semantic(root, None) == ("ready", None)
+    assert calls == [
+        (
+            "_lifecycle.runtime_warmup",
+            root,
+            {"python_executable": python, "timeout": 480},
+        )
+    ]
+
+
+def test_managed_warmup_rejects_missing_model_even_with_current_sidecars(
+    command_vault_clone, monkeypatch
+):
+    import pytest
+    from _lifecycle.runtime_warmup import warm_semantic
+    import _semantic.runtime as semantic_runtime
+
+    monkeypatch.setattr(
+        semantic_runtime,
+        "load_embeddings_state",
+        lambda *_args: pytest.fail(
+            "Missing model must be checked before accepting old sidecars"
+        ),
+    )
+    with pytest.raises(RuntimeError, match="model is unavailable"):
+        warm_semantic(command_vault_clone.vault_root)

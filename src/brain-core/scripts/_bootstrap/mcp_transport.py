@@ -22,6 +22,7 @@ from _bootstrap.mcp_state import (
     CODEX_CONFIG_REL,
     INIT_STATE_REL,
     bootstrap_line_for_target,
+    migrate_bootstrap_text,
     build_mcp_config,
     build_session_hook_command,
     configured_vault_root,
@@ -340,6 +341,11 @@ def ensure_claude_md(target_dir: Path, local: bool = False) -> Path:
         safe_write(claude_md, f"{bootstrap}\n")
         info(f"Created {rel_path} with brain bootstrap")
         return claude_md
+
+    updated = migrate_bootstrap_text(existing)
+    if updated != existing:
+        safe_write(claude_md, updated)
+        existing = updated
 
     if bootstrap in existing:
         info(f"{rel_path} already has bootstrap line")
@@ -704,7 +710,9 @@ def mcp_followup_notes(clients: List[str], scope: str, target_dir: Optional[Path
     if "claude" in clients:
         if project_scope:
             notes.append("Claude:   open Claude Code in this directory and use /mcp to approve `brain` if prompted")
-            notes.append("Verify:   ask Claude to call `session.start` and confirm `environment.vault_root`")
+            notes.append(
+                "Verify:   ask Claude to call `session_start` and confirm `environment.vault_root`"
+            )
         else:
             notes.append("Verify:   claude mcp list")
     if "codex" in clients:
@@ -712,7 +720,9 @@ def mcp_followup_notes(clients: List[str], scope: str, target_dir: Optional[Path
             notes.append(
                 "Codex:    trust this project and ensure the project-scoped `brain` MCP is enabled if prompted"
             )
-            notes.append("Verify:   ask Codex to call `session.start` and confirm `environment.vault_root`")
+            notes.append(
+                "Verify:   ask Codex to call `session_start` and confirm `environment.vault_root`"
+            )
             notes.append("Health:   codex mcp list")
         else:
             notes.append("Verify:   codex mcp list")

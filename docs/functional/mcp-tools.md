@@ -11,19 +11,21 @@ the dependency admission and runtime policy are recorded in
 
 ## Tool grammar and discovery
 
-An MCP-eligible command exposes its canonical `<noun>.<verb>` identifier directly. Examples include:
+An MCP-eligible command projects its canonical `<noun>.<verb>` ID to the raw
+MCP name `<noun>_<verb>`. Only the single dot changes; hyphens are preserved.
+For example, `session.start` becomes `session_start` and
+`document.update-frontmatter` becomes `document_update-frontmatter`.
 
-- `session.start`
-- `command.list`
-- `artefact.read`
-- `artefact.create`
-- `invocation.read`
-
-The MCP server name remains `brain`; it is not repeated inside every tool name. Clients may encode dots and hyphens internally when projecting MCP tools into a model API. That private encoding does not change the raw MCP name or the command contract.
+The MCP server name remains `brain`. This projection is global, reversible and
+collision-free under the command grammar. Raw dotted names are not aliases.
+Command IDs in results, discovery arguments, permission profiles and access
+requests remain dotted; CLI commands remain `brain <noun> <verb>`.
+Interface epoch 2 requires clients to reconnect and rediscover tools after
+upgrade. Project registration repair updates exact managed bootstrap lines.
 
 The application catalogue owns the installed command inventory and marks each projection explicitly. A running server exposes only the MCP-eligible commands within the authenticated profile ceiling. Exact catalogue and profile counts are generated and checked from the authoritative catalogue; use MCP discovery or `command.list` for the selected installation rather than treating prose counts as a compatibility contract.
 
-Start a session with `session.start`. On a cold Brain it starts or joins background warm-up and returns the shared `brain.runtime-status/1` snapshot with guidance to poll `runtime.status`; retry `session.start` when ready. `runtime.status` is a cheap read-only observation, while `runtime.warmup` explicitly starts, joins or retries warm-up. Discover commands with `command.list`, and inspect one exact request/result contract with `command.describe`. Default discovery uses static catalogue facts and does not probe optional providers; request an explicit refresh only when current provider availability matters.
+Start an MCP session with `session_start`. On a cold Brain it starts or joins background warm-up and returns the shared `brain.runtime-status/1` snapshot with guidance to poll `runtime.status`; retry `session.start` when ready. `runtime.status` is a cheap read-only observation, while `runtime.warmup` explicitly starts, joins or retries warm-up. Discover commands with `command.list`, and inspect one exact request/result contract with `command.describe`. Default discovery uses static catalogue facts and does not probe optional providers; request an explicit refresh only when current provider availability matters.
 
 Related named resources share the strict `resource.create`, `resource.list`, `resource.read` and `resource.search` tools. Each has a shallow resource or target discriminator and a closed resource-specific result union. Presentation and printable output similarly share `shaping.render` with a strict `output.kind` branch. These commands replace target-only leaves without introducing a generic invocation gateway.
 
@@ -93,7 +95,7 @@ Tool summaries are short and contain no parameter manuals. Every reachable reque
 - commands that can contact an external service set `openWorldHint`; all others
   leave it false.
 
-The supported-client gate uses real Claude Code and Codex CLI projections with pinned capture tooling. The catalogue must stay within 16,384 deterministic tokens per supported client. Ordinary tools remain within 512 tokens; the explicitly cohesive `document.structured-edit` and `resource.create` schemas may use up to 3,072 so strict structural variants remain typed rather than opaque or artificially split.
+Real Claude Code, Codex CLI and Grok captures verify fresh and resumed discovery, bootstrap, read and authorised mutation through the same portable MCP names. Evidence lives in `tests/fixtures/command_interface_real_client_evidence_v1.json` and `tests/fixtures/command_interface_grok_client_evidence_v1.json`. Deterministic metadata budgets use the Claude Code and Codex projections with pinned capture tooling. The catalogue must stay within 16,384 deterministic tokens per supported client. Ordinary tools remain within 512 tokens; the explicitly cohesive `document.structured-edit` and `resource.create` schemas may use up to 3,072 so strict structural variants remain typed rather than opaque or artificially split.
 
 ## Proxy replacement protocol
 
@@ -118,7 +120,44 @@ are discarded when their config, workspace or dependency-tier inputs change.
 Derived snapshots publish
 only after a bounded stable-signature observation and are made recursively
 read-only at the cache boundary; rebuild commands explicitly
-invalidate their corresponding snapshot. MCP `session.start` returns after
+invalidate their corresponding snapshot. MCP `session_start` returns after
 publishing its human-readable mirror to one bounded latest-value worker. Server
 shutdown drains the newest accepted mirror within a fixed deadline without
 evicting it; direct CLI/script calls persist that mirror synchronously.
+
+## Frontmatter, type selectors and archive
+
+`artefact.create`, the memory/skill/style variants of `resource.create`, and
+`document.update-frontmatter` accept frontmatter as a JSON object. Values are
+strings, numbers, booleans, null or flat arrays of those scalars. For example,
+`{"tags": ["review"], "summary": "Ready", "owner": null}`. Omitted optional
+frontmatter defaults to `{}`; an explicit null object or nested mapping is
+invalid. Frontmatter updates require at least one field. Schemas and command
+examples use the same codec as request decoding.
+
+Artefact-facing `type`/`artefact_type` fields report the taxonomy's canonical
+frontmatter value, such as `temporal/plan`. Creation, listing and search share
+the selector resolver: `plan`, `plans`, `temporal/plan` and `temporal/plans` all
+select the same installed type. Definition sync/status retain the qualified
+bundle `type_key` (`temporal/plans`); status also exposes `artefact_type`, including
+library-only definitions. Content and named-resource definition selectors retain
+their configured short key (`plans`), as described by their individual schemas.
+Custom taxonomy values come from the installed definition, never guessed plurals.
+
+`artefact.archive` accepts every artefact type independently of lifecycle status,
+including statusless Thoughts. It preserves status, intrinsic dated filenames,
+ownership and link updates. Restore removes only the archival date prefix and
+returns terminal artefacts to their status folder. Archive, restore and delete
+refresh active router/lexical state; known partial mutations also reconcile those
+indexes. Refresh failure reports committed effects with repair guidance. AUTO
+search falls back to lexical when semantic sidecars are unavailable.
+`artefact.delete` continues to require administrator authority.
+
+Portable `vault.check` performs active model-load verification in a bounded
+selected-managed-runtime subprocess. Warm-up uses that same managed interpreter
+entry point for semantic assets, preserving the virtual environment symlink.
+Missing runtime is deferred, model failures remain failures, and explicit warm-up
+can retry a ready snapshot whose semantic component is deferred. A valid CLI
+JSON result remains authoritative when native libraries write incidental stderr;
+identity, schema and exit-category validation still apply. Diagnostic fallback
+messages exclude exception contents.

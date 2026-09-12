@@ -9,11 +9,12 @@ from typing import ClassVar, Mapping
 
 from .._mutation_support import (
     FrontmatterField,
+    Frontmatter,
+    FRONTMATTER_CODEC,
     InlineContent,
     MutationContent,
     StagedContent,
     contributor_mutation_entry,
-    decode_frontmatter,
     decode_mutation_content,
     frontmatter_mapping,
     no_effect_error,
@@ -62,13 +63,19 @@ class ArtefactCreatePayload:
 @dataclass(frozen=True, slots=True)
 class ArtefactCreateRequest:
     COMMAND_ID: ClassVar[str] = "artefact.create"
-    COMMAND_VERSION: ClassVar[int] = 1
+    COMMAND_VERSION: ClassVar[int] = 2
     RESULT_TYPE: ClassVar[type] = ArtefactCreatePayload
+
+    MINIMAL_EXAMPLE: ClassVar[dict[str, object]] = {
+        "type": "living/wiki",
+        "title": "Example",
+        "frontmatter": {"tags": ["example"], "summary": "Working knowledge"},
+    }
 
     type: str
     title: str
     content: MutationContent | None = None
-    frontmatter: tuple[FrontmatterField, ...] = ()
+    frontmatter: Frontmatter = ()
     parent: str | None = None
     key: str | None = None
     fix_links: bool = False
@@ -249,10 +256,8 @@ def decode(payload: Mapping[str, object]) -> ArtefactCreateRequest:
     return ArtefactCreateRequest(
         type=type_key,
         title=title,
-        content=(
-            None if raw_content is None else decode_mutation_content(raw_content)
-        ),
-        frontmatter=decode_frontmatter(payload.get("frontmatter")),
+        content=(None if raw_content is None else decode_mutation_content(raw_content)),
+        frontmatter=FRONTMATTER_CODEC.decode(payload.get("frontmatter", {})),
         parent=parent,
         key=key,
         fix_links=fix_links,

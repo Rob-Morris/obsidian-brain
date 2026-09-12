@@ -68,13 +68,13 @@ python3 .brain-core/scripts/command.py vault check \
   --request-json '{"actionable":true}' --json
 ```
 
-For agent bootstrap, MCP remains the primary path: call `session.start`. When MCP is unavailable from a bound external workspace, run:
+For agent bootstrap, MCP remains the primary path: call `session_start`. When MCP is unavailable from a bound external workspace, run:
 
 ```bash
 brain session start --json
 ```
 
-That command resolves the workspace binding through the machine-level launcher and dispatches the canonical `session.start` request only to the selected Brain's application owner.
+That command resolves the workspace binding through the machine-level launcher and dispatches the canonical `session_start` request only to the selected Brain's application owner.
 
 Commands declare bootstrap, portable or managed dependency tiers. The adapter never silently provisions or changes tier; availability and one next action are part of the structural result. See [User Reference](user-reference.md#dependency-and-availability-model) and [Script Reference](../functional/scripts.md).
 
@@ -116,7 +116,7 @@ brain skill expose --vault /path/to/brain \
   --request-json '{"name":"shaping","client":"all","scope":"global"}' --json
 ```
 
-The adapter contains no workflow of its own. It calls `session.start`, resolves
+The adapter contains no workflow of its own. It calls `session_start`, resolves
 the unqualified effective skill user-first, and loads that package from the
 active Brain. A normal Brain or skill update therefore changes the workflow
 without copying it into each client directory. Existing unmanaged skills are

@@ -1593,10 +1593,11 @@ class TestArchiveArtefact:
         result = edit.archive_artefact(str(vault), router, rel)
         assert "_Archive/Ideas/Brain/" in result["new_path"]
 
-    def test_archive_refuses_non_terminal_status(self, vault, router):
+    def test_archive_preserves_non_terminal_status(self, vault, router):
         rel = self._make_idea(vault, status="shaping")
-        with pytest.raises(ValueError, match="not terminal"):
-            edit.archive_artefact(str(vault), router, rel)
+        result = edit.archive_artefact(str(vault), router, rel)
+        fields, _ = parse_frontmatter((vault / result["new_path"]).read_text())
+        assert fields["status"] == "shaping"
 
     def test_archive_refuses_already_archived(self, vault, router):
         archive = vault / "Ideas" / "_Archive"
@@ -1733,7 +1734,7 @@ class TestArchiveArtefact:
         )
 
         assert {item["new_path"] for item in restored["restored"]} == {
-            "Ideas/Parent.md",
+            "Ideas/+Adopted/Parent.md",
             "Ideas/parent/+Adopted/Child.md",
             "Wiki/ideas~parent/ideas~child/Grand.md",
         }
@@ -2262,7 +2263,6 @@ class TestDeleteLivingDescendants:
         assert (vault / "Ideas" / "parent" / "Child.md").is_file()
 
 
-
 class TestUnarchiveArtefact:
     """Tests for brain_move(op='unarchive') — unarchive_artefact()."""
 
@@ -2278,7 +2278,7 @@ class TestUnarchiveArtefact:
     def test_unarchive_moves_to_type_folder(self, vault, router):
         rel = self._make_archived(vault)
         result = edit.unarchive_artefact(str(vault), router, rel)
-        assert result["new_path"] == "Ideas/my-idea.md"
+        assert result["new_path"] == "Ideas/+Adopted/my-idea.md"
         assert not (vault / rel).exists()
         assert (vault / result["new_path"]).exists()
 
@@ -2297,7 +2297,7 @@ class TestUnarchiveArtefact:
     def test_unarchive_preserves_project_structure(self, vault, router):
         rel = self._make_archived(vault, "_Archive/Ideas/Brain/20260101-my-idea.md")
         result = edit.unarchive_artefact(str(vault), router, rel)
-        assert result["new_path"] == "Ideas/Brain/my-idea.md"
+        assert result["new_path"] == "Ideas/Brain/+Adopted/my-idea.md"
 
     def test_unarchive_refuses_non_archived(self, vault, router):
         (vault / "Ideas" / "live-idea.md").write_text(
@@ -2361,7 +2361,8 @@ class TestUnarchiveArtefact:
         self, vault, router
     ):
         rel = self._make_archived(vault)
-        (vault / "Ideas" / "my-idea.md").write_text(
+        (vault / "Ideas" / "+Adopted").mkdir(exist_ok=True)
+        (vault / "Ideas" / "+Adopted" / "my-idea.md").write_text(
             "---\ntype: living/ideas\ntags: []\n---\n\nExisting.\n"
         )
 
@@ -2370,4 +2371,4 @@ class TestUnarchiveArtefact:
 
         archived_fields, _ = parse_frontmatter((vault / rel).read_text())
         assert "archiveddate" in archived_fields
-        assert (vault / "Ideas" / "my-idea.md").is_file()
+        assert (vault / "Ideas" / "+Adopted" / "my-idea.md").is_file()

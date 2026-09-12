@@ -175,7 +175,7 @@ Back on the idea log, a callout records the spin-out:
 
 The idea has legs. Time to shape it properly:
 
-The shaping skill reads the design taxonomy, chooses its conversational mode, and calls the granular `shaping.start` MCP command to open or continue today's linked session. The application command owns transcript and taxonomy-declared status mechanics; the skill owns adaptive questions, answer propagation, reconciliation, and the completion decision. Most types enter `shaping` and later move to their declared completion status. Discovery-shaped types whose lifecycle represents an enduring state may instead preserve their current non-terminal status throughout the pass.
+The shaping skill reads the design taxonomy, chooses its conversational mode, and calls the granular `shaping_start` MCP tool to open or continue today's linked session. The application command owns transcript and taxonomy-declared status mechanics; the skill owns adaptive questions, answer propagation, reconciliation, and the completion decision. Most types enter `shaping` and later move to their declared completion status. Discovery-shaped types whose lifecycle represents an enduring state may instead preserve their current non-terminal status throughout the pass.
 
 The source artefact remains the current truth, while transcript reconciliation events preserve how decisions, work, possible questions, and body content were added, narrowed, resolved, reopened, or propagated. Each turn asks for one user commitment; question numbers identify transcript turns while stable decision numbers identify the artefact's evolving choices. At a candidate stopping point, the skill explains at a high level why the taxonomy bar is met and recommends an optional four-Cs review—independent when a separate reviewer is available. The review checks correctness, clarity, consistency, and completeness, asks before applying fixes, and either supports completion or returns decision-worthy gaps to shaping. The user chooses to run the review, skip it and complete or hand off the pass, or stop without asserting completion; status changes only when the taxonomy and chosen outcome require one.
 
@@ -199,7 +199,7 @@ status: shaping
 
 The design doc has structure: a core goal, open decisions, transcripts from Q&A sessions that shaped it. It moves through `shaping` → `ready` → `active` → `implemented`.
 
-Set the idea's status to `adopted` with the `artefact.set-status` MCP command; Brain moves it to `Ideas/+Adopted/` and updates wikilinks vault-wide. If the idea is later revived with a non-terminal status, the same handler moves it back out.
+Set the idea's status to `adopted` with the `artefact_set-status` MCP tool; Brain moves it to `Ideas/+Adopted/` and updates wikilinks vault-wide. If the idea is later revived with a non-terminal status, the same handler moves it back out.
 
 ### The Thread is Never Lost
 
@@ -327,3 +327,7 @@ Your standing instructions and gotchas travel with the vault. Every agent sessio
 When an agent does good work, you can award a cookie. Cookies are temporal artefacts that track what was done, what made it satisfying, and why it earned one. Over time, the cookie log becomes a signal of what kinds of work land well — a feedback loop that helps agents understand what you value.
 
 Agents are encouraged to ask honestly after meaningful work: "Was that good enough to earn a cookie? Because you know I'd do aaaanything for a cookie, so be straight with me." The value comes from cookies being genuine, not fished for.
+
+### Archive an artefact
+
+Use `artefact_archive` in MCP (or `brain artefact archive`) to remove any artefact from active use, including a Thought with no status. Archive preserves its lifecycle status; `artefact_unarchive` restores it. Active listing and lexical search refresh after archive, restore and deletion. Permanent `artefact.delete` requires Administrator authority and is absent from lower-ceiling callable catalogues.

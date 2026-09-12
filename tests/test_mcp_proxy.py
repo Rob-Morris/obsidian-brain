@@ -546,7 +546,7 @@ def test_tools_call_notification_is_rejected_before_interface_acceptance(
     tool_notification = {
         "jsonrpc": "2.0",
         "method": "tools/call",
-        "params": {"name": "example.mutate", "arguments": {}},
+        "params": {"name": "example_mutate", "arguments": {}},
     }
     valid_notification = {"jsonrpc": "2.0", "method": "notifications/initialized"}
     proxy, sent_to_client = _make_inprocess_proxy(
@@ -1764,7 +1764,7 @@ class TestVersionDriftReplay:
                 "tools/call",
                 id="granular-1",
                 params={
-                    "name": "artefact.create",
+                    "name": "artefact_create",
                     "arguments": {"type": "living/wiki", "title": "Example"},
                 },
             )
@@ -1773,7 +1773,7 @@ class TestVersionDriftReplay:
         forwarded, record = proxy._prepare_interface_call(raw)
 
         assert record.raw_request == raw
-        assert record.projected_tool == "artefact.create"
+        assert record.projected_tool == "artefact_create"
         assert record.command_id == "artefact.create"
         assert record.header_fingerprint == header.fingerprint
         assert record.invocation_id.startswith("mcp-")
@@ -1816,7 +1816,7 @@ class TestVersionDriftReplay:
             _make_jsonrpc(
                 "tools/call",
                 id=201,
-                params={"name": "artefact.read", "arguments": {"path": "Example"}},
+                params={"name": "artefact_read", "arguments": {"path": "Example"}},
             )
         )
         forwarded, record = proxy._prepare_interface_call(raw)
@@ -1841,16 +1841,21 @@ class TestVersionDriftReplay:
             _make_jsonrpc(
                 "tools/call",
                 id=202,
-                params={"name": "artefact.read", "arguments": {"path": "Example"}},
+                params={"name": "artefact_read", "arguments": {"path": "Example"}},
             )
         )
         forwarded, record = proxy._prepare_interface_call(raw)
         changed = replace(
             header,
             tools=tuple(
-                (name, replace(mapping, command_version=mapping.command_version + 1))
-                if name == "artefact.read"
-                else (name, mapping)
+                (
+                    (
+                        name,
+                        replace(mapping, command_version=mapping.command_version + 1),
+                    )
+                    if name == "artefact_read"
+                    else (name, mapping)
+                )
                 for name, mapping in header.tools
             ),
         )
@@ -1897,7 +1902,7 @@ class TestVersionDriftReplay:
             _make_jsonrpc(
                 "tools/call",
                 id=203,
-                params={"name": "artefact.read", "arguments": {"path": "Example"}},
+                params={"name": "artefact_read", "arguments": {"path": "Example"}},
             )
         )
 
@@ -1936,7 +1941,7 @@ class TestUnexpectedChildOutcomeSafety:
         header, forwarded, record = self._accepted(
             proxy,
             request_id=301,
-            tool="artefact.read",
+            tool="artefact_read",
             arguments={"path": "Designs/Example.md"},
         )
         replacement = _FakeChild()
@@ -1964,7 +1969,7 @@ class TestUnexpectedChildOutcomeSafety:
         _header, forwarded, record = self._accepted(
             proxy,
             request_id=302,
-            tool="artefact.create",
+            tool="artefact_create",
             arguments={"type": "living/wiki", "title": "Example"},
         )
         with proxy._inflight_lock:
@@ -1982,7 +1987,7 @@ class TestUnexpectedChildOutcomeSafety:
 
         assert len(replacement.sent) == 1
         assert replacement.sent[0]["params"] == {
-            "name": "invocation.read",
+            "name": "invocation_read",
             "arguments": {"invocation_id": record.invocation_id},
         }
         assert forwarded not in replacement.sent
@@ -2000,7 +2005,7 @@ class TestUnexpectedChildOutcomeSafety:
         _header, _forwarded, record = self._accepted(
             proxy,
             request_id=303,
-            tool="artefact.delete",
+            tool="artefact_delete",
             arguments={"path": "Designs/Example.md"},
         )
         replacement = _FakeChild()
@@ -2043,7 +2048,7 @@ class TestUnexpectedChildOutcomeSafety:
         _header, forwarded, record = self._accepted(
             proxy,
             request_id=304,
-            tool="artefact.create",
+            tool="artefact_create",
             arguments={"type": "living/wiki", "title": "Example"},
         )
         replacement = _FakeChild()

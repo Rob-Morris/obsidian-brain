@@ -20,7 +20,7 @@ from ..types import Authority
 @dataclass(frozen=True, slots=True)
 class ArtefactDeleteRequest:
     COMMAND_ID: ClassVar[str] = "artefact.delete"
-    COMMAND_VERSION: ClassVar[int] = 1
+    COMMAND_VERSION: ClassVar[int] = 2
     RESULT_TYPE: ClassVar[type] = ArtefactDeletePayload
 
     path: str

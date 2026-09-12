@@ -795,6 +795,11 @@ class TestRepairScopes:
         repair_vault,
         monkeypatch,
     ):
+        monkeypatch.setattr(
+            semantic_repairs,
+            "find_existing_central_venv",
+            lambda _root: Path(sys.executable),
+        )
         semantic_config.set_semantic_flags(repair_vault, retrieval=True)
         semantic_config.set_semantic_engine_installed(repair_vault, installed=True)
 
@@ -846,6 +851,11 @@ class TestRepairScopes:
         }
 
     def test_semantic_repair_marks_runtime_when_only_marker_is_missing(self, repair_vault, monkeypatch):
+        monkeypatch.setattr(
+            semantic_repairs,
+            "find_existing_central_venv",
+            lambda _root: Path(sys.executable),
+        )
         semantic_config.set_semantic_flags(repair_vault, retrieval=True)
         semantic_config.set_semantic_engine_installed(repair_vault, installed=False)
 
@@ -860,9 +870,9 @@ class TestRepairScopes:
             lambda _vault: _model_state(repair_vault),
         )
         monkeypatch.setattr(
-            semantic_repairs.semantic_model,
-            "verify_local_model_load",
-            lambda state: state,
+            semantic_repairs,
+            "run_lifecycle_in_fresh_interpreter",
+            lambda *_args, **_kwargs: {"loaded": True},
         )
         monkeypatch.setattr(
             semantic_repairs.semantic_runtime,
@@ -898,6 +908,11 @@ class TestRepairScopes:
         assert semantic_config.semantic_engine_installed(repair_vault, config=cfg) is True
 
     def test_semantic_repair_syncs_runtime_and_rebuilds_sidecars_when_unhealthy(self, repair_vault, monkeypatch):
+        monkeypatch.setattr(
+            semantic_repairs,
+            "find_existing_central_venv",
+            lambda _root: Path(sys.executable),
+        )
         semantic_config.set_semantic_flags(repair_vault, retrieval=True)
         semantic_config.set_semantic_engine_installed(repair_vault, installed=False)
 
@@ -917,9 +932,9 @@ class TestRepairScopes:
             lambda _vault: _model_state(repair_vault, manifest_missing=True),
         )
         monkeypatch.setattr(
-            semantic_repairs.semantic_model,
-            "verify_local_model_load",
-            lambda state: state,
+            semantic_repairs,
+            "run_lifecycle_in_fresh_interpreter",
+            lambda *_args, **_kwargs: {"loaded": True},
         )
         monkeypatch.setattr(
             semantic_repairs.semantic_runtime,
@@ -956,6 +971,11 @@ class TestRepairScopes:
         ]
 
     def test_semantic_repair_skips_asset_refresh_when_sidecars_are_present(self, repair_vault, monkeypatch):
+        monkeypatch.setattr(
+            semantic_repairs,
+            "find_existing_central_venv",
+            lambda _root: Path(sys.executable),
+        )
         semantic_config.set_semantic_flags(repair_vault, retrieval=True)
         semantic_config.set_semantic_engine_installed(repair_vault, installed=False)
 
@@ -975,9 +995,9 @@ class TestRepairScopes:
             lambda _vault: _model_state(repair_vault),
         )
         monkeypatch.setattr(
-            semantic_repairs.semantic_model,
-            "verify_local_model_load",
-            lambda state: state,
+            semantic_repairs,
+            "run_lifecycle_in_fresh_interpreter",
+            lambda *_args, **_kwargs: {"loaded": True},
         )
         monkeypatch.setattr(
             semantic_repairs.semantic_runtime,
@@ -1011,6 +1031,11 @@ class TestRepairScopes:
         ]
 
     def test_semantic_repair_returns_structured_error_when_asset_refresh_fails(self, repair_vault, monkeypatch):
+        monkeypatch.setattr(
+            semantic_repairs,
+            "find_existing_central_venv",
+            lambda _root: Path(sys.executable),
+        )
         semantic_config.set_semantic_flags(repair_vault, retrieval=True)
         semantic_config.set_semantic_engine_installed(repair_vault, installed=True)
 
@@ -1025,9 +1050,9 @@ class TestRepairScopes:
             lambda _vault: _model_state(repair_vault),
         )
         monkeypatch.setattr(
-            semantic_repairs.semantic_model,
-            "verify_local_model_load",
-            lambda state: state,
+            semantic_repairs,
+            "run_lifecycle_in_fresh_interpreter",
+            lambda *_args, **_kwargs: {"loaded": True},
         )
         monkeypatch.setattr(
             semantic_repairs.semantic_runtime,
@@ -1054,6 +1079,11 @@ class TestRepairScopes:
         assert "boom" in result["steps"][-2]["message"]
 
     def test_semantic_repair_dry_run_uses_shared_planned_step_shapes(self, repair_vault, monkeypatch):
+        monkeypatch.setattr(
+            semantic_repairs,
+            "find_existing_central_venv",
+            lambda _root: Path(sys.executable),
+        )
         semantic_config.set_semantic_flags(repair_vault, retrieval=True)
         semantic_config.set_semantic_engine_installed(repair_vault, installed=False)
 
@@ -1095,6 +1125,11 @@ class TestRepairScopes:
         ]
 
     def test_semantic_repair_dry_run_skips_marker_when_already_set(self, repair_vault, monkeypatch):
+        monkeypatch.setattr(
+            semantic_repairs,
+            "find_existing_central_venv",
+            lambda _root: Path(sys.executable),
+        )
         semantic_config.set_semantic_flags(repair_vault, retrieval=True)
         semantic_config.set_semantic_engine_installed(repair_vault, installed=True)
 
@@ -1110,9 +1145,9 @@ class TestRepairScopes:
             lambda _vault: model_state,
         )
         monkeypatch.setattr(
-            semantic_repairs.semantic_model,
-            "verify_local_model_load",
-            lambda state: state,
+            semantic_repairs,
+            "run_lifecycle_in_fresh_interpreter",
+            lambda *_args, **_kwargs: {"loaded": True},
         )
         monkeypatch.setattr(
             semantic_repairs.semantic_runtime,
@@ -1126,6 +1161,11 @@ class TestRepairScopes:
         assert [step["name"] for step in result["steps"]] == ["semantic_assets"]
 
     def test_semantic_repair_propagates_programmer_errors_from_asset_refresh(self, repair_vault, monkeypatch):
+        monkeypatch.setattr(
+            semantic_repairs,
+            "find_existing_central_venv",
+            lambda _root: Path(sys.executable),
+        )
         semantic_config.set_semantic_flags(repair_vault, retrieval=True)
         semantic_config.set_semantic_engine_installed(repair_vault, installed=True)
 
@@ -1140,9 +1180,9 @@ class TestRepairScopes:
             lambda _vault: _model_state(repair_vault),
         )
         monkeypatch.setattr(
-            semantic_repairs.semantic_model,
-            "verify_local_model_load",
-            lambda state: state,
+            semantic_repairs,
+            "run_lifecycle_in_fresh_interpreter",
+            lambda *_args, **_kwargs: {"loaded": True},
         )
         monkeypatch.setattr(
             semantic_repairs.semantic_runtime,
