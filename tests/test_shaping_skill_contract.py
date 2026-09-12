@@ -31,6 +31,21 @@ def _load_vendor_module():
     return module
 
 
+def test_vendor_uses_the_canonical_portable_path_contract():
+    from _common import validate_portable_relative_path as common_validator
+
+    module = _load_vendor_module()
+
+    assert module.validate_portable_relative_path is common_validator
+    assert module._portable_relative_path(
+        "references/assess.md",
+        field="destination",
+    ) == "references/assess.md"
+    for invalid in ("../outside.md", r"folder\file.md", "NUL.md", "name?.md"):
+        with pytest.raises(ValueError, match="destination must be"):
+            module._portable_relative_path(invalid, field="destination")
+
+
 def test_brain_entry_point_composes_portable_workflow_and_narrow_adaptor():
     root = _read("SKILL.md")
     prose = " ".join(root.split())

@@ -2,14 +2,15 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from typing import ClassVar, Mapping
 
 from .._decoding import reject_unexpected
-from .._mutation_support import contributor_mutation_entry, no_effect_error
+from .._mutation_support import no_effect_error
 from ..context import InvocationContext
 from ..receipts import CommittedEffect
 from ..results import ErrorCode, Ok
+from ._support import git_skill_catalogue_entry
 from ._types import SkillStatusPayload, status_payload
 
 
@@ -60,8 +61,4 @@ def decode(payload: Mapping[str, object]) -> SkillStatusRequest:
 
 
 def catalogue_entry():
-    return replace(
-        contributor_mutation_entry(SkillStatusRequest, execute),
-        required_providers=("git_remote",),
-        open_world=True,
-    )
+    return git_skill_catalogue_entry(SkillStatusRequest, execute)

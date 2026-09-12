@@ -9,9 +9,17 @@ import json
 from pathlib import Path
 from pathlib import PurePosixPath
 import subprocess
+import sys
 
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
+CORE_SCRIPTS = REPOSITORY_ROOT / "src" / "brain-core" / "scripts"
+if str(CORE_SCRIPTS) not in sys.path:
+    sys.path.insert(0, str(CORE_SCRIPTS))
+
+from _portable_path import validate_portable_relative_path  # noqa: E402
+
+
 DEFAULT_DESTINATION = REPOSITORY_ROOT / "src" / "brain-core" / "skills" / "shaping"
 PROVENANCE_FILE = "portable-provenance.json"
 SOURCE_TO_DESTINATION = {
@@ -26,12 +34,10 @@ BRAIN_OWNED_DESTINATIONS = frozenset(("SKILL.md", "references/brain.md"))
 
 
 def _portable_relative_path(value: object, *, field: str) -> str:
-    if not isinstance(value, str) or not value or "\\" in value:
-        raise ValueError(f"{field} must be a portable relative path")
-    path = PurePosixPath(value)
-    if path.is_absolute() or any(part in ("", ".", "..") for part in path.parts):
-        raise ValueError(f"{field} must be a portable relative path")
-    return path.as_posix()
+    try:
+        return validate_portable_relative_path(value)
+    except ValueError as exc:
+        raise ValueError(f"{field} must be a portable relative path") from exc
 
 
 def _committed_source_membership(

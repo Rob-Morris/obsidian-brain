@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from typing import ClassVar, Mapping
 
 from ..context import InvocationContext
-from ._support import execute_mutation, git_mutation_catalogue_entry
+from ._support import execute_mutation, git_skill_catalogue_entry
 from ._types import SkillMutationPayload
 
 
@@ -55,4 +55,4 @@ def decode(payload: Mapping[str, object]) -> SkillAddGitRequest:
 
 
 def catalogue_entry():
-    return git_mutation_catalogue_entry(SkillAddGitRequest, execute)
+    return git_skill_catalogue_entry(SkillAddGitRequest, execute)

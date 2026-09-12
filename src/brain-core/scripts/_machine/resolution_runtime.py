@@ -8,7 +8,7 @@ import os
 import shutil
 
 
-RESOLUTION_RUNTIME_VERSION = "0.1.0"
+RESOLUTION_RUNTIME_VERSION = "0.1.1"
 RESOLUTION_RUNTIME_ENV = "BRAIN_RESOLUTION_RUNTIME_DIR"
 RESOLUTION_RUNTIME_DIRNAME = "resolution-runtime"
 RESOLUTION_RUNTIME_ENTRY = "resolve_brain.py"
@@ -16,6 +16,7 @@ RESOLUTION_RUNTIME_ENTRY = "resolve_brain.py"
 
 _DEPLOY_FILES: tuple[tuple[str, str], ...] = (
     ("_machine/resolve_brain.py", RESOLUTION_RUNTIME_ENTRY),
+    ("_portable_path.py", "_portable_path.py"),
     ("_bootstrap/workspace_binding.py", "_bootstrap/workspace_binding.py"),
     ("_bootstrap/__init__.py", "_bootstrap/__init__.py"),
     ("vault_registry.py", "vault_registry.py"),

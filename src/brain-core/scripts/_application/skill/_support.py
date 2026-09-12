@@ -35,7 +35,9 @@ def mutation_catalogue_entry(request_type, executor):
     return contributor_mutation_entry(request_type, executor)
 
 
-def git_mutation_catalogue_entry(request_type, executor):
+def git_skill_catalogue_entry(request_type, executor):
+    """Build the shared contributor contract for Git-backed skill operations."""
+
     return replace(
         contributor_mutation_entry(request_type, executor),
         required_providers=("git_remote",),

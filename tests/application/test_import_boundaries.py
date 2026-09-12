@@ -74,6 +74,15 @@ def test_operational_log_stays_stdlib_only_below_common():
     assert offenders == set()
 
 
+def test_portable_path_contract_stays_stdlib_only_across_planes():
+    """The shared path grammar must remain importable by Core and repo tools."""
+
+    path = APPLICATION_ROOT.parent / "_portable_path.py"
+    offenders = _imports(path) - set(sys.stdlib_module_names)
+
+    assert offenders == set()
+
+
 def test_version_contract_stays_stdlib_only_for_launcher_and_repository_tools():
     """The shared release grammar must remain usable below managed-runtime code."""
     path = REPO_ROOT / "cli" / "_version_contract.py"

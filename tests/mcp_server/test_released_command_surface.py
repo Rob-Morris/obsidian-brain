@@ -102,3 +102,106 @@ def test_server_version_guard_keeps_matching_process_alive(tmp_path, monkeypatch
     server._check_version_drift()
 
     assert exits == []
+
+
+@pytest.mark.parametrize(
+    ("error", "exit_code"),
+    (
+        (RuntimeError("server failed"), 1),
+        (KeyboardInterrupt(), 130),
+        (SystemExit(0), 1),
+        (SystemExit(7), 7),
+    ),
+)
+def test_server_maps_only_normal_return_to_success(error, exit_code):
+    assert server._termination_exit_code(error) == exit_code
+
+
+def test_server_records_success_only_after_normal_completion(tmp_path, monkeypatch):
+    exits = []
+    transports = []
+    logger = SimpleNamespace(close=lambda *, exit_code: exits.append(exit_code))
+    runtime = SimpleNamespace(run=lambda *, transport: transports.append(transport))
+    monkeypatch.setattr(server, "_selected_vault", lambda: tmp_path)
+    monkeypatch.setattr(server, "_install_diagnostics", lambda _root: logger)
+    monkeypatch.setattr(server, "_close_session_mirror", lambda: True)
+    monkeypatch.setattr(server, "mcp", runtime)
+
+    server.main()
+
+    assert transports == ["stdio"]
+    assert exits == [0]
+
+
+def test_server_shutdown_failures_do_not_mask_the_initiating_crash(
+    tmp_path,
+    monkeypatch,
+    caplog,
+):
+    failure = RuntimeError("initiating server crash")
+    exits = []
+
+    def fail_run(*, transport):
+        assert transport == "stdio"
+        raise failure
+
+    def fail_mirror_close():
+        raise KeyboardInterrupt("mirror close interrupted")
+
+    def fail_logger_close(*, exit_code):
+        exits.append(exit_code)
+        raise SystemExit(9)
+
+    monkeypatch.setattr(server, "_selected_vault", lambda: tmp_path)
+    monkeypatch.setattr(
+        server,
+        "_install_diagnostics",
+        lambda _root: SimpleNamespace(close=fail_logger_close),
+    )
+    monkeypatch.setattr(server, "_close_session_mirror", fail_mirror_close)
+    monkeypatch.setattr(server, "mcp", SimpleNamespace(run=fail_run))
+
+    with caplog.at_level("WARNING"):
+        with pytest.raises(RuntimeError) as raised:
+            server.main()
+
+    assert raised.value is failure
+    assert exits == [1]
+    assert "session mirror shutdown failed" in caplog.text
+    assert "operational logger shutdown failed" in caplog.text
+
+
+def test_cleanup_only_interrupt_is_recorded_and_propagated(
+    tmp_path,
+    monkeypatch,
+):
+    interruption = KeyboardInterrupt("shutdown interrupted")
+    exits = []
+
+    def interrupt_mirror_close():
+        raise interruption
+
+    monkeypatch.setattr(server, "_selected_vault", lambda: tmp_path)
+    monkeypatch.setattr(
+        server,
+        "_install_diagnostics",
+        lambda _root: SimpleNamespace(
+            close=lambda *, exit_code: exits.append(exit_code)
+        ),
+    )
+    monkeypatch.setattr(
+        server,
+        "_close_session_mirror",
+        interrupt_mirror_close,
+    )
+    monkeypatch.setattr(
+        server,
+        "mcp",
+        SimpleNamespace(run=lambda *, transport: None),
+    )
+
+    with pytest.raises(KeyboardInterrupt) as raised:
+        server.main()
+
+    assert raised.value is interruption
+    assert exits == [130]

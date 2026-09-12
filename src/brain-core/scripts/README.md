@@ -45,6 +45,7 @@ scripts/
 ├── _command_interface/        trusted local composition and receipts
 ├── _bootstrap/                stdlib-safe bootstrap owners
 ├── _portable/                 portable implementation seams
+├── _portable_path.py          stdlib-only cross-plane path grammar
 ├── _common/, _lifecycle/, …   lower-level domain support
 └── upgrade.py                 pre-cutover/source recovery launcher
 ```

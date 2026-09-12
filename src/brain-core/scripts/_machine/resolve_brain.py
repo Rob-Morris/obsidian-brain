@@ -19,7 +19,7 @@ from typing import Any
 from _bootstrap.workspace_binding import WorkspaceBindingError, resolve_brain_target
 
 
-RESOLUTION_RUNTIME_VERSION = "0.1.0"
+RESOLUTION_RUNTIME_VERSION = "0.1.1"
 
 
 def _context(start_dir: Path) -> dict[str, Any]:

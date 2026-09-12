@@ -35,6 +35,7 @@ def test_resolution_runtime_deploys_stdlib_resolver_and_version_stamp(tmp_path, 
     assert result["entry"] == str(resolution_runtime_entry(runtime_root))
     assert deployed_version(runtime_root) == result["version"]
     assert (runtime_root / "resolve_brain.py").is_file()
+    assert (runtime_root / "_portable_path.py").is_file()
     assert (runtime_root / "_bootstrap" / "workspace_binding.py").is_file()
     assert (runtime_root / "_common" / "_vault.py").is_file()
     assert not (runtime_root / "_common" / "__init__.py").exists()

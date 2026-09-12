@@ -187,15 +187,73 @@ def _close_session_mirror() -> bool:
     return complete
 
 
+def _termination_exit_code(error: BaseException) -> int:
+    """Map an escaping server termination to one truthful non-success code."""
+
+    if isinstance(error, KeyboardInterrupt):
+        return 130
+    if isinstance(error, SystemExit):
+        code = error.code
+        if isinstance(code, int) and not isinstance(code, bool) and code != 0:
+            return code
+    return 1
+
+
+def _finish_server(
+    logger,
+    *,
+    exit_code: int,
+    initiating_failure: BaseException | None = None,
+) -> None:
+    """Best-effort shutdown that cannot replace the initiating server outcome."""
+
+    cleanup_failure: BaseException | None = None
+    try:
+        _close_session_mirror()
+    except BaseException as error:
+        cleanup_failure = error
+        logging.getLogger("brain.session-mirror").warning(
+            "session mirror shutdown failed",
+            exc_info=True,
+        )
+    recorded_exit_code = (
+        _termination_exit_code(cleanup_failure)
+        if initiating_failure is None and cleanup_failure is not None
+        else exit_code
+    )
+    if logger is not None:
+        try:
+            logger.close(exit_code=recorded_exit_code)
+        except BaseException as error:
+            if cleanup_failure is None:
+                cleanup_failure = error
+            logging.getLogger("brain.operational-log").warning(
+                "operational logger shutdown failed",
+                exc_info=True,
+            )
+    if initiating_failure is None and cleanup_failure is not None:
+        raise cleanup_failure
+
+
 def main() -> None:
     root = _selected_vault()
     logger = _install_diagnostics(root)
+    exit_code = 1
+    initiating_failure: BaseException | None = None
     try:
         mcp.run(transport="stdio")
+    except BaseException as error:
+        initiating_failure = error
+        exit_code = _termination_exit_code(error)
+        raise
+    else:
+        exit_code = 0
     finally:
-        _close_session_mirror()
-        if logger is not None:
-            logger.close(exit_code=0)
+        _finish_server(
+            logger,
+            exit_code=exit_code,
+            initiating_failure=initiating_failure,
+        )
 
 
 if __name__ == "__main__":

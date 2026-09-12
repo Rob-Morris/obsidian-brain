@@ -48,7 +48,10 @@ only as `other`.
 
 Readers must skip lines with an unknown `schema` value, tolerate a missing
 `process.exited` after `SIGKILL`/`os._exit`, and tolerate unpaired spans
-(the routine version-drift restart exits inside a handler).
+(the routine version-drift restart exits inside a handler). When the final
+record is persisted, the MCP server records exit code `0` only after its serve
+loop returns normally; an escaping failure records a non-success code while
+the original exception continues to the process boundary.
 
 ## Logging can never break a command
 

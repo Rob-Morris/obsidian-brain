@@ -8,6 +8,7 @@ Never edit past changelog entries. Only add new entries at the top.
 
 | Version | Date | Summary |
 |---|---|---|
+| [v0.62.23](changelog/v0.62.23.md) | 2026-09-12 | Make MCP shutdown truthful and consolidate shared rules |
 | [v0.62.22](changelog/v0.62.22.md) | 2026-09-12 | Constrain and parallelise Git skill-source refreshes |
 | [v0.62.21](changelog/v0.62.21.md) | 2026-09-12 | Keep long-lived MCP state bounded and current |
 | [v0.62.20](changelog/v0.62.20.md) | 2026-09-12 | Make Brain/CLI cutover rollback complete and truthful |
