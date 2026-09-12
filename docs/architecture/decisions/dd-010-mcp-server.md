@@ -15,8 +15,12 @@ All vault operations are implemented in the application/scripts packages; the
 server adds MCP transport and process-scoped composition policy. Cached config
 identity is reloaded when any of its three input signatures changes and fails
 closed while a changed input is invalid. Compiled-router and lexical-index
-snapshots are re-parsed when their file signatures change and are explicitly
-invalidated after their rebuild commands. The same loaders remain available to
+snapshots are published only after their file signatures remain stable across
+a bounded load, return defensive values to callers, and are explicitly
+invalidated after their rebuild commands. Baseline and explicitly refreshed
+capability snapshots remain
+available for bounded `command.list` pagination while their config, workspace
+and dependency-tier inputs are unchanged. The same loaders remain available to
 stateless direct scripts.
 
 ## Consequences
@@ -27,3 +31,5 @@ stateless direct scripts.
 - The server is local to each vault; there is no shared server for multiple vaults.
 - Caching is an adapter concern, not an alternate implementation of application
   semantics.
+- Session-mirror shutdown has a fixed wait bound and reports whether the newest
+  accepted pending value reached storage within it.

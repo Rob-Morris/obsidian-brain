@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import _command_interface.derived_snapshots as snapshots
+import pytest
 
 
 def test_router_and_index_snapshots_reparse_only_after_file_change(
@@ -70,3 +71,81 @@ def test_explicit_invalidation_drops_only_named_snapshot(tmp_path, monkeypatch):
     store.load_lexical_index()
 
     assert calls == {"router": 2, "index": 1}
+
+
+def test_snapshot_publication_waits_for_matching_content_and_signature(
+    tmp_path,
+    monkeypatch,
+):
+    root = tmp_path.resolve()
+    router_path = root / ".brain/local/compiled-router.json"
+    router_path.parent.mkdir(parents=True)
+    router_path.write_text("A", encoding="utf-8")
+    replacements = iter(("B-longer", "C-longest", None))
+    calls = []
+
+    def load_router(_root):
+        value = router_path.read_text(encoding="utf-8")
+        calls.append(value)
+        replacement = next(replacements)
+        if replacement is not None:
+            router_path.write_text(replacement, encoding="utf-8")
+        return {"router": value}
+
+    monkeypatch.setattr(snapshots, "load_compiled_router", load_router)
+    store = snapshots.FileDerivedSnapshotStore(root)
+
+    assert store.load_router() == {"router": "C-longest"}
+    assert calls == ["A", "B-longer", "C-longest"]
+    assert store.load_router() == {"router": "C-longest"}
+    assert calls == ["A", "B-longer", "C-longest"]
+
+
+def test_unstable_snapshot_fails_without_publishing_mismatched_state(
+    tmp_path,
+    monkeypatch,
+):
+    root = tmp_path.resolve()
+    router_path = root / ".brain/local/compiled-router.json"
+    router_path.parent.mkdir(parents=True)
+    router_path.write_text("seed", encoding="utf-8")
+    calls = []
+
+    def load_router(_root):
+        value = router_path.read_text(encoding="utf-8")
+        calls.append(value)
+        router_path.write_text(value + "-changed", encoding="utf-8")
+        return {"router": value}
+
+    monkeypatch.setattr(snapshots, "load_compiled_router", load_router)
+    store = snapshots.FileDerivedSnapshotStore(root)
+
+    with pytest.raises(snapshots.DerivedSnapshotChangedError, match="3 consecutive"):
+        store.load_router()
+    assert len(calls) == 3
+    assert store._cache == {}
+
+
+def test_callers_cannot_mutate_cached_nested_snapshot_state(tmp_path, monkeypatch):
+    root = tmp_path.resolve()
+    router_path = root / ".brain/local/compiled-router.json"
+    router_path.parent.mkdir(parents=True)
+    router_path.write_text("stable", encoding="utf-8")
+    calls = []
+
+    def load_router(_root):
+        calls.append("load")
+        return {"nested": {"values": ["original"]}}
+
+    monkeypatch.setattr(snapshots, "load_compiled_router", load_router)
+    store = snapshots.FileDerivedSnapshotStore(root)
+
+    first = store.load_router()
+    with pytest.raises(TypeError, match="read-only"):
+        first["nested"]["values"].append("caller-change")
+    with pytest.raises(TypeError, match="read-only"):
+        first["nested"] = {"values": []}
+
+    assert store.load_router() == {"nested": {"values": ["original"]}}
+    assert store.load_router() is first
+    assert calls == ["load"]

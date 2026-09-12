@@ -112,8 +112,13 @@ Clients must restart and re-discover tools after the 0.55 cutover. There is no r
 After startup, every generated tool handler checks the installed `.brain-core/VERSION` before composing trusted context or entering an executor. Drift exits with the proxy's distinguished code 10 so replacement and compatibility-checked replay occur within the triggering call.
 
 The long-lived child retains authenticated identity and parsed router/index
-snapshots between calls. Config and derived-file signatures trigger refresh,
-and the router/index rebuild commands invalidate their corresponding snapshot.
-MCP `session.start` returns after publishing its human-readable mirror to one
-bounded coalescing worker; direct CLI/script calls persist that mirror
-synchronously.
+snapshots between calls. Baseline and explicitly refreshed `command.list`
+capability snapshots also survive bounded cursor pagination across calls, and
+are discarded when their config, workspace or dependency-tier inputs change.
+Derived snapshots publish
+only after a bounded stable-signature observation and are made recursively
+read-only at the cache boundary; rebuild commands explicitly
+invalidate their corresponding snapshot. MCP `session.start` returns after
+publishing its human-readable mirror to one bounded latest-value worker. Server
+shutdown drains the newest accepted mirror within a fixed deadline without
+evicting it; direct CLI/script calls persist that mirror synchronously.

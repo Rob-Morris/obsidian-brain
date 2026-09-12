@@ -416,3 +416,43 @@ def test_long_lived_composer_reuses_brain_identity_until_registry_changes(
 
     assert composer._brain_id() == "test-brain"
     assert calls == ["resolve", "resolve"]
+
+
+def test_long_lived_composer_invalidates_page_snapshots_when_config_changes(
+    tmp_path,
+    monkeypatch,
+):
+    vault = _vault(tmp_path)
+    shared = vault / ".brain/config.yaml"
+    shared.parent.mkdir(parents=True)
+    shared.write_text(
+        "vault:\n"
+        "  profiles:\n"
+        "    operator:\n"
+        "      allow: [command.list]\n"
+        "defaults:\n"
+        "  default_profile: operator\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config-home"))
+    composer = direct_context.DirectContextComposer(
+        vault_root=vault,
+        catalogue=current_application_catalogue(),
+        clock=_Clock(),
+    )
+    first_context = composer.compose(command_id="command.list")
+    first_store = first_context.capability_snapshots
+    assert first_store is not None
+    first_token = first_context.capabilities.token
+    unchanged_context = composer.compose(command_id="command.list")
+
+    assert unchanged_context.capabilities.token == first_token
+
+    shared.write_text(shared.read_text(encoding="utf-8") + "# changed\n")
+    second_context = composer.compose(command_id="command.list")
+    second_store = second_context.capability_snapshots
+
+    assert second_store is not None
+    assert second_store is not first_store
+    assert second_context.capabilities.token != first_token
+    assert second_store.read(first_token) is None

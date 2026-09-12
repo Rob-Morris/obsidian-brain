@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime
 import hashlib
 import os
 from pathlib import Path
@@ -14,6 +13,7 @@ import uuid
 
 from _application.availability import CapabilityRefresher
 from _application.catalogue import ApplicationCatalogue
+from _application.context import CapabilitySnapshot
 from _application.projection import project_identity
 from _application.registry import current_application_catalogue
 from _application.types import (
@@ -138,6 +138,13 @@ class DirectContextComposer:
         self._identity: DirectIdentity | None = None
         self._brain_id_signature = None
         self._cached_brain_id: str | None = None
+        self._capability_state: tuple[
+            DirectIdentity,
+            Path | None,
+            DependencyTier,
+            CapabilityRefresher,
+            CapabilitySnapshot,
+        ] | None = None
 
     @property
     def catalogue(self) -> ApplicationCatalogue:
@@ -184,24 +191,20 @@ class DirectContextComposer:
             if current_process_in_managed_runtime(self._root)
             else DependencyTier.PORTABLE
         )
-        observed_at = self._clock.now()
-        if not isinstance(observed_at, datetime) or observed_at.tzinfo is None:
-            raise DirectContextError("direct command clock must be timezone-aware")
-        refresher = _capability_refresher(
-            self._root, workspace, merged, tier, self._clock
+        refresher, baseline = self._capability_refresher_for(
+            identity,
+            workspace,
+            tier,
         )
         relevant_providers = _relevant_providers(command_id, self._catalogue)
         if relevant_providers:
             snapshot = refresher.refresh(relevant_providers)
-            states = tuple(
-                (capability.name, capability.availability)
-                for capability in snapshot.capabilities
-            )
-            snapshot_token = snapshot.token
-            observed_at = snapshot.observed_at
         else:
-            states = ()
-            snapshot_token = _snapshot_token(states, observed_at)
+            snapshot = baseline
+        states = tuple(
+            (capability.name, capability.availability)
+            for capability in snapshot.capabilities
+        )
         if invocation_id is None:
             invocation_id = f"direct-{uuid.uuid4()}"
         elif (
@@ -219,9 +222,9 @@ class DirectContextComposer:
             dependency_tier=tier,
             provider_ids=_LOCAL_PROVIDERS,
             capability_states=states,
-            snapshot_token=snapshot_token,
+            snapshot_token=snapshot.token,
             snapshot_freshness=SnapshotFreshness.FRESH,
-            snapshot_observed_at=observed_at,
+            snapshot_observed_at=snapshot.observed_at,
             correlation_id=invocation_id,
             invocation_id=invocation_id,
             receipt_store=receipt_store,
@@ -246,6 +249,45 @@ class DirectContextComposer:
             self._cached_brain_id = brain_id
             self._brain_id_signature = signature
             return brain_id
+
+    def _capability_refresher_for(
+        self,
+        identity: DirectIdentity,
+        workspace: Path | None,
+        tier: DependencyTier,
+    ) -> tuple[CapabilityRefresher, CapabilitySnapshot]:
+        """Retain page snapshots only while their trusted inputs remain current."""
+
+        with self._lock:
+            state = self._capability_state
+            if (
+                state is not None
+                and state[0] is identity
+                and state[1] == workspace
+                and state[2] is tier
+            ):
+                return state[3], state[4]
+            refresher = _capability_refresher(
+                self._root,
+                workspace,
+                identity.config,
+                tier,
+                self._clock,
+            )
+            baseline = refresher.refresh(())
+            if identity is not self._identity:
+                # A newer config generation won a concurrent identity refresh.
+                # The older invocation may finish, but must not republish its
+                # pagination store as the process-scoped current generation.
+                return refresher, baseline
+            self._capability_state = (
+                identity,
+                workspace,
+                tier,
+                refresher,
+                baseline,
+            )
+            return refresher, baseline
 
 
 def resolve_direct_identity(
@@ -462,16 +504,6 @@ def _managed_provider_availability(tier: DependencyTier) -> Availability:
         if tier is DependencyTier.MANAGED
         else Availability.UNAVAILABLE
     )
-
-
-def _snapshot_token(
-    states: tuple[tuple[str, Availability], ...],
-    observed_at: datetime,
-) -> str:
-    payload = "|".join(
-        [observed_at.isoformat(), *(f"{name}:{state.value}" for name, state in states)]
-    )
-    return "direct:" + hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
 def direct_script_command_ids(

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime
+from datetime import datetime, timedelta
 import json
 
 import pytest
@@ -25,6 +25,7 @@ from _application.types import (
     SnapshotFreshness,
 )
 from _command_interface.context import compose_local_context
+import _command_interface.direct as direct_context
 from _common import _operational_log
 
 
@@ -34,6 +35,15 @@ NOW = datetime.fromisoformat("2026-08-10T11:00:00+10:00")
 class _Clock:
     def now(self):
         return NOW
+
+
+class _AdvancingClock:
+    def __init__(self):
+        self._calls = 0
+
+    def now(self):
+        self._calls += 1
+        return NOW + timedelta(microseconds=self._calls)
 
 
 def _vault(tmp_path):
@@ -172,6 +182,74 @@ def test_real_mcpserver_call_returns_structural_content_and_error_state(tmp_path
     assert ok.is_error is False
     assert denied.structured_content["error"]["code"] == "authority_denied"
     assert denied.is_error is True
+
+
+@pytest.mark.parametrize("refresh", (False, True))
+def test_real_mcp_calls_reuse_a_command_list_snapshot_with_an_advancing_clock(
+    tmp_path,
+    monkeypatch,
+    refresh,
+):
+    vault = _vault(tmp_path)
+    shared = vault / ".brain/config.yaml"
+    shared.parent.mkdir(parents=True)
+    shared.write_text(
+        "vault:\n"
+        "  profiles:\n"
+        "    operator:\n"
+        "      allow: [command.describe, command.list, invocation.read]\n"
+        "defaults:\n"
+        "  default_profile: operator\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config-home"))
+    monkeypatch.setattr(
+        direct_context,
+        "_probe_obsidian_cli",
+        lambda: Availability.UNAVAILABLE,
+    )
+    monkeypatch.setattr(
+        direct_context,
+        "_probe_semantic_retrieval",
+        lambda *_args: Availability.UNAVAILABLE,
+    )
+    composer = direct_context.DirectContextComposer(
+        vault_root=vault,
+        catalogue=current_application_catalogue(),
+        clock=_AdvancingClock(),
+    )
+    allowed = composer.identity().allowed_tools
+    mcp = MCPServer("pagination-test")
+    register_application_tools(
+        mcp,
+        catalogue=current_application_catalogue(),
+        resolver=current_request_resolver(),
+        context_factory=lambda **metadata: composer.compose(
+            command_id=metadata["command_id"]
+        ),
+        invocation_guard=lambda: None,
+        allowed_tools=allowed,
+    )
+
+    first = asyncio.run(
+        mcp.call_tool(
+            "command.list",
+            {"refresh": refresh, "page_size": 1},
+        )
+    )
+    cursor = first.structured_content["result"]["next_cursor"]
+    second = asyncio.run(
+        mcp.call_tool("command.list", {"cursor": cursor, "page_size": 1})
+    )
+
+    assert first.is_error is False
+    assert second.is_error is False
+    assert first.structured_content["result"]["snapshot_token"] == (
+        second.structured_content["result"]["snapshot_token"]
+    )
+    assert first.structured_content["result"]["entries"][0]["command_id"] != (
+        second.structured_content["result"]["entries"][0]["command_id"]
+    )
 
 
 def test_real_mcpserver_call_writes_paired_tool_diagnostics(

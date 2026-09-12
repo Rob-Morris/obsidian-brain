@@ -10,6 +10,7 @@ registration and the replacement-proxy protocol gate.
 from __future__ import annotations
 
 from collections.abc import Mapping
+import logging
 import os
 from pathlib import Path
 import sys
@@ -173,14 +174,26 @@ def _install_diagnostics(root: Path) -> _operational_log.OperationalLogger | Non
         return None
 
 
+def _close_session_mirror() -> bool:
+    """Close the mirror within its one deadline and report incomplete delivery."""
+
+    if _SESSION_MIRROR is None:
+        return True
+    complete = _SESSION_MIRROR.close()
+    if not complete:
+        logging.getLogger("brain.session-mirror").warning(
+            "newest session mirror was not persisted before server shutdown"
+        )
+    return complete
+
+
 def main() -> None:
     root = _selected_vault()
     logger = _install_diagnostics(root)
     try:
         mcp.run(transport="stdio")
     finally:
-        if _SESSION_MIRROR is not None:
-            _SESSION_MIRROR.close()
+        _close_session_mirror()
         if logger is not None:
             logger.close(exit_code=0)
 
