@@ -2,13 +2,16 @@
 
 from __future__ import annotations
 
-import json
+from contextlib import contextmanager
 import io
+import json
 from pathlib import Path
 import shutil
 import subprocess
 import sys
 import tarfile
+import threading
+from types import SimpleNamespace
 
 import pytest
 
@@ -209,17 +212,21 @@ def test_git_archive_capture_is_bounded_before_extraction(monkeypatch):
 
 
 @pytest.mark.parametrize(
-    "repository",
+    ("repository", "message"),
     (
-        "/srv/private/repository",
-        "file:///srv/private/repository",
-        "../repository",
-        "ext::sh -c command",
-        "http://example.com/repository.git",
+        ("/srv/private/repository", "approved https or ssh"),
+        ("file:///srv/private/repository", "approved https or ssh"),
+        ("../repository", "approved https or ssh"),
+        ("ext::sh -c command", "unsafe whitespace"),
+        ("http://example.com/repository.git", "approved https or ssh"),
+        (r"C:\private\repository", "approved https or ssh"),
     ),
 )
-def test_git_source_rejects_local_and_unapproved_repository_forms(repository):
-    with pytest.raises(git_source.GitSourceError, match="approved https or ssh"):
+def test_git_source_rejects_local_and_unapproved_repository_forms(
+    repository,
+    message,
+):
+    with pytest.raises(git_source.GitSourceError, match=message):
         git_source.validate_remote_repository(repository)
 
 
@@ -228,11 +235,57 @@ def test_git_source_rejects_local_and_unapproved_repository_forms(repository):
     (
         "https://example.com/owner/repository.git",
         "ssh://git@example.com/owner/repository.git",
+        "ssh://git@[2001:db8::1]:2222/owner/repository.git",
         "git@example.com:owner/repository.git",
+        "example.com:owner/repository.git",
     ),
 )
 def test_git_source_accepts_approved_remote_repository_forms(repository):
     assert git_source.validate_remote_repository(repository) == repository
+
+
+@pytest.mark.parametrize(
+    "repository",
+    (
+        "https://PatientSSN123@example.com/owner/repository.git",
+        "https://user:PatientSSN123@example.com/owner/repository.git",
+        "https://example.com/owner/repository.git?token=PatientSSN123",
+    ),
+)
+def test_git_source_rejects_https_user_information_without_echoing_it(repository):
+    with pytest.raises(git_source.GitSourceError) as failure:
+        git_source.validate_remote_repository(repository)
+
+    assert "PatientSSN123" not in str(failure.value)
+
+
+@pytest.mark.parametrize(
+    "repository",
+    (
+        "https://PatientSSN123%40example.com/owner/repository.git",
+        "example.com:owner/repository.git?token=PatientSSN123",
+        "example.com:owner/repository.git#PatientSSN123",
+        "https:/PatientSSN123/repository.git",
+        "-p@example.com:owner/repository.git",
+    ),
+)
+def test_rejected_remote_grammar_never_reaches_git_or_echoes_secret(
+    repository,
+    monkeypatch,
+):
+    git_calls = []
+    monkeypatch.setattr(
+        git_source,
+        "_run",
+        lambda *arguments: git_calls.append(arguments),
+    )
+
+    with pytest.raises(git_source.GitSourceError) as failure:
+        with git_source.checkout_repository(repository):
+            raise AssertionError("invalid repository reached checkout")
+
+    assert git_calls == []
+    assert "PatientSSN123" not in str(failure.value)
 
 
 @pytest.mark.parametrize(
@@ -361,6 +414,76 @@ def test_unscoped_refresh_fetches_shared_source_once_and_isolates_path_errors(
     assert checks["shaping"]["error"] is None
     assert checks["review"]["resolved_commit"] is None
     assert checks["review"]["error"]
+
+
+def test_unscoped_refresh_bounds_independent_groups_and_isolates_failures(
+    tmp_path,
+    monkeypatch,
+):
+    names = ("alpha", "bravo", "charlie", "delta", "echo")
+    vault = tmp_path / "vault"
+    for name in names:
+        _write_skill(vault / ".brain-core/skills", name, f"bundled {name}")
+    manifest = {
+        "schema_version": 1,
+        "skills": {
+            name: {
+                "repository": f"https://{name}.example.invalid/repository.git",
+                "skill_path": f"skills/{name}",
+                "configured_ref": "main",
+                "resolved_commit": f"old-{name}",
+            }
+            for name in names
+        },
+    }
+    manifest_path = vault / ".brain-core/skill-sources.json"
+    manifest_path.parent.mkdir(parents=True, exist_ok=True)
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+    release = threading.Event()
+    state_lock = threading.Lock()
+    state = {"active": 0, "maximum": 0}
+
+    class Checkout:
+        def __init__(self, repository):
+            self.repository = repository
+
+        def checkout_source(self, *, skill_path, expected_name):
+            assert skill_path == f"skills/{expected_name}"
+            return SimpleNamespace(
+                resolved_commit=f"new-{expected_name}",
+                package=SimpleNamespace(package_sha256=f"sha-{expected_name}"),
+            )
+
+    @contextmanager
+    def checkout(repository, *, configured_ref):
+        assert configured_ref == "main"
+        with state_lock:
+            state["active"] += 1
+            state["maximum"] = max(state["maximum"], state["active"])
+            if state["active"] == skill_service._MAX_SOURCE_REFRESH_WORKERS:
+                release.set()
+        try:
+            assert release.wait(timeout=1)
+            if "charlie" in repository:
+                raise git_source.GitSourceError("source unavailable")
+            yield Checkout(repository)
+        finally:
+            with state_lock:
+                state["active"] -= 1
+
+    monkeypatch.setattr(skill_service, "checkout_repository", checkout)
+
+    rows = list_skill_status(vault, refresh=True)
+    checks = load_tracking(vault)["core_checks"]
+
+    assert tuple(row.name for row in rows) == names
+    assert state["maximum"] == skill_service._MAX_SOURCE_REFRESH_WORKERS
+    assert checks["alpha"]["resolved_commit"] == "new-alpha"
+    assert checks["bravo"]["resolved_commit"] == "new-bravo"
+    assert checks["charlie"]["resolved_commit"] is None
+    assert checks["charlie"]["error"] == "source unavailable"
+    assert checks["delta"]["resolved_commit"] == "new-delta"
+    assert checks["echo"]["resolved_commit"] == "new-echo"
 
 
 def test_conflict_stages_upstream_and_replacement_archives_local(

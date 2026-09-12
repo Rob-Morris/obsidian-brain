@@ -235,14 +235,18 @@ source descriptors live in `.brain-core/skill-sources.json`; user tracking and
 baselines live in `.brain/skill-sources.json`.
 
 An unscoped refreshing status request acquires each distinct repository and ref
-once, then stages and validates every configured skill path independently. One
-invalid package therefore cannot hide valid sibling results, while repositories
-shared by several skills do not incur repeated serial fetches.
+once using at most four independent workers, then stages and validates every
+configured skill path sequentially within its shared checkout. Results are
+reconciled deterministically after the workers finish. One invalid package or
+repository therefore cannot hide valid results from another group, while skills
+sharing a repository/ref do not incur repeated fetches.
 
-Application-facing Git acquisition accepts only explicit HTTPS, SSH URL, or
-SCP-style SSH repository locations. Local paths, `file://` repositories,
-option-shaped refs and refs containing Git revision expressions are rejected at
-the request boundary. A machine-local repository is therefore not readable
+Application-facing Git acquisition accepts only closed HTTPS, SSH URL, or
+SCP-style SSH repository grammars. HTTPS URLs cannot contain user information;
+SSH identities are restricted to a bounded safe-character grammar. Malformed
+authority escapes, local paths, `file://` repositories, query/fragment suffixes,
+option-shaped refs and refs containing Git revision expressions are rejected
+before Git invocation. A machine-local repository is therefore not readable
 through contributor-level MCP authority.
 
 ```bash

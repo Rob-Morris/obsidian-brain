@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from contextlib import contextmanager
+from ipaddress import IPv6Address
 from pathlib import Path
 import re
 import shutil
@@ -11,7 +12,6 @@ import tarfile
 import tempfile
 import threading
 from typing import Iterator
-from urllib.parse import urlsplit
 
 from _common import validate_portable_relative_path
 
@@ -24,10 +24,23 @@ class GitSourceError(RuntimeError):
 
 
 MAX_ARCHIVE_BYTES = MAX_PACKAGE_BYTES + (MAX_PACKAGE_FILES + 4) * 1024
-_REMOTE_SCHEMES = frozenset(("https", "ssh"))
-_SCP_REMOTE = re.compile(
-    r"^(?:[A-Za-z0-9._-]+@)?[A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9])?:[^\s]+$"
+_RESERVED_SCHEME_PREFIXES = frozenset(
+    ("ext", "file", "git", "http", "https", "ssh")
 )
+_SSH_IDENTITY = r"[A-Za-z0-9._][A-Za-z0-9._-]{0,63}"
+_HOST = r"[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?"
+_URL_REMOTE = re.compile(
+    rf"^(?P<scheme>https|ssh)://(?:(?P<identity>{_SSH_IDENTITY})@)?"
+    rf"(?P<host>\[[0-9A-Fa-f:.]+\]|{_HOST})"
+    r"(?::(?P<port>[0-9]{1,5}))?(?P<path>/[^?#\\\s]+)$",
+    re.IGNORECASE,
+)
+_SCP_REMOTE = re.compile(
+    rf"^(?:(?P<identity>{_SSH_IDENTITY})@)?"
+    rf"(?P<host>{_HOST})"
+    r":(?P<path>[^\s]+)$"
+)
+_HOST_LABEL = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9_-]{0,61}[A-Za-z0-9])?$")
 _SAFE_REF = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._/-]{0,255}$")
 
 
@@ -99,20 +112,54 @@ def validate_remote_repository(repository: str) -> str:
 
     if not isinstance(repository, str) or not repository:
         raise GitSourceError("Git repository must be a non-empty string")
-    if repository != repository.strip() or any(ord(char) < 32 for char in repository):
-        raise GitSourceError("Git repository contains unsafe whitespace or control characters")
-    parsed = urlsplit(repository)
-    if parsed.scheme:
-        if parsed.scheme.casefold() not in _REMOTE_SCHEMES:
-            raise GitSourceError("Git repository must use an approved https or ssh remote")
-        if parsed.hostname is None or not parsed.path or parsed.path == "/":
-            raise GitSourceError("Git repository remote must include a host and repository path")
-        if parsed.password is not None or parsed.query or parsed.fragment:
-            raise GitSourceError("Git repository remote contains unsupported credentials or suffixes")
+    if repository != repository.strip() or any(
+        char.isspace() or ord(char) < 32 for char in repository
+    ):
+        raise GitSourceError(
+            "Git repository contains unsafe whitespace or control characters"
+        )
+    url = _URL_REMOTE.fullmatch(repository)
+    if url is not None:
+        scheme = url.group("scheme").casefold()
+        if scheme == "https" and url.group("identity") is not None:
+            raise GitSourceError(
+                "Git repository remote contains unsupported credentials or suffixes"
+            )
+        if not _valid_remote_host(url.group("host")):
+            raise GitSourceError("Git repository remote has invalid host syntax")
+        port = url.group("port")
+        if port is not None and not 1 <= int(port) <= 65535:
+            raise GitSourceError("Git repository remote has invalid port syntax")
         return repository
-    if _SCP_REMOTE.fullmatch(repository):
-        return repository
+
+    prefix = repository.partition(":")[0].casefold()
+    if "://" in repository or prefix in _RESERVED_SCHEME_PREFIXES:
+        raise GitSourceError("Git repository must use an approved https or ssh remote")
+    scp = _SCP_REMOTE.fullmatch(repository)
+    if scp is not None:
+        path = scp.group("path")
+        if (
+            _valid_remote_host(scp.group("host"))
+            and path not in {"/", ".", ".."}
+            and not path.startswith(":")
+            and not any(marker in path for marker in ("\\", "?", "#"))
+        ):
+            return repository
     raise GitSourceError("Git repository must use an approved https or ssh remote")
+
+
+def _valid_remote_host(host: str) -> bool:
+    """Accept one closed, ASCII hostname or bracketed IPv6 literal."""
+
+    if host.startswith("[") and host.endswith("]"):
+        try:
+            IPv6Address(host[1:-1])
+        except ValueError:
+            return False
+        return True
+    return len(host) <= 253 and all(
+        _HOST_LABEL.fullmatch(label) for label in host.split(".")
+    )
 
 
 def validate_configured_ref(configured_ref: str) -> str:

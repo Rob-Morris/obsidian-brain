@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import nullcontext
 from copy import deepcopy
 from datetime import datetime, timezone
@@ -35,6 +36,7 @@ CORE_SKILLS_REL = Path(".brain-core") / "skills"
 BACKUPS_REL = Path(".brain") / "skill-backups"
 CONFLICTS_REL = Path(".brain") / "skill-conflicts"
 MAX_BACKUPS_PER_SKILL = 3
+_MAX_SOURCE_REFRESH_WORKERS = 4
 
 
 class SkillLibraryError(RuntimeError):
@@ -390,35 +392,67 @@ def _refresh_sources(root, names, tracking, core_sources):
         )
         source_groups.setdefault(source_key, []).append((name, record, descriptor))
 
-    for (repository, configured_ref), entries in source_groups.items():
-        try:
-            with checkout_repository(
-                repository,
-                configured_ref=configured_ref,
-            ) as repository_checkout:
-                for name, record, descriptor in entries:
-                    try:
-                        source = repository_checkout.checkout_source(
-                            skill_path=str(descriptor["skill_path"]),
-                            expected_name=name,
-                        )
-                        check = _source_check(
-                            checked_at=checked_at,
-                            resolved_commit=source.resolved_commit,
-                            package_sha256=source.package.package_sha256,
-                        )
-                    except (GitSourceError, OSError, ValueError) as exc:
-                        check = _source_check(checked_at=checked_at, error=str(exc))
-                    _record_source_check(updated, name, record, check)
-        except (GitSourceError, OSError, ValueError) as exc:
-            for name, record, _descriptor in entries:
-                _record_source_check(
-                    updated,
-                    name,
-                    record,
-                    _source_check(checked_at=checked_at, error=str(exc)),
-                )
+    ordered_groups = tuple(sorted(source_groups.items()))
+    if not ordered_groups:
+        return updated
+    if len(ordered_groups) == 1:
+        key, entries = ordered_groups[0]
+        group_results = ((key, _refresh_source_group(key, entries, checked_at)),)
+    else:
+        worker_count = min(_MAX_SOURCE_REFRESH_WORKERS, len(ordered_groups))
+        with ThreadPoolExecutor(
+            max_workers=worker_count,
+            thread_name_prefix="brain-skill-refresh",
+        ) as executor:
+            futures = {
+                key: executor.submit(_refresh_source_group, key, entries, checked_at)
+                for key, entries in ordered_groups
+            }
+            group_results = tuple(
+                (key, futures[key].result()) for key, _entries in ordered_groups
+            )
+
+    for _key, results in group_results:
+        for name, check in results:
+            _record_source_check(
+                updated,
+                name,
+                updated["managed"].get(name),
+                check,
+            )
     return updated
+
+
+def _refresh_source_group(source_key, entries, checked_at):
+    """Inspect one repository/ref checkout without sharing mutable result state."""
+
+    repository, configured_ref = source_key
+    results = []
+    try:
+        with checkout_repository(
+            repository,
+            configured_ref=configured_ref,
+        ) as repository_checkout:
+            for name, _record, descriptor in entries:
+                try:
+                    source = repository_checkout.checkout_source(
+                        skill_path=str(descriptor["skill_path"]),
+                        expected_name=name,
+                    )
+                    check = _source_check(
+                        checked_at=checked_at,
+                        resolved_commit=source.resolved_commit,
+                        package_sha256=source.package.package_sha256,
+                    )
+                except (GitSourceError, OSError, ValueError) as exc:
+                    check = _source_check(checked_at=checked_at, error=str(exc))
+                results.append((name, check))
+    except (GitSourceError, OSError, ValueError) as exc:
+        for name, _record, _descriptor in entries:
+            results.append(
+                (name, _source_check(checked_at=checked_at, error=str(exc)))
+            )
+    return tuple(results)
 
 
 def _source_check(
