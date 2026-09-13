@@ -1158,3 +1158,20 @@ advisory; Grok currently concatenates both text blocks. Old proxies receive a
 restart gate whose human instruction comes first, preserving the JSON fallback
 when the old decorator appends its drift notice. This supersedes DD-026 where
 a status-only text projection hid result data from content-only clients.
+
+### v0.65 discovery projection
+
+Command discovery remains owned by the application. `command.list` v3 defaults
+to 25 brief records and caps the canonical encoded envelope at 16,000 UTF-8
+bytes before MCP projection. Explicit detailed lists retain operational
+metadata; `command.describe` v3 owns schemas and examples. Access is a current,
+non-consuming grant observation independent of provider availability. The
+authority adapter captures one immutable observation per discovery invocation;
+the file-backed controller reads lease state once, while execution retains
+the live evaluator. Neither
+view changes the authenticated ceiling or authorizes execution.
+
+CLI 3.2 composes flat discovery entries under `brain.local-command-list/2`,
+with shared catalogue provenance per owner and separate owner cursors. JSON
+requests and flags share the discovery grammar. Host-specific tool search and
+MCP `tools/list` remain distinct from these application pages.

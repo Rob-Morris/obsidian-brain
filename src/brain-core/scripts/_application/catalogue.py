@@ -223,6 +223,51 @@ def type_identity(annotation: object) -> str:
 
 
 def _summary(command_id: str) -> str:
+    descriptions = {'command.list': 'Discover commands with concise summaries, access state and '
+                     'pagination; use command.describe for schemas.',
+     'command.describe': 'Get the complete input and result schemas, permissions and '
+                         'examples for one command.',
+     'session.start': 'Load Brain instructions, preferences and discovery routes before '
+                      'doing vault work.',
+     'artefact.read': 'Read an active or archived note by path or reference, including its '
+                      'revision for safe edits.',
+     'artefact.create': 'Create a typed note from inline content or a staged source using '
+                        'its configured naming and frontmatter.',
+     'artefact.list': 'Browse active or archived notes with filters and stable pagination.',
+     'artefact.search': 'Find notes by lexical text search with optional semantic '
+                        'retrieval.',
+     'artefact.archive': 'Move a note to the archive while preserving its content and '
+                         'identity.',
+     'artefact.unarchive': 'Restore an archived note to the active vault.',
+     'artefact.delete': 'Permanently remove a note through an administrator-authorized '
+                        'command.',
+     'artefact.outline': 'Read a note heading outline to target a structural edit.',
+     'artefact.rename': 'Rename a note and repair links that point to it.',
+     'document.replace-text': 'Replace a selected text match in a document using its '
+                              'expected revision.',
+     'document.structured-edit': 'Edit a heading section or other structural target using '
+                                 'its expected revision.',
+     'document.update-frontmatter': 'Update document frontmatter fields using its expected '
+                                    'revision.',
+     'document.write-body': 'Replace a document body while retaining frontmatter and '
+                            'checking its expected revision.',
+     'invocation.read': 'Look up the recorded outcome of an interrupted mutation by '
+                        'invocation ID before retrying.',
+     'runtime.refresh-router': 'Recompile the vault router after configuration or artefact '
+                               'metadata changes.',
+     'retrieval.refresh-lexical': 'Refresh the lexical search index after note changes or '
+                                  'external file removal.',
+     'vault.read-file': 'Read a vault-relative file, including Brain core documentation '
+                        'and configuration sources.',
+     'vault.read-router': 'Read compiled router metadata, always rules and source digests.',
+     'vault.read-config': 'Read the selected Brain configuration through the filtered '
+                          'command surface.',
+     'shaping.start': 'Load the version-matched workflow for shaping an artefact through '
+                      'questions and answers.',
+     'links.check': 'Find broken or inconsistent links in a note or vault scope.',
+     'links.fix': 'Repair supported broken or inconsistent links in a note or vault scope.'}
+    if command_id in descriptions:
+        return descriptions[command_id]
     noun, verb = command_id.split(".", 1)
     noun_words = noun.replace("-", " ")
     verb_words = verb.replace("-", " ")

@@ -60,6 +60,13 @@ Python consumers import the supported kernel from `brain_application`, construct
 
 The trusted `InvocationContext` contains selected-Brain identity, authenticated authority, dependency tier, one capability snapshot, providers, invocation/correlation identity, receipt writer and effect facilities. Executors do not rediscover those facts from environment variables.
 
+Discovery adapters implement `AuthorityEvaluator.observe()` to capture one
+immutable `AuthorityObservation` per list or description. Its `allows()`
+method must neither reread changing grant state nor consume a lease. Ordinary
+execution continues to use the live evaluator and its authenticated ceiling;
+an observation never grants permission to execute. Both protocols are exposed
+through `brain_application.context`.
+
 ## Internal script modules
 
 Files such as `create.py`, `edit.py`, `read.py`, `repair.py`, `session.py`, `upgrade.py` and domain packages remain implementation providers where application or launcher owners use them. Their old independent aggregate parsers and compatibility entry points are not the public command grammar. `access_approval.py` is a CLI-owned internal subprocess boundary that receives its operator secret only through trusted process context; it is not a direct-script command. `start_shaping.py` is removed; use `shaping.start` through `command.py`.

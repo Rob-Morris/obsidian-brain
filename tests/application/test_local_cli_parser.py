@@ -142,3 +142,27 @@ def test_discovery_parser_fails_without_exiting(argv, message):
     with pytest.raises(LocalCliUsageError, match=message):
         parse_discovery_arguments(argv)
     assert parser_exit_code() == 2
+
+
+def test_discovery_request_json_preserves_filters_and_cursor():
+    from _local_cli.parser import discovery_request_argv
+
+    cursor = {"snapshot_token": "snapshot", "command_id": "command.list"}
+    argv = discovery_request_argv(["command", "list"], {
+        "owner": "application", "page_size": 8, "view": "detailed", "cursor": cursor,
+    })
+    arguments = parse_discovery_arguments(argv)
+    assert arguments.application_payload() == {
+        "owner": "application", "page_size": 8, "view": "detailed",
+        "cursor": cursor, "refresh": False,
+    }
+
+
+@pytest.mark.parametrize("request_payload", [{"page_size": True}, {"query": {}},
+                                      {"cursor": []}, {"refresh": "false"},
+                                      {"invented": 1}])
+def test_discovery_request_json_rejects_invalid_types(request_payload):
+    from _local_cli.parser import discovery_request_argv
+
+    with pytest.raises(LocalCliUsageError):
+        discovery_request_argv(["command", "list"], request_payload)

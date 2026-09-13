@@ -27,6 +27,23 @@ The application catalogue owns the installed command inventory and marks each pr
 
 Start an MCP session with `session_start`. On a cold Brain it starts or joins background warm-up and returns the shared `brain.runtime-status/1` snapshot with guidance to poll `runtime.status`; retry `session.start` when ready. `runtime.status` is a cheap read-only observation, while `runtime.warmup` explicitly starts, joins or retries warm-up. Discover commands with `command.list`, and inspect one exact request/result contract with `command.describe`. Default discovery uses static catalogue facts and does not probe optional providers; request an explicit refresh only when current provider availability matters.
 
+`command.list` v3 returns a brief view by default: command ID/version,
+summary, required authority, effect class, dependency availability and current
+`access` (`active` or `inactive`). Availability is a provider observation;
+access is one immutable grant observation per discovery invocation, not a promise that a future call will
+be authorized. Commands above the ceiling remain excluded. Use
+`access.request` for an inactive command within that ceiling.
+
+The default page has at most 25 entries. Both `brief` and `detailed` views
+stop before the canonical JSON envelope exceeds 16,000 UTF-8 bytes, leaving
+headroom below the observed 20,000-byte client text limit. This is Brain's
+compatibility budget, not an MCP protocol limit. Pass `next_cursor` as `cursor`
+with the same filters to continue; a page may contain fewer than `page_size`
+entries. Shared catalogue identity and availability freshness occur once per
+page. Use `view: "detailed"` for provider/projection/retry/lifecycle metadata;
+`command.describe` v3 retains full schemas and examples and includes access.
+The byte budget applies to list pages, not arbitrary command descriptions.
+
 Related named resources share the strict `resource.create`, `resource.list`, `resource.read` and `resource.search` tools. Each has a shallow resource or target discriminator and a closed resource-specific result union. Presentation and printable output similarly share `shaping.render` with a strict `output.kind` branch. These commands replace target-only leaves without introducing a generic invocation gateway.
 
 `shaping.start` opens or continues a taxonomy-declared shaping session. The

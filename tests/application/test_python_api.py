@@ -170,6 +170,9 @@ class Clock:
         return datetime.now(timezone.utc)
 
 class AuthorityEvaluator:
+    def observe(self):
+        return self
+
     def allows(self, *, command_id, required, effect):
         return True
     def ceiling_allows(self, command_id):

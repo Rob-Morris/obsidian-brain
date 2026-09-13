@@ -24,11 +24,14 @@ from .requests import (
     CommandListRequest,
     CommandRequest,
     CommandSummary,
+    CommandBrief,
+    CommandAccess,
+    CommandListView,
     InvocationReadPayload,
     InvocationReadRequest,
     ResultVariantContract,
 )
-from .projection import minimal_request_payload, project_identity, request_schema, result_payload_schema
+from .projection import canonical_result_envelope, minimal_request_payload, project_identity, request_schema, result_payload_schema
 from .resolver import RequestResolver, ResolverEntry
 from .results import (
     CapabilityUnavailableDetails,
@@ -96,21 +99,45 @@ class _FoundationOwners:
                     ),
                 )
             start = cursor_index + 1
-        page = entries[start : start + request.page_size]
-        has_more = start + len(page) < len(entries)
-        next_cursor = page[-1].command_id if page and has_more else None
-        return Ok(
-            CommandListRequest.COMMAND_ID,
-            CommandListRequest.COMMAND_VERSION,
-            CommandListPayload(
-                catalogue.schema,
-                catalogue.fingerprint,
-                tuple(self._summary(entry, context, snapshot) for entry in page),
-                snapshot.token,
-                snapshot.freshness,
-                CatalogueCursor(snapshot.token, next_cursor) if next_cursor else None,
-            ),
-        )
+        # Bound the canonical envelope, before any adapter duplicates it as
+        # JSON text and structured content. Keep room for host status text.
+        access = context.authority.observe()
+        fingerprint = catalogue.fingerprint
+        page = []
+
+        def result_for(items):
+            has_more = start + len(items) < len(entries)
+            cursor = (
+                CatalogueCursor(snapshot.token, items[-1].command_id)
+                if items and has_more else None
+            )
+            return Ok(
+                request.COMMAND_ID, request.COMMAND_VERSION,
+                CommandListPayload(
+                    catalogue.schema, fingerprint, tuple(items),
+                    snapshot.token, snapshot.freshness, cursor,
+                ),
+            )
+
+        result = result_for(page)
+        for entry in entries[start : start + request.page_size]:
+            item = (
+                self._summary(entry, context, snapshot, access)
+                if request.view is CommandListView.DETAILED
+                else self._brief(entry, context, snapshot, access)
+            )
+            candidate = result_for([*page, item])
+            if len(json.dumps(canonical_result_envelope(candidate), ensure_ascii=False,
+                              separators=(",", ":")).encode("utf-8")) > 16000:
+                if not page:
+                    return Error(request.COMMAND_ID, request.COMMAND_VERSION,
+                        CommandError(ErrorCode.INVALID_REQUEST,
+                            "This command exceeds the discovery page budget; use command.describe.",
+                            RequestErrorDetails("view", entry.command_id)))
+                break
+            page.append(item)
+            result = candidate
+        return result
 
     def command_describe(self, context: InvocationContext, request: CommandRequest):
         if type(request) is not CommandDescribeRequest:
@@ -261,7 +288,15 @@ class _FoundationOwners:
         )
 
     @staticmethod
-    def _summary(entry: ApplicationEntry, context: InvocationContext, snapshot):
+    def _brief(entry: ApplicationEntry, context: InvocationContext, snapshot, access):
+        return CommandBrief(
+            entry.command_id, entry.command_version, entry.summary,
+            entry.authority, entry.effect_class,
+            _availability(entry, context, snapshot), _access(entry, access),
+        )
+
+    @staticmethod
+    def _summary(entry: ApplicationEntry, context: InvocationContext, snapshot, access):
         missing_optional = tuple(
             provider_id
             for provider_id in entry.optional_providers
@@ -288,9 +323,11 @@ class _FoundationOwners:
             missing_optional,
             entry.lifecycle,
             entry.replacement_command_id,
+            _access(entry, access),
         )
 
     def _description(self, entry: ApplicationEntry, context: InvocationContext):
+        access = context.authority.observe()
         identity = project_identity(entry.command_id)
         result_variants = [
             ResultVariantContract("ok", "The command completed with a typed result."),
@@ -339,7 +376,14 @@ class _FoundationOwners:
             ),
             entry.lifecycle,
             entry.replacement_command_id,
+            _access(entry, access),
         )
+
+
+def _access(entry: ApplicationEntry, observation) -> CommandAccess:
+    return (CommandAccess.ACTIVE if observation.allows(
+        command_id=entry.command_id, required=entry.authority, effect=entry.effect_class,
+    ) else CommandAccess.INACTIVE)
 
 
 def _availability(entry: ApplicationEntry, context: InvocationContext, snapshot):
@@ -448,9 +492,10 @@ def _decode_list(payload: Mapping[str, object]) -> CommandListRequest:
         "cursor",
         "refresh",
         "page_size",
+        "view",
     }
     _only(payload, allowed)
-    page_size = payload.get("page_size", 100)
+    page_size = payload.get("page_size", 25)
     if not isinstance(page_size, int) or isinstance(page_size, bool):
         raise ValueError("page_size must be an integer")
     raw_cursor = payload.get("cursor")
@@ -482,6 +527,7 @@ def _decode_list(payload: Mapping[str, object]) -> CommandListRequest:
         cursor=cursor,
         refresh=refresh,
         page_size=page_size,
+        view=CommandListView(payload.get("view", "brief")),
     )
 
 

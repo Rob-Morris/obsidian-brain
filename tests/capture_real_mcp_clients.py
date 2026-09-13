@@ -657,7 +657,7 @@ def _claude_evidence(
         if tool.get("name", "").startswith("mcp__brain__")
     ]
     declaration = next(
-        tool for tool in declarations if tool.get("description") == "List command resources."
+        tool for tool in declarations if tool.get("name") == "mcp__brain__command_list"
     )
     successes = _claude_successes(requests, successful_calls)
     return {

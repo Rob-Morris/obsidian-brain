@@ -76,12 +76,12 @@ def test_installed_cli_discovers_real_selected_brain_catalogue(
 
     assert completed.returncode == 0, completed.stderr
     payload = json.loads(completed.stdout)
-    assert payload["schema"] == "brain.local-command-list/1"
-    assert len(payload["entries"]) == 78
+    assert payload["schema"] == "brain.local-command-list/2"
+    assert len(payload["entries"]) == 25
     assert "artefact.delete" not in {
         entry["command_id"] for entry in payload["entries"]
     }
-    assert payload["entries"][0]["catalogue_schema"] == "brain.command-catalogue/1"
+    assert payload["catalogues"]["application"]["schema"] == "brain.command-catalogue/1"
 
 
 def test_windows_target_selects_the_cmd_bootloader(tmp_path):

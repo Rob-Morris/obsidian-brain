@@ -24,6 +24,7 @@ from _application.requests import (
     CatalogueCursor,
     CommandDescribeRequest,
     CommandListRequest,
+    CommandListView,
     InvocationReadRequest,
 )
 from _application.results import ErrorCode
@@ -43,6 +44,9 @@ NOW = datetime.fromisoformat("2026-08-09T15:00:00+10:00")
 
 
 class _Authority:
+    def observe(self):
+        return self
+
     def allows(self, **_kwargs):
         return True
 
@@ -125,6 +129,7 @@ def test_command_list_filters_and_paginates_the_bound_catalogue(tmp_path):
             locality=Locality.SELECTED_BRAIN_LOCAL,
             effect_class=EffectClass.NONE,
             projection=Projection.MCP,
+            view=CommandListView.DETAILED,
         )
     )
 
@@ -146,7 +151,7 @@ def test_command_list_owner_and_availability_filters_are_honest(tmp_path):
     available = application.invoke(
         CommandListRequest(availability=Availability.AVAILABLE)
     )
-    summary_match = application.invoke(CommandListRequest(query="resources"))
+    summary_match = application.invoke(CommandListRequest(query="concise"))
 
     assert launcher.result.entries == ()
     assert summary_match.result.command_ids == ("command.list",)

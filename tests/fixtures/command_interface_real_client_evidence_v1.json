@@ -1,12 +1,12 @@
 {
-  "captured_at": "2026-09-12T22:16:40+10:00",
+  "captured_at": "2026-09-13T10:37:44+10:00",
   "clients": {
     "claude-code": {
       "capture_path": "eager model request declarations",
-      "catalogue_hash": "sha256:59c722ef4b2a273b8dd601f8e1bf4f362f02465b02d3b1670b3fd191acc96222",
-      "client_version": "2.1.269",
+      "catalogue_hash": "sha256:cc1afd9272c5b352c2c1fea4175085f8a7677ea994b28969e4c8051b16fc891d",
+      "client_version": "2.1.270",
       "declaration": {
-        "description": "List command resources.",
+        "description": "Discover commands with concise summaries, access state and pagination; use command.describe for schemas.",
         "input_schema": {
           "additionalProperties": false,
           "properties": {
@@ -129,7 +129,7 @@
               ]
             },
             "page_size": {
-              "default": 100,
+              "default": 25,
               "description": "Page size",
               "type": "integer"
             },
@@ -174,13 +174,22 @@
                 "string",
                 "null"
               ]
+            },
+            "view": {
+              "default": "brief",
+              "description": "View",
+              "enum": [
+                "brief",
+                "detailed"
+              ],
+              "type": "string"
             }
           },
           "type": "object"
         },
         "name": "mcp__brain__command_list"
       },
-      "declaration_hash": "sha256:183eb66663813d37dcb52e2424d368da64d588ea5909f347c8281b4d9918a4cb",
+      "declaration_hash": "sha256:eba25c4891e6f4d51df54a80531e606ab8f7f28f32f009caade2b4d0c3b93d46",
       "initial_brain_declarations": 68,
       "minimal_request": {
         "page_size": 1
@@ -256,7 +265,7 @@
       "client_version": "0.154.0",
       "declaration": {
         "defer_loading": true,
-        "description": "List command resources.",
+        "description": "Discover commands with concise summaries, access state and pagination; use command.describe for schemas.",
         "name": "command_list",
         "parameters": {
           "additionalProperties": false,
@@ -412,6 +421,14 @@
                 "string",
                 "null"
               ]
+            },
+            "view": {
+              "description": "View",
+              "enum": [
+                "brief",
+                "detailed"
+              ],
+              "type": "string"
             }
           },
           "type": "object"
@@ -419,7 +436,7 @@
         "strict": false,
         "type": "function"
       },
-      "declaration_hash": "sha256:8d6f1feeba2451389fa6acfe941075eec4bb17620d51ea7cf3f291cbf05e893f",
+      "declaration_hash": "sha256:0d5a62de3c342722dc871f0d3ea42a44113f747b1043d5537411f8284b7d59ae",
       "initial_brain_declarations": 0,
       "minimal_request": {
         "page_size": 1

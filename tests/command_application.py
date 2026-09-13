@@ -20,6 +20,9 @@ NOW = datetime.fromisoformat("2026-08-09T16:00:00+10:00")
 
 
 class _Authority:
+    def observe(self):
+        return self
+
     def allows(self, **_kwargs):
         return True
 

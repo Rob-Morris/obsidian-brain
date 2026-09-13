@@ -593,3 +593,40 @@ def test_local_result_renderer_exclusively_owns_json_and_human_streams(tmp_path)
         denied.concise_text + "\n",
         3,
     )
+
+
+def test_cli_discovery_json_input_and_flat_page_preserve_continuation(tmp_path, monkeypatch, capsys):
+    from types import SimpleNamespace
+    from _local_cli import main
+    from _application.application import CommandApplication
+    from _application.foundation import build_application_catalogue, build_request_resolver
+    from test_foundation_commands import _context
+
+    app = CommandApplication(_context(tmp_path), build_application_catalogue())
+    resolver = build_request_resolver()
+    seen = []
+
+    def invoke(_selected, command_id, request, _common, **_kwargs):
+        seen.append(request)
+        return canonical_result_envelope(app.invoke(resolver.resolve(command_id, request)))
+
+    monkeypatch.setattr(main, "_invoke_application", invoke)
+    selected = SimpleNamespace(supports_command_interface=True)
+
+    def page(request):
+        common = SimpleNamespace(request_json=json.dumps(request), json_mode=True)
+        assert main._run_discovery(["command", "list"], common=common, selected=selected,
+                                   cli_binary=tmp_path / "brain", distribution_root=tmp_path) == 0
+        return json.loads(capsys.readouterr().out)
+
+    first = page({"owner": "application", "page_size": 2})
+    assert len(first["entries"]) == 2
+    assert first["schema"] == "brain.local-command-list/2"
+    assert "application" in first["catalogues"]
+    assert all("payload" not in item and "catalogue_fingerprint" not in item
+               for item in first["entries"])
+    second = page({"owner": "application", "page_size": 2,
+                   "cursor": first["application_next_cursor"]})
+    assert [item["command_id"] for item in second["entries"]] == ["invocation.read"]
+    assert second["application_next_cursor"] is None
+    assert seen[0]["page_size"] == 2

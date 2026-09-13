@@ -65,7 +65,7 @@ brain.upgrade
 
 The CLI spelling is `brain <noun> <verb>`. MCP names preserve canonical `<noun>.<verb>` identifiers exactly. The direct script uses `<noun> <verb>`, and Python uses the corresponding sealed request type. Alternatives become separate commands when they differ in required fields, results/errors, authority, dependency tier, locality, atomicity, retry or effect behaviour.
 
-`command.list` and `command.describe` expose exact installed contracts. Static discovery never probes optional providers; explicit refresh creates one bounded capability snapshot. Provider and aggregate deadlines degrade late work to unknown behind a fixed process-wide daemon bound, so refresh cannot accumulate unbounded stuck workers or delay process exit. Documentation and generated fixtures point to catalogue discovery instead of becoming a second operation inventory.
+`command.list` v3 provides concise, byte-bounded pages and an explicit detailed view; `command.describe` v3 owns full installed contracts. Effective access is evaluated without consuming a lease and stays distinct from dependency availability. The CLI presents flat entries with page-level catalogue provenance. Static discovery never probes optional providers; explicit refresh creates one bounded capability snapshot. Provider and aggregate deadlines degrade late work to unknown behind a fixed process-wide daemon bound, so refresh cannot accumulate unbounded stuck workers or delay process exit. Documentation and generated fixtures point to catalogue discovery instead of becoming a second operation inventory.
 
 ## Result and recovery model
 

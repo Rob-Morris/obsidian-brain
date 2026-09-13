@@ -73,7 +73,7 @@ def test_every_application_command_has_one_collision_free_mechanical_projection(
         "_application/document/structured_edit.py"
     )
     assert all(
-        1 <= len(entry.summary.removesuffix(".").split()) <= 12
+        1 <= len(entry.summary.removesuffix(".").split()) <= 32
         for entry in catalogue.entries
     )
 

@@ -1,6 +1,6 @@
 # Brain Reference
 
-This page is the stable user-facing reference for Brain Core 0.64.2 and CLI 3.1.10. Exact command schemas, examples and availability come from the installed Brain rather than a duplicated hand-maintained inventory.
+This page is the stable user-facing reference for Brain Core 0.65.0 and CLI 3.2.0. Exact command schemas, examples and availability come from the installed Brain rather than a duplicated hand-maintained inventory.
 
 Document changes use a read–mutate loop. Read an editable artefact or named
 resource, retain its returned `revision`, then pass that value as
@@ -46,6 +46,8 @@ brain command list --owner application --json
 brain command describe artefact.create --json
 brain command describe brain.upgrade --owner launcher --json
 ```
+
+Lists default to 25 concise entries per owner; follow the returned cursors for more. Use `--view detailed` for full summary metadata. Application entries distinguish current access from dependency availability.
 
 Descriptions include the exact strict request schema, minimal example, result schema, stable error/warning codes, dependency tier, locality, providers, authority, effects, retry class, projection eligibility and current availability. Default discovery is static and does not probe optional providers; request an explicit refresh only when current provider availability matters.
 

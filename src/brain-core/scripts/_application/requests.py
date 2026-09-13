@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from enum import Enum
 from typing import ClassVar
 
 from .access.reduce import AccessReduceRequest
@@ -193,6 +194,27 @@ class CatalogueCursor:
         validate_command_id(self.command_id)
 
 
+class CommandListView(str, Enum):
+    BRIEF = "brief"
+    DETAILED = "detailed"
+
+
+class CommandAccess(str, Enum):
+    ACTIVE = "active"
+    INACTIVE = "inactive"
+
+
+@dataclass(frozen=True, slots=True)
+class CommandBrief:
+    command_id: str
+    command_version: int
+    summary: str
+    authority: Authority
+    effect_class: EffectClass
+    availability: Availability
+    access: CommandAccess
+
+
 @dataclass(frozen=True, slots=True)
 class CommandSummary:
     command_id: str
@@ -212,6 +234,7 @@ class CommandSummary:
     missing_optional_providers: tuple[str, ...]
     lifecycle: CommandLifecycle
     replacement_command_id: str | None
+    access: CommandAccess
 
     def __post_init__(self) -> None:
         validate_command_id(self.command_id)
@@ -225,7 +248,7 @@ class CommandSummary:
 class CommandListPayload:
     catalogue_schema: str
     catalogue_fingerprint: str
-    entries: tuple[CommandSummary, ...]
+    entries: tuple[CommandBrief | CommandSummary, ...]
     snapshot_token: str
     availability_freshness: SnapshotFreshness
     next_cursor: CatalogueCursor | None = None
@@ -309,6 +332,7 @@ class CommandDescriptionPayload:
     examples: tuple[CommandExample, ...]
     lifecycle: CommandLifecycle
     replacement_command_id: str | None
+    access: CommandAccess
 
     def __post_init__(self) -> None:
         if not self.catalogue_schema.startswith("brain.command-catalogue/"):
@@ -344,7 +368,7 @@ class InvocationReadPayload:
 @dataclass(frozen=True, slots=True)
 class CommandListRequest:
     COMMAND_ID: ClassVar[str] = "command.list"
-    COMMAND_VERSION: ClassVar[int] = 2
+    COMMAND_VERSION: ClassVar[int] = 3
     RESULT_TYPE: ClassVar[type] = CommandListPayload
 
     query: str | None = None
@@ -359,9 +383,12 @@ class CommandListRequest:
     projection: Projection | None = None
     cursor: CatalogueCursor | None = None
     refresh: bool = False
-    page_size: int = 100
+    page_size: int = 25
+    view: CommandListView = CommandListView.BRIEF
 
     def __post_init__(self) -> None:
+        if not isinstance(self.view, CommandListView):
+            raise ValueError("command list view must be brief or detailed")
         for name in ("query", "domain"):
             value = getattr(self, name)
             if value is not None and (not isinstance(value, str) or not value.strip()):
@@ -402,7 +429,7 @@ class CommandListRequest:
 @dataclass(frozen=True, slots=True)
 class CommandDescribeRequest:
     COMMAND_ID: ClassVar[str] = "command.describe"
-    COMMAND_VERSION: ClassVar[int] = 2
+    COMMAND_VERSION: ClassVar[int] = 3
     RESULT_TYPE: ClassVar[type] = CommandDescriptionPayload
     MINIMAL_EXAMPLE: ClassVar[dict[str, str]] = {
         "target_command_id": "command.list"

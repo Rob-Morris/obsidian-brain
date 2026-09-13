@@ -34,6 +34,7 @@ from .execution import (
     render_local_result,
 )
 from .parser import (
+    discovery_request_argv,
     CommandDescribeArguments,
     CommandListArguments,
     LocalCliUsageError,
@@ -161,7 +162,7 @@ def _parse_common(argv: list[str]):
     parser.add_argument("--brain", dest="brain_id")
     parser.add_argument("--workspace")
     parser.add_argument("--operator-key")
-    parser.add_argument("--request-json", default="{}")
+    parser.add_argument("--request-json")
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--json", dest="json_mode", action="store_true")
     parser.add_argument("--version", action="store_true")
@@ -220,7 +221,9 @@ def _resolve_for_command(common, entry, payload) -> SelectedBrain | None:
     return _resolve_optional(common, required=False)
 
 
-def _request_payload(value: str) -> dict[str, object]:
+def _request_payload(value: str | None) -> dict[str, object]:
+    if value is None:
+        return {}
     raw = sys.stdin.read() if value == "-" else value
     try:
         decoded = json.loads(raw)
@@ -352,6 +355,8 @@ def _invoke_application(
 
 
 def _run_discovery(command_argv, *, common, selected, cli_binary, distribution_root) -> int:
+    if common.request_json is not None:
+        command_argv = discovery_request_argv(command_argv, _request_payload(common.request_json))
     arguments = parse_discovery_arguments(command_argv)
     if isinstance(arguments, CommandListArguments):
         application = None
@@ -390,9 +395,27 @@ def _run_discovery(command_argv, *, common, selected, cli_binary, distribution_r
                 **(arguments.launcher_filters() or {}),
             )
         composed = compose_list(owner=arguments.owner, application=application, launcher=launcher)
+        catalogues = {}
+        if application is not None:
+            catalogues["application"] = {
+                "schema": application.catalogue_schema,
+                "fingerprint": application.catalogue_fingerprint,
+            }
+        if launcher is not None:
+            catalogues["launcher"] = {
+                "schema": launcher.schema, "fingerprint": launcher.catalogue_fingerprint,
+            }
+        brief_fields = ("command_id", "command_version", "summary", "authority",
+                        "effect_class", "availability", "access", "entry_point")
+        entries = []
+        for item in composed.entries:
+            fields = (dict(item.payload) if arguments.view == "detailed" else
+                      {key: item.payload[key] for key in brief_fields if key in item.payload})
+            entries.append({**fields, "owner": item.owner})
         payload = {
-            "schema": "brain.local-command-list/1",
-            "entries": [asdict(item) for item in composed.entries],
+            "schema": "brain.local-command-list/2",
+            "catalogues": catalogues,
+            "entries": entries,
             "application_next_cursor": composed.application_next_cursor,
             "launcher_next_cursor": composed.launcher_next_cursor,
         }

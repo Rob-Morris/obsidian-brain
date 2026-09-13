@@ -25,8 +25,8 @@ class Clock(Protocol):
     def now(self) -> datetime: ...
 
 
-class AuthorityEvaluator(Protocol):
-    """Evaluate immutable ceiling and current principal-bound command grants."""
+class AuthorityObservation(Protocol):
+    """Observe command grants without consuming leases or rereading state."""
 
     def allows(
         self,
@@ -35,6 +35,12 @@ class AuthorityEvaluator(Protocol):
         required: Authority,
         effect: EffectClass,
     ) -> bool: ...
+
+
+class AuthorityEvaluator(AuthorityObservation, Protocol):
+    """Evaluate a ceiling and live grants; freeze observations for discovery."""
+
+    def observe(self) -> AuthorityObservation: ...
 
     def ceiling_allows(self, command_id: str) -> bool: ...
 

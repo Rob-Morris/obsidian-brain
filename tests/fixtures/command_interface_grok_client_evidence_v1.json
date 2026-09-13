@@ -1,5 +1,5 @@
 {
-  "captured_at": "2026-09-13T01:39:49.762288+10:00",
+  "captured_at": "2026-09-13T10:35:29.564284+10:00",
   "client_version": "1.0.30",
   "external_model_request": false,
   "localhost_model_endpoint": true,
@@ -13,10 +13,10 @@
   "schema": "brain.command-interface-grok-evidence/1",
   "sessions": {
     "fresh": {
-      "catalogue_hash": "sha256:d24e18d6418f27101a07daa25f64776cb53e27fccfe5be1c87bcabc6e286f140",
+      "catalogue_hash": "sha256:16eb42affbc650dacd1969f4d0abd7879fffbf9d3eef3f03d89ae4451ccd5b62",
       "declarations": [
         {
-          "description": "Create one artefact.",
+          "description": "Create a typed note from inline content or a staged source using its configured naming and frontmatter.",
           "input_schema": {
             "additionalProperties": false,
             "properties": {
@@ -135,7 +135,7 @@
           "tool_name": "brain__artefact_create"
         },
         {
-          "description": "Read one artefact.",
+          "description": "Read an active or archived note by path or reference, including its revision for safe edits.",
           "input_schema": {
             "additionalProperties": false,
             "properties": {
@@ -161,7 +161,7 @@
           "tool_name": "brain__artefact_read"
         },
         {
-          "description": "Update frontmatter for document.",
+          "description": "Update document frontmatter fields using its expected revision.",
           "input_schema": {
             "additionalProperties": false,
             "properties": {
@@ -231,7 +231,7 @@
           "tool_name": "brain__document_update-frontmatter"
         },
         {
-          "description": "Start session.",
+          "description": "Load Brain instructions, preferences and discovery routes before doing vault work.",
           "input_schema": {
             "additionalProperties": false,
             "properties": {},
@@ -328,10 +328,10 @@
       ]
     },
     "resumed": {
-      "catalogue_hash": "sha256:d24e18d6418f27101a07daa25f64776cb53e27fccfe5be1c87bcabc6e286f140",
+      "catalogue_hash": "sha256:16eb42affbc650dacd1969f4d0abd7879fffbf9d3eef3f03d89ae4451ccd5b62",
       "declarations": [
         {
-          "description": "Create one artefact.",
+          "description": "Create a typed note from inline content or a staged source using its configured naming and frontmatter.",
           "input_schema": {
             "additionalProperties": false,
             "properties": {
@@ -450,7 +450,7 @@
           "tool_name": "brain__artefact_create"
         },
         {
-          "description": "Read one artefact.",
+          "description": "Read an active or archived note by path or reference, including its revision for safe edits.",
           "input_schema": {
             "additionalProperties": false,
             "properties": {
@@ -476,7 +476,7 @@
           "tool_name": "brain__artefact_read"
         },
         {
-          "description": "Update frontmatter for document.",
+          "description": "Update document frontmatter fields using its expected revision.",
           "input_schema": {
             "additionalProperties": false,
             "properties": {
@@ -546,7 +546,7 @@
           "tool_name": "brain__document_update-frontmatter"
         },
         {
-          "description": "Start session.",
+          "description": "Load Brain instructions, preferences and discovery routes before doing vault work.",
           "input_schema": {
             "additionalProperties": false,
             "properties": {},

@@ -89,6 +89,12 @@ class ProfileAuthority:
             self.access is None or self.access.allows(tool)
         )
 
+    def observe(self):
+        """Read grant state once and return a frozen, non-consuming observation."""
+        active = (self.allowed_tools if self.access is None else
+                  self.allowed_tools & frozenset(self.access.status().active_commands))
+        return ProfileAuthority(self.profile, active)
+
     def ceiling_allows(self, command_id: str) -> bool:
         return command_id in self.allowed_tools
 

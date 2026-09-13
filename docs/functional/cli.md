@@ -43,11 +43,28 @@ The CLI 3 launcher break is deliberate:
 The installed catalogues are authoritative. Use discovery for the exact command set, request schema, version, owner, safety class, dependency tier, authority and current availability:
 
 ```bash
-brain command list --owner all --page-size 100 --json
+brain command list --owner all --json
+brain command list --owner application --view detailed --page-size 8 --json
 brain command list --owner application --query artefact --json
 brain command describe artefact.create --owner application --json
 brain command describe brain.upgrade --owner launcher --json
 ```
+
+CLI 3.2 emits `brain.local-command-list/2`: flat entries and one `catalogues`
+record per owner. The default is 25 brief entries per requested owner. An
+explicit `--view detailed` retains complete summary metadata; application
+schema detail still belongs to `command describe`. The application page's
+16,000-byte limit is enforced by Brain Core 0.65; the composed CLI view also
+includes launcher entries and is not itself an MCP result.
+
+`--request-json` is accepted for discovery, using the same fields as the
+flags, and cannot be mixed with discovery flags. It is no longer silently
+ignored. Continue application pages with `--application-cursor '<JSON>'`
+or request JSON `cursor`; continue launcher pages with
+`--launcher-cursor '<JSON>'`. Retain the original filters. A null next cursor
+means that owner has finished; request only the unfinished owner on later
+pages. Detailed application views require Core 0.65 or newer; default brief
+CLI rendering also works with earlier command-interface Brains.
 
 `application` commands are owned by the selected Brain. `launcher` commands are machine-global and owned by the installed CLI distribution. The composed view preserves that owner and each catalogue's fingerprint; it does not create a third semantic catalogue.
 
@@ -130,12 +147,12 @@ After provisioning the target managed runtime, upgrade reconciles any existing c
 
 The installer writes a versioned distribution under the selected prefix and a small platform bootloader under `bin/`:
 
-- Unix-like user install: `~/.local/bin/brain` and `~/.local/lib/brain-cli/3.1.10/`.
-- Native Windows user install: `%LOCALAPPDATA%\Programs\Brain\bin\brain.cmd` and the adjacent `lib\brain-cli\3.1.10\` distribution.
+- Unix-like user install: `~/.local/bin/brain` and `~/.local/lib/brain-cli/3.2.0/`.
+- Native Windows user install: `%LOCALAPPDATA%\Programs\Brain\bin\brain.cmd` and the adjacent `lib\brain-cli\3.2.0\` distribution.
 
 The distribution contains the launcher application plus the Brain Core payload needed for install, upgrade and selected-Brain execution. Installation and replacement verify a content manifest and executable identity; failed replacement restores the proven old binary/distribution pair or retains recovery material and reports the outcome as unverified. Failed upgrade results carry every known absolute recovery path in the structural error and durable launcher receipt: residual staging material after a verified rollback is a known partial outcome, while unverified rollback remains outcome-unknown. Standalone human output lists the same paths before the failure message. Once the new pair is verified, failure or interruption while removing an old backup is committed post-upgrade recovery work and never rolls Brain Core back to an older version. Both the launcher result and standalone distribution JSON list the surviving `cleanup_recovery_paths`.
 
-The bootloader requires Python 3.12 or newer. `BRAIN_CLI_VERSION` is `3.1.10`; `BRAIN_INSTALL_REF` is `v0.64.2`.
+The bootloader requires Python 3.12 or newer. `BRAIN_CLI_VERSION` is `3.2.0`; `BRAIN_INSTALL_REF` is `v0.65.0`.
 
 JSON command invocations validate the structural stdout envelope, including
 command identity, version and exit category. Incidental child stderr does not

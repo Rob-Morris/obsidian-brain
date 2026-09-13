@@ -129,14 +129,14 @@ def test_version_and_launcher_discovery_need_no_selected_brain(tmp_path):
     assert payload["result"]["cli_version"] == CLI_VERSION
     commands = json.loads(listing.stdout)
     assert listing.returncode == 0
-    assert commands["schema"] == "brain.local-command-list/1"
+    assert commands["schema"] == "brain.local-command-list/2"
     command_ids = [entry["command_id"] for entry in commands["entries"]]
     assert len(command_ids) == len(set(command_ids))
     assert "brain.version" in command_ids
     assert len(commands["entries"]) == 24
     by_id = {entry["command_id"]: entry for entry in commands["entries"]}
-    assert by_id["brain.version"]["payload"]["entry_point"] == ["brain", "version"]
-    assert by_id["runtime.inspect"]["payload"]["entry_point"] == [
+    assert by_id["brain.version"]["entry_point"] == ["brain", "version"]
+    assert by_id["runtime.inspect"]["entry_point"] == [
         "brain",
         "runtime",
         "inspect",
@@ -251,8 +251,8 @@ def test_composed_discovery_preserves_application_and_launcher_owners(tmp_path):
     by_id = {entry["command_id"]: entry for entry in payload["entries"]}
     assert by_id["vault.check"]["owner"] == "application"
     assert by_id["brain.version"]["owner"] == "launcher"
-    assert by_id["vault.check"]["catalogue_schema"] == "brain.command-catalogue/1"
-    assert by_id["brain.version"]["catalogue_schema"] == "brain.launcher-catalogue/1"
+    assert payload["catalogues"]["application"]["schema"] == "brain.command-catalogue/1"
+    assert payload["catalogues"]["launcher"]["schema"] == "brain.launcher-catalogue/1"
 
 
 def test_launcher_description_carries_exact_schema_and_example(tmp_path):

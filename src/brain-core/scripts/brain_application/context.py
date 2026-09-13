@@ -2,6 +2,7 @@
 
 from _application.context import (
     AuthorityEvaluator,
+    AuthorityObservation,
     Capability,
     CapabilitySnapshot,
     CapabilitySnapshotStore,
@@ -27,6 +28,7 @@ __all__ = (
     "AccessController",
     "Authority",
     "AuthorityEvaluator",
+    "AuthorityObservation",
     "Availability",
     "Capability",
     "CapabilitySnapshot",
