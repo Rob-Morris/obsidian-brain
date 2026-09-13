@@ -20,9 +20,9 @@ When investigating a subject in depth and/or capturing what was found from inves
 
 ## Naming
 
-`yyyymmdd-research~{Title}.md` in `_Temporal/Research/yyyy-mm/`.
+`yyyymmdd-research~{Title}.md` in `_Temporal/Research/`.
 
-Example: `_Temporal/Research/2026-03/20260307-research~Discord Animation Research.md`
+Example: `_Temporal/Research/20260307-research~Discord Animation Research.md`
 
 ## Frontmatter
 

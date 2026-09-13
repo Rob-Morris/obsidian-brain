@@ -31,8 +31,8 @@ def write_vault(vault):
         "# Rust Ownership\n\nRust uses an ownership system.\n"
     )
 
-    temporal = vault / "_Temporal" / "Logs" / "2026-03"
-    temporal.mkdir(parents=True)
+    temporal = vault / "_Temporal" / "Logs"
+    temporal.mkdir(parents=True, exist_ok=True)
     (temporal / "20260315-python-log.md").write_text(
         "---\ntype: temporal/logs\ntags: [python, log]\nstatus: done\n---\n\n"
         "# Python Research Log\n\nResearched Python packaging tools.\n"
@@ -83,7 +83,7 @@ def test_main_respects_filters_and_top_k(tmp_path, wrapper_cli):
     assert result.returncode == 0
     payload = json.loads(result.stdout)
     assert len(payload) == 1
-    assert payload[0]["path"] == "_Temporal/Logs/2026-03/20260315-python-log.md"
+    assert payload[0]["path"] == "_Temporal/Logs/20260315-python-log.md"
 
 
 def test_main_rejects_mode_flag(tmp_path, wrapper_cli):

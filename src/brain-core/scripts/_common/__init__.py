@@ -16,6 +16,8 @@ from ._exceptions import (
 from ._config_layout import (
     PLUGINS_DIR,
     ROUTER_REL_PATH,
+    TAXONOMY_DIR,
+    classification_from_subdir,
     classification_subdir,
     markdown_rel_path,
     plugin_skill_rel_path,

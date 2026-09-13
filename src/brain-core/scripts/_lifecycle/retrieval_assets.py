@@ -17,8 +17,29 @@ import _semantic.assets as semantic_assets
 import _semantic.config as semantic_config
 import _semantic.runtime as semantic_runtime
 import _search.index as search_index
+import _search.paths as search_paths
 import compile_router
 import session
+
+
+def drop_path_keyed_retrieval_caches(vault_root) -> list[str]:
+    """Remove the derived caches that key on artefact paths; return what was removed.
+
+    The lexical index and the embeddings sidecars record each document's path
+    and judge their own freshness by mtime, which ``os.rename`` preserves — so
+    after a mass move they would report themselves fresh while pointing at
+    paths that no longer exist. Removing them makes the next lexical/semantic
+    repair see ``missing`` and rebuild.
+    """
+    vault_str = str(vault_root)
+    removed: list[str] = []
+    try:
+        (Path(vault_str) / search_paths.OUTPUT_PATH).unlink()
+        removed.append(search_paths.OUTPUT_PATH)
+    except FileNotFoundError:
+        pass
+    removed.extend(semantic_runtime.clear_embeddings_outputs(vault_str))
+    return removed
 
 
 def embeddings_should_refresh(vault_root, *, config=None) -> bool:

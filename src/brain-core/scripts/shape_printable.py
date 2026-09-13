@@ -283,10 +283,9 @@ def shape(vault_root, params):
 
     now = datetime.now(timezone.utc).astimezone()
     date_prefix = now.strftime("%Y%m%d")
-    month_folder = now.strftime("%Y-%m")
     safe_slug = title_to_filename(slug)
     filename = f"{date_prefix}-printable~{safe_slug}.md"
-    rel_path = os.path.join("_Temporal", "Printables", month_folder, filename)
+    rel_path = os.path.join("_Temporal", "Printables", filename)
     abs_path = os.path.join(vault_root, rel_path)
 
     created = False

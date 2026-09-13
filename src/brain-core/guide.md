@@ -20,13 +20,13 @@ Workspaces/
 Writing/
 ...
 _Temporal/                ← temporal artefacts (dated, point-in-time)
-  Captures/2026-03/
-  Cookies/2026-03/
-  Decision Logs/2026-03/
-  Logs/2026-03/
-  Observations/2026-03/
-  Plans/2026-03/
-  Research/2026-03/
+  Captures/
+  Cookies/
+  Decision Logs/
+  Logs/
+  Observations/
+  Plans/
+  Research/
   ...
 _Assets/                  ← images, PDFs, non-markdown files
 _Config/                  ← router, taxonomy, styles, templates, memories, preferences
@@ -37,7 +37,7 @@ _Workspaces/              ← workspace data (infrastructure)
 
 **Living artefacts** sit in root-level folders. They evolve over time — the current version is what matters. Designs, ideas, projects, writing.
 
-**Temporal artefacts** sit under `_Temporal/`. They're snapshots bound to a moment — logs, plans, transcripts, research. Organised in monthly subfolders (`yyyy-mm/`).
+**Temporal artefacts** sit under `_Temporal/`. They're snapshots bound to a moment — logs, plans, transcripts, research. They file flat under their type folder, ordered by their dated filenames.
 
 **Everything else** (`_Assets/`, `_Config/`, `_Plugins/`, `.brain-core/`) is infrastructure.
 
@@ -64,23 +64,23 @@ Pick the artefact type that fits, create the file in the right folder with the r
 | Task | `Tasks/` | `{Title}.md` |
 | Workspace | `Workspaces/` | `{Title}.md` |
 | Writing | `Writing/` | `{Title}.md` |
-| Bug log | `_Temporal/Bug Logs/yyyy-mm/` | `yyyymmdd-bug~{Title}.md` |
-| Capture | `_Temporal/Captures/yyyy-mm/` | `yyyymmdd-capture~{Title}.md` |
-| Cookie | `_Temporal/Cookies/yyyy-mm/` | `yyyymmdd-cookie~{Title}.md` |
-| Ingestion | `_Temporal/Ingestions/yyyy-mm/` | `yyyymmdd-ingestion~{Title}.md` |
-| Decision log | `_Temporal/Decision Logs/yyyy-mm/` | `yyyymmdd-decision~{Title}.md` |
-| Friction log | `_Temporal/Friction Logs/yyyy-mm/` | `yyyymmdd-friction~{Title}.md` |
-| Log entry | `_Temporal/Logs/yyyy-mm/` | `yyyymmdd-log.md` |
-| Mockup | `_Temporal/Mockups/yyyy-mm/` | `yyyymmdd-mockup~{Title}.md` |
-| Observation | `_Temporal/Observations/yyyy-mm/` | `yyyymmdd-observation~{Title}.md` |
-| Plan | `_Temporal/Plans/yyyy-mm/` | `yyyymmdd-plan~{Title}.md` |
-| Presentation | `_Temporal/Presentations/yyyy-mm/` | `yyyymmdd-presentation~{Title}.md` |
-| Report | `_Temporal/Reports/yyyy-mm/` | `yyyymmdd-report~{Title}.md` |
-| Research | `_Temporal/Research/yyyy-mm/` | `yyyymmdd-research~{Title}.md` |
-| Shaping transcript | `_Temporal/Shaping Transcripts/yyyy-mm/` | `yyyymmdd-shaping-transcript~{Title}.md` |
-| Snippet | `_Temporal/Snippets/yyyy-mm/` | `yyyymmdd-snippet~{Title}.md` |
-| Thought | `_Temporal/Thoughts/yyyy-mm/` | `yyyymmdd-thought~{Title}.md` |
-| Transcript | `_Temporal/Transcripts/yyyy-mm/` | `yyyymmdd-transcript~{Title}.md` |
+| Bug log | `_Temporal/Bug Logs/` | `yyyymmdd-bug~{Title}.md` |
+| Capture | `_Temporal/Captures/` | `yyyymmdd-capture~{Title}.md` |
+| Cookie | `_Temporal/Cookies/` | `yyyymmdd-cookie~{Title}.md` |
+| Ingestion | `_Temporal/Ingestions/` | `yyyymmdd-ingestion~{Title}.md` |
+| Decision log | `_Temporal/Decision Logs/` | `yyyymmdd-decision~{Title}.md` |
+| Friction log | `_Temporal/Friction Logs/` | `yyyymmdd-friction~{Title}.md` |
+| Log entry | `_Temporal/Logs/` | `yyyymmdd-log.md` |
+| Mockup | `_Temporal/Mockups/` | `yyyymmdd-mockup~{Title}.md` |
+| Observation | `_Temporal/Observations/` | `yyyymmdd-observation~{Title}.md` |
+| Plan | `_Temporal/Plans/` | `yyyymmdd-plan~{Title}.md` |
+| Presentation | `_Temporal/Presentations/` | `yyyymmdd-presentation~{Title}.md` |
+| Report | `_Temporal/Reports/` | `yyyymmdd-report~{Title}.md` |
+| Research | `_Temporal/Research/` | `yyyymmdd-research~{Title}.md` |
+| Shaping transcript | `_Temporal/Shaping Transcripts/` | `yyyymmdd-shaping-transcript~{Title}.md` |
+| Snippet | `_Temporal/Snippets/` | `yyyymmdd-snippet~{Title}.md` |
+| Thought | `_Temporal/Thoughts/` | `yyyymmdd-thought~{Title}.md` |
+| Transcript | `_Temporal/Transcripts/` | `yyyymmdd-transcript~{Title}.md` |
 
 Additional types available from the artefact library: Wiki, Journals, Zettelkasten (living); Idea Logs, Journal Entries, Printables (temporal).
 
@@ -95,11 +95,11 @@ tags:
 ---
 ```
 
-When a living artefact owns cross-type children, its canonical key also projects to a folder `scope`. For example, `parent: project/brain` gives scope `project~brain`, so a release owned by that project files under `Releases/project~brain/`. Parented temporal artefacts use the same owner chain before their month folder, so a report owned by that project files under `_Temporal/Reports/project~brain/yyyy-mm/`.
+When a living artefact owns cross-type children, its canonical key also projects to a folder `scope`. For example, `parent: project/brain` gives scope `project~brain`, so a release owned by that project files under `Releases/project~brain/`. Parented temporal artefacts file flat under the same owner chain, so a report owned by that project files under `_Temporal/Reports/project~brain/`.
 
 ### Logging
 
-After meaningful work, append a timestamped entry to today's log (`_Temporal/Logs/yyyy-mm/yyyymmdd-log.md`). Keep entries brief — one or two sentences with a timestamp:
+After meaningful work, append a timestamped entry to today's log (`_Temporal/Logs/yyyymmdd-log.md`). Keep entries brief — one or two sentences with a timestamp:
 
 ```
 14:30 Refactored the auth middleware. See [[auth-redesign]].

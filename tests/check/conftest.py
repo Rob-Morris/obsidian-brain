@@ -111,7 +111,7 @@ def vault(tmp_path):
         "folder": "Logs", "type": "temporal/log", "key": "logs",
         "classification": "temporal", "configured": True,
         "path": os.path.join("_Temporal", "Logs"),
-        "naming": {"pattern": "yyyymmdd-log.md", "folder": "_Temporal/Logs/yyyy-mm/"},
+        "naming": {"pattern": "yyyymmdd-log.md", "folder": "_Temporal/Logs/"},
         "frontmatter": {
             "type": "temporal/log",
             "required": ["type", "tags"],
@@ -127,7 +127,7 @@ def vault(tmp_path):
         "folder": "Plans", "type": "temporal/plan", "key": "plans",
         "classification": "temporal", "configured": True,
         "path": os.path.join("_Temporal", "Plans"),
-        "naming": {"pattern": "yyyymmdd-plan~{Title}.md", "folder": "_Temporal/Plans/yyyy-mm/"},
+        "naming": {"pattern": "yyyymmdd-plan~{Title}.md", "folder": "_Temporal/Plans/"},
         "frontmatter": {
             "type": "temporal/plan",
             "required": ["type", "tags", "status"],
@@ -145,7 +145,7 @@ def vault(tmp_path):
         "classification": "temporal", "configured": True,
         "path": os.path.join("_Temporal", "Shaping Transcripts"),
         "naming": {"pattern": "yyyymmdd-shaping-transcript~{Title}.md",
-                    "folder": "_Temporal/Shaping Transcripts/yyyy-mm/"},
+                    "folder": "_Temporal/Shaping Transcripts/"},
         "frontmatter": {
             "type": "temporal/shaping-transcript",
             "required": ["type", "tags"],
@@ -161,7 +161,7 @@ def vault(tmp_path):
         "classification": "temporal", "configured": True,
         "path": os.path.join("_Temporal", "Cookies"),
         "naming": {"pattern": "yyyymmdd-cookie~{Title}.md",
-                    "folder": "_Temporal/Cookies/yyyy-mm/"},
+                    "folder": "_Temporal/Cookies/"},
         "frontmatter": {
             "type": "temporal/cookie",
             "required": ["type", "tags"],
@@ -246,10 +246,12 @@ def vault(tmp_path):
     (tmp_path / "Daily Notes").mkdir()
     (tmp_path / "Projects").mkdir()
     (tmp_path / "Releases").mkdir()
-    (tmp_path / "_Temporal" / "Logs" / "2026-03").mkdir(parents=True)
-    (tmp_path / "_Temporal" / "Plans" / "2026-03").mkdir(parents=True)
-    (tmp_path / "_Temporal" / "Shaping Transcripts" / "2026-03").mkdir(parents=True)
-    (tmp_path / "_Temporal" / "Cookies" / "2026-03").mkdir(parents=True)
+    (tmp_path / "_Temporal" / "Logs").mkdir(parents=True)
+    (tmp_path / "_Temporal" / "Plans").mkdir(parents=True)
+    (tmp_path / "_Temporal" / "Shaping Transcripts").mkdir(parents=True)
+    (tmp_path / "_Temporal" / "Cookies").mkdir(parents=True)
+    # Deliberately never populated: the empty_folders check has a fixture to find.
+    (tmp_path / "_Temporal" / "Plans" / "project~stale").mkdir(parents=True)
 
     # --- Good files ---
     write_md(tmp_path / "Wiki" / "rust-lifetimes.md",
@@ -263,12 +265,12 @@ def vault(tmp_path):
              {"type": "living/daily-note", "tags": ["daily-note"], "key": "2026-03-15-sat"}, "# Saturday")
     write_md(tmp_path / "Projects" / "Brain.md",
              {"type": "living/project", "tags": ["project/brain"], "key": "brain"}, "# Brain")
-    write_md(tmp_path / "_Temporal" / "Logs" / "2026-03" / "20260315-log.md",
+    write_md(tmp_path / "_Temporal" / "Logs" / "20260315-log.md",
              {"type": "temporal/log", "tags": ["log"]}, "09:00 Started work.")
-    write_md(tmp_path / "_Temporal" / "Shaping Transcripts" / "2026-03" /
+    write_md(tmp_path / "_Temporal" / "Shaping Transcripts" /
              "20260315-shaping-transcript~Auth.md",
              {"type": "temporal/shaping-transcript", "tags": ["transcript"]}, "Q. What?")
-    write_md(tmp_path / "_Temporal" / "Cookies" / "2026-03" /
+    write_md(tmp_path / "_Temporal" / "Cookies" /
              "20260315-cookie~Great Refactor.md",
              {"type": "temporal/cookie", "tags": ["cookie"]}, "# Cookie")
 
@@ -316,7 +318,7 @@ def vault_cr(tmp_path):
     (tax_temporal / "logs.md").write_text(
         "# Logs\n\n"
         "## Naming\n\n"
-        "`yyyymmdd-log.md` in `_Temporal/Logs/yyyy-mm/`.\n\n"
+        "`yyyymmdd-log.md` in `_Temporal/Logs/`.\n\n"
         "## Frontmatter\n\n"
         "```yaml\n---\ntype: temporal/log\ntags:\n  - log\n---\n```\n\n"
     )

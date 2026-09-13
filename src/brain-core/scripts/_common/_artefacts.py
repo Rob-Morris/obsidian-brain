@@ -1035,52 +1035,30 @@ def resolve_type(router, type_key):
     return match
 
 
-def resolve_folder(artefact, parent=None, fields=None, router=None):
-    """Resolve the target folder for a new artefact.
+def resolve_folder(artefact, parent=None, router=None):
+    """Resolve the target folder for an artefact from its type and parent.
 
-    Temporal artefacts go into ``{base}/{owner-chain}/yyyy-mm/`` when a
-    living parent is set, or ``{base}/yyyy-mm/`` otherwise. The month is
-    derived from the selected naming rule's ``date_source`` when one is
-    declared, else ``created``. Callers must reconcile timestamps and any
-    explicit ``date_source`` field before calling — this function does not
-    consult the wallclock.
+    Temporal artefacts file flat under their type root — ``{base}/`` when
+    unparented, ``{base}/{owner-chain}/`` when a living parent is set. There
+    is no date segment: ordering comes from the dated filename, which the
+    naming rule's ``date_source`` still governs (see ``resolve_naming_pattern``).
+    Living artefacts delegate to ``resolve_living_owner_folder``.
     """
     base_path = artefact["path"]
     if artefact.get("classification") == "temporal":
-        fields = fields or {}
-        source_field = "created"
-        naming = artefact.get("naming") or {}
-        for rule in naming.get("rules") or []:
-            match_field = rule.get("match_field")
-            if match_field is None:
-                source_field = rule.get("date_source") or "created"
-                break
-            if match_field not in fields:
-                continue
-            values = rule.get("match_values") or []
-            if "*" in values or fields[match_field] in values:
-                source_field = rule.get("date_source") or "created"
-                break
-        dt = parse_date_value(fields.get(source_field))
-        if dt is None:
-            raise ValueError(
-                "resolve_folder: temporal artefact requires a parseable "
-                f"'{source_field}' in fields. Reconcile render fields before calling."
-            )
-        month_folder = dt.strftime("%Y-%m")
         parent_key = normalize_artefact_key(parent)
         if parent_key and router:
             segments = [
                 owner_folder_segment(artefact, entry)
                 for entry in parent_chain_entries(router, parent_key)
             ]
-            return os.path.join(base_path, *segments, month_folder)
+            return os.path.join(base_path, *segments)
         if parent_key:
             raise BrokenParentChainError(
                 parent_key,
                 "Parent-scoped temporal filing requires a compiled router.",
             )
-        return os.path.join(base_path, month_folder)
+        return base_path
     if artefact.get("classification") == "living":
         return resolve_living_owner_folder(artefact, parent=parent, router=router)
     if parent:

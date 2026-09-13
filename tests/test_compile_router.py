@@ -68,7 +68,7 @@ def vault(tmp_path):
     (tax_temporal / "logs.md").write_text(
         "# Logs\n\n"
         "## Naming\n\n"
-        "`yyyymmdd-log.md` in `_Temporal/Logs/yyyy-mm/`.\n\n"
+        "`yyyymmdd-log.md` in `_Temporal/Logs/`.\n\n"
         "## Frontmatter\n\n"
         "```yaml\n---\ntype: temporal/log\ntags:\n  - log\n---\n```\n\n"
         "## Trigger\n\n"
@@ -1406,7 +1406,7 @@ class TestFrontmatterOptionalFields:
 class TestArtefactIndex:
     def test_compile_builds_living_artefact_index(self, vault):
         (vault / "Projects").mkdir()
-        (vault / "_Temporal" / "Reports" / "2026-04").mkdir(parents=True, exist_ok=True)
+        (vault / "_Temporal" / "Reports").mkdir(parents=True, exist_ok=True)
         tax = vault / "_Config" / "Taxonomy" / "Living"
         (tax / "projects.md").write_text(
             "# Projects\n\n"
@@ -1432,7 +1432,7 @@ class TestArtefactIndex:
             "---\n\n"
             "# Child\n"
         )
-        (vault / "_Temporal" / "Reports" / "2026-04" / "20260401-report~Audit.md").write_text(
+        (vault / "_Temporal" / "Reports" / "20260401-report~Audit.md").write_text(
             "---\n"
             "type: temporal/report\n"
             "tags:\n"

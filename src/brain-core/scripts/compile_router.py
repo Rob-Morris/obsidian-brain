@@ -424,9 +424,7 @@ def _parse_naming_section(content):
 
     Returns None if no ## Naming section present or section has no content.
     """
-    naming_match = re.search(
-        r"^## Naming\s*\n(.*?)(?=^## |\Z)", content, re.MULTILINE | re.DOTALL
-    )
+    naming_match = NAMING_SECTION_RE.search(content)
     if not naming_match:
         return None
     naming_text = naming_match.group(1)
@@ -470,13 +468,75 @@ def _parse_naming_section(content):
     }
 
 
+NAMING_SECTION_RE = re.compile(r"^## Naming\s*\n(.*?)(?=^## |\Z)", re.MULTILINE | re.DOTALL)
+"""Locates the ``## Naming`` section body; shared by the parser and the rewriter."""
+
+LEGACY_MONTH_SEGMENT = "yyyy-mm"
+
+
+def legacy_month_folder(folder):
+    """Return the flat replacement for a Naming folder that ends in ``yyyy-mm``.
+
+    Temporal filing dropped the month segment in v0.67.0. The matcher acts on
+    the *parsed* folder token only, so prose that merely mentions months is
+    never touched, and it returns ``None`` when the folder already follows the
+    current convention.
+    """
+    if not isinstance(folder, str):
+        return None
+    parts = folder.strip("/").split("/")
+    if len(parts) < 2 or parts[-1] != LEGACY_MONTH_SEGMENT:
+        return None
+    return "/".join(parts[:-1]) + "/"
+
+
+# (rule label, classification the rule applies to, matcher). The definition-sync
+# convention pass and the ``taxonomy_conventions`` check both consult this table,
+# so a rule's label, scope and matcher live in one place. The first applicable
+# rule is applied per pass.
+CONVENTION_RULES = (
+    ("flatten-temporal-month-folder", "temporal", legacy_month_folder),
+)
+
+
+def match_convention_rule(classification, folder):
+    """Return ``(rule, replacement)`` for the first convention rule ``folder`` breaks, else None."""
+    for rule, scope, matcher in CONVENTION_RULES:
+        if scope != classification:
+            continue
+        replacement = matcher(folder)
+        if replacement is not None:
+            return rule, replacement
+    return None
+
+
+def rewrite_naming_folder(content, folder, replacement):
+    """Rewrite the backticked ``folder`` token inside ``## Naming`` to ``replacement``.
+
+    Only the token the parser reads is changed — the simple form's ``in
+    `folder` `` or the advanced form's ``Primary folder: `folder` `` — and only
+    when it occurs exactly once in the section, so prose that repeats the
+    folder is never guessed at. Returns the rewritten content, or ``None``
+    when the token cannot be located unambiguously.
+    """
+    section = NAMING_SECTION_RE.search(content)
+    if section is None:
+        return None
+    token = f"`{folder}`"
+    body = section.group(1)
+    if body.count(token) != 1:
+        return None
+    start, end = section.span(1)
+    return content[:start] + body.replace(token, f"`{replacement}`", 1) + content[end:]
+
+
 def naming_storage_root(folder):
     """Return the static directory prefix of a compiled naming folder."""
     if not isinstance(folder, str) or not folder.strip("/"):
         return None
     static_parts = []
     for part in folder.strip("/").split("/"):
-        if "{" in part or part == "yyyy-mm":
+        if "{" in part:
             break
         static_parts.append(part)
     if not static_parts:

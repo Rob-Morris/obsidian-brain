@@ -16,7 +16,7 @@ class TestListArtefactsTypeFilter:
                 {"path": "Ideas/project~brain/foo.md", "type": "living/idea", "tags": ["project/brain"], "parent": "project/brain", "status": "new", "created": "2026-03-01", "modified": "2026-04-04", "title": "foo", "key": "foo"},
                 {"path": "Ideas/bar.md", "type": "living/idea", "tags": [], "status": "new", "created": "2026-03-02", "modified": "2026-04-03", "title": "bar", "key": "bar"},
                 {"path": "Wiki/baz.md", "type": "living/wiki", "tags": [], "status": None, "created": "2026-03-03", "modified": "2026-04-02", "title": "baz", "key": "baz"},
-                {"path": "_Temporal/Reports/2026-04/20260404-report~audit.md", "type": "temporal/report", "tags": ["project/brain"], "parent": "project/brain", "status": None, "created": "2026-03-04", "modified": "2026-04-01", "title": "20260404-report~audit", "key": None},
+                {"path": "_Temporal/Reports/20260404-report~audit.md", "type": "temporal/report", "tags": ["project/brain"], "parent": "project/brain", "status": None, "created": "2026-03-04", "modified": "2026-04-01", "title": "20260404-report~audit", "key": None},
             ],
         }
 
@@ -93,7 +93,7 @@ class TestListArtefactsTypeFilter:
             self._make_index(), self._make_router(), parent="project/brain"
         )
         assert [r["path"] for r in results] == [
-            "_Temporal/Reports/2026-04/20260404-report~audit.md",
+            "_Temporal/Reports/20260404-report~audit.md",
             "Ideas/project~brain/foo.md",
         ]
         assert all(r["parent"] == "project/brain" for r in results)
@@ -101,7 +101,7 @@ class TestListArtefactsTypeFilter:
         temporal = next(
             r
             for r in results
-            if r["path"] == "_Temporal/Reports/2026-04/20260404-report~audit.md"
+            if r["path"] == "_Temporal/Reports/20260404-report~audit.md"
         )
         assert living["key"] == "foo"
         assert "children_count" not in temporal

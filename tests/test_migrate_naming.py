@@ -165,9 +165,7 @@ def vault(tmp_path):
     temporal.mkdir()
     plans = temporal / "Plans"
     plans.mkdir()
-    month = plans / "2026-03"
-    month.mkdir()
-    (month / "20260324-plan--api-refactor.md").write_text(
+    (plans / "20260324-plan--api-refactor.md").write_text(
         "---\ntype: temporal/plans\ntags: []\n---\n\n# API Refactor\n"
     )
 
@@ -178,7 +176,7 @@ def vault(tmp_path):
     (wiki / "Index.md").write_text(
         "---\ntype: living/wiki\ntags: []\n---\n\n"
         "See [[Wiki/rust-lifetimes]] and "
-        "[[_Temporal/Plans/2026-03/20260324-plan--api-refactor]]\n"
+        "[[_Temporal/Plans/20260324-plan--api-refactor]]\n"
     )
 
     # Taxonomy: Wiki
@@ -195,7 +193,7 @@ def vault(tmp_path):
     tax_temporal.mkdir(parents=True)
     (tax_temporal / "plans.md").write_text(
         "# Plans\n\n"
-        "## Naming\n\n`yyyymmdd-plan~{Title}.md` in `_Temporal/Plans/yyyy-mm/`.\n\n"
+        "## Naming\n\n`yyyymmdd-plan~{Title}.md` in `_Temporal/Plans/`.\n\n"
         "## Frontmatter\n\n```yaml\n---\ntype: temporal/plans\ntags:\n  - plan-tag\n---\n```\n"
     )
 
@@ -226,11 +224,11 @@ class TestMigrateVault:
 
         # Old files should be gone
         assert not (vault / "Wiki" / "rust-lifetimes.md").is_file()
-        assert not (vault / "_Temporal" / "Plans" / "2026-03" / "20260324-plan--api-refactor.md").is_file()
+        assert not (vault / "_Temporal" / "Plans" / "20260324-plan--api-refactor.md").is_file()
 
         # New files should exist
         assert (vault / "Wiki" / "Rust Lifetimes.md").is_file()
-        assert (vault / "_Temporal" / "Plans" / "2026-03" / "20260324-plan~Api Refactor.md").is_file()
+        assert (vault / "_Temporal" / "Plans" / "20260324-plan~Api Refactor.md").is_file()
 
     def test_wikilinks_updated(self, vault, router):
         migrate_naming.migrate_vault(str(vault), router=router, dry_run=False)
@@ -238,7 +236,7 @@ class TestMigrateVault:
         index_path = vault / "Wiki" / "Index.md"
         content = index_path.read_text()
         assert "[[Wiki/Rust Lifetimes]]" in content
-        assert "[[_Temporal/Plans/2026-03/20260324-plan~Api Refactor]]" in content
+        assert "[[_Temporal/Plans/20260324-plan~Api Refactor]]" in content
         # Old links should be gone
         assert "rust-lifetimes" not in content
         assert "plan--api-refactor" not in content

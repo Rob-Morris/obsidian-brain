@@ -42,7 +42,7 @@ def vault(tmp_path):
     # Temporal type: Logs
     temporal = tmp_path / "_Temporal"
     temporal.mkdir()
-    logs = temporal / "Logs" / "2026-03"
+    logs = temporal / "Logs"
     logs.mkdir(parents=True)
 
     # Taxonomy

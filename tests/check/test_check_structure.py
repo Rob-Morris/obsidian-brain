@@ -275,31 +275,6 @@ class TestCheckDuplicateFrontmatter:
 
 
 # ---------------------------------------------------------------------------
-# TestCheckMonthFolders
-# ---------------------------------------------------------------------------
-
-class TestCheckMonthFolders:
-    def test_file_in_month_folder_passes(self, vault):
-        tmp_path, router = vault
-        findings = check.check_month_folders(str(tmp_path), router)
-        assert len(findings) == 0
-
-    def test_stray_file_flagged(self, vault):
-        tmp_path, router = vault
-        write_md(tmp_path / "_Temporal" / "Plans" / "stray.md",
-                 {"type": "temporal/plan", "tags": ["plan"], "status": "draft"})
-        findings = check.check_month_folders(str(tmp_path), router)
-        assert len(findings) == 1
-        assert "stray.md" in findings[0]["file"]
-
-    def test_living_types_skipped(self, vault):
-        tmp_path, router = vault
-        # Wiki is living — should not be checked for month folders
-        findings = check.check_month_folders(str(tmp_path), router)
-        assert not any("Wiki" in f.get("file", "") for f in findings)
-
-
-# ---------------------------------------------------------------------------
 # TestCheckMissingTimestamps
 # ---------------------------------------------------------------------------
 

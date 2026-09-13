@@ -11,7 +11,7 @@ A type is defined by a folder under `_Temporal/`, a taxonomy, a template, and (a
 3. **Template file** — create `_Config/Templates/Temporal/{Title}.md` (use the human-readable Title Case form) with default frontmatter and a section skeleton.
 4. **Router trigger** — most temporal types have one. Append a one-line conditional to `_Config/router.md`: `When ... → [[_Config/Taxonomy/Temporal/{key}]]`. The compiler reads the *condition* from `_Config/router.md` and the *detail* from the taxonomy's `## Trigger` section, then merges them in the compiled router.
 5. **Compile router** — `brain runtime refresh-router --request-json '{}' --json` regenerates the compiled router and folder-colour CSS (rose blend applied automatically to temporal types). Until this runs, consumers do not see the new type.
-6. **Validate** — `brain vault check --request-json '{"actionable":true}' --json` flags missing taxonomy/template files, frontmatter inconsistencies, naming violations, broken wikilinks, and missing month folders.
+6. **Validate** — `brain vault check --request-json '{"actionable":true}' --json` flags missing taxonomy/template files, frontmatter inconsistencies, naming violations, broken wikilinks, and empty folders.
 7. **Log** — record the addition in the daily note.
 
 ## Type Identifier vs Frontmatter Type
@@ -27,7 +27,7 @@ The following section headings are parsed by `compile_router.py` and must use th
 - **`## Purpose`** — what the type is and when to create one.
 - **`## Naming`** — filename pattern and folder rules. Standard form:
   ```
-  `yyyymmdd-{singular-key}~{Title}.md` in `_Temporal/{Plural}/yyyy-mm/`.
+  `yyyymmdd-{singular-key}~{Title}.md` in `_Temporal/{Plural}/`.
   ```
   Use `created` as the date source unless the type has a different anchor date. Date-only types like `logs` (`yyyymmdd-log.md`) are the exception, not the norm.
 - **`## Frontmatter`** — schema as a YAML code block, opened with `` ```yaml `` and containing a `---` ... `---` block:
@@ -48,7 +48,7 @@ Optional sections:
 
 ## Hub Relationships
 
-Temporal artefacts never act as hubs themselves and don't carry a `key:` field — see [keys.md](../keys.md). They can still be **owned** by a living hub via `parent: {type}/{key}` while staying in their date folder. Temporal artefacts can also use a hub's relationship tag (e.g. `project/{key}`) to surface alongside related work without taking ownership. See [hub-pattern.md](../hub-pattern.md).
+Temporal artefacts never act as hubs themselves and don't carry a `key:` field — see [keys.md](../keys.md). They can still be **owned** by a living hub via `parent: {type}/{key}`, filing flat under that owner chain. Temporal artefacts can also use a hub's relationship tag (e.g. `project/{key}`) to surface alongside related work without taking ownership. See [hub-pattern.md](../hub-pattern.md).
 
 ## Provenance
 

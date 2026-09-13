@@ -48,7 +48,7 @@ def compliance_vault(tmp_path):
     (tmp_path / "Wiki").mkdir()
     temporal = tmp_path / "_Temporal"
     temporal.mkdir()
-    (temporal / "Logs" / "2026-04").mkdir(parents=True)
+    (temporal / "Logs").mkdir(parents=True)
 
     tax_living = config / "Taxonomy" / "Living"
     tax_living.mkdir(parents=True)
@@ -62,7 +62,7 @@ def compliance_vault(tmp_path):
     tax_temporal.mkdir(parents=True)
     (tax_temporal / "logs.md").write_text(
         "# Logs\n\n"
-        "## Naming\n\n`yyyymmdd-log.md` in `_Temporal/Logs/yyyy-mm/`.\n\n"
+        "## Naming\n\n`yyyymmdd-log.md` in `_Temporal/Logs/`.\n\n"
         "## Frontmatter\n\n```yaml\n---\ntype: temporal/log\ntags:\n  - log\n---\n```\n"
     )
 
@@ -72,7 +72,7 @@ def compliance_vault(tmp_path):
         "# Reference",
     )
     _write_md(
-        tmp_path / "_Temporal" / "Logs" / "2026-04" / "20260411-log.md",
+        tmp_path / "_Temporal" / "Logs" / "20260411-log.md",
         {"type": "temporal/log", "tags": ["log"]},
         "# Log",
     )
@@ -90,14 +90,10 @@ def compiled_compliance_vault(compliance_vault):
     return {"vault": compliance_vault, "router": router}
 
 
-@given(parsers.parse('a stray temporal file "{rel_path}"'))
-def stray_temporal_file(compliance_context, rel_path):
-    """Create a temporal file directly under the type folder to trigger a warning."""
-    _write_md(
-        compliance_context["vault"] / rel_path,
-        {"type": "temporal/log", "tags": ["log"]},
-        "# Stray",
-    )
+@given(parsers.parse('an empty artefact folder "{rel_path}"'))
+def empty_artefact_folder(compliance_context, rel_path):
+    """Create a vacated-empty folder under a type root to trigger an info finding."""
+    (compliance_context["vault"] / rel_path).mkdir(parents=True, exist_ok=True)
 
 
 @when("I run compliance checks", target_fixture="compliance_result")
@@ -115,7 +111,7 @@ def assert_compliance_finding(compliance_result, check_name, rel_path):
     )
 
 
-@then(parsers.parse("the compliance summary has at least {minimum:d} warning"))
-def assert_compliance_warnings(compliance_result, minimum):
-    """Assert the compliance summary warning count meets the threshold."""
-    assert compliance_result["summary"]["warnings"] >= minimum
+@then(parsers.parse("the compliance summary has at least {minimum:d} info"))
+def assert_compliance_info(compliance_result, minimum):
+    """Assert the compliance summary info count meets the threshold."""
+    assert compliance_result["summary"]["info"] >= minimum

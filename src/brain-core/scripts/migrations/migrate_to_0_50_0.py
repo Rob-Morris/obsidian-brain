@@ -305,7 +305,6 @@ def _expected_path(record, router):
     base_folder = resolve_folder(
         record.artefact,
         parent=parent,
-        fields=record.fields,
         router=router,
     )
     _current_owner_folder, status_segment = _with_status_stripped(os.path.dirname(record.rel_path))

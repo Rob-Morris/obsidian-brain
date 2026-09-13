@@ -122,7 +122,7 @@ def reconcile_fields_for_render(fields, artefact=None, abs_path=None, filename=N
 
     Applies the universal timestamp cascade first, then reconciles the selected
     naming rule's explicit ``date_source`` field when needed. Callers should use
-    this before rendering filenames or temporal month folders so explicit
+    this before rendering filenames so explicit
     per-type subject dates (for example logs keyed by ``date`` rather than
     physical ``created`` time) are available consistently across create, edit,
     convert, and migration flows.

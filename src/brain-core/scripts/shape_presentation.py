@@ -188,10 +188,9 @@ def shape(vault_root, params):
 
     now = datetime.now(timezone.utc).astimezone()
     date_prefix = now.strftime("%Y%m%d")
-    month_folder = now.strftime("%Y-%m")
     safe_slug = title_to_filename(slug)
     filename = f"{date_prefix}-presentation~{safe_slug}.md"
-    rel_path = os.path.join("_Temporal", "Presentations", month_folder, filename)
+    rel_path = os.path.join("_Temporal", "Presentations", filename)
     abs_path = os.path.join(vault_root, rel_path)
 
     theme_path = _resolve_theme_path(vault_root)

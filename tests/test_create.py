@@ -122,7 +122,7 @@ def vault(tmp_path):
     tax_temporal.mkdir(parents=True)
     (tax_temporal / "logs.md").write_text(
         "# Logs\n\n"
-        "## Naming\n\n`log~{Title}.md` in `_Temporal/Logs/yyyy-mm/`.\n\n"
+        "## Naming\n\n`log~{Title}.md` in `_Temporal/Logs/`.\n\n"
         "## Frontmatter\n\n```yaml\n---\ntype: temporal/log\ntags:\n  - session\n---\n```\n\n"
         "## Template\n\n[[_Config/Templates/Temporal/Logs]]\n"
     )
@@ -287,14 +287,9 @@ class TestCreateArtefact:
     def test_create_temporal_type(self, vault, router):
         result = create.create_artefact(str(vault), router, "logs", "My Session")
         assert result["type"] == "temporal/log"
-        # Path should include yyyy-mm subfolder
-        assert "_Temporal/Logs/" in result["path"]
+        # Unparented temporal artefacts file flat under the type root.
         parts = result["path"].split(os.sep)
-        # Should have _Temporal/Logs/yyyy-mm/filename
-        assert len(parts) == 4
-        # The month folder should match yyyy-mm pattern
-        import re
-        assert re.match(r"\d{4}-\d{2}", parts[2])
+        assert parts == ["_Temporal", "Logs", "log~My Session.md"]
 
     def test_body_override(self, vault, router):
         result = create.create_artefact(
@@ -459,7 +454,7 @@ class TestCreateArtefact:
         )
         assert os.path.isdir(os.path.join(str(vault), "Wiki", "project~brain"))
 
-    def test_temporal_parent_scopes_before_month_folder(self, vault, router):
+    def test_temporal_parent_scopes_the_flat_owner_folder(self, vault, router):
         """Temporal children persist parent metadata and file under owner scope."""
         result = create.create_artefact(
             str(vault), router, "logs", "Session", parent="project/brain"
@@ -471,13 +466,15 @@ class TestCreateArtefact:
         assert fields["parent"] == "project/brain"
         assert "project/brain" in fields["tags"]
 
-    def test_temporal_folder_matches_frontmatter_timestamp(self, vault, router):
-        """The yyyy-mm folder and the created timestamp must agree."""
+    def test_temporal_folder_is_flat_and_the_filename_carries_the_date(
+        self, vault, router
+    ):
+        """Ordering lives in the filename now — the folder holds no date segment."""
         fixed = datetime(2026, 6, 15, 9, 0, 0, tzinfo=timezone(timedelta(hours=10)))
         with patch("create.datetime") as mock_dt:
             mock_dt.now.return_value = fixed
             result = create.create_artefact(str(vault), router, "log", "June Entry")
-        assert "_Temporal/Logs/2026-06/" in result["path"]
+        assert os.path.dirname(result["path"]) == "_Temporal/Logs"
         content = open(os.path.join(str(vault), result["path"])).read()
         fields, _ = parse_frontmatter(content)
         assert fields["created"].startswith("2026-06-15")

@@ -91,11 +91,11 @@ class TestStatusMovePrunesFolders:
 
 
 class TestTemporalRelocationPrunesFolders:
-    def test_reparent_prunes_vacated_owner_month_folder(self, vault):
+    def test_reparent_prunes_vacated_owner_folder(self, vault):
         (vault / "Projects" / "Other.md").write_text(
             "---\ntype: living/project\ntags:\n  - project/other\nkey: other\n---\n\n# Other\n"
         )
-        log = vault / "_Temporal" / "Logs" / "project~brain" / "2026-03" / "log-Session.md"
+        log = vault / "_Temporal" / "Logs" / "project~brain" / "log-Session.md"
         log.parent.mkdir(parents=True)
         log.write_text(
             "---\ntype: temporal/logs\ntags:\n  - session\n  - project/brain\n"
@@ -105,7 +105,7 @@ class TestTemporalRelocationPrunesFolders:
         result = edit.edit_artefact(
             str(vault),
             router,
-            "_Temporal/Logs/project~brain/2026-03/log-Session.md",
+            "_Temporal/Logs/project~brain/log-Session.md",
             "",
             frontmatter_changes={"parent": "project/other"},
         )

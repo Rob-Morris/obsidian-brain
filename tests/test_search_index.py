@@ -303,7 +303,7 @@ class TestSemanticSearch:
                 "Wiki/rust-ownership.md": [0.10, 0.90],
                 "Wiki/javascript-async.md": [0.20, 0.80],
                 "Designs/brain-tooling.md": [0.99, 0.01],
-                "_Temporal/Logs/2026-03/20260315-python-log.md": [0.75, 0.25],
+                "_Temporal/Logs/20260315-python-log.md": [0.75, 0.25],
             },
         )
         meta = self._doc_meta(index)
@@ -334,7 +334,7 @@ class TestSemanticSearch:
                 "Wiki/rust-ownership.md": [0.10, 0.90],
                 "Wiki/javascript-async.md": [0.20, 0.80],
                 "Designs/brain-tooling.md": [0.85, 0.15],
-                "_Temporal/Logs/2026-03/20260315-python-log.md": [0.75, 0.25],
+                "_Temporal/Logs/20260315-python-log.md": [0.75, 0.25],
             },
         )
         meta = self._doc_meta(index)
@@ -422,7 +422,7 @@ class TestSemanticSearch:
                 "Wiki/rust-ownership.md": [0.05, 0.95],
                 "Wiki/javascript-async.md": [0.10, 0.90],
                 "Designs/brain-tooling.md": [0.98, 0.02],
-                "_Temporal/Logs/2026-03/20260315-python-log.md": [0.70, 0.30],
+                "_Temporal/Logs/20260315-python-log.md": [0.70, 0.30],
             },
         )
         meta = self._doc_meta(index)
@@ -1209,7 +1209,7 @@ class TestCliModes:
         assert result.returncode == 0
         payload = json.loads(result.stdout)
         assert len(payload) == 1
-        assert payload[0]["path"] == "_Temporal/Logs/2026-03/20260315-python-log.md"
+        assert payload[0]["path"] == "_Temporal/Logs/20260315-python-log.md"
 
     def test_main_errors_when_semantic_mode_disabled(self, vault, wrapper_cli):
         build_and_persist_index(vault)

@@ -15,9 +15,9 @@ A record of a conversation — with a person, an AI, or during a meeting. Captur
 
 ## Naming
 
-`yyyymmdd-transcript~{Title}.md` in `_Temporal/Transcripts/yyyy-mm/`.
+`yyyymmdd-transcript~{Title}.md` in `_Temporal/Transcripts/`.
 
-Example: `_Temporal/Transcripts/2026-03/20260314-transcript~Rust API Design.md`
+Example: `_Temporal/Transcripts/20260314-transcript~Rust API Design.md`
 
 ## Frontmatter
 

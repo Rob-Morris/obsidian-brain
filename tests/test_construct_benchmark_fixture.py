@@ -569,7 +569,7 @@ My girlfriend. We started dating on 18 April 2024.
                 [
                     {
                         "query": "memory tool for coding agents between sessions",
-                        "target_path": "_Temporal/Research/2026-03/20260327-research~Beads Memory Management For Agents.md",
+                        "target_path": "_Temporal/Research/20260327-research~Beads Memory Management For Agents.md",
                         "rationale": "Grey-area hybrid probe",
                     }
                 ]
@@ -584,7 +584,7 @@ My girlfriend. We started dating on 18 April 2024.
         assert candidate["bucket"] == "hybrid-expected"
         assert candidate["query_style"] == cbf.QUERY_STYLE_SEEDED
         assert candidate["relevant_paths"] == [
-            "_Temporal/Research/2026-03/20260327-research~Beads Memory Management For Agents.md"
+            "_Temporal/Research/20260327-research~Beads Memory Management For Agents.md"
         ]
         assert candidate["notes"] == "Grey-area hybrid probe"
 
@@ -596,9 +596,9 @@ My girlfriend. We started dating on 18 April 2024.
                     {
                         "query": "memory tool for coding agents between sessions",
                         "relevant_paths": [
-                            "_Temporal/Research/2026-03/20260327-research~Beads Memory Management For Agents.md"
+                            "_Temporal/Research/20260327-research~Beads Memory Management For Agents.md"
                         ],
-                        "source_path": "_Temporal/Research/2026-03/20260327-research~Beads Memory Management For Agents.md",
+                        "source_path": "_Temporal/Research/20260327-research~Beads Memory Management For Agents.md",
                     }
                 ]
             ),
@@ -608,7 +608,7 @@ My girlfriend. We started dating on 18 April 2024.
         candidates = cbf._load_hybrid_seed_candidates(seed_file)
 
         assert candidates[0]["source_path"] == (
-            "_Temporal/Research/2026-03/20260327-research~Beads Memory Management For Agents.md"
+            "_Temporal/Research/20260327-research~Beads Memory Management For Agents.md"
         )
 
     def test_mine_candidates_includes_seeded_semantic_candidates(self, tmp_path, monkeypatch):
@@ -666,7 +666,7 @@ My girlfriend. We started dating on 18 April 2024.
         index = {
             "documents": [
                 {
-                    "path": "_Temporal/Research/2026-03/20260327-research~Beads Memory Management For Agents.md",
+                    "path": "_Temporal/Research/20260327-research~Beads Memory Management For Agents.md",
                     "title": "20260327-research~Beads Memory Management For Agents",
                     "type": "temporal/research",
                     "tf": {"persistent": 1, "memory": 1, "agents": 1},
@@ -681,7 +681,7 @@ My girlfriend. We started dating on 18 April 2024.
                     "candidates": [
                         {
                             "query": "persistent memory for coding agents between sessions",
-                            "target_path": "_Temporal/Research/2026-03/20260327-research~Beads Memory Management For Agents.md",
+                            "target_path": "_Temporal/Research/20260327-research~Beads Memory Management For Agents.md",
                         }
                     ]
                 }
@@ -767,7 +767,7 @@ Designing them in isolation kept producing decisions that contradicted each othe
 
     def test_mine_hybrid_candidates_emits_rewrite_variant(self, monkeypatch, tmp_path):
         doc = {
-            "path": "_Temporal/Research/2026-04/20260403-research~Raw Research - Documentation-Driven Development.md",
+            "path": "_Temporal/Research/20260403-research~Raw Research - Documentation-Driven Development.md",
             "title": "20260403-research~Raw Research - Documentation-Driven Development",
             "type": "temporal/research",
         }

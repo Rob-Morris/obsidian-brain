@@ -39,9 +39,9 @@ An ingestion has three sections, populated in order as processing progresses:
 
 ## Naming
 
-`yyyymmdd-ingestion~{Title}.md` in `_Temporal/Ingestions/yyyy-mm/`.
+`yyyymmdd-ingestion~{Title}.md` in `_Temporal/Ingestions/`.
 
-Example: `_Temporal/Ingestions/2026-03/20260327-ingestion~ Brain Project Directions Voice Memo.md`
+Example: `_Temporal/Ingestions/20260327-ingestion~ Brain Project Directions Voice Memo.md`
 
 ## Frontmatter
 

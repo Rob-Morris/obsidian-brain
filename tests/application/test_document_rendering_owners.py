@@ -72,7 +72,7 @@ def test_presentation_success_reports_markdown_pdf_and_preview_effects(
         "shape",
         lambda _root, params: {
             "status": "ok",
-            "path": "_Temporal/Presentations/2026-08/deck.md",
+            "path": "_Temporal/Presentations/deck.md",
             "created": True,
             "rendered": True,
             "pdf_path": "_Assets/Generated/Presentations/deck.pdf",
@@ -94,7 +94,7 @@ def test_presentation_success_reports_markdown_pdf_and_preview_effects(
     assert result.result.status is RenderStatus.COMPLETE
     assert result.result.preview_pid == 321
     assert tuple(effect.subject for effect in result.committed_effects) == (
-        "_Temporal/Presentations/2026-08/deck.md",
+        "_Temporal/Presentations/deck.md",
         "_Assets/Generated/Presentations/deck.pdf",
         "preview-process:321",
     )
@@ -109,7 +109,7 @@ def test_printable_renderer_failure_after_creation_is_known_partial(
         "shape",
         lambda *_args, **_kwargs: {
             "status": "partial",
-            "path": "_Temporal/Printables/2026-08/brief.md",
+            "path": "_Temporal/Printables/brief.md",
             "created": True,
             "rendered": False,
             "warning": "pandoc not installed",

@@ -261,9 +261,7 @@ def make_searchable_vault(tmp_path):
     temporal.mkdir()
     logs = temporal / "Logs"
     logs.mkdir()
-    month = logs / "2026-03"
-    month.mkdir()
-    (month / "20260315-python-log.md").write_text(
+    (logs / "20260315-python-log.md").write_text(
         "---\ntype: temporal/logs\ntags: [python, log]\nstatus: done\n---\n\n"
         "# Python Research Log\n\nResearched Python packaging tools. "
         "Compared pip, poetry, and pdm. Python packaging is evolving rapidly.\n"

@@ -7,9 +7,9 @@ Feature: Artefact creation lifecycle
     And the created artefact file exists
     And the created artefact result type is "living/wiki"
 
-  Scenario: Create a temporal artefact in the current month folder
+  Scenario: Create a temporal artefact flat under its type root
     Given a configured artefact creation vault
     When I create a "log" artefact titled "Morning Session"
-    Then the created artefact path matches "^_Temporal/Logs/\d{4}-\d{2}/log~Morning Session\.md$"
+    Then the created artefact path matches "^_Temporal/Logs/log~Morning Session\.md$"
     And the created artefact file exists
     And the created artefact result type is "temporal/log"

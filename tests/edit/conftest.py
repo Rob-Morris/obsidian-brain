@@ -136,12 +136,12 @@ def vault(tmp_path):
     tax_temporal.mkdir(parents=True)
     (tax_temporal / "logs.md").write_text(
         "# Logs\n\n"
-        "## Naming\n\n`log-{Title}.md` in `_Temporal/Logs/yyyy-mm/`.\n\n"
+        "## Naming\n\n`log-{Title}.md` in `_Temporal/Logs/`.\n\n"
         "## Frontmatter\n\n```yaml\n---\ntype: temporal/logs\ntags:\n  - session\n---\n```\n"
     )
     (tax_temporal / "reports.md").write_text(
         "# Reports\n\n"
-        "## Naming\n\n`yyyymmdd-report~{Title}.md` in `_Temporal/Reports/yyyy-mm/`.\n\n"
+        "## Naming\n\n`yyyymmdd-report~{Title}.md` in `_Temporal/Reports/`.\n\n"
         "## Frontmatter\n\n```yaml\n---\ntype: temporal/reports\ntags:\n  - report\n---\n```\n"
     )
 
@@ -149,7 +149,7 @@ def vault(tmp_path):
     (temporal / "Research").mkdir(exist_ok=True)
     (tax_temporal / "research.md").write_text(
         "# Research\n\n"
-        "## Naming\n\n`yyyymmdd-research~{Title}.md` in `_Temporal/Research/yyyy-mm/`.\n\n"
+        "## Naming\n\n`yyyymmdd-research~{Title}.md` in `_Temporal/Research/`.\n\n"
         "## Frontmatter\n\n```yaml\n---\ntype: temporal/research\ntags:\n  - research\n---\n```\n"
     )
 
@@ -157,7 +157,7 @@ def vault(tmp_path):
     (temporal / "Reports").mkdir(exist_ok=True)
     (tax_temporal / "reports.md").write_text(
         "# Reports\n\n"
-        "## Naming\n\n`yyyymmdd-report~{Title}.md` in `_Temporal/Reports/yyyy-mm/`.\n\n"
+        "## Naming\n\n`yyyymmdd-report~{Title}.md` in `_Temporal/Reports/`.\n\n"
         "## Frontmatter\n\n```yaml\n---\ntype: temporal/reports\ntags:\n  - report\n---\n```\n"
     )
 

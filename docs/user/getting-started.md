@@ -142,7 +142,7 @@ Everything in the Brain is either **living** or **temporal**. This is the only d
 
 **Living artefacts** are things that evolve. A wiki page about Rust lifetimes, a design doc for your new app, an essay you're drafting. You come back to them, update them, and the current version is what matters. They live in root-level folders like `Wiki/`, `Designs/`, or `Writing/`.
 
-**Temporal artefacts** are snapshots. A log of what you did today, a transcript of a conversation, research notes from investigating a problem. They capture a moment and then they're done. They live under `_Temporal/` in monthly folders.
+**Temporal artefacts** are snapshots. A log of what you did today, a transcript of a conversation, research notes from investigating a problem. They capture a moment and then they're done. They live under `_Temporal/`, in a folder per type.
 
 The relationship between them is where the Brain gets interesting. Temporal artefacts feed living ones. You jot down an idea in an idea log; later it becomes a living idea; later still it becomes a design. A research session produces temporal research notes; the findings end up in a wiki page. The Brain tracks these connections so nothing gets lost in translation.
 
@@ -226,7 +226,12 @@ When you find yourself creating content that doesn't fit anywhere, that's the si
 Use `brain type status --request-json '{}' --json` to inspect library types, then
 install or update one with `brain type sync --request-json
 '{"type_key":"living/wiki"}' --json`. Definition sync also runs automatically
-after upgrades according to the vault's `artefact_sync` preference. See
+after upgrades according to the vault's `artefact_sync` preference. It also
+updates unmanaged custom taxonomies when a filing convention changes — today
+that means rewriting a `## Naming` folder ending in `yyyy-mm` to file flat. An
+upgrade dry run previews the rewrite before it is applied; `artefact_sync:
+skip` suppresses it, and Naming folders that don't match are preserved and
+warned about. See
 [Direct Script and Python Command Interfaces](../functional/scripts.md) and use
 `brain command describe type.sync --json` for the exact request contract.
 

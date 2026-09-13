@@ -55,7 +55,7 @@ def vault(tmp_path):
     (tax_temporal / "logs.md").write_text(
         "# Logs\n\n"
         "Session logs recording work activity.\n\n"
-        "## Naming\n\n`log~{Title}.md` in `_Temporal/Logs/yyyy-mm/`.\n\n"
+        "## Naming\n\n`log~{Title}.md` in `_Temporal/Logs/`.\n\n"
         "## Frontmatter\n\n```yaml\n---\ntype: temporal/logs\ntags:\n  - session\n---\n```\n\n"
         "## Purpose\n\nRecord what happened during a work session.\n\n"
         "## When To Use\n\nWhen recording what happened during a work session.\n\n"
@@ -281,9 +281,9 @@ class TestResolve:
         assert result["target_path"] == "Ideas/+Shaping/Solar Powered Keyboards.md"
 
     def test_update_match_temporal_display_name(self, populated_vault, populated_router):
-        month_dir = populated_vault / "_Temporal" / "Logs" / "2026-04"
-        month_dir.mkdir(parents=True, exist_ok=True)
-        (month_dir / "20260430-log~Session Notes.md").write_text(
+        logs_dir = populated_vault / "_Temporal" / "Logs"
+        logs_dir.mkdir(parents=True, exist_ok=True)
+        (logs_dir / "20260430-log~Session Notes.md").write_text(
             "---\ntype: temporal/logs\ntags: [session]\n---\n\n# Session Notes\n\nRecorded work.\n"
         )
 
@@ -294,7 +294,7 @@ class TestResolve:
             "Session Notes",
         )
         assert result["action"] == "update"
-        assert result["target_path"] == "_Temporal/Logs/2026-04/20260430-log~Session Notes.md"
+        assert result["target_path"] == "_Temporal/Logs/20260430-log~Session Notes.md"
 
     def test_unknown_type_error(self, router, vault):
         result = process.resolve_content(router, str(vault), "nonexistent", "Test")

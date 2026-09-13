@@ -17,9 +17,9 @@ A capture is always the raw content layer. When content needs further processing
 
 ## Naming
 
-`yyyymmdd-capture~{Title}.md` in `_Temporal/Captures/yyyy-mm/`.
+`yyyymmdd-capture~{Title}.md` in `_Temporal/Captures/`.
 
-Example: `_Temporal/Captures/2026-03/20260325-capture~James Ward API Feedback.md`
+Example: `_Temporal/Captures/20260325-capture~James Ward API Feedback.md`
 
 ## Frontmatter
 

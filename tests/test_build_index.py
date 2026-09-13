@@ -105,9 +105,7 @@ def vault(tmp_path):
     temporal.mkdir()
     logs = temporal / "Logs"
     logs.mkdir()
-    month = logs / "2026-03"
-    month.mkdir()
-    (month / "20260315-retrieval-research.md").write_text(
+    (logs / "20260315-retrieval-research.md").write_text(
         "---\ntype: temporal/logs\ntags: [ai, retrieval]\nstatus: done\n---\n\n"
         "# Retrieval Research Log\n\nResearched BM25 and vector search approaches. "
         "BM25 is great for keyword matching.\n"
@@ -180,10 +178,20 @@ class TestFileDiscovery:
         assert all(f.endswith(".md") for f in files)
 
     def test_find_md_files_temporal_recurses(self, vault):
+        """Temporal files sit flat under the type root, but owner folders nest."""
+        owner = vault / "_Temporal" / "Logs" / "project~brain"
+        owner.mkdir(parents=True)
+        (owner / "20260316-owned-log.md").write_text(
+            "---\ntype: temporal/logs\ntags: [log]\n---\n\n# Owned\n"
+        )
         type_info = {"path": os.path.join("_Temporal", "Logs")}
-        files = list(iter_artefact_paths(vault, type_info, include_status_folders=True))
-        assert len(files) == 1
-        assert "2026-03" in files[0]
+        files = sorted(
+            iter_artefact_paths(vault, type_info, include_status_folders=True)
+        )
+        assert files == [
+            os.path.join("_Temporal", "Logs", "20260315-retrieval-research.md"),
+            os.path.join("_Temporal", "Logs", "project~brain", "20260316-owned-log.md"),
+        ]
 
     def test_find_md_files_skips_system_subdirs(self, vault):
         obs = vault / "Wiki" / ".obsidian"
@@ -716,7 +724,7 @@ class TestEmbeddingsOutputs:
             "Wiki/python-basics.md",
             "Wiki/rust-ownership.md",
             "Designs/brain-tooling.md",
-            "_Temporal/Logs/2026-03/20260315-retrieval-research.md",
+            "_Temporal/Logs/20260315-retrieval-research.md",
         }
 
     def test_build_embeddings_propagates_missing_uncached_document_reads(self, vault, monkeypatch):

@@ -760,9 +760,9 @@ class TestOwnershipEditPaths:
         assert "files written ['Wiki/a.md']" in str(exc_info.value)
 
     def test_temporal_parent_edit_rehomes_under_owner_scope(self, vault, router):
-        month = vault / "_Temporal" / "Research" / "2026-04"
-        month.mkdir(parents=True, exist_ok=True)
-        path = month / "20260413-research~Sample Title.md"
+        research = vault / "_Temporal" / "Research"
+        research.mkdir(parents=True, exist_ok=True)
+        path = research / "20260413-research~Sample Title.md"
         path.write_text(
             "---\n"
             "type: temporal/research\n"
@@ -776,23 +776,68 @@ class TestOwnershipEditPaths:
         result = edit.edit_artefact(
             str(vault),
             router,
-            "_Temporal/Research/2026-04/20260413-research~Sample Title.md",
+            "_Temporal/Research/20260413-research~Sample Title.md",
             "",
             frontmatter_changes={"parent": "project/brain"},
         )
 
-        new_path = "_Temporal/Research/project~brain/2026-04/20260413-research~Sample Title.md"
+        new_path = "_Temporal/Research/project~brain/20260413-research~Sample Title.md"
         assert result["path"] == new_path
         assert not path.exists()
         fields, _ = parse_frontmatter((vault / new_path).read_text())
         assert fields["parent"] == "project/brain"
         assert "project/brain" in fields["tags"]
 
-    def test_temporal_existing_broken_parent_fails_before_write(self, vault, router):
-        month = vault / "_Temporal" / "Research" / "2026-04"
-        month.mkdir(parents=True, exist_ok=True)
-        path = month / "20260413-research~Broken Parent.md"
-        original = (
+    def test_temporal_created_change_moves_the_date_in_the_filename_only(
+        self, vault, router
+    ):
+        """Only a parent change re-files a temporal artefact.
+
+        The folder carries no date segment any more, so editing ``created``
+        re-renders the dated filename and leaves the owner folder alone.
+        """
+        owner_dir = vault / "_Temporal" / "Research" / "project~brain"
+        owner_dir.mkdir(parents=True, exist_ok=True)
+        path = owner_dir / "20260413-research~Sample Title.md"
+        path.write_text(
+            "---\n"
+            "type: temporal/research\n"
+            "tags:\n"
+            "  - research\n"
+            "  - project/brain\n"
+            "parent: project/brain\n"
+            "created: 2026-04-13T09:00:00+10:00\n"
+            "---\n\n"
+            "Body.\n"
+        )
+
+        result = edit.edit_artefact(
+            str(vault),
+            router,
+            "_Temporal/Research/project~brain/20260413-research~Sample Title.md",
+            "",
+            frontmatter_changes={"created": "2026-09-01T09:00:00+10:00"},
+        )
+
+        assert result["path"] == (
+            "_Temporal/Research/project~brain/20260901-research~Sample Title.md"
+        )
+        assert os.path.dirname(result["path"]) == "_Temporal/Research/project~brain"
+        assert not path.exists()
+        assert (vault / result["path"]).is_file()
+
+    def test_temporal_body_edit_leaves_an_existing_broken_parent_in_place(
+        self, vault, router
+    ):
+        """Filing follows the owner chain, so a body edit never re-files.
+
+        The stale ``parent`` is left for the doctor to report rather than
+        blocking an unrelated edit.
+        """
+        research = vault / "_Temporal" / "Research"
+        research.mkdir(parents=True, exist_ok=True)
+        path = research / "20260413-research~Broken Parent.md"
+        path.write_text(
             "---\n"
             "type: temporal/research\n"
             "tags:\n"
@@ -802,16 +847,44 @@ class TestOwnershipEditPaths:
             "---\n\n"
             "Original body.\n"
         )
+
+        result = edit.edit_artefact(
+            str(vault),
+            router,
+            "_Temporal/Research/20260413-research~Broken Parent.md",
+            "Changed body.\n",
+            target=":body",
+            scope="section",
+        )
+
+        assert result["path"] == "_Temporal/Research/20260413-research~Broken Parent.md"
+        assert "Changed body." in path.read_text()
+        assert not (vault / "_Temporal" / "Research" / "project~missing").exists()
+
+    def test_temporal_parent_change_to_a_broken_parent_fails_before_write(
+        self, vault, router
+    ):
+        research = vault / "_Temporal" / "Research"
+        research.mkdir(parents=True, exist_ok=True)
+        path = research / "20260413-research~Broken Parent.md"
+        original = (
+            "---\n"
+            "type: temporal/research\n"
+            "tags:\n"
+            "  - research\n"
+            "created: 2026-04-13T09:00:00+10:00\n"
+            "---\n\n"
+            "Original body.\n"
+        )
         path.write_text(original)
 
-        with pytest.raises(ParentChainError, match="project/missing"):
+        with pytest.raises(ValueError, match="INVALID_PARENT.*project/missing"):
             edit.edit_artefact(
                 str(vault),
                 router,
-                "_Temporal/Research/2026-04/20260413-research~Broken Parent.md",
-                "Changed body.\n",
-                target=":body",
-                scope="section",
+                "_Temporal/Research/20260413-research~Broken Parent.md",
+                "",
+                frontmatter_changes={"parent": "project/missing"},
             )
 
         assert path.read_text() == original
@@ -820,7 +893,6 @@ class TestOwnershipEditPaths:
             / "_Temporal"
             / "Research"
             / "project~missing"
-            / "2026-04"
             / "20260413-research~Broken Parent.md"
         ).exists()
 
@@ -858,9 +930,9 @@ class TestOwnershipEditPaths:
         assert "project/brain2" in fields["tags"]
 
     def test_parent_key_change_rehomes_temporal_children_under_new_owner_scope(self, vault, router):
-        month = vault / "_Temporal" / "Research" / "2026-04"
-        month.mkdir(parents=True, exist_ok=True)
-        path = month / "20260413-research~Sample Title.md"
+        research = vault / "_Temporal" / "Research"
+        research.mkdir(parents=True, exist_ok=True)
+        path = research / "20260413-research~Sample Title.md"
         path.write_text(
             "---\n"
             "type: temporal/research\n"
@@ -887,7 +959,6 @@ class TestOwnershipEditPaths:
             / "_Temporal"
             / "Research"
             / "project~brain2"
-            / "2026-04"
             / "20260413-research~Sample Title.md"
         )
         assert new_path.is_file()
@@ -936,7 +1007,6 @@ class TestOwnershipEditPaths:
             / "Research"
             / "project~old-parent"
             / "project~child"
-            / "2026-04"
         )
         old_temporal_dir.mkdir(parents=True, exist_ok=True)
         old_temporal_path = old_temporal_dir / "20260413-research~Sample Title.md"
@@ -969,7 +1039,6 @@ class TestOwnershipEditPaths:
             / "Research"
             / "project~new-parent"
             / "project~child"
-            / "2026-04"
             / "20260413-research~Sample Title.md"
         )
         assert new_temporal_path.is_file()
@@ -980,9 +1049,9 @@ class TestOwnershipEditPaths:
     def test_parent_key_change_temporal_rehome_failure_reports_partial_context(
         self, vault, router, monkeypatch
     ):
-        month = vault / "_Temporal" / "Research" / "2026-04"
-        month.mkdir(parents=True, exist_ok=True)
-        path = month / "20260413-research~Sample Title.md"
+        research = vault / "_Temporal" / "Research"
+        research.mkdir(parents=True, exist_ok=True)
+        path = research / "20260413-research~Sample Title.md"
         path.write_text(
             "---\n"
             "type: temporal/research\n"
@@ -1012,7 +1081,7 @@ class TestOwnershipEditPaths:
         message = str(exc_info.value)
         assert isinstance(exc_info.value.__cause__, PartialApplyError)
         assert "Projects/Brain.md" in message
-        assert "_Temporal/Research/2026-04/20260413-research~Sample Title.md" in message
+        assert "_Temporal/Research/20260413-research~Sample Title.md" in message
         fields, _ = parse_frontmatter(path.read_text())
         assert fields["parent"] == "project/brain2"
         assert not (
@@ -1020,7 +1089,6 @@ class TestOwnershipEditPaths:
             / "_Temporal"
             / "Research"
             / "project~brain2"
-            / "2026-04"
             / "20260413-research~Sample Title.md"
         ).exists()
 
@@ -1802,9 +1870,9 @@ class TestArchiveArtefact:
             "---\n\n"
             "Parent.\n"
         )
-        month = vault / "_Temporal" / "Research" / "2026-04"
-        month.mkdir(parents=True, exist_ok=True)
-        temporal = month / "20260413-research~Child.md"
+        research = vault / "_Temporal" / "Research"
+        research.mkdir(parents=True, exist_ok=True)
+        temporal = research / "20260413-research~Child.md"
         temporal.write_text(
             "---\n"
             "type: temporal/research\n"
@@ -2229,9 +2297,9 @@ class TestDeleteLivingDescendants:
             "---\n\n"
             "Parent.\n"
         )
-        month = vault / "_Temporal" / "Research" / "2026-04"
-        month.mkdir(parents=True, exist_ok=True)
-        temporal = month / "20260413-research~Child.md"
+        research = vault / "_Temporal" / "Research"
+        research.mkdir(parents=True, exist_ok=True)
+        temporal = research / "20260413-research~Child.md"
         temporal.write_text(
             "---\n"
             "type: temporal/research\n"
@@ -2294,10 +2362,54 @@ class TestUnarchiveArtefact:
         fields, _ = parse_frontmatter(content)
         assert "archiveddate" not in fields
 
-    def test_unarchive_preserves_project_structure(self, vault, router):
+    def test_unarchive_refiles_flat_when_no_parent_confirms_the_owner_chain(
+        self, vault, router
+    ):
+        """Archive placement is not a restoration record without a living parent.
+
+        The recorded ``Brain/`` owner folder is not resurrected: the file
+        re-files by current convention, flat under the type root.
+        """
         rel = self._make_archived(vault, "_Archive/Ideas/Brain/20260101-my-idea.md")
         result = edit.unarchive_artefact(str(vault), router, rel)
-        assert result["new_path"] == "Ideas/Brain/+Adopted/my-idea.md"
+        assert result["new_path"] == "Ideas/+Adopted/my-idea.md"
+        assert (vault / "Ideas" / "+Adopted" / "my-idea.md").is_file()
+
+    def test_unarchive_refiles_parentless_temporal_flat_under_the_type_root(
+        self, vault, router
+    ):
+        """A temporal file archived from a legacy month folder restores flat."""
+        rel = "_Archive/_Temporal/Research/2026-04/20260413-research~Orphan.md"
+        p = vault / rel
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(
+            "---\ntype: temporal/research\ntags:\n  - research\n"
+            "created: 2026-04-13T09:00:00+10:00\narchiveddate: 2026-05-01\n---\n\nOrphan.\n"
+        )
+
+        result = edit.unarchive_artefact(str(vault), router, rel)
+
+        assert result["new_path"] == "_Temporal/Research/20260413-research~Orphan.md"
+        assert (vault / result["new_path"]).is_file()
+
+    def test_unarchive_with_unresolvable_parent_refiles_at_the_type_root(
+        self, vault, router
+    ):
+        """A recorded parent the router cannot resolve does not rebuild its chain."""
+        rel = "_Archive/_Temporal/Research/project~ghost/20260413-research~Stranded.md"
+        p = vault / rel
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(
+            "---\ntype: temporal/research\ntags:\n  - project/ghost\n"
+            "parent: project/ghost\ncreated: 2026-04-13T09:00:00+10:00\n"
+            "archiveddate: 2026-05-01\n---\n\nStranded.\n"
+        )
+
+        result = edit.unarchive_artefact(str(vault), router, rel)
+
+        assert result["new_path"] == "_Temporal/Research/20260413-research~Stranded.md"
+        assert (vault / result["new_path"]).is_file()
+        assert not (vault / "_Temporal" / "Research" / "project~ghost").exists()
 
     def test_unarchive_refuses_non_archived(self, vault, router):
         (vault / "Ideas" / "live-idea.md").write_text(

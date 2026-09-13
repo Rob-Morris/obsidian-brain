@@ -43,12 +43,21 @@ from _common import (
     decode_definition_manifest,
     find_vault_root,
     read_version,
+    TAXONOMY_DIR,
+    classification_from_subdir,
     resolve_and_check_bounds,
+    safe_write,
     safe_write_json,
+    taxonomy_rel_path,
 )
 from _common._yaml import YamlError, load_mapping_file
 from _repair_common import build_repair_command
-from compile_router import hash_file
+from compile_router import (
+    hash_file,
+    match_convention_rule,
+    parse_taxonomy_content,
+    rewrite_naming_folder,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -486,6 +495,157 @@ def status_definitions(
 
 
 # ---------------------------------------------------------------------------
+# Convention updates for unmanaged definitions
+# ---------------------------------------------------------------------------
+
+def _target_key(path: str) -> str:
+    """Return the posix-relative key under which definition targets are compared."""
+    return path.replace(os.sep, "/")
+
+
+def _managed_definition_targets(vault_root: str, library_types: list[dict], tracking: dict) -> set[str]:
+    """Return every vault-relative definition path the library or tracking owns.
+
+    Fails closed: every type directory in the artefact library claims its
+    conventional taxonomy target even when its manifest cannot be parsed, so a
+    broken manifest can never turn a library definition into an "unmanaged"
+    file the convention pass would rewrite.
+    """
+    targets = set()
+    for type_info in library_types:
+        for file_info in type_info["manifest"]["files"].values():
+            targets.add(_target_key(file_info["target"]))
+    library_root = os.path.join(vault_root, LIBRARY_DIR)
+    for classification in CLASSIFICATIONS:
+        class_dir = os.path.join(library_root, classification)
+        if not os.path.isdir(class_dir):
+            continue
+        for name in os.listdir(class_dir):
+            if os.path.isdir(os.path.join(class_dir, name)):
+                targets.add(_target_key(taxonomy_rel_path(classification, name)))
+    for entry in tracking.get("installed", {}).values():
+        for file_entry in (entry.get("files") or {}).values():
+            target = file_entry.get("target")
+            if target:
+                targets.add(_target_key(target))
+    return targets
+
+
+def discover_unmanaged_taxonomies(
+    vault_root: str, tracking: dict, library_types: list[dict]
+) -> list[tuple[str, str]]:
+    """Return ``(vault-relative path, classification)`` for taxonomies nobody owns.
+
+    Custom types created through `type.create` land in `_Config/Taxonomy/`
+    with no manifest and no tracking entry, so the manifest-driven sync never
+    sees them. This walk is the seam that lets convention updates reach them.
+    Files under an unrecognised classification folder are ignored.
+    """
+    managed = _managed_definition_targets(vault_root, library_types, tracking)
+    taxonomy_root = os.path.join(vault_root, TAXONOMY_DIR)
+    found = []
+    if not os.path.isdir(taxonomy_root):
+        return found
+    for subdir in sorted(os.listdir(taxonomy_root)):
+        try:
+            classification = classification_from_subdir(subdir)
+        except ValueError:
+            continue
+        class_dir = os.path.join(taxonomy_root, subdir)
+        if not os.path.isdir(class_dir):
+            continue
+        for filename in sorted(os.listdir(class_dir)):
+            if not filename.endswith(".md"):
+                continue
+            rel = _target_key(os.path.join(TAXONOMY_DIR, subdir, filename))
+            if rel not in managed:
+                found.append((rel, classification))
+    return found
+
+
+def apply_convention_updates(
+    vault_root: str,
+    tracking: dict,
+    library_types: list[dict],
+    *,
+    dry_run: bool,
+) -> tuple[list[dict], list[dict], list[dict]]:
+    """Bring unmanaged taxonomies forward to the current Naming conventions.
+
+    Runs as a separate traversal from the manifest loop so it never writes a
+    tracking entry (which would silently make a custom definition managed).
+    For each unmanaged taxonomy the first applicable rule in
+    ``compile_router.CONVENTION_RULES`` is applied to the parsed Naming folder:
+    an unambiguous token is rewritten in place — the analogue of a
+    `sync_ready` library file — with the previous folder recorded on the
+    result entry; a token the rewriter cannot locate exactly once is preserved
+    and reported as a warning, the analogue of a conflict. Entries carry the
+    manifest loop's keys (``type``, ``role``, ``target``, ``action``) with
+    ``action: "convention"`` plus ``rule``, ``previous`` and ``folder``.
+    Returns ``(updated, warnings, errors)``.
+    """
+    updated: list[dict] = []
+    warnings: list[dict] = []
+    errors: list[dict] = []
+    for rel_path, classification in discover_unmanaged_taxonomies(vault_root, tracking, library_types):
+        type_key = f"{classification}/{os.path.splitext(os.path.basename(rel_path))[0]}"
+        abs_path = os.path.join(vault_root, rel_path)
+        try:
+            with open(abs_path, "r", encoding="utf-8") as handle:
+                content = handle.read()
+        except (OSError, UnicodeDecodeError) as exc:
+            errors.append({
+                "type": type_key,
+                "role": "taxonomy",
+                "error": f"Could not read unmanaged definition {rel_path}: {exc}",
+            })
+            continue
+        folder = (parse_taxonomy_content(content).get("naming") or {}).get("folder")
+        match = match_convention_rule(classification, folder)
+        if match is None:
+            continue
+        rule, replacement = match
+        entry = {
+            "type": type_key,
+            "role": "taxonomy",
+            "target": rel_path,
+            "action": "convention",
+            "rule": rule,
+            "previous": folder,
+            "folder": replacement,
+        }
+        rewritten = rewrite_naming_folder(content, folder, replacement)
+        if rewritten is None:
+            entry["reason"] = "Naming folder token could not be rewritten unambiguously; update it by hand"
+            warnings.append(entry)
+            continue
+        if not dry_run:
+            safe_write(abs_path, rewritten, bounds=vault_root)
+        updated.append(entry)
+    return updated, warnings, errors
+
+
+def format_sync_updated(item: dict) -> str:
+    """Render one ``updated`` entry for human output, naming a convention folder change."""
+    detail = (
+        f" (Naming folder {item['previous']} → {item['folder']})"
+        if item.get("previous") else ""
+    )
+    return f"~ {item['type']} / {item['role']} → {item['target']}{detail}"
+
+
+def format_sync_warning(item: dict) -> str:
+    """Render one ``warnings`` entry for human output with its reason or action."""
+    reason = item.get("reason") or item.get("action") or "conflict"
+    return f"? {item['type']} / {item['role']} → {item['target']} ({reason})"
+
+
+def format_sync_error(item: dict) -> str:
+    """Render one ``errors`` entry for human output."""
+    return f"! {item['type']} / {item['role']}: {item['error']}"
+
+
+# ---------------------------------------------------------------------------
 # Core sync
 # ---------------------------------------------------------------------------
 
@@ -662,6 +822,14 @@ def sync_definitions(
             if not dry_run:
                 os.makedirs(folder_path, exist_ok=True)
 
+    if types is None:
+        convention_updated, convention_warnings, convention_errors = apply_convention_updates(
+            vault_root, tracking, library_types, dry_run=dry_run
+        )
+        updated.extend(convention_updated)
+        warnings.extend(convention_warnings)
+        errors.extend(convention_errors)
+
     if not dry_run:
         save_tracking(vault_root, tracking)
 
@@ -772,20 +940,17 @@ def _print_human(result: dict) -> None:
     if result.get("updated"):
         print(f"  Updated ({len(result['updated'])}):", file=sys.stderr)
         for item in result["updated"]:
-            print(f"    ~ {item['type']} / {item['role']} → {item['target']}", file=sys.stderr)
+            print(f"    {format_sync_updated(item)}", file=sys.stderr)
 
     if result.get("warnings"):
         print(f"  Warnings ({len(result['warnings'])}):", file=sys.stderr)
         for item in result["warnings"]:
-            print(
-                f"    ? {item['type']} / {item['role']} ({item['action']}) → {item['target']}",
-                file=sys.stderr,
-            )
+            print(f"    {format_sync_warning(item)}", file=sys.stderr)
 
     if result.get("errors"):
         print(f"  Errors ({len(result['errors'])}):", file=sys.stderr)
         for item in result["errors"]:
-            print(f"    ! {item['type']} / {item['role']}: {item['error']}", file=sys.stderr)
+            print(f"    {format_sync_error(item)}", file=sys.stderr)
 
     if result["dry_run"]:
         print("\n  (dry run — no files modified)", file=sys.stderr)

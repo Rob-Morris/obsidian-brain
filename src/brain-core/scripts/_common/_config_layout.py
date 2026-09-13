@@ -17,6 +17,18 @@ def classification_subdir(classification: str) -> str:
     raise ValueError("classification must be 'living' or 'temporal'")
 
 
+def classification_from_subdir(subdir: str) -> str:
+    """Inverse of ``classification_subdir``; raises for an unknown folder name."""
+    if subdir == "Living":
+        return "living"
+    if subdir == "Temporal":
+        return "temporal"
+    raise ValueError(f"unknown taxonomy classification folder: {subdir!r}")
+
+
+TAXONOMY_DIR = os.path.join("_Config", "Taxonomy")
+
+
 def taxonomy_rel_path(classification: str, name: str) -> str:
     return os.path.join(
         "_Config", "Taxonomy", classification_subdir(classification), f"{name}.md"

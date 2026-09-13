@@ -40,7 +40,7 @@ def router_compilation_vault(tmp_path):
     tax_temporal.mkdir(parents=True)
     (tax_temporal / "logs.md").write_text(
         "# Logs\n\n"
-        "## Naming\n\n`yyyymmdd-log.md` in `_Temporal/Logs/yyyy-mm/`.\n\n"
+        "## Naming\n\n`yyyymmdd-log.md` in `_Temporal/Logs/`.\n\n"
         "## Frontmatter\n\n```yaml\n---\ntype: temporal/log\ntags:\n  - log\n---\n```\n"
     )
 

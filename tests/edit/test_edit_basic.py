@@ -55,10 +55,10 @@ class TestValidateArtefactFolder:
 
     def test_ignores_naming_pattern(self, vault, router):
         """File with non-conforming name in valid folder succeeds."""
-        month = vault / "_Temporal" / "Logs" / "2026-03"
-        month.mkdir(parents=True)
-        (month / "bad-name.md").write_text("---\ntype: temporal/logs\n---\n")
-        art = validate_artefact_folder(str(vault), router, "_Temporal/Logs/2026-03/bad-name.md")
+        logs = vault / "_Temporal" / "Logs"
+        logs.mkdir(parents=True, exist_ok=True)
+        (logs / "bad-name.md").write_text("---\ntype: temporal/logs\n---\n")
+        art = validate_artefact_folder(str(vault), router, "_Temporal/Logs/bad-name.md")
         assert art["key"] == "logs"
 
 
@@ -66,36 +66,36 @@ class TestNonConformingNameOperations:
     """Edit/append renames non-conforming names to match the naming contract."""
 
     def test_edit_existing_file_with_nonconforming_name(self, vault, router):
-        month = vault / "_Temporal" / "Logs" / "2026-03"
-        month.mkdir(parents=True)
-        (month / "legacy-log.md").write_text(
+        logs = vault / "_Temporal" / "Logs"
+        logs.mkdir(parents=True, exist_ok=True)
+        (logs / "legacy-log.md").write_text(
             "---\ntype: temporal/logs\ntags:\n  - log\n---\n\n# Old Log\n\nOld content.\n"
         )
         result = edit.edit_artefact(
-            str(vault), router, "_Temporal/Logs/2026-03/legacy-log.md",
+            str(vault), router, "_Temporal/Logs/legacy-log.md",
             "# New Log\n\nReplaced.\n",
             target=":body", scope="section",
         )
         assert result["operation"] == "edit"
         # Edit re-renders the filename from the current frontmatter state.
         # The legacy nonconforming name gets rewritten to the canonical form.
-        renamed = month / "log-legacy-log.md"
+        renamed = logs / "log-legacy-log.md"
         assert renamed.is_file()
         assert "Replaced." in renamed.read_text()
 
     def test_append_existing_file_with_nonconforming_name(self, vault, router):
-        month = vault / "_Temporal" / "Logs" / "2026-03"
-        month.mkdir(parents=True)
-        (month / "legacy-log.md").write_text(
+        logs = vault / "_Temporal" / "Logs"
+        logs.mkdir(parents=True, exist_ok=True)
+        (logs / "legacy-log.md").write_text(
             "---\ntype: temporal/logs\ntags:\n  - log\n---\n\n# Old Log\n\nExisting.\n"
         )
         result = edit.append_to_artefact(
-            str(vault), router, "_Temporal/Logs/2026-03/legacy-log.md",
+            str(vault), router, "_Temporal/Logs/legacy-log.md",
             "\nAppended.\n",
             target=":body", scope="section",
         )
         assert result["operation"] == "append"
-        renamed = month / "log-legacy-log.md"
+        renamed = logs / "log-legacy-log.md"
         assert renamed.is_file()
         content = renamed.read_text()
         assert "Existing." in content

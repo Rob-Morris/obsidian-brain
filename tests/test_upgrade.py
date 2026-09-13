@@ -2633,3 +2633,41 @@ class TestUpgradeCliCentralRuntime:
         )
         assert second.returncode == 0, second.stderr
         assert "Reused central runtime" in second.stderr
+
+
+class TestSyncRenderers:
+    def test_updated_entry_names_the_folder_change(self):
+        assert upgrade._format_sync_updated({
+            "type": "temporal/field-notes", "role": "taxonomy",
+            "target": "_Config/Taxonomy/Temporal/field-notes.md",
+            "action": "convention", "previous": "_Temporal/Field Notes/yyyy-mm/",
+            "folder": "_Temporal/Field Notes/",
+        }) == (
+            "~ temporal/field-notes / taxonomy → _Config/Taxonomy/Temporal/field-notes.md"
+            " (Naming folder _Temporal/Field Notes/yyyy-mm/ → _Temporal/Field Notes/)"
+        )
+
+    def test_plain_updated_entry_has_no_detail(self):
+        assert upgrade._format_sync_updated({
+            "type": "living/docs", "role": "taxonomy",
+            "target": "_Config/Taxonomy/Living/docs.md", "action": "update",
+        }) == "~ living/docs / taxonomy → _Config/Taxonomy/Living/docs.md"
+
+    def test_warning_entry_prefers_reason_then_action(self):
+        base = {"type": "t/x", "role": "taxonomy", "target": "_Config/Taxonomy/Temporal/x.md"}
+        assert upgrade._format_sync_warning({**base, "action": "conflict"}).endswith("(conflict)")
+        assert upgrade._format_sync_warning(
+            {**base, "action": "convention", "reason": "update it by hand"}
+        ).endswith("(update it by hand)")
+
+    def test_renderers_match_sync_definitions(self):
+        import sync_definitions
+
+        item = {
+            "type": "t/x", "role": "taxonomy", "target": "_Config/Taxonomy/Temporal/x.md",
+            "action": "convention", "previous": "a/yyyy-mm/", "folder": "a/", "reason": "why",
+        }
+        assert upgrade._format_sync_updated(item) == sync_definitions.format_sync_updated(item)
+        assert upgrade._format_sync_warning(item) == sync_definitions.format_sync_warning(item)
+        error = {"type": "t/x", "role": "taxonomy", "error": "boom"}
+        assert upgrade._format_sync_error(error) == sync_definitions.format_sync_error(error)

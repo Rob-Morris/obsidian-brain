@@ -1,6 +1,7 @@
 # DD-009: Router-Driven Checks — No Separate Check Config
 
 **Status:** Implemented (v0.9.11)
+**Extended by:** DD-071, DD-072
 
 ## Context
 

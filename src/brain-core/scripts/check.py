@@ -55,6 +55,7 @@ from _common import (
 )
 from _lifecycle.frontmatter_repairs import iter_candidate_artefact_markdown_files
 from _repair_common import attach_repair_guidance
+from compile_router import match_convention_rule
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -549,7 +550,6 @@ def check_parent_contract(vault_root, router, *, ctx=None):
                 expected_folder = resolve_folder(
                     art,
                     parent=parent_key,
-                    fields=fields,
                     router=router,
                 )
             except ParentChainError as exc:
@@ -581,9 +581,9 @@ def check_parent_contract(vault_root, router, *, ctx=None):
                 findings.append(attach_repair_guidance(finding, vault_root, "ownership"))
             continue
 
-        if classification != "living":
-            continue
-
+        # Unparented living and temporal artefacts both belong at the type root;
+        # a subfolder without a parent field is either an implied owner or a
+        # stray (for temporal files, typically a legacy month folder).
         if base_folder == art["path"]:
             continue
 
@@ -629,30 +629,43 @@ def check_parent_contract(vault_root, router, *, ctx=None):
     return findings
 
 
-def check_month_folders(vault_root, router, *, ctx=None):
-    """Check temporal files are in yyyy-mm/ subfolders."""
+def check_taxonomy_conventions(vault_root, router, *, ctx=None):
+    """Report installed taxonomies whose Naming folder predates a convention change.
+
+    Router-driven: reads the compiled ``naming.folder`` rather than parsing
+    taxonomy markdown, and consults the same ``compile_router.CONVENTION_RULES``
+    table as definition sync's convention pass. Findings are ``info`` and not
+    repairable through a repair scope — definition sync owns the rewrite
+    (library files update from upstream, unmanaged custom types through the
+    convention pass; locally modified or ``artefact_sync_exclude``d library
+    files need reconciliation by hand or ``--force``). This is the only
+    surface for vaults that set ``artefact_sync: skip``.
+    """
     findings = []
-    month_re = re.compile(r"\d{4}-\d{2}")
-
     for art in router.get("artefacts", []):
-        if art.get("classification") != "temporal":
+        folder = (art.get("naming") or {}).get("folder")
+        match = match_convention_rule(art.get("classification"), folder)
+        if match is None:
             continue
-
-        type_dir = os.path.join(vault_root, art["path"])
-        if not os.path.isdir(type_dir):
-            continue
-
-        for entry in os.listdir(type_dir):
-            if entry.endswith(".md"):
-                rel_path = os.path.join(art["path"], entry)
-                findings.append({
-                    "check": "month_folders",
-                    "severity": "warning",
-                    "file": rel_path,
-                    "message": "Temporal file not in a yyyy-mm/ subfolder",
-                    "fix": f"Move to {art['path']}/yyyy-mm/",
-                })
-
+        rule, replacement = match
+        findings.append({
+            "check": "taxonomy_conventions",
+            "severity": "info",
+            "file": art.get("taxonomy_file"),
+            "message": (
+                f"Naming folder `{folder}` predates the current convention "
+                f"({rule}; current: `{replacement}`)."
+            ),
+            "fix": (
+                "Run definition sync (`sync_definitions.py`, or accept the post-upgrade "
+                "sync): library definitions update from upstream and unmanaged custom "
+                "types through the convention pass; a locally modified library file "
+                "needs reconciling or `--force`, and a type listed in "
+                "`artefact_sync_exclude` must be updated by hand or un-excluded."
+            ),
+            "rule": rule,
+            "repairable": False,
+        })
     return findings
 
 
@@ -935,8 +948,8 @@ ALL_CHECKS = [
     check_living_key_fields,
     check_authoring_hint_tokens,
     check_parent_contract,
-    check_month_folders,
     check_empty_folders,
+    check_taxonomy_conventions,
     check_status_folders,
     check_archive_metadata,
     check_status_values,

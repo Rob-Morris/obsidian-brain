@@ -131,13 +131,13 @@ class TestResolveBrokenLink:
         """Vault with a realistic set of files for resolution testing."""
         (vault / "Wiki" / "Brain Inbox.md").write_text("# Brain Inbox\n")
         (vault / "Designs" / "Auth Redesign.md").write_text("# Auth\n")
-        temporal = vault / "_Temporal" / "Research" / "2026-03"
+        temporal = vault / "_Temporal" / "Research"
         temporal.mkdir(parents=True, exist_ok=True)
         (temporal / "20260325-research~Foo Bar.md").write_text("# Foo\n")
-        plans = vault / "_Temporal" / "Plans" / "2026-03"
+        plans = vault / "_Temporal" / "Plans"
         plans.mkdir(parents=True, exist_ok=True)
         (plans / "20260317-plan~My Plan.md").write_text("# Plan\n")
-        logs = vault / "_Temporal" / "Idea Logs" / "2026-03"
+        logs = vault / "_Temporal" / "Idea Logs"
         logs.mkdir(parents=True, exist_ok=True)
         (logs / "20260324-idea-log~Brain Heartbeat System.md").write_text("# Idea\n")
         archive = vault / "Designs" / "_Archive"
@@ -228,7 +228,7 @@ class TestResolveArtefactPath:
         (vault / "Wiki" / "Brain Inbox.md").write_text("# Brain Inbox\n")
         (vault / "Ideas").mkdir(exist_ok=True)
         (vault / "Ideas" / "My Idea.md").write_text("# My Idea\n")
-        temporal = vault / "_Temporal" / "Reports" / "2026-03"
+        temporal = vault / "_Temporal" / "Reports"
         temporal.mkdir(parents=True, exist_ok=True)
         (temporal / "20260329-report~Broken Link Prevention Briefing.md").write_text("# Report\n")
         return vault
@@ -265,14 +265,14 @@ class TestResolveArtefactPath:
         result = common.resolve_artefact_path(
             "20260329-report~Broken Link Prevention Briefing", vault_with_files
         )
-        assert result == "_Temporal/Reports/2026-03/20260329-report~Broken Link Prevention Briefing.md"
+        assert result == "_Temporal/Reports/20260329-report~Broken Link Prevention Briefing.md"
 
     def test_temporal_display_name_resolves(self, vault_with_files):
         """Looking up by display name (without dated prefix) should find the temporal artefact."""
         result = common.resolve_artefact_path(
             "Broken Link Prevention Briefing", vault_with_files
         )
-        assert result == "_Temporal/Reports/2026-03/20260329-report~Broken Link Prevention Briefing.md"
+        assert result == "_Temporal/Reports/20260329-report~Broken Link Prevention Briefing.md"
 
 
 # ---------------------------------------------------------------------------

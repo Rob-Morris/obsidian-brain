@@ -27,7 +27,7 @@
       "intent": "cluster-expected",
       "relevant_paths": [
         "Wiki/python-basics.md",
-        "_Temporal/Logs/2026-03/20260315-python-log.md"
+        "_Temporal/Logs/20260315-python-log.md"
       ]
     },
     {
@@ -37,7 +37,7 @@
       "filters": {
         "type": "temporal/logs"
       },
-      "relevant_paths": ["_Temporal/Logs/2026-03/20260315-python-log.md"]
+      "relevant_paths": ["_Temporal/Logs/20260315-python-log.md"]
     },
     {
       "id": "javascript-draft",

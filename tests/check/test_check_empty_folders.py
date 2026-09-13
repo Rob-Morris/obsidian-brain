@@ -55,13 +55,13 @@ class TestScanEmptyArtefactFolders:
         assert "Designs/owner/empty" in paths
         assert "Designs/owner" not in paths
 
-    def test_empty_status_and_month_folders_are_reported(self, vault):
+    def test_empty_status_and_owner_folders_are_reported(self, vault):
         tmp_path, router = vault
         (tmp_path / "Designs" / "+Implemented").mkdir()
         paths = [f["path"] for f in scan_empty_artefact_folders(str(tmp_path), router)]
         assert "Designs/+Implemented" in paths
-        # The check-suite fixture never populates this month folder.
-        assert "_Temporal/Plans/2026-03" in paths
+        # The check-suite fixture never populates this owner folder.
+        assert "_Temporal/Plans/project~stale" in paths
 
     def test_archive_mirror_and_legacy_in_type_archive_are_covered(self, vault):
         tmp_path, router = vault

@@ -18,7 +18,7 @@
     "owned_plan": {
       "key": "plan/command-fixture-execution",
       "parent": "project/command-fixture",
-      "path": "_Temporal/Plans/project~command-fixture/2026-08/20260809-plan~Command Fixture Execution.md"
+      "path": "_Temporal/Plans/project~command-fixture/20260809-plan~Command Fixture Execution.md"
     },
     "lifecycle_candidate": {
       "key": "idea/command-fixture-candidate",

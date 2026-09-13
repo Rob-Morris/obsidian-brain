@@ -5,14 +5,14 @@ Some living artefact types become hubs because other artefacts gather around the
 The pattern:
 
 1. The hub file is a living artefact with a canonical key: `{type}/{key}` (e.g. `project/my-app`, `person/alex`, `workspace/client-data`). See [[keys]] for the key contract.
-2. Child artefacts persist ownership via `parent: {type}/{key}`. Living children project that ownership into same-type `{key}/` folders or cross-type `{scope}/` folders; temporal children project the same owner chain before their `yyyy-mm` date folders
+2. Child artefacts persist ownership via `parent: {type}/{key}`. Living children project that ownership into same-type `{key}/` folders or cross-type `{scope}/` folders; temporal children file flat under the same owner chain
 3. Tags remain relationship signals only; they can connect temporal or living artefacts to the hub, but tooling must never infer ownership from tags alone
 
 This is useful when a stream of related work or content needs a single living touchpoint. The hub file describes the stream and links to key artefacts. Ownership keeps living children structurally grouped; relationship tags and links keep the wider network findable.
 
 **Current examples:**
 - **People** — `person/{key}` can own living or temporal child artefacts and relate observations or other artefacts to a person
-- **Projects** — `project/{key}` can own releases, designs, wiki pages, research, and other child artefacts; temporal children file under the project scope before their month folder
+- **Projects** — `project/{key}` can own releases, designs, wiki pages, research, and other child artefacts; temporal children file flat under the project scope
 - **Journals** — `journal/{key}` remains the named anchor for a journal stream; journal entries can use the `journal/{key}` relationship tag without ownership, or persist canonical `parent` when owner-scoped temporal filing is intended
 - **Workspaces** — `workspace/{key}` can own living or temporal child artefacts and connect brain content to a bounded working container (`_Workspaces/`)
 

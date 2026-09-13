@@ -86,7 +86,6 @@ class TestRecursiveOwnerFolders:
         folder = resolve_folder(
             design,
             parent="design/brain",
-            fields={"key": "child"},
             router=router,
         )
 
@@ -106,7 +105,6 @@ class TestRecursiveOwnerFolders:
         folder = resolve_folder(
             design,
             parent="design/brain",
-            fields={"key": "child"},
             router=router,
         )
 
@@ -122,7 +120,6 @@ class TestRecursiveOwnerFolders:
         folder = resolve_folder(
             idea,
             parent="design/brain",
-            fields={"key": "child"},
             router=router,
         )
 
@@ -143,7 +140,6 @@ class TestRecursiveOwnerFolders:
         folder = resolve_folder(
             design,
             parent="design/brain-app",
-            fields={"key": "desktop-client"},
             router=router,
         )
 
@@ -164,13 +160,12 @@ class TestRecursiveOwnerFolders:
         folder = resolve_folder(
             idea,
             parent="design/brain-app",
-            fields={"key": "capture"},
             router=router,
         )
 
         assert folder == os.path.join("Ideas", "design~brain", "design~brain-app")
 
-    def test_temporal_parent_chain_scopes_before_month_folder(self):
+    def test_temporal_parent_chain_files_flat_under_the_owner_scope(self):
         report = _art("temporal/report", os.path.join("_Temporal", "Reports"))
         router = _router({
             "project/brain": _entry("living/project", "brain", "Projects/Brain.md"),
@@ -185,12 +180,11 @@ class TestRecursiveOwnerFolders:
         folder = resolve_folder(
             report,
             parent="design/search",
-            fields={"created": "2026-07-07T09:30:00+02:00"},
             router=router,
         )
 
         assert folder == os.path.join(
-            "_Temporal", "Reports", "project~brain", "design~search", "2026-07"
+            "_Temporal", "Reports", "project~brain", "design~search"
         )
 
     def test_temporal_parent_requires_router_for_owner_scope(self):
@@ -200,7 +194,6 @@ class TestRecursiveOwnerFolders:
             resolve_folder(
                 report,
                 parent="project/brain",
-                fields={"created": "2026-07-07T09:30:00+02:00"},
             )
 
     def test_mixed_chain_segments_are_relative_to_target_type(self):
@@ -218,7 +211,6 @@ class TestRecursiveOwnerFolders:
         folder = resolve_folder(
             design,
             parent="project/brain-app",
-            fields={"key": "desktop-client"},
             router=router,
         )
 
@@ -233,7 +225,6 @@ class TestRecursiveOwnerFolders:
         owner_folder = resolve_folder(
             design,
             parent="project/brain",
-            fields={"key": "old-design", "status": "deprecated"},
             router=router,
         )
 
@@ -256,7 +247,6 @@ class TestRecursiveOwnerFolders:
         folder = resolve_folder(
             design,
             parent="design/brain-app",
-            fields={"key": "active-child", "status": "active"},
             router=router,
         )
 
@@ -283,7 +273,7 @@ class TestRecursiveOwnerFolders:
             "log/standup": _entry(
                 "temporal/log",
                 "standup",
-                "_Temporal/Logs/2026-03/20260315-log.md",
+                "_Temporal/Logs/20260315-log.md",
             ),
         })
 
@@ -336,7 +326,7 @@ class TestDescendantTraversal:
             "log/standup": _entry(
                 "temporal/log",
                 "standup",
-                "_Temporal/Logs/2026-03/20260315-log.md",
+                "_Temporal/Logs/20260315-log.md",
                 parent="design/brain",
             ),
             "design/desktop": _entry(
@@ -419,7 +409,7 @@ class TestDescendantTraversal:
             "log/standup": _entry(
                 "temporal/log",
                 "standup",
-                "_Temporal/Logs/2026-03/20260315-log.md",
+                "_Temporal/Logs/20260315-log.md",
             ),
         })
 

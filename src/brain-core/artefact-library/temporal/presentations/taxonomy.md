@@ -18,9 +18,9 @@ Presentations bridge the gap between working knowledge and communicable form. Th
 
 ## Naming
 
-`yyyymmdd-presentation~{Title}.md` in `_Temporal/Presentations/yyyy-mm/`.
+`yyyymmdd-presentation~{Title}.md` in `_Temporal/Presentations/`.
 
-Example: `_Temporal/Presentations/2026-03/20260325-presentation~Q1 Security Review.md`
+Example: `_Temporal/Presentations/20260325-presentation~Q1 Security Review.md`
 
 ## Frontmatter
 

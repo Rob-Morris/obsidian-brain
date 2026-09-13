@@ -49,6 +49,29 @@ halts the upgrade and is not recorded in the migration ledger. If a migration
 has non-fatal warnings, return `status: "ok"` or `status: "skipped"` and put
 details in a `warnings` field.
 
+## Definition files are not a migration's to edit
+
+Migrations move and rewrite *artefacts*. They never edit definition files
+under `_Config/Taxonomy/` or `_Config/Templates/`, managed or unmanaged:
+
+- **Library-managed definitions** propagate through post-upgrade definition
+  sync (`sync_definitions.py`), which runs after migrations, overwrites
+  `sync_ready` files from the library and records their source hash. A
+  migration that hand-rewrote a managed file would flip it into a
+  both-sides-changed conflict unless it also patched `.brain/tracking.json`.
+- **Unmanaged custom definitions** (created through `type.create`, with no
+  manifest or tracking entry) are brought forward by sync's convention pass:
+  add a rule to `compile_router.CONVENTION_RULES` (beside the taxonomy
+  parser, which also owns the `## Naming` rewriter) when a convention changes.
+  Exact matches are rewritten and the previous value recorded; anything else
+  is preserved and warned.
+- **Checks surface drift** (`check_taxonomy_conventions`) through the same
+  rule table, so the check's matcher cannot drift from what sync rewrites —
+  the only surface for vaults with `artefact_sync: skip`.
+
+`upgrade.py --dry-run` previews both the migration and the sync pass. See
+DD-072 for the decision and its alternatives.
+
 ## Import constraints
 
 Migration scripts run inside the upgrade process. When the upgrade copies new files to disk, old script modules may still be cached in `sys.modules`. The runner now executes each migration inside a fresh import context rooted at the upgraded `.brain-core/scripts/` tree, so local imports resolve against the just-copied files rather than stale module cache entries.

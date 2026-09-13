@@ -11,14 +11,14 @@ A plan captures the intended approach before implementation starts. It records t
 - **Write before you start.** The plan comes first; implementation follows. A plan may originate from a design doc (including one accepted from `proposed` status), or from scratch. If the design was accepted from `proposed`, link to both the design and the decision log that accepted it in the plan's Origin line.
 - **Keep it concise.** Enough detail to align on approach, not a full specification.
 - **Link to artefacts.** Reference the files, wiki pages, or tasks involved.
-- **Update status.** Move from `draft` → `shaping` → `approved` → `implementing` → `completed` as the work progresses. If the plan is abandoned mid-flight, exit to `deprecated` (with a reason callout: superseded by another plan, rejected, retired, etc.) or `parked` (set aside, may resume). Plans stay in their date folder regardless of status — no `+Status/` move.
+- **Update status.** Move from `draft` → `shaping` → `approved` → `implementing` → `completed` as the work progresses. If the plan is abandoned mid-flight, exit to `deprecated` (with a reason callout: superseded by another plan, rejected, retired, etc.) or `parked` (set aside, may resume). Plans stay in place regardless of status — no `+Status/` move.
 - **Close the loop on completion.** When marking a plan `completed`: if the plan targets a design doc, update the design to reflect what was implemented. Link the completed plan from any artefacts it fulfilled.
 
 ## Naming
 
-`yyyymmdd-plan~{Title}.md` in `_Temporal/Plans/yyyy-mm/`.
+`yyyymmdd-plan~{Title}.md` in `_Temporal/Plans/`.
 
-Example: `_Temporal/Plans/2026-03/20260315-plan~API Refactor.md`
+Example: `_Temporal/Plans/20260315-plan~API Refactor.md`
 
 ## Frontmatter
 

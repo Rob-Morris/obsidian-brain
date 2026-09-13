@@ -18,9 +18,9 @@ Printables bridge the gap between working knowledge and shareable documents. The
 
 ## Naming
 
-`yyyymmdd-printable~{Title}.md` in `_Temporal/Printables/yyyy-mm/`.
+`yyyymmdd-printable~{Title}.md` in `_Temporal/Printables/`.
 
-Example: `_Temporal/Printables/2026-04/20260416-printable~Q2 Board Brief.md`
+Example: `_Temporal/Printables/20260416-printable~Q2 Board Brief.md`
 
 ## Frontmatter
 

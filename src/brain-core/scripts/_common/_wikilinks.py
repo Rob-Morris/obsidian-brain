@@ -59,9 +59,11 @@ def _iter_vault_md_files(vault_root):
     """Yield ``(dirpath, filename)`` for every ``.md`` file in user-facing dirs.
 
     Skips system directories (``_Config``, ``.obsidian``, …) except
-    ``_Temporal`` which contains artefacts.  ``_Archive/`` directories are
+    ``_Temporal`` which contains artefacts. The top-level ``_Archive/`` is
     intentionally skipped — archived files are frozen snapshots whose
-    internal wikilinks are not updated on rename operations.
+    internal wikilinks are not updated on rename operations. The legacy
+    ``_Temporal/<Type>/_Archive/`` shape is *not* skipped, because every
+    ``_``-prefixed directory beneath ``_Temporal`` is descended.
     """
     for dirpath, _dirnames, filenames in os.walk(vault_root):
         rel_dir = os.path.relpath(dirpath, vault_root)

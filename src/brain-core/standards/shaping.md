@@ -120,7 +120,7 @@ Brain shaping transcripts follow the shaping-transcript taxonomy with these
 additional invariants:
 
 - **Naming:** `yyyymmdd-shaping-transcript~{Title}.md` under
-  `_Temporal/Shaping Transcripts/yyyy-mm/`.
+  `_Temporal/Shaping Transcripts/`.
 - **Verbatim dialogue:** `### Agent` and `### User` contain exact turns rather
   than inferred synthesis.
 - **Reconciliation:** source-qualified `### Reconciliation Rn` events record

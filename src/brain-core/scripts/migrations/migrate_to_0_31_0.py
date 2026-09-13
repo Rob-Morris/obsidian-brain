@@ -388,7 +388,7 @@ def plan_folder_relocations(vault_root, router):
 
         if parent_key:
             try:
-                expected = resolve_folder(art, parent=parent_key, fields=fields, router=router)
+                expected = resolve_folder(art, parent=parent_key, router=router)
             except ValueError:
                 continue
             stored_parent = normalize_artefact_key(fields.get("parent"))

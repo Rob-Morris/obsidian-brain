@@ -47,6 +47,8 @@ _Archive/
     20260315-old-design.md
 ```
 
+The layout inside `_Archive/` is a historical snapshot of where each file sat when it was archived; `artefact.unarchive` re-files by the current conventions (flat under the type root, or under the owner chain), not by the archived path.
+
 This single location is excluded from the vault file index, search, listing, and all normal artefact operations.
 
 ## Accessing archived files

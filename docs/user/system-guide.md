@@ -46,7 +46,7 @@ Brain classifies every file as either **living** or **temporal**.
 
 - Sit under `_Temporal/` in type-specific subfolders
 - Bound to a moment — written once, rarely edited afterward
-- Organised in monthly subfolders (`yyyy-mm/`)
+- Filed flat under the type folder, ordered by the dated filename
 - Date-prefixed filenames
 - Shapeable temporal types use an optional `shaping` → `ready` lifecycle while being refined
 - Serve as historic record; their insights may spin out into living artefacts
@@ -112,7 +112,7 @@ tags:
 
 `created` and `modified` are auto-set to the current ISO 8601 timestamp when an artefact is created via script or MCP. If either field is provided in `frontmatter_overrides`, the provided value is preserved. On subsequent edits and appends via script or MCP, `modified` is automatically updated to the current timestamp; `created` is never changed by edit operations.
 
-Some types also declare an explicit queryable naming date separate from physical file creation time. For example, `temporal/log` requires a `date` field for the subject day of the log. Its filename and month folder are keyed from `date`, while `created` still records when the file itself was written or backfilled.
+Some types also declare an explicit queryable naming date separate from physical file creation time. For example, `temporal/log` requires a `date` field for the subject day of the log. Its filename is keyed from `date`, while `created` still records when the file itself was written or backfilled.
 
 ### Status
 
@@ -167,9 +167,9 @@ Why? Obsidian's backlinks and graph view resolve body wikilinks. Body text is vi
 ### Temporal Artefacts
 
 - All under `_Temporal/{Type Name}/`
-- Monthly subfolders: `yyyy-mm/`
+- Filed flat under the type folder — no date subfolders
 - Date-prefixed filenames (exact format varies by type — see individual type taxonomy files)
-- Canonical owner chains, when present, appear before the monthly folder
+- Canonical owner chains, when present, appear between the type folder and the file
 
 ### Archives
 
@@ -203,7 +203,7 @@ At each transition, use provenance links (origin on child, callout on parent). C
 
 ### Hub Pattern
 
-Hub artefacts (a living type like People, Projects, or Workspaces) are living summaries that other artefacts gather around. Child artefacts use canonical `parent` when they are structurally owned; the complete owner chain is projected into living child paths and before the month folder in temporal child paths. Additional temporal or thematic relationships still use tags and prose links. See `.brain-core/standards/hub-pattern` for the full standard.
+Hub artefacts (a living type like People, Projects, or Workspaces) are living summaries that other artefacts gather around. Child artefacts use canonical `parent` when they are structurally owned; the complete owner chain is projected into living child paths and into temporal child paths, which file flat beneath it. Additional temporal or thematic relationships still use tags and prose links. See `.brain-core/standards/hub-pattern` for the full standard.
 
 **Temporal handshake:** Related temporal artefacts feed their hub. When a temporal changes the current picture, distil the change into the hub. Temporals preserve *when*; the hub reflects *now*.
 

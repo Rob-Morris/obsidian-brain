@@ -1234,7 +1234,6 @@ def _render_existing_artefact_path(vault_root, router, art, path, fields):
     folder = resolve_folder(
         art,
         parent=normalize_artefact_key(rendered_fields.get("parent")),
-        fields=rendered_fields,
         router=router,
     )
     folder = apply_terminal_status_folder(folder, art, rendered_fields)
@@ -1487,7 +1486,7 @@ def _plan_temporal_reference_moves(
             _resolved, art = resolve_and_validate_folder(vault_root, router, rel_path)
         if art.get("classification") != "temporal":
             continue
-        dest_path = _temporal_month_relocation_path(
+        dest_path = _temporal_owner_relocation_path(
             mutation_router,
             rel_path,
             art,
@@ -1720,28 +1719,20 @@ def _apply_status_change_hooks(fields, old_fields, art):
         fields[default_field] = today
 
 
-def _temporal_month_relocation_path(router, path, art, fields):
-    """Return the owner-scoped month path for a temporal artefact.
+def _temporal_owner_relocation_path(router, path, art, fields):
+    """Return the owner-scoped flat path for a temporal artefact.
 
-    Returns the original path for living artefacts, archived files, artefacts
-    already in the correct month folder, or non-parent render errors that
-    historically meant "do not relocate".
+    Callers gate on the temporal classification. Archived files and files
+    already in their conventional folder are returned unchanged; a broken
+    parent chain propagates as ``ParentChainError``.
     """
-    if (art or {}).get("classification") != "temporal":
-        return path
     if is_archived_path(path):
         return path
-    try:
-        target_folder = resolve_folder(
-            art,
-            parent=normalize_artefact_key(fields.get("parent")),
-            fields=fields,
-            router=router,
-        )
-    except ParentChainError:
-        raise
-    except ValueError:
-        return path
+    target_folder = resolve_folder(
+        art,
+        parent=normalize_artefact_key(fields.get("parent")),
+        router=router,
+    )
     current_folder = os.path.dirname(path)
     if current_folder == target_folder:
         return path
@@ -1782,19 +1773,20 @@ def _finish_artefact(vault_root, router, abs_path, fields, old_body, new_body, p
                      resolved=None, scope=None):
     """Save artefact, rename on name-driving change, status-move, return result."""
     _apply_status_change_hooks(fields, old_fields, art)
-    had_explicit_created = bool((old_fields or {}).get("created")) or bool(
-        (frontmatter_changes or {}).get("created")
-    )
     reconcile_fields_for_render(fields, art, abs_path, os.path.basename(path))
     resolved_path = path
     ownership_handled = False
     temporal_relocation_path = path
+    # Temporal filing depends only on the owner chain, so a parent change (set,
+    # moved or cleared) is the only edit that can relocate the file.
     should_check_temporal_relocation = (
         art.get("classification") == "temporal"
-        and (had_explicit_created or normalize_artefact_key(fields.get("parent")))
+        and old_fields is not None
+        and normalize_artefact_key(old_fields.get("parent"))
+        != normalize_artefact_key(fields.get("parent"))
     )
     if should_check_temporal_relocation:
-        temporal_relocation_path = _temporal_month_relocation_path(
+        temporal_relocation_path = _temporal_owner_relocation_path(
             router, path, art, fields
         )
     if art.get("classification") == "living" and old_fields is not None:
@@ -2046,7 +2038,7 @@ def convert_artefact(vault_root, router, path, target_type, parent=None, recursi
         target_type: Target type key or full type (e.g. "design" or "living/design").
         parent: Optional canonical parent artefact reference. If omitted, an existing
                 parent is preserved when the target contract permits it. Temporal targets
-                file under their owner chain before the date folder when parent is set.
+                file flat under their owner chain when parent is set.
         recursive: Required to convert a living parent with living descendants
                 into a temporal artefact, because descendants are deparented.
 
@@ -2189,7 +2181,6 @@ def convert_artefact(vault_root, router, path, target_type, parent=None, recursi
     target_folder = resolve_folder(
         target_art,
         parent=normalize_artefact_key(rendered_fields.get("parent")),
-        fields=rendered_fields,
         router=mutation_router,
     )
     target_basename = render_filename_or_default(
@@ -2550,11 +2541,12 @@ def _plan_unarchive_entry(vault_root, router, path):
             vault_root, router, art, provisional, restored_fields
         )
     else:
-        # Archive placement is the transaction's restoration record when old
-        # metadata has no authoritative parent. Preserve that recorded path;
-        # doctor will separately report any missing-parent contract violation.
-        rel_from_archive = os.path.relpath(os.path.dirname(path), "_Archive")
-        folder = apply_terminal_status_folder(rel_from_archive, art, restored_fields)
+        # Without a parent the router can confirm, the archived location is not
+        # an authoritative restoration record: re-file by current conventions
+        # (flat under the type root), so layout changes made while the file
+        # was archived are absorbed here rather than resurrected. Doctor
+        # separately reports any parent field the router cannot resolve.
+        folder = apply_terminal_status_folder(resolve_folder(art), art, restored_fields)
         dest = os.path.join(folder, filename)
     return {
         "path": path,

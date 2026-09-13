@@ -23,7 +23,7 @@ These are patterns, not a required pipeline — each artefact type can be create
 
 When an idea is concrete enough to be a specific recommendation but needs a decision before action, it can become a design at `proposed` status — capturing the recommendation and what needs to be decided.
 
-When an idea is spun out into a design or other artefact, set `status: graduated` and add a provenance link to the successor artefact. If the idea is evaluated and won't be pursued (duplicate, retired, doesn't fit), set `status: deprecated` and add a `> [!info] Deprecated — <reason>` callout. Idea logs stay in their date folder regardless of status.
+When an idea is spun out into a design or other artefact, set `status: graduated` and add a provenance link to the successor artefact. If the idea is evaluated and won't be pursued (duplicate, retired, doesn't fit), set `status: deprecated` and add a `> [!info] Deprecated — <reason>` callout. Idea logs stay in place regardless of status — no `+Status/` move.
 
 ## Spinning Out
 
@@ -33,9 +33,9 @@ When an idea log entry has enough substance to become a new artefact, follow [[.
 
 ## Naming
 
-`yyyymmdd-idea-log~{Title}.md` in `_Temporal/Idea Logs/yyyy-mm/`.
+`yyyymmdd-idea-log~{Title}.md` in `_Temporal/Idea Logs/`.
 
-Example: `_Temporal/Idea Logs/2026-03/20260316-idea-log~Voice Memo Transcriber.md`
+Example: `_Temporal/Idea Logs/20260316-idea-log~Voice Memo Transcriber.md`
 
 ## Frontmatter
 

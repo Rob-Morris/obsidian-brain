@@ -283,7 +283,6 @@ def _canonical_release_path(router, artefact, rel_path, fields, title):
         folder = resolve_folder(
             artefact,
             parent=parent_key,
-            fields=fields,
             router=router,
         )
     else:

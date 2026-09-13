@@ -66,7 +66,7 @@ Hub-style types own children. The full contract is in [hub-pattern.md](../hub-pa
 - Children declare `parent: {type}/{key}` in frontmatter.
 - Living children of the **same** type live in `{key}/` subfolders within the parent's folder.
 - Cross-type children live in `{scope}/` subfolders (e.g. `Releases/project~brain/`), where `{scope}` is the tokenised parent key.
-- Temporal children project the complete owner chain before their month folder.
+- Temporal children file flat under the complete owner chain.
 
 See [subfolders.md](../subfolders.md) for when and how subfolders appear inside living artefact folders.
 

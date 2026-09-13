@@ -13,7 +13,7 @@ Here's what working with the Brain looks like in practice.
 You're building a new feature for a side project. Before diving into anything complex, you write a quick plan:
 
 ```
-_Temporal/Plans/2026-03/20260321-auth-redesign.md
+_Temporal/Plans/20260321-auth-redesign.md
 ```
 
 ```yaml
@@ -33,7 +33,7 @@ The plan captures your intended approach: what you're going to do, which files y
 As you work, you (or your agent) append entries to today's log:
 
 ```
-_Temporal/Logs/2026-03/20260321-log.md
+_Temporal/Logs/20260321-log.md
 ```
 
 ```
@@ -49,7 +49,7 @@ Entries are brief, timestamped, and link to relevant artefacts. The log is appen
 That JWT refresh strategy was a real fork in the road. You had three options, debated the tradeoffs, and chose one. Before the reasoning fades, you capture it:
 
 ```
-_Temporal/Decision Logs/2026-03/20260321-decision~JWT Refresh Strategy.md
+_Temporal/Decision Logs/20260321-decision~JWT Refresh Strategy.md
 ```
 
 The decision log records what question you faced, what options you considered, and why you chose what you chose. Six months from now when someone asks "why sliding window?", the answer is right there.
@@ -59,7 +59,7 @@ The decision log records what question you faced, what options you considered, a
 While debugging, you notice the token validation could be generalised into a shared library. It's not what you're working on, but you don't want to lose it:
 
 ```
-_Temporal/Idea Logs/2026-03/20260321-idea-log~Shared Token Validation.md
+_Temporal/Idea Logs/20260321-idea-log~Shared Token Validation.md
 ```
 
 Captured in 30 seconds. The bar is deliberately low. Most idea logs won't go anywhere, and that's fine. The ones that matter will graduate later.
@@ -69,7 +69,7 @@ Captured in 30 seconds. The bar is deliberately low. Most idea logs won't go any
 The API docs say one thing but the code does another. You waste 20 minutes figuring out the actual behaviour. Before moving on, you log the friction:
 
 ```
-_Temporal/Friction Logs/2026-03/20260321-friction~API Docs Mismatch.md
+_Temporal/Friction Logs/20260321-friction~API Docs Mismatch.md
 ```
 
 One friction log is just a note. But when the same kind of friction keeps showing up, you distil it into a gotcha (`_Config/User/gotchas.md`) so your agents know to watch for it.
@@ -81,7 +81,7 @@ Work's done for the day, but something's on your mind. You've been thinking abou
 The agent captures what you shared as a journal entry, in your own words:
 
 ```
-_Temporal/Journal Entries/2026-03/20260321-journal--personal--moving-house.md
+_Temporal/Journal Entries/20260321-journal--personal--moving-house.md
 ```
 
 ```yaml
@@ -226,7 +226,7 @@ Wiki pages are evergreen. You come back and update them as your understanding de
 Before writing that wiki page, you probably did research. That research lives as a temporal artefact:
 
 ```
-_Temporal/Research/2026-03/20260321-jwt-refresh-strategies.md
+_Temporal/Research/20260321-jwt-refresh-strategies.md
 ```
 
 The research doc captures findings at a point in time — what you found, what sources you consulted, what conclusions you drew. The wiki page synthesises this into lasting reference. The research doc stays as historical record.
@@ -302,7 +302,7 @@ The router (`_Config/router.md`) defines workflow triggers — things that shoul
 
 ### Agents Keep Your Vault Healthy
 
-The Brain includes a structural compliance checker (`check.py`) that validates every file against its type's rules — naming patterns, frontmatter fields, month folders, archive metadata, status values. Run it on demand to catch drift before it accumulates.
+The Brain includes a structural compliance checker (`check.py`) that validates every file against its type's rules — naming patterns, frontmatter fields, empty folders, archive metadata, status values. Run it on demand to catch drift before it accumulates.
 
 When compliance detects shaped drift — including valid parent metadata whose
 folder projection was changed out-of-band in Obsidian — it points at the exact

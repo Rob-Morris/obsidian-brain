@@ -154,6 +154,12 @@ a preview, and `skip` does nothing. Upgrade request fields can override that
 policy. Set `force: true` on `type.sync` for a reviewed conflict, or use
 `artefact_sync_exclude` to permanently skip specific files.
 
+Definition sync also updates unmanaged custom taxonomies when a filing
+convention changes — currently one rule: a `## Naming` folder ending in
+`yyyy-mm` is rewritten flat. An upgrade dry run previews the rewrite before it
+is applied; `artefact_sync: skip` suppresses it. Free-form or non-matching
+Naming folders are left untouched and reported as warnings.
+
 **Custom or unpackaged type:**
 
 Library types should use `type.sync` so manifest/tracking provenance is

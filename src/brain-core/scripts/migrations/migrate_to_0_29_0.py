@@ -426,14 +426,11 @@ def _rendered_filename(naming: dict | None, fields: dict, filename: str) -> str 
     return new_name if new_name != filename else None
 
 
-def _target_folder(art: dict, fields: dict, current_folder: str) -> str | None:
-    """For temporal artefacts, compute the ``yyyy-mm/`` folder. None if unchanged."""
+def _target_folder(art: dict, current_folder: str) -> str | None:
+    """For temporal artefacts, compute the conventional folder. None if unchanged."""
     if art.get("classification") != "temporal":
         return None
-    try:
-        target = resolve_folder(art, fields=fields)
-    except ValueError:
-        return None
+    target = resolve_folder(art)
     return target if target != current_folder else None
 
 
@@ -474,7 +471,7 @@ def _plan_artefact(
             date_source_unresolvable = True
 
     current_folder = os.path.dirname(rel_path)
-    new_folder = _target_folder(art, fields, current_folder)
+    new_folder = _target_folder(art, current_folder)
     new_filename = _rendered_filename(naming, fields, os.path.basename(rel_path))
     final_folder = new_folder if new_folder is not None else current_folder
     final_basename = new_filename or os.path.basename(rel_path)

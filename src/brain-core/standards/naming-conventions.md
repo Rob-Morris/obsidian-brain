@@ -24,7 +24,7 @@ The `title_to_filename()` function in `_common/_slugs.py` implements this.
 - A tilde (`~`) separates the type prefix from the title.
 - The title is a human-readable description of the content, preserving spaces and capitalisation.
 
-**Why the prefix matters:** Wikilinks become self-documenting. `[[20260324-report~Session Failure Analysis]]` tells you the artefact type without opening the file. Without the prefix, `[[20260324-Session Failure Analysis]]` could be research, a plan, a transcript, or anything else. Temporal artefacts share a flat date-ordered namespace within their month folder, so the prefix is the only type signal in the filename.
+**Why the prefix matters:** Wikilinks become self-documenting. `[[20260324-report~Session Failure Analysis]]` tells you the artefact type without opening the file. Without the prefix, `[[20260324-Session Failure Analysis]]` could be research, a plan, a transcript, or anything else. Temporal artefacts share a flat date-ordered namespace within their type folder, so the prefix is the only type signal in the filename.
 
 **Special cases:**
 - **Logs** use `yyyymmdd-log.md` (no title). One log per day — the date is the only identifier, and it is the subject day of the log rather than the physical file creation time.
@@ -70,7 +70,7 @@ Every naming rule that uses a date token (`yyyymmdd`, `yyyy-mm-dd`, etc.) binds 
 - `living/daily-notes` → `date_source: date` (a dedicated per-type field; the subject date of the note, which may differ from physical creation when notes are backfilled)
 - `living/writing` (on the `published` rule) → `date_source: publisheddate`
 
-Month-bucket temporal folders follow the selected rule's `date_source` too. A backfilled log for 2026-03-31 created on 2026-04-01 therefore still lives in `_Temporal/Logs/2026-03/`, not `_Temporal/Logs/2026-04/`.
+Temporal artefacts file flat under their type folder (or owner chain) — there is no date subfolder — and their chronological ordering comes from the dated filename, which follows the selected rule's `date_source`. A backfilled log for 2026-03-31 created on 2026-04-01 is therefore still named `20260331-log.md`, not `20260401-log.md`.
 
 **The `{status}_at` convention.** When a status transition is observed, the runtime sets `{status}_at = now()` unless the type declares an `on_status_change` override. Example: `writing` transitioning to `published` runs `on_status_change: { published: { set: { publisheddate: now } } }` because its date field is `publisheddate`, not `published_at`. Types whose status-date field follows the `{status}_at` convention need no override.
 

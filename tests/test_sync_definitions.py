@@ -6,6 +6,7 @@ import shutil
 
 import pytest
 
+import compile_router as cr
 import sync_definitions as sync
 
 
@@ -1064,3 +1065,226 @@ class TestStatusDefinitions:
         assert before_tracking == after_tracking
         target = vault / "_Config" / "Taxonomy" / "Temporal" / "cookies.md"
         assert not target.exists()
+
+
+# ---------------------------------------------------------------------------
+# Convention updates for unmanaged definitions
+# ---------------------------------------------------------------------------
+
+LEGACY_CUSTOM_TAXONOMY = (
+    "# Field Notes\n\n"
+    "## Naming\n\n"
+    "`yyyymmdd-field~{Title}.md` in `_Temporal/Field Notes/yyyy-mm/`, date source `created`.\n\n"
+    "Example: `_Temporal/Field Notes/2026-03/20260301-field~Hedge.md`\n\n"
+    "## Frontmatter\n\n```yaml\n---\ntype: temporal/field-note\ntags:\n  - field\n---\n```\n"
+)
+
+
+def _write_custom_taxonomy(vault, content=LEGACY_CUSTOM_TAXONOMY, name="field-notes.md"):
+    path = vault / "_Config" / "Taxonomy" / "Temporal" / name
+    path.write_text(content)
+    return path
+
+
+class TestConventionUpdates:
+    def _library_types(self, vault):
+        return sync.discover_library_types(str(vault))
+
+    def test_unmanaged_discovery_excludes_manifest_and_tracking_targets(self, vault):
+        _install_type(vault, "temporal/cookies")
+        custom = _write_custom_taxonomy(vault)
+        tracking = sync.load_tracking(str(vault))
+        found = sync.discover_unmanaged_taxonomies(str(vault), tracking, self._library_types(vault))
+        assert found == [("_Config/Taxonomy/Temporal/field-notes.md", "temporal")]
+        assert custom.is_file()
+
+    def test_unparseable_manifest_still_claims_its_taxonomy(self, vault):
+        (vault / ".brain-core" / "artefact-library" / "temporal" / "cookies" / "manifest.yaml").write_text(
+            "files: [not: valid\n"
+        )
+        (vault / "_Config" / "Taxonomy" / "Temporal" / "cookies.md").write_text(LEGACY_CUSTOM_TAXONOMY)
+        tracking = sync.load_tracking(str(vault))
+        library_types = self._library_types(vault)
+        assert library_types == [], "the broken manifest is dropped by discovery"
+        found = sync.discover_unmanaged_taxonomies(str(vault), tracking, library_types)
+        assert found == [], "a library type with a broken manifest must fail closed as managed"
+
+    def test_unrecognised_classification_folder_is_ignored(self, vault):
+        odd = vault / "_Config" / "Taxonomy" / "Experimental"
+        odd.mkdir()
+        (odd / "thing.md").write_text(LEGACY_CUSTOM_TAXONOMY)
+        tracking = sync.load_tracking(str(vault))
+        assert sync.discover_unmanaged_taxonomies(str(vault), tracking, self._library_types(vault)) == []
+
+    def test_rule_table_matches_only_temporal_month_folders(self):
+        assert cr.match_convention_rule("temporal", "_Temporal/Field Notes/yyyy-mm/") == (
+            "flatten-temporal-month-folder",
+            "_Temporal/Field Notes/",
+        )
+        assert cr.match_convention_rule("living", "Sketches/yyyy-mm/") is None
+        assert cr.match_convention_rule("temporal", "_Temporal/Field Notes/") is None
+
+    def test_rewriter_changes_only_the_naming_folder_token(self):
+        rewritten = cr.rewrite_naming_folder(
+            LEGACY_CUSTOM_TAXONOMY, "_Temporal/Field Notes/yyyy-mm/", "_Temporal/Field Notes/"
+        )
+        assert "in `_Temporal/Field Notes/`, date source `created`." in rewritten
+        # Prose and examples outside the token are untouched.
+        assert "Example: `_Temporal/Field Notes/2026-03/20260301-field~Hedge.md`" in rewritten
+        assert cr.parse_taxonomy_content(rewritten)["naming"]["folder"] == "_Temporal/Field Notes/"
+
+    def test_rewriter_refuses_an_ambiguous_token(self):
+        ambiguous = LEGACY_CUSTOM_TAXONOMY.replace(
+            "Example:", "Also `_Temporal/Field Notes/yyyy-mm/` appears here.\n\nExample:"
+        )
+        assert cr.rewrite_naming_folder(
+            ambiguous, "_Temporal/Field Notes/yyyy-mm/", "_Temporal/Field Notes/"
+        ) is None
+
+    def test_rewriter_handles_the_advanced_naming_form(self):
+        advanced = (
+            "# Field Notes\n\n## Naming\n\nPrimary folder: `_Temporal/Field Notes/yyyy-mm/`.\n\n"
+            "### Rules\n\n| Match field | Match values | Pattern |\n|---|---|---|\n"
+            "| `status` | `*` | `yyyymmdd-field~{Title}.md` |\n\n"
+            "## Frontmatter\n\n```yaml\n---\ntype: temporal/field-note\ntags:\n  - field\n---\n```\n"
+        )
+        folder = cr.parse_taxonomy_content(advanced)["naming"]["folder"]
+        assert folder == "_Temporal/Field Notes/yyyy-mm/"
+        rewritten = cr.rewrite_naming_folder(advanced, folder, "_Temporal/Field Notes/")
+        assert "Primary folder: `_Temporal/Field Notes/`." in rewritten
+
+    def test_ambiguous_token_is_preserved_and_warned(self, vault):
+        ambiguous = LEGACY_CUSTOM_TAXONOMY.replace(
+            "Example:", "Also `_Temporal/Field Notes/yyyy-mm/` appears here.\n\nExample:"
+        )
+        custom = _write_custom_taxonomy(vault, ambiguous)
+        tracking = sync.load_tracking(str(vault))
+        updated, warnings, errors = sync.apply_convention_updates(
+            str(vault), tracking, self._library_types(vault), dry_run=False
+        )
+        assert updated == [] and errors == []
+        assert len(warnings) == 1
+        assert warnings[0]["action"] == "convention"
+        assert warnings[0]["rule"] == "flatten-temporal-month-folder"
+        assert warnings[0]["previous"] == "_Temporal/Field Notes/yyyy-mm/"
+        assert "by hand" in warnings[0]["reason"]
+        assert custom.read_text() == ambiguous
+
+    def test_living_taxonomy_with_month_folder_is_out_of_scope(self, vault):
+        living = vault / "_Config" / "Taxonomy" / "Living" / "sketches.md"
+        living.parent.mkdir(parents=True, exist_ok=True)
+        content = LEGACY_CUSTOM_TAXONOMY.replace("_Temporal/Field Notes/yyyy-mm/", "Sketches/yyyy-mm/")
+        living.write_text(content)
+        tracking = sync.load_tracking(str(vault))
+        updated, warnings, errors = sync.apply_convention_updates(
+            str(vault), tracking, self._library_types(vault), dry_run=False
+        )
+        assert (updated, warnings, errors) == ([], [], [])
+        assert living.read_text() == content
+
+    def test_dry_run_reports_without_writing(self, vault):
+        custom = _write_custom_taxonomy(vault)
+        tracking = sync.load_tracking(str(vault))
+        updated, warnings, errors = sync.apply_convention_updates(
+            str(vault), tracking, self._library_types(vault), dry_run=True
+        )
+        assert [entry["target"] for entry in updated] == ["_Config/Taxonomy/Temporal/field-notes.md"]
+        assert updated[0]["previous"] == "_Temporal/Field Notes/yyyy-mm/"
+        assert updated[0]["folder"] == "_Temporal/Field Notes/"
+        assert custom.read_text() == LEGACY_CUSTOM_TAXONOMY
+
+    def test_apply_rewrites_records_previous_and_is_idempotent(self, vault):
+        custom = _write_custom_taxonomy(vault)
+        tracking = sync.load_tracking(str(vault))
+        library_types = self._library_types(vault)
+        updated, _warnings, _errors = sync.apply_convention_updates(
+            str(vault), tracking, library_types, dry_run=False
+        )
+        assert updated[0]["type"] == "temporal/field-notes"
+        assert updated[0]["role"] == "taxonomy"
+        assert updated[0]["action"] == "convention"
+        assert updated[0]["rule"] == "flatten-temporal-month-folder"
+        assert updated[0]["previous"] == "_Temporal/Field Notes/yyyy-mm/"
+        assert "in `_Temporal/Field Notes/`, date source `created`." in custom.read_text()
+        assert sync.apply_convention_updates(
+            str(vault), tracking, library_types, dry_run=False
+        ) == ([], [], [])
+
+    def test_pass_never_writes_tracking_for_custom_types(self, vault):
+        _write_custom_taxonomy(vault)
+        before = sync.load_tracking(str(vault))
+        result = sync.sync_definitions(str(vault))
+        assert any(entry["action"] == "convention" for entry in result["updated"])
+        assert sync.load_tracking(str(vault)) == before
+
+    def test_ambiguous_token_flips_sync_status_and_reaches_human_output(self, vault, capsys):
+        ambiguous = LEGACY_CUSTOM_TAXONOMY.replace(
+            "Example:", "Also `_Temporal/Field Notes/yyyy-mm/` appears here.\n\nExample:"
+        )
+        _write_custom_taxonomy(vault, ambiguous)
+        result = sync.sync_definitions(str(vault))
+        assert result["status"] == "warnings"
+        sync._print_human(result)
+        assert "update it by hand" in capsys.readouterr().err
+
+    def test_managed_taxonomy_is_left_to_the_manifest_loop(self, vault):
+        lib = vault / ".brain-core" / "artefact-library" / "temporal" / "cookies" / "taxonomy.md"
+        lib.write_text(LEGACY_CUSTOM_TAXONOMY)
+        _install_type(vault, "temporal/cookies")
+        installed = vault / "_Config" / "Taxonomy" / "Temporal" / "cookies.md"
+        tracking = sync.load_tracking(str(vault))
+        updated, warnings, _errors = sync.apply_convention_updates(
+            str(vault), tracking, self._library_types(vault), dry_run=False
+        )
+        assert updated == [] and warnings == []
+        assert installed.read_text() == LEGACY_CUSTOM_TAXONOMY
+
+    def test_excluded_managed_taxonomy_is_left_for_the_user(self, vault):
+        lib = vault / ".brain-core" / "artefact-library" / "temporal" / "cookies" / "taxonomy.md"
+        lib.write_text(LEGACY_CUSTOM_TAXONOMY)
+        _install_type(vault, "temporal/cookies")
+        (vault / ".brain" / "preferences.json").write_text(
+            json.dumps({"artefact_sync_exclude": ["temporal/cookies/taxonomy"]})
+        )
+        installed = vault / "_Config" / "Taxonomy" / "Temporal" / "cookies.md"
+        result = sync.sync_definitions(str(vault))
+        assert installed.read_text() == LEGACY_CUSTOM_TAXONOMY
+        assert not any(entry.get("target") == "_Config/Taxonomy/Temporal/cookies.md" for entry in result["updated"])
+
+    def test_full_sync_surfaces_entries_with_shared_keys(self, vault):
+        _write_custom_taxonomy(vault)
+        result = sync.sync_definitions(str(vault), dry_run=True)
+        entries = [e for e in result["updated"] if e["action"] == "convention"]
+        assert len(entries) == 1
+        assert set(entries[0]) >= {"type", "role", "target", "action", "rule", "previous", "folder"}
+        assert entries[0]["target"].startswith("_Config/Taxonomy/")
+        assert result["status"] == "ok"
+
+    def test_scoped_sync_skips_the_pass(self, vault):
+        custom = _write_custom_taxonomy(vault)
+        result = sync.sync_definitions(str(vault), types=["temporal/cookies"])
+        assert not any(e["action"] == "convention" for e in result["updated"])
+        assert custom.read_text() == LEGACY_CUSTOM_TAXONOMY
+
+    def test_skip_preference_skips_the_pass(self, vault):
+        custom = _write_custom_taxonomy(vault)
+        result = sync.sync_definitions(str(vault), preference="skip")
+        assert result["status"] == "skipped"
+        assert custom.read_text() == LEGACY_CUSTOM_TAXONOMY
+
+    def test_human_output_names_the_folder_change(self, vault, capsys):
+        _write_custom_taxonomy(vault)
+        result = sync.sync_definitions(str(vault), dry_run=True)
+        sync._print_human(result)
+        err = capsys.readouterr().err
+        assert "Naming folder _Temporal/Field Notes/yyyy-mm/ → _Temporal/Field Notes/" in err
+
+    def test_human_output_names_the_warning_reason(self, capsys):
+        sync._print_human({
+            "status": "warnings", "message": "1 warning", "dry_run": False,
+            "updated": [], "warnings": [{
+                "type": "temporal/x", "role": "taxonomy", "target": "_Config/Taxonomy/Temporal/x.md",
+                "action": "convention", "reason": "Naming folder token could not be rewritten unambiguously; update it by hand",
+            }], "errors": [],
+        })
+        assert "update it by hand" in capsys.readouterr().err

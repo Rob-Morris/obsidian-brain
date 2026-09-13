@@ -87,7 +87,7 @@ def vault(tmp_path):
     (tax_temporal / "shaping-transcripts.md").write_text(
         "# Shaping Transcripts\n\n"
         "## Naming\n\n`yyyymmdd-shaping-transcript~{Title}.md` in "
-        "`_Temporal/Shaping Transcripts/yyyy-mm/`.\n\n"
+        "`_Temporal/Shaping Transcripts/`.\n\n"
         "## Frontmatter\n\n```yaml\n---\ntype: temporal/shaping-transcript\ntags:\n"
         "  - transcript\n---\n```\n\n"
         "## Template\n\n[[_Config/Templates/Temporal/Shaping Transcripts]]\n"
@@ -260,6 +260,8 @@ class TestStartShaping:
     ):
         source = vault / "Designs" / "Already Shaping.md"
         missing = (
+            # A legacy month-foldered transcript path: the layout is gone, so
+            # the link is stale and must not be treated as today's transcript.
             "_Temporal/Shaping Transcripts/2026-07/"
             "20260722-shaping-transcript~Already Shaping"
         )
@@ -283,11 +285,11 @@ class TestStartShaping:
         self, vault, router
     ):
         transcript_rel = (
-            "_Temporal/Shaping Transcripts/2026-07/"
+            "_Temporal/Shaping Transcripts/"
             "20260722-shaping-transcript~Already Shaping.md"
         )
         transcript = vault / transcript_rel
-        transcript.parent.mkdir(parents=True)
+        transcript.parent.mkdir(parents=True, exist_ok=True)
         transcript.write_text(
             "---\ntype: temporal/shaping-transcript\n---\n"
             "**Source:** [[Designs/Somewhere Else|Somewhere Else]]\n"
@@ -314,11 +316,11 @@ class TestStartShaping:
         self, vault, router
     ):
         transcript_rel = (
-            "_Temporal/Shaping Transcripts/2026-07/"
+            "_Temporal/Shaping Transcripts/"
             "20260722-shaping-transcript~Already Shaping.md"
         )
         transcript = vault / transcript_rel
-        transcript.parent.mkdir(parents=True)
+        transcript.parent.mkdir(parents=True, exist_ok=True)
         transcript.write_text(
             "---\ntype: temporal/shaping-transcript\n---\n"
             "**Source:** [[Already Shaping]]\n"
@@ -384,7 +386,7 @@ class TestStartShaping:
         )
 
         assert result["transcript_path"] == (
-            "_Temporal/Session Notes/2026-07/20260722-session~My Design.md"
+            "_Temporal/Session Notes/20260722-session~My Design.md"
         )
         assert result["type"] == "temporal/custom-session"
         assert (vault / result["transcript_path"]).is_file()
@@ -405,8 +407,8 @@ class TestStartShaping:
     def test_multiple_reciprocal_same_day_transcripts_are_rejected(
         self, vault, router
     ):
-        folder = vault / "_Temporal" / "Shaping Transcripts" / "2026-07"
-        folder.mkdir(parents=True)
+        folder = vault / "_Temporal" / "Shaping Transcripts"
+        folder.mkdir(parents=True, exist_ok=True)
         names = [
             "20260722-shaping-transcript~Already Shaping.md",
             "20260722-shaping-transcript~Already Shaping (2).md",
@@ -418,7 +420,7 @@ class TestStartShaping:
             )
         source = vault / "Designs" / "Already Shaping.md"
         links = " ".join(
-            f"[[_Temporal/Shaping Transcripts/2026-07/{name[:-3]}|Session]]"
+            f"[[_Temporal/Shaping Transcripts/{name[:-3]}|Session]]"
             for name in names
         )
         source.write_text(source.read_text() + f"\n**Transcripts:** {links}\n")
@@ -438,8 +440,8 @@ class TestStartShaping:
     def test_joint_same_day_transcript_with_widest_source_set_is_continued(
         self, vault, router
     ):
-        folder = vault / "_Temporal" / "Shaping Transcripts" / "2026-07"
-        folder.mkdir(parents=True)
+        folder = vault / "_Temporal" / "Shaping Transcripts"
+        folder.mkdir(parents=True, exist_ok=True)
         single = folder / "20260722-shaping-transcript~Already Shaping.md"
         joint = folder / "20260722-shaping-transcript~My Design.md"
         single.write_text(
@@ -455,9 +457,9 @@ class TestStartShaping:
         source.write_text(
             source.read_text()
             + "\n**Transcripts:** "
-            + "[[_Temporal/Shaping Transcripts/2026-07/"
+            + "[[_Temporal/Shaping Transcripts/"
             + "20260722-shaping-transcript~Already Shaping|Single]], "
-            + "[[_Temporal/Shaping Transcripts/2026-07/"
+            + "[[_Temporal/Shaping Transcripts/"
             + "20260722-shaping-transcript~My Design|Joint]]\n"
         )
 
@@ -493,8 +495,8 @@ class TestStartShaping:
     def test_archived_source_link_still_counts_towards_joint_transcript_width(
         self, vault, router
     ):
-        folder = vault / "_Temporal" / "Shaping Transcripts" / "2026-07"
-        folder.mkdir(parents=True)
+        folder = vault / "_Temporal" / "Shaping Transcripts"
+        folder.mkdir(parents=True, exist_ok=True)
         archive = vault / "_Archive" / "Designs"
         archive.mkdir(parents=True)
         (archive / "Archived Peer.md").write_text("# Archived Peer\n")
@@ -514,9 +516,9 @@ class TestStartShaping:
         source.write_text(
             source.read_text()
             + "\n**Transcripts:** "
-            + "[[_Temporal/Shaping Transcripts/2026-07/"
+            + "[[_Temporal/Shaping Transcripts/"
             + "20260722-shaping-transcript~Already Shaping|Single]], "
-            + "[[_Temporal/Shaping Transcripts/2026-07/"
+            + "[[_Temporal/Shaping Transcripts/"
             + "20260722-shaping-transcript~Archived Peer|Joint]]\n"
         )
 

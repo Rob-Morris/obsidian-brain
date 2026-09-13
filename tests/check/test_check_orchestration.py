@@ -33,7 +33,7 @@ class TestRunChecks:
         tmp_path, router = vault
         # Add violations
         (tmp_path / "readme.md").write_text("orphan\n")
-        write_md(tmp_path / "_Temporal" / "Logs" / "2026-03" / "BAD NAME.md",
+        write_md(tmp_path / "_Temporal" / "Logs" / "BAD NAME.md",
                  {"type": "temporal/log", "tags": ["log"]})
         result = check.run_checks(str(tmp_path), router)
         assert result["summary"]["errors"] >= 1   # root_files

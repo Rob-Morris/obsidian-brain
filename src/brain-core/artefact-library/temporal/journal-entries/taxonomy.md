@@ -46,7 +46,7 @@ Journal entries are always in the user's own words unless the user explicitly as
 
 ## Naming
 
-`yyyymmdd-journal~{Title}.md` in `_Temporal/Journal Entries/yyyy-mm/`.
+`yyyymmdd-journal~{Title}.md` in `_Temporal/Journal Entries/`.
 
 The title is the topic or subject of the entry, in the same sense as `{Title}` for research or report artefacts. The journal stream is carried by the `journal/{key}` tag, not the filename — scope by tag when browsing a stream.
 

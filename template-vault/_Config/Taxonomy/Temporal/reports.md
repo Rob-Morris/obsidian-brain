@@ -14,9 +14,9 @@ When reviewing a process performed — audit, migration, diagnosis, implementati
 
 ## Naming
 
-`yyyymmdd-report~{Title}.md` in `_Temporal/Reports/yyyy-mm/`.
+`yyyymmdd-report~{Title}.md` in `_Temporal/Reports/`.
 
-Example: `_Temporal/Reports/2026-03/20260320-report~API Performance Audit.md`
+Example: `_Temporal/Reports/20260320-report~API Performance Audit.md`
 
 ## Frontmatter
 

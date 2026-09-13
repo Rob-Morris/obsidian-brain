@@ -125,7 +125,7 @@ def _transcript_layout(artefact, router, title, now):
         "type": artefact["frontmatter_type"],
     }
     reconcile_fields_for_render(fields, artefact)
-    folder = resolve_folder(artefact, fields=fields, router=router)
+    folder = resolve_folder(artefact, router=router)
     filename = render_filename_or_default(artefact["naming"], title, fields)
     return folder, filename, fields
 

@@ -1270,6 +1270,30 @@ def _write_upgrade_progress(
     )
 
 
+def _format_sync_updated(item: dict) -> str:
+    """Render one sync ``updated`` entry, naming a convention folder change.
+
+    Mirrors ``sync_definitions.format_sync_updated``; duplicated because this
+    script stays self-contained (it replaces the scripts it would import).
+    """
+    detail = (
+        f" (Naming folder {item['previous']} → {item['folder']})"
+        if item.get("previous") else ""
+    )
+    return f"~ {item['type']} / {item['role']} → {item['target']}{detail}"
+
+
+def _format_sync_warning(item: dict) -> str:
+    """Render one sync ``warnings`` entry with its reason or action (see above)."""
+    reason = item.get("reason") or item.get("action") or "conflict"
+    return f"? {item['type']} / {item['role']} → {item['target']} ({reason})"
+
+
+def _format_sync_error(item: dict) -> str:
+    """Render one sync ``errors`` entry (see above)."""
+    return f"! {item['type']} / {item['role']}: {item['error']}"
+
+
 def _validate_compile(vault_root: str) -> Optional[str]:
     """Run compile_router.py against the vault as a validation step.
 
@@ -1373,7 +1397,7 @@ def _post_upgrade_sync(
         sync_result = sync_mod.sync_definitions(
             vault_root, force=(sync is True), dry_run=dry_run,
         )
-        if not (sync_result["updated"] or sync_result["warnings"]):
+        if not (sync_result["updated"] or sync_result["warnings"] or sync_result["errors"]):
             return None
         if dry_run:
             return {"sync_preview": sync_result}
@@ -2667,9 +2691,11 @@ def main() -> None:
             info("")
             info("Definition sync preview (would update if real run):")
             for item in sync_preview.get("updated", []):
-                info(f"  ~ {item['type']} / {item['role']} → {item['target']}")
+                info(f"  {_format_sync_updated(item)}")
             for item in sync_preview.get("warnings", []):
-                info(f"  ? {item['type']} / {item['role']} → {item['target']} (conflict)")
+                info(f"  {_format_sync_warning(item)}")
+            for item in sync_preview.get("errors", []):
+                info(f"  {_format_sync_error(item)}")
 
     if not args.dry_run:
         print(file=sys.stderr)
@@ -2790,11 +2816,15 @@ def main() -> None:
             if sr.get("updated"):
                 info("Definition sync:")
                 for item in sr["updated"]:
-                    info(f"  ~ {item['type']} / {item['role']} → {item['target']}")
+                    info(f"  {_format_sync_updated(item)}")
             if sr.get("warnings"):
                 info("Conflicts (local changes differ from upstream — manual review needed):")
                 for item in sr["warnings"]:
-                    info(f"  ? {item['type']} / {item['role']} → {item['target']}")
+                    info(f"  {_format_sync_warning(item)}")
+            if sr.get("errors"):
+                info("Definition sync errors (definitions left unchanged — investigate):")
+                for item in sr["errors"]:
+                    info(f"  {_format_sync_error(item)}")
 
 
 if __name__ == "__main__":

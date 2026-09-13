@@ -710,7 +710,7 @@ class TestConvertArtefact:
         present, producing '20260413-report~20260413-research~Foo.md'.
         """
         import re
-        research_dir = vault / "_Temporal" / "Research" / "2026-04"
+        research_dir = vault / "_Temporal" / "Research"
         research_dir.mkdir(parents=True, exist_ok=True)
         src_name = "20260413-research~Sample Title.md"
         (research_dir / src_name).write_text(
@@ -719,7 +719,7 @@ class TestConvertArtefact:
 
         result = edit.convert_artefact(
             str(vault), router,
-            f"_Temporal/Research/2026-04/{src_name}",
+            f"_Temporal/Research/{src_name}",
             "reports",
         )
 
@@ -732,10 +732,11 @@ class TestConvertArtefact:
         )
 
     def test_convert_collision_uses_standard_suffix_in_target_folder(self, vault, router):
-        # Same created date → both converts target the same report folder and filename.
-        month = vault / "_Temporal" / "Logs" / "2026-03"
-        month.mkdir(parents=True)
-        (month / "20260301-log-foo-a.md").write_text(
+        # Same created date → both converts render the same report filename in
+        # the one flat type folder, so the second must take a collision suffix.
+        logs = vault / "_Temporal" / "Logs"
+        logs.mkdir(parents=True, exist_ok=True)
+        (logs / "20260301-log-foo-a.md").write_text(
             "---\n"
             "type: temporal/logs\n"
             "title: Foo\n"
@@ -744,7 +745,7 @@ class TestConvertArtefact:
             "---\n\n"
             "First body.\n"
         )
-        (month / "20260301-log-foo-b.md").write_text(
+        (logs / "20260301-log-foo-b.md").write_text(
             "---\n"
             "type: temporal/logs\n"
             "title: Foo\n"
@@ -755,10 +756,10 @@ class TestConvertArtefact:
         )
 
         first = edit.convert_artefact(
-            str(vault), router, "_Temporal/Logs/2026-03/20260301-log-foo-a.md", "reports"
+            str(vault), router, "_Temporal/Logs/20260301-log-foo-a.md", "reports"
         )
         second = edit.convert_artefact(
-            str(vault), router, "_Temporal/Logs/2026-03/20260301-log-foo-b.md", "reports"
+            str(vault), router, "_Temporal/Logs/20260301-log-foo-b.md", "reports"
         )
 
         assert first["new_path"] != second["new_path"]

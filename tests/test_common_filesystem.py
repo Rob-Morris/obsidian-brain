@@ -296,7 +296,7 @@ class TestCheckWriteAllowed:
     # -- Underscore-prefixed: allowed exceptions --
 
     def test_temporal_allowed(self):
-        common.check_write_allowed("_Temporal/Research/2026-04/foo.md")
+        common.check_write_allowed("_Temporal/Research/foo.md")
 
     def test_config_allowed(self):
         common.check_write_allowed("_Config/Skills/my-skill/SKILL.md")

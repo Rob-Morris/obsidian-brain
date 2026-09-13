@@ -30,9 +30,9 @@ This is an additive, forward-only format. Every existing dialogue-only transcrip
 
 ## Naming
 
-`yyyymmdd-shaping-transcript~{Title}.md` in `_Temporal/Shaping Transcripts/yyyy-mm/`.
+`yyyymmdd-shaping-transcript~{Title}.md` in `_Temporal/Shaping Transcripts/`.
 
-Example: `_Temporal/Shaping Transcripts/2026-03/20260307-shaping-transcript~Pistols at Dawn Discord Bot.md`
+Example: `_Temporal/Shaping Transcripts/20260307-shaping-transcript~Pistols at Dawn Discord Bot.md`
 
 ## Frontmatter
 

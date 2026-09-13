@@ -31,9 +31,9 @@ When you fix a bug, update the status and fill in the Resolution section.
 
 ## Naming
 
-`yyyymmdd-bug~{Title}.md` in `_Temporal/Bug Logs/yyyy-mm/`.
+`yyyymmdd-bug~{Title}.md` in `_Temporal/Bug Logs/`.
 
-Example: `_Temporal/Bug Logs/2026-03/20260328-bug~Router Compile Drops Empty Triggers.md`
+Example: `_Temporal/Bug Logs/20260328-bug~Router Compile Drops Empty Triggers.md`
 
 ## Frontmatter
 

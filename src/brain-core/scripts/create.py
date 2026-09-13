@@ -158,7 +158,7 @@ def create_artefact(vault_root, router, type_key, title, body="", frontmatter_ov
                 resolvable name/path; persists as canonical `{type}/{key}`.
                 Living children then file into same-type `{key}/` folders
                 or cross-type `{scope}/` folders. Temporal artefacts file
-                under the same owner chain before their date folder.
+                flat under the same owner chain.
         template_vars: Optional dict of placeholder→value substitutions applied
                 to the template body (e.g. {"SOURCE_TYPE": "designs"}).
                 ``{{date:FORMAT}}`` placeholders are always substituted when the
@@ -225,7 +225,6 @@ def create_artefact(vault_root, router, type_key, title, body="", frontmatter_ov
     folder = resolve_folder(
         artefact,
         parent=resolved_parent or parent,
-        fields=fields,
         router=router,
     )
     folder = apply_terminal_status_folder(folder, artefact, fields)

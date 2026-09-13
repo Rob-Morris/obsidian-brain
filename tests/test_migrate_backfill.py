@@ -57,19 +57,17 @@ def vault(tmp_path):
         "---\ntype: living/writing\ntags:\n  - writing\n---\n\n# Another Draft\n"
     )
 
-    # Temporal: logs — file in wrong month folder relative to its filename date
+    # Temporal: logs — legacy month-foldered file, relocated flat by the migration
     temporal = tmp_path / "_Temporal"
     temporal.mkdir()
-    wrong_month = temporal / "Logs" / "2026-02"
-    wrong_month.mkdir(parents=True)
-    (wrong_month / "20260310-log.md").write_text(
+    legacy_month = temporal / "Logs" / "2026-02"
+    legacy_month.mkdir(parents=True)
+    (legacy_month / "20260310-log.md").write_text(
         "---\ntype: temporal/logs\ntags:\n  - log\n---\n\n# Log\n"
     )
 
-    # Temporal: log in correct month folder (should end already_clean)
-    correct_month = temporal / "Logs" / "2026-03"
-    correct_month.mkdir(parents=True)
-    (correct_month / "20260305-log.md").write_text(
+    # Temporal: log already filed flat with both timestamps (should end already_clean)
+    (temporal / "Logs" / "20260305-log.md").write_text(
         "---\ntype: temporal/logs\ntags:\n  - log\n"
         "created: 2026-03-05T09:00:00+11:00\n"
         "modified: 2026-03-05T09:00:00+11:00\n---\n\n# Log\n"
@@ -108,7 +106,7 @@ def vault(tmp_path):
     tax_temporal.mkdir(parents=True)
     (tax_temporal / "logs.md").write_text(
         "# Logs\n\n"
-        "## Naming\n\n`yyyymmdd-log.md` in `_Temporal/Logs/yyyy-mm/`.\n\n"
+        "## Naming\n\n`yyyymmdd-log.md` in `_Temporal/Logs/`.\n\n"
         "## Frontmatter\n\n```yaml\n---\ntype: temporal/logs\ntags:\n  - log\n---\n```\n"
     )
 
@@ -143,9 +141,9 @@ class TestBackfill:
         draft = (vault / "Writing" / "Another Draft.md").read_text()
         assert "status: draft" in draft
 
-    def test_relocates_temporal_across_month_boundary(self, vault, router):
+    def test_relocates_legacy_month_foldered_temporal_flat(self, vault, router):
         migrate_to_0_29_0.backfill_vault(str(vault), router=router, dry_run=False)
-        moved = vault / "_Temporal" / "Logs" / "2026-03" / "20260310-log.md"
+        moved = vault / "_Temporal" / "Logs" / "20260310-log.md"
         assert moved.is_file()
         assert not (vault / "_Temporal" / "Logs" / "2026-02" / "20260310-log.md").exists()
 
@@ -159,8 +157,8 @@ class TestBackfill:
     def test_already_clean_file_is_noop(self, vault, router):
         result = migrate_to_0_29_0.backfill_vault(str(vault), router=router, dry_run=False)
         counts = result["counts"]
-        # The pre-seeded 2026-03/20260305-log.md had both timestamps — it should
-        # count as already_clean on first run.
+        # The pre-seeded flat 20260305-log.md had both timestamps and needs no
+        # relocation — it should count as already_clean on first run.
         assert counts["already_clean"] >= 1
 
     def test_idempotent(self, vault, router):
