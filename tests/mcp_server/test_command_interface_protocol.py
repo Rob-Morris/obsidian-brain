@@ -14,7 +14,7 @@ from brain_mcp._interface_protocol import (
     PROXY_PROTOCOL,
     accept_call,
     command_interface_wire,
-    interface_header_from_initialize,
+    interface_header_from_response,
     parse_command_interface_header,
     proxy_protocol_supported,
     replay_decision,
@@ -87,7 +87,7 @@ def test_initialize_header_round_trips_and_supports_current_proxy_protocol():
         },
     }
 
-    parsed = interface_header_from_initialize(response)
+    parsed = interface_header_from_response(response)
     assert command_interface_wire(parsed) == wire
     assert parsed.fingerprint == wire["fingerprint"]
     assert proxy_protocol_supported(parsed, PROXY_PROTOCOL)
@@ -118,7 +118,7 @@ def test_header_parser_rejects_missing_unknown_contradictory_or_irregular_facts(
 
 def test_initialize_header_is_required_at_the_declared_extension_location():
     with pytest.raises(ValueError, match="brainCommandInterface"):
-        interface_header_from_initialize(
+        interface_header_from_response(
             {
                 "result": {
                     "capabilities": {"experimental": {}},

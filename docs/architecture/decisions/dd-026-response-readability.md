@@ -1,6 +1,6 @@
 # DD-026: MCP Response Readability — Plain Text over JSON Blobs
 
-**Status:** Implemented (v0.14.4, polished v0.14.5)
+**Status:** Superseded for command results by the [v0.64.2 projection in DD-061](dd-061-typed-command-application-boundary.md#v0642-protocol-era-parity-and-result-fallback); originally implemented in v0.14.4 and polished in v0.14.5
 
 ## Context
 

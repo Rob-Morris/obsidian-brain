@@ -73,7 +73,16 @@ The local proxy assigns every accepted call a bounded `mcp-...` invocation ID in
 
 ## Structural results
 
-Every tool returns the same `brain.command-result/1` structure in `structuredContent`, plus concise text derived from that structure:
+Every tool returns the same `brain.command-result/1` structure in
+`structuredContent`. MCP
+[2025-06-18](https://modelcontextprotocol.io/specification/2025-06-18/server/tools#structured-content)
+says a tool that returns structured content SHOULD also return that JSON in a
+`TextContent` block. Brain does that as the first text block, labelled
+`audience: ["assistant"]`, then the concise one-liner labelled
+`audience: ["user"]`. Audience is advisory: the host controls display and model delivery. Grok
+1.0.30 concatenates both blocks into model text; the first line remains a
+complete JSON envelope. No clean human/model display split is assumed.
+`structuredContent` is unchanged.
 
 - `ok`: typed `result`, no error;
 - `partial`: an error plus the exact known `committed_effects`;
@@ -99,15 +108,23 @@ Real Claude Code, Codex CLI and Grok captures verify fresh and resumed discovery
 
 ## Proxy replacement protocol
 
-The server advertises `brain.command-interface-header/1` during initialise. It binds proxy protocol range, interface epoch, catalogue and result schemas, catalogue fingerprint, and the exact tool-to-command/version/mutation mapping.
+The server advertises `brain.command-interface-header/1` in discovery and initialize capabilities. It binds proxy protocol range, interface epoch, catalogue and result schemas, catalogue fingerprint, and the exact tool-to-command/version/mutation mapping.
 
-The installed proxy supplies protocol 2. On replacement it:
+The installed proxy supplies protocol 3. It follows the host's protocol era:
+legacy clients initialize normally, while modern connections use a private
+`server/discover` before the first host request, even if the host omits discovery.
+The child SDK fixes each stdio connection to one era. The proxy re-establishes
+that era and its validated command header on every replacement. It:
 
 1. rejects an incompatible server before tool lookup;
 2. records accepted calls before dispatch;
 3. replays planned drift only when command identity, version and mutation class remain compatible;
 4. retries an unexpected read orphan once;
 5. never replays an unexpected mutation, resolving it through outcome receipts instead.
+
+The 0.64.2 transport fix requires restarting MCP. Older proxies are gated
+before tool lookup; their restart instruction precedes the JSON fallback so
+legacy drift decoration cannot corrupt it.
 
 Clients must restart and re-discover tools after the 0.55 cutover. There is no request translation map or legacy server mode.
 

@@ -431,3 +431,12 @@ metadata once trusted invocation context exists.
 - [DD-033: Operator profiles](decisions/dd-033-operator-profiles.md)
 - [DD-036: Safe write pattern](decisions/dd-036-safe-write-pattern.md)
 - [MCP tools — tool permission recommendations](../functional/mcp-tools.md)
+
+## MCP invocation ownership
+
+Proxy protocol 3 requires a validated child command-interface header before
+forwarding any tool call. The proxy rejects caller-supplied `brainInvocation`
+metadata and records each accepted invocation itself. Legacy initialization
+and modern request-scoped discovery establish the same contract; replacement
+re-establishes it before replay or receipt lookup. Receipt queries also carry
+a new proxy-owned invocation identity in the negotiated protocol era.

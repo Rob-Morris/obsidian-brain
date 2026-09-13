@@ -56,15 +56,37 @@ from ._interface_protocol import (
     AcceptedCallRecord,
     CommandInterfaceHeader,
     accept_call,
-    interface_header_from_initialize,
+    interface_header_from_response,
     replay_decision,
 )
+from ._result_content import result_text_wire
 
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
 
-PROXY_VERSION = "0.9.0"
+PROXY_VERSION = "0.9.1"
+_CHILD_PROTOCOL_VERSION = "2026-07-28"
+
+
+def _internal_request(method: str, request_id: str, params: dict, *, modern: bool) -> dict:
+    """Make a proxy-owned request in the child's negotiated protocol era."""
+
+    return {
+        "jsonrpc": "2.0",
+        "id": request_id,
+        "method": method,
+        "params": {
+            **params,
+            "_meta": ({
+                "io.modelcontextprotocol/protocolVersion": _CHILD_PROTOCOL_VERSION,
+                "io.modelcontextprotocol/clientInfo": {
+                    "name": "brain-proxy", "version": PROXY_VERSION,
+                },
+                "io.modelcontextprotocol/clientCapabilities": {},
+            } if modern else {}),
+        },
+    }
 
 _DEFAULT_BACKOFF = [0, 4, 8, 16, 32]
 _CHILD_ALIVE_RESET_SECS = 60  # reset backoff if child lives this long
@@ -287,12 +309,7 @@ def _interface_changed_response(
         "jsonrpc": "2.0",
         "id": msg_id,
         "result": {
-            "content": [
-                {
-                    "type": "text",
-                    "text": f"interface_changed: {message}",
-                }
-            ],
+            "content": result_text_wire(f"interface_changed: {message}", payload),
             "structuredContent": payload,
             "isError": True,
         },
@@ -322,7 +339,7 @@ def _read_orphan_response(record: AcceptedCallRecord) -> dict:
         "jsonrpc": "2.0",
         "id": record.request_id,
         "result": {
-            "content": [{"type": "text", "text": f"read_transport_lost: {message}"}],
+            "content": result_text_wire(f"read_transport_lost: {message}", payload),
             "structuredContent": payload,
             "isError": True,
         },
@@ -373,12 +390,10 @@ def _outcome_unknown_response(
         "jsonrpc": "2.0",
         "id": record.request_id,
         "result": {
-            "content": [
-                {
-                    "type": "text",
-                    "text": f"{record.command_id}: command_outcome_unknown — {message}",
-                }
-            ],
+            "content": result_text_wire(
+                f"{record.command_id}: command_outcome_unknown — {message}",
+                payload,
+            ),
             "structuredContent": payload,
             "isError": True,
         },
@@ -410,7 +425,7 @@ def _resolved_outcome_response(
         "jsonrpc": "2.0",
         "id": record.request_id,
         "result": {
-            "content": [{"type": "text", "text": message}],
+            "content": result_text_wire(message, payload),
             "structuredContent": payload,
             "isError": partial,
         },
@@ -560,6 +575,22 @@ def _restart_guidance_for_binding_error(exc: WorkspaceBindingError) -> str:
     return _GUIDANCE_BY_BINDING_CODE.get(exc.code, _GUIDANCE_BINDING)
 
 
+def _human_text_index(content: list[object]) -> int | None:
+    """Index of the user-facing text block, else the first unannotated text."""
+
+    fallback = None
+    for index, item in enumerate(content):
+        if not isinstance(item, dict) or item.get("type") != "text":
+            continue
+        annotations = item.get("annotations")
+        audience = annotations.get("audience") if isinstance(annotations, dict) else None
+        if audience == ["user"]:
+            return index
+        if fallback is None and not audience:
+            fallback = index
+    return fallback
+
+
 def _decorate_with_drift_note(response: dict, old_ver: str, new_ver: str) -> dict:
     """
     Inject a proxy drift note into any outbound response — success or error.
@@ -572,20 +603,22 @@ def _decorate_with_drift_note(response: dict, old_ver: str, new_ver: str) -> dic
         f"\n\nNote: MCP proxy has been upgraded ({old_ver} → {new_ver}). "
         "Restart MCP to load the new proxy."
     )
-    # Success response with text content
+    # Success response with text content. Append to the human one-liner, never
+    # the assistant JSON envelope, so first-block JSON stays parseable.
     result = response.get("result")
     content = result.get("content", []) if isinstance(result, dict) else []
     if isinstance(content, list):
-        for i, item in enumerate(content):
-            if isinstance(item, dict) and item.get("type") == "text":
-                new_item = dict(item)
-                new_item["text"] = new_item.get("text", "") + note
-                new_content = list(content)
-                new_content[i] = new_item
-                modified = dict(response)
-                modified["result"] = dict(result)
-                modified["result"]["content"] = new_content
-                return modified
+        target = _human_text_index(content)
+        if target is not None:
+            item = content[target]
+            new_item = dict(item)
+            new_item["text"] = new_item.get("text", "") + note
+            new_content = list(content)
+            new_content[target] = new_item
+            modified = dict(response)
+            modified["result"] = dict(result)
+            modified["result"]["content"] = new_content
+            return modified
     # Error response
     err = response.get("error")
     if isinstance(err, dict) and "message" in err:
@@ -751,6 +784,8 @@ class Proxy:
         self._interface_header: CommandInterfaceHeader | None = None
         self._interface_header_error: str | None = None
         self._interface_lock = threading.Lock()
+        self._client_protocol: str | None = None
+        self._initial_protocol_selected = threading.Event()
 
         # Backoff state
         self._backoff_schedule = _get_backoff_schedule()
@@ -855,7 +890,7 @@ class Proxy:
 
     def _start_child(self) -> bool:
         """
-        Spawn child and perform initialize handshake.
+        Validate the child interface before publishing it to the relay.
         Returns True on success, False on failure (timeout or crash).
         """
         child = ChildProcess(self.python_path, self.server_target)
@@ -869,6 +904,9 @@ class Proxy:
 
         # Check for proxy drift
         self._check_proxy_drift()
+
+        if self._client_protocol == "modern" and not self._discover_child(child):
+            return False
 
         # Replay initialize only after the first session has completed it
         # (init_response captured) — otherwise the bootstrap request would be
@@ -888,7 +926,10 @@ class Proxy:
                 child.kill()
                 return False
 
-            self._capture_interface_header(response)
+            if not self._capture_interface_header(response):
+                child.kill()
+                return False
+            child.send({"jsonrpc": "2.0", "method": "notifications/initialized"})
             _log().info("child restarted successfully, discarding init response")
 
             # Notify client that tools may have changed
@@ -901,14 +942,28 @@ class Proxy:
             except Exception as e:
                 _log().error("failed to send list_changed notification: %s", e)
 
-            # The reader cannot race these proxy-owned receipt queries because
-            # the replacement child is not published until resolution ends.
-            self._resolve_pending_unexpected(child)
+        # The reader cannot race these proxy-owned receipt queries because
+        # the replacement child is not published until resolution ends.
+        self._resolve_pending_unexpected(child)
 
         with self._child_lock:
             self._child = child
         self._child_ready.set()
         return True
+
+    def _discover_child(self, child: ChildProcess) -> bool:
+        """Negotiate a modern child before its stdout reader is enabled."""
+
+        discovery_id = f"brain-proxy-discover-{uuid.uuid4()}"
+        try:
+            child.send(_internal_request("server/discover", discovery_id, {}, modern=True))
+            response = self._read_internal_response(child, discovery_id, _get_init_timeout())
+            if self._capture_interface_header(response):
+                return True
+        except (OSError, ValueError) as exc:
+            _log().error("child interface discovery failed: %s", exc)
+        child.kill()
+        return False
 
     def _send_to_client(self, obj: dict) -> None:
         """Enqueue a message for the client. Thread-safe. Never raises."""
@@ -989,11 +1044,11 @@ class Proxy:
             return None
         return obj
 
-    def _capture_interface_header(self, response: dict) -> None:
+    def _capture_interface_header(self, response: dict) -> bool:
         """Publish one validated child header or its fail-closed parse error."""
 
         try:
-            header = interface_header_from_initialize(response)
+            header = interface_header_from_response(response)
             if not (
                 header.minimum_proxy_protocol
                 <= PROXY_PROTOCOL
@@ -1006,7 +1061,7 @@ class Proxy:
                 self._interface_header_error = str(exc)
             _log().error("child command-interface header rejected: %s", exc)
             _op_event("interface.rejected")
-            return
+            return False
         with self._interface_lock:
             self._interface_header = header
             self._interface_header_error = None
@@ -1016,6 +1071,7 @@ class Proxy:
             header.fingerprint,
         )
         _op_event("interface.accepted", interface_epoch=header.interface_epoch)
+        return True
 
     def _compute_proxy_hash(self, content: bytes | None = None) -> str | None:
         """Compute SHA-256 hash prefix of proxy.py. Uses provided content or reads from disk."""
@@ -1213,16 +1269,19 @@ class Proxy:
             )
             return
         query_id = f"brain-proxy-receipt-{uuid.uuid4()}"
-        query = {
-            "jsonrpc": "2.0",
-            "id": query_id,
-            "method": "tools/call",
-            "params": {
+        query = _internal_request(
+            "tools/call", query_id, {
                 "name": "invocation_read",
                 "arguments": {"invocation_id": record.invocation_id},
             },
-        }
+            modern=self._client_protocol == "modern",
+        )
         try:
+            _query_record, query = accept_call(
+                query, header,
+                invocation_id=f"mcp-{uuid.uuid4()}",
+                accepted_at=datetime.now(timezone.utc),
+            )
             child.send(query)
             response = self._read_internal_response(child, query_id, _get_init_timeout())
             receipt = _parse_receipt_lookup_response(
@@ -1263,16 +1322,16 @@ class Proxy:
         while True:
             remaining = deadline - time.monotonic()
             if remaining <= 0:
-                raise ValueError("receipt query timed out")
+                raise ValueError("internal request timed out")
             response = self._read_with_timeout(child, max(1, int(remaining + 0.999)))
             if response is None:
-                raise ValueError("receipt query produced no response")
+                raise ValueError("internal request produced no response")
             if response.get("id") == query_id:
                 return response
             if response.get("method"):
                 self._send_to_client(response)
                 continue
-            raise ValueError("receipt query received a contradictory response identifier")
+            raise ValueError("internal request received a contradictory response identifier")
 
     def _signal_recovery(
         self,
@@ -1573,12 +1632,13 @@ class Proxy:
                 detail=detail,
             )
         )
-        self._send_to_client(
-            {
-                "jsonrpc": "2.0",
-                "method": "notifications/tools/list_changed",
-            }
-        )
+        if self._client_protocol != "modern":
+            self._send_to_client(
+                {
+                    "jsonrpc": "2.0",
+                    "method": "notifications/tools/list_changed",
+                }
+            )
 
     def _replay_requests(
         self,
@@ -1602,14 +1662,7 @@ class Proxy:
             with self._interface_lock:
                 header = self._interface_header
                 header_error = self._interface_header_error
-            params = req.get("params")
-            tool_name = params.get("name") if isinstance(params, dict) else None
-            mapped_call = (
-                header is not None
-                and isinstance(tool_name, str)
-                and header.tool(tool_name) is not None
-            )
-            if accepted is None and mapped_call:
+            if accepted is None and req.get("method") == "tools/call":
                 self._refuse_interface_replay(req_id, "accepted_call_missing")
                 continue
             if accepted is not None and not isinstance(accepted, AcceptedCallRecord):
@@ -1628,14 +1681,14 @@ class Proxy:
                     self._refuse_interface_replay(req_id, decision.reason)
                     continue
             _log().info("replaying request id=%s to new child", req_id)
+            with self._inflight_lock:
+                self._inflight_requests[req_id] = (req, time.monotonic())
+                if accepted is not None:
+                    self._accepted_calls[req_id] = accepted
+                frame_seq = next(self._frame_counter)
+                self._frame_seqs[req_id] = frame_seq
             try:
                 child.send(req)
-                with self._inflight_lock:
-                    self._inflight_requests[req_id] = (req, time.monotonic())
-                    if accepted is not None:
-                        self._accepted_calls[req_id] = accepted
-                    frame_seq = next(self._frame_counter)
-                    self._frame_seqs[req_id] = frame_seq
                 _op_event(
                     "frame.forwarded",
                     family="proxy-rpc",
@@ -1645,6 +1698,11 @@ class Proxy:
                 )
                 replayed_any = True
             except Exception as e:
+                with self._inflight_lock:
+                    if self._frame_seqs.get(req_id) == frame_seq:
+                        self._inflight_requests.pop(req_id, None)
+                        self._accepted_calls.pop(req_id, None)
+                        self._frame_seqs.pop(req_id, None)
                 _log().error("replay failed for request id=%s: %s", req_id, e)
                 self._send_client_errors([req], "replay failed after restart")
         if not replayed_any:
@@ -1661,6 +1719,9 @@ class Proxy:
 
         try:
             while not self._shutdown:
+                if not self._initial_protocol_selected.is_set():
+                    self._initial_protocol_selected.wait(timeout=1.0)
+                    continue
                 child = self._get_child()
                 if child is None:
                     self._child_ready.wait(timeout=1.0)
@@ -1816,7 +1877,7 @@ class Proxy:
         with self._interface_lock:
             header = self._interface_header
         if header is None:
-            return request, None
+            raise ValueError("the child has no validated Brain command interface")
         params = request.get("params")
         tool_name = params.get("name") if isinstance(params, dict) else None
         if not isinstance(tool_name, str):
@@ -1917,6 +1978,26 @@ class Proxy:
                 elif is_notification:
                     _log().debug("dropping notification (child dead): method=%s", method)
                 continue
+
+            if self._client_protocol is None:
+                params = obj.get("params")
+                metadata = params.get("_meta") if isinstance(params, dict) else None
+                modern = (
+                    method != "initialize"
+                    and isinstance(metadata, dict)
+                    and "io.modelcontextprotocol/protocolVersion" in metadata
+                )
+                self._client_protocol = "modern" if modern else "legacy"
+                # The SDK locks a stdio connection to its first protocol era.
+                # Modern discovery is proxy-owned; legacy initialize stays
+                # host-owned so its capabilities and instructions are exact.
+                ready = not modern or self._discover_child(child)
+                self._initial_protocol_selected.set()
+                if not ready:
+                    self._signal_recovery(1, child=child)
+                    if is_request:
+                        self._send_to_client(_interface_changed_response(msg_id, "child_header_invalid", detail=self._interface_header_error))
+                    continue
 
             accepted_call = None
             if method == "tools/call":

@@ -105,7 +105,7 @@ Caller-supplied paths are resolved against explicit roots and checked for traver
 
 Profile authority is derived from the application catalogue. Built-ins project exact cumulative reader, contributor and operator leaves. The 0.55.0 cutover migrates legacy profile names once; there is no runtime aggregate compatibility fallback.
 
-The MCP proxy and replacement server exchange a strict command-interface header. An incompatible proxy fails before tool lookup. Planned pre-effect restart can replay only a positively compatible command; unexpected read loss retries at most once; unexpected mutation loss uses receipts and never blind replay.
+The MCP proxy and replacement server exchange a strict command-interface header in both legacy initialization and modern discovery. Modern clients may omit discovery; the proxy performs it before forwarding their first request. An incompatible proxy fails before tool lookup. Planned pre-effect restart can replay only a positively compatible command; unexpected read loss retries at most once; unexpected mutation loss uses receipts and never blind replay.
 
 ## Installation and checked cutover
 

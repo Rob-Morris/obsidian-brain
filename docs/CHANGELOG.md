@@ -8,6 +8,7 @@ Never edit past changelog entries. Only add new entries at the top.
 
 | Version | Date | Summary |
 |---|---|---|
+| [v0.64.2](changelog/v0.64.2.md) | 2026-09-13 | Preserve MCP results and invocation safety across client protocols |
 | [v0.64.1](changelog/v0.64.1.md) | 2026-09-13 | Add native Grok client setup, bootstrap and skill support |
 | [v0.64.0](changelog/v0.64.0.md) | 2026-09-12 | Correct command contracts and portable MCP names |
 | [v0.63.0](changelog/v0.63.0.md) | 2026-09-12 | Modernise artefact definitions and Note naming |

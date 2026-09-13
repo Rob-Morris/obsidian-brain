@@ -16,6 +16,7 @@ from ._interface_protocol import (
     PROXY_PROTOCOL_ENV,
     command_interface_wire,
 )
+from ._result_content import result_text_content
 
 
 PROXY_GATE_RESULT_SCHEMA = "brain.proxy-gate-result/1"
@@ -81,19 +82,26 @@ def install_proxy_protocol_gate(
     state = inspect_running_proxy_protocol(header, environ=environ)
     wire_header = command_interface_wire(header)
 
-    create_options = low_level.create_initialization_options
+    original_capabilities = low_level.get_capabilities
 
-    def create_initialization_options(
+    def get_capabilities(
         notification_options=None,
         experimental_capabilities=None,
         extensions=None,
+        *,
+        protocol_version=None,
     ):
         capabilities = dict(experimental_capabilities or {})
         existing = capabilities.get(INTERFACE_HEADER_EXTENSION)
         if existing is not None and existing != wire_header:
             raise RuntimeError("brainCommandInterface capability is already owned")
         capabilities[INTERFACE_HEADER_EXTENSION] = wire_header
-        return create_options(notification_options, capabilities, extensions)
+        return original_capabilities(
+            notification_options,
+            capabilities,
+            extensions,
+            protocol_version=protocol_version,
+        )
 
     original_call = low_level.get_request_handler("tools/call")
     if original_call is None:
@@ -104,7 +112,7 @@ def install_proxy_protocol_gate(
             return await original_call.handler(context, params)
         return _proxy_restart_required(params, state)
 
-    low_level.create_initialization_options = create_initialization_options
+    low_level.get_capabilities = get_capabilities
     low_level.add_request_handler("tools/call", CallToolRequestParams, gated_call)
     low_level._brain_proxy_protocol_gate_installed = True
     return state
@@ -142,17 +150,18 @@ def _proxy_restart_required(
             },
         },
     }
+    content = result_text_content(
+        (
+            "proxy_restart_required: "
+            f"{message} Running protocol={state.raw!r}; "
+            f"required={state.minimum}..{state.maximum}."
+        ),
+        payload,
+    )
+    # Older proxies append drift guidance to the first block. Keep that
+    # restart instruction human-readable without damaging the JSON fallback.
     return types.CallToolResult(
-        content=[
-            types.TextContent(
-                type="text",
-                text=(
-                    "proxy_restart_required: "
-                    f"{message} Running protocol={state.raw!r}; "
-                    f"required={state.minimum}..{state.maximum}."
-                ),
-            )
-        ],
+        content=[content[1], content[0]],
         structuredContent=payload,
         isError=True,
     )

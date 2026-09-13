@@ -241,7 +241,7 @@ def _call_until_result(proc, params, *, start_id: int, timeout: float = 10.0):
     rid = start_id
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
-        proc.stdin.write(_make_jsonrpc("tools/call", id=rid, params=params))
+        proc.stdin.write(_make_jsonrpc("ping", id=rid, params=params))
         proc.stdin.flush()
         remaining = max(0.0, deadline - time.monotonic())
         msgs = _read_until_id(proc, rid, timeout=max(0.05, min(5.0, remaining)))
@@ -266,7 +266,7 @@ def _call_until_error(proc, params, predicate, *, start_id: int, timeout: float 
     rid = start_id
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
-        proc.stdin.write(_make_jsonrpc("tools/call", id=rid, params=params))
+        proc.stdin.write(_make_jsonrpc("ping", id=rid, params=params))
         proc.stdin.flush()
         remaining = max(0.0, deadline - time.monotonic())
         msgs = _read_until_id(proc, rid, timeout=max(0.05, min(5.0, remaining)))
@@ -313,12 +313,12 @@ def _exhaust_backoff(proc, *, crash_count: int = 6, probe_id: int = 99) -> list[
     """
     all_msgs: list[dict] = []
     for req_id in range(2, 2 + crash_count):
-        proc.stdin.write(_make_jsonrpc("tools/call", id=req_id,
+        proc.stdin.write(_make_jsonrpc("ping", id=req_id,
                                        params={"name": "anything"}))
         proc.stdin.flush()
         all_msgs.extend(_read_all_responses(proc, timeout=5.0, idle=1.0, max_count=5))
 
-    proc.stdin.write(_make_jsonrpc("tools/call", id=probe_id,
+    proc.stdin.write(_make_jsonrpc("ping", id=probe_id,
                                    params={"name": "anything"}))
     proc.stdin.flush()
     all_msgs.extend(_read_all_responses(proc, timeout=5.0, max_count=5))
@@ -475,6 +475,8 @@ def _make_inprocess_proxy(tmp_path, monkeypatch, stdin_lines: list[bytes]) -> tu
     _write_vault(tmp_path)
     monkeypatch.setattr(proxy_mod, "_logger", proxy_mod._setup_logging(str(tmp_path)))
     proxy = proxy_mod.Proxy(PYTHON, "fake-server", str(tmp_path))
+    proxy._client_protocol = "legacy"
+    proxy._initial_protocol_selected.set()
     sent_to_client: list[dict] = []
 
     monkeypatch.setattr(proxy_mod.threading, "Thread", _NoOpThread)
@@ -580,6 +582,8 @@ def _make_inprocess_proxy_with_real_threads(
     _write_vault(tmp_path)
     monkeypatch.setattr(proxy_mod, "_logger", proxy_mod._setup_logging(str(tmp_path)))
     proxy = proxy_mod.Proxy(PYTHON, "fake-server", str(tmp_path))
+    proxy._client_protocol = "legacy"
+    proxy._initial_protocol_selected.set()
     sent_to_client: list[dict] = []
 
     if stdin is not None:
@@ -669,6 +673,26 @@ def _run_proxy_wrapper(tmp_path, server_script, patch_body: str, *, backoff: str
 # Server script factories
 # ---------------------------------------------------------------------------
 
+def _with_interface_discovery(script: str) -> str:
+    """Give lifecycle mock servers the required Brain child handshake.
+
+    Their requests remain protocol pings; granular invocation and outcome
+    behavior is verified separately against canonical tool headers.
+    """
+    from brain_mcp._interface_protocol import command_interface_wire
+
+    wire = command_interface_wire(application_interface_header(current_application_catalogue()))
+    result = {"capabilities": {"experimental": {"brainCommandInterface": wire}}}
+    branch = (
+        '    if method == "server/discover":\n'
+        f'        print(json.dumps({{"jsonrpc": "2.0", "id": msg_id, "result": {result!r}}}), flush=True)\n'
+        '        continue\n'
+    )
+    script = script.replace('    if method == "initialize":', branch + '    if method == "initialize":')
+    script = script.replace('    msg_id = obj.get("id")', '    msg_id = obj.get("id")\n    if msg_id is None:\n        continue')
+    return script.replace('"capabilities": {}', f'"capabilities": {result["capabilities"]!r}')
+
+
 def _echo_server_script(tmp_path) -> str:
     """
     An echo server: responds to initialize with a fixed result,
@@ -700,7 +724,7 @@ def _echo_server_script(tmp_path) -> str:
             print(json.dumps(resp), flush=True)
     """)
     with open(path, "w") as f:
-        f.write(script)
+        f.write(_with_interface_discovery(script))
     return path
 
 
@@ -745,7 +769,7 @@ def _drift_then_echo_server_script(tmp_path) -> str:
                     print(json.dumps(resp), flush=True)
     """)
     with open(path, "w") as f:
-        f.write(script)
+        f.write(_with_interface_discovery(script))
     return path
 
 
@@ -799,7 +823,7 @@ def _progress_then_drift_server_script(tmp_path) -> str:
                     print(json.dumps(resp), flush=True)
     """)
     with open(path, "w") as f:
-        f.write(script)
+        f.write(_with_interface_discovery(script))
     return path
 
 
@@ -833,7 +857,7 @@ def _crash_server_script(tmp_path) -> str:
                 sys.exit(1)
     """)
     with open(path, "w") as f:
-        f.write(script)
+        f.write(_with_interface_discovery(script))
     return path
 
 
@@ -886,7 +910,7 @@ def _crash_then_echo_server_script(tmp_path, *, crash_runs: int = 1) -> str:
                     print(json.dumps(resp), flush=True)
     """)
     with open(path, "w") as f:
-        f.write(script)
+        f.write(_with_interface_discovery(script))
     return path
 
 
@@ -936,7 +960,7 @@ def _hang_on_init_server_script(tmp_path) -> str:
                 sys.exit(1)
     """)
     with open(path, "w") as f:
-        f.write(script)
+        f.write(_with_interface_discovery(script))
     return path
 
 
@@ -966,7 +990,7 @@ class TestMessageForwarding:
             assert "result" in init_msgs[0]
 
             # 3. Send a real request
-            proc.stdin.write(_make_jsonrpc("tools/call", id=2, params={"name": "ping"}))
+            proc.stdin.write(_make_jsonrpc("ping", id=2, params={"name": "ping"}))
             proc.stdin.flush()
 
             # 4. Read response
@@ -979,7 +1003,7 @@ class TestMessageForwarding:
                 resp = _find_by_id(more, 2)
             assert resp is not None, f"No response with id=2 found. Got: {msgs}"
             assert "result" in resp, f"Expected result in response, got: {resp}"
-            assert resp["result"]["content"][0]["text"] == "echo:tools/call"
+            assert resp["result"]["content"][0]["text"] == "echo:ping"
 
         finally:
             proc.terminate()
@@ -1022,7 +1046,7 @@ class TestMainLoopRecoveryPaths:
         proxy, sent_to_client = _make_inprocess_proxy(
             tmp_path,
             monkeypatch,
-            [_make_jsonrpc("tools/call", id=2, params={"name": "ping"}).encode("utf-8")],
+            [_make_jsonrpc("ping", id=2, params={"name": "ping"}).encode("utf-8")],
         )
         dead_child = _FakeChild(poll_values=[1])
 
@@ -1044,7 +1068,7 @@ class TestMainLoopRecoveryPaths:
         proxy, sent_to_client = _make_inprocess_proxy(
             tmp_path,
             monkeypatch,
-            [_make_jsonrpc("tools/call", id=2, params={"name": "ping"}).encode("utf-8")],
+            [_make_jsonrpc("ping", id=2, params={"name": "ping"}).encode("utf-8")],
         )
         broken_child = _FakeChild(poll_values=[None, None, 1], send_exception=BrokenPipeError)
 
@@ -1066,7 +1090,7 @@ class TestMainLoopRecoveryPaths:
         proxy, sent_to_client = _make_inprocess_proxy(
             tmp_path,
             monkeypatch,
-            [_make_jsonrpc("tools/call", id=2, params={"name": "ping"}).encode("utf-8")],
+            [_make_jsonrpc("ping", id=2, params={"name": "ping"}).encode("utf-8")],
         )
         broken_child = _FakeChild(poll_values=[None], send_exception=RuntimeError)
 
@@ -1260,7 +1284,7 @@ class TestAsyncRecoveryThread:
     ):
         eof_event = threading.Event()
         stdin_lines = [
-            _make_jsonrpc("tools/call", id=req_id, params={"name": "ping"}).encode("utf-8")
+            _make_jsonrpc("ping", id=req_id, params={"name": "ping"}).encode("utf-8")
             for req_id in range(1, 6)
         ]
         proxy, sent_to_client = _make_inprocess_proxy_with_real_threads(
@@ -1306,7 +1330,7 @@ class TestAsyncRecoveryThread:
             proxy._child = child
         with proxy._inflight_lock:
             proxy._inflight_requests[2] = (
-                json.loads(_make_jsonrpc("tools/call", id=2, params={"name": "ping"})),
+                json.loads(_make_jsonrpc("ping", id=2, params={"name": "ping"})),
                 time.monotonic(),
             )
 
@@ -1369,7 +1393,7 @@ class TestAsyncRecoveryThread:
         proxy, sent_to_client = _make_inprocess_proxy_with_real_threads(
             tmp_path,
             monkeypatch,
-            stdin=_FakeStdin([_make_jsonrpc("tools/call", id=7, params={"name": "ping"}).encode("utf-8")]),
+            stdin=_FakeStdin([_make_jsonrpc("ping", id=7, params={"name": "ping"}).encode("utf-8")]),
         )
 
         def crash_recovery() -> None:
@@ -1411,7 +1435,7 @@ class TestAsyncRecoveryThread:
             proxy._child = child
         with proxy._inflight_lock:
             proxy._inflight_requests[42] = (
-                json.loads(_make_jsonrpc("tools/call", id=42, params={"name": "ping"})),
+                json.loads(_make_jsonrpc("ping", id=42, params={"name": "ping"})),
                 time.monotonic(),
             )
 
@@ -1451,7 +1475,7 @@ class TestAsyncRecoveryThread:
             proxy._child = child
         with proxy._inflight_lock:
             proxy._inflight_requests[42] = (
-                json.loads(_make_jsonrpc("tools/call", id=42, params={"name": "ping"})),
+                json.loads(_make_jsonrpc("ping", id=42, params={"name": "ping"})),
                 time.monotonic(),
             )
 
@@ -1489,7 +1513,7 @@ class TestVersionDriftRestart:
             assert init_msgs and init_msgs[0].get("id") == 1
 
             # First real request — will cause child to exit(10)
-            proc.stdin.write(_make_jsonrpc("tools/call", id=2, params={"name": "anything"}))
+            proc.stdin.write(_make_jsonrpc("ping", id=2, params={"name": "anything"}))
             proc.stdin.flush()
 
             # Retry the follow-up request until the restarted child serves a
@@ -1601,7 +1625,7 @@ class TestVersionResetAfterGiveUp:
             # (rate limit disabled via VERSION_CHECK_INTERVAL=0). The triggering
             # request still gets the give-up error immediately.
             time.sleep(0.2)
-            proc.stdin.write(_make_jsonrpc("tools/call", id=100, params={"name": "anything"}))
+            proc.stdin.write(_make_jsonrpc("tools/call", id=100, params={"name": "artefact_read"}))
             proc.stdin.flush()
 
             first_post = _read_until_id(proc, 100, timeout=5.0)
@@ -1617,7 +1641,7 @@ class TestVersionResetAfterGiveUp:
                 f"Expected list_changed after async version reset. Got: {post_reset_msgs}"
             )
 
-            proc.stdin.write(_make_jsonrpc("tools/call", id=101, params={"name": "anything"}))
+            proc.stdin.write(_make_jsonrpc("ping", id=101, params={"name": "anything"}))
             proc.stdin.flush()
 
             # Keep reading until the post-reset success arrives.
@@ -1723,7 +1747,7 @@ class TestProxyDrift:
             assert init_msgs and init_msgs[0].get("id") == 1
 
             # First request — child exits(10), proxy restarts, _check_proxy_drift detects 99.0.0
-            proc.stdin.write(_make_jsonrpc("tools/call", id=2, params={"name": "anything"}))
+            proc.stdin.write(_make_jsonrpc("ping", id=2, params={"name": "anything"}))
             proc.stdin.flush()
 
             # Retry the follow-up until the restarted child serves a result; a
@@ -1826,6 +1850,51 @@ class TestVersionDriftReplay:
         assert replacement.sent == [forwarded]
         assert sent_to_client == []
         assert proxy._accepted_calls == {201: record}
+
+    @pytest.mark.parametrize("send_fails", [False, True])
+    def test_replay_tracking_precedes_response_and_cleans_up_send_failure(
+        self, tmp_path, monkeypatch, send_fails
+    ):
+        proxy, sent_to_client = _make_inprocess_proxy(tmp_path, monkeypatch, [])
+        with proxy._interface_lock:
+            proxy._interface_header = application_interface_header(
+                current_application_catalogue()
+            )
+        request = {
+            "jsonrpc": "2.0", "id": 201, "method": "tools/call",
+            "params": {"name": "artefact_read", "arguments": {"path": "Example"}},
+        }
+        forwarded, record = proxy._prepare_interface_call(request)
+        response = {"jsonrpc": "2.0", "id": 201, "result": {"ok": True}}
+        child = _ReadableFakeChild([json.dumps(response).encode()])
+        with proxy._child_lock:
+            proxy._child = child
+        monkeypatch.setattr(proxy_mod.sys, "platform", "win32")
+
+        def send_and_stop(obj):
+            sent_to_client.append(obj)
+            proxy._shutdown = True
+
+        def send_with_immediate_response(obj):
+            assert proxy._accepted_calls == {201: record}
+            assert 201 in proxy._inflight_requests
+            assert 201 in proxy._frame_seqs
+            if send_fails:
+                raise BrokenPipeError()
+            # Force the ordinary reader to consume the response before send
+            # returns, without depending on thread scheduling or sleeps.
+            proxy._reader_thread()
+
+        monkeypatch.setattr(proxy, "_send_to_client", send_and_stop)
+        monkeypatch.setattr(child, "send", send_with_immediate_response)
+
+        proxy._replay_requests([forwarded], {201: record})
+
+        assert proxy._inflight_requests == {}
+        assert proxy._accepted_calls == {}
+        assert proxy._frame_seqs == {}
+        assert len(sent_to_client) == 1
+        assert ("error" in sent_to_client[0]) == send_fails
 
     def test_incompatible_granular_replay_fails_closed_without_child_dispatch(
         self, tmp_path, monkeypatch
@@ -1986,10 +2055,11 @@ class TestUnexpectedChildOutcomeSafety:
         proxy._resolve_pending_unexpected(replacement)
 
         assert len(replacement.sent) == 1
-        assert replacement.sent[0]["params"] == {
-            "name": "invocation_read",
-            "arguments": {"invocation_id": record.invocation_id},
-        }
+        query = replacement.sent[0]["params"]
+        assert query["name"] == "invocation_read"
+        assert query["arguments"] == {"invocation_id": record.invocation_id}
+        assert query["_meta"]["brainInvocation"]["invocationId"].startswith("mcp-")
+        assert "io.modelcontextprotocol/protocolVersion" not in query["_meta"]
         assert forwarded not in replacement.sent
         result = sent_to_client[-1]["result"]["structuredContent"]
         assert result["schema"] == "brain.proxy-outcome-resolution/1"
@@ -2098,7 +2168,7 @@ class TestVersionDriftReplayIntegration:
             assert init_msgs and init_msgs[0].get("id") == 1
 
             # Send request that will trigger version drift (exit code 10)
-            proc.stdin.write(_make_jsonrpc("tools/call", id=2, params={"name": "anything"}))
+            proc.stdin.write(_make_jsonrpc("ping", id=2, params={"name": "anything"}))
             proc.stdin.flush()
 
             # Read until the replayed response arrives. A restart can leave a
@@ -2149,10 +2219,10 @@ class TestVersionDriftReplayIntegration:
 
         responded_id, inflight_id = 101, 102
         responded_req = json.loads(
-            _make_jsonrpc("tools/call", id=responded_id, params={"name": "ping_a"})
+            _make_jsonrpc("ping", id=responded_id, params={"name": "ping_a"})
         )
         inflight_req = json.loads(
-            _make_jsonrpc("tools/call", id=inflight_id, params={"name": "ping_b"})
+            _make_jsonrpc("ping", id=inflight_id, params={"name": "ping_b"})
         )
         with proxy._inflight_lock:
             proxy._inflight_requests[responded_id] = (responded_req, time.monotonic())
@@ -2232,7 +2302,7 @@ class TestVersionDriftReplayIntegration:
             assert init_msgs and init_msgs[0].get("id") == 1
 
             # Server returns "starting" progress for id=2, then exits 10.
-            proc.stdin.write(_make_jsonrpc("tools/call", id=2,
+            proc.stdin.write(_make_jsonrpc("ping", id=2,
                                            params={"name": "ping"}))
             proc.stdin.flush()
             progress_msgs = _read_until_id(proc, 2, timeout=5.0)
@@ -2298,7 +2368,7 @@ def _hang_after_request_server_script(tmp_path) -> str:
                     time.sleep(3600)
     """)
     with open(path, "w") as f:
-        f.write(script)
+        f.write(_with_interface_discovery(script))
     return path
 
 
@@ -2330,7 +2400,7 @@ class TestHangDetection:
             assert init_msgs and init_msgs[0].get("id") == 1
 
             # Send request — child will hang
-            proc.stdin.write(_make_jsonrpc("tools/call", id=2, params={"name": "anything"}))
+            proc.stdin.write(_make_jsonrpc("ping", id=2, params={"name": "anything"}))
             proc.stdin.flush()
 
             # Wait for 3 consecutive timeouts (1s each) + kill + drain + async
@@ -2382,7 +2452,7 @@ class TestStartupTimeout:
             #    On restart the proxy replays init to the new child (which now hangs).
             #    The immediate init timeout fires; the proxy retries until the
             #    short backoff schedule is exhausted, then moves into explicit give-up.
-            proc.stdin.write(_make_jsonrpc("tools/call", id=2, params={"name": "ping"}))
+            proc.stdin.write(_make_jsonrpc("ping", id=2, params={"name": "ping"}))
             proc.stdin.flush()
 
             # 3. Poll with real requests until the proxy reports give-up. While
@@ -2394,7 +2464,7 @@ class TestStartupTimeout:
             deadline = time.monotonic() + 5.0
             req_id = 3
             while time.monotonic() < deadline:
-                proc.stdin.write(_make_jsonrpc("tools/call", id=req_id, params={"name": "ping"}))
+                proc.stdin.write(_make_jsonrpc("ping", id=req_id, params={"name": "ping"}))
                 proc.stdin.flush()
                 messages = _read_until_id(proc, req_id, timeout=5.0)
                 all_msgs.extend(messages)

@@ -65,7 +65,7 @@ Each DD captures the reasoning behind an architectural decision at the time it w
 | DD-023 | init.py setup script with registration scopes | Superseded by DD-055 | [dd-023](dd-023-init-script.md) |
 | DD-024 | Core skills in .brain-core/skills/ | Implemented (v0.10.0) | [dd-024](dd-024-core-skills.md) |
 | DD-025 | 5 MCP tools: privilege split for granular permissions | Implemented (v0.11.0) | [dd-025](dd-025-privilege-split.md) |
-| DD-026 | MCP response readability: plain text over JSON blobs | Implemented (v0.14.4) | [dd-026](dd-026-response-readability.md) |
+| DD-026 | MCP response readability: plain text over JSON blobs | Superseded by DD-061 (v0.64.2) | [dd-026](dd-026-response-readability.md) |
 | DD-027 | MCP tool resilience conventions | Accepted | [dd-027](dd-027-tool-resilience.md) |
 | DD-028 | Version drift detection — exit code 10 + proxy restart | Implemented | [dd-028](dd-028-version-drift-detection.md) |
 | DD-029 | Archive architecture — `_Archive/{Type}/{Project}/` with date prefix | Implemented | [dd-029](dd-029-archive-architecture.md) |

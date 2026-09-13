@@ -83,6 +83,11 @@ def test_mcpserver_serves_a_2025_06_18_stdio_client(tmp_path):
     call = responses[3]["result"]
     assert call["isError"] is False
     assert call["structuredContent"]["command"] == "command.list"
+    assistant, user = call["content"]
+    assert assistant["annotations"]["audience"] == ["assistant"]
+    assert json.loads(assistant["text"]) == call["structuredContent"]
+    assert user["annotations"]["audience"] == ["user"]
+    assert user["text"] == "command.list: ok"
 
 
 def test_mcpserver_serves_a_2026_07_28_stdio_client(tmp_path):

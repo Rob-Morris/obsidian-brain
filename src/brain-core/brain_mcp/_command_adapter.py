@@ -10,7 +10,7 @@ from typing import Annotated, Callable, get_type_hints
 from mcp.server import MCPServer
 from mcp.server.mcpserver import Context
 from mcp.server.mcpserver.utilities.func_metadata import FuncMetadata
-from mcp.types import CallToolResult, TextContent, ToolAnnotations
+from mcp.types import CallToolResult, ToolAnnotations
 from pydantic import Field
 
 from _application.adapter import (
@@ -35,6 +35,7 @@ from ._interface_protocol import (
     InterfaceTool,
     command_interface_header,
 )
+from ._result_content import result_text_content
 
 
 ContextFactory = Callable[..., InvocationContext]
@@ -219,9 +220,13 @@ def _handler(
                     duration_ms=int((time.monotonic() - started) * 1000),
                     outcome="error" if projection.is_error else "ok",
                 )
+        envelope = projection.structured_content
         return CallToolResult(
-            content=[TextContent(type="text", text=projection.concise_text)],
-            structuredContent=projection.structured_content,
+            content=result_text_content(
+                projection.concise_text,
+                envelope,
+            ),
+            structuredContent=envelope,
             isError=projection.is_error,
         )
 

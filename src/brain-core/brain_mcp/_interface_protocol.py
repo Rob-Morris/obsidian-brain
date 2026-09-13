@@ -10,10 +10,10 @@ import json
 from typing import Mapping
 
 
-PROXY_PROTOCOL = 2
+PROXY_PROTOCOL = 3
 PROXY_PROTOCOL_ENV = "BRAIN_MCP_PROXY_PROTOCOL"
-MIN_PROXY_PROTOCOL = 2
-MAX_PROXY_PROTOCOL = 2
+MIN_PROXY_PROTOCOL = 3
+MAX_PROXY_PROTOCOL = 3
 INTERFACE_HEADER_SCHEMA = "brain.command-interface-header/1"
 INTERFACE_HEADER_EXTENSION = "brainCommandInterface"
 _ASCII_LOWER = frozenset("abcdefghijklmnopqrstuvwxyz")
@@ -217,22 +217,22 @@ def parse_command_interface_header(raw: object) -> CommandInterfaceHeader:
     return header
 
 
-def interface_header_from_initialize(response: object) -> CommandInterfaceHeader:
-    """Extract the extension from an MCP initialise result and validate it."""
+def interface_header_from_response(response: object) -> CommandInterfaceHeader:
+    """Extract the extension from MCP discovery or initialize capabilities and validate it."""
 
     if not isinstance(response, Mapping):
-        raise ValueError("initialize response must be an object")
+        raise ValueError("interface response must be an object")
     result = response.get("result")
     if not isinstance(result, Mapping):
-        raise ValueError("initialize response requires a result")
+        raise ValueError("interface response requires a result")
     capabilities = result.get("capabilities")
     if not isinstance(capabilities, Mapping):
-        raise ValueError("initialize result requires capabilities")
+        raise ValueError("interface result requires capabilities")
     experimental = capabilities.get("experimental")
     if not isinstance(experimental, Mapping):
-        raise ValueError("initialize result requires experimental capabilities")
+        raise ValueError("interface result requires experimental capabilities")
     if INTERFACE_HEADER_EXTENSION not in experimental:
-        raise ValueError("initialize result is missing brainCommandInterface")
+        raise ValueError("interface result is missing brainCommandInterface")
     return parse_command_interface_header(experimental[INTERFACE_HEADER_EXTENSION])
 
 

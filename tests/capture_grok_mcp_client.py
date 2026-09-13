@@ -27,6 +27,31 @@ from _bootstrap.file_transaction import FilePlan, apply_file_changes
 OUTPUT = REPO_ROOT / "tests/fixtures/command_interface_grok_client_evidence_v1.json"
 
 
+def _model_visible_envelope(output) -> dict:
+    """Parse the structured envelope Grok forwarded to the model as tool text."""
+
+    if isinstance(output, dict) and output.get("status"):
+        return output
+    text = output if isinstance(output, str) else json.dumps(output)
+    try:
+        payload = json.loads(text)
+        if isinstance(payload, dict):
+            return payload
+    except json.JSONDecodeError:
+        pass
+    for candidate in text.replace("\r", "\n").split("\n"):
+        candidate = candidate.strip()
+        if not candidate.startswith("{"):
+            continue
+        try:
+            payload = json.loads(candidate)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(payload, dict):
+            return payload
+    raise RuntimeError(f"Grok model-visible tool text was not JSON: {output!r}")
+
+
 def build_capture():
     with tempfile.TemporaryDirectory(prefix="brain-grok-capture-") as directory:
         temp = Path(directory).resolve()
@@ -297,14 +322,34 @@ def build_capture():
                 }
                 for index, (command_id, _) in enumerate(calls):
                     output = outputs.get(f"{phase}_{index + 1}", "")
-                    if command_id + ": ok" not in str(output) and not (
-                        '"status"' in str(output)
-                        and '"ok"' in str(output)
-                        and command_id in str(output)
+                    envelope = _model_visible_envelope(output)
+                    if (
+                        envelope.get("schema") != "brain.command-result/1"
+                        or envelope.get("command") != command_id
+                        or envelope.get("status") != "ok"
+                        or not isinstance(envelope.get("result"), dict)
                     ):
                         raise RuntimeError(
-                            f"Grok {phase} {command_id} unsuccessful: {output}"
+                            f"Grok {phase} {command_id} model-visible text "
+                            f"was not the structured envelope: {output!r}"
                         )
+                    result = envelope["result"]
+                    if command_id == "session.start":
+                        if (
+                            result.get("brain_core_version") != (vault / ".brain-core/VERSION").read_text().strip()
+                            or not result.get("core_bootstrap")
+                            or not result.get("command_catalogue")
+                        ):
+                            raise RuntimeError("Grok did not receive the material bootstrap")
+                    elif command_id == "artefact.read":
+                        if result.get("content") != (vault / "Projects/Command Fixture.md").read_text():
+                            raise RuntimeError("Grok did not receive the exact artefact body")
+                    elif command_id == "artefact.create":
+                        if not (vault / result["path"]).is_file() or not any(
+                            effect["subject"] == result["path"]
+                            for effect in envelope.get("committed_effects", [])
+                        ):
+                            raise RuntimeError("Grok did not receive the committed creation result")
                 discovery = json.loads(outputs[f"{phase}_0"])
                 observed = [
                     tool

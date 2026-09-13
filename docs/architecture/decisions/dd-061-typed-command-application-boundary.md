@@ -1141,3 +1141,20 @@ its bundle identity and exposes the corresponding canonical artefact type.
 Portable diagnostics coordinate active semantic inspection in the selected
 managed interpreter, and CLI structural envelopes take precedence over incidental
 stderr without relaxing their identity or exit validation.
+
+## v0.64.2 protocol-era parity and result fallback
+
+Proxy protocol 3 closes the dependency between invocation ownership and the
+host choosing the legacy initialize flow. Modern hosts may call tools without
+discovering first; the proxy privately discovers their child before dispatch.
+Legacy peers initialize normally because the SDK locks a stdio connection to
+its first protocol era. Replacement repeats the chosen flow before checking
+replay compatibility or resolving mutation receipts. Calls without a validated
+header and caller-owned invocation metadata fail before dispatch.
+
+Normal MCP results serialize the same canonical envelope into assistant-labelled
+JSON text and structured content. A user-labelled status follows. Audience is
+advisory; Grok currently concatenates both text blocks. Old proxies receive a
+restart gate whose human instruction comes first, preserving the JSON fallback
+when the old decorator appends its drift notice. This supersedes DD-026 where
+a status-only text projection hid result data from content-only clients.

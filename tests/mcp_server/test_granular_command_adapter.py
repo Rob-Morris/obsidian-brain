@@ -184,6 +184,33 @@ def test_real_mcpserver_call_returns_structural_content_and_error_state(tmp_path
     assert denied.is_error is True
 
 
+def test_mcp_call_labels_envelope_json_for_assistants_and_concise_text_for_users(
+    tmp_path,
+):
+    allowed = ("command.list",)
+    mcp, _catalogue, _resolver, _names = _registered(tmp_path, allowed)
+
+    ok = asyncio.run(
+        mcp.call_tool(
+            "command_list",
+            {"dependency_tier": "managed", "page_size": 1},
+        )
+    )
+    denied = asyncio.run(mcp.call_tool("artefact_list", {}))
+
+    assistant, user = ok.content
+    assert assistant.annotations.audience == ["assistant"]
+    assert json.loads(assistant.text) == ok.structured_content
+    assert user.annotations.audience == ["user"]
+    assert user.text == "command.list: ok"
+
+    denied_assistant, denied_user = denied.content
+    assert json.loads(denied_assistant.text) == denied.structured_content
+    assert denied_assistant.annotations.audience == ["assistant"]
+    assert denied_user.annotations.audience == ["user"]
+    assert denied_user.text.startswith("artefact.list: authority_denied")
+
+
 @pytest.mark.parametrize("refresh", (False, True))
 def test_real_mcp_calls_reuse_a_command_list_snapshot_with_an_advancing_clock(
     tmp_path,
