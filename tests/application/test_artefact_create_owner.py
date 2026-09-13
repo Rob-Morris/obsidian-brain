@@ -122,13 +122,13 @@ def test_artefact_create_post_commit_failure_is_honestly_unknown(
     command_vault_clone,
     monkeypatch,
 ):
-    real_create = create.create_resource
+    real_create = create.apply_artefact_creation
 
     def commit_then_fail(*args, **kwargs):
         result = real_create(*args, **kwargs)
         raise OSError(result["path"])
 
-    monkeypatch.setattr(create, "create_resource", commit_then_fail)
+    monkeypatch.setattr(create, "apply_artefact_creation", commit_then_fail)
     application = application_for(command_vault_clone.vault_root)
 
     result = application.invoke(ArtefactCreateRequest("ideas", "Uncertain Candidate"))

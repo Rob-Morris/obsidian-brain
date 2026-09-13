@@ -6,7 +6,10 @@ from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 import sys
-from typing import Mapping, Protocol
+from typing import TYPE_CHECKING, Mapping, Protocol
+
+if TYPE_CHECKING:
+    from .preparation import OperationBinding
 
 from .access_contracts import AccessController
 from .receipts import ReceiptReader, ReceiptWriter
@@ -23,6 +26,19 @@ class Clock(Protocol):
     """Provide a trusted timezone-aware wall clock to application services."""
 
     def now(self) -> datetime: ...
+
+
+class InvocationAdmission(Protocol):
+    """Enter an approved operation at its domain owner's guarded boundary."""
+
+    requires_binding: bool
+    frozen_inputs: Mapping[str, object] | None
+
+    def admit(self, binding: OperationBinding | None) -> None: ...
+
+    def retain_content(self, source_key: str, content: bytes) -> dict: ...
+
+    def read_pinned(self, source_key: str) -> bytes | None: ...
 
 
 class AuthorityObservation(Protocol):
@@ -236,6 +252,7 @@ class InvocationContext:
     diagnostics: DiagnosticReporter = NullDiagnosticReporter()
     derived_snapshots: DerivedSnapshotStore | None = None
     session_mirror: SessionMirrorPublisher | None = None
+    admission: InvocationAdmission | None = None
 
     def __post_init__(self) -> None:
         if not self.profile.strip():

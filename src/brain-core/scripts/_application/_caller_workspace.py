@@ -101,7 +101,10 @@ def execute_workspace_lifecycle(
 
     try:
         with vault_mutation_lock(lock_root):
-            result = invoke()
+            before_write = workspace_admission(context, request)
+            result = invoke(before_write)
+            if before_write is not None and isinstance(result, Mapping) and result.get("status") in {"ok", "noop"}:
+                before_write()
     except MutationLockError as exc:
         return no_effect_error(
             type(request),
@@ -207,6 +210,8 @@ def decode_workspace_binding(payload: Mapping[str, object], request_type):
 
 def caller_workspace_entry(request_type, executor):
     from .catalogue import ApplicationEntry
+    from .preparation import OperationPreparation
+    from .workspace._preparation import prepare_workspace
 
     return ApplicationEntry(
         request_type=request_type,
@@ -218,6 +223,7 @@ def caller_workspace_entry(request_type, executor):
         authority=Authority.OPERATOR,
         effect_class=EffectClass.CALLER_LOCAL_MUTATION,
         retry_class=RetryClass.RECEIPT_REQUIRED,
+        preparation=OperationPreparation(prepare_workspace),
         projections=(
             ProjectionEligibility(Projection.MCP, False, MCP_UNSUPPORTED_REASON),
             ProjectionEligibility(Projection.CLI, True),
@@ -225,3 +231,19 @@ def caller_workspace_entry(request_type, executor):
             ProjectionEligibility(Projection.PYTHON, True),
         ),
     )
+
+
+def workspace_admission(context, request):
+    """Share one admission across every write in a compound workspace action."""
+    if context.admission is None:
+        return None
+    from .preparation import admit_owner
+    from .workspace._preparation import prepare_workspace
+
+    admitted = False
+    def before_write():
+        nonlocal admitted
+        if not admitted:
+            admit_owner(context, request, prepare_workspace)
+            admitted = True
+    return before_write

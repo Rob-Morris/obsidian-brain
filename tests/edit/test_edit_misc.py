@@ -436,17 +436,18 @@ class TestTempPathFlag:
         assert "argument --within-occurrence: invalid int value" in err
 
     def test_cli_formats_partial_apply_error_without_traceback(
-        self, vault, monkeypatch, capsys
+        self, vault, router, monkeypatch, capsys
     ):
         def fail_apply(*_args, **_kwargs):
             raise PartialApplyError("edit partially applied")
 
-        monkeypatch.setattr(edit, "apply_to_artefact", fail_apply)
-        monkeypatch.setattr(edit, "load_fresh_compiled_router", lambda _vault_root: {})
+        monkeypatch.setattr(edit, "apply_document_edit", fail_apply)
+        monkeypatch.setattr(edit, "load_fresh_compiled_router", lambda _vault_root: router)
         with patch.object(
             sys,
             "argv",
-            ["edit.py", "edit", "--path", "Wiki/test-page.md", "--vault", str(vault)],
+            ["edit.py", "edit", "--path", "Wiki/test-page.md", "--vault", str(vault),
+             "--frontmatter", '{"tags": ["changed"]}'],
         ):
             with pytest.raises(SystemExit) as exc_info:
                 edit.main()
@@ -456,16 +457,17 @@ class TestTempPathFlag:
         assert "Error: edit partially applied" in err
         assert "Traceback" not in err
 
-    def test_cli_propagates_unrelated_runtime_error(self, vault, monkeypatch):
+    def test_cli_propagates_unrelated_runtime_error(self, vault, router, monkeypatch):
         def fail_apply(*_args, **_kwargs):
             raise RuntimeError("programmer bug")
 
-        monkeypatch.setattr(edit, "apply_to_artefact", fail_apply)
-        monkeypatch.setattr(edit, "load_fresh_compiled_router", lambda _vault_root: {})
+        monkeypatch.setattr(edit, "apply_document_edit", fail_apply)
+        monkeypatch.setattr(edit, "load_fresh_compiled_router", lambda _vault_root: router)
         with patch.object(
             sys,
             "argv",
-            ["edit.py", "edit", "--path", "Wiki/test-page.md", "--vault", str(vault)],
+            ["edit.py", "edit", "--path", "Wiki/test-page.md", "--vault", str(vault),
+             "--frontmatter", '{"tags": ["changed"]}'],
         ):
             with pytest.raises(RuntimeError, match="programmer bug"):
                 edit.main()

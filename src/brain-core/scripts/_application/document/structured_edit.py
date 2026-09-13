@@ -220,7 +220,7 @@ class DocumentStructuredEditRequest:
             raise ValueError("document.structured-edit change has an invalid variant")
 
 
-def execute(context: InvocationContext, request: DocumentStructuredEditRequest):
+def mutation_intent(request: DocumentStructuredEditRequest):
     change = request.change
     target, selector, scope = _engine_selection(change.selection)
     if isinstance(change, ReplaceStructure):
@@ -236,10 +236,7 @@ def execute(context: InvocationContext, request: DocumentStructuredEditRequest):
         content = None
         scope = None
         result_operation = "delete"
-    return execute_document_mutation(
-        context,
-        request,
-        DocumentStructuredEditIntent(
+    return DocumentStructuredEditIntent(
             resource=request.document.resource.value,
             reference=request.document.reference,
             expected_revision=request.expected_revision,
@@ -250,8 +247,18 @@ def execute(context: InvocationContext, request: DocumentStructuredEditRequest):
             selector=selector,
             scope=scope,
             fix_links=request.fix_links,
-        ),
-    )
+        )
+
+
+def execute(context: InvocationContext, request: DocumentStructuredEditRequest):
+    return execute_document_mutation(context, request, mutation_intent(request))
+
+
+def prepare(context, request, *, frozen_inputs=None):
+    from .._document_mutation import prepare_document_mutation
+
+    return prepare_document_mutation(context, request, mutation_intent(request),
+                                     frozen_inputs=frozen_inputs)
 
 
 def decode(payload: Mapping[str, object]) -> DocumentStructuredEditRequest:
@@ -505,4 +512,8 @@ def _optional_int(value: object, label: str) -> int | None:
 
 
 def catalogue_entry():
-    return contributor_mutation_entry(DocumentStructuredEditRequest, execute)
+    from dataclasses import replace
+    from ..preparation import OperationPreparation
+
+    return replace(contributor_mutation_entry(DocumentStructuredEditRequest, execute),
+                   preparation=OperationPreparation(prepare))

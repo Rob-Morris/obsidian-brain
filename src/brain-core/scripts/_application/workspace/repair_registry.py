@@ -54,7 +54,12 @@ def execute(context: InvocationContext, request: WorkspaceRepairRegistryRequest)
     root = context.selected_brain.vault_root
     try:
         with vault_mutation_lock(root):
-            result = repair_registry(root, dry_run=context.dry_run)
+            from .._caller_workspace import workspace_admission
+
+            before_write = workspace_admission(context, request)
+            result = repair_registry(root, dry_run=context.dry_run, before_write=before_write)
+            if before_write is not None and not context.dry_run:
+                before_write()
     except MutationLockError as exc:
         return no_effect_error(
             WorkspaceRepairRegistryRequest,
@@ -111,11 +116,15 @@ def decode(payload: Mapping[str, object]) -> WorkspaceRepairRegistryRequest:
 
 
 def catalogue_entry():
+    from dataclasses import replace
+    from ..preparation import OperationPreparation
+    from ._preparation import prepare_workspace
     from ..catalogue import exclude_projection
     from ..types import Projection
 
     return exclude_projection(
-        operator_mutation_entry(WorkspaceRepairRegistryRequest, execute),
+        replace(operator_mutation_entry(WorkspaceRepairRegistryRequest, execute),
+                preparation=OperationPreparation(prepare_workspace)),
         Projection.MCP,
         "Local workspace-registry repair is reserved for deliberate CLI or "
         "direct-script administration.",

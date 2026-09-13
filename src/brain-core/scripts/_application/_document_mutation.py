@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from ._mutation_support import (
     FrontmatterField,
@@ -13,6 +13,10 @@ from ._mutation_support import (
 )
 from ._wikilink_results import WikilinkFinding, WikilinkFix, wikilink_result_values
 from .context import InvocationContext
+from .preparation import (
+    ObservedResource, admit_owner, bind_operation, canonical_json, content_digest,
+    prepare_content,
+)
 from .receipts import CommittedEffect
 from .results import (
     CommandArgument,
@@ -183,6 +187,9 @@ def execute_document_mutation(
     materialised = None
     try:
         with vault_mutation_lock(vault_root):
+            router = load_fresh_compiled_router(vault_root)
+            if "error" in router:
+                raise ValueError(router["error"])
             opened = edit.open_document(
                 vault_root,
                 router,
@@ -202,10 +209,14 @@ def execute_document_mutation(
                     "document changed since it was read; re-read it and retry "
                     f"with the current revision ({current_revision})"
                 )
-            body, staged_handle = _resolve_body(vault_root, intent)
+            body, staged_handle = _resolve_body(vault_root, intent, context=context)
             file_index = None
             if _may_contain_wikilinks(opened, intent, body):
                 file_index = fix_links.file_index_for_mutation(vault_root)
+            plan = edit.plan_document_edit(opened, body=body,
+                                            **_plan_arguments(intent))
+            admit_owner(context, request, document_binding, intent=intent,
+                        opened=opened, body=body, file_index=file_index)
             if intent.resource == "skill" and ":" not in intent.reference:
                 from _skill_library import materialise_core_skill_for_edit
 
@@ -229,6 +240,7 @@ def execute_document_mutation(
                     opened = edit.open_document(
                         vault_root, router, intent.resource, intent.reference
                     )
+                    plan = replace(plan, opened=opened)
             try:
                 result = edit.edit_resource(
                     vault_root,
@@ -237,6 +249,7 @@ def execute_document_mutation(
                     body=body,
                     file_index=file_index,
                     opened=opened,
+                    prepared_plan=plan,
                     **_edit_arguments(intent),
                     **subject_kwargs,
                 )
@@ -361,6 +374,7 @@ def _preflight_request(edit, intent: DocumentMutationIntent) -> None:
 def _resolve_body(
     vault_root: str,
     intent: DocumentMutationIntent,
+    *, context=None,
 ) -> tuple[str, str | None]:
     content = (
         intent.content
@@ -369,7 +383,66 @@ def _resolve_body(
     )
     if content is None:
         return "", None
-    return resolve_mutation_content(vault_root, content)
+    return resolve_mutation_content(vault_root, content, context=context)
+
+
+def _plan_arguments(intent):
+    return {name: value for name, value in _edit_arguments(intent).items()
+            if name != "fix_links"}
+
+
+def document_binding(context, request, *, intent, opened, body,
+                     file_index=None, frozen_inputs=None):
+    observations = [ObservedResource("document", opened.path, opened.revision)]
+    if opened.artefact is not None:
+        observations.append(ObservedResource("definition", opened.path,
+                                             content_digest(canonical_json(opened.artefact))))
+    if getattr(intent, "fix_links", False) and file_index is not None:
+        index = dict(file_index)
+        index["md_relpaths"] = sorted(index.get("md_relpaths", ()))
+        observations.append(ObservedResource("link-resolution", opened.path,
+                                             content_digest(canonical_json(index))))
+    if opened.resource == "skill" and ":" not in intent.reference:
+        from pathlib import Path
+        from _skill_library.packages import inspect_package
+
+        package_root = Path(opened.abs_path).parent
+        package = inspect_package(package_root, expected_name=intent.reference)
+        observations.append(ObservedResource("package", opened.path, package.package_sha256))
+        user_root = context.selected_brain.vault_root / "_Config" / "Skills" / intent.reference
+        observations.append(ObservedResource("skill-substrate", intent.reference,
+                                             "user" if user_root.exists() else "core"))
+    observations.append(ObservedResource("body", opened.path, content_digest(body)))
+    return bind_operation(request, observations=observations,
+                          frozen_inputs=frozen_inputs,
+                          review={"document": opened.path, "revision": opened.revision,
+                                  "body_sha256": content_digest(body),
+                                  "operation": getattr(intent, "result_operation", "frontmatter"),
+                                  "fix_links": getattr(intent, "fix_links", False)})
+
+
+def prepare_document_mutation(context, request, intent, *, frozen_inputs=None):
+    from _common import DocumentRevisionConflict, vault_mutation_lock
+    from _lifecycle.derived_cache_state import load_fresh_compiled_router
+    import edit
+    import fix_links
+
+    root = str(context.selected_brain.vault_root)
+    _preflight_request(edit, intent)
+    frozen = dict(frozen_inputs or {})
+    with vault_mutation_lock(root):
+        router = load_fresh_compiled_router(root)
+        if "error" in router:
+            raise ValueError(router["error"])
+        opened = edit.open_document(root, router, intent.resource, intent.reference,
+                                   allow_core_skill_read=(intent.resource == "skill" and ":" not in intent.reference))
+        if opened.revision != intent.expected_revision:
+            raise DocumentRevisionConflict("document changed; re-read it before preparing the operation")
+        body, frozen = prepare_content(context, getattr(intent, "content", None), frozen)
+        edit.plan_document_edit(opened, body=body, **_plan_arguments(intent))
+        index = fix_links.file_index_for_mutation(root) if _may_contain_wikilinks(opened, intent, body) else None
+        return document_binding(context, request, intent=intent, opened=opened,
+                                body=body, file_index=index, frozen_inputs=frozen)
 
 
 def _may_contain_wikilinks(opened, intent: DocumentMutationIntent, body: str) -> bool:

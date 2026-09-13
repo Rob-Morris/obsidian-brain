@@ -104,8 +104,13 @@ def execute_definition(
             if content is None:
                 body, staged_handle = None, None
             else:
-                body, staged_handle = resolve_mutation_content(root, content)
-            result = operation(root, body)
+                body, staged_handle = resolve_mutation_content(root, content, context=context)
+            plan = operation(root, body)
+            from .preparation import admit_owner
+            import define
+
+            admit_owner(context, request, definition_binding, plan=plan)
+            result = define.apply_definition_plan(root, plan)
             staging_warning = finalise_staged_body(root, staged_handle)
     except MutationLockError as exc:
         return no_effect_error(
@@ -174,10 +179,15 @@ def execute_type_definition(
     try:
         with vault_mutation_lock(root):
             definition_body, definition_handle = resolve_mutation_content(
-                root, definition
+                root, definition, context=context,
             )
-            template_body, template_handle = resolve_mutation_content(root, template)
-            result = operation(root, definition_body, template_body)
+            template_body, template_handle = resolve_mutation_content(root, template, context=context)
+            plan = operation(root, definition_body, template_body)
+            from .preparation import admit_owner
+            import define
+
+            admit_owner(context, request, definition_binding, plan=plan)
+            result = define.apply_definition_plan(root, plan)
             definition_warning = finalise_staged_body(root, definition_handle)
             template_warning = finalise_staged_body(root, template_handle)
     except MutationLockError as exc:
@@ -235,3 +245,42 @@ def execute_type_definition(
 
 def catalogue_entry(request_type, executor):
     return maintainer_mutation_entry(request_type, executor)
+
+
+def definition_binding(context, request, *, plan, frozen_inputs=None):
+    from _common import document_revision_at
+    from .preparation import ObservedResource, bind_operation, content_digest
+
+    observations = []
+    for write in plan.writes:
+        path = context.selected_brain.vault_root / write.path
+        observations.extend((
+            ObservedResource("definition", write.path,
+                             document_revision_at(path) if path.exists() else None),
+            ObservedResource("replacement", write.path, content_digest(write.content)),
+        ))
+    if plan.artefact_folder is not None:
+        path = context.selected_brain.vault_root / plan.artefact_folder
+        if path.exists() and not path.is_dir():
+            raise ValueError("artefact folder is occupied by a non-directory")
+        observations.append(ObservedResource("artefact-folder", plan.artefact_folder,
+                                              "directory" if path.is_dir() else None))
+    return bind_operation(request, observations=observations,
+                          frozen_inputs=frozen_inputs,
+                          review={"writes": [item.path for item in plan.writes],
+                                  "artefact_folder": plan.artefact_folder,
+                                  "operation": plan.result["operation"]})
+
+
+def prepare_definition_command(context, request, *, operation, contents=(), frozen_inputs=None):
+    from _common import vault_mutation_lock
+    from .preparation import prepare_content
+
+    frozen = dict(frozen_inputs or {})
+    with vault_mutation_lock(context.selected_brain.vault_root):
+        bodies = []
+        for content in contents:
+            body, frozen = prepare_content(context, content, frozen)
+            bodies.append(body)
+        plan = operation(str(context.selected_brain.vault_root), *(bodies or [None]))
+        return definition_binding(context, request, plan=plan, frozen_inputs=frozen)

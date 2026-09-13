@@ -113,6 +113,7 @@ def configure_workspace_binding_action(
     brain_id: str | None,
     slug: str | None,
     force: bool,
+    before_write=None,
 ) -> dict:
     try:
         resolved_brain = _resolve_binding_brain(vault_root, brain_id)
@@ -121,6 +122,7 @@ def configure_workspace_binding_action(
             brain=resolved_brain,
             slug=slug,
             allow_rebind=force,
+            before_write=before_write,
         )
         step = _step("workspace_binding", convergence.status, convergence.message)
         notes = [f"workspace brain: {convergence.brain}", f"workspace slug: {convergence.slug}"]
@@ -159,6 +161,7 @@ def configure_workspace_metadata_action(
     clear_tags: bool,
     links: list[str],
     clear_links: bool,
+    before_write=None,
 ) -> dict:
     if not tags and not links and not clear_tags and not clear_links:
         return _result_envelope(
@@ -213,7 +216,7 @@ def configure_workspace_metadata_action(
         else:
             manifest.pop("links", None)
 
-        write = save_workspace_manifest_data(workspace_dir, manifest)
+        write = save_workspace_manifest_data(workspace_dir, manifest, before_write=before_write)
         return _result_envelope(
             "workspace_metadata",
             vault_root,
@@ -227,7 +230,7 @@ def configure_workspace_metadata_action(
         )
 
 
-def _ensure_bootstrap_file(path: Path, bootstrap: str) -> tuple[str, str]:
+def _ensure_bootstrap_file(path: Path, bootstrap: str, *, before_write=None) -> tuple[str, str]:
     try:
         existing = path.read_text(encoding="utf-8")
     except FileNotFoundError:
@@ -236,6 +239,8 @@ def _ensure_bootstrap_file(path: Path, bootstrap: str) -> tuple[str, str]:
         raise WorkspaceBindingError(f"failed to read {path}: {exc}") from exc
 
     if not existing:
+        if before_write is not None:
+            before_write()
         safe_write(path, f"{bootstrap}\n")
         return "changed", f"Created {path.name} with Brain bootstrap instructions."
 
@@ -243,6 +248,8 @@ def _ensure_bootstrap_file(path: Path, bootstrap: str) -> tuple[str, str]:
         return "noop", f"{path.name} already includes Brain bootstrap instructions."
 
     separator = "\n" if existing.endswith("\n") else "\n\n"
+    if before_write is not None:
+        before_write()
     safe_write(path, f"{existing}{separator}{bootstrap}\n")
     return "changed", f"Appended Brain bootstrap instructions to {path.name}."
 
@@ -253,6 +260,7 @@ def configure_workspace_bootstrap_action(
     workspace_dir: Path,
     surface: str,
     remove: bool = False,
+    before_write=None,
 ) -> dict:
     steps: list[dict] = []
     try:
@@ -267,10 +275,12 @@ def configure_workspace_bootstrap_action(
             steps.append(_step("workspace_bootstrap_agents", status, "AGENTS.md bootstrap removal is not supported."))
         elif "agents" in surfaces:
             agents_path = find_root_bootstrap_file(workspace_dir, "AGENTS.md") or (workspace_dir / "AGENTS.md")
-            status, message = _ensure_bootstrap_file(agents_path, CLAUDE_MD_BOOTSTRAP_VAULT)
+            status, message = _ensure_bootstrap_file(agents_path, CLAUDE_MD_BOOTSTRAP_VAULT, before_write=before_write)
             steps.append(_step("workspace_bootstrap_agents", status, message))
         if "claude" in surfaces:
             if remove:
+                if before_write is not None:
+                    before_write()
                 removed = mcp_transport.cleanup_claude_bootstrap(workspace_dir)
                 status = "changed" if removed else "noop"
                 message = (
@@ -283,12 +293,13 @@ def configure_workspace_bootstrap_action(
                 status, message = _ensure_bootstrap_file(
                     claude_path,
                     bootstrap_line_for_target(workspace_dir),
+                    before_write=before_write,
                 )
             steps.append(_step("workspace_bootstrap_claude", status, message))
         if "grok" in surfaces:
             from _bootstrap.grok_mcp import configure_rule
 
-            changed = configure_rule(workspace_dir, remove=remove)
+            changed = configure_rule(workspace_dir, remove=remove, before_write=before_write)
             steps.append(
                 _step(
                     "workspace_bootstrap_grok",

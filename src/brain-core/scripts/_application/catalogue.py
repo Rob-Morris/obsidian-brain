@@ -5,7 +5,10 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 import hashlib
 import json
-from typing import Callable, get_args, get_origin
+from typing import TYPE_CHECKING, Callable, get_args, get_origin
+
+if TYPE_CHECKING:
+    from .preparation import PreparationSpec
 
 from .context import InvocationContext
 from .identity import command_identity
@@ -53,6 +56,7 @@ class ApplicationEntry:
     open_world: bool = False
     lifecycle: CommandLifecycle = CommandLifecycle.ACTIVE
     replacement_command_id: str | None = None
+    preparation: PreparationSpec | None = None
 
     @property
     def command_id(self) -> str:

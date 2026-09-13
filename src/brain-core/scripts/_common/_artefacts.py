@@ -109,8 +109,11 @@ def read_file_content(vault_root, rel_path):
 
 def read_exact_file_content(path):
     """Read exact persisted bytes and return decoded text with their revision."""
-    with open(path, "rb") as handle:
-        return decode_persisted_document(handle.read())
+    resolved = os.path.realpath(path)
+    with open(resolved, "rb") as handle:
+        content = decode_persisted_document(handle.read())
+    content.source_path = resolved
+    return content
 
 
 def artefact_type_prefix(artefact_or_type):

@@ -40,11 +40,13 @@ def plan_rule(plan: FilePlan, root: Path, *, remove: bool = False) -> Path:
     return path
 
 
-def configure_rule(root: Path, *, remove: bool = False) -> bool:
+def configure_rule(root: Path, *, remove: bool = False, before_write=None) -> bool:
     """Apply the same owned rule for standalone bootstrap and MCP setup."""
     plan = FilePlan()
     plan_rule(plan, root, remove=remove)
     changes = plan.changes()
+    if changes and before_write is not None:
+        before_write()
     apply_file_changes(changes)
     return bool(changes)
 

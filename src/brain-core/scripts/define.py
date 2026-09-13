@@ -15,6 +15,7 @@ import json
 import os
 import re
 import sys
+from dataclasses import dataclass
 
 import compile_router
 from _common import (
@@ -129,7 +130,63 @@ def _require_hash(actual: str, expected: str | None, rel_path: str) -> None:
         )
 
 
-def _write_type_bundle(
+@dataclass(frozen=True, slots=True)
+class DefinitionWrite:
+    path: str
+    content: str
+    before_content: str | None
+    exclusive: bool
+
+
+@dataclass(frozen=True, slots=True)
+class DefinitionPlan:
+    writes: tuple[DefinitionWrite, ...]
+    result: dict
+    artefact_folder: str | None = None
+
+
+def apply_definition_plan(vault_root, plan):
+    """Apply validated definition bytes, preserving type-bundle rollback."""
+    folder = os.path.join(vault_root, plan.artefact_folder) if plan.artefact_folder else None
+    created_folder = bool(folder and not os.path.isdir(folder))
+    if created_folder:
+        os.makedirs(folder)
+    committed = []
+    try:
+        for write in plan.writes:
+            safe_write(os.path.join(vault_root, write.path), write.content,
+                       bounds=vault_root, follow_symlinks=True, exclusive=write.exclusive)
+            committed.append(write)
+    except BaseException:
+        for write in reversed(committed):
+            if write.before_content is not None:
+                safe_write(os.path.join(vault_root, write.path), write.before_content,
+                           bounds=vault_root)
+            else:
+                try:
+                    os.unlink(os.path.join(vault_root, write.path))
+                except OSError:
+                    pass
+        if created_folder:
+            try:
+                os.rmdir(folder)
+            except OSError:
+                pass
+        raise
+    return dict(plan.result)
+
+
+def write_definition(vault_root, **kwargs):
+    """Create or replace through the shared pure definition planner."""
+    return apply_definition_plan(vault_root, plan_write_definition(vault_root, **kwargs))
+
+
+def update_trigger(vault_root, **kwargs):
+    """Change one trigger through the shared pure rule planner."""
+    return apply_definition_plan(vault_root, plan_update_trigger(vault_root, **kwargs))
+
+
+def _plan_type_bundle(
     vault_root: str,
     *,
     operation: str,
@@ -174,47 +231,7 @@ def _write_type_bundle(
         _require_hash(before_hash, expected_sha256, rel_path)
         _require_hash(before_template_hash, expected_template_sha256, template_rel)
 
-    created_folder = False
-    os.makedirs(os.path.dirname(abs_path), exist_ok=True)
-    os.makedirs(os.path.dirname(template_abs), exist_ok=True)
-    if not os.path.isdir(artefact_abs):
-        os.makedirs(artefact_abs)
-        created_folder = True
-
-    try:
-        safe_write(
-            abs_path,
-            definition,
-            bounds=vault_root,
-            follow_symlinks=True,
-            exclusive=operation == "create",
-        )
-        try:
-            safe_write(
-                template_abs,
-                template,
-                bounds=vault_root,
-                follow_symlinks=True,
-                exclusive=operation == "create",
-            )
-        except BaseException:
-            if operation == "replace":
-                safe_write(abs_path, before_definition, bounds=vault_root)
-            else:
-                try:
-                    os.unlink(abs_path)
-                except OSError:
-                    pass
-            raise
-    except BaseException:
-        if created_folder:
-            try:
-                os.rmdir(artefact_abs)
-            except OSError:
-                pass
-        raise
-
-    return {
+    result = {
         "kind": "type",
         "operation": operation,
         "name": name,
@@ -228,8 +245,13 @@ def _write_type_bundle(
         **details,
     }
 
+    return DefinitionPlan((
+        DefinitionWrite(rel_path, definition, before_definition, operation == "create"),
+        DefinitionWrite(template_rel, template, before_template, operation == "create"),
+    ), result, artefact_rel)
 
-def write_definition(
+
+def plan_write_definition(
     vault_root: str,
     *,
     kind: str,
@@ -245,7 +267,7 @@ def write_definition(
     if operation not in {"create", "replace"}:
         raise ValueError("Definition operation must be 'create' or 'replace'.")
     if kind == "type":
-        return _write_type_bundle(
+        return _plan_type_bundle(
             vault_root,
             operation=operation,
             name=name,
@@ -276,15 +298,7 @@ def write_definition(
     elif expected_sha256:
         raise ValueError("expected_sha256 is only valid for replace.")
 
-    os.makedirs(os.path.dirname(abs_path), exist_ok=True)
-    safe_write(
-        abs_path,
-        content,
-        bounds=vault_root,
-        follow_symlinks=True,
-        exclusive=operation == "create",
-    )
-    return {
+    result = {
         "kind": kind,
         "operation": operation,
         "name": name,
@@ -292,6 +306,10 @@ def write_definition(
         "before_sha256": before_hash,
         "sha256": _sha256(content),
     }
+
+    return DefinitionPlan((DefinitionWrite(rel_path, content,
+                                            before if exists else None,
+                                            operation == "create"),), result)
 
 
 def _router_path(vault_root: str) -> tuple[str, str]:
@@ -309,7 +327,7 @@ def _validate_trigger_target(vault_root: str, target: str) -> str:
     return target
 
 
-def update_trigger(
+def plan_update_trigger(
     vault_root: str,
     *,
     operation: str,
@@ -385,8 +403,7 @@ def update_trigger(
             lines[index] = f"- {result_condition} → [[{result_target}]]"
 
     updated = "\n".join(lines) + ("\n" if original.endswith("\n") else "")
-    safe_write(abs_path, updated, bounds=vault_root, follow_symlinks=True)
-    return {
+    result = {
         "kind": "trigger",
         "operation": operation,
         "condition": result_condition,
@@ -395,6 +412,8 @@ def update_trigger(
         "before_sha256": _sha256(original),
         "sha256": _sha256(updated),
     }
+
+    return DefinitionPlan((DefinitionWrite(rel_path, updated, original, False),), result)
 
 
 def _parser() -> argparse.ArgumentParser:

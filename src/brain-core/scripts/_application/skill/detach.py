@@ -8,6 +8,7 @@ from typing import ClassVar, Mapping
 from .._decoding import reject_unexpected
 from ..context import InvocationContext
 from ._support import execute_mutation, mutation_catalogue_entry
+from ._preparation import skill_execution_options
 from ._types import SkillMutationPayload
 
 
@@ -30,7 +31,8 @@ def execute(context: InvocationContext, request: SkillDetachRequest):
     return execute_mutation(
         context,
         request,
-        lambda: detach_skill(context.selected_brain.vault_root, name=request.name),
+        lambda: detach_skill(context.selected_brain.vault_root, name=request.name,
+                             **skill_execution_options(context, request)),
     )
 
 

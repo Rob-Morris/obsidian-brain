@@ -17,6 +17,7 @@ class PersistedDocumentContent(str):
     """Decoded document text carrying the revision of its exact persisted bytes."""
 
     revision: str
+    source_path: str | None = None
 
     def __new__(cls, content: str, revision: str):
         value = super().__new__(cls, content)

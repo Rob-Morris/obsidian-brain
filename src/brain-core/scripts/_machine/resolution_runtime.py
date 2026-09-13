@@ -19,6 +19,8 @@ _DEPLOY_FILES: tuple[tuple[str, str], ...] = (
     ("_portable_path.py", "_portable_path.py"),
     ("_bootstrap/workspace_binding.py", "_bootstrap/workspace_binding.py"),
     ("_bootstrap/__init__.py", "_bootstrap/__init__.py"),
+    ("_bootstrap/file_lock.py", "_bootstrap/file_lock.py"),
+    ("_bootstrap/paths.py", "_bootstrap/paths.py"),
     ("vault_registry.py", "vault_registry.py"),
     ("_common/_vault.py", "_common/_vault.py"),
     ("_common/_filesystem.py", "_common/_filesystem.py"),

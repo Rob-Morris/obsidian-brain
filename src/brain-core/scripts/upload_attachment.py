@@ -354,6 +354,13 @@ def upload_attachment(
         name=name,
         content=content,
     )
+    return apply_attachment_upload(vault_root, plan)
+
+
+def apply_attachment_upload(vault_root, plan: AttachmentUploadPlan) -> dict:
+    """Apply the validated attachment destination and bytes without resolving again."""
+    if not plan.would_create and not _existing_attachment_matches(plan.target, plan.content):
+        raise FileExistsError(f"Attachment changed since validation: {plan.path}")
     if plan.would_create:
         safe_write_via(
             plan.target,

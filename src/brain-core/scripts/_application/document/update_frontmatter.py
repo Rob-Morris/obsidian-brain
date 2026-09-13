@@ -54,17 +54,24 @@ class DocumentUpdateFrontmatterRequest:
             )
 
 
-def execute(context: InvocationContext, request: DocumentUpdateFrontmatterRequest):
-    return execute_document_mutation(
-        context,
-        request,
-        DocumentFrontmatterIntent(
+def mutation_intent(request: DocumentUpdateFrontmatterRequest):
+    return DocumentFrontmatterIntent(
             resource=request.document.resource.value,
             reference=request.document.reference,
             expected_revision=request.expected_revision,
             frontmatter=request.updates,
-        ),
-    )
+        )
+
+
+def execute(context: InvocationContext, request: DocumentUpdateFrontmatterRequest):
+    return execute_document_mutation(context, request, mutation_intent(request))
+
+
+def prepare(context, request, *, frozen_inputs=None):
+    from .._document_mutation import prepare_document_mutation
+
+    return prepare_document_mutation(context, request, mutation_intent(request),
+                                     frozen_inputs=frozen_inputs)
 
 
 def decode(payload: Mapping[str, object]) -> DocumentUpdateFrontmatterRequest:
@@ -80,4 +87,8 @@ def decode(payload: Mapping[str, object]) -> DocumentUpdateFrontmatterRequest:
 
 
 def catalogue_entry():
-    return contributor_mutation_entry(DocumentUpdateFrontmatterRequest, execute)
+    from dataclasses import replace
+    from ..preparation import OperationPreparation
+
+    return replace(contributor_mutation_entry(DocumentUpdateFrontmatterRequest, execute),
+                   preparation=OperationPreparation(prepare))

@@ -16,6 +16,7 @@ import json
 import os
 import sys
 from datetime import datetime, timezone
+from dataclasses import dataclass
 
 from _resource_contract import RESOURCE_KINDS
 from _staging import finalise_staged_body, resolve_mutation_body
@@ -141,38 +142,23 @@ def _build_parent_context(router, artefact, fields, parent_key, parent_entry):
     return None
 
 
-def create_artefact(vault_root, router, type_key, title, body="", frontmatter_overrides=None, parent=None, key=None, template_vars=None, fix_links=False, file_index=None):
-    """Create a new artefact. Returns {"path": relative_path, "type": ..., "title": ...}.
+@dataclass(frozen=True, slots=True)
+class ArtefactCreationPlan:
+    path: str
+    content: str
+    title: str
+    artefact: dict
+    fields: dict
+    parent: str | None
+    parent_context: dict | None
+    effective_at: str
 
-    Args:
-        vault_root: Absolute path to the vault root.
-        router: Compiled router dict. Successful living creates update its
-                artefact index in place so the router can be reused for
-                sequential creates. Concurrent direct calls are unsupported.
-        type_key: Artefact type key (e.g. "idea") or full type (e.g. "living/idea").
-        title: Human-readable title, used for filename generation.
-        body: Markdown body content (optional, template body used if empty).
-        frontmatter_overrides: Optional dict of frontmatter field overrides.
-        parent: Optional parent artefact reference for child artefacts.
-                Accepts canonical key form (e.g. "project/brain"), or a
-                resolvable name/path; persists as canonical `{type}/{key}`.
-                Living children then file into same-type `{key}/` folders
-                or cross-type `{scope}/` folders. Temporal artefacts file
-                flat under the same owner chain.
-        template_vars: Optional dict of placeholder→value substitutions applied
-                to the template body (e.g. {"SOURCE_TYPE": "designs"}).
-                ``{{date:FORMAT}}`` placeholders are always substituted when the
-                template body is used.
-        file_index: Optional pre-built vault file index (dict). When supplied,
-                    the wikilink-warning step skips ``build_vault_file_index``.
-                    Pass ``None`` (default) for legacy behaviour (vault walk).
 
-    Returns:
-        Dict with path, type, and title.
-
-    Raises:
-        ValueError: If type is not found, not configured, or file already exists.
-    """
+def plan_artefact_creation(vault_root, router, type_key, title, body="",
+                           frontmatter_overrides=None, parent=None, key=None,
+                           template_vars=None, *, effective_at=None,
+                           chosen_filename=None, chosen_key=None):
+    """Resolve naming, template and parent inputs without creating directories."""
     vault_root = str(vault_root)
     _reject_leading_body_frontmatter(body, resource_label="Artefact")
 
@@ -184,7 +170,9 @@ def create_artefact(vault_root, router, type_key, title, body="", frontmatter_ov
     template_fields, template_body = _read_template(vault_root, artefact)
 
     # Capture now once so filename, folder, and timestamps stay consistent.
-    now = datetime.now(timezone.utc).astimezone()
+    now = effective_at or datetime.now(timezone.utc).astimezone()
+    if now.tzinfo is None:
+        raise ValueError("creation time must be timezone-aware")
     now_iso = now.isoformat()
 
     # Seed frontmatter before filename generation so naming patterns can
@@ -210,7 +198,7 @@ def create_artefact(vault_root, router, type_key, title, body="", frontmatter_ov
         )
 
     if artefact.get("classification") == "living":
-        generated_key = _generate_key(vault_root, router, artefact, title, explicit=key)
+        generated_key = _generate_key(vault_root, router, artefact, title, explicit=key or chosen_key)
         fields["key"] = generated_key
         ensure_self_tag(fields, artefact_type_prefix(artefact), generated_key)
     elif key is not None:
@@ -235,17 +223,18 @@ def create_artefact(vault_root, router, type_key, title, body="", frontmatter_ov
 
     basename_stem = os.path.splitext(filename)[0]
 
-    # Same-folder: append random 3-char suffix to make filename unique.
     abs_folder = os.path.join(vault_root, folder)
-    os.makedirs(abs_folder, exist_ok=True)
-    filename = unique_filename(abs_folder, basename_stem)
-
-    # Cross-folder: append type key if original basename exists elsewhere.
-    duplicates = find_duplicate_basenames(vault_root, basename_stem, limit=1)
-    folder_prefix = os.path.join(folder, "")
-    if duplicates and not any(d.startswith(folder_prefix) for d in duplicates):
-        current_stem = os.path.splitext(filename)[0]
-        filename = f"{current_stem} ({artefact['key']}).md"
+    if chosen_filename is not None:
+        if os.path.basename(chosen_filename) != chosen_filename:
+            raise ValueError("chosen creation filename must be a basename")
+        filename = chosen_filename
+    else:
+        filename = unique_filename(abs_folder, basename_stem)
+        duplicates = find_duplicate_basenames(vault_root, basename_stem, limit=1)
+        folder_prefix = os.path.join(folder, "")
+        if duplicates and not any(d.startswith(folder_prefix) for d in duplicates):
+            current_stem = os.path.splitext(filename)[0]
+            filename = f"{current_stem} ({artefact['key']}).md"
 
     rel_path = os.path.join(folder, filename)
     check_write_allowed(rel_path)
@@ -254,6 +243,19 @@ def create_artefact(vault_root, router, type_key, title, body="", frontmatter_ov
     parent_context = _build_parent_context(
         router, artefact, fields, resolved_parent, parent_entry
     )
+    if os.path.lexists(abs_path):
+        raise ValueError(f"Artefact destination already exists: {rel_path}")
+    return ArtefactCreationPlan(rel_path, content, title, dict(artefact), fields,
+                                resolved_parent, parent_context, now.isoformat())
+
+
+def apply_artefact_creation(vault_root, router, plan, *, fix_links=False, file_index=None):
+    """Apply the already resolved creation plan, without choosing a new identity."""
+    vault_root = str(vault_root)
+    rel_path, content, title = plan.path, plan.content, plan.title
+    artefact, fields = plan.artefact, plan.fields
+    resolved_parent, parent_context = plan.parent, plan.parent_context
+    abs_path = os.path.join(vault_root, rel_path)
     safe_write(abs_path, content, bounds=vault_root, exclusive=True)
 
     artefact_index = router.get("artefact_index")
@@ -283,6 +285,16 @@ def create_artefact(vault_root, router, type_key, title, body="", frontmatter_ov
         result["parent_context"] = parent_context
     _fix_links.attach_wikilink_warnings(vault_root, result, apply_fixes=fix_links, file_index=file_index)
     return result
+
+
+def create_artefact(vault_root, router, type_key, title, body="", frontmatter_overrides=None, parent=None, key=None, template_vars=None, fix_links=False, file_index=None):
+    """Create an artefact through one shared planning and application path."""
+    plan = plan_artefact_creation(vault_root, router, type_key, title, body,
+                                  frontmatter_overrides, parent, key, template_vars)
+    return apply_artefact_creation(vault_root, router, plan, fix_links=fix_links,
+                                   file_index=file_index)
+
+
 
 
 # ---------------------------------------------------------------------------
@@ -330,51 +342,69 @@ def create_resource(vault_root, router, resource="artefact", **kwargs):
     if not body:
         raise ValueError(f"{resource}.create requires content.")
 
-    return _RESOURCE_CREATORS[resource](vault_root, router, name, body, frontmatter)
+    plan = plan_named_resource_creation(vault_root, router, resource, name, body, frontmatter)
+    return apply_named_resource_creation(vault_root, plan)
 
 
-def _create_config_resource(vault_root, resource, rel_path, name, body, frontmatter, exclusive=True):
-    """Shared logic for creating a _Config/ resource file.
+@dataclass(frozen=True, slots=True)
+class NamedResourceCreationPlan:
+    path: str
+    resource: str
+    name: str
+    content: str
+    exclusive: bool
 
-    Handles write-guard, content serialisation, and safe_write.
-    Body-only config resources are serialised with separate frontmatter.
-    """
-    _reject_leading_body_frontmatter(
-        body, resource_label=f"{resource.capitalize()} resource"
-    )
+
+def plan_named_resource_creation(vault_root, router, resource, name, body, frontmatter=None):
+    """Resolve one named document without writing it."""
+    if resource not in _RESOURCE_PLANNERS:
+        raise ValueError(f"Resource {resource!r} cannot be created")
+    if not name or not body:
+        raise ValueError(f"{resource}.create requires a name and content")
+    return _RESOURCE_PLANNERS[resource](vault_root, router, name, body, frontmatter)
+
+
+def _plan_config_resource(vault_root, resource, rel_path, name, body, frontmatter, exclusive=True):
+    _reject_leading_body_frontmatter(body, resource_label=f"{resource.capitalize()} resource")
     check_write_allowed(rel_path)
-    abs_path = os.path.join(vault_root, rel_path)
+    if exclusive and os.path.lexists(os.path.join(vault_root, rel_path)):
+        raise ValueError(f"{resource.capitalize()} '{name}' already exists at {rel_path}")
     content = serialize_frontmatter(dict(frontmatter) if frontmatter else {}, body=body)
-    try:
-        safe_write(abs_path, content, bounds=vault_root, exclusive=exclusive)
-    except FileExistsError:
-        raise ValueError(
-            f"{resource.capitalize()} '{name}' already exists at {rel_path}"
-        )
-    return {"path": rel_path, "resource": resource, "name": name}
+    return NamedResourceCreationPlan(rel_path, resource, name, content, exclusive)
 
-def _create_skill(vault_root, router, name, body, frontmatter):
+
+def apply_named_resource_creation(vault_root, plan):
+    """Write the same resolved target and bytes that were validated."""
+    try:
+        safe_write(os.path.join(vault_root, plan.path), plan.content,
+                   bounds=vault_root, exclusive=plan.exclusive)
+    except FileExistsError:
+        raise ValueError(f"{plan.resource.capitalize()} '{plan.name}' already exists at {plan.path}") from None
+    return {"path": plan.path, "resource": plan.resource, "name": plan.name}
+
+
+def _plan_skill(vault_root, router, name, body, frontmatter):
     """Create a skill at _Config/Skills/{slug}/SKILL.md."""
     rel_path = config_resource_rel_path(router, "skill", name)
     slug = title_to_slug(name)
-    return _create_config_resource(vault_root, "skill", rel_path, slug, body, frontmatter)
+    return _plan_config_resource(vault_root, "skill", rel_path, slug, body, frontmatter)
 
 
-def _create_memory(vault_root, router, name, body, frontmatter):
+def _plan_memory(vault_root, router, name, body, frontmatter):
     """Create a memory at _Config/Memories/{slug}.md."""
     rel_path = config_resource_rel_path(router, "memory", name)
     slug = title_to_slug(name)
-    return _create_config_resource(vault_root, "memory", rel_path, slug, body, frontmatter)
+    return _plan_config_resource(vault_root, "memory", rel_path, slug, body, frontmatter)
 
 
-def _create_style(vault_root, router, name, body, frontmatter):
+def _plan_style(vault_root, router, name, body, frontmatter):
     """Create a style at _Config/Styles/{slug}.md."""
     rel_path = config_resource_rel_path(router, "style", name)
     slug = title_to_slug(name)
-    return _create_config_resource(vault_root, "style", rel_path, slug, body, frontmatter)
+    return _plan_config_resource(vault_root, "style", rel_path, slug, body, frontmatter)
 
 
-def _create_template(vault_root, router, name, body, frontmatter):
+def _plan_template(vault_root, router, name, body, frontmatter):
     """Create a template for an artefact type.
 
     name is the artefact type key (e.g. "wiki"). Resolves the classification
@@ -389,15 +419,14 @@ def _create_template(vault_root, router, name, body, frontmatter):
     _require_full_document_frontmatter(body, resource_label="Template resource")
     check_write_allowed(rel_path)
     abs_path = os.path.join(vault_root, rel_path)
-    safe_write(abs_path, body, bounds=vault_root, exclusive=False)
-    return {"path": rel_path, "resource": "template", "name": name}
+    return NamedResourceCreationPlan(rel_path, "template", name, body, False)
 
 
-_RESOURCE_CREATORS = {
-    "skill": _create_skill,
-    "memory": _create_memory,
-    "style": _create_style,
-    "template": _create_template,
+_RESOURCE_PLANNERS = {
+    "skill": _plan_skill,
+    "memory": _plan_memory,
+    "style": _plan_style,
+    "template": _plan_template,
 }
 
 def _read_template(vault_root, artefact):

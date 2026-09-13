@@ -41,7 +41,7 @@ class ArtefactOutlineRequest:
             raise ValueError("artefact.outline reference must be a non-empty string")
 
 
-def execute(context: InvocationContext, request: ArtefactOutlineRequest):
+def read_result(context: InvocationContext, request: ArtefactOutlineRequest):
     from _portable.artefact_outline import outline_from_vault
 
     try:
@@ -69,11 +69,23 @@ def execute(context: InvocationContext, request: ArtefactOutlineRequest):
         )
         for item in result["targets"]
     )
-    return Ok(
+    from pathlib import Path
+    from ..preparation import ObservedRead, ObservedResource
+
+    payload = Ok(
         ArtefactOutlineRequest.COMMAND_ID,
         ArtefactOutlineRequest.COMMAND_VERSION,
         ArtefactOutlinePayload(result["path"], targets),
     )
+
+    relative = Path(result["source_path"]).relative_to(context.selected_brain.vault_root.resolve()).as_posix()
+    return ObservedRead(payload, (ObservedResource("document", relative, result["revision"]),))
+
+
+def execute(context, request):
+    from ..preparation import execute_prepared_read
+
+    return execute_prepared_read(context, request, read_result)
 
 
 def _error(code: ErrorCode, message: str) -> Error:
@@ -88,5 +100,12 @@ def decode(payload: Mapping[str, object]) -> ArtefactOutlineRequest:
     return ArtefactOutlineRequest(reference)
 
 
-def catalogue_entry():
+def _reader_entry():
     return portable_reader_entry(ArtefactOutlineRequest, execute)
+
+
+def catalogue_entry():
+    from dataclasses import replace
+    from ..preparation import ResultReadPreparation
+
+    return replace(_reader_entry(), preparation=ResultReadPreparation(read_result))

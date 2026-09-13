@@ -137,7 +137,7 @@ class ResourceReadRequest:
             raise ValueError("resource.read reference must be a non-empty string")
 
 
-def execute(context: InvocationContext, request: ResourceReadRequest):
+def read_result(context: InvocationContext, request: ResourceReadRequest):
     result = _READERS[request.resource](
         context.selected_brain.vault_root,
         request.reference,
@@ -155,9 +155,19 @@ def execute(context: InvocationContext, request: ResourceReadRequest):
         if request.cursor is not None:
             return _error(ErrorCode.INVALID_REQUEST, "This resource has no document continuation.", "cursor")
         return Ok(request.COMMAND_ID, request.COMMAND_VERSION, result)
-    return bounded_text_result(ResourceReadRequest, content, result.revision,
+    from ..preparation import observe_document_read
+
+    bounded = bounded_text_result(ResourceReadRequest, content, result.revision,
         cursor=request.cursor, max_characters=request.max_characters,
         payload=lambda text, window: replace(result, **{field_name: text, "range": window}))
+
+    return observe_document_read(context, bounded, content)
+
+
+def execute(context, request):
+    from ..preparation import execute_prepared_read
+
+    return execute_prepared_read(context, request, read_result)
 
 
 def _full_range(content):
@@ -323,8 +333,15 @@ def decode(payload: Mapping[str, object]) -> ResourceReadRequest:
         payload.get("max_characters", DEFAULT_TEXT_CHARACTERS))
 
 
-def catalogue_entry():
+def _reader_entry():
     return replace(
         read_catalogue_entry(ResourceReadRequest, execute),
         summary="Read one memory, plugin, skill, style, template, trigger or type.",
     )
+
+
+def catalogue_entry():
+    from dataclasses import replace
+    from ..preparation import ResultReadPreparation
+
+    return replace(_reader_entry(), preparation=ResultReadPreparation(read_result))

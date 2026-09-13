@@ -47,15 +47,7 @@ def execute(context: InvocationContext, request: TypeCreateRequest):
         request,
         definition=request.definition,
         template=request.template,
-        operation=lambda root, definition, template: define.write_definition(
-            root,
-            kind="type",
-            operation="create",
-            name=request.name,
-            classification=request.classification.value,
-            definition=definition,
-            template=template,
-        ),
+        operation=plan_operation(request),
     )
 
 
@@ -82,4 +74,28 @@ def decode(payload: Mapping[str, object]) -> TypeCreateRequest:
 
 
 def catalogue_entry():
-    return definition_catalogue_entry(TypeCreateRequest, execute)
+    from dataclasses import replace
+    from ..preparation import OperationPreparation
+
+    return replace(definition_catalogue_entry(TypeCreateRequest, execute), preparation=OperationPreparation(prepare))
+
+
+def plan_operation(request):
+    import define
+
+    return lambda root, definition, template: define.plan_write_definition(
+            root,
+            kind="type",
+            operation="create",
+            name=request.name,
+            classification=request.classification.value,
+            definition=definition,
+            template=template,
+        )
+
+
+def prepare(context, request, *, frozen_inputs=None):
+    from .._definition_mutation import prepare_definition_command
+
+    return prepare_definition_command(context, request, operation=plan_operation(request),
+                                       contents=(request.definition, request.template), frozen_inputs=frozen_inputs)

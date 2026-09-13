@@ -315,7 +315,7 @@ def read_workspace_strict(vault_root, slug):
 # Register / Unregister
 # ---------------------------------------------------------------------------
 
-def register_workspace(vault_root, slug, path):
+def register_workspace(vault_root, slug, path, *, before_write=None):
     """Register a linked workspace in .brain/local/workspaces.json.
 
     Args:
@@ -342,6 +342,8 @@ def register_workspace(vault_root, slug, path):
     registry = load_registry(vault_root)
     was_update = slug in registry
     registry[slug] = {"path": path}
+    if before_write is not None:
+        before_write()
     save_registry(vault_root, registry)
 
     return {
@@ -353,7 +355,7 @@ def register_workspace(vault_root, slug, path):
     }
 
 
-def unregister_workspace(vault_root, slug):
+def unregister_workspace(vault_root, slug, *, before_write=None):
     """Remove a linked workspace from .brain/local/workspaces.json.
 
     Args:
@@ -374,6 +376,8 @@ def unregister_workspace(vault_root, slug):
         )
 
     del registry[slug]
+    if before_write is not None:
+        before_write()
     save_registry(vault_root, registry)
 
     return {"status": "ok", "action": "unregistered", "slug": slug}

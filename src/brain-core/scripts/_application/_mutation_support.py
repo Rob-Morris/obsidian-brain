@@ -81,9 +81,23 @@ def decode_mutation_content(value: object) -> MutationContent:
     raise ValueError("content source must be 'inline' or 'stage'")
 
 
-def resolve_mutation_content(vault_root: str, content: MutationContent):
+def resolve_mutation_content(vault_root: str, content: MutationContent, *, context=None):
     if isinstance(content, InlineContent):
         return content.content, None
+    if context is not None and context.admission is not None:
+        source_key = "stage:" + content.handle
+        frozen = context.admission.frozen_inputs or {}
+        expected = frozen.get("pins", {}).get(source_key)
+        pinned = context.admission.read_pinned(source_key)
+        if pinned is not None:
+            if expected is not None:
+                from .preparation import content_digest
+
+                if content_digest(pinned) != expected["sha256"]:
+                    raise ValueError("prepared content pin changed; prepare the operation again")
+            return pinned.decode("utf-8"), content.handle
+        if expected is not None:
+            raise ValueError("prepared content pin is unavailable; prepare the operation again")
     from _staging import read_staged_body
 
     return read_staged_body(vault_root, content.handle), content.handle

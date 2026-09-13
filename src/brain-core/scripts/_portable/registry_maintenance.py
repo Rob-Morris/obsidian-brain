@@ -44,6 +44,7 @@ def repair_registry(
     vault_root: str | Path,
     *,
     dry_run: bool,
+    before_write=None,
 ) -> RegistryMaintenanceResult:
     """Normalise the selected Brain's linked-workspace registry."""
     root = Path(vault_root)
@@ -66,6 +67,8 @@ def repair_registry(
         )
 
     path = state["path"]
+    if before_write is not None:
+        before_write()
     if state.get("backup_required") and path.is_file():
         backup = _backup_path(path)
         backup_relative = backup.relative_to(root).as_posix()

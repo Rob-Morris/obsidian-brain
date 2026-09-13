@@ -138,25 +138,31 @@ def execute(context: InvocationContext, request: ArtefactCreateRequest):
         )
     try:
         with vault_mutation_lock(vault_root):
+            router = load_fresh_compiled_router(vault_root)
+            if "error" in router:
+                raise ValueError(router["error"])
             if request.content is None:
                 body, staged_handle = "", None
             else:
                 body, staged_handle = resolve_mutation_content(
                     vault_root,
                     request.content,
+                    context=context,
                 )
-            result = create.create_resource(
-                vault_root,
-                router,
-                resource="artefact",
-                type_key=request.type,
-                title=request.title,
-                body=body,
-                frontmatter_overrides=frontmatter_mapping(request.frontmatter),
-                parent=request.parent,
-                key=request.key,
-                fix_links=request.fix_links,
-            )
+            from ..preparation_creation import plan_artefact_create, creation_binding
+            import fix_links
+
+            frozen = context.admission.frozen_inputs if context.admission else None
+            plan, frozen = plan_artefact_create(context, request, router, body,
+                                                frozen_inputs=frozen)
+            index = fix_links.file_index_for_mutation(vault_root) if request.fix_links else None
+            if context.admission is not None:
+                binding = (creation_binding(context, request, plan=plan, file_index=index,
+                                            frozen_inputs=frozen)
+                           if context.admission.requires_binding else None)
+                context.admission.admit(binding)
+            result = create.apply_artefact_creation(vault_root, router, plan,
+                                                     fix_links=request.fix_links, file_index=index)
             staging_warning = finalise_staged_body(vault_root, staged_handle)
     except MutationLockError as exc:
         return no_effect_error(
@@ -265,4 +271,8 @@ def decode(payload: Mapping[str, object]) -> ArtefactCreateRequest:
 
 
 def catalogue_entry():
-    return contributor_mutation_entry(ArtefactCreateRequest, execute)
+    from dataclasses import replace
+    from ..preparation_creation import ARTEFACT_CREATION
+
+    return replace(contributor_mutation_entry(ArtefactCreateRequest, execute),
+                   preparation=ARTEFACT_CREATION)

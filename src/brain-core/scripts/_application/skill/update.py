@@ -8,6 +8,7 @@ from typing import ClassVar, Mapping
 from .._decoding import reject_unexpected
 from ..context import InvocationContext
 from ._support import execute_mutation, git_skill_catalogue_entry
+from ._preparation import skill_execution_options
 from ._types import SkillMutationPayload
 
 
@@ -43,6 +44,7 @@ def execute(context: InvocationContext, request: SkillUpdateRequest):
             name=request.name,
             to_commit=request.to_commit,
             replace_conflict=request.replace_conflict,
+            **skill_execution_options(context, request),
         ),
     )
 

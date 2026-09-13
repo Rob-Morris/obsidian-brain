@@ -104,13 +104,13 @@ def test_attachment_post_commit_failure_is_honestly_unknown(
     command_vault_clone,
     monkeypatch,
 ):
-    real_upload = upload_attachment.upload_attachment
+    real_upload = upload_attachment.apply_attachment_upload
 
     def commit_then_fail(*args, **kwargs):
         real_upload(*args, **kwargs)
         raise OSError("response failed after attachment commit")
 
-    monkeypatch.setattr(upload_attachment, "upload_attachment", commit_then_fail)
+    monkeypatch.setattr(upload_attachment, "apply_attachment_upload", commit_then_fail)
     application = application_for(command_vault_clone.vault_root)
     request = AttachmentUploadRequest(
         "asset-key",

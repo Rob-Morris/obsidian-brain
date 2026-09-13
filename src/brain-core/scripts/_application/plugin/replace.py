@@ -41,14 +41,7 @@ def execute(context: InvocationContext, request: PluginReplaceRequest):
         context,
         request,
         content=request.content,
-        operation=lambda root, body: define.write_definition(
-            root,
-            kind="plugin",
-            operation="replace",
-            name=request.name,
-            definition=body,
-            expected_sha256=request.expected_sha256,
-        ),
+        operation=plan_operation(request),
     )
 
 
@@ -69,4 +62,27 @@ def decode(payload: Mapping[str, object]) -> PluginReplaceRequest:
 
 
 def catalogue_entry():
-    return definition_catalogue_entry(PluginReplaceRequest, execute)
+    from dataclasses import replace
+    from ..preparation import OperationPreparation
+
+    return replace(definition_catalogue_entry(PluginReplaceRequest, execute), preparation=OperationPreparation(prepare))
+
+
+def plan_operation(request):
+    import define
+
+    return lambda root, body: define.plan_write_definition(
+            root,
+            kind="plugin",
+            operation="replace",
+            name=request.name,
+            definition=body,
+            expected_sha256=request.expected_sha256,
+        )
+
+
+def prepare(context, request, *, frozen_inputs=None):
+    from .._definition_mutation import prepare_definition_command
+
+    return prepare_definition_command(context, request, operation=plan_operation(request),
+                                       contents=(request.content,), frozen_inputs=frozen_inputs)

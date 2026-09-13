@@ -21,6 +21,8 @@ def outline_artefact(vault_root, router, path):
     return {
         "path": path,
         "targets": outline_structural_nodes(body),
+        "source_path": content.source_path,
+        "revision": content.revision,
     }
 
 

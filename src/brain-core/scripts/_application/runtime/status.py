@@ -48,6 +48,7 @@ def decode(payload: Mapping[str, object]) -> RuntimeStatusRequest:
 
 def catalogue_entry():
     from ..catalogue import ALL_APPLICATION_PROJECTIONS, ApplicationEntry
+    from ..preparation import LIVE_QUERY
 
     return ApplicationEntry(
         request_type=RuntimeStatusRequest,
@@ -60,5 +61,6 @@ def catalogue_entry():
         effect_class=EffectClass.NONE,
         retry_class=RetryClass.SAFE,
         projections=ALL_APPLICATION_PROJECTIONS,
+        preparation=LIVE_QUERY,
         summary="Read the selected Brain's recorded runtime warm-up status.",
     )

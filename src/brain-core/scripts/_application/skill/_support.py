@@ -32,14 +32,18 @@ def execute_mutation(context, request, operation):
 
 
 def mutation_catalogue_entry(request_type, executor):
-    return contributor_mutation_entry(request_type, executor)
+    from ..preparation import OperationPreparation
+    from ._preparation import prepare_skill
+
+    return replace(contributor_mutation_entry(request_type, executor),
+                   preparation=OperationPreparation(prepare_skill))
 
 
 def git_skill_catalogue_entry(request_type, executor):
     """Build the shared contributor contract for Git-backed skill operations."""
 
     return replace(
-        contributor_mutation_entry(request_type, executor),
+        mutation_catalogue_entry(request_type, executor),
         required_providers=("git_remote",),
         open_world=True,
     )

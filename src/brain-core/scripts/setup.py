@@ -59,6 +59,7 @@ def _setup_workspace_core(
     brain_id: str | None,
     slug: str | None,
     force: bool,
+    before_write=None,
 ) -> dict:
     binding_result = configure.configure_workspace_binding_action(
         vault_root,
@@ -66,6 +67,7 @@ def _setup_workspace_core(
         brain_id=brain_id,
         slug=slug,
         force=force,
+        **({"before_write": before_write} if before_write is not None else {}),
     )
     steps = list(binding_result["steps"])
     notes = list(binding_result.get("notes", []))
@@ -73,7 +75,7 @@ def _setup_workspace_core(
         return _result_envelope("workspace_setup", vault_root, steps, notes=notes)
 
     try:
-        ignore_message = ensure_brain_ignore_rules(workspace_dir, "project", [], skip_mcp=True)
+        ignore_message = ensure_brain_ignore_rules(workspace_dir, "project", [], skip_mcp=True, before_write=before_write)
         if ignore_message:
             steps.append(
                 _step(

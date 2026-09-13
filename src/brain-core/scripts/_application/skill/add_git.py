@@ -7,6 +7,7 @@ from typing import ClassVar, Mapping
 
 from ..context import InvocationContext
 from ._support import execute_mutation, git_skill_catalogue_entry
+from ._preparation import skill_execution_options
 from ._types import SkillMutationPayload
 
 
@@ -38,6 +39,7 @@ def execute(context: InvocationContext, request: SkillAddGitRequest):
             repository=request.repository,
             skill_path=request.skill_path,
             configured_ref=request.configured_ref,
+            **skill_execution_options(context, request),
         ),
     )
 

@@ -55,17 +55,7 @@ def execute(context: InvocationContext, request: TypeReplaceRequest):
         request,
         definition=request.definition,
         template=request.template,
-        operation=lambda root, definition, template: define.write_definition(
-            root,
-            kind="type",
-            operation="replace",
-            name=request.name,
-            classification=request.classification.value,
-            definition=definition,
-            template=template,
-            expected_sha256=request.expected_sha256,
-            expected_template_sha256=request.expected_template_sha256,
-        ),
+        operation=plan_operation(request),
     )
 
 
@@ -107,4 +97,30 @@ def decode(payload: Mapping[str, object]) -> TypeReplaceRequest:
 
 
 def catalogue_entry():
-    return definition_catalogue_entry(TypeReplaceRequest, execute)
+    from dataclasses import replace
+    from ..preparation import OperationPreparation
+
+    return replace(definition_catalogue_entry(TypeReplaceRequest, execute), preparation=OperationPreparation(prepare))
+
+
+def plan_operation(request):
+    import define
+
+    return lambda root, definition, template: define.plan_write_definition(
+            root,
+            kind="type",
+            operation="replace",
+            name=request.name,
+            classification=request.classification.value,
+            definition=definition,
+            template=template,
+            expected_sha256=request.expected_sha256,
+            expected_template_sha256=request.expected_template_sha256,
+        )
+
+
+def prepare(context, request, *, frozen_inputs=None):
+    from .._definition_mutation import prepare_definition_command
+
+    return prepare_definition_command(context, request, operation=plan_operation(request),
+                                       contents=(request.definition, request.template), frozen_inputs=frozen_inputs)

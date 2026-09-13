@@ -61,6 +61,16 @@ scripts/
 
 It does not import `argparse`, the MCP SDK, terminal renderers, environment selectors or concrete provisioning. Lower-level packages never import back into `_application`.
 
+The instance-authorisation foundation in `_application/consent.py` owns scope,
+admission, invalidation and replay rules over an opaque atomic state port.
+`preparation.py` defines immutable operation bindings; command families resolve
+them through shared domain plans and admit under their existing guards.
+`_bootstrap/consent_state.py` and `consent_owner.py` own bounded storage and
+private process lifetime, while `_command_interface/consent_staging.py` retains
+immutable prepared content. These are internal foundations for DD-073; public
+access commands still use the existing lease contract until the coordinated
+cutover and complete catalogue integration.
+
 `_command_interface/` is the trusted composition boundary for direct selected-Brain invocation. It resolves the selected vault/workspace, authenticates profile authority, composes providers, chooses the current tier and persists privacy-minimal outcome receipts. It does not own command semantics.
 
 Related named resources are owned publicly by `resource.create`,

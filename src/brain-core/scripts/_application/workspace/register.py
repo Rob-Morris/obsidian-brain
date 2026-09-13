@@ -37,11 +37,12 @@ def execute(context: InvocationContext, request: WorkspaceRegisterRequest):
     if isinstance(target, Error):
         return target
 
-    def register():
+    def register(before_write):
         result = workspace_registry.register_workspace(
             context.selected_brain.vault_root,
             request.slug,
             target,
+            **({"before_write": before_write} if before_write is not None else {}),
         )
         return {
             "status": "ok",

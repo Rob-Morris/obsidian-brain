@@ -170,13 +170,13 @@ def test_named_create_post_commit_failure_is_honestly_unknown(
     command_vault_clone,
     monkeypatch,
 ):
-    real_create = create.create_resource
+    real_create = create.apply_named_resource_creation
 
     def commit_then_fail(*args, **kwargs):
         real_create(*args, **kwargs)
         raise OSError("response failed after resource commit")
 
-    monkeypatch.setattr(create, "create_resource", commit_then_fail)
+    monkeypatch.setattr(create, "apply_named_resource_creation", commit_then_fail)
     application = application_for(command_vault_clone.vault_root)
 
     result = application.invoke(

@@ -49,7 +49,7 @@ class ArtefactReadRequest:
             raise ValueError("artefact.read location must use ArtefactLocation")
 
 
-def execute(context: InvocationContext, request: ArtefactReadRequest):
+def read_result(context: InvocationContext, request: ArtefactReadRequest):
     from _common import MissingFileResult, PersistedDocumentContent
     from _portable.artefact_read import read_from_vault
     from _portable.vault_files import read_archived_artefact
@@ -77,13 +77,23 @@ def execute(context: InvocationContext, request: ArtefactReadRequest):
         return _error(ErrorCode.NOT_FOUND, message)
     if not isinstance(result, PersistedDocumentContent):
         raise TypeError("portable artefact reader returned non-persisted document text")
-    return bounded_text_result(
+    from ..preparation import observe_document_read
+
+    bounded = bounded_text_result(
         ArtefactReadRequest, result, result.revision,
         cursor=request.cursor, max_characters=request.max_characters,
         payload=lambda content, window: ArtefactReadPayload(
             request.reference, request.location, content, result.revision, window,
         ),
     )
+
+    return observe_document_read(context, bounded, result)
+
+
+def execute(context, request):
+    from ..preparation import execute_prepared_read
+
+    return execute_prepared_read(context, request, read_result)
 
 
 def _error(code: ErrorCode, message: str) -> Error:
@@ -108,5 +118,12 @@ def decode(payload: Mapping[str, object]) -> ArtefactReadRequest:
         raise
 
 
-def catalogue_entry():
+def _reader_entry():
     return portable_reader_entry(ArtefactReadRequest, execute)
+
+
+def catalogue_entry():
+    from dataclasses import replace
+    from ..preparation import ResultReadPreparation
+
+    return replace(_reader_entry(), preparation=ResultReadPreparation(read_result))

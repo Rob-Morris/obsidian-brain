@@ -134,13 +134,21 @@ def execute(context: InvocationContext, request: AttachmentUploadRequest):
 
     try:
         with vault_mutation_lock(vault_root):
-            result = upload_attachment.upload_attachment(
+            if upload_attachment.attachment_destination_requires_router(request.destination_key):
+                router = load_fresh_compiled_router(vault_root)
+                if "error" in router:
+                    raise ValueError(router["error"])
+            plan = upload_attachment.plan_attachment_upload(
                 vault_root,
                 router,
                 destination_key=request.destination_key,
                 name=filename,
                 content=content,
             )
+            from ..preparation import admit_owner
+
+            admit_owner(context, request, attachment_binding, plan=plan)
+            result = upload_attachment.apply_attachment_upload(vault_root, plan)
     except MutationLockError as exc:
         return no_effect_error(
             AttachmentUploadRequest,
@@ -209,4 +217,37 @@ def decode(payload: Mapping[str, object]) -> AttachmentUploadRequest:
 
 
 def catalogue_entry():
-    return contributor_mutation_entry(AttachmentUploadRequest, execute)
+    from dataclasses import replace
+    from ..preparation import OperationPreparation
+
+    return replace(contributor_mutation_entry(AttachmentUploadRequest, execute),
+                   preparation=OperationPreparation(prepare))
+
+
+def attachment_binding(context, request, *, plan, frozen_inputs=None):
+    from ..preparation import ObservedResource, bind_operation, canonical_json, content_digest
+
+    return bind_operation(request, observations=(
+        ObservedResource("attachment", plan.path, None if plan.would_create else "sha256:" + plan.sha256),
+        ObservedResource("destination", plan.path, content_digest(canonical_json(plan.destination))),
+        ObservedResource("content", plan.path, "sha256:" + plan.sha256),
+    ), frozen_inputs=frozen_inputs, review={"path": plan.path, "bytes": plan.bytes,
+                                           "sha256": plan.sha256, "would_create": plan.would_create})
+
+
+def prepare(context, request, *, frozen_inputs=None):
+    from _common import vault_mutation_lock
+    from _lifecycle.derived_cache_state import load_fresh_compiled_router
+    import upload_attachment
+
+    root = str(context.selected_brain.vault_root)
+    with vault_mutation_lock(root):
+        router = None
+        if upload_attachment.attachment_destination_requires_router(request.destination_key):
+            router = load_fresh_compiled_router(root)
+            if "error" in router:
+                raise ValueError(router["error"])
+        plan = upload_attachment.plan_attachment_upload(
+            root, router, destination_key=request.destination_key, name=request.name,
+            content=upload_attachment.decode_attachment_base64(request.content_base64))
+        return attachment_binding(context, request, plan=plan, frozen_inputs=frozen_inputs)

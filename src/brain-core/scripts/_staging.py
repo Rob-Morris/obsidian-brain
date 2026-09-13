@@ -80,6 +80,32 @@ def read_staged_body(vault_root, handle):
         ) from None
 
 
+def inspect_staged_body(vault_root, handle):
+    """Read preparation input without deleting expired handles or changing state."""
+    path = Path(_handle_path(vault_root, handle))
+    try:
+        if path.is_symlink() or not path.is_file():
+            raise ValueError("Staged preparation input must be a regular file.")
+        if path.stat().st_mtime < time.time() - STAGING_TTL_SECONDS:
+            raise ValueError(f"Expired body_handle '{handle}'. Stage the content again.")
+        return path.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        raise ValueError(f"Unknown body_handle '{handle}'. Stage the content again.") from None
+
+
+def inspect_staged_body_for_discard(vault_root, handle):
+    """Observe even an expired discard target without deleting it; absence is valid."""
+    path = Path(_handle_path(vault_root, handle))
+    if path.is_symlink():
+        raise ValueError("Staged discard target must be a regular file.")
+    try:
+        if path.exists() and not path.is_file():
+            raise ValueError("Staged discard target must be a regular file.")
+        return path.read_bytes()
+    except FileNotFoundError:
+        return None
+
+
 def resolve_mutation_body(vault_root, *, body="", body_file="", body_handle=""):
     """Resolve the mutually exclusive public mutation body sources."""
     supplied = sum(bool(value) for value in (body, body_file, body_handle))

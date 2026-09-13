@@ -85,14 +85,14 @@ class TestFrontmatterMerge:
     def test_generic_frontmatter_edit_opens_artefact_once(
         self, vault, router, monkeypatch
     ):
-        original = edit._open_artefact
+        original = edit.open_document
         calls = []
 
         def tracked_open(*args, **kwargs):
-            calls.append(args[2])
+            calls.append(args[3])
             return original(*args, **kwargs)
 
-        monkeypatch.setattr(edit, "_open_artefact", tracked_open)
+        monkeypatch.setattr(edit, "open_document", tracked_open)
 
         edit.edit_resource(
             str(vault),

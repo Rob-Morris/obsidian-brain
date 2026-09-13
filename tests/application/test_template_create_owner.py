@@ -89,13 +89,13 @@ def test_template_create_post_commit_failure_is_honestly_unknown(
     monkeypatch,
 ):
     rel_path = _remove_project_template_and_recompile(command_vault_clone.vault_root)
-    real_create = create.create_resource
+    real_create = create.apply_named_resource_creation
 
     def commit_then_fail(*args, **kwargs):
         real_create(*args, **kwargs)
         raise OSError("response failed after template commit")
 
-    monkeypatch.setattr(create, "create_resource", commit_then_fail)
+    monkeypatch.setattr(create, "apply_named_resource_creation", commit_then_fail)
     application = application_for(command_vault_clone.vault_root)
 
     result = application.invoke(

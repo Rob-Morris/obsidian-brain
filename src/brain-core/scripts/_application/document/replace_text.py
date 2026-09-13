@@ -77,12 +77,9 @@ class DocumentReplaceTextRequest:
             raise ValueError("document.replace-text match has an invalid variant")
 
 
-def execute(context: InvocationContext, request: DocumentReplaceTextRequest):
+def mutation_intent(request: DocumentReplaceTextRequest):
     occurrence = request.match.occurrence if isinstance(request.match, OccurrenceMatch) else None
-    return execute_document_mutation(
-        context,
-        request,
-        DocumentReplaceTextIntent(
+    return DocumentReplaceTextIntent(
             resource=request.document.resource.value,
             reference=request.document.reference,
             expected_revision=request.expected_revision,
@@ -91,8 +88,18 @@ def execute(context: InvocationContext, request: DocumentReplaceTextRequest):
             match_occurrence=occurrence,
             replace_all=isinstance(request.match, AllMatches),
             fix_links=request.fix_links,
-        ),
-    )
+        )
+
+
+def execute(context: InvocationContext, request: DocumentReplaceTextRequest):
+    return execute_document_mutation(context, request, mutation_intent(request))
+
+
+def prepare(context, request, *, frozen_inputs=None):
+    from .._document_mutation import prepare_document_mutation
+
+    return prepare_document_mutation(context, request, mutation_intent(request),
+                                     frozen_inputs=frozen_inputs)
 
 
 def decode(payload: Mapping[str, object]) -> DocumentReplaceTextRequest:
@@ -135,4 +142,8 @@ def _decode_match(value: object) -> DocumentReplaceTextMatch:
 
 
 def catalogue_entry():
-    return contributor_mutation_entry(DocumentReplaceTextRequest, execute)
+    from dataclasses import replace
+    from ..preparation import OperationPreparation
+
+    return replace(contributor_mutation_entry(DocumentReplaceTextRequest, execute),
+                   preparation=OperationPreparation(prepare))

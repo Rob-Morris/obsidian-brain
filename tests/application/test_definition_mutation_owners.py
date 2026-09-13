@@ -227,13 +227,13 @@ def test_definition_post_commit_failure_is_honestly_unknown(
     command_vault_clone,
     monkeypatch,
 ):
-    real_write = define.write_definition
+    real_write = define.apply_definition_plan
 
     def commit_then_fail(*args, **kwargs):
         real_write(*args, **kwargs)
         raise OSError("response failed after definition commit")
 
-    monkeypatch.setattr(define, "write_definition", commit_then_fail)
+    monkeypatch.setattr(define, "apply_definition_plan", commit_then_fail)
     result = application_for(command_vault_clone.vault_root).invoke(
         PluginCreateRequest(PLUGIN_NAME, InlineContent("# Uncertain Plugin\n"))
     )

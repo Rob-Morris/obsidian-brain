@@ -60,6 +60,9 @@ def execute_named_create_values(
         )
     try:
         with vault_mutation_lock(vault_root):
+            router = load_fresh_compiled_router(vault_root)
+            if "error" in router:
+                raise ValueError(router["error"])
             if resource == "template":
                 rel_path = create.config_resource_rel_path(router, resource, name)
                 target = Path(vault_root) / rel_path
@@ -73,8 +76,9 @@ def execute_named_create_values(
             body, staged_handle = resolve_mutation_content(
                 vault_root,
                 content,
+                context=context,
             )
-            result = create.create_resource(
+            plan = create.plan_named_resource_creation(
                 vault_root,
                 router,
                 resource=resource,
@@ -86,6 +90,14 @@ def execute_named_create_values(
                     else frontmatter_mapping(frontmatter)
                 ),
             )
+            from dataclasses import replace
+
+            plan = replace(plan, exclusive=True)
+            from .preparation import admit_owner
+            from .preparation_creation import named_creation_binding
+
+            admit_owner(context, request, named_creation_binding, plan=plan)
+            result = create.apply_named_resource_creation(vault_root, plan)
             staging_warning = finalise_staged_body(vault_root, staged_handle)
     except MutationLockError as exc:
         return no_effect_error(

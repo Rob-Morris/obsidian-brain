@@ -39,13 +39,7 @@ def execute(context: InvocationContext, request: PluginCreateRequest):
         context,
         request,
         content=request.content,
-        operation=lambda root, body: define.write_definition(
-            root,
-            kind="plugin",
-            operation="create",
-            name=request.name,
-            definition=body,
-        ),
+        operation=plan_operation(request),
     )
 
 
@@ -61,4 +55,26 @@ def decode(payload: Mapping[str, object]) -> PluginCreateRequest:
 
 
 def catalogue_entry():
-    return definition_catalogue_entry(PluginCreateRequest, execute)
+    from dataclasses import replace
+    from ..preparation import OperationPreparation
+
+    return replace(definition_catalogue_entry(PluginCreateRequest, execute), preparation=OperationPreparation(prepare))
+
+
+def plan_operation(request):
+    import define
+
+    return lambda root, body: define.plan_write_definition(
+            root,
+            kind="plugin",
+            operation="create",
+            name=request.name,
+            definition=body,
+        )
+
+
+def prepare(context, request, *, frozen_inputs=None):
+    from .._definition_mutation import prepare_definition_command
+
+    return prepare_definition_command(context, request, operation=plan_operation(request),
+                                       contents=(request.content,), frozen_inputs=frozen_inputs)

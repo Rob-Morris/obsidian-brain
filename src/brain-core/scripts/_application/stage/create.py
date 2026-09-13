@@ -50,6 +50,10 @@ def execute(context: InvocationContext, request: StageCreateRequest):
     vault_root = str(context.selected_brain.vault_root)
     try:
         with vault_mutation_lock(vault_root):
+            from ..preparation import admit_owner
+
+            _body_size(request)
+            admit_owner(context, request, prepare)
             result = stage_body(vault_root, request.content)
     except MutationLockError as exc:
         return no_effect_error(
@@ -87,4 +91,25 @@ def decode(payload: Mapping[str, object]) -> StageCreateRequest:
 
 
 def catalogue_entry():
-    return contributor_mutation_entry(StageCreateRequest, execute)
+    from dataclasses import replace
+    from ..preparation import OperationPreparation
+
+    return replace(contributor_mutation_entry(StageCreateRequest, execute),
+                   preparation=OperationPreparation(prepare))
+
+
+def prepare(context, request, *, frozen_inputs=None):
+    from ..preparation import bind_operation, content_digest
+
+    size = _body_size(request)
+    return bind_operation(request, frozen_inputs=frozen_inputs,
+                          review={"bytes": size, "sha256": content_digest(request.content)})
+
+
+def _body_size(request):
+    from _staging import MAX_STAGED_BODY_BYTES
+
+    size = len(request.content.encode("utf-8"))
+    if size > MAX_STAGED_BODY_BYTES:
+        raise ValueError(f"Staged body is {size} bytes; maximum is {MAX_STAGED_BODY_BYTES}")
+    return size

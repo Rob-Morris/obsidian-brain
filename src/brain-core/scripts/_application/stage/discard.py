@@ -59,6 +59,9 @@ def execute(context: InvocationContext, request: StageDiscardRequest):
     vault_root = str(context.selected_brain.vault_root)
     try:
         with vault_mutation_lock(vault_root):
+            from ..preparation import admit_owner
+
+            admit_owner(context, request, prepare)
             discarded = discard_staged_body(vault_root, request.handle)
     except MutationLockError as exc:
         return no_effect_error(
@@ -96,4 +99,19 @@ def decode(payload: Mapping[str, object]) -> StageDiscardRequest:
 
 
 def catalogue_entry():
-    return contributor_mutation_entry(StageDiscardRequest, execute)
+    from dataclasses import replace
+    from ..preparation import OperationPreparation
+
+    return replace(contributor_mutation_entry(StageDiscardRequest, execute),
+                   preparation=OperationPreparation(prepare))
+
+
+def prepare(context, request, *, frozen_inputs=None):
+    from _staging import inspect_staged_body_for_discard
+    from ..preparation import ObservedResource, bind_operation, content_digest
+
+    body = inspect_staged_body_for_discard(context.selected_brain.vault_root, request.handle)
+    revision = content_digest(body) if body is not None else None
+    return bind_operation(request, frozen_inputs=frozen_inputs,
+                          observations=(ObservedResource("staged-body", request.handle, revision),),
+                          review={"discard": request.handle, "exists": body is not None})

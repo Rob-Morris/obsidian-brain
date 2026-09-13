@@ -82,6 +82,7 @@ def list_skill_status(
     *,
     name: str | None = None,
     refresh: bool = False,
+    before_write=None,
 ) -> tuple[SkillStatus, ...]:
     """Classify core and user entries, optionally refreshing remote state."""
     root = Path(vault_root)
@@ -103,6 +104,8 @@ def list_skill_status(
                 raise SkillLibraryError(
                     "skill source state changed during refresh; retry status"
                 )
+            if before_write is not None:
+                before_write(None)
             write_tracking(root, refreshed_tracking)
         tracking = refreshed_tracking
     rows: list[SkillStatus] = []
@@ -151,6 +154,8 @@ def add_git_skill(
     repository: str,
     skill_path: str,
     configured_ref: str = "HEAD",
+    resolved_commit: str | None = None,
+    before_write=None,
 ) -> SkillMutation:
     """Install a new Git-managed package into the user substrate."""
     root = Path(vault_root)
@@ -158,9 +163,11 @@ def add_git_skill(
         with checkout_source(
             repository,
             skill_path=skill_path,
-            configured_ref=configured_ref,
+            configured_ref=resolved_commit or configured_ref,
         ) as source:
-            return _install_new_managed(root, source, core_lineage=None)
+            from dataclasses import replace
+            source = replace(source, configured_ref=configured_ref)
+            return _install_new_managed(root, source, core_lineage=None, before_write=before_write)
     except (GitSourceError, OSError, ValueError) as exc:
         raise SkillLibraryError(str(exc)) from exc
 
@@ -171,6 +178,8 @@ def update_skill(
     name: str,
     to_commit: str | None = None,
     replace_conflict: bool = False,
+    resolved_commit: str | None = None,
+    before_write=None,
 ) -> SkillMutation:
     """Update the user entry, materialising a core-only source when needed."""
     root = Path(vault_root)
@@ -183,7 +192,8 @@ def update_skill(
             raise SkillLibraryError(
                 f"user skill {skill_name!r} has no configured update source"
             )
-        return _update_existing(root, skill_name, record, to_commit, replace_conflict)
+        return _update_existing(root, skill_name, record, to_commit, replace_conflict,
+                                resolved_commit=resolved_commit, before_write=before_write)
 
     core_path = root / CORE_SKILLS_REL / skill_name
     if not core_path.is_dir() or core_path.is_symlink():
@@ -198,15 +208,17 @@ def update_skill(
         with checkout_source(
             str(descriptor["repository"]),
             skill_path=str(descriptor["skill_path"]),
-            configured_ref=ref,
+            configured_ref=resolved_commit or ref,
             expected_name=skill_name,
         ) as source:
-            return _install_new_managed(root, source, core_lineage=skill_name)
+            from dataclasses import replace
+            source = replace(source, configured_ref=ref)
+            return _install_new_managed(root, source, core_lineage=skill_name, before_write=before_write)
     except (GitSourceError, OSError, ValueError) as exc:
         raise SkillLibraryError(str(exc)) from exc
 
 
-def detach_skill(vault_root: str | Path, *, name: str) -> SkillMutation:
+def detach_skill(vault_root: str | Path, *, name: str, before_write=None) -> SkillMutation:
     """Retain a user package while removing its external update ownership."""
     root = Path(vault_root)
     skill_name = validate_skill_name(name)
@@ -218,6 +230,8 @@ def detach_skill(vault_root: str | Path, *, name: str) -> SkillMutation:
         package = _require_user_snapshot(root, skill_name)
         updated = deepcopy(tracking)
         del updated["managed"][skill_name]
+        if before_write is not None:
+            before_write(None)
         write_tracking(root, updated)
     return SkillMutation(
         skill_name,
@@ -480,7 +494,7 @@ def _record_source_check(updated, name, record, check):
         updated["core_checks"][name] = check
 
 
-def _install_new_managed(root, source, *, core_lineage):
+def _install_new_managed(root, source, *, core_lineage, before_write=None):
     name = source.package.name
     with vault_mutation_lock(root):
         destination = root / USER_SKILLS_REL / name
@@ -497,6 +511,8 @@ def _install_new_managed(root, source, *, core_lineage):
             source=source.package,
             core_lineage=core_lineage,
         )
+        if before_write is not None:
+            before_write(source)
         changed, backup, cleanup_warning = _commit_package_and_tracking(
             root,
             source.package,
@@ -517,13 +533,13 @@ def _install_new_managed(root, source, *, core_lineage):
     )
 
 
-def _update_existing(root, name, record, to_commit, replace_conflict):
+def _update_existing(root, name, record, to_commit, replace_conflict, *, resolved_commit=None, before_write=None):
     ref = to_commit or str(record["configured_ref"])
     try:
         with checkout_source(
             str(record["repository"]),
             skill_path=str(record["skill_path"]),
-            configured_ref=ref,
+            configured_ref=resolved_commit or ref,
             expected_name=name,
         ) as source:
             with vault_mutation_lock(root):
@@ -540,6 +556,16 @@ def _update_existing(root, name, record, to_commit, replace_conflict):
                     source_baseline=source_baseline,
                     available_source=source.package.package_sha256,
                 )
+                if transition is _SkillTransition.LOCAL_ONLY:
+                    raise SkillLibraryError(
+                        f"skill {name!r} is locally customised and upstream is unchanged"
+                    )
+                if transition is _SkillTransition.INCONSISTENT_BASELINES:
+                    raise SkillLibraryError(
+                        f"skill {name!r} tracking baselines disagree with the installed package"
+                    )
+                if before_write is not None:
+                    before_write(source)
                 if transition is _SkillTransition.MATCHES_SOURCE:
                     updated_record = _record_from_existing(current_record, source)
                     tracking["managed"][name] = updated_record
@@ -599,14 +625,6 @@ def _update_existing(root, name, record, to_commit, replace_conflict):
                         ),
                         None,
                         detail,
-                    )
-                if transition is _SkillTransition.LOCAL_ONLY:
-                    raise SkillLibraryError(
-                        f"skill {name!r} is locally customised and upstream is unchanged"
-                    )
-                if transition is _SkillTransition.INCONSISTENT_BASELINES:
-                    raise SkillLibraryError(
-                        f"skill {name!r} tracking baselines disagree with the installed package"
                     )
                 updated_record = _record_from_existing(current_record, source)
                 archive_existing = transition is _SkillTransition.CONFLICT

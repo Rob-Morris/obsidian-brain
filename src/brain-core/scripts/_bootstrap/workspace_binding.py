@@ -654,6 +654,7 @@ def save_workspace_manifest_data(
     data: dict[str, Any],
     *,
     state: WorkspaceManifestState | None = None,
+    before_write=None,
 ) -> WorkspaceManifestWrite:
     """Persist canonical workspace manifest content and migrate legacy paths."""
     state = state or load_workspace_manifest_state(target_dir)
@@ -677,6 +678,8 @@ def save_workspace_manifest_data(
             migrated_legacy=False,
         )
 
+    if before_write is not None:
+        before_write()
     state.manifest_path.parent.mkdir(parents=True, exist_ok=True)
     safe_write(state.manifest_path, next_text)
     if state.legacy_path.is_file():
@@ -709,6 +712,7 @@ def converge_workspace_binding(
     brain: str,
     slug: str | None = None,
     allow_rebind: bool,
+    before_write=None,
 ) -> WorkspaceBindingConvergence:
     """Create or update the canonical workspace binding manifest."""
     # Refuse-guard: a vault root is a Brain, not a workspace of itself.
@@ -745,7 +749,7 @@ def converge_workspace_binding(
         )
 
     payload = _binding_payload(existing, brain=brain, slug=resolved_slug)
-    write = save_workspace_manifest_data(target_dir, payload, state=state)
+    write = save_workspace_manifest_data(target_dir, payload, state=state, before_write=before_write)
     return WorkspaceBindingConvergence(
         manifest_path=write.manifest_path,
         brain=brain,

@@ -45,6 +45,7 @@ def decode_query(payload: Mapping[str, object], request_type):
 
 def catalogue_entry(request_type, executor):
     from .catalogue import ALL_APPLICATION_PROJECTIONS, ApplicationEntry
+    from .preparation import LIVE_QUERY
 
     return ApplicationEntry(
         request_type=request_type,
@@ -57,4 +58,5 @@ def catalogue_entry(request_type, executor):
         effect_class=EffectClass.NONE,
         retry_class=RetryClass.SAFE,
         projections=ALL_APPLICATION_PROJECTIONS,
+        preparation=LIVE_QUERY,
     )

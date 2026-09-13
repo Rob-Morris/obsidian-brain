@@ -37,6 +37,18 @@ Neither catalogue imports, copies or manufactures the other's semantic owners.
 
 Application executors call lower-level `_bootstrap`, `_portable`, `_common`, `_lifecycle`, `_search` and related domain packages. Those packages do not import back into `_application`. The application package imports no MCP SDK, parser, terminal renderer, implicit environment selector or concrete provisioning owner.
 
+[DD-073](decisions/dd-073-instance-owned-agent-authorisation.md) defines the
+replacement for timed access leases. Its internal foundation separates the
+application's permission and consent rules from opaque process-owned storage,
+private caller transport and immutable input retention. Domain owners prepare
+and apply shared validated plans under their existing effect guards. Public
+activation awaits complete owner coverage and the coordinated adapter/config
+cutover; the current public access contract remains unchanged during this work.
+Prepared content stays in a private owner directory. One inert machine-local
+coordination lock per canonical Brain sits outside that directory, allowing
+shutdown to delete private inputs without unlinking an open lock on Windows.
+The lock carries no authorisation; consent exists only in the process-owned store.
+
 ### Machine-global launcher
 
 `cli/_launcher/` owns the independent stdlib-safe `brain.launcher-catalogue/1`. Its typed commands cover Brain registry/selection, install/uninstall/upgrade, managed-runtime recovery, MCP and agent-skill configuration, operator key generation and machine maintenance.

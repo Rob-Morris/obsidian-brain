@@ -56,7 +56,7 @@ def _payload(resource):
     )
 
 
-def execute(context: InvocationContext, request: WorkspaceReadRequest):
+def read_result(context: InvocationContext, request: WorkspaceReadRequest):
     import workspace_registry
 
     try:
@@ -85,9 +85,17 @@ def execute(context: InvocationContext, request: WorkspaceReadRequest):
     )
 
 
+def execute(context: InvocationContext, request: WorkspaceReadRequest):
+    from ..preparation import execute_prepared_read
+    return execute_prepared_read(context, request, read_result)
+
+
 def decode(payload: Mapping[str, object]) -> WorkspaceReadRequest:
     return decode_reference(payload, WorkspaceReadRequest)
 
 
 def catalogue_entry():
-    return _catalogue_entry(WorkspaceReadRequest, execute)
+    from dataclasses import replace
+    from ..preparation import ResultReadPreparation
+    return replace(_catalogue_entry(WorkspaceReadRequest, execute),
+                   preparation=ResultReadPreparation(read_result))

@@ -130,3 +130,18 @@ def test_exclusive_file_lock_reports_cross_process_contention(tmp_path):
     assert completed.returncode != 0
     assert "timed out after 0.1s acquiring exclusive lock" in completed.stderr
     assert f"pid={os.getpid()}" in completed.stderr
+
+
+def test_noncreating_lock_never_restores_removed_parent(tmp_path):
+    lock_path = tmp_path / "ended-owner" / "pins.lock"
+    with pytest.raises(FileNotFoundError):
+        with _file_lock.exclusive_file_lock(lock_path, create_parent=False):
+            pytest.fail("absent owner must not be entered")
+    assert not lock_path.parent.exists()
+
+
+def test_compatibility_exports_preserve_canonical_lock_identity():
+    from _bootstrap import file_lock
+
+    assert _file_lock.exclusive_file_lock is file_lock.exclusive_file_lock
+    assert _file_lock.MutationLockError is file_lock.MutationLockError

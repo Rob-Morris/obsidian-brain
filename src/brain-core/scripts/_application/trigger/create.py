@@ -36,12 +36,7 @@ def execute(context: InvocationContext, request: TriggerCreateRequest):
     return execute_definition(
         context,
         request,
-        operation=lambda root, _body: define.update_trigger(
-            root,
-            operation="create",
-            condition=request.condition,
-            target=request.target,
-        ),
+        operation=plan_operation(request),
     )
 
 
@@ -59,4 +54,25 @@ def _decode_strings(payload, request_type, fields):
 
 
 def catalogue_entry():
-    return definition_catalogue_entry(TriggerCreateRequest, execute)
+    from dataclasses import replace
+    from ..preparation import OperationPreparation
+
+    return replace(definition_catalogue_entry(TriggerCreateRequest, execute), preparation=OperationPreparation(prepare))
+
+
+def plan_operation(request):
+    import define
+
+    return lambda root, _body: define.plan_update_trigger(
+            root,
+            operation="create",
+            condition=request.condition,
+            target=request.target,
+        )
+
+
+def prepare(context, request, *, frozen_inputs=None):
+    from .._definition_mutation import prepare_definition_command
+
+    return prepare_definition_command(context, request, operation=plan_operation(request),
+                                       contents=(), frozen_inputs=frozen_inputs)

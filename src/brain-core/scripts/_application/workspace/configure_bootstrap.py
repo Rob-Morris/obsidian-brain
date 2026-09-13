@@ -57,9 +57,10 @@ def execute(context: InvocationContext, request: WorkspaceConfigureBootstrapRequ
         context,
         request,
         operation="configure-bootstrap",
-        invoke=lambda: configure.configure_workspace_bootstrap_action(
+        invoke=lambda before_write: configure.configure_workspace_bootstrap_action(
             context.selected_brain.vault_root,
             workspace_dir=target,
+            **({"before_write": before_write} if before_write is not None else {}),
             surface=request.surface,
             remove=request.remove,
         ),

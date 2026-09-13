@@ -11,6 +11,7 @@ from ..context import InvocationContext
 from ..receipts import CommittedEffect
 from ..results import ErrorCode, Ok
 from ._support import git_skill_catalogue_entry
+from ._preparation import skill_execution_options
 from ._types import SkillStatusPayload, status_payload
 
 
@@ -41,6 +42,7 @@ def execute(context: InvocationContext, request: SkillStatusRequest):
             context.selected_brain.vault_root,
             name=request.name,
             refresh=True,
+            **skill_execution_options(context, request),
         )
     except (OSError, ValueError, SkillLibraryError) as exc:
         return no_effect_error(type(request), ErrorCode.CONFLICT, str(exc), "name")

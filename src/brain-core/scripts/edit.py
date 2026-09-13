@@ -954,239 +954,106 @@ def current_document_revision(vault_root, router, resource="artefact", *,
         ) from None
 
 
+@dataclass(frozen=True, slots=True)
+class DocumentEditPlan:
+    opened: OpenDocument
+    operation: str
+    fields: dict
+    new_body: str
+    resolved: dict | None
+    scope: str | None
+    frontmatter_changes: dict | None
+    match_count: int | None = None
+    replacement_count: int | None = None
+
+
+def plan_document_edit(opened, *, operation="edit", body="", frontmatter_changes=None,
+                       target=None, selector=None, scope=None, old_text=None,
+                       new_text=None, match_occurrence=None, replace_all=False):
+    """Validate and transform an opened document without any filesystem effects."""
+    from copy import deepcopy
+
+    fields = deepcopy(opened.fields)
+    if operation == "replace_text":
+        if frontmatter_changes:
+            raise ValueError("replace_text does not accept frontmatter changes")
+        new_body, resolved, replacement_count, match_count = _apply_replace_text(
+            opened.body, old_text, new_text, target=target, selector=selector,
+            scope=scope, match_occurrence=match_occurrence, replace_all=replace_all)
+        return DocumentEditPlan(opened, operation, fields, new_body, resolved,
+                                scope, None, match_count, replacement_count)
+
+    if opened.resource == "artefact":
+        body, scope = _prepare_artefact_operation(operation, body, frontmatter_changes,
+                                                 target, selector, scope)
+        _reject_handler_owned_frontmatter(opened.artefact, frontmatter_changes)
+    else:
+        _validate_request_contract(operation, bool(body), frontmatter_changes,
+                                    target, selector, scope)
+        _reject_leading_body_frontmatter(body, resource_label=f"{opened.resource.capitalize()} resource")
+    mode = "edit" if operation == "delete_section" else operation
+    _merge_frontmatter(fields, frontmatter_changes, mode)
+    if opened.resource == "artefact":
+        ensure_parent_tag(fields)
+    new_body, resolved = _apply_body_operation(opened.body, operation, body,
+                                               target=target, selector=selector, scope=scope)
+    result_scope = "section" if operation == "delete_section" and resolved else scope
+    return DocumentEditPlan(opened, operation, fields, new_body, resolved,
+                            result_scope, frontmatter_changes)
+
+
+def apply_document_edit(vault_root, router, plan, *, fix_links=False, file_index=None):
+    """Persist a validated transform without executing its selection a second time."""
+    from copy import deepcopy
+
+    opened = plan.opened
+    if opened.resource == "artefact":
+        result = _finish_artefact(vault_root, router, opened.abs_path,
+                                  deepcopy(plan.fields), opened.body, plan.new_body,
+                                  opened.path, opened.artefact, plan.frontmatter_changes,
+                                  plan.operation, old_fields=deepcopy(opened.fields),
+                                  resolved=plan.resolved, scope=plan.scope)
+        _fix_links.attach_wikilink_warnings(vault_root, result, apply_fixes=fix_links,
+                                            file_index=file_index)
+        result["revision"] = document_revision_at(os.path.join(vault_root, result["path"]))
+    else:
+        safe_write(opened.abs_path, serialize_frontmatter(plan.fields, body=plan.new_body),
+                   bounds=vault_root)
+        result = _result_payload(opened.path, opened.path, plan.operation,
+                                 opened.body, plan.new_body, resolved=plan.resolved,
+                                 scope=plan.scope)
+        result["revision"] = document_revision_at(opened.abs_path)
+    if plan.match_count is not None:
+        result["match_count"] = plan.match_count
+        result["replacement_count"] = plan.replacement_count
+    return result
+
+
 def edit_resource(vault_root, router, resource="artefact", operation="edit",
                   path=None, name=None, body="", frontmatter_changes=None,
                   target=None, selector=None, scope=None, fix_links=False,
                   file_index=None, old_text=None, new_text=None,
                   match_occurrence=None, replace_all=False,
-                  opened=None):
-    """Edit a vault resource. Dispatches to the appropriate handler.
-
-    For artefacts: delegates to existing edit/append/prepend/delete_section functions.
-    For other resources: resolves path via _Config/ conventions, applies the
-    same edit operations without artefact-specific behavior (no terminal status
-    auto-move, no modified timestamp injection).
-
-    Args:
-        vault_root: Absolute path to the vault root.
-        router: Compiled router dict.
-        resource: Resource kind — one of: artefact, skill, memory, style, template.
-        operation: "edit", "append", "prepend", or "delete_section".
-        path: Relative path (artefacts only).
-        name: Resource name (non-artefact resources only).
-        body: Content for the operation.
-        frontmatter_changes: Optional dict of frontmatter field changes.
-        target: Optional body, heading, or callout target.
-        selector: Optional duplicate/ancestor disambiguation object.
-        scope: Optional mutable range within the resolved structural target.
-        file_index: Optional pre-built vault file index (dict). When supplied,
-                    the wikilink-warning step skips ``build_vault_file_index``.
-                    Pass ``None`` (default) for legacy behaviour (vault walk).
-
-    Returns:
-        Dict with path and operation.
-    """
+                  opened=None, prepared_plan=None):
+    """Resolve, plan and apply a document edit through one transform owner."""
     vault_root = str(vault_root)
-
-    if resource == "artefact":
-        if not path:
-            raise ValueError("path is required when resource='artefact'")
-        if operation not in {"edit", "append", "prepend", "delete_section", "replace_text"}:
-            raise ValueError(f"Unknown operation '{operation}'")
-        if (
-            opened is None
-            and operation != "replace_text"
-            and not frontmatter_changes
-        ):
-            result = apply_to_artefact(
-                operation,
-                vault_root,
-                router,
-                path,
-                body,
-                target=target,
-                selector=selector,
-                scope=scope,
-            )
-            _fix_links.attach_wikilink_warnings(
-                vault_root,
-                result,
-                apply_fixes=fix_links,
-                file_index=file_index,
-            )
-            result["revision"] = document_revision_at(
-                os.path.join(vault_root, result["path"])
-            )
-            return result
-        if opened is None:
-            resolved, abs_path, fields, existing_body, artefact = _open_artefact(
-                vault_root, router, path
-            )
-            document = OpenDocument(
-                resource,
-                path,
-                resolved,
-                abs_path,
-                fields,
-                existing_body,
-                artefact,
-                "",
-            )
-        else:
-            document = opened
-        _validate_open_document(document, resource, path)
-        opened_artefact = (
-            document.path,
-            document.abs_path,
-            dict(document.fields),
-            document.body,
-            document.artefact,
-        )
-        if operation == "replace_text":
-            if frontmatter_changes:
-                raise ValueError("replace_text does not accept frontmatter changes")
-            result = _replace_text_in_open_artefact(
-                vault_root,
-                router,
-                opened_artefact,
-                old_text=old_text,
-                new_text=new_text,
-                target=target,
-                selector=selector,
-                scope=scope,
-                match_occurrence=match_occurrence,
-                replace_all=replace_all,
-            )
-        else:
-            if frontmatter_changes:
-                body, scope = _prepare_artefact_operation(
-                    operation,
-                    body,
-                    frontmatter_changes,
-                    target,
-                    selector,
-                    scope,
-                )
-                art = opened_artefact[4]
-                _reject_handler_owned_frontmatter(art, frontmatter_changes)
-                result = _apply_to_open_artefact(
-                    operation,
-                    vault_root,
-                    router,
-                    opened_artefact,
-                    body,
-                    frontmatter_changes=frontmatter_changes,
-                    target=target,
-                    selector=selector,
-                    scope=scope,
-                )
-            else:
-                body, scope = _prepare_artefact_operation(
-                    operation, body, None, target, selector, scope
-                )
-                result = _apply_to_open_artefact(
-                    operation,
-                    vault_root,
-                    router,
-                    opened_artefact,
-                    body,
-                    target=target,
-                    selector=selector,
-                    scope=scope,
-                )
-        _fix_links.attach_wikilink_warnings(vault_root, result, apply_fixes=fix_links, file_index=file_index)
-        result["revision"] = document_revision_at(
-            os.path.join(vault_root, result["path"])
-        )
-        return result
-
-    if resource not in EDITABLE_RESOURCES:
-        raise ValueError(
-            f"Resource '{resource}' is not editable via document.structured-edit. "
-            f"Editable resources: {', '.join(EDITABLE_RESOURCES)}"
-        )
-
-    if not name:
-        raise ValueError(f"document.structured-edit for resource '{resource}' requires a reference.")
-
-    document = opened or open_document(vault_root, router, resource, name)
-    _validate_open_document(document, resource, name)
-    rel_path = document.path
-    abs_path = document.abs_path
-    fields = dict(document.fields)
-    existing_body = document.body
-
-    if operation == "replace_text":
-        if frontmatter_changes:
-            raise ValueError("replace_text does not accept frontmatter changes")
-        new_body, resolved, replacement_count, match_count = _apply_replace_text(
-            existing_body,
-            old_text,
-            new_text,
-            target=target,
-            selector=selector,
-            scope=scope,
-            match_occurrence=match_occurrence,
-            replace_all=replace_all,
-        )
-        safe_write(
-            abs_path,
-            serialize_frontmatter(fields, body=new_body),
-            bounds=vault_root,
-        )
-        result = _result_payload(
-            rel_path,
-            rel_path,
-            operation,
-            existing_body,
-            new_body,
-            resolved=resolved,
-            scope=scope,
-        )
-        result["match_count"] = match_count
-        result["replacement_count"] = replacement_count
-        result["revision"] = document_revision_at(abs_path)
-        return result
-
-    _validate_request_contract(
-        operation,
-        bool(body),
-        frontmatter_changes,
-        target,
-        selector,
-        scope,
-    )
-    _reject_leading_body_frontmatter(
-        body, resource_label=f"{resource.capitalize()} resource"
-    )
-    fm_mode = "edit" if operation in ("edit", "delete_section") else operation
-    _merge_frontmatter(fields, frontmatter_changes, fm_mode)
-
-    new_body, resolved = _apply_body_operation(
-        existing_body,
-        operation,
-        body,
-        target=target,
-        selector=selector,
-        scope=scope,
-    )
-
-    # Save without artefact-specific behavior (no modified auto-set, no status move)
-    new_content = serialize_frontmatter(fields, body=new_body)
-    safe_write(abs_path, new_content, bounds=vault_root)
-
-    result_scope = "section" if operation == "delete_section" and resolved else scope
-    result = _result_payload(
-        rel_path,
-        rel_path,
-        operation,
-        existing_body,
-        new_body,
-        resolved=resolved,
-        scope=result_scope,
-    )
-    result["revision"] = document_revision_at(abs_path)
-    return result
+    if resource != "artefact" and resource not in EDITABLE_RESOURCES:
+        raise ValueError(f"Resource '{resource}' is not editable via document.structured-edit. "
+                         f"Editable resources: {', '.join(EDITABLE_RESOURCES)}")
+    reference = path if resource == "artefact" else name
+    if not reference:
+        raise ValueError("path is required when resource='artefact'" if resource == "artefact"
+                         else f"document.structured-edit for resource '{resource}' requires a reference.")
+    document = opened or open_document(vault_root, router, resource, reference)
+    _validate_open_document(document, resource, reference)
+    plan = prepared_plan or plan_document_edit(
+        document, operation=operation, body=body, frontmatter_changes=frontmatter_changes,
+        target=target, selector=selector, scope=scope, old_text=old_text,
+        new_text=new_text, match_occurrence=match_occurrence, replace_all=replace_all)
+    if plan.opened != document:
+        raise ValueError("prepared edit refers to a different opened document")
+    return apply_document_edit(vault_root, router, plan,
+                                fix_links=fix_links, file_index=file_index)
 
 
 def _validate_open_document(opened, resource, reference):

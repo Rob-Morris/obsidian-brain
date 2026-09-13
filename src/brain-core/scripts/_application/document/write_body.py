@@ -68,16 +68,13 @@ class DocumentWriteBodyRequest:
             raise ValueError("document.write-body append and prepend content must be non-empty")
 
 
-def execute(context: InvocationContext, request: DocumentWriteBodyRequest):
+def mutation_intent(request: DocumentWriteBodyRequest):
     operation = {
         DocumentWriteBodyOperation.REPLACE: "edit",
         DocumentWriteBodyOperation.APPEND: "append",
         DocumentWriteBodyOperation.PREPEND: "prepend",
     }[request.operation]
-    return execute_document_mutation(
-        context,
-        request,
-        DocumentWriteBodyIntent(
+    return DocumentWriteBodyIntent(
             resource=request.document.resource.value,
             reference=request.document.reference,
             expected_revision=request.expected_revision,
@@ -85,8 +82,18 @@ def execute(context: InvocationContext, request: DocumentWriteBodyRequest):
             result_operation=request.operation.value,
             content=request.content,
             fix_links=request.fix_links,
-        ),
-    )
+        )
+
+
+def execute(context: InvocationContext, request: DocumentWriteBodyRequest):
+    return execute_document_mutation(context, request, mutation_intent(request))
+
+
+def prepare(context, request, *, frozen_inputs=None):
+    from .._document_mutation import prepare_document_mutation
+
+    return prepare_document_mutation(context, request, mutation_intent(request),
+                                     frozen_inputs=frozen_inputs)
 
 
 def decode(payload: Mapping[str, object]) -> DocumentWriteBodyRequest:
@@ -112,4 +119,8 @@ def decode(payload: Mapping[str, object]) -> DocumentWriteBodyRequest:
 
 
 def catalogue_entry():
-    return contributor_mutation_entry(DocumentWriteBodyRequest, execute)
+    from dataclasses import replace
+    from ..preparation import OperationPreparation
+
+    return replace(contributor_mutation_entry(DocumentWriteBodyRequest, execute),
+                   preparation=OperationPreparation(prepare))

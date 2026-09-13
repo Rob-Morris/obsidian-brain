@@ -85,6 +85,7 @@ def ensure_brain_ignore_rules(
     clients: List[str],
     *,
     skip_mcp: bool,
+    before_write=None,
 ) -> str | None:
     """Ensure git ignore rules for Brain-owned local state when target is a repo root."""
     repo_root = _git_repo_root(target_dir)
@@ -124,6 +125,8 @@ def ensure_brain_ignore_rules(
         comment = ""
 
     block = prefix + comment + "".join(f"{entry}\n" for entry in missing)
+    if before_write is not None:
+        before_write()
     destination.parent.mkdir(parents=True, exist_ok=True)
     safe_write(destination, existing + block)
     return f"Updated {destination}"

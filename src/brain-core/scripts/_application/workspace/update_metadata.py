@@ -74,9 +74,10 @@ def execute(context: InvocationContext, request: WorkspaceUpdateMetadataRequest)
         context,
         request,
         operation="update-metadata",
-        invoke=lambda: configure.configure_workspace_metadata_action(
+        invoke=lambda before_write: configure.configure_workspace_metadata_action(
             context.selected_brain.vault_root,
             workspace_dir=target,
+            **({"before_write": before_write} if before_write is not None else {}),
             tags=list(request.tags),
             clear_tags=request.clear_tags,
             links=[f"{link.name}={link.value}" for link in request.links],

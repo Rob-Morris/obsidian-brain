@@ -31,10 +31,11 @@ class WorkspaceUnregisterRequest:
 def execute(context: InvocationContext, request: WorkspaceUnregisterRequest):
     import workspace_registry
 
-    def unregister():
+    def unregister(before_write):
         workspace_registry.unregister_workspace(
             context.selected_brain.vault_root,
             request.slug,
+            **({"before_write": before_write} if before_write is not None else {}),
         )
         return {
             "status": "ok",

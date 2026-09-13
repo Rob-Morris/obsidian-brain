@@ -200,6 +200,7 @@ def error(request_type, code: ErrorCode, message: str, field: str | None) -> Err
 
 def catalogue_entry(request_type, executor, *, optional_semantic: bool = False):
     from .catalogue import ALL_APPLICATION_PROJECTIONS, ApplicationEntry
+    from .preparation import LIVE_QUERY
 
     return ApplicationEntry(
         request_type=request_type,
@@ -212,4 +213,5 @@ def catalogue_entry(request_type, executor, *, optional_semantic: bool = False):
         effect_class=EffectClass.NONE,
         retry_class=RetryClass.SAFE,
         projections=ALL_APPLICATION_PROJECTIONS,
+        preparation=LIVE_QUERY,
     )

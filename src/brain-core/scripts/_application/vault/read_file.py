@@ -42,7 +42,7 @@ class VaultReadFileRequest:
             raise ValueError("vault.read-file path must be a non-empty string")
 
 
-def execute(context: InvocationContext, request: VaultReadFileRequest):
+def read_result(context: InvocationContext, request: VaultReadFileRequest):
     from _common import MissingFileResult
     from _portable.vault_files import read_vault_file
 
@@ -61,13 +61,23 @@ def execute(context: InvocationContext, request: VaultReadFileRequest):
             str(result["error"]),
             "path",
         )
-    return bounded_text_result(
+    from ..preparation import observe_document_read
+
+    bounded = bounded_text_result(
         VaultReadFileRequest, result, result.revision,
         cursor=request.cursor, max_characters=request.max_characters,
         payload=lambda content, window: VaultReadFilePayload(
             request.path, content, result.revision, window,
         ),
     )
+
+    return observe_document_read(context, bounded, result)
+
+
+def execute(context, request):
+    from ..preparation import execute_prepared_read
+
+    return execute_prepared_read(context, request, read_result)
 
 
 def decode(payload: Mapping[str, object]) -> VaultReadFileRequest:
@@ -77,5 +87,12 @@ def decode(payload: Mapping[str, object]) -> VaultReadFileRequest:
         payload.get("max_characters", DEFAULT_TEXT_CHARACTERS))
 
 
-def catalogue_entry():
+def _reader_entry():
     return _catalogue_entry(VaultReadFileRequest, execute)
+
+
+def catalogue_entry():
+    from dataclasses import replace
+    from ..preparation import ResultReadPreparation
+
+    return replace(_reader_entry(), preparation=ResultReadPreparation(read_result))

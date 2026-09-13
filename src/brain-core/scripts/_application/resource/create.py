@@ -168,8 +168,10 @@ def decode(payload: Mapping[str, object]) -> ResourceCreateRequest:
 
 def catalogue_entry():
     from dataclasses import replace
+    from ..preparation_creation import NAMED_CREATION
 
     return replace(
         contributor_mutation_entry(ResourceCreateRequest, execute),
         summary="Create one named memory, skill, style or template.",
+        preparation=NAMED_CREATION,
     )
