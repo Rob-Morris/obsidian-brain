@@ -9,6 +9,7 @@ import pytest
 
 import edit
 import rename
+import rename
 from _common import (
     HasDescendantsError,
     ParentChainError,
@@ -452,7 +453,7 @@ class TestOwnershipEditPaths:
         def fail_move(*_args, **_kwargs):
             raise AssertionError("move should not run")
 
-        monkeypatch.setattr(edit, "move_and_update_links", fail_move)
+        monkeypatch.setattr(rename, "apply_move_and_links", fail_move)
 
         with pytest.raises(ParentChainError) as exc_info:
             edit.edit_artefact(
@@ -498,7 +499,7 @@ class TestOwnershipEditPaths:
         def fail_preflight(*_args, **_kwargs):
             raise ValueError("Cyclic move set involving: Projects/Brain.md")
 
-        monkeypatch.setattr(edit, "preflight_move_set", fail_preflight)
+        monkeypatch.setattr(rename, "preflight_move_set", fail_preflight)
 
         with pytest.raises(ValueError, match="Cyclic move set"):
             edit.edit_artefact(
@@ -635,7 +636,7 @@ class TestOwnershipEditPaths:
         def fail_move(*_args, **_kwargs):
             raise PartialApplyError("move set partially applied")
 
-        monkeypatch.setattr(edit, "move_and_update_links", fail_move)
+        monkeypatch.setattr(rename, "apply_move_and_links", fail_move)
 
         with pytest.raises(PartialApplyError, match="move set partially applied") as exc_info:
             edit.edit_artefact(
@@ -1067,7 +1068,7 @@ class TestOwnershipEditPaths:
         def fail_move(*_args, **_kwargs):
             raise PartialApplyError("move set partially applied")
 
-        monkeypatch.setattr(edit, "move_and_update_links", fail_move)
+        monkeypatch.setattr(rename, "apply_move_and_links", fail_move)
 
         with pytest.raises(PartialApplyError, match="ownership mutation partially applied") as exc_info:
             edit.edit_artefact(
@@ -1237,7 +1238,7 @@ class TestTerminalStatusMove:
         def fail_move(*_args, **_kwargs):
             raise OSError("disk refused move")
 
-        monkeypatch.setattr(edit, "rename_and_update_links", fail_move)
+        monkeypatch.setattr(rename, "apply_move_and_links", fail_move)
 
         with pytest.raises(PartialApplyError) as exc_info:
             edit.edit_artefact(
@@ -1245,7 +1246,8 @@ class TestTerminalStatusMove:
                 frontmatter_changes={"status": "adopted"},
             )
 
-        assert "metadata file written Ideas/my-idea.md" in str(exc_info.value)
+        assert "metadata files written" in str(exc_info.value)
+        assert "Ideas/my-idea.md" in str(exc_info.value)
         assert "disk refused move" in str(exc_info.value)
         assert isinstance(exc_info.value.__cause__, OSError)
         fields, _ = parse_frontmatter((vault / "Ideas" / "my-idea.md").read_text())
@@ -1931,7 +1933,8 @@ class TestArchiveArtefact:
         def fail_move(*_args, **_kwargs):
             raise PartialApplyError("move set partially applied")
 
-        monkeypatch.setattr(edit, "move_and_update_links", fail_move)
+        import rename
+        monkeypatch.setattr(rename, "apply_move_and_links", fail_move)
 
         with pytest.raises(PartialApplyError, match="archive partially applied") as exc_info:
             edit.archive_artefact(
@@ -1951,7 +1954,7 @@ class TestArchiveArtefact:
         def fail_preflight(*_args, **_kwargs):
             raise ValueError("Cyclic move set involving: Ideas/Parent.md")
 
-        monkeypatch.setattr(edit, "preflight_move_set", fail_preflight)
+        monkeypatch.setattr(rename, "preflight_move_set", fail_preflight)
 
         with pytest.raises(ValueError, match="Cyclic move set"):
             edit.archive_artefact(
@@ -1995,12 +1998,12 @@ class TestReparentChildren:
     def test_reparent_to_new_parent_moves_each_child_subtree(self, vault, router, monkeypatch):
         router = self._write_reparent_tree(vault)
         calls = []
-        original = edit.move_and_update_links
+        original = rename.apply_move_and_links
         monkeypatch.setattr(
-            edit,
-            "move_and_update_links",
-            lambda vault_root, moves, **kwargs: calls.append(list(moves))
-            or original(vault_root, moves, **kwargs),
+            rename,
+            "apply_move_and_links",
+            lambda vault_root, plan: calls.append(list(plan.moves))
+            or original(vault_root, plan),
         )
 
         result = edit.reparent_children(
@@ -2059,7 +2062,7 @@ class TestReparentChildren:
         def fail_preflight(*_args, **_kwargs):
             raise ValueError("Cyclic move set involving: Ideas/project~brain/Child.md")
 
-        monkeypatch.setattr(edit, "preflight_move_set", fail_preflight)
+        monkeypatch.setattr(rename, "preflight_move_set", fail_preflight)
 
         with pytest.raises(ValueError, match="Cyclic move set"):
             edit.reparent_children(
@@ -2110,12 +2113,12 @@ class TestReparentChildren:
         import compile_router
         router = compile_router.compile(str(vault))
         calls = []
-        original = edit.move_and_update_links
+        original = rename.apply_move_and_links
         monkeypatch.setattr(
-            edit,
-            "move_and_update_links",
-            lambda vault_root, moves, **kwargs: calls.append(list(moves))
-            or original(vault_root, moves, **kwargs),
+            rename,
+            "apply_move_and_links",
+            lambda vault_root, plan: calls.append(list(plan.moves))
+            or original(vault_root, plan),
         )
 
         edit.reparent_children(str(vault), router, "Projects/project~root/Brain.md")
@@ -2131,12 +2134,12 @@ class TestReparentChildren:
     def test_reparent_cleared_to_moves_children_top_level(self, vault, router, monkeypatch):
         router = self._write_reparent_tree(vault)
         calls = []
-        original = edit.move_and_update_links
+        original = rename.apply_move_and_links
         monkeypatch.setattr(
-            edit,
-            "move_and_update_links",
-            lambda vault_root, moves, **kwargs: calls.append(list(moves))
-            or original(vault_root, moves, **kwargs),
+            rename,
+            "apply_move_and_links",
+            lambda vault_root, plan: calls.append(list(plan.moves))
+            or original(vault_root, plan),
         )
 
         result = edit.reparent_children(
@@ -2175,7 +2178,7 @@ class TestReparentChildren:
         def fail_move(*_args, **_kwargs):
             raise PartialApplyError("move set partially applied")
 
-        monkeypatch.setattr(edit, "move_and_update_links", fail_move)
+        monkeypatch.setattr(rename, "apply_move_and_links", fail_move)
 
         with pytest.raises(PartialApplyError, match="reparent partially applied") as exc_info:
             edit.reparent_children(
@@ -2459,7 +2462,8 @@ class TestUnarchiveArtefact:
         def fail_rename(*_args, **_kwargs):
             raise PartialApplyError("move set partially applied")
 
-        monkeypatch.setattr(edit, "move_and_update_links", fail_rename)
+        import rename
+        monkeypatch.setattr(rename, "apply_move_and_links", fail_rename)
 
         with pytest.raises(PartialApplyError, match="unarchive partially applied") as exc_info:
             edit.unarchive_artefact(str(vault), router, rel)

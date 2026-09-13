@@ -42,14 +42,7 @@ def execute(context: InvocationContext, request: ArtefactConvertRequest):
     return execute_transition(
         context,
         request,
-        operation=lambda root, router: edit.convert_artefact(
-            root,
-            router,
-            request.path,
-            request.target_type,
-            parent=request.parent,
-            recursive=request.recursive,
-        ),
+        operation=None, planner=plan_operation, apply_plan=edit.apply_artefact_transition,
         payload_builder=_payload,
         effect_subject=lambda payload: payload.new_path,
     )
@@ -90,4 +83,21 @@ def _payload(result: dict) -> ArtefactConvertPayload:
 
 
 def catalogue_entry():
-    return transition_catalogue_entry(ArtefactConvertRequest, execute)
+    from dataclasses import replace
+    from ..preparation_transition import TransitionPreparation
+
+    return replace(transition_catalogue_entry(ArtefactConvertRequest, execute),
+                   preparation=TransitionPreparation(plan_operation))
+
+
+def plan_operation(context, request, router, *, frozen_inputs=None):
+    import edit
+
+    frozen = dict(frozen_inputs or {})
+    choice = frozen.get("conversion", {})
+    plan = edit.plan_convert(str(context.selected_brain.vault_root), router,
+                             request.path, request.target_type, request.parent, request.recursive,
+                             chosen_path=choice.get("path"), chosen_key=choice.get("key"))
+    frozen["conversion"] = {"path": plan.result["new_path"],
+                             "key": plan.writes[0]["fields"].get("key")}
+    return plan, frozen

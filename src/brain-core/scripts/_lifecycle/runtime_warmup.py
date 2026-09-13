@@ -3,7 +3,7 @@
 from pathlib import Path
 
 
-def warm_semantic(vault_root: str | Path) -> dict:
+def warm_semantic(vault_root: str | Path, *, expected_sources=None) -> dict:
     """Load or rebuild semantic assets without retaining them in a portable host."""
     from _common import load_compiled_router, vault_mutation_lock
     import _semantic.runtime as semantic_runtime
@@ -14,6 +14,10 @@ def warm_semantic(vault_root: str | Path) -> dict:
 
     root = Path(vault_root)
     with vault_mutation_lock(root):
+        if expected_sources is not None:
+            from _portable.maintenance_inputs import source_manifest
+            if source_manifest(root) != expected_sources:
+                raise ValueError("Prepared warm-up sources changed before semantic worker entry; prepare again")
         if not verify_local_model_load(inspect_model_state(root)).healthy:
             raise RuntimeError(
                 "Managed semantic model is unavailable or failed its local load check"

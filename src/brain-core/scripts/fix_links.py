@@ -17,6 +17,9 @@ import json
 import os
 import sys
 from datetime import datetime, timezone
+from dataclasses import dataclass
+
+from _common._wikilinks import WikilinkRewritePlan, plan_wikilink_rewrites, apply_wikilink_rewrites
 
 from _portable.links import check_broken_wikilinks
 from _lifecycle.derived_cache_state import (
@@ -314,6 +317,33 @@ def scan_file(vault_root, rel_path, router=None):
         },
         "path": rel_path,
     }
+
+
+@dataclass(frozen=True, slots=True)
+class LinkFixPlan:
+    """A resolved link query and its concrete matching text replacements."""
+
+    result: dict
+    rewrites: WikilinkRewritePlan
+    path: str | None
+
+
+def plan_link_fixes(vault_root, *, path=None, links_filter=(), router=None):
+    """Resolve the selected fix scope and render all replacements before effects."""
+    result = scan_file(vault_root, path, router) if path else scan_and_resolve(vault_root, router)
+    fixes = [item for item in result["fixed"]
+             if not links_filter or item["target"] in links_filter]
+    stems = {item["target"]: item["resolved_to"] for item in fixes}
+    rewrites = (plan_wikilink_rewrites(
+        vault_root, build_wikilink_pattern(*stems), make_wikilink_replacer(stems),
+        paths=(path,) if path else None) if stems else WikilinkRewritePlan(()))
+    return LinkFixPlan(result, rewrites, path)
+
+
+def apply_link_fix_plan(vault_root, plan, *, dry_run=False):
+    """Return the planned observation or persist exactly its matching writes."""
+    substitutions = 0 if dry_run else apply_wikilink_rewrites(vault_root, plan.rewrites)
+    return {**plan.result, "substitutions": substitutions}
 
 
 def apply_fixes(vault_root, fix_list):

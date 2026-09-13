@@ -18,6 +18,8 @@ from .._mutation_support import no_effect_error
 from ..context import InvocationContext
 from ..receipts import CommittedEffect
 from ..results import ErrorCode, Ok
+from ..preparation import admit_owner
+from ._preparation import construction_paths, benchmark_inputs, benchmark_binding
 
 
 class BenchmarkConstructionStatus(str, Enum):
@@ -92,54 +94,21 @@ def execute(context: InvocationContext, request: RetrievalConstructBenchmarkRequ
 
     root = context.selected_brain.vault_root
     try:
-        fixture_abs, fixture_rel = resolve_brain_path(
-            root,
-            request.fixture_path,
-            "fixture_path",
-        )
-        audit_abs, audit_rel = optional_brain_path(root, request.audit_path, "audit_path")
-        if audit_abs is None:
-            suffix = fixture_abs.name
-            audit_name = (
-                suffix[:-5] + ".audit.json"
-                if suffix.endswith(".json")
-                else suffix + ".audit.json"
-            )
-            audit_abs = fixture_abs.with_name(audit_name)
-            audit_rel = audit_abs.relative_to(root.resolve()).as_posix()
-        check_write_allowed(fixture_rel)
-        check_write_allowed(audit_rel)
-        semantic_seed_abs, _semantic_seed_rel = optional_brain_path(
-            root,
-            request.semantic_seed_path,
-            "semantic_seed_path",
-        )
-        hybrid_seed_abs, _hybrid_seed_rel = optional_brain_path(
-            root,
-            request.hybrid_seed_path,
-            "hybrid_seed_path",
-        )
+        paths = construction_paths(root, request)
+        fixture_abs, fixture_rel = paths["fixture"]
+        audit_abs, audit_rel = paths["audit"]
+        semantic_seed_abs = paths.get("semantic", (None, None))[0]
+        hybrid_seed_abs = paths.get("hybrid", (None, None))[0]
+    except FileNotFoundError as exc:
+        return no_effect_error(type(request), ErrorCode.NOT_FOUND, str(exc))
     except ValueError as exc:
         return no_effect_error(type(request), ErrorCode.INVALID_REQUEST, str(exc))
 
-    if fixture_abs == audit_abs:
-        return no_effect_error(
-            type(request),
-            ErrorCode.INVALID_REQUEST,
-            "fixture_path and audit_path must identify different files",
-        )
-    for label, path in (
-        ("semantic_seed_path", semantic_seed_abs),
-        ("hybrid_seed_path", hybrid_seed_abs),
-    ):
-        if path is not None and not path.is_file():
-            return no_effect_error(
-                type(request),
-                ErrorCode.NOT_FOUND,
-                f"{label} does not exist: {path.relative_to(root.resolve()).as_posix()}",
-            )
-
     if context.dry_run:
+        if context.admission is not None:
+            with vault_mutation_lock(root):
+                plan = benchmark_inputs(context, request)
+                admit_owner(context, request, benchmark_binding, plan=plan)
         return Ok(
             request.COMMAND_ID,
             request.COMMAND_VERSION,
@@ -165,6 +134,12 @@ def execute(context: InvocationContext, request: RetrievalConstructBenchmarkRequ
     try:
         constructor._load_runtime_modules()
         with vault_mutation_lock(root):
+            plan = benchmark_inputs(context, request)
+            fixture_abs, fixture_rel = plan.paths["fixture"]
+            audit_abs, audit_rel = plan.paths["audit"]
+            semantic_seed_abs = plan.paths.get("semantic", (None, None))[0]
+            hybrid_seed_abs = plan.paths.get("hybrid", (None, None))[0]
+            admit_owner(context, request, benchmark_binding, plan=plan)
             result = constructor.construct_fixture(
                 root,
                 fixture_out=fixture_abs,
@@ -173,6 +148,8 @@ def execute(context: InvocationContext, request: RetrievalConstructBenchmarkRequ
                 semantic_strategy=request.semantic_strategy,
                 semantic_seed_file=semantic_seed_abs,
                 hybrid_seed_file=hybrid_seed_abs,
+                semantic_seeds=plan.semantic_seeds,
+                hybrid_seeds=plan.hybrid_seeds,
             )
     except MutationLockError as exc:
         return no_effect_error(

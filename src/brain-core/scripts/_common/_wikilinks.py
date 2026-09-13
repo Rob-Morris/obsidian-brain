@@ -3,6 +3,7 @@
 import os
 import re
 from collections import namedtuple
+from dataclasses import dataclass
 
 from ._vault import is_system_dir, TEMPORAL_DIR
 from ._filesystem import safe_write
@@ -195,6 +196,54 @@ def replace_wikilinks_in_text(text, pattern, replacement):
     return "".join(out), count
 
 
+@dataclass(frozen=True, slots=True)
+class WikilinkRewrite:
+    """A concrete text transform, preserving the bytes it was planned from."""
+
+    path: str
+    before: str
+    after: str
+    substitutions: int
+
+
+@dataclass(frozen=True, slots=True)
+class WikilinkRewritePlan:
+    """The matching write set and candidates that could not be inspected."""
+
+    writes: tuple[WikilinkRewrite, ...]
+    unreadable: tuple[str, ...] = ()
+
+
+def plan_wikilink_rewrites(vault_root, pattern, replacement, *, paths=None,
+                          overrides=None):
+    """Resolve matching rewrites without writing; compose planned metadata first."""
+    candidates = paths if paths is not None else (
+        os.path.relpath(os.path.join(directory, name), vault_root)
+        for directory, name in _iter_vault_md_files(vault_root)
+    )
+    writes, unreadable = [], []
+    overrides = overrides or {}
+    for path in sorted(set(candidates)):
+        try:
+            with open(os.path.join(vault_root, path), encoding="utf-8") as handle:
+                before = handle.read()
+        except (OSError, UnicodeDecodeError):
+            unreadable.append(path)
+            continue
+        content = overrides.get(path, before)
+        after, count = replace_wikilinks_in_text(content, pattern, replacement)
+        if count:
+            writes.append(WikilinkRewrite(path, before, after, count))
+    return WikilinkRewritePlan(tuple(writes), tuple(unreadable))
+
+
+def apply_wikilink_rewrites(vault_root, plan):
+    """Persist the already resolved matching transforms."""
+    for write in plan.writes:
+        safe_write(os.path.join(vault_root, write.path), write.after, bounds=vault_root)
+    return sum(write.substitutions for write in plan.writes)
+
+
 def replace_wikilinks_in_vault(vault_root, pattern, replacement):
     """Walk all .md files in the vault and apply a wikilink regex substitution.
 
@@ -205,19 +254,9 @@ def replace_wikilinks_in_vault(vault_root, pattern, replacement):
 
     Returns the total number of substitutions made.
     """
-    total = 0
-    for dirpath, fname in _iter_vault_md_files(vault_root):
-        fpath = os.path.join(dirpath, fname)
-        try:
-            with open(fpath, "r", encoding="utf-8") as f:
-                content = f.read()
-        except OSError:
-            continue
-        new_content, count = replace_wikilinks_in_text(content, pattern, replacement)
-        if count > 0:
-            safe_write(fpath, new_content, bounds=vault_root)
-            total += count
-    return total
+    return apply_wikilink_rewrites(
+        vault_root, plan_wikilink_rewrites(vault_root, pattern, replacement)
+    )
 
 
 # ---------------------------------------------------------------------------

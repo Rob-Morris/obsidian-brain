@@ -38,9 +38,7 @@ def execute(context: InvocationContext, request: ArtefactUnarchiveRequest):
     return execute_transition(
         context,
         request,
-        operation=lambda root, router: edit.unarchive_artefact(
-            root, router, request.path, recursive=request.recursive
-        ),
+        operation=None, planner=plan_operation, apply_plan=edit.apply_artefact_transition,
         payload_builder=lambda result: ArtefactUnarchivePayload(
             result["old_path"],
             result["new_path"],
@@ -60,4 +58,17 @@ def decode(payload: Mapping[str, object]) -> ArtefactUnarchiveRequest:
 
 
 def catalogue_entry():
-    return transition_catalogue_entry(ArtefactUnarchiveRequest, execute)
+    from dataclasses import replace
+    from ..preparation_transition import TransitionPreparation
+
+    return replace(transition_catalogue_entry(ArtefactUnarchiveRequest, execute),
+                   preparation=TransitionPreparation(plan_operation))
+
+
+def plan_operation(context, request, router, *, frozen_inputs=None):
+    import edit
+    from ..preparation_transition import transition_time
+
+    effective_at, frozen = transition_time(context, frozen_inputs)
+    return edit.plan_unarchive(str(context.selected_brain.vault_root), router,
+                             request.path, request.recursive, effective_at=effective_at), frozen

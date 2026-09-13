@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from enum import Enum
 
 from ._mutation_support import no_effect_error
 from .context import InvocationContext
+from ._managed_preparation import MAINTENANCE, maintenance_binding
+from .preparation import admit_owner
 from .receipts import CommittedEffect
 from .results import CommandError, ErrorCode, Ok, Partial, RequestErrorDetails
 from .types import (
@@ -94,6 +96,7 @@ def _execute_lifecycle(context, request, *, operation: str, owner, **kwargs):
     root = context.selected_brain.vault_root
     try:
         with vault_mutation_lock(root):
+            admit_owner(context, request, maintenance_binding)
             result = fresh_interpreter.run_lifecycle_in_fresh_interpreter(
                 owner,
                 root,
@@ -203,6 +206,7 @@ def catalogue_entry(
     from .catalogue import ALL_APPLICATION_PROJECTIONS, ApplicationEntry
 
     return ApplicationEntry(
+        preparation=MAINTENANCE,
         request_type=request_type,
         executor=executor,
         dependency_tier=DependencyTier.MANAGED,

@@ -5,6 +5,7 @@ import os
 import pytest
 
 import migrate_naming
+import rename
 from _common import PartialApplyError
 
 
@@ -259,16 +260,11 @@ class TestMigrateVault:
     def test_stops_after_partial_apply_runtime_error(self, vault, router, monkeypatch):
         calls = []
 
-        def fake_rename(vault_root, source, dest):
-            calls.append(source)
-            if source == "Wiki/rust-lifetimes.md":
-                raise PartialApplyError(
-                    "move set partially applied — links already rewritten; "
-                    "committed [], failed at Wiki/rust-lifetimes.md->Wiki/Rust Lifetimes.md"
-                )
-            return 2
+        def fail_move(_source, _dest):
+            calls.append(_source)
+            raise OSError("disk refused move")
 
-        monkeypatch.setattr(migrate_naming, "rename_and_update_links", fake_rename)
+        monkeypatch.setattr(rename.os, "rename", fail_move)
 
         result = migrate_naming.migrate_vault(str(vault), router=router, dry_run=False)
 
@@ -277,13 +273,14 @@ class TestMigrateVault:
         assert result["errors"][0]["error"].startswith("move set partially applied")
         assert result["errors"][0]["partial_apply"] is True
         assert result["details"] == []
-        assert calls == ["Wiki/rust-lifetimes.md"]
+        assert len(calls) == 1
+        assert calls[0].endswith("Wiki/rust-lifetimes.md")
 
     def test_unrelated_runtime_error_does_not_continue(self, vault, router, monkeypatch):
-        def fake_rename(vault_root, source, dest):
+        def fake_rename(vault_root, plan):
             raise RuntimeError("programmer bug")
 
-        monkeypatch.setattr(migrate_naming, "rename_and_update_links", fake_rename)
+        monkeypatch.setattr(rename, "apply_move_and_links", fake_rename)
 
         with pytest.raises(RuntimeError, match="programmer bug"):
             migrate_naming.migrate_vault(str(vault), router=router, dry_run=False)

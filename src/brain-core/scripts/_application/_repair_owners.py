@@ -58,7 +58,13 @@ def execute_repair(
     root = context.selected_brain.vault_root
     try:
         with vault_mutation_lock(root):
-            result = operation(root, context.dry_run)
+            from .preparation import admit_owner
+
+            frozen = context.admission.frozen_inputs if context.admission else None
+            plan, _frozen = plan_repair_request(context, request, frozen_inputs=frozen)
+            if not plan.error:
+                admit_owner(context, request, repair_binding, plan=plan)
+            result = operation(root, context.dry_run, prepared_plan=plan)
     except MutationLockError as exc:
         return no_effect_error(
             type(request),
@@ -110,7 +116,59 @@ def execute_repair(
 
 
 def catalogue_entry(request_type, executor):
-    return contributor_mutation_entry(request_type, executor)
+    from dataclasses import replace
+    from .preparation import OperationPreparation
+
+    return replace(contributor_mutation_entry(request_type, executor),
+                   preparation=OperationPreparation(prepare_repair))
+
+
+def plan_repair_request(context, request, *, frozen_inputs=None):
+    import _repair_runtime
+    from .preparation_transition import transition_time
+
+    effective_at, frozen = transition_time(context, frozen_inputs)
+    return _repair_runtime.plan_artefact_repair(context.selected_brain.vault_root,
+                                               request.scope.value, effective_at=effective_at), frozen
+
+
+def repair_binding(context, request, *, plan, frozen_inputs=None):
+    from .preparation import ObservedResource, bind_operation, canonical_json, content_digest
+    from .preparation_transition import transition_binding
+    from _common import serialize_frontmatter
+
+    if plan.error or plan.uninspected:
+        raise ValueError(plan.error or "Cannot prepare a complete repair; candidates are unreadable")
+    if plan.scope == "ownership":
+        return transition_binding(context, request, plan=plan.movement, router=plan.router,
+                                  frozen_inputs=frozen_inputs)
+    root = context.selected_brain.vault_root
+    observations, effects = [], []
+    for item in plan.findings:
+        if plan.scope == "frontmatter":
+            path = item["file"]
+            observations.append(ObservedResource("source", path, content_digest((root / path).read_bytes())))
+            effects.append({"path": path, "replacement": content_digest(
+                serialize_frontmatter(item["merged_fields"], body=item["body"]))})
+        else:
+            effects.append(item)
+            for path in item["directories"]:
+                stat = (root / path).lstat()
+                observations.append(ObservedResource("directory", path, f"{stat.st_dev}:{stat.st_ino}"))
+            for path in item["junk_files"]:
+                observations.append(ObservedResource("junk-file", path, content_digest((root / path).read_bytes())))
+    observations.append(ObservedResource("repair-workset", plan.scope,
+                                        content_digest(canonical_json(effects))))
+    return bind_operation(request, observations=observations, frozen_inputs=frozen_inputs,
+                          review={"scope": plan.scope, "findings": len(plan.findings)})
+
+
+def prepare_repair(context, request, *, frozen_inputs=None):
+    from _common import vault_mutation_lock
+
+    with vault_mutation_lock(context.selected_brain.vault_root):
+        plan, frozen = plan_repair_request(context, request, frozen_inputs=frozen_inputs)
+        return repair_binding(context, request, plan=plan, frozen_inputs=frozen)
 
 
 def _error_message(result: dict) -> str:

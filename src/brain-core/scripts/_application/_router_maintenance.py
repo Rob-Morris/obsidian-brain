@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from enum import Enum
 
 from ._mutation_support import maintainer_mutation_entry, no_effect_error
 from .context import InvocationContext
+from ._managed_preparation import MAINTENANCE, maintenance_binding
+from .preparation import admit_owner
 from .receipts import CommittedEffect
 from .results import CommandError, ErrorCode, Ok, Partial, RequestErrorDetails
 
@@ -43,6 +45,7 @@ def execute_router_maintenance(
     root = context.selected_brain.vault_root
     try:
         with vault_mutation_lock(root):
+            admit_owner(context, request, maintenance_binding)
             result = maintain_router(root, dry_run=context.dry_run, force=force)
     except MutationLockError as exc:
         return no_effect_error(
@@ -90,4 +93,4 @@ def execute_router_maintenance(
 
 
 def catalogue_entry(request_type, executor):
-    return maintainer_mutation_entry(request_type, executor)
+    return replace(maintainer_mutation_entry(request_type, executor), preparation=MAINTENANCE)

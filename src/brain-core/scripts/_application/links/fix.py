@@ -94,11 +94,16 @@ def execute(context: InvocationContext, request: LinksFixRequest):
         return no_effect_error(LinksFixRequest, ErrorCode.CONFLICT, router["error"])
     apply = not context.dry_run
     try:
-        if apply:
-            with vault_mutation_lock(root):
-                result = _run(fix_links, root, router, request, apply=True)
-        else:
-            result = _run(fix_links, root, router, request, apply=False)
+        with vault_mutation_lock(root):
+            from ..preparation import admit_owner
+
+            router = load_fresh_compiled_router(root)
+            if "error" in router:
+                raise ValueError(router["error"])
+            plan = fix_links.plan_link_fixes(root, path=request.path,
+                                             links_filter=request.links, router=router)
+            admit_owner(context, request, fix_binding, plan=plan)
+            result = fix_links.apply_link_fix_plan(root, plan, dry_run=not apply)
     except MutationLockError as exc:
         return no_effect_error(
             LinksFixRequest,
@@ -138,25 +143,36 @@ def decode(payload: Mapping[str, object]) -> LinksFixRequest:
     return LinksFixRequest(path, links)
 
 
-def _run(fix_links, root, router, request, *, apply: bool):
-    result = (
-        fix_links.scan_file(root, request.path, router=router)
-        if request.path
-        else fix_links.scan_and_resolve(root, router=router)
-    )
-    substitutions = 0
-    if apply and result["fixed"]:
-        if request.path:
-            substitutions = fix_links.apply_fixes_to_file(
-                root,
-                request.path,
-                result["fixed"],
-                links_filter=request.links or None,
-            )
-        else:
-            substitutions = fix_links.apply_fixes(root, result["fixed"])
-    result["substitutions"] = substitutions
-    return result
+def fix_binding(context, request, *, plan, frozen_inputs=None):
+    from ..preparation import ObservedResource, bind_operation, canonical_json, content_digest
+
+    if plan.rewrites.unreadable:
+        raise ValueError("Cannot prepare complete link fixes; some candidates are unreadable")
+    observed = [ObservedResource("fix-result", request.path or "vault",
+                                content_digest(canonical_json(plan.result)))]
+    for item in plan.rewrites.writes:
+        observed.extend((ObservedResource("source", item.path, content_digest(item.before)),
+                         ObservedResource("replacement", item.path, content_digest(item.after))))
+    if plan.path and not any(item.path == plan.path for item in plan.rewrites.writes):
+        observed.append(ObservedResource("source", plan.path,
+                        content_digest((context.selected_brain.vault_root / plan.path).read_bytes())))
+    return bind_operation(request, observations=observed, frozen_inputs=frozen_inputs,
+                          review={"writes": [item.path for item in plan.rewrites.writes],
+                                  "summary": plan.result["summary"]})
+
+
+def prepare(context, request, *, frozen_inputs=None):
+    from _common import vault_mutation_lock
+    from _lifecycle.derived_cache_state import load_fresh_compiled_router
+    import fix_links
+
+    root = str(context.selected_brain.vault_root)
+    with vault_mutation_lock(root):
+        router = load_fresh_compiled_router(root)
+        if "error" in router:
+            raise ValueError(router["error"])
+        plan = fix_links.plan_link_fixes(root, path=request.path, links_filter=request.links, router=router)
+        return fix_binding(context, request, plan=plan, frozen_inputs=frozen_inputs)
 
 
 def _payload(result: dict, path: str | None, applied: bool) -> LinksFixPayload:
@@ -197,4 +213,8 @@ def _payload(result: dict, path: str | None, applied: bool) -> LinksFixPayload:
 
 
 def catalogue_entry():
-    return contributor_mutation_entry(LinksFixRequest, execute)
+    from dataclasses import replace
+    from ..preparation import OperationPreparation
+
+    return replace(contributor_mutation_entry(LinksFixRequest, execute),
+                   preparation=OperationPreparation(prepare))

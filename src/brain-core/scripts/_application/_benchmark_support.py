@@ -23,8 +23,10 @@ MCP_UNSUPPORTED_REASON = (
 
 def benchmark_entry(request_type, executor, *, mutation: bool):
     from .catalogue import ApplicationEntry
+    from .retrieval._preparation import BENCHMARK
 
     return ApplicationEntry(
+        preparation=BENCHMARK,
         request_type=request_type,
         executor=executor,
         dependency_tier=DependencyTier.MANAGED,

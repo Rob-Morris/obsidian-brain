@@ -208,6 +208,17 @@ missing or malformed index is rebuilt from the authoritative receipt files;
 explicit maintenance remains the full-inventory repair path. Proven no-effect
 results are not persisted.
 
+The DD-073 internal receipt foundation uses a separate owned namespace until
+public cutover. Each invocation has immutable admission intent and a separate
+immutable final outcome, retained as one unit in a globally bounded index.
+Ownership includes Brain, authenticated principal and MCP/job context;
+standalone CLI recovery has a separate Brain/principal namespace. Legacy
+receipts cannot confer ownership. Intent precedes final guarded admission, and
+failure to persist it prevents entry. Missing final outcomes remain unknown;
+they never refund entered consent. Execution state is independent of effects:
+an observation can succeed or become uncertain without mutating content.
+Bodies, credentials and prepared review text are excluded from durable records.
+
 `invocation.read` is a strictly non-mutating lookup. Missing receipt storage
 returns no receipt without creating directories or lock files; expired records
 are logically absent without deletion. Atomic publication lets readers avoid a

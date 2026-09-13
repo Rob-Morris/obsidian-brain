@@ -9,6 +9,7 @@ runtime maintenance.
 from __future__ import annotations
 
 import sys
+from dataclasses import dataclass
 from pathlib import Path
 
 import compile_router
@@ -279,14 +280,68 @@ def repair_frontmatter(vault_root: Path, dry_run: bool, bootstrap_steps: list[di
         return _finalise_result("frontmatter", vault_root, dry_run, steps)
 
 
+@dataclass(frozen=True, slots=True)
+class ArtefactRepairPlan:
+    """A selected repair scope's concrete findings and optional move plan."""
+
+    scope: str
+    router: dict
+    findings: tuple[dict, ...]
+    movement: object | None = None
+    error: str | None = None
+    uninspected: tuple[str, ...] = ()
+
+
+def plan_artefact_repair(vault_root, scope, *, effective_at=None):
+    """Inspect the intrinsic repair scope once without applying any repair."""
+    from _lifecycle.frontmatter_repairs import plan_duplicate_frontmatter_documents
+    from rename import plan_move_and_links
+
+    if scope == "frontmatter":
+        unreadable = []
+        findings = plan_duplicate_frontmatter_documents(vault_root, effective_at=effective_at,
+                                                         unreadable=unreadable)
+        return ArtefactRepairPlan(scope, {}, tuple(findings), uninspected=tuple(unreadable))
+    router = compile_router.compile(str(vault_root))
+    if scope == "empty_folders":
+        unreadable = []
+        findings = scan_empty_artefact_folders(str(vault_root), router, unreadable=unreadable)
+        error = (f"Could not read {len(unreadable)} folder(s) during the scan: "
+                 + ", ".join(unreadable)) if unreadable else None
+        return ArtefactRepairPlan(scope, router, tuple(findings), error=error)
+    if scope != "ownership":
+        raise ValueError(f"Unknown artefact repair scope: {scope}")
+    findings = [item for item in check_mod.check_parent_contract(str(vault_root), router)
+                if item.get("repairable") is True]
+    plans, moves, seen = [], [], set()
+    try:
+        references = scan_artefact_key_reference_index(str(vault_root), router) if findings else {}
+        for finding in findings:
+            plan = edit.plan_parent_projection_repair(str(vault_root), router,
+                                                       finding["file"], reference_index=references)
+            plans.append(plan)
+            for move in plan["moves"]:
+                pair = (move["source"], move["dest"])
+                if pair not in seen:
+                    seen.add(pair)
+                    moves.append(move)
+        movement = plan_move_and_links(str(vault_root), moves, prune_router=router)
+    except (ValueError, OSError) as exc:
+        return ArtefactRepairPlan(scope, router, tuple(plans), error=str(exc))
+    return ArtefactRepairPlan(scope, router, tuple(plans), movement)
+
+
 def repair_frontmatter_locked(
     vault_root: Path,
     dry_run: bool,
     bootstrap_steps: list[dict] | None = None,
+    *, prepared_plan=None,
 ) -> dict:
     """Plan and apply frontmatter repair while the caller holds the mutation lock."""
     steps = list(bootstrap_steps or [])
-    result = normalize_duplicate_frontmatter_documents(vault_root, dry_run=dry_run)
+    plan = prepared_plan or plan_artefact_repair(vault_root, "frontmatter")
+    result = normalize_duplicate_frontmatter_documents(
+        vault_root, dry_run=dry_run, prepared_findings=plan.findings)
     if result["updated"] == 0:
         steps.append(
             _step(
@@ -325,38 +380,16 @@ def repair_ownership_locked(
     vault_root: Path,
     dry_run: bool,
     bootstrap_steps: list[dict] | None = None,
+    *, prepared_plan=None,
 ) -> dict:
     """Plan and apply ownership repair while the caller holds the mutation lock."""
     steps = list(bootstrap_steps or [])
-    router = compile_router.compile(str(vault_root))
-    findings = [
-        item
-        for item in check_mod.check_parent_contract(str(vault_root), router)
-        if item.get("repairable") is True
-    ]
-    plans = []
-    moves = []
-    seen = set()
-    try:
-        reference_index = (
-            scan_artefact_key_reference_index(str(vault_root), router)
-            if findings
-            else {}
-        )
-        for finding in findings:
-            plan = edit.plan_parent_projection_repair(
-                str(vault_root), router, finding["file"],
-                reference_index=reference_index,
-            )
-            plans.append(plan)
-            for move in plan["moves"]:
-                pair = (move["source"], move["dest"])
-                if pair not in seen:
-                    seen.add(pair)
-                    moves.append(move)
-    except (ValueError, FileNotFoundError) as exc:
-        steps.append(_step("ownership", "error", str(exc)))
+    plan = prepared_plan or plan_artefact_repair(vault_root, "ownership")
+    router, plans = plan.router, plan.findings
+    if plan.error:
+        steps.append(_step("ownership", "error", plan.error))
         return _finalise_result("ownership", vault_root, dry_run, steps)
+    moves = plan.movement.moves
 
     if not moves:
         steps.append(
@@ -376,9 +409,8 @@ def repair_ownership_locked(
         return _finalise_result("ownership", vault_root, dry_run, steps, notes=notes)
 
     try:
-        result = edit.move_and_update_links(
-            str(vault_root), moves, prune_router=router
-        )
+        from rename import apply_move_and_links
+        result = apply_move_and_links(str(vault_root), plan.movement)
     except PartialApplyError as exc:
         steps.append(_step("ownership", "error", str(exc)))
         return _finalise_result(
@@ -413,6 +445,7 @@ def repair_empty_folders_locked(
     vault_root: Path,
     dry_run: bool,
     bootstrap_steps: list[dict] | None = None,
+    *, prepared_plan=None,
 ) -> dict:
     """Plan and apply empty-folder removal while the caller holds the mutation lock.
 
@@ -424,18 +457,10 @@ def repair_empty_folders_locked(
     actually happened to each folder.
     """
     steps = list(bootstrap_steps or [])
-    router = compile_router.compile(str(vault_root))
-    unreadable: list[str] = []
-    findings = scan_empty_artefact_folders(str(vault_root), router, unreadable=unreadable)
-    if unreadable:
-        steps.append(
-            _step(
-                "empty_folders",
-                "error",
-                f"Could not read {len(unreadable)} folder(s) during the scan: "
-                + ", ".join(unreadable),
-            )
-        )
+    plan = prepared_plan or plan_artefact_repair(vault_root, "empty_folders")
+    router, findings = plan.router, plan.findings
+    if plan.error:
+        steps.append(_step("empty_folders", "error", plan.error))
         return _finalise_result("empty_folders", vault_root, dry_run, steps)
     if not findings:
         steps.append(

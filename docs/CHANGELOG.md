@@ -8,6 +8,7 @@ Never edit past changelog entries. Only add new entries at the top.
 
 | Version | Date | Summary |
 |---|---|---|
+| [v0.67.2](changelog/v0.67.2.md) | 2026-09-14 | Complete internal operation preparation and owned receipts |
 | [v0.67.1](changelog/v0.67.1.md) | 2026-09-14 | Add internal foundations for instance-owned authorisation |
 | [v0.67.0](changelog/v0.67.0.md) | 2026-09-14 | BREAKING — Flatten temporal date folders and let sync carry conventions |
 | [v0.66.1](changelog/v0.66.1.md) | 2026-09-14 | Prune vacated owner folders and repair empty artefact folders |

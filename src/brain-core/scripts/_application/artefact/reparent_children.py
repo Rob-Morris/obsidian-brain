@@ -63,17 +63,10 @@ class ArtefactReparentChildrenRequest:
 def execute(context: InvocationContext, request: ArtefactReparentChildrenRequest):
     import edit
 
-    target, provided = _target(request)
     return execute_transition(
         context,
         request,
-        operation=lambda root, router: edit.reparent_children(
-            root,
-            router,
-            request.source,
-            target,
-            to_provided=provided,
-        ),
+        operation=None, planner=plan_operation, apply_plan=edit.apply_artefact_transition,
         payload_builder=_payload,
         effect_subject=lambda payload: payload.source if payload.children else None,
     )
@@ -123,4 +116,16 @@ def _payload(result: dict) -> ArtefactReparentChildrenPayload:
 
 
 def catalogue_entry():
-    return transition_catalogue_entry(ArtefactReparentChildrenRequest, execute)
+    from dataclasses import replace
+    from ..preparation_transition import TransitionPreparation
+
+    return replace(transition_catalogue_entry(ArtefactReparentChildrenRequest, execute),
+                   preparation=TransitionPreparation(plan_operation))
+
+
+def plan_operation(context, request, router, *, frozen_inputs=None):
+    import edit
+
+    target, provided = _target(request)
+    return edit.plan_reparent_children(str(context.selected_brain.vault_root), router,
+                                      request.source, target, to_provided=provided), dict(frozen_inputs or {})

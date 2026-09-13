@@ -31,6 +31,7 @@ import os
 import re
 import shutil
 import sys
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
@@ -563,7 +564,7 @@ def discover_unmanaged_taxonomies(
     return found
 
 
-def apply_convention_updates(
+def plan_convention_updates(
     vault_root: str,
     tracking: dict,
     library_types: list[dict],
@@ -584,6 +585,7 @@ def apply_convention_updates(
     ``action: "convention"`` plus ``rule``, ``previous`` and ``folder``.
     Returns ``(updated, warnings, errors)``.
     """
+    writes = []
     updated: list[dict] = []
     warnings: list[dict] = []
     errors: list[dict] = []
@@ -619,9 +621,17 @@ def apply_convention_updates(
             entry["reason"] = "Naming folder token could not be rewritten unambiguously; update it by hand"
             warnings.append(entry)
             continue
-        if not dry_run:
-            safe_write(abs_path, rewritten, bounds=vault_root)
+        writes.append(DefinitionCopy(None, rel_path, rewritten.encode("utf-8")))
         updated.append(entry)
+    return updated, warnings, errors, writes
+
+
+def apply_convention_updates(vault_root, tracking, library_types, *, dry_run):
+    """Apply convention rewrites from the shared pure planner."""
+    updated, warnings, errors, writes = plan_convention_updates(
+        vault_root, tracking, library_types, dry_run=dry_run)
+    if not dry_run:
+        _apply_definition_copies(vault_root, writes)
     return updated, warnings, errors
 
 
@@ -649,13 +659,63 @@ def format_sync_error(item: dict) -> str:
 # Core sync
 # ---------------------------------------------------------------------------
 
-def sync_definitions(
+@dataclass(frozen=True, slots=True)
+class DefinitionCopy:
+    """Exact managed definition bytes selected by the sync classifier."""
+
+    source: str | None
+    target: str
+    content: bytes
+
+
+@dataclass(frozen=True, slots=True)
+class DefinitionSyncPlan:
+    """Selected definition writes, folders and a scoped tracking update."""
+
+    result: dict
+    copies: tuple[DefinitionCopy, ...]
+    folders: tuple[str, ...]
+    tracking: dict | None
+    type_keys: tuple[str, ...]
+    sources: tuple[str, ...]
+    targets: tuple[str, ...]
+
+
+def _apply_definition_copies(vault_root, copies):
+    for item in copies:
+        target = Path(vault_root) / item.target
+        target.parent.mkdir(parents=True, exist_ok=True)
+        # Source bytes were captured by the planner, so apply cannot copy a later revision.
+        from _common import safe_write_via
+        safe_write_via(str(target), lambda handle: handle.write(item.content), bounds=str(vault_root))
+
+
+def apply_definition_sync(vault_root, plan):
+    """Apply planned bytes and merge only selected tracking entries under the owner lock."""
+    if not plan.result["dry_run"]:
+        _apply_definition_copies(vault_root, plan.copies)
+        for folder in plan.folders:
+            (Path(vault_root) / folder).mkdir(parents=True, exist_ok=True)
+        if plan.tracking is not None:
+            tracking = load_tracking(vault_root)
+            from copy import deepcopy
+            original = deepcopy(tracking)
+            for key in plan.type_keys:
+                if key in plan.tracking["installed"]:
+                    tracking["installed"][key] = plan.tracking["installed"][key]
+            if tracking != original or not (Path(vault_root) / TRACKING_PATH).exists():
+                save_tracking(vault_root, tracking)
+    return dict(plan.result)
+
+
+def plan_sync_definitions(
     vault_root: str,
     *,
     dry_run: bool = False,
     force: bool = False,
     types: Optional[list[str]] = None,
     preference: Optional[str] = None,
+    effective_at: str | None = None,
 ) -> dict:
     """Sync artefact library definitions to vault _Config/ files.
 
@@ -666,12 +726,13 @@ def sync_definitions(
     The optional ``preference`` parameter overrides the file-based
     artefact_sync preference for this invocation.
     """
+    copies, folders, sources = [], [], []
     prefs = load_preferences(vault_root)
     preference = preference if preference is not None else prefs.get("artefact_sync", "ask")
     brain_core_version = read_version(vault_root) or "unknown"
 
     if preference == "skip":
-        return {
+        return DefinitionSyncPlan({
             "status": "skipped",
             "brain_core_version": brain_core_version,
             "preference": "skip",
@@ -681,7 +742,7 @@ def sync_definitions(
             "errors": [],
             "dry_run": dry_run,
             "message": "Sync disabled (artefact_sync: skip).",
-        }
+        }, (), (), None, (), (), ())
     tracking = load_tracking(vault_root)
     library_types = _filter_types(discover_library_types(vault_root), types)
     exclude_set = load_exclude_set(prefs)
@@ -690,12 +751,13 @@ def sync_definitions(
     skipped = []
     warnings = []
     errors = []
-    now = datetime.now(timezone.utc).isoformat()
+    now = effective_at or datetime.now(timezone.utc).isoformat()
 
     for type_info in library_types:
         type_key = type_info["type_key"]
         manifest = type_info["manifest"]
         lib_dir = type_info["library_dir"]
+        sources.append(os.path.relpath(os.path.join(lib_dir, "manifest.yaml"), vault_root))
 
         type_tracking = tracking["installed"].get(type_key, {})
         type_files_tracking = type_tracking.get("files", {})
@@ -724,6 +786,7 @@ def sync_definitions(
                 })
                 continue
 
+            sources.append(os.path.relpath(source_path, vault_root))
             installed_entry = type_files_tracking.get(role)
 
             # Check exclusion list
@@ -774,13 +837,9 @@ def sync_definitions(
                 or force
             )
             if should_apply:
-                if not dry_run:
-                    # Matching markdown content can still surface as an update
-                    # when tracking is stale; refresh tracking without
-                    # rewriting harmless local formatting.
-                    if not status["matches_upstream"]:
-                        os.makedirs(os.path.dirname(vault_path), exist_ok=True)
-                        shutil.copy2(source_path, vault_path)
+                if not status["matches_upstream"]:
+                    copies.append(DefinitionCopy(os.path.relpath(source_path, vault_root),
+                                                  target_rel, Path(source_path).read_bytes()))
                 new_type_files[role] = _make_tracking_entry(
                     status["upstream_hash"], target_rel,
                 )
@@ -819,19 +878,17 @@ def sync_definitions(
             folder_path = resolve_and_check_bounds(
                 os.path.join(vault_root, folder), vault_root
             )
-            if not dry_run:
-                os.makedirs(folder_path, exist_ok=True)
+            folders.append(os.path.relpath(folder_path, vault_root))
 
     if types is None:
-        convention_updated, convention_warnings, convention_errors = apply_convention_updates(
+        convention_updated, convention_warnings, convention_errors, convention_writes = plan_convention_updates(
             vault_root, tracking, library_types, dry_run=dry_run
         )
+        copies.extend(convention_writes)
         updated.extend(convention_updated)
         warnings.extend(convention_warnings)
         errors.extend(convention_errors)
 
-    if not dry_run:
-        save_tracking(vault_root, tracking)
 
     status_val = "warnings" if warnings else "ok"
     parts = []
@@ -845,7 +902,7 @@ def sync_definitions(
         parts.append(f"{len(errors)} error{'s' if len(errors) != 1 else ''}")
     message = ", ".join(parts) if parts else "Nothing to do."
 
-    return {
+    return DefinitionSyncPlan({
         "status": status_val,
         "brain_core_version": brain_core_version,
         "preference": preference,
@@ -855,7 +912,16 @@ def sync_definitions(
         "errors": errors,
         "dry_run": dry_run,
         "message": message,
-    }
+    }, tuple(copies), tuple(sorted(set(folders))), tracking,
+       tuple(item["type_key"] for item in library_types), tuple(sorted(set(sources))),
+       tuple(sorted({item["target"] for type_info in library_types
+                     for item in type_info["manifest"]["files"].values()})))
+
+
+def sync_definitions(vault_root, *, dry_run=False, force=False, types=None, preference=None):
+    """Classify once, then apply the same managed definition plan."""
+    return apply_definition_sync(vault_root, plan_sync_definitions(
+        vault_root, dry_run=dry_run, force=force, types=types, preference=preference))
 
 
 # ---------------------------------------------------------------------------

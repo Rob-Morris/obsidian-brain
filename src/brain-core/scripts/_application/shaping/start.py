@@ -2,13 +2,15 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from enum import Enum
 from typing import ClassVar, Mapping
 
 from .._decoding import reject_unexpected
 from .._mutation_support import contributor_mutation_entry, no_effect_error
 from ..context import InvocationContext
+from ..preparation import admit_owner
+from ._start_preparation import SHAPING_SESSION, session_plan, session_binding
 from ..receipts import CommittedEffect
 from ..results import (
     CommandError,
@@ -82,21 +84,25 @@ def execute(context: InvocationContext, request: ShapingStartRequest):
             "shaping.start does not support dry-run",
         )
     root = str(context.selected_brain.vault_root)
-    router = load_fresh_compiled_router(root)
-    if "error" in router:
-        return no_effect_error(
-            ShapingStartRequest,
-            ErrorCode.CONFLICT,
-            router["error"],
-        )
 
     try:
         with vault_mutation_lock(root):
+            router = load_fresh_compiled_router(root)
+            if "error" in router:
+                return no_effect_error(ShapingStartRequest, ErrorCode.CONFLICT, router["error"])
+            options = {}
+            if context.admission is not None:
+                plan, frozen = session_plan(context, request, router, frozen_inputs=context.admission.frozen_inputs)
+                def binding(context, request, *, frozen_inputs=None):
+                    return session_binding(context, request, plan=plan, router=router, frozen_inputs=frozen)
+                admit_owner(context, request, binding)
+                options["_plan"] = plan
             result = start_shaping_session(
                 root,
                 router,
                 request.target.strip(),
                 mode=request.mode.value,
+                **options,
             )
     except MutationLockError as exc:
         return no_effect_error(
@@ -176,4 +182,4 @@ def decode(payload: Mapping[str, object]) -> ShapingStartRequest:
 
 
 def catalogue_entry():
-    return contributor_mutation_entry(ShapingStartRequest, execute)
+    return replace(contributor_mutation_entry(ShapingStartRequest, execute), preparation=SHAPING_SESSION)

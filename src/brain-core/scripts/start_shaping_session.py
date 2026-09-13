@@ -338,16 +338,9 @@ def _prepare_shaping_target(vault_root, router, target):
     )
 
 
-def start_shaping_session(
-    vault_root,
-    router,
-    target,
-    *,
-    mode,
-    _now=None,
-    _prepared_target=None,
-):
-    """Validate and apply the mechanical opening of one shaping session."""
+def plan_shaping_session(vault_root, router, target, *, mode, _now=None, _prepared_target=None,
+                         chosen_transcript=None):
+    """Resolve transcript naming and lifecycle effects without writing anything."""
     vault_root = str(vault_root)
     prepared = _prepared_target or _prepare_shaping_target(
         vault_root, router, target
@@ -378,6 +371,10 @@ def start_shaping_session(
         transcript_artefact,
         router,
     )
+    if chosen_transcript is not None and not transcript_exists:
+        transcript_path = chosen_transcript
+        if os.path.exists(os.path.join(vault_root, transcript_path)):
+            raise ValueError("Prepared transcript destination is no longer available")
     template = (
         None
         if transcript_exists
@@ -390,18 +387,44 @@ def start_shaping_session(
         status_behaviour == "transition"
         and fields.get("status") != "shaping"
     )
+    lifecycle = (edit.plan_lifecycle_field(vault_root, router, resolved_path,
+                                           "status", "shaping", effective_at=now.isoformat())
+                 if status_changed else None)
+    return {"prepared": prepared, "now": now, "file_index": file_index,
+            "mode": session_mode, "transcript_type": transcript_type,
+            "transcript_path": transcript_path, "transcript_exists": transcript_exists,
+            "template": template, "status_changed": status_changed, "lifecycle": lifecycle}
+
+
+def start_shaping_session(
+    vault_root,
+    router,
+    target,
+    *,
+    mode,
+    _now=None,
+    _prepared_target=None,
+    _plan=None,
+):
+    """Validate and apply the mechanical opening of one shaping session."""
+    vault_root = str(vault_root)
+    plan = _plan or plan_shaping_session(vault_root, router, target, mode=mode,
+                                         _now=_now, _prepared_target=_prepared_target)
+    prepared, now = plan["prepared"], plan["now"]
+    resolved_path, artefact = prepared.resolved_path, prepared.artefact
+    fields, body = prepared.fields, prepared.body
+    file_index = plan["file_index"]
+    session_mode, transcript_type = plan["mode"], plan["transcript_type"]
+    transcript_path, transcript_exists = plan["transcript_path"], plan["transcript_exists"]
+    template = plan["template"]
+    transcript_abs = os.path.join(vault_root, transcript_path)
+    status_behaviour, status_changed = prepared.status_behaviour, plan["status_changed"]
     lifecycle_applied = False
     transcript_changed = False
     target_path = resolved_path
     try:
         if status_changed:
-            lifecycle = edit.update_lifecycle_field(
-                vault_root,
-                router,
-                resolved_path,
-                "status",
-                "shaping",
-            )
+            lifecycle = edit.apply_artefact_transition(vault_root, plan["lifecycle"])
             lifecycle_applied = True
             target_path = lifecycle["path"]
             refreshed = read_file_content(vault_root, target_path)

@@ -49,6 +49,8 @@ def ensure_runtime_warmup(
     vault_root: str | Path,
     *,
     retry_failed: bool,
+    before_enter=None,
+    expected_sources=None,
 ) -> tuple[str, dict[str, object]]:
     """Start or join one detached warm-up worker for the selected Brain."""
 
@@ -65,6 +67,8 @@ def ensure_runtime_warmup(
         )
     with exclusive_file_lock(lock_path, timeout=2.0):
         current = read_runtime_status(root)
+        if before_enter is not None:
+            before_enter()
         if current["state"] == "ready" and not (
             retry_failed and current["components"]["semantic"] == "deferred"
         ):
@@ -89,7 +93,10 @@ def ensure_runtime_warmup(
         )
         _write_state(root, state)
         try:
-            _spawn_worker(root, run_id)
+            if expected_sources is None:
+                _spawn_worker(root, run_id)
+            else:
+                _spawn_worker(root, run_id, expected_sources=expected_sources)
         except OSError as exc:
             failed = _state_document(
                 root,
@@ -112,7 +119,7 @@ def ensure_runtime_warmup(
         return "started", _public_snapshot(state)
 
 
-def _spawn_worker(root: Path, run_id: str) -> None:
+def _spawn_worker(root: Path, run_id: str, *, expected_sources=None) -> None:
     kwargs: dict[str, object] = {
         "stdin": subprocess.DEVNULL,
         "stdout": subprocess.DEVNULL,
@@ -125,13 +132,16 @@ def _spawn_worker(root: Path, run_id: str) -> None:
         )
     else:
         kwargs["start_new_session"] = True
+    argv = [sys.executable, str(Path(__file__).resolve()), "--worker", str(root), run_id]
+    if expected_sources is not None:
+        argv.append(json.dumps(expected_sources, separators=(",", ":")))
     subprocess.Popen(
-        [sys.executable, str(Path(__file__).resolve()), "--worker", str(root), run_id],
+        argv,
         **kwargs,
     )
 
 
-def _run_worker(root: Path, run_id: str) -> None:
+def _run_worker(root: Path, run_id: str, expected_sources=None) -> None:
     scripts = Path(__file__).resolve().parent.parent
     if str(scripts) not in sys.path:
         sys.path.insert(0, str(scripts))
@@ -146,6 +156,7 @@ def _run_worker(root: Path, run_id: str) -> None:
         current_component = "router"
         _mark_phase(root, run_id, "router", started_at)
         with vault_mutation_lock(root):
+            _verify_prepared_sources(root, expected_sources)
             router_result = maintain_router(root, dry_run=False, force=False)
         if router_result.status == "partial":
             raise RuntimeError(router_result.session_error or "router warm-up was partial")
@@ -154,18 +165,27 @@ def _run_worker(root: Path, run_id: str) -> None:
         current_component = "lexical"
         _mark_phase(root, run_id, "lexical", started_at)
         with vault_mutation_lock(root):
+            _verify_prepared_sources(root, expected_sources)
             maintain_lexical_index(root, dry_run=False, force=False)
         _mark_component_ready(root, run_id, "lexical", started_at)
 
         current_component = "semantic"
         _mark_phase(root, run_id, "semantic", started_at)
-        semantic_state, semantic_error = _warm_semantic(root, load_compiled_router)
+        semantic_state, semantic_error = _warm_semantic(
+            root, load_compiled_router, expected_sources=expected_sources)
         _finish_ready(root, run_id, started_at, semantic_state, semantic_error)
     except Exception as exc:
         _finish_failed(root, run_id, started_at, current_component, exc)
 
 
-def _warm_semantic(root: Path, load_compiled_router) -> tuple[str, dict | None]:
+def _verify_prepared_sources(root, expected):
+    if expected is not None:
+        from _portable.maintenance_inputs import source_manifest
+        if source_manifest(root) != expected:
+            raise ValueError("Prepared warm-up sources changed before worker entry; prepare again")
+
+
+def _warm_semantic(root: Path, load_compiled_router, *, expected_sources=None) -> tuple[str, dict | None]:
     from _common._venv import find_existing_central_venv
     from _bootstrap.runtime import probe_python
     from _lifecycle.fresh_interpreter import run_lifecycle_in_fresh_interpreter
@@ -189,6 +209,7 @@ def _warm_semantic(root: Path, load_compiled_router) -> tuple[str, dict | None]:
         warm_semantic,
         root,
         python_executable=python,
+        **({"expected_sources": expected_sources} if expected_sources is not None else {}),
         timeout=480,
     )
     if result != {"state": "ready"}:
@@ -506,6 +527,7 @@ def _now() -> str:
 
 
 if __name__ == "__main__":
-    if len(sys.argv) != 4 or sys.argv[1] != "--worker":
+    if len(sys.argv) not in {4, 5} or sys.argv[1] != "--worker":
         raise SystemExit(2)
-    _run_worker(Path(sys.argv[2]).resolve(), sys.argv[3])
+    _run_worker(Path(sys.argv[2]).resolve(), sys.argv[3],
+                json.loads(sys.argv[4]) if len(sys.argv) == 5 else None)

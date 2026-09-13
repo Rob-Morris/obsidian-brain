@@ -111,8 +111,12 @@ def test_evaluate_returns_report_without_effects(command_vault_clone, monkeypatc
     root = command_vault_clone.vault_root
     benchmark = root / ".brain/local/benchmark.json"
     benchmark.parent.mkdir(parents=True, exist_ok=True)
-    benchmark.write_text(json.dumps({"cases": []}), encoding="utf-8")
+    benchmark.write_text(json.dumps({"cases": [
+        {"id": "first", "query": "first", "relevant_paths": ["Designs/first.md"]},
+        {"id": "second", "query": "second", "relevant_paths": ["Designs/second.md"]},
+    ]}), encoding="utf-8")
     monkeypatch.setattr(evaluate_search, "_load_runtime_modules", lambda: None)
+    monkeypatch.setattr(evaluate_search, "load_report_inputs", lambda *_a, **_kw: {})
     monkeypatch.setattr(
         evaluate_search,
         "build_report",

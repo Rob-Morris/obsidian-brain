@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from enum import Enum
+import re
 from threading import RLock
 from typing import Protocol
 
@@ -102,6 +103,157 @@ class ReceiptPolicy:
             raise ValueError("receipt retention must be positive")
         if self.max_records < 1:
             raise ValueError("receipt max_records must be positive")
+
+
+class ReceiptOwnershipError(ValueError):
+    """The requested receipt is not owned by the authenticated caller context."""
+
+
+def _bounded_identity(value: str, name: str) -> None:
+    if not isinstance(value, str) or not value.strip() or len(value.encode("utf-8")) > 128:
+        raise ValueError(f"receipt {name} must contain 1–128 UTF-8 bytes")
+
+
+@dataclass(frozen=True, slots=True)
+class ReceiptOwnership:
+    brain_id: str
+    principal: str
+    kind: str
+    context_id: str | None = None
+
+    def __post_init__(self) -> None:
+        _bounded_identity(self.brain_id, "Brain identity")
+        _bounded_identity(self.principal, "principal")
+        if self.kind not in {"mcp-instance", "cli-job", "standalone"}:
+            raise ValueError("receipt ownership kind is invalid")
+        if self.kind == "standalone":
+            if self.context_id is not None:
+                raise ValueError("standalone receipts cannot carry reusable context ownership")
+        else:
+            _bounded_identity(self.context_id, "context identity")
+
+
+@dataclass(frozen=True, slots=True)
+class AdmissionIntent:
+    """Durable attribution before entry; it does not prove execution happened."""
+
+    reference: OutcomeReference
+    command_id: str
+    command_version: int
+    recorded_at: datetime
+    basis: str
+    generation: str
+    source: str
+    grant_id: str | None = None
+    operation_id: str | None = None
+    operation_digest: str | None = None
+    request_id: str | None = None
+
+    def __post_init__(self) -> None:
+        _bounded_identity(self.reference.invocation_id, "invocation identity")
+        validate_command_id(self.command_id)
+        if type(self.command_version) is not int or self.command_version < 1:
+            raise ValueError("admission command version must be a positive integer")
+        if self.recorded_at.tzinfo is None:
+            raise ValueError("admission timestamp must be timezone-aware")
+        if self.basis not in {"initial", "command", "operation"}:
+            raise ValueError("admission basis is invalid")
+        if self.source not in {"host-request", "cli-request"}:
+            raise ValueError("admission source is invalid")
+        _bounded_identity(self.generation, "generation")
+        for name in ("grant_id", "operation_id", "request_id"):
+            value = getattr(self, name)
+            if value is not None:
+                _bounded_identity(value, name)
+        if self.basis == "initial" and self.grant_id is not None:
+            raise ValueError("initial admission cannot claim an exceptional grant")
+        if self.basis != "initial" and self.grant_id is None:
+            raise ValueError("exceptional admission requires grant identity")
+        if self.basis == "operation" and (self.operation_id is None or self.operation_digest is None):
+            raise ValueError("specific admission requires operation identity and digest")
+        if self.operation_digest is not None and (
+            not isinstance(self.operation_digest, str)
+            or re.fullmatch(r"sha256:[0-9a-f]{64}", self.operation_digest) is None
+        ):
+            raise ValueError("admission operation digest is invalid")
+
+
+class ExecutionState(str, Enum):
+    SUCCEEDED = "succeeded"
+    FAILED = "failed"
+    PARTIAL = "partial"
+    UNKNOWN = "unknown"
+
+
+@dataclass(frozen=True, slots=True)
+class InvocationOutcome:
+    """Execution completion is independent of whether domain effects occurred."""
+
+    receipt: OutcomeReceipt
+    execution: ExecutionState
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.receipt, OutcomeReceipt) or not isinstance(self.execution, ExecutionState):
+            raise ValueError("invocation outcome requires typed receipt and execution state")
+        _bounded_identity(self.reference.invocation_id, "invocation identity")
+        allowed = {
+            ExecutionState.SUCCEEDED: {ReceiptState.NONE, ReceiptState.COMMITTED},
+            ExecutionState.FAILED: {ReceiptState.NONE},
+            ExecutionState.PARTIAL: {ReceiptState.KNOWN_PARTIAL},
+            ExecutionState.UNKNOWN: {ReceiptState.NONE, ReceiptState.UNKNOWN},
+        }
+        if self.receipt.state not in allowed[self.execution]:
+            raise ValueError("execution state contradicts its effect receipt")
+
+    @property
+    def reference(self) -> OutcomeReference:
+        return self.receipt.reference
+
+    @property
+    def command_id(self) -> str:
+        return self.receipt.command_id
+
+    @property
+    def command_version(self) -> int:
+        return self.receipt.command_version
+
+    @property
+    def recorded_at(self) -> datetime:
+        return self.receipt.recorded_at
+
+
+@dataclass(frozen=True, slots=True)
+class OwnedReceiptLookup:
+    """FOUND means a final record exists; its execution can still be unknown."""
+
+    reference: OutcomeReference
+    intent: AdmissionIntent | None = None
+    outcome: InvocationOutcome | None = None
+
+    def __post_init__(self) -> None:
+        if self.intent is not None and self.intent.reference != self.reference:
+            raise ValueError("admission intent reference differs from lookup")
+        if self.outcome is not None:
+            if self.intent is None or (
+                self.outcome.reference, self.outcome.command_id, self.outcome.command_version
+            ) != (self.reference, self.intent.command_id, self.intent.command_version):
+                raise ValueError("final outcome differs from its admission intent")
+            if self.outcome.recorded_at < self.intent.recorded_at:
+                raise ValueError("final outcome predates admission intent")
+
+    @property
+    def state(self) -> ReceiptLookupState:
+        return ReceiptLookupState.FOUND if self.outcome is not None else ReceiptLookupState.STILL_UNKNOWN
+
+
+class OwnedReceiptPort(Protocol):
+    """A trusted ownership-bound port; IDs select receipts, never authorise reads."""
+
+    def begin(self, intent: AdmissionIntent) -> None: ...
+
+    def finalise(self, outcome: InvocationOutcome) -> None: ...
+
+    def read(self, reference: OutcomeReference) -> OwnedReceiptLookup: ...
 
 
 class MemoryReceiptStore:

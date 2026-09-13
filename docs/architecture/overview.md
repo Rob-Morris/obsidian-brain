@@ -48,6 +48,12 @@ Prepared content stays in a private owner directory. One inert machine-local
 coordination lock per canonical Brain sits outside that directory, allowing
 shutdown to delete private inputs without unlinking an open lock on Windows.
 The lock carries no authorisation; consent exists only in the process-owned store.
+The application authorisation coordinator binds transport execution options
+(including dry-run) alongside the owner-resolved operation. It records durable
+intent before the final atomic admission check, then records execution outcome
+separately from effects. Successful observations consume specific consent too.
+Prepared-input disposal closes admission before reclamation and retains a
+retryable cleanup handle until the private bytes have been released.
 
 ### Machine-global launcher
 

@@ -10,6 +10,7 @@ import subprocess
 import sys
 
 import pytest
+import rename
 
 import _bootstrap.diagnostics as bootstrap_diagnostics
 import _bootstrap.mcp_state as bootstrap_mcp_state
@@ -248,6 +249,10 @@ class TestRepairScopes:
         ]
 
     def test_ownership_repair_previews_complete_move_set(self, repair_vault, monkeypatch):
+        for source in ("Ideas/Child.md", "Wiki/Child Note.md"):
+            target = repair_vault / source
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text("A source document.\n")
         monkeypatch.setattr(repair_runtime.compile_router, "compile", lambda _vault: {})
         monkeypatch.setattr(
             repair_runtime.check_mod,
@@ -267,8 +272,8 @@ class TestRepairScopes:
             },
         )
         monkeypatch.setattr(
-            repair_runtime.edit,
-            "move_and_update_links",
+            rename,
+            "apply_move_and_links",
             lambda *_args, **_kwargs: pytest.fail("dry-run must not mutate"),
         )
 
@@ -314,6 +319,10 @@ class TestRepairScopes:
 
     def test_ownership_repair_applies_previewed_moves(self, repair_vault, monkeypatch):
         moves = [{"source": "Ideas/Child.md", "dest": "Ideas/parent/Child.md"}]
+        for source in ("Ideas/Child.md", "Wiki/Child Note.md"):
+            target = repair_vault / source
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text("A source document.\n")
         monkeypatch.setattr(repair_runtime.compile_router, "compile", lambda _vault: {})
         monkeypatch.setattr(
             repair_runtime.check_mod,
@@ -327,13 +336,14 @@ class TestRepairScopes:
         )
         applied = {}
 
-        def fake_move(_vault, planned, *, prune_router=None):
-            applied["prune_router"] = prune_router
+        def fake_move(_vault, plan):
+            planned = [{"source": item["source"], "dest": item["dest"]} for item in plan.moves]
+            applied["prune_router"] = plan.prune_router
             return applied.setdefault(
                 "result", {"moves": planned, "links_updated": 2}
             )
 
-        monkeypatch.setattr(repair_runtime.edit, "move_and_update_links", fake_move)
+        monkeypatch.setattr(rename, "apply_move_and_links", fake_move)
 
         result = repair_runtime.repair_ownership(repair_vault, dry_run=False)
 
@@ -346,6 +356,10 @@ class TestRepairScopes:
         self, repair_vault, monkeypatch
     ):
         moves = [{"source": "Ideas/Child.md", "dest": "Ideas/parent/Child.md"}]
+        for source in ("Ideas/Child.md", "Wiki/Child Note.md"):
+            target = repair_vault / source
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text("A source document.\n")
         monkeypatch.setattr(repair_runtime.compile_router, "compile", lambda _vault: {})
         monkeypatch.setattr(
             repair_runtime.check_mod,
@@ -358,8 +372,8 @@ class TestRepairScopes:
             lambda *_args, **_kwargs: {"moves": moves},
         )
         monkeypatch.setattr(
-            repair_runtime.edit,
-            "move_and_update_links",
+            rename,
+            "apply_move_and_links",
             lambda *_args, **_kwargs: (_ for _ in ()).throw(
                 PartialApplyError("one move committed before collision")
             ),
@@ -768,7 +782,7 @@ class TestRepairScopes:
     def test_frontmatter_repair_uses_shared_detection_preflight(self, repair_vault, monkeypatch):
         calls = []
 
-        def fake_detect(vault_root):
+        def fake_detect(vault_root, *, unreadable=None):
             calls.append(Path(vault_root))
             return []
 

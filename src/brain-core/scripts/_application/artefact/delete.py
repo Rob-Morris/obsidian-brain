@@ -32,10 +32,12 @@ class ArtefactDeleteRequest:
 
 
 def execute(context: InvocationContext, request: ArtefactDeleteRequest):
+    import rename
+
     return execute_transition(
         context,
         request,
-        operation=lambda root, router: _delete(root, router, request),
+        operation=None, planner=plan_operation, apply_plan=rename.apply_artefact_delete,
         payload_builder=lambda result: ArtefactDeletePayload(
             request.path,
             tuple(result["deleted"]),
@@ -45,26 +47,23 @@ def execute(context: InvocationContext, request: ArtefactDeleteRequest):
         effect_subject=lambda payload: payload.path,
     )
 
-def _delete(root: str, router: dict, request: ArtefactDeleteRequest) -> dict:
-    import rename
-
-    return rename.delete_and_clean_links(
-        root,
-        request.path,
-        router=router,
-        recursive=request.recursive,
-        return_details=True,
-        prune_router=router,
-    )
-
-
 def decode(payload: Mapping[str, object]) -> ArtefactDeleteRequest:
     return decode_path_recursive(payload, ArtefactDeleteRequest)
 
 
 def catalogue_entry():
-    return transition_catalogue_entry(
+    from dataclasses import replace
+    from ..preparation_transition import TransitionPreparation
+
+    return replace(transition_catalogue_entry(
         ArtefactDeleteRequest,
         execute,
         authority=Authority.ADMINISTRATOR,
-    )
+    ), preparation=TransitionPreparation(plan_operation))
+
+
+def plan_operation(context, request, router, *, frozen_inputs=None):
+    import rename
+
+    return rename.plan_artefact_delete(str(context.selected_brain.vault_root), request.path,
+                                      router, request.recursive, prune_router=router), dict(frozen_inputs or {})

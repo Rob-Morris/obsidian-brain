@@ -35,9 +35,7 @@ def execute(context: InvocationContext, request: ArtefactRenameRequest):
     return execute_transition(
         context,
         request,
-        operation=lambda root, router: rename.rename_artefact(
-            root, router, request.source, request.dest
-        ),
+        operation=None, planner=plan_operation, apply_plan=rename.apply_artefact_rename,
         payload_builder=lambda result: ArtefactRenamePayload(**result),
         effect_subject=lambda payload: payload.new_path,
     )
@@ -48,4 +46,15 @@ def decode(payload: Mapping[str, object]) -> ArtefactRenameRequest:
 
 
 def catalogue_entry():
-    return transition_catalogue_entry(ArtefactRenameRequest, execute)
+    from dataclasses import replace
+    from ..preparation_transition import TransitionPreparation
+
+    return replace(transition_catalogue_entry(ArtefactRenameRequest, execute),
+                   preparation=TransitionPreparation(plan_operation))
+
+
+def plan_operation(context, request, router, *, frozen_inputs=None):
+    import rename
+
+    return rename.plan_artefact_rename(str(context.selected_brain.vault_root), router,
+                                      request.source, request.dest), dict(frozen_inputs or {})

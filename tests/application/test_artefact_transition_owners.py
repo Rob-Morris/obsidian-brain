@@ -191,7 +191,7 @@ def test_transition_partial_apply_is_structural_and_receipted(
     command_vault_clone,
     monkeypatch,
 ):
-    real_rename = rename.rename_artefact
+    real_rename = rename.apply_artefact_rename
     destination = (
         "Designs/project~command-fixture/Uncertain Command Fixture Design.md"
     )
@@ -200,7 +200,7 @@ def test_transition_partial_apply_is_structural_and_receipted(
         real_rename(*args, **kwargs)
         raise PartialApplyError("links changed and move committed; refresh failed")
 
-    monkeypatch.setattr(rename, "rename_artefact", commit_then_report_partial)
+    monkeypatch.setattr(rename, "apply_artefact_rename", commit_then_report_partial)
     result = application_for(command_vault_clone.vault_root).invoke(
         ArtefactRenameRequest(DESIGN, destination)
     )
@@ -215,13 +215,13 @@ def test_transition_unexpected_post_commit_failure_is_honestly_unknown(
     command_vault_clone,
     monkeypatch,
 ):
-    real_delete = rename.delete_and_clean_links
+    real_delete = rename.apply_artefact_delete
 
     def commit_then_fail(*args, **kwargs):
         real_delete(*args, **kwargs)
         raise OSError("response failed after delete commit")
 
-    monkeypatch.setattr(rename, "delete_and_clean_links", commit_then_fail)
+    monkeypatch.setattr(rename, "apply_artefact_delete", commit_then_fail)
     result = application_for(command_vault_clone.vault_root).invoke(
         ArtefactDeleteRequest(DESIGN)
     )
@@ -336,13 +336,13 @@ def test_partially_applied_archive_reconciles_active_index(
     import edit
     from _application.artefact.search import ArtefactSearchRequest
 
-    original = edit.archive_artefact
+    original = edit.apply_artefact_transition
 
-    def partially_apply(root, router, path, **kwargs):
-        original(root, router, path, **kwargs)
+    def partially_apply(root, plan):
+        original(root, plan)
         raise PartialApplyError("Archive moved the file before a later failure")
 
-    monkeypatch.setattr(edit, "archive_artefact", partially_apply)
+    monkeypatch.setattr(edit, "apply_artefact_transition", partially_apply)
     app = application_for(command_vault_clone.vault_root)
     result = app.invoke(ArtefactArchiveRequest(CANDIDATE))
     assert result.status == "partial"

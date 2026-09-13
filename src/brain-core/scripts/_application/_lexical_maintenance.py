@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from enum import Enum
 
 from ._mutation_support import maintainer_mutation_entry, no_effect_error
 from .context import InvocationContext
+from ._managed_preparation import MAINTENANCE, maintenance_binding
+from .preparation import admit_owner
 from .receipts import CommittedEffect
 from .results import ErrorCode, Ok
 
@@ -48,6 +50,7 @@ def execute_lexical_maintenance(
     root = context.selected_brain.vault_root
     try:
         with vault_mutation_lock(root):
+            admit_owner(context, request, maintenance_binding)
             result = maintain_lexical_index(
                 root,
                 dry_run=context.dry_run,
@@ -87,4 +90,4 @@ def execute_lexical_maintenance(
 
 
 def catalogue_entry(request_type, executor):
-    return maintainer_mutation_entry(request_type, executor)
+    return replace(maintainer_mutation_entry(request_type, executor), preparation=MAINTENANCE)

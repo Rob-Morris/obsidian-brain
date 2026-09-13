@@ -276,13 +276,13 @@ class TestMoveAndUpdateLinks:
 
     def test_batch_rewrites_links_in_one_vault_pass(self, vault, monkeypatch):
         calls = []
-        real_replace = rename.replace_wikilinks_in_vault
+        real_replace = rename.plan_wikilink_rewrites
 
         def counting_replace(vault_root, pattern, replacement, **kwargs):
             calls.append(pattern)
             return real_replace(vault_root, pattern, replacement, **kwargs)
 
-        monkeypatch.setattr(rename, "replace_wikilinks_in_vault", counting_replace)
+        monkeypatch.setattr(rename, "plan_wikilink_rewrites", counting_replace)
 
         rename.move_and_update_links(
             str(vault),
@@ -347,7 +347,7 @@ class TestMoveAndUpdateLinks:
             calls.append(pattern)
             return 0
 
-        monkeypatch.setattr(rename, "replace_wikilinks_in_vault", counting_replace)
+        monkeypatch.setattr(rename, "plan_wikilink_rewrites", counting_replace)
 
         with pytest.raises(FileExistsError, match="Destination file already exists"):
             rename.move_and_update_links(
@@ -391,7 +391,7 @@ class TestMoveAndUpdateLinks:
             calls.append(pattern)
             return 0
 
-        monkeypatch.setattr(rename, "replace_wikilinks_in_vault", counting_replace)
+        monkeypatch.setattr(rename, "plan_wikilink_rewrites", counting_replace)
 
         with pytest.raises(ValueError, match="Duplicate move destination"):
             rename.move_and_update_links(
@@ -417,7 +417,7 @@ class TestMoveAndUpdateLinks:
             calls.append(pattern)
             return 0
 
-        monkeypatch.setattr(rename, "replace_wikilinks_in_vault", counting_replace)
+        monkeypatch.setattr(rename, "plan_wikilink_rewrites", counting_replace)
 
         with pytest.raises(ValueError, match="Duplicate move source"):
             rename.move_and_update_links(
@@ -496,7 +496,7 @@ class TestMoveAndUpdateLinks:
             calls.append(pattern)
             return 0
 
-        monkeypatch.setattr(rename, "replace_wikilinks_in_vault", counting_replace)
+        monkeypatch.setattr(rename, "plan_wikilink_rewrites", counting_replace)
 
         with pytest.raises(ValueError, match="Move source cannot be a symlink"):
             rename.move_and_update_links(
@@ -530,7 +530,7 @@ class TestMoveAndUpdateLinks:
             calls.append(pattern)
             return 0
 
-        monkeypatch.setattr(rename, "replace_wikilinks_in_vault", counting_replace)
+        monkeypatch.setattr(rename, "plan_wikilink_rewrites", counting_replace)
 
         with pytest.raises(ValueError, match="Move destination cannot be a symlink"):
             rename.move_and_update_links(
@@ -554,7 +554,7 @@ class TestMoveAndUpdateLinks:
             calls.append(pattern)
             return 0
 
-        monkeypatch.setattr(rename, "replace_wikilinks_in_vault", counting_replace)
+        monkeypatch.setattr(rename, "plan_wikilink_rewrites", counting_replace)
 
         with pytest.raises(ValueError, match="Cyclic move set"):
             rename.move_and_update_links(
@@ -714,7 +714,7 @@ class TestMoveAndUpdateLinks:
             calls.append(pattern)
             return 0
 
-        monkeypatch.setattr(rename, "replace_wikilinks_in_vault", counting_replace)
+        monkeypatch.setattr(rename, "plan_wikilink_rewrites", counting_replace)
 
         result = rename.move_and_update_links(
             str(vault),

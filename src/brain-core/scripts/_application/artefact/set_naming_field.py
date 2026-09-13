@@ -51,4 +51,15 @@ def decode(payload: Mapping[str, object]) -> ArtefactSetNamingFieldRequest:
 
 
 def catalogue_entry():
-    return lifecycle_catalogue_entry(ArtefactSetNamingFieldRequest, execute)
+    from dataclasses import replace
+    from ..preparation_transition import TransitionPreparation
+
+    return replace(lifecycle_catalogue_entry(ArtefactSetNamingFieldRequest, execute),
+                   preparation=TransitionPreparation(plan_operation))
+
+
+def plan_operation(context, request, router, *, frozen_inputs=None):
+    from .._lifecycle_mutation import plan_lifecycle_request
+
+    return plan_lifecycle_request(context, request, router, field=request.field,
+                                  value=request.value, frozen_inputs=frozen_inputs)

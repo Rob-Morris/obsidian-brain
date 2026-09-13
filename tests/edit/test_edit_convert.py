@@ -6,6 +6,7 @@ import re
 import pytest
 
 import edit
+import rename
 from _common import (
     HasDescendantsError,
     ParentChainError,
@@ -403,7 +404,7 @@ class TestConvertArtefact:
         def reject_preflight(*_args, **_kwargs):
             raise ValueError("Cyclic move set involving: Designs/project~brain/Parent.md")
 
-        monkeypatch.setattr(edit, "preflight_move_set", reject_preflight)
+        monkeypatch.setattr(rename, "preflight_move_set", reject_preflight)
 
         with pytest.raises(ValueError, match="Cyclic move set"):
             edit.convert_artefact(
@@ -448,7 +449,7 @@ class TestConvertArtefact:
         def fail_move(*_args, **_kwargs):
             raise PartialApplyError("move set partially applied")
 
-        monkeypatch.setattr(edit, "move_and_update_links", fail_move)
+        monkeypatch.setattr(rename, "apply_move_and_links", fail_move)
 
         with pytest.raises(PartialApplyError, match="move set partially applied") as exc_info:
             edit.convert_artefact(

@@ -120,6 +120,8 @@ def execute_transition(
     operation: Callable[[str, dict], dict],
     payload_builder: Callable[[dict], object],
     effect_subject: Callable[[object], str | None],
+    planner=None,
+    apply_plan=None,
 ):
     from _common import (
         MutationLockError,
@@ -144,9 +146,21 @@ def execute_transition(
 
     try:
         with vault_mutation_lock(vault_root):
+            router = load_fresh_compiled_router(vault_root)
+            if "error" in router:
+                raise ValueError(router["error"])
             partial_error = None
             try:
-                raw_result = operation(vault_root, router)
+                if planner is None:
+                    raw_result = operation(vault_root, router)
+                else:
+                    from .preparation import admit_owner
+                    from .preparation_transition import transition_binding
+
+                    frozen = context.admission.frozen_inputs if context.admission else None
+                    plan, _frozen = planner(context, request, router, frozen_inputs=frozen)
+                    admit_owner(context, request, transition_binding, plan=plan, router=router)
+                    raw_result = apply_plan(vault_root, plan)
             except PartialApplyError as exc:
                 partial_error = exc
             if request.COMMAND_ID in {

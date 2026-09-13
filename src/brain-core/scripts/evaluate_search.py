@@ -506,19 +506,9 @@ def build_expected_winner_scorecard(mode_summaries, *, primary_hit_k=1):
     return scorecard
 
 
-def build_report(
-    vault_root,
-    benchmark_path,
-    *,
-    modes=None,
-    config=None,
-    index=None,
-    doc_embeddings=None,
-    embeddings_meta=None,
-    query_encoder=None,
-):
-    """Build a full benchmark report for one vault and benchmark fixture."""
-    benchmark = load_benchmark(benchmark_path)
+def load_report_inputs(vault_root, *, modes=None, config=None, index=None,
+                       doc_embeddings=None, embeddings_meta=None):
+    """Materialise file-backed evaluation inputs before provider entry."""
     modes = _normalise_modes(modes)
     if index is None:
         index = lexical_query.load_index(vault_root)
@@ -536,6 +526,33 @@ def build_report(
         except semantic_query.EmbeddingsSidecarsUnavailableError as exc:
             semantic_sidecars_error = str(exc)
             doc_embeddings, embeddings_meta = (None, None)
+    return {"index": index, "config": config, "doc_embeddings": doc_embeddings,
+            "embeddings_meta": embeddings_meta, "semantic_sidecars_error": semantic_sidecars_error}
+
+
+def build_report(
+    vault_root,
+    benchmark_path,
+    *,
+    modes=None,
+    benchmark=None,
+    prepared_inputs=None,
+    config=None,
+    index=None,
+    doc_embeddings=None,
+    embeddings_meta=None,
+    query_encoder=None,
+):
+    """Build a full benchmark report for one vault and benchmark fixture."""
+    benchmark = load_benchmark(benchmark_path) if benchmark is None else benchmark
+    modes = _normalise_modes(modes)
+    inputs = prepared_inputs if prepared_inputs is not None else load_report_inputs(
+        vault_root, modes=modes, config=config, index=index, doc_embeddings=doc_embeddings,
+        embeddings_meta=embeddings_meta)
+    index, config = inputs["index"], inputs["config"]
+    doc_embeddings, embeddings_meta = inputs["doc_embeddings"], inputs["embeddings_meta"]
+    semantic_sidecars_error = inputs["semantic_sidecars_error"]
+    needs_semantic = any(mode in {"semantic", "hybrid"} for mode in modes)
     if (
         needs_semantic
         and doc_embeddings is not None

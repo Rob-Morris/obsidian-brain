@@ -406,7 +406,7 @@ def _embedding_search(
     return [{"path": entry["path"], "score": entry["score"]} for entry in ranked]
 
 
-def ingest_content(
+def plan_ingestion(
     router,
     vault_root,
     content,
@@ -419,6 +419,9 @@ def ingest_content(
     doc_embeddings_meta=None,
     query_encoder=None,
     classification_mode="auto",
+    effective_at=None,
+    chosen_filename=None,
+    chosen_key=None,
 ):
     """Full pipeline: classify -> infer title -> resolve -> act."""
     vault_str = str(vault_root)
@@ -503,38 +506,21 @@ def ingest_content(
         }
 
     if resolution["action"] == "create":
-        result = create_mod.create_artefact(vault_str, router, type_key, title, body=content)
-        return {
-            "action_taken": "created",
-            "path": result["path"],
-            "type": result["type"],
-            "title": result["title"],
-            "classification": classification,
-            "resolution": resolution,
-            "needs_decision": False,
-            "message": f"Created {result['path']}",
-        }
+        plan = create_mod.plan_artefact_creation(
+            vault_str, router, type_key, title, body=content, effective_at=effective_at,
+            chosen_filename=chosen_filename, chosen_key=chosen_key)
+        return {"action_taken": "created", "path": plan.path, "type": plan.fields["type"],
+                "title": plan.title, "classification": classification, "resolution": resolution,
+                "needs_decision": False, "message": f"Created {plan.path}", "plan": plan}
 
     if resolution["action"] == "update":
         target = resolution["target_path"]
-        edit_mod.append_to_artefact(
-            vault_str,
-            router,
-            target,
-            content,
-            target=":body",
-            scope="section",
-        )
-        return {
-            "action_taken": "updated",
-            "path": target,
-            "type": resolution["type"],
-            "title": title,
-            "classification": classification,
-            "resolution": resolution,
-            "needs_decision": False,
-            "message": f"Updated {target}",
-        }
+        opened = edit_mod.open_document(vault_str, router, "artefact", target)
+        plan = edit_mod.plan_document_edit(opened, operation="append", body=content,
+                                           target=":body", scope="section")
+        return {"action_taken": "updated", "path": target, "type": resolution["type"],
+                "title": title, "classification": classification, "resolution": resolution,
+                "needs_decision": False, "message": f"Updated {target}", "plan": plan}
 
     return {
         "action_taken": "error",
@@ -546,3 +532,24 @@ def ingest_content(
         "needs_decision": False,
         "message": f"Unexpected resolution action: {resolution.get('action')}",
     }
+
+
+def apply_ingestion_plan(router, vault_root, prepared):
+    """Apply exactly the create/append target selected by the observational planner."""
+    result = dict(prepared)
+    plan = result.pop("plan", None)
+    if result["action_taken"] == "created":
+        create_mod.apply_artefact_creation(vault_root, router, plan)
+    elif result["action_taken"] == "updated":
+        edit_mod.apply_document_edit(vault_root, router, plan)
+    return result
+
+
+def ingest_content(router, vault_root, content, title=None, type_hint=None, index=None,
+                   type_embeddings=None, type_embeddings_meta=None, doc_embeddings=None,
+                   doc_embeddings_meta=None, query_encoder=None, classification_mode="auto"):
+    """Classify and resolve once, then apply that validated ingestion plan."""
+    prepared = plan_ingestion(router, vault_root, content, title, type_hint, index,
+                              type_embeddings, type_embeddings_meta, doc_embeddings,
+                              doc_embeddings_meta, query_encoder, classification_mode)
+    return apply_ingestion_plan(router, vault_root, prepared)

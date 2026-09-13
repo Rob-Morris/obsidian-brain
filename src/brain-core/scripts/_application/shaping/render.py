@@ -126,7 +126,7 @@ def execute(context: InvocationContext, request: ShapingRenderRequest):
             context,
             request,
             operation="presentation rendering",
-            invoke=lambda root: shape_presentation.shape(root, params),
+            invoke=lambda root, **options: shape_presentation.shape(root, params, **options),
             build_payload=_presentation_payload,
         )
 
@@ -145,7 +145,7 @@ def execute(context: InvocationContext, request: ShapingRenderRequest):
         context,
         request,
         operation="printable rendering",
-        invoke=lambda root: shape_printable.shape(root, params),
+        invoke=lambda root, **options: shape_printable.shape(root, params, **options),
         build_payload=_printable_payload,
     )
 

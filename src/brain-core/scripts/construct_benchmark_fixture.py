@@ -1646,6 +1646,8 @@ def mine_candidates(
     semantic_strategy=SEMANTIC_STRATEGY_LOCAL,
     semantic_seed_file=None,
     hybrid_seed_file=None,
+    semantic_seeds=None,
+    hybrid_seeds=None,
 ):
     candidates = []
     corpus_vocab = _build_filtered_corpus_vocab(index)
@@ -1661,17 +1663,19 @@ def mine_candidates(
             corpus_vocab=corpus_vocab,
         )
     )
-    if semantic_seed_file:
+    if semantic_seeds is not None:
+        semantic_candidates.extend(semantic_seeds)
+    elif semantic_seed_file:
         semantic_candidates.extend(_load_semantic_seed_candidates(semantic_seed_file))
     candidates.extend(
         _annotate_semantic_candidate(candidate, corpus_vocab, docs_by_path)
         for candidate in semantic_candidates
     )
     hybrid_candidates = _mine_hybrid_candidates(vault_root, index)
-    if hybrid_seed_file:
+    if hybrid_seeds is not None or hybrid_seed_file:
         hybrid_candidates.extend(
             _annotate_semantic_candidate(candidate, corpus_vocab, docs_by_path)
-            for candidate in _load_hybrid_seed_candidates(hybrid_seed_file)
+            for candidate in (hybrid_seeds if hybrid_seeds is not None else _load_hybrid_seed_candidates(hybrid_seed_file))
         )
     candidates.extend(hybrid_candidates)
     candidates.extend(_mine_cluster_candidates(index))
@@ -1693,6 +1697,8 @@ def construct_fixture(
     semantic_strategy=SEMANTIC_STRATEGY_LOCAL,
     semantic_seed_file=None,
     hybrid_seed_file=None,
+    semantic_seeds=None,
+    hybrid_seeds=None,
 ):
     vault_root = Path(vault_root)
     targets = {**DEFAULT_TARGETS, **(targets or {})}
@@ -1733,6 +1739,8 @@ def construct_fixture(
         semantic_strategy=semantic_strategy,
         semantic_seed_file=semantic_seed_file,
         hybrid_seed_file=hybrid_seed_file,
+        semantic_seeds=semantic_seeds,
+        hybrid_seeds=hybrid_seeds,
     )
     candidates = _prune_candidates_for_audit(candidates)
     audits = [

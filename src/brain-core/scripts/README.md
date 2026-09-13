@@ -65,6 +65,10 @@ The instance-authorisation foundation in `_application/consent.py` owns scope,
 admission, invalidation and replay rules over an opaque atomic state port.
 `preparation.py` defines immutable operation bindings; command families resolve
 them through shared domain plans and admit under their existing guards.
+`authorisation.py` coordinates preparation retries, execution-option identity,
+private input disposal, admission intent and final outcomes over application
+ports. `_command_interface/receipts.py` persists the separate immutable intent
+and outcome records with Brain/principal/context ownership and bounded retention.
 `_bootstrap/consent_state.py` and `consent_owner.py` own bounded storage and
 private process lifetime, while `_command_interface/consent_staging.py` retains
 immutable prepared content. These are internal foundations for DD-073; public

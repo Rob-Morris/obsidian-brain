@@ -58,9 +58,15 @@ def execute(context: InvocationContext, request: ArtefactMigrateNamingRequest):
         return no_effect_error(type(request), ErrorCode.CONFLICT, router["error"])
     try:
         with vault_mutation_lock(root):
-            result = migrate_naming.migrate_vault(
-                root, router=router, dry_run=context.dry_run
-            )
+            from ..preparation import admit_owner
+
+            router = load_fresh_compiled_router(root)
+            if "error" in router:
+                raise ValueError(router["error"])
+            plan = migrate_naming.plan_naming_migration(root, router=router, dry_run=context.dry_run)
+            if plan.movement is not None:
+                admit_owner(context, request, migration_binding, plan=plan, router=router)
+            result = migrate_naming.apply_naming_migration(root, plan)
     except MutationLockError as exc:
         return no_effect_error(
             type(request),
@@ -74,7 +80,7 @@ def execute(context: InvocationContext, request: ArtefactMigrateNamingRequest):
     payload = _payload(result)
     if payload.errors:
         message = "; ".join(item.message for item in payload.errors)
-        if payload.renamed and not payload.dry_run:
+        if (payload.renamed or any(item.partial_apply for item in payload.errors)) and not payload.dry_run:
             return Partial(
                 request.COMMAND_ID,
                 request.COMMAND_VERSION,
@@ -130,9 +136,35 @@ def catalogue_entry():
     from ..catalogue import exclude_projection
     from ..types import Projection
 
-    return exclude_projection(
+    from dataclasses import replace
+    from ..preparation import OperationPreparation
+
+    return replace(exclude_projection(
         contributor_mutation_entry(ArtefactMigrateNamingRequest, execute),
         Projection.MCP,
         "Vault-wide naming migration is reserved for deliberate CLI or "
         "direct-script administration.",
-    )
+    ), preparation=OperationPreparation(prepare))
+
+
+def migration_binding(context, request, *, plan, router, frozen_inputs=None):
+    from ..preparation_transition import transition_binding
+
+    if plan.movement is None:
+        raise ValueError("Naming migration preflight found conflicts; resolve them before preparing")
+    return transition_binding(context, request, plan=plan.movement, router=router,
+                              frozen_inputs=frozen_inputs)
+
+
+def prepare(context, request, *, frozen_inputs=None):
+    from _common import vault_mutation_lock
+    from _lifecycle.derived_cache_state import load_fresh_compiled_router
+    import migrate_naming
+
+    root = str(context.selected_brain.vault_root)
+    with vault_mutation_lock(root):
+        router = load_fresh_compiled_router(root)
+        if "error" in router:
+            raise ValueError(router["error"])
+        plan = migrate_naming.plan_naming_migration(root, router=router, dry_run=context.dry_run)
+        return migration_binding(context, request, plan=plan, router=router, frozen_inputs=frozen_inputs)

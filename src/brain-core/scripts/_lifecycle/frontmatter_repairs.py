@@ -39,7 +39,7 @@ def iter_candidate_artefact_markdown_files(vault_root: str | Path):
                 yield os.path.relpath(os.path.join(dirpath, filename), vault_root)
 
 
-def detect_duplicate_frontmatter_documents(vault_root: str | Path) -> list[dict]:
+def detect_duplicate_frontmatter_documents(vault_root: str | Path, *, unreadable=None) -> list[dict]:
     """Return duplicate-frontmatter artefacts without mutating the vault."""
     vault_root = Path(vault_root)
     findings = []
@@ -48,6 +48,8 @@ def detect_duplicate_frontmatter_documents(vault_root: str | Path) -> list[dict]
         try:
             content = abs_path.read_text(encoding="utf-8")
         except (OSError, UnicodeDecodeError):
+            if unreadable is not None:
+                unreadable.append(rel_path)
             continue
         duplicate = inspect_duplicate_frontmatter_document(content)
         if duplicate is None:
@@ -64,15 +66,25 @@ def detect_duplicate_frontmatter_documents(vault_root: str | Path) -> list[dict]
     return findings
 
 
+def plan_duplicate_frontmatter_documents(vault_root, *, effective_at=None, unreadable=None):
+    """Render duplicate-frontmatter repairs without persisting them."""
+    effective_at = effective_at or now_iso()
+    findings = detect_duplicate_frontmatter_documents(vault_root, unreadable=unreadable)
+    return [{**item, "merged_fields": {**item["merged_fields"], "modified": effective_at}}
+            for item in findings]
+
+
 def normalize_duplicate_frontmatter_documents(
     vault_root: str | Path,
     *,
     dry_run: bool = False,
+    prepared_findings=None,
+    effective_at=None,
 ) -> dict:
     """Merge duplicate frontmatter blocks across vault artefacts."""
     vault_root = Path(vault_root)
-    repair_modified = now_iso() if not dry_run else None
-    findings = detect_duplicate_frontmatter_documents(vault_root)
+    findings = (prepared_findings if prepared_findings is not None
+                else plan_duplicate_frontmatter_documents(vault_root, effective_at=effective_at))
     if not findings:
         return {
             "status": "skipped",
@@ -87,7 +99,6 @@ def normalize_duplicate_frontmatter_documents(
     if not dry_run:
         for item in findings:
             fields = dict(item["merged_fields"])
-            fields["modified"] = repair_modified
             safe_write(
                 str(vault_root / item["file"]),
                 serialize_frontmatter(fields, body=item["body"]),

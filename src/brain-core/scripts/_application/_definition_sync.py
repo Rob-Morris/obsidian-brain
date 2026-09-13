@@ -92,13 +92,16 @@ def execute_definition_sync(
                 )
             if state is TypeDefinitionState.NOT_INSTALLABLE:
                 return no_effect_error(type(request), ErrorCode.CONFLICT, reason)
-            result = sync_definitions.sync_definitions(
-                root,
-                dry_run=context.dry_run,
-                force=force,
-                types=[request.type_key],
-                preference="ask",
-            )
+            from .preparation import admit_owner
+
+            frozen = context.admission.frozen_inputs if context.admission else None
+            plan, _frozen = plan_sync_request(context, request, frozen_inputs=frozen)
+            customised = [item for item in plan.result["skipped"] if item["reason"] == "user_customised"]
+            if customised and not force:
+                return no_effect_error(type(request), ErrorCode.CONFLICT, "; ".join(
+                    f"{item['role']} is locally customised; retry type.sync with force" for item in customised))
+            admit_owner(context, request, sync_binding, plan=plan)
+            result = sync_definitions.apply_definition_sync(root, plan)
     except MutationLockError as exc:
         return no_effect_error(
             type(request),
@@ -201,4 +204,68 @@ def _payload(type_key: str, force: bool, result: dict) -> TypeDefinitionSyncPayl
 
 
 def catalogue_entry(request_type, executor):
-    return maintainer_mutation_entry(request_type, executor)
+    from dataclasses import replace
+    from .preparation import OperationPreparation
+
+    return replace(maintainer_mutation_entry(request_type, executor),
+                   preparation=OperationPreparation(prepare_sync))
+
+
+def plan_sync_request(context, request, *, frozen_inputs=None):
+    """Freeze the installation timestamp and use the single sync classifier."""
+    import sync_definitions
+    from .preparation_transition import transition_time
+
+    effective_at, frozen = transition_time(context, frozen_inputs)
+    plan = sync_definitions.plan_sync_definitions(
+        str(context.selected_brain.vault_root), dry_run=context.dry_run,
+        force=request.force, types=[request.type_key], preference="ask", effective_at=effective_at)
+    return plan, frozen
+
+
+def sync_binding(context, request, *, plan, frozen_inputs=None):
+    """Bind selected managed files and tracking entries, preserving other type updates."""
+    import sync_definitions
+    from .preparation import ObservedResource, bind_operation, canonical_json, content_digest
+
+    root = context.selected_brain.vault_root
+    observed = []
+    for kind, paths in (("upstream", plan.sources), ("target", plan.targets)):
+        for path in paths:
+            target = root / path
+            observed.append(ObservedResource(kind, path,
+                                             content_digest(target.read_bytes()) if target.exists() else None))
+            observed.append(ObservedResource(kind + "-identity", path,
+                                             target.resolve().relative_to(root.resolve()).as_posix()))
+    for path in plan.folders:
+        observed.append(ObservedResource("folder", path, "directory" if (root / path).is_dir() else None))
+    tracking = sync_definitions.load_tracking(str(root))
+    for key in plan.type_keys:
+        observed.append(ObservedResource("tracking", key,
+                        content_digest(canonical_json(tracking["installed"].get(key)))))
+    exclusion = sync_definitions.load_exclude_set(sync_definitions.load_preferences(str(root)))
+    relevant_exclusions = sorted(item for item in exclusion
+                                 if any(item.startswith(key + "/") for key in plan.type_keys))
+    rendered = {"copies": {item.target: content_digest(item.content) for item in plan.copies},
+                "tracking": {key: plan.tracking["installed"].get(key) for key in plan.type_keys}
+                            if plan.tracking else None,
+                "result": plan.result, "excluded": relevant_exclusions}
+    observed.append(ObservedResource("sync-plan", request.type_key,
+                                     content_digest(canonical_json(rendered))))
+    return bind_operation(request, observations=observed, frozen_inputs=frozen_inputs,
+                          review={"type": request.type_key, "writes": sorted(rendered["copies"]),
+                                  "folders": list(plan.folders), "tracking": list(plan.type_keys)})
+
+
+def prepare_sync(context, request, *, frozen_inputs=None):
+    from _common import vault_mutation_lock
+    import sync_definitions
+
+    root = str(context.selected_brain.vault_root)
+    with vault_mutation_lock(root):
+        status = sync_definitions.status_definitions(root, types=[request.type_key])
+        state, reason = _resolve_state(status, request.type_key)
+        if state is None or state is TypeDefinitionState.NOT_INSTALLABLE:
+            raise ValueError(reason or f"Unknown artefact-library type: {request.type_key}")
+        plan, frozen = plan_sync_request(context, request, frozen_inputs=frozen_inputs)
+        return sync_binding(context, request, plan=plan, frozen_inputs=frozen)

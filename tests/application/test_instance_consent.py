@@ -398,3 +398,30 @@ def test_review_budget_counts_escaping_in_the_actual_tool_string():
     assert len(escaped.review_json.encode()) < 7000
     with pytest.raises(ConsentError, match="too large"):
         svc.prepare(escaped, request_id="escaped")
+
+
+def test_preparation_retry_reuses_descriptor_without_resolving_changed_resources():
+    from _application.preparation import content_digest
+    svc = service()
+    bound = binding()
+    created = svc.prepare(bound, request_id="prepared", pin_namespace="private-copy")
+    assert svc.preparation_retry("prepared", content_digest(bound.request_json)) == created
+    assert svc.inspect(created["operation_id"])["pin_namespace"] == "private-copy"
+    svc.reduce(operation_ids=(created["operation_id"],))
+    assert svc.preparation_retry("prepared", content_digest(bound.request_json))["state"] == "discarded"
+    with pytest.raises(ConsentError, match="differs"):
+        svc.preparation_retry("prepared", content_digest(binding(value="different").request_json))
+
+
+def test_explicit_specific_selector_spends_even_when_command_is_initial():
+    svc = service(initial=VERSIONS)
+    bound, operation, decision = granted(svc)
+    proof = svc.admit(bound.command_id, bound.command_version, "specific-with-initial",
+                      operation_id=operation["operation_id"], binding=bound)
+    assert proof.basis == "operation"
+    assert proof.grant_id == decision.grant_id
+    svc.finish(proof)
+    with pytest.raises(ConsentError):
+        svc.admit(bound.command_id, bound.command_version, "repeat-specific",
+                  operation_id=operation["operation_id"], binding=bound)
+    assert svc.admit(bound.command_id, bound.command_version, "ordinary").basis == "initial"

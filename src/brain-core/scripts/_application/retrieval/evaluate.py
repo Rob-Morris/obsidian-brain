@@ -11,6 +11,8 @@ from .._benchmark_support import benchmark_entry, resolve_brain_path
 from .._mutation_support import no_effect_error
 from ..context import InvocationContext
 from ..results import ErrorCode, Ok
+from ..preparation import admit_owner
+from ._preparation import benchmark_inputs, benchmark_binding
 
 
 @dataclass(frozen=True, slots=True)
@@ -61,10 +63,17 @@ def execute(context: InvocationContext, request: RetrievalEvaluateRequest):
 
     try:
         evaluate_search._load_runtime_modules()
+        from _common import vault_mutation_lock
+        with vault_mutation_lock(root):
+            plan = benchmark_inputs(context, request)
+            inputs = evaluate_search.load_report_inputs(root, modes=list(request.modes) or None)
+            admit_owner(context, request, benchmark_binding, plan=plan)
         report = evaluate_search.build_report(
             root,
             benchmark_abs,
             modes=list(request.modes) or None,
+            benchmark=plan.benchmark,
+            prepared_inputs=inputs,
         )
     except (OSError, ValueError) as exc:
         return no_effect_error(type(request), ErrorCode.INVALID_REQUEST, str(exc))

@@ -123,13 +123,13 @@ def test_type_sync_install_post_commit_failure_is_honestly_unknown(
     monkeypatch,
 ):
     root = command_vault_clone.vault_root
-    real_sync = sync_definitions.sync_definitions
+    real_sync = sync_definitions.apply_definition_sync
 
     def commit_then_fail(*args, **kwargs):
         real_sync(*args, **kwargs)
         raise OSError("response failed after type installation")
 
-    monkeypatch.setattr(sync_definitions, "sync_definitions", commit_then_fail)
+    monkeypatch.setattr(sync_definitions, "apply_definition_sync", commit_then_fail)
     result = application_for(root).invoke(TypeSyncRequest(TYPE_KEY))
 
     assert result.error.code is ErrorCode.COMMAND_OUTCOME_UNKNOWN

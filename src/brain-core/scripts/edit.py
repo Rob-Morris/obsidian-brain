@@ -8,7 +8,7 @@ parser retained here is an internal maintenance and repository-test entry point.
 """
 
 import argparse
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 import json
 import os
 import re
@@ -439,7 +439,7 @@ def preflight_request_contract(operation, *, has_body=False,
     )
 
 
-def _merge_frontmatter(fields, changes, operation):
+def _merge_frontmatter(fields, changes, operation, *, effective_at=None):
     """Merge frontmatter changes using operation-appropriate strategy.
 
     edit: overwrite all fields (set semantics).
@@ -452,7 +452,7 @@ def _merge_frontmatter(fields, changes, operation):
         return
     # Auto-set statusdate when status actually changes value (not on deletion)
     if "status" in changes and changes["status"] is not None and changes["status"] != fields.get("status"):
-        fields["statusdate"] = now_iso()[:10]
+        fields["statusdate"] = (effective_at or now_iso())[:10]
     for key, value in changes.items():
         if value is None:
             fields.pop(key, None)
@@ -818,9 +818,10 @@ def _reject_handler_owned_frontmatter(art, changes):
     )
 
 
-def update_lifecycle_field(vault_root, router, path, field, value):
+def plan_lifecycle_field(vault_root, router, path, field, value, *, effective_at=None):
     """Apply one explicit lifecycle field change through the invariant engine."""
-    resolved_path, _abs_path, fields, _body, art = _open_artefact(
+    effective_at = effective_at or now_iso()
+    resolved_path, abs_path, fields, body, art = _open_artefact(
         vault_root, router, path
     )
     handlers = handler_owned_frontmatter_fields(art)
@@ -851,19 +852,22 @@ def update_lifecycle_field(vault_root, router, path, field, value):
         _render_existing_artefact_path(
             vault_root, router, art, resolved_path, candidate_fields
         )
-    result = apply_to_artefact(
-        "edit",
-        vault_root,
-        router,
-        resolved_path,
-        "",
-        frontmatter_changes={field: value},
-    )
-    result["lifecycle_field"] = field
-    result["old_value"] = fields.get(field)
-    result["new_value"] = value
-    result["command"] = handlers[field]
-    return result
+    old_fields = dict(fields)
+    changes = _normalise_ownership_changes(vault_root, router, art, {field: value})
+    _merge_frontmatter(fields, changes, "edit", effective_at=effective_at)
+    ensure_parent_tag(fields)
+    plan = plan_finish_artefact(vault_root, router, abs_path, fields, body, body,
+                                resolved_path, art, changes, "edit",
+                                old_fields=old_fields, effective_at=effective_at)
+    return replace(plan, result={**plan.result, "lifecycle_field": field,
+                                  "old_value": old_fields.get(field), "new_value": value,
+                                  "command": handlers[field]})
+
+
+def update_lifecycle_field(vault_root, router, path, field, value):
+    """Apply an explicit lifecycle field through the shared invariant planner."""
+    return apply_artefact_transition(vault_root, plan_lifecycle_field(
+        vault_root, router, path, field, value))
 
 
 def plan_parent_projection_repair(vault_root, router, path, *, reference_index=None):
@@ -1364,7 +1368,7 @@ def _plan_temporal_reference_moves(
     return moves
 
 
-def _maybe_restructure_living_ownership(vault_root, router, path, art, old_fields, new_fields, new_body):
+def _plan_living_ownership(vault_root, router, path, art, old_fields, new_fields, new_body):
     """Rewrite key references and move the affected subtree when ownership changes.
 
     This operation shares the move-set engine's non-atomic contract: frontmatter
@@ -1389,7 +1393,7 @@ def _maybe_restructure_living_ownership(vault_root, router, path, art, old_field
 
     ownership_changed = old_key != new_key or old_parent != new_parent
     if not ownership_changed:
-        return path, False
+        return None
     _validate_not_parented_to_descendant(
         router,
         old_key,
@@ -1466,39 +1470,9 @@ def _maybe_restructure_living_ownership(vault_root, router, path, art, old_field
     attachment_moves = attachment_transition["moves"]
     moves.extend(attachment_moves)
 
-    preflight_move_set(vault_root, moves, allow_attachment_paths=True)
-    rendered_fields["modified"] = now_iso()
-    write_ops = [
-        {"path": path, "fields": rendered_fields, "body": new_body},
-        *reference_ops,
-    ]
-    _write_frontmatter_mutations(
-        vault_root, write_ops, operation="ownership mutation"
-    )
-    real_moves = [move for move in moves if move["source"] != move["dest"]]
-    if real_moves:
-        try:
-            result = move_and_update_links(
-                vault_root,
-                real_moves,
-                allow_attachment_paths=True,
-                prune_router=router,
-            )
-        except PartialApplyError as exc:
-            metadata_written = [op["path"] for op in write_ops]
-            raise PartialApplyError(
-                "ownership mutation partially applied — "
-                f"metadata files written {metadata_written}; move failure: {exc}"
-            ) from exc
-        _prune_committed_attachment_scope_move(
-            vault_root,
-            old_key,
-            attachment_moves,
-            operation="ownership mutation",
-        )
-    if new_path != path:
-        return new_path, True
-    return path, True
+    return {"path": new_path, "writes": [
+        {"path": path, "fields": rendered_fields, "body": new_body}, *reference_ops],
+        "moves": moves, "old_key": old_key, "attachment_moves": attachment_moves}
 
 
 def _prune_committed_attachment_scope_move(
@@ -1517,7 +1491,7 @@ def _prune_committed_attachment_scope_move(
         ) from exc
 
 
-def _maybe_status_move(vault_root, path, terminal_statuses, frontmatter_changes, router):
+def _status_destination(path, terminal_statuses, frontmatter_changes):
     """If frontmatter_changes sets a terminal status, move file to +Status/ folder.
 
     Returns new path if moved, or original path if not. The vacated
@@ -1554,11 +1528,18 @@ def _maybe_status_move(vault_root, path, terminal_statuses, frontmatter_changes,
     else:
         return path
 
-    rename_and_update_links(vault_root, path, new_path, prune_router=router)
     return new_path
 
 
-def _apply_status_change_hooks(fields, old_fields, art):
+def _maybe_status_move(vault_root, path, terminal_statuses, frontmatter_changes, router):
+    """Move to the pure lifecycle destination when the status requires it."""
+    destination = _status_destination(path, terminal_statuses, frontmatter_changes)
+    if destination != path:
+        rename_and_update_links(vault_root, path, destination, prune_router=router)
+    return destination
+
+
+def _apply_status_change_hooks(fields, old_fields, art, *, effective_at=None):
     """Apply ``{status}_at`` convention and ``on_status_change`` hooks.
 
     When ``status`` changes value, set ``{status}_at = now()`` (ISO date) for
@@ -1573,7 +1554,7 @@ def _apply_status_change_hooks(fields, old_fields, art):
     changed = new_status != old_status
     if not changed:
         return
-    today = now_iso()[:10]
+    today = (effective_at or now_iso())[:10]
     hook = ((art or {}).get("on_status_change") or {}).get(new_status) or {}
     set_map = hook.get("set") or {}
     for field_name, raw_value in set_map.items():
@@ -1606,7 +1587,7 @@ def _temporal_owner_relocation_path(router, path, art, fields):
     return os.path.join(target_folder, os.path.basename(path))
 
 
-def _maybe_rename_on_field_change(vault_root, path, art, old_fields, new_fields):
+def _naming_destination(path, art, old_fields, new_fields):
     """Rename artefact file if frontmatter changes imply a new basename.
 
     Extracts the title from the current basename using the rule selected for
@@ -1631,68 +1612,66 @@ def _maybe_rename_on_field_change(vault_root, path, art, old_fields, new_fields)
     if new_basename == current_basename:
         return path
     new_path = os.path.join(os.path.dirname(path), new_basename)
-    rename_and_update_links(vault_root, path, new_path)
     return new_path
+
+
+def _maybe_rename_on_field_change(vault_root, path, art, old_fields, new_fields):
+    """Apply the pure naming destination calculation."""
+    destination = _naming_destination(path, art, old_fields, new_fields)
+    if destination != path:
+        rename_and_update_links(vault_root, path, destination)
+    return destination
+
+
+def plan_finish_artefact(vault_root, router, abs_path, fields, old_body, new_body,
+                         path, art, frontmatter_changes, operation, *, old_fields=None,
+                         resolved=None, scope=None, effective_at=None):
+    """Resolve all lifecycle metadata, ownership and path consequences before effects."""
+    from copy import deepcopy
+
+    fields = deepcopy(fields)
+    effective_at = effective_at or now_iso()
+    _apply_status_change_hooks(fields, old_fields, art, effective_at=effective_at)
+    reconcile_fields_for_render(fields, art, abs_path, os.path.basename(path))
+    original_path = path
+    ownership = None
+    if art.get("classification") == "living" and old_fields is not None:
+        ownership = _plan_living_ownership(vault_root, router, path, art,
+                                           old_fields, fields, new_body)
+    if ownership is not None:
+        path = ownership["path"]
+        writes, moves = ownership["writes"], ownership["moves"]
+        writes[0]["fields"]["modified"] = effective_at
+    else:
+        fields["modified"] = effective_at
+        writes = [{"path": original_path, "fields": fields, "body": new_body}]
+        if (art.get("classification") == "temporal" and old_fields is not None
+                and normalize_artefact_key(old_fields.get("parent"))
+                != normalize_artefact_key(fields.get("parent"))):
+            path = _temporal_owner_relocation_path(router, path, art, fields)
+        if old_fields is not None:
+            path = _naming_destination(path, art, old_fields, fields)
+        moves = [{"source": original_path, "dest": path}]
+    terminal = (art.get("frontmatter") or {}).get("terminal_statuses")
+    destination = _status_destination(path, terminal, frontmatter_changes)
+    moves = [{**move, "dest": destination} if move["source"] == original_path else move
+             for move in moves]
+    return plan_artefact_transition(
+        vault_root, router, operation="ownership mutation" if ownership else operation, writes=writes, moves=moves,
+        allow_archive_paths=is_archived_path(original_path), allow_attachment_paths=True,
+        attachment_cleanup_key=ownership["old_key"] if ownership else None,
+        attachment_moves=ownership["attachment_moves"] if ownership else (),
+        result=_result_payload(destination, original_path, operation, old_body, new_body,
+                               resolved=resolved, scope=scope))
 
 
 def _finish_artefact(vault_root, router, abs_path, fields, old_body, new_body, path, art,
                      frontmatter_changes, operation, *, old_fields=None,
                      resolved=None, scope=None):
-    """Save artefact, rename on name-driving change, status-move, return result."""
-    _apply_status_change_hooks(fields, old_fields, art)
-    reconcile_fields_for_render(fields, art, abs_path, os.path.basename(path))
-    resolved_path = path
-    ownership_handled = False
-    temporal_relocation_path = path
-    # Temporal filing depends only on the owner chain, so a parent change (set,
-    # moved or cleared) is the only edit that can relocate the file.
-    should_check_temporal_relocation = (
-        art.get("classification") == "temporal"
-        and old_fields is not None
-        and normalize_artefact_key(old_fields.get("parent"))
-        != normalize_artefact_key(fields.get("parent"))
-    )
-    if should_check_temporal_relocation:
-        temporal_relocation_path = _temporal_owner_relocation_path(
-            router, path, art, fields
-        )
-    if art.get("classification") == "living" and old_fields is not None:
-        path, ownership_handled = _maybe_restructure_living_ownership(
-            vault_root, router, path, art, old_fields, fields, new_body
-        )
-        abs_path = os.path.join(vault_root, path)
-    if not ownership_handled:
-        _save_artefact(abs_path, fields, new_body, vault_root)
-    try:
-        if should_check_temporal_relocation and temporal_relocation_path != path:
-            rename_and_update_links(
-                vault_root, path, temporal_relocation_path, prune_router=router
-            )
-            path = temporal_relocation_path
-            abs_path = os.path.join(vault_root, path)
-        if old_fields is not None and not ownership_handled:
-            new_path = _maybe_rename_on_field_change(vault_root, path, art, old_fields, fields)
-            if new_path != path:
-                path = new_path
-                abs_path = os.path.join(vault_root, path)
-        terminal = (art.get("frontmatter") or {}).get("terminal_statuses")
-        path = _maybe_status_move(
-            vault_root, path, terminal, frontmatter_changes, router=router
-        )
-    except (PartialApplyError, FileNotFoundError, FileExistsError, ValueError, OSError) as exc:
-        raise PartialApplyError(
-            f"{operation} partially applied — metadata file written {path}; "
-            f"move failure: {exc}"
-        ) from exc
-    return _result_payload(
-        path,
-        resolved_path,
-        operation,
-        old_body,
-        new_body,
-        resolved=resolved,
-        scope=scope,
-    )
+    """Apply the single lifecycle plan shared by document and explicit field owners."""
+    return apply_artefact_transition(vault_root, plan_finish_artefact(
+        vault_root, router, abs_path, fields, old_body, new_body, path, art,
+        frontmatter_changes, operation, old_fields=old_fields, resolved=resolved, scope=scope))
 
 
 # ---------------------------------------------------------------------------
@@ -1895,7 +1874,7 @@ def prepend_to_artefact(vault_root, router, path, content="", frontmatter_change
 # Type conversion
 # ---------------------------------------------------------------------------
 
-def convert_artefact(vault_root, router, path, target_type, parent=None, recursive=False):
+def plan_convert(vault_root, router, path, target_type, parent=None, recursive=False, *, chosen_path=None, chosen_key=None):
     """Convert artefact to a different type: move to target folder, reconcile FM, update wikilinks.
 
     Args:
@@ -1965,7 +1944,7 @@ def convert_artefact(vault_root, router, path, target_type, parent=None, recursi
             router,
             target_art,
             title,
-            key=source_key_value if is_valid_key(source_key_value) else None,
+            key=chosen_key or (source_key_value if is_valid_key(source_key_value) else None),
             exclude_path=path,
         )
         target_parent = None
@@ -2054,7 +2033,9 @@ def convert_artefact(vault_root, router, path, target_type, parent=None, recursi
         target_art.get("naming"), title, rendered_fields
     )
     new_path = os.path.join(target_folder, target_basename)
-    if new_path != path:
+    if chosen_path is not None:
+        new_path = chosen_path
+    elif new_path != path:
         stem, ext = os.path.splitext(os.path.basename(new_path))
         folder = os.path.dirname(new_path)
         target_abs_folder = os.path.join(vault_root, folder)
@@ -2088,46 +2069,21 @@ def convert_artefact(vault_root, router, path, target_type, parent=None, recursi
         {"path": path, "fields": rendered_fields, "body": body},
         *reference_ops,
     ]
-    _write_frontmatter_mutations(
-        vault_root, write_ops, operation="convert mutation"
-    )
-    links_updated = 0
-    real_moves = [move for move in moves if move["source"] != move["dest"]]
-    if real_moves:
-        try:
-            result = move_and_update_links(
-                vault_root,
-                real_moves,
-                allow_attachment_paths=True,
-                prune_router=router,
-            )
-        except PartialApplyError as exc:
-            metadata_written = [op["path"] for op in write_ops]
-            raise PartialApplyError(
-                "convert mutation partially applied — "
-                f"metadata files written {metadata_written}; move failure: {exc}"
-            ) from exc
-        links_updated = result["links_updated"]
-        _prune_committed_attachment_scope_move(
-            vault_root,
-            old_key,
-            attachment_moves,
-            operation="convert mutation",
-        )
-
-    conversion_result = {
-        "old_path": path,
-        "new_path": new_path,
-        "type": fields["type"],
-        "links_updated": links_updated,
-    }
+    result = {"old_path": path, "new_path": new_path, "type": fields["type"]}
     if attachment_transition["moved"]:
-        conversion_result["attachment_scope_moved"] = attachment_transition["moved"]
+        result["attachment_scope_moved"] = attachment_transition["moved"]
     if attachment_transition["orphaned_scopes"]:
-        conversion_result["orphaned_attachment_scopes"] = attachment_transition[
-            "orphaned_scopes"
-        ]
-    return conversion_result
+        result["orphaned_attachment_scopes"] = attachment_transition["orphaned_scopes"]
+    return plan_artefact_transition(
+        vault_root, router, operation="convert", writes=write_ops, moves=moves,
+        result=result, allow_attachment_paths=True, attachment_cleanup_key=old_key,
+        attachment_moves=attachment_moves)
+
+
+def convert_artefact(vault_root, router, path, target_type, parent=None, recursive=False):
+    """Convert metadata, ownership and paths through one validated transition plan."""
+    return apply_artefact_transition(vault_root, plan_convert(
+        vault_root, router, path, target_type, parent, recursive))
 
 
 # ---------------------------------------------------------------------------
@@ -2256,7 +2212,7 @@ def _move_plan_for_reparent(vault_root, router, child_entries, target_parent):
     return moves, write_ops
 
 
-def reparent_children(vault_root, router, source, to_marker=None, *, to_provided=False):
+def plan_reparent_children(vault_root, router, source, to_marker=None, *, to_provided=False):
     """Reparent all direct living children of ``source`` in one move set.
 
     ``to_provided=False`` dissolves the source by lifting children to the
@@ -2297,39 +2253,72 @@ def reparent_children(vault_root, router, source, to_marker=None, *, to_provided
     children = direct_child_entries(router, source_key)
     moves, write_ops = _move_plan_for_reparent(vault_root, router, children, target_parent)
 
-    _write_frontmatter_mutations(vault_root, write_ops, operation="reparent")
-    written = [op["path"] for op in write_ops]
-
-    real_moves = [move for move in moves if move["source"] != move["dest"]]
-    links_updated = 0
-    if real_moves:
-        try:
-            result = move_and_update_links(
-                vault_root, real_moves, prune_router=router
-            )
-        except PartialApplyError as exc:
-            raise PartialApplyError(
-                "reparent partially applied — "
-                f"metadata files written {written}; move failure: {exc}"
-            ) from exc
-        links_updated = result["links_updated"]
-
-    return {
-        "source": source_path,
-        "to": target_parent,
-        "children": [
-            {
-                "key": child["artefact_key"],
-                "old_path": child["path"],
-            }
-            for child in children
-        ],
-        "moves": moves,
-        "links_updated": links_updated,
-    }
+    return plan_artefact_transition(
+        vault_root, router, operation="reparent", writes=write_ops, moves=moves,
+        observations=(source_path,), result={
+            "source": source_path, "to": target_parent,
+            "children": [{"key": child["artefact_key"], "old_path": child["path"]} for child in children],
+            "moves": moves})
 
 
-def archive_artefact(vault_root, router, path, recursive=False):
+def reparent_children(vault_root, router, source, to_marker=None, *, to_provided=False):
+    """Reparent the selected direct children through one validated transition plan."""
+    return apply_artefact_transition(vault_root, plan_reparent_children(
+        vault_root, router, source, to_marker, to_provided=to_provided))
+
+
+@dataclass(frozen=True, slots=True)
+class ArtefactTransitionPlan:
+    """Rendered metadata and a resolved move/link plan for one semantic operation."""
+
+    operation: str
+    writes: tuple[dict, ...]
+    movement: object
+    result: dict
+    observations: tuple[str, ...] = ()
+    attachment_cleanup_key: str | None = None
+    attachment_moves: tuple[dict, ...] = ()
+
+
+def plan_artefact_transition(vault_root, router, *, operation, writes, moves,
+                             result, observations=(), allow_archive_paths=False,
+                             allow_attachment_paths=False, attachment_cleanup_key=None,
+                             attachment_moves=()):
+    """Compose metadata and backlink transforms before any write occurs."""
+    from rename import plan_move_and_links
+
+    overrides = {item["path"]: serialize_frontmatter(item["fields"], body=item["body"])
+                 for item in writes}
+    movement = plan_move_and_links(
+        vault_root, [move for move in moves if move["source"] != move["dest"]],
+        allow_archive_paths=allow_archive_paths,
+        allow_attachment_paths=allow_attachment_paths, prune_router=router,
+        overrides=overrides)
+    return ArtefactTransitionPlan(operation, tuple(writes), movement, result,
+                                   tuple(observations), attachment_cleanup_key,
+                                   tuple(attachment_moves))
+
+
+def apply_artefact_transition(vault_root, plan):
+    """Persist a validated metadata/movement plan through existing effect owners."""
+    from rename import apply_move_and_links
+
+    written = _write_frontmatter_mutations(vault_root, plan.writes, operation=plan.operation)
+    try:
+        result = apply_move_and_links(vault_root, plan.movement)
+    except (PartialApplyError, FileNotFoundError, FileExistsError, ValueError, OSError) as exc:
+        if not written:
+            raise
+        raise PartialApplyError(
+            f"{plan.operation} partially applied — metadata files written {written}; "
+            f"move failure: {exc}") from exc
+    if plan.attachment_cleanup_key and plan.attachment_moves:
+        _prune_committed_attachment_scope_move(vault_root, plan.attachment_cleanup_key,
+                                               plan.attachment_moves, operation=plan.operation)
+    return {**plan.result, "links_updated": result["links_updated"]}
+
+
+def plan_archive(vault_root, router, path, recursive=False, *, effective_at=None):
     """Archive any artefact while preserving lifecycle state and ownership."""
     vault_root = str(vault_root)
     path, abs_path, fields, body, art = _open_artefact(vault_root, router, path)
@@ -2339,7 +2328,7 @@ def archive_artefact(vault_root, router, path, recursive=False):
     if not recursive:
         _refuse_living_descendants("archive", path, descendants)
 
-    today = now_iso()[:10]
+    today = (effective_at or now_iso())[:10]
     archive_paths = [path] + [entry["path"] for entry in descendants]
     plans = [
         _plan_archive_entry(
@@ -2361,31 +2350,16 @@ def archive_artefact(vault_root, router, path, recursive=False):
         {"path": plan["path"], "fields": plan["fields"], "body": plan["body"]}
         for plan in plans
     ]
-    _write_frontmatter_mutations(vault_root, write_ops, operation="archive")
-    written = [op["path"] for op in write_ops]
+    return plan_artefact_transition(
+        vault_root, router, operation="archive", writes=write_ops, moves=moves,
+        allow_archive_paths=True, result={
+            "old_path": path, "new_path": plans[0]["dest"],
+            "archived": [{"old_path": item["path"], "new_path": item["dest"]} for item in plans]})
 
-    try:
-        result = move_and_update_links(
-            vault_root,
-            moves,
-            allow_archive_paths=True,
-            prune_router=router,
-        )
-    except PartialApplyError as exc:
-        raise PartialApplyError(
-            "archive partially applied — "
-            f"metadata files written {written}; move failure: {exc}"
-        ) from exc
 
-    return {
-        "old_path": path,
-        "new_path": plans[0]["dest"],
-        "links_updated": result["links_updated"],
-        "archived": [
-            {"old_path": plan["path"], "new_path": plan["dest"]}
-            for plan in plans
-        ],
-    }
+def archive_artefact(vault_root, router, path, recursive=False):
+    """Archive any artefact while preserving lifecycle state and ownership."""
+    return apply_artefact_transition(vault_root, plan_archive(vault_root, router, path, recursive))
 
 
 def _plan_unarchive_entry(vault_root, router, path):
@@ -2467,7 +2441,7 @@ def _archived_living_descendant_paths(vault_root, router, source_plan):
     return descendants, uninspected
 
 
-def unarchive_artefact(vault_root, router, path, recursive=False):
+def plan_unarchive(vault_root, router, path, recursive=False, *, effective_at=None):
     """Restore one archived artefact or subtree through current metadata projection."""
     vault_root = str(vault_root)
 
@@ -2489,43 +2463,20 @@ def unarchive_artefact(vault_root, router, path, recursive=False):
         moves,
         allow_archive_paths=True,
     )
-    written = []
-    for plan in plans:
-        try:
-            _save_artefact(
-                plan["abs_path"], plan["fields"], plan["body"], vault_root
-            )
-            written.append(plan["path"])
-        except OSError as exc:
-            if not written:
-                raise
-            raise PartialApplyError(
-                f"unarchive partially applied — metadata files written {written}; "
-                f"write failure at {plan['path']}: {exc}"
-            ) from exc
-    try:
-        result = move_and_update_links(
-            vault_root,
-            moves,
-            allow_archive_paths=True,
-            prune_router=router,
-        )
-    except (PartialApplyError, FileNotFoundError, FileExistsError, ValueError, OSError) as exc:
-        raise PartialApplyError(
-            "unarchive partially applied — "
-            f"metadata files written {written}; move failure: {exc}"
-        ) from exc
+    effective_at = effective_at or now_iso()
+    writes = [{"path": item["path"], "fields": {**item["fields"], "modified": effective_at},
+               "body": item["body"]} for item in plans]
+    return plan_artefact_transition(
+        vault_root, router, operation="unarchive", writes=writes, moves=moves,
+        allow_archive_paths=True, result={
+            "old_path": path, "new_path": plans[0]["dest"],
+            "restored": [{"old_path": item["path"], "new_path": item["dest"]} for item in plans],
+            "uninspected": uninspected})
 
-    return {
-        "old_path": path,
-        "new_path": plans[0]["dest"],
-        "links_updated": result["links_updated"],
-        "restored": [
-            {"old_path": plan["path"], "new_path": plan["dest"]}
-            for plan in plans
-        ],
-        "uninspected": uninspected,
-    }
+
+def unarchive_artefact(vault_root, router, path, recursive=False):
+    """Restore one archived artefact or subtree through current metadata projection."""
+    return apply_artefact_transition(vault_root, plan_unarchive(vault_root, router, path, recursive))
 
 
 # ---------------------------------------------------------------------------

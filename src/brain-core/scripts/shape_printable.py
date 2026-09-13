@@ -266,43 +266,23 @@ def _render_pdf(vault_root, markdown_abs, params):
     return result
 
 
-def shape(vault_root, params):
+def plan_shape(vault_root, params, *, effective_at=None):
+    from _render_plan import plan_render_document
+    return plan_render_document(vault_root, params, kind="printable",
+                                read_template=_read_template, effective_at=effective_at)
+
+
+def shape(vault_root, params, *, _plan=None):
     """Create a printable artefact and optionally render it to PDF."""
     vault_root = str(vault_root)
-
-    if not params or "source" not in params or "slug" not in params:
-        return {"error": "shape-printable requires params: {source, slug}"}
-
-    source = params["source"]
-    slug = params["slug"]
-
-    source_abs = os.path.join(vault_root, source)
-    resolve_and_check_bounds(source_abs, vault_root)
-    if not os.path.isfile(source_abs):
-        return {"error": f"Source file not found: {source}"}
-
-    now = datetime.now(timezone.utc).astimezone()
-    date_prefix = now.strftime("%Y%m%d")
-    safe_slug = title_to_filename(slug)
-    filename = f"{date_prefix}-printable~{safe_slug}.md"
-    rel_path = os.path.join("_Temporal", "Printables", filename)
+    try:
+        plan = _plan or plan_shape(vault_root, params)
+    except (FileNotFoundError, ValueError) as exc:
+        return {"error": str(exc)}
+    rel_path, created = plan.path, plan.created
     abs_path = os.path.join(vault_root, rel_path)
-
-    created = False
-    if not os.path.isfile(abs_path):
-        template_content = _read_template(vault_root)
-        if template_content is None:
-            return {"error": "Printable template not found"}
-
-        source_stem = os.path.splitext(source)[0]
-        source_display = os.path.basename(source)
-        content = substitute_template_vars(template_content, {
-            "PRINTABLE TITLE": slug_to_title(slug),
-            "[[source-artefact|Source document]]": f"[[{source_stem}|{source_display}]]",
-        }, _now=now)
-
-        safe_write(abs_path, content, bounds=str(vault_root))
-        created = True
+    if created:
+        safe_write(abs_path, plan.content, bounds=vault_root)
 
     result = {
         "status": "ok",

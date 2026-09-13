@@ -94,13 +94,17 @@ def execute_lifecycle_mutation(
 
     try:
         with vault_mutation_lock(vault_root):
-            result = edit.update_lifecycle_field(
-                vault_root,
-                router,
-                request.path,
-                field,
-                value,
-            )
+            from .preparation import admit_owner
+            from .preparation_transition import transition_binding
+
+            router = load_fresh_compiled_router(vault_root)
+            if "error" in router:
+                raise ValueError(router["error"])
+            frozen = context.admission.frozen_inputs if context.admission else None
+            plan, _frozen = plan_lifecycle_request(context, request, router, field=field,
+                                                   value=value, frozen_inputs=frozen)
+            admit_owner(context, request, transition_binding, plan=plan, router=router)
+            result = edit.apply_artefact_transition(vault_root, plan)
     except MutationLockError as exc:
         return no_effect_error(
             type(request),
@@ -134,3 +138,14 @@ def execute_lifecycle_mutation(
 
 def catalogue_entry(request_type, executor):
     return contributor_mutation_entry(request_type, executor)
+
+
+def plan_lifecycle_request(context, request, router, *, field, value, frozen_inputs=None):
+    """Use the explicit lifecycle owner's single invariant plan."""
+    import edit
+    from .preparation_transition import transition_time
+
+    effective_at, frozen = transition_time(context, frozen_inputs)
+    return edit.plan_lifecycle_field(str(context.selected_brain.vault_root), router,
+                                     request.path, field, value,
+                                     effective_at=effective_at), frozen

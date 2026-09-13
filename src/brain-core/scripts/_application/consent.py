@@ -118,6 +118,7 @@ class AdmissionProof:
     basis: str
     grant_id: str | None = None
     operation_id: str | None = None
+    request_id: str | None = None
 
 
 def _identifier(value: str, label: str) -> str:
@@ -229,9 +230,12 @@ class ConsentService:
                     and grant["command_version"] == self.versions.get(command)
                     and grant["state"] == "authorised" and not grant.get("revoked"))
 
-    def prepare(self, binding: OperationBinding, *, request_id: str) -> dict:
+    def prepare(self, binding: OperationBinding, *, request_id: str,
+                pin_namespace: str | None = None) -> dict:
         """Retain an immutable descriptor; repeated trusted preparation is stable."""
         self.check_permission(binding.command_id, request=True)
+        if pin_namespace is not None:
+            _identifier(pin_namespace, "pin namespace")
         if binding.command_version != self.versions[binding.command_id]:
             raise ConsentError("stale_operation", "Command contract changed; prepare again.")
         if len(canonical_json({"review": binding.review_json}).encode("utf-8")) > MAX_REVIEW_BYTES:
@@ -261,15 +265,41 @@ class ConsentService:
             self._request_capacity(context)
             operation = {"operation_id": operation_id, "binding": binding.to_wire(),
                          "digest": binding.digest, "review": binding.review_json,
-                         "generation": context["generation"], "state": "prepared"}
+                         "generation": context["generation"], "state": "prepared",
+                         "pin_namespace": pin_namespace}
             view = self._view(operation)
             retry = {"operation_id": operation_id, "digest": binding.digest,
+                     "request_digest": content_digest(binding.request_json),
                      "generation": context["generation"]}
             updated = dict(context, prepared_count=context["prepared_count"] + 1,
                            request_count=context["request_count"] + 1)
             return {_CONTEXT: updated, op_key: operation, retry_key: retry}, view
 
         return self._transaction((op_key, retry_key, existing_key), create)
+
+    def preparation_retry(self, request_id: str, request_digest: str) -> dict | None:
+        """Resolve a retry before rereading resources or retaining another input copy."""
+        retry_key = _key("preparation-request", request_id)
+        self._context()
+        prior = self.store.snapshot((retry_key,)).values.get(retry_key)
+        if prior is None:
+            return None
+        operation_key = _key("operation", prior["operation_id"])
+
+        def lookup(values, context):
+            retry = values.get(retry_key)
+            if retry != prior:
+                raise ConsentError("conflict", "Preparation identity changed concurrently; retry lookup.")
+            if retry["request_digest"] != request_digest or retry["generation"] != context["generation"]:
+                raise ConsentError("request_conflict", "Preparation retry differs from the original request.")
+            operation = values.get(operation_key)
+            if operation is None:
+                return {}, {"operation_id": retry["operation_id"], "digest": retry["digest"],
+                            "state": "discarded"}
+            self._permission(operation["binding"]["command_id"], request=True)
+            return {}, self._view(operation)
+
+        return self._transaction((retry_key, operation_key), lookup)
 
     @staticmethod
     def _request_capacity(context):
@@ -367,7 +397,7 @@ class ConsentService:
                 record = {"grant_id": grant_id, "command_id": command_id,
                           "command_version": self.versions[command_id], "scope": scope.value,
                           "operation_id": operation_id, "generation": context["generation"],
-                          "state": "authorised"}
+                          "request_id": request_id, "state": "authorised"}
                 writes[grant_key] = record
                 if operation_key:
                     writes[operation_key] = dict(prepared, state="authorised", grant_id=grant_id)
@@ -392,7 +422,7 @@ class ConsentService:
         operation_key = _key("operation", operation_id) if operation_id else None
         first = self.store.snapshot((_CONTEXT, command_key, *((operation_key,) if operation_key else ())))
         context = first.values[_CONTEXT]
-        if self._initial(command_id, context):
+        if operation_id is None and self._initial(command_id, context):
             return "authorised"
         source = first.values.get(operation_key if operation_key else command_key, {})
         grant_id = source.get("grant_id")
@@ -431,7 +461,7 @@ class ConsentService:
                         or selected["generation"] != context["generation"]
                         or binding.command_id != command_id or binding.command_version != command_version):
                     raise ConsentError("stale_operation", "Prepared scope or inputs changed; prepare and request consent again.")
-            initial = self._initial(command_id, context)
+            initial = operation_key is None and self._initial(command_id, context)
             grant = values.get(grant_key) if grant_key else None
             valid = self._valid_grant(grant, context, command_id)
             if not initial and selected is not None and selected["state"] != "authorised":
@@ -443,7 +473,8 @@ class ConsentService:
                 raise ConsentError("authorisation_required", "Select the specifically authorised operation.")
             proof = AdmissionProof(command_id, command_version, invocation_id,
                                    context["generation"], basis,
-                                   None if initial else grant["grant_id"], operation_id)
+                                   None if initial else grant["grant_id"], operation_id,
+                                   None if initial else grant.get("request_id"))
             writes = {}
             if not initial and grant["scope"] == "operation":
                 writes[grant_key] = dict(grant, state="reserved", invocation_id=invocation_id)
@@ -542,6 +573,24 @@ class ConsentService:
             return writes, None
 
         self._transaction((grant_key, operation_key), finish)
+
+    def begin_discard(self, operation_ids: tuple[str, ...]) -> tuple[dict, ...]:
+        """Close selected descriptors atomically while retaining input-cleanup handles."""
+        keys = tuple(dict.fromkeys(_key("operation", value) for value in operation_ids))
+
+        def close(values, context):
+            del context
+            writes = {}
+            for key in keys:
+                operation = values.get(key)
+                if operation is None:
+                    continue
+                if operation["state"] in {"authorised", "reserved", "entered"}:
+                    raise ConsentError("active_operation", "Revoke or finish the operation's grant before discarding its descriptor.")
+                writes[key] = dict(operation, state="discarding")
+            return writes, tuple(writes.values())
+
+        return self._transaction(keys, close)
 
     def reduce(self, *, grant_ids: tuple[str, ...] = (),
                operation_ids: tuple[str, ...] = (), commands: tuple[str, ...] = (),

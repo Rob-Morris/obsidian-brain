@@ -163,7 +163,7 @@ def test_auto_search_uses_semantic_enhancement_only_from_trusted_context(
     ),
 )
 def test_semantic_callers_request_only_the_arrays_they_use(
-    command_vault_baseline,
+    command_vault_clone,
     monkeypatch,
     module,
     command_request,
@@ -181,7 +181,7 @@ def test_semantic_callers_request_only_the_arrays_they_use(
 
     monkeypatch.setattr(module, "load_semantic_state", load_state)
     result = application_for(
-        command_vault_baseline.vault_root,
+        command_vault_clone.vault_root,
         dependency_tier=dependency_tier,
         providers=(SemanticProvider(),),
         capabilities=(Capability("semantic_retrieval", Availability.AVAILABLE),),

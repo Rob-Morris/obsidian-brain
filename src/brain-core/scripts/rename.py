@@ -12,6 +12,9 @@ import argparse
 import json
 import os
 import sys
+from dataclasses import dataclass, field
+
+from _common._wikilinks import (WikilinkRewritePlan, plan_wikilink_rewrites, apply_wikilink_rewrites)
 
 import upload_attachment as attachment_upload
 
@@ -371,73 +374,93 @@ def _combined_delete_wikilink_plan(paths, basename_counts):
     return _accumulate_wikilink_stems(paths, basename_counts, item_stems)
 
 
-def move_and_update_links(
-    vault_root,
-    moves,
-    *,
-    allow_archive_paths=False,
-    allow_attachment_paths=False,
-    prune_router=None,
-):
-    """Execute a batch file move set with one combined wikilink rewrite pass.
+@dataclass(frozen=True, slots=True)
+class MoveLinksPlan:
+    """Validated file moves and the precise link rewrites that precede them."""
 
-    The operation is fail-fast but not transactional: wikilinks are rewritten
-    before filesystem moves, and ``replace_wikilinks_in_vault`` skips files it
-    cannot read. If a later move fails, the raised error reports which moves
-    already committed so an operator can finish or repair the move set.
+    moves: tuple[dict, ...]
+    ordered: tuple[dict, ...]
+    links: WikilinkRewritePlan
+    prune_router: dict | None = None
+    link_counts: dict = field(default_factory=dict)
 
-    Pruning is opt-in: when ``prune_router`` is given, the vacated source
-    directories are pruned through ``prune_vacated_owner_folders`` once every
-    move has committed — ``rmdir``-only, bounded to artefact territory (type
-    roots and ``_Archive``), so attachment scopes under ``_Assets`` are never
-    touched. It never runs after a ``PartialApplyError``. Across this module
-    ``router`` means validation or gating only and ``prune_router`` means
-    prune: ``rename_and_update_links`` callers such as ``migrate_to_0_31_0``
-    pass ``router=`` for naming validation and must not start pruning.
-    """
-    planned = preflight_move_set(
-        vault_root,
-        moves,
-        allow_archive_paths=allow_archive_paths,
-        allow_attachment_paths=allow_attachment_paths,
-    )
-    ordered = _ordered_moves_for_apply(planned)
 
+class MoveApplyError(PartialApplyError):
+    """A move batch failure retaining exact committed and failed move records."""
+
+    def __init__(self, applied, failed, cause):
+        self.applied = tuple(applied)
+        self.failed = failed
+        super().__init__(
+            "move set partially applied — links already rewritten; "
+            f"committed {applied}, failed at {failed['source']}->{failed['dest']}: {cause}")
+
+
+def plan_move_and_links(vault_root, moves, *, allow_archive_paths=False,
+                        allow_attachment_paths=False, prune_router=None,
+                        overrides=None):
+    """Resolve file identities and matching backlink writes without effects."""
+    planned = preflight_move_set(vault_root, moves,
+                                allow_archive_paths=allow_archive_paths,
+                                allow_attachment_paths=allow_attachment_paths)
+    if not planned:
+        return MoveLinksPlan((), (), WikilinkRewritePlan(()), prune_router)
     basename_counts = build_md_basename_counts(vault_root)
-    pattern, stem_map = _combined_wikilink_plan(planned, basename_counts)
-    links_updated = 0
-    if pattern is not None:
-        links_updated = replace_wikilinks_in_vault(
-            vault_root, pattern, make_wikilink_replacer(stem_map),
-        )
+    pattern, stems = _combined_wikilink_plan(planned, basename_counts)
+    owners = {}
+    link_counts = {item["source"]: 0 for item in planned}
+    for move in planned:
+        _pattern, owned_stems = _combined_wikilink_plan([move], basename_counts)
+        owners.update({stem: move["source"] for stem in owned_stems})
+    replacer = make_wikilink_replacer(stems)
 
+    def replace_and_count(match):
+        link_counts[owners[match.group("stem")]] += 1
+        return replacer(match)
+
+    links = (plan_wikilink_rewrites(vault_root, pattern, replace_and_count,
+                                   overrides=overrides)
+             if pattern is not None else WikilinkRewritePlan(()))
+    return MoveLinksPlan(tuple(planned), tuple(_ordered_moves_for_apply(planned)),
+                         links, prune_router, link_counts)
+
+
+def apply_move_and_links(vault_root, plan):
+    """Apply admitted link writes and moves, preserving partial-apply reporting."""
+    links_updated = apply_wikilink_rewrites(vault_root, plan.links)
     applied = []
-    for move in ordered:
+    for move in plan.ordered:
         try:
             dest_dir = os.path.dirname(move["abs_dest"])
             if dest_dir:
                 os.makedirs(dest_dir, exist_ok=True)
             os.rename(move["abs_source"], move["abs_dest"])
         except OSError as exc:
-            raise PartialApplyError(
-                "move set partially applied — links already rewritten; "
-                f"committed {applied}, failed at {move['source']}->{move['dest']}: {exc}"
-            ) from exc
+            raise MoveApplyError(applied, move, exc) from exc
         applied.append({"source": move["source"], "dest": move["dest"]})
 
-    if prune_router is not None:
+    if plan.prune_router is not None:
         prune_vacated_owner_folders(
-            vault_root, [move["source"] for move in applied], prune_router
+            vault_root, [move["source"] for move in applied], plan.prune_router
         )
 
     return {
         "moves": [
             {"source": move["source"], "dest": move["dest"]}
-            for move in planned
+            for move in plan.moves
         ],
         "applied": applied,
         "links_updated": links_updated,
     }
+
+
+
+def move_and_update_links(vault_root, moves, *, allow_archive_paths=False,
+                          allow_attachment_paths=False, prune_router=None):
+    """Plan and apply a batch move; link writes precede moves and may partially commit."""
+    return apply_move_and_links(vault_root, plan_move_and_links(
+        vault_root, moves, allow_archive_paths=allow_archive_paths,
+        allow_attachment_paths=allow_attachment_paths, prune_router=prune_router))
 
 
 def rename_and_update_links(
@@ -492,7 +515,7 @@ def rename_and_update_links(
     return result["links_updated"]
 
 
-def rename_artefact(vault_root, router, source, dest):
+def plan_artefact_rename(vault_root, router, source, dest):
     """Rename within one configured type while preserving wikilinks.
 
     Type conversion is deliberately excluded from this semantic operation.
@@ -512,18 +535,21 @@ def rename_artefact(vault_root, router, source, dest):
         )
     validate_rename_request(vault_root, source, dest, router=router)
     validate_destination_parent_directory(vault_root, dest)
-    links_updated = rename_and_update_links(
-        vault_root,
-        source,
-        dest,
-        router=router,
-        prune_router=router,
-    )
-    return {
-        "old_path": source,
-        "new_path": dest,
-        "links_updated": links_updated,
-    }
+    return plan_move_and_links(vault_root, [{"source": source, "dest": dest}],
+                               prune_router=router)
+
+
+def apply_artefact_rename(vault_root, plan):
+    """Apply one validated artefact rename."""
+    result = apply_move_and_links(vault_root, plan)
+    move = plan.moves[0]
+    return {"old_path": move["source"], "new_path": move["dest"],
+            "links_updated": result["links_updated"]}
+
+
+def rename_artefact(vault_root, router, source, dest):
+    """Rename within one configured type while preserving wikilinks."""
+    return apply_artefact_rename(vault_root, plan_artefact_rename(vault_root, router, source, dest))
 
 
 def _validate_destination_naming(vault_root, router, source, dest, abs_source):
@@ -582,15 +608,18 @@ def _preflight_delete_path(vault_root, path):
     return abs_path
 
 
-def delete_and_clean_links(
-    vault_root,
-    path,
-    router=None,
-    recursive=False,
-    *,
-    return_details=False,
-    prune_router=None,
-):
+@dataclass(frozen=True, slots=True)
+class DeletePlan:
+    """The complete selected delete set and its matching backlink transforms."""
+
+    paths: tuple[str, ...]
+    abs_paths: tuple[str, ...]
+    links: WikilinkRewritePlan
+    orphaned_attachment_scopes: tuple[str, ...]
+    prune_router: dict | None = None
+
+
+def plan_artefact_delete(vault_root, path, router=None, recursive=False, *, prune_router=None):
     """Delete a file and replace wikilinks with strikethrough text.
 
     [[path|alias]] → ~~alias~~
@@ -643,10 +672,16 @@ def delete_and_clean_links(
         alias = m.group("alias")
         return f"~~{alias[1:]}~~" if alias else f"~~{stem_map[m.group('stem')]}~~"
 
-    links_replaced = replace_wikilinks_in_vault(vault_root, pattern, replacement)
+    links = plan_wikilink_rewrites(vault_root, pattern, replacement)
+    return DeletePlan(tuple(paths), tuple(abs_paths), links,
+                      tuple(orphaned_attachment_scopes), prune_router)
 
+
+def apply_artefact_delete(vault_root, plan):
+    """Apply admitted backlink writes and deletes with partial-effect reporting."""
+    links_replaced = apply_wikilink_rewrites(vault_root, plan.links)
     removed = []
-    for rel_path, abs_delete_path in zip(paths, abs_paths):
+    for rel_path, abs_delete_path in zip(plan.paths, plan.abs_paths):
         try:
             os.remove(abs_delete_path)
         except OSError as exc:
@@ -655,15 +690,19 @@ def delete_and_clean_links(
                 f"removed {removed}, failed at {rel_path}: {exc}"
             ) from exc
         removed.append(rel_path)
-    if prune_router is not None:
-        prune_vacated_owner_folders(vault_root, removed, prune_router)
-    if return_details:
-        return {
-            "links_replaced": links_replaced,
-            "orphaned_attachment_scopes": orphaned_attachment_scopes,
-            "deleted": removed,
-        }
-    return links_replaced
+    if plan.prune_router is not None:
+        prune_vacated_owner_folders(vault_root, removed, plan.prune_router)
+    return {"links_replaced": links_replaced,
+            "orphaned_attachment_scopes": list(plan.orphaned_attachment_scopes),
+            "deleted": removed}
+
+
+def delete_and_clean_links(vault_root, path, router=None, recursive=False, *,
+                           return_details=False, prune_router=None):
+    """Delete a selected artefact subtree and strike through its backlinks."""
+    result = apply_artefact_delete(vault_root, plan_artefact_delete(
+        vault_root, path, router, recursive, prune_router=prune_router))
+    return result if return_details else result["links_replaced"]
 
 
 # ---------------------------------------------------------------------------

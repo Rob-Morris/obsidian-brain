@@ -189,13 +189,13 @@ def test_lifecycle_post_commit_failure_is_honestly_unknown(
     command_vault_clone,
     monkeypatch,
 ):
-    real_update = edit.update_lifecycle_field
+    real_update = edit.apply_artefact_transition
 
     def commit_then_fail(*args, **kwargs):
         real_update(*args, **kwargs)
         raise OSError("response failed after lifecycle commit")
 
-    monkeypatch.setattr(edit, "update_lifecycle_field", commit_then_fail)
+    monkeypatch.setattr(edit, "apply_artefact_transition", commit_then_fail)
     result = application_for(command_vault_clone.vault_root).invoke(
         ArtefactSetKeyRequest(CANDIDATE, "uncertain-key")
     )

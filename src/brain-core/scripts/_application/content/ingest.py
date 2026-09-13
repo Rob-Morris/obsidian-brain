@@ -24,6 +24,8 @@ from .._search_support import (
     semantic_unavailable,
 )
 from ..context import InvocationContext
+from ..preparation import admit_owner
+from ._preparation import INGESTION, plan_ingest, ingestion_binding
 from ..receipts import CommittedEffect
 from ..results import (
     CommandError,
@@ -125,16 +127,9 @@ def execute(context: InvocationContext, request: ContentIngestRequest):
             ErrorCode.INVALID_REQUEST,
             "content.ingest does not support dry-run",
         )
-    router = load_router(context, ContentIngestRequest)
-    if isinstance(router, Error):
-        return router
-    retrieval = _prepare_retrieval_state(context, request, router)
-    if isinstance(retrieval, Error):
-        return retrieval
-
     root = str(context.selected_brain.vault_root)
     try:
-        outcome = _ingest_locked(root, request, router, retrieval)
+        outcome = _ingest_locked(root, request, context=context)
     except MutationLockError as exc:
         return no_effect_error(
             ContentIngestRequest,
@@ -165,7 +160,17 @@ def execute(context: InvocationContext, request: ContentIngestRequest):
             ErrorCode.INVALID_REQUEST,
             str(exc),
         )
-    return _project_outcome(request, outcome)
+    return outcome if isinstance(outcome, Error) else _project_outcome(request, outcome)
+
+
+def load_ingestion_inputs(context, request):
+    """Resolve current router and retrieval state while the caller holds the guard."""
+    from _lifecycle.derived_cache_state import load_fresh_compiled_router
+    router = load_fresh_compiled_router(context.selected_brain.vault_root)
+    if "error" in router:
+        return no_effect_error(type(request), ErrorCode.CONFLICT, router["error"])
+    retrieval = _prepare_retrieval_state(context, request, router)
+    return retrieval if isinstance(retrieval, Error) else (router, retrieval)
 
 
 def _prepare_retrieval_state(
@@ -242,28 +247,34 @@ def _prepare_retrieval_state(
 def _ingest_locked(
     root: str,
     request: ContentIngestRequest,
-    router,
-    retrieval: _RetrievalState,
+    *, context: InvocationContext,
 ) -> _IngestionOutcome:
     import process
     from _common import vault_mutation_lock
     from _staging import finalise_staged_body
 
     with vault_mutation_lock(root):
-        body, staged_handle = resolve_mutation_content(root, request.content)
-        result = process.ingest_content(
-            router,
-            root,
-            body,
-            title=request.title,
-            type_hint=request.type_key,
-            index=retrieval.index,
-            type_embeddings=retrieval.type_embeddings,
-            type_embeddings_meta=retrieval.metadata,
-            doc_embeddings=retrieval.doc_embeddings,
-            doc_embeddings_meta=retrieval.metadata,
-            classification_mode=request.mode.value,
-        )
+        inputs = load_ingestion_inputs(context, request)
+        if isinstance(inputs, Error):
+            return inputs
+        router, retrieval = inputs
+        body, staged_handle = resolve_mutation_content(root, request.content, context=context)
+        if context.admission is None:
+            result = process.ingest_content(
+                router, root, body, title=request.title, type_hint=request.type_key,
+                index=retrieval.index, type_embeddings=retrieval.type_embeddings,
+                type_embeddings_meta=retrieval.metadata, doc_embeddings=retrieval.doc_embeddings,
+                doc_embeddings_meta=retrieval.metadata, classification_mode=request.mode.value)
+        else:
+            plan, frozen = plan_ingest(context, request, router, retrieval, body,
+                                       frozen_inputs=context.admission.frozen_inputs)
+            if plan["action_taken"] != "error":
+                # The planner freezes time/key choices; admission must compare that
+                # complete binding, not reconstruct it with a new naming choice.
+                def binding(context, request, *, frozen_inputs=None):
+                    return ingestion_binding(context, request, plan=plan, frozen_inputs=frozen)
+                admit_owner(context, request, binding)
+            result = process.apply_ingestion_plan(router, root, plan)
         action = result.get("action_taken")
         staging_warning = (
             finalise_staged_body(root, staged_handle)
@@ -365,6 +376,7 @@ def catalogue_entry():
     from ..catalogue import ALL_APPLICATION_PROJECTIONS, ApplicationEntry
 
     return ApplicationEntry(
+        preparation=INGESTION,
         request_type=ContentIngestRequest,
         executor=execute,
         dependency_tier=DependencyTier.MANAGED,

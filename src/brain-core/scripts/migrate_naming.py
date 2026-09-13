@@ -19,6 +19,7 @@ import json
 import os
 import re
 import sys
+from dataclasses import dataclass
 from datetime import datetime, timezone
 
 from _bootstrap.runtime import (
@@ -134,7 +135,16 @@ def compute_new_filename(filename, artefact, fields=None, abs_path=None):
     return new_filename if new_filename != filename else None
 
 
-def migrate_vault(vault_root, router=None, dry_run=False):
+@dataclass(frozen=True, slots=True)
+class NamingMigrationPlan:
+    """One consistent naming namespace, rename set and matching backlink plan."""
+
+    movement: object | None
+    link_counts: dict
+    result: dict
+
+
+def plan_naming_migration(vault_root, router=None, dry_run=False):
     """Migrate all vault files to new naming conventions.
 
     Returns a summary dict with counts and details of what was (or would be) done.
@@ -144,7 +154,7 @@ def migrate_vault(vault_root, router=None, dry_run=False):
     if router is None:
         router = load_compiled_router(vault_root)
     if "error" in router:
-        return {"error": router["error"], "renamed": 0, "skipped": 0, "errors": []}
+        return NamingMigrationPlan(None, {}, {"error": router["error"], "renamed": 0, "skipped": 0, "errors": []})
 
     renamed = []
     skipped = 0
@@ -201,53 +211,49 @@ def migrate_vault(vault_root, router=None, dry_run=False):
             })
 
     if errors:
-        return {
+        return NamingMigrationPlan(None, {}, {
             "dry_run": dry_run,
             "renamed": 0,
             "skipped": skipped,
             "error_count": len(errors),
             "details": [],
             "errors": errors,
-        }
+        })
 
-    for rel_path, new_rel_path in planned:
-        if dry_run:
-            renamed.append({
-                "source": rel_path,
-                "dest": new_rel_path,
-                "links_updated": 0,
-            })
-            continue
-        try:
-            links = rename_and_update_links(vault_root, rel_path, new_rel_path)
-            renamed.append({
-                "source": rel_path,
-                "dest": new_rel_path,
-                "links_updated": links,
-            })
-        except PartialApplyError as e:
-            errors.append({
-                "file": rel_path,
-                "target": new_rel_path,
-                "error": str(e),
-                "partial_apply": True,
-            })
-            break
-        except (FileNotFoundError, FileExistsError, OSError) as e:
-            errors.append({
-                "file": rel_path,
-                "target": new_rel_path,
-                "error": str(e),
-            })
+    import rename
 
-    return {
-        "dry_run": dry_run,
-        "renamed": len(renamed),
-        "skipped": skipped,
-        "error_count": len(errors),
-        "details": renamed,
-        "errors": errors,
-    }
+    movement = rename.plan_move_and_links(vault_root,
+                [{"source": source, "dest": dest} for source, dest in planned])
+    link_counts = movement.link_counts
+    return NamingMigrationPlan(movement, link_counts, {
+        "dry_run": dry_run, "renamed": len(planned), "skipped": skipped,
+        "error_count": 0, "details": [
+            {"source": source, "dest": dest, "links_updated": 0 if dry_run else link_counts[source]}
+            for source, dest in planned], "errors": []})
+
+
+def apply_naming_migration(vault_root, plan):
+    """Apply the complete admitted batch and report any partial move set explicitly."""
+    import rename
+
+    if plan.movement is None or plan.result["dry_run"]:
+        return dict(plan.result)
+    try:
+        rename.apply_move_and_links(vault_root, plan.movement)
+    except PartialApplyError as exc:
+        applied = getattr(exc, "applied", ())
+        failed = getattr(exc, "failed", None) or (plan.movement.moves[0] if plan.movement.moves else {})
+        details = [{"source": item["source"], "dest": item["dest"],
+                    "links_updated": plan.link_counts[item["source"]]} for item in applied]
+        return {**plan.result, "renamed": len(details), "details": details, "error_count": 1,
+                "errors": [{"file": failed.get("source", "vault"), "target": failed.get("dest", "vault"),
+                            "error": str(exc), "partial_apply": True}]}
+    return dict(plan.result)
+
+
+def migrate_vault(vault_root, router=None, dry_run=False):
+    """Plan and apply naming migration against one consistent starting namespace."""
+    return apply_naming_migration(vault_root, plan_naming_migration(vault_root, router, dry_run))
 
 
 # ---------------------------------------------------------------------------

@@ -46,6 +46,9 @@ def execute_render(
         )
 
     if context.dry_run:
+        if context.admission is not None:
+            with vault_mutation_lock(root):
+                _render_plan_and_admit(context, request)
         return Ok(
             request.COMMAND_ID,
             request.COMMAND_VERSION,
@@ -61,7 +64,8 @@ def execute_render(
 
     try:
         with vault_mutation_lock(root):
-            result = invoke(root)
+            options = _render_plan_and_admit(context, request)
+            result = invoke(root, **options)
     except MutationLockError as exc:
         return no_effect_error(
             type(request),
@@ -108,6 +112,18 @@ def execute_render(
     )
 
 
+def _render_plan_and_admit(context, request):
+    if context.admission is None:
+        return {}
+    from .preparation import admit_owner
+    from .shaping._render_preparation import render_plan, render_binding
+    plan, frozen = render_plan(context, request, frozen_inputs=context.admission.frozen_inputs)
+    def binding(context, request, *, frozen_inputs=None):
+        return render_binding(context, request, plan=plan, frozen_inputs=frozen)
+    admit_owner(context, request, binding)
+    return {"_plan": plan}
+
+
 def _render_effects(command_id: str, result: Mapping[str, object]):
     subjects: list[str] = []
     path = result.get("path")
@@ -136,8 +152,10 @@ def optional_string(value: object, field: str) -> str | None:
 
 def catalogue_entry(request_type, executor):
     from .catalogue import ALL_APPLICATION_PROJECTIONS, ApplicationEntry
+    from .shaping._render_preparation import RENDER
 
     return ApplicationEntry(
+        preparation=RENDER,
         request_type=request_type,
         executor=executor,
         dependency_tier=DependencyTier.MANAGED,
