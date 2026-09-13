@@ -2,6 +2,7 @@
 
 **Status:** Implemented (v0.57.0)
 **Extends:** DD-033, DD-044, DD-061
+**Superseding decision:** [DD-073](dd-073-instance-owned-agent-authorisation.md), accepted; runtime cutover pending
 
 ## Context
 
