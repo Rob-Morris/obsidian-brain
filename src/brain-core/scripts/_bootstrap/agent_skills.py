@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from _bootstrap.mcp_transport import SUPPORTED_CLIENTS
-from _common import safe_write, safe_write_json
+from _common import INCIDENTAL_ENTRIES, safe_write, safe_write_json
 
 if TYPE_CHECKING:
     from _skill_library.models import PackageSnapshot
@@ -26,7 +26,6 @@ MARKER_FILE = ".brain-agent-skill.json"
 MARKER_OWNER = "obsidian-brain"
 MARKER_KIND = "active-brain-skill-adapter"
 MARKER_SCHEMA_VERSION = 1
-INCIDENTAL_ENTRIES = {".DS_Store", "Thumbs.db"}
 ADAPTER_TEMPLATE_REL = Path("client-adapters") / ADAPTER_SKILL / "SKILL.md"
 ADAPTER_TEMPLATE_FILE = Path(__file__).resolve().parents[2] / ADAPTER_TEMPLATE_REL
 

@@ -48,6 +48,10 @@ REPAIR_SCOPES = {
         "description": "Repair semantic runtime provisioning and embeddings sidecars for this vault.",
         "check_message": "Semantic retrieval is configured on but the local semantic runtime is unavailable or stale.",
     },
+    "empty_folders": {
+        "description": "Remove vacated-empty artefact folders (junk-only contents) under type roots and _Archive.",
+        "check_message": "Vacated-empty artefact folders are stranded under type roots or _Archive.",
+    },
 }
 
 

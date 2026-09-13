@@ -459,36 +459,262 @@ def iter_living_markdown_files(vault_root, router, *, include_status_folders=Fal
     )
 
 
-def owner_folder_stop_dirs(vault_root, router):
-    """Return directories where vacated owner-folder pruning must stop."""
-    stop_dirs = {os.path.abspath(vault_root)}
+def artefact_territory_roots(vault_root, router):
+    """Return the absolute roots of artefact territory: type roots plus ``_Archive``.
+
+    Owner-folder pruning and the empty-folder scan both operate only inside
+    these roots, so the two can never disagree about where artefact space ends.
+    """
+    roots = set()
     for artefact in (router or {}).get("artefacts", []):
         path = artefact.get("path")
         if path:
-            stop_dirs.add(os.path.abspath(os.path.join(vault_root, path)))
-    stop_dirs.add(os.path.abspath(os.path.join(vault_root, "_Archive")))
-    return stop_dirs
+            roots.add(os.path.abspath(os.path.join(vault_root, path)))
+    roots.add(os.path.abspath(os.path.join(vault_root, "_Archive")))
+    return roots
+
+
+def owner_folder_stop_dirs(vault_root, router):
+    """Return directories where vacated owner-folder pruning must stop."""
+    return artefact_territory_roots(vault_root, router) | {os.path.abspath(vault_root)}
+
+
+def _is_within(path, root):
+    """Return True when ``path`` is ``root`` or lies beneath it (path-aware, not a prefix test)."""
+    try:
+        return os.path.commonpath([path, root]) == root
+    except ValueError:
+        return False
+
+
+def _rmdir_empty_subtree(directory):
+    """Remove every rmdir-empty directory strictly beneath ``directory``, deepest first.
+
+    ``os.rmdir`` is the atomic emptiness check: any real content, including
+    junk such as ``.DS_Store``, leaves that branch in place. Symlinked
+    directories are neither followed nor removed. ``directory`` itself is left
+    to the caller.
+    """
+    for dirpath, _dirnames, _filenames in os.walk(directory, topdown=False):
+        if dirpath == directory:
+            continue
+        try:
+            os.rmdir(dirpath)
+        except OSError:
+            continue
 
 
 def prune_vacated_owner_folders(vault_root, source_paths, router):
-    """Remove empty owner folders vacated by a successful move set.
+    """Remove rmdir-empty owner folders vacated by a successful move or delete set.
 
-    Pruning is intentionally rmdir-only and bounded by artefact type roots and
-    ``_Archive``. Non-empty directories and type roots are left untouched.
+    Two notions of "empty" exist in this module. This helper uses
+    *rmdir-emptiness*: it never unlinks a file, so junk such as ``.DS_Store``
+    counts as content and blocks a branch silently. The explicit
+    ``empty_folders`` repair (``scan_empty_artefact_folders`` /
+    ``remove_empty_artefact_folders``) is the only path that treats junk as
+    removable, and only after a dry run.
+
+    Bounds:
+
+    - A vacated directory outside artefact territory (type roots and
+      ``_Archive`` — see ``artefact_territory_roots``) is skipped entirely, so
+      attachment scopes under ``_Assets`` and configuration under ``_Config``
+      are never touched and callers need no filtering of their own.
+    - Within territory, empty subdirectories of the vacated directory are
+      removed deepest-first, then the directory and its ancestors are removed
+      upward until the first non-empty directory or stop dir (type root,
+      ``_Archive``, vault root). The subtree pass is skipped when the vacated
+      directory is a stop dir or an ``_Archive/<type>`` mirror root, so an
+      unrelated move out of a root never sweeps that root's other empty
+      folders.
+
+    Each distinct vacated directory is processed once however many sources it
+    contributed. Filesystem failures are never raised: a committed move set
+    must not turn into a reported failure because tidying could not finish.
     """
-    stop_dirs = owner_folder_stop_dirs(vault_root, router)
+    roots = artefact_territory_roots(vault_root, router)
     vault_abs = os.path.abspath(vault_root)
-    for source_path in source_paths:
-        current = os.path.abspath(os.path.join(vault_root, os.path.dirname(source_path)))
-        while current not in stop_dirs and current.startswith(vault_abs):
+    stop_dirs = roots | {vault_abs}
+    archive_root = os.path.abspath(os.path.join(vault_root, "_Archive"))
+    descent_stops = stop_dirs | {
+        os.path.join(archive_root, os.path.relpath(root, vault_abs))
+        for root in roots
+        if root != archive_root
+    }
+    vacated = dict.fromkeys(
+        os.path.abspath(os.path.join(vault_root, os.path.dirname(source_path)))
+        for source_path in source_paths
+    )
+    for current in vacated:
+        if not any(_is_within(current, root) for root in roots):
+            continue
+        if current not in descent_stops and not os.path.islink(current):
+            _rmdir_empty_subtree(current)
+        while current not in stop_dirs and _is_within(current, vault_abs):
             try:
                 os.rmdir(current)
             except OSError:
                 break
-            parent = os.path.dirname(current)
-            if parent == current:
-                break
-            current = parent
+            current = os.path.dirname(current)
+
+
+INCIDENTAL_ENTRIES = frozenset({".DS_Store", "Thumbs.db"})
+"""Filesystem junk that the empty-folder scan treats as removable, not as content."""
+
+
+def _is_scannable_child_dir(entry, boundaries):
+    """Return True for a plain, visible directory that is not itself a territory root."""
+    return (
+        not entry.is_symlink()
+        and entry.is_dir(follow_symlinks=False)
+        and not entry.name.startswith(".")
+        and os.path.abspath(entry.path) not in boundaries
+    )
+
+
+def _classify_empty_folder(abs_dir, vault_root, boundaries):
+    """Classify ``abs_dir`` for the empty-folder scan.
+
+    Returns ``(finding, descendants)``: ``finding`` describes ``abs_dir`` when
+    it is vacated-empty (every entry is junk or a vacated-empty subdirectory),
+    listing every directory (itself first, pre-order) and junk file its
+    removal would take; otherwise ``finding`` is ``None`` and ``descendants``
+    holds the maximal vacated-empty directories found beneath it. Symlinks,
+    ``.``-prefixed directories and other territory roots count as content.
+    Raises ``OSError`` when a directory cannot be read.
+    """
+    directories = [os.path.relpath(abs_dir, vault_root)]
+    junk_files = []
+    vacated_children = []
+    descendants = []
+    vacated = True
+    for entry in list(os.scandir(abs_dir)):
+        if entry.is_symlink():
+            vacated = False
+            continue
+        if entry.is_dir(follow_symlinks=False):
+            if not _is_scannable_child_dir(entry, boundaries):
+                vacated = False
+                continue
+            child, found = _classify_empty_folder(entry.path, vault_root, boundaries)
+            if child is not None:
+                vacated_children.append(child)
+            else:
+                vacated = False
+                descendants.extend(found)
+            continue
+        if entry.name in INCIDENTAL_ENTRIES:
+            junk_files.append(os.path.relpath(entry.path, vault_root))
+            continue
+        vacated = False
+    if vacated:
+        for child in vacated_children:
+            directories.extend(child["directories"])
+            junk_files.extend(child["junk_files"])
+        return {
+            "path": directories[0],
+            "directories": directories,
+            "junk_files": junk_files,
+        }, []
+    # A vacated child beneath a parent that holds content is itself maximal.
+    return None, vacated_children + descendants
+
+
+def scan_empty_artefact_folders(vault_root, router, *, unreadable=None):
+    """Return maximal vacated-empty directories under type roots and ``_Archive``.
+
+    A directory is *vacated-empty* when every entry is an incidental junk file
+    (``INCIDENTAL_ENTRIES``) or a vacated-empty subdirectory — deliberately
+    looser than the rmdir-emptiness the move engine uses, because this scan
+    feeds an explicit, dry-run-first repair. Scan roots are
+    ``artefact_territory_roots``; the roots themselves are never reported, and
+    symlinks, ``.``-prefixed directories and any other root met during the
+    descent count as content. Other ``_``-prefixed children are descended so
+    legacy ``<Type>/_Archive`` shapes are covered.
+
+    Directories the scan cannot read are appended (vault-relative) to
+    ``unreadable`` when a list is given, otherwise skipped silently — the
+    ``info``-level check tolerates under-reporting; the repair must not.
+    Results are sorted by path.
+    """
+    vault_root = str(vault_root)
+    roots = artefact_territory_roots(vault_root, router)
+    findings = []
+    for root in sorted(roots):
+        if not os.path.isdir(root) or os.path.islink(root):
+            continue
+        try:
+            entries = list(os.scandir(root))
+        except OSError:
+            if unreadable is not None:
+                unreadable.append(os.path.relpath(root, vault_root))
+            continue
+        for entry in entries:
+            if not _is_scannable_child_dir(entry, roots):
+                continue
+            try:
+                finding, found = _classify_empty_folder(entry.path, vault_root, roots)
+            except OSError:
+                if unreadable is not None:
+                    unreadable.append(os.path.relpath(entry.path, vault_root))
+                continue
+            findings.extend([finding] if finding is not None else found)
+    findings.sort(key=lambda item: item["path"])
+    return findings
+
+
+def remove_empty_artefact_folders(vault_root, router, paths):
+    """Remove previously scanned vacated-empty folders, re-verifying each first.
+
+    Removal is driven entirely by a fresh classification of each path
+    immediately before deletion, never by the earlier scan: a directory that
+    has since gained content, vanished, or stopped being a plain directory is
+    reported ``skipped`` and left untouched. Junk files are removed first,
+    then the recorded directories deepest-first. Returns one outcome per path:
+    ``{"path", "status": "removed" | "skipped" | "failed", "reason",
+    "removed": [entries actually removed]}``.
+    """
+    vault_root = str(vault_root)
+    boundaries = artefact_territory_roots(vault_root, router)
+    outcomes = []
+
+    def outcome(path, status, reason=None, removed=()):
+        outcomes.append({
+            "path": path,
+            "status": status,
+            "reason": reason,
+            "removed": list(removed),
+        })
+
+    for rel_path in paths:
+        abs_dir = os.path.join(vault_root, rel_path)
+        if os.path.islink(abs_dir) or (os.path.lexists(abs_dir) and not os.path.isdir(abs_dir)):
+            outcome(rel_path, "skipped", "path is no longer a plain directory")
+            continue
+        if not os.path.isdir(abs_dir):
+            outcome(rel_path, "skipped", "directory no longer exists")
+            continue
+        try:
+            finding, _descendants = _classify_empty_folder(abs_dir, vault_root, boundaries)
+        except OSError as exc:
+            outcome(rel_path, "failed", f"could not re-scan: {exc}")
+            continue
+        if finding is None:
+            outcome(rel_path, "skipped", "directory is no longer vacated-empty")
+            continue
+        removed = []
+        try:
+            for rel_file in finding["junk_files"]:
+                os.remove(os.path.join(vault_root, rel_file))
+                removed.append(rel_file)
+            for rel_dir in reversed(finding["directories"]):
+                os.rmdir(os.path.join(vault_root, rel_dir))
+                removed.append(rel_dir)
+        except OSError as exc:
+            outcome(rel_path, "failed", str(exc), removed)
+            continue
+        outcome(rel_path, "removed", None, removed)
+    return outcomes
 
 
 def ensure_tags_list(fields):

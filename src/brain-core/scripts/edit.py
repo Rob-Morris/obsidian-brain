@@ -53,7 +53,6 @@ from _common import (
     parent_chain_entries,
     parse_leading_frontmatter,
     parse_frontmatter,
-    prune_vacated_owner_folders,
     read_exact_file_content,
     read_file_content,
     replace_artefact_key_references,
@@ -1614,7 +1613,10 @@ def _maybe_restructure_living_ownership(vault_root, router, path, art, old_field
     if real_moves:
         try:
             result = move_and_update_links(
-                vault_root, real_moves, allow_attachment_paths=True
+                vault_root,
+                real_moves,
+                allow_attachment_paths=True,
+                prune_router=router,
             )
         except PartialApplyError as exc:
             metadata_written = [op["path"] for op in write_ops]
@@ -1622,15 +1624,6 @@ def _maybe_restructure_living_ownership(vault_root, router, path, art, old_field
                 "ownership mutation partially applied — "
                 f"metadata files written {metadata_written}; move failure: {exc}"
             ) from exc
-        prune_vacated_owner_folders(
-            vault_root,
-            [
-                move["source"]
-                for move in result.get("applied", [])
-                if not move["source"].startswith("_Assets/Attachments/")
-            ],
-            router,
-        )
         _prune_committed_attachment_scope_move(
             vault_root,
             old_key,
@@ -1658,10 +1651,12 @@ def _prune_committed_attachment_scope_move(
         ) from exc
 
 
-def _maybe_status_move(vault_root, path, terminal_statuses, frontmatter_changes):
+def _maybe_status_move(vault_root, path, terminal_statuses, frontmatter_changes, router):
     """If frontmatter_changes sets a terminal status, move file to +Status/ folder.
 
-    Returns new path if moved, or original path if not.
+    Returns new path if moved, or original path if not. The vacated
+    ``+Status/`` folder (and any empty owner folders above it) is pruned
+    through the move engine.
     """
     if not frontmatter_changes or "status" not in frontmatter_changes:
         return path
@@ -1693,16 +1688,7 @@ def _maybe_status_move(vault_root, path, terminal_statuses, frontmatter_changes)
     else:
         return path
 
-    rename_and_update_links(vault_root, path, new_path)
-
-    # Clean up empty +Status/ folder after revive
-    if parent_name.startswith("+"):
-        abs_old_dir = os.path.join(vault_root, parent_dir)
-        try:
-            os.rmdir(abs_old_dir)  # only removes if empty
-        except OSError:
-            pass
-
+    rename_and_update_links(vault_root, path, new_path, prune_router=router)
     return new_path
 
 
@@ -1820,7 +1806,9 @@ def _finish_artefact(vault_root, router, abs_path, fields, old_body, new_body, p
         _save_artefact(abs_path, fields, new_body, vault_root)
     try:
         if should_check_temporal_relocation and temporal_relocation_path != path:
-            rename_and_update_links(vault_root, path, temporal_relocation_path)
+            rename_and_update_links(
+                vault_root, path, temporal_relocation_path, prune_router=router
+            )
             path = temporal_relocation_path
             abs_path = os.path.join(vault_root, path)
         if old_fields is not None and not ownership_handled:
@@ -1829,7 +1817,9 @@ def _finish_artefact(vault_root, router, abs_path, fields, old_body, new_body, p
                 path = new_path
                 abs_path = os.path.join(vault_root, path)
         terminal = (art.get("frontmatter") or {}).get("terminal_statuses")
-        path = _maybe_status_move(vault_root, path, terminal, frontmatter_changes)
+        path = _maybe_status_move(
+            vault_root, path, terminal, frontmatter_changes, router=router
+        )
     except (PartialApplyError, FileNotFoundError, FileExistsError, ValueError, OSError) as exc:
         raise PartialApplyError(
             f"{operation} partially applied — metadata file written {path}; "
@@ -2248,7 +2238,10 @@ def convert_artefact(vault_root, router, path, target_type, parent=None, recursi
     if real_moves:
         try:
             result = move_and_update_links(
-                vault_root, real_moves, allow_attachment_paths=True
+                vault_root,
+                real_moves,
+                allow_attachment_paths=True,
+                prune_router=router,
             )
         except PartialApplyError as exc:
             metadata_written = [op["path"] for op in write_ops]
@@ -2257,15 +2250,6 @@ def convert_artefact(vault_root, router, path, target_type, parent=None, recursi
                 f"metadata files written {metadata_written}; move failure: {exc}"
             ) from exc
         links_updated = result["links_updated"]
-        prune_vacated_owner_folders(
-            vault_root,
-            [
-                move["source"]
-                for move in result.get("applied", [])
-                if not move["source"].startswith("_Assets/Attachments/")
-            ],
-            router,
-        )
         _prune_committed_attachment_scope_move(
             vault_root,
             old_key,
@@ -2462,18 +2446,15 @@ def reparent_children(vault_root, router, source, to_marker=None, *, to_provided
     links_updated = 0
     if real_moves:
         try:
-            result = move_and_update_links(vault_root, real_moves)
+            result = move_and_update_links(
+                vault_root, real_moves, prune_router=router
+            )
         except PartialApplyError as exc:
             raise PartialApplyError(
                 "reparent partially applied — "
                 f"metadata files written {written}; move failure: {exc}"
             ) from exc
         links_updated = result["links_updated"]
-        prune_vacated_owner_folders(
-            vault_root,
-            [move["source"] for move in result.get("applied", [])],
-            router,
-        )
 
     return {
         "source": source_path,
@@ -2530,17 +2511,13 @@ def archive_artefact(vault_root, router, path, recursive=False):
             vault_root,
             moves,
             allow_archive_paths=True,
+            prune_router=router,
         )
     except PartialApplyError as exc:
         raise PartialApplyError(
             "archive partially applied — "
             f"metadata files written {written}; move failure: {exc}"
         ) from exc
-    prune_vacated_owner_folders(
-        vault_root,
-        [move["source"] for move in result.get("applied", [])],
-        router,
-    )
 
     return {
         "old_path": path,
@@ -2669,8 +2646,10 @@ def unarchive_artefact(vault_root, router, path, recursive=False):
             ) from exc
     try:
         result = move_and_update_links(
-            vault_root, moves,
+            vault_root,
+            moves,
             allow_archive_paths=True,
+            prune_router=router,
         )
     except (PartialApplyError, FileNotFoundError, FileExistsError, ValueError, OSError) as exc:
         raise PartialApplyError(

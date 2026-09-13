@@ -32,6 +32,7 @@ from _common import (
     MutationLockError,
     public_mutation_error_message,
     parse_frontmatter,
+    prune_vacated_owner_folders,
     replace_wikilinks_in_vault,
     resolve_and_check_bounds,
     validate_artefact_folder,
@@ -188,15 +189,13 @@ def move_destination_collision(vault_root, source, dest, sources, *, source_ids=
 def preflight_move_set(
     vault_root,
     moves,
-    router=None,
     *,
     allow_archive_paths=False,
     allow_attachment_paths=False,
 ):
     """Validate a batch move set before any link rewrite or filesystem move.
 
-    ``router`` is accepted for compatibility with older callers; path-only
-    move safety is independent of router state.
+    Path-only move safety is independent of router state.
     """
     planned = []
     seen_sources = set()
@@ -265,7 +264,6 @@ def preflight_rename_move_set(
     planned = preflight_move_set(
         vault_root,
         moves,
-        router=None,
         allow_archive_paths=allow_archive_paths,
     )
     if router is not None:
@@ -376,10 +374,10 @@ def _combined_delete_wikilink_plan(paths, basename_counts):
 def move_and_update_links(
     vault_root,
     moves,
-    router=None,
     *,
     allow_archive_paths=False,
     allow_attachment_paths=False,
+    prune_router=None,
 ):
     """Execute a batch file move set with one combined wikilink rewrite pass.
 
@@ -388,13 +386,18 @@ def move_and_update_links(
     cannot read. If a later move fails, the raised error reports which moves
     already committed so an operator can finish or repair the move set.
 
-    ``router`` is accepted for compatibility with older callers; destination
-    naming validation belongs in ``preflight_rename_move_set``.
+    Pruning is opt-in: when ``prune_router`` is given, the vacated source
+    directories are pruned through ``prune_vacated_owner_folders`` once every
+    move has committed — ``rmdir``-only, bounded to artefact territory (type
+    roots and ``_Archive``), so attachment scopes under ``_Assets`` are never
+    touched. It never runs after a ``PartialApplyError``. Across this module
+    ``router`` means validation or gating only and ``prune_router`` means
+    prune: ``rename_and_update_links`` callers such as ``migrate_to_0_31_0``
+    pass ``router=`` for naming validation and must not start pruning.
     """
     planned = preflight_move_set(
         vault_root,
         moves,
-        router=None,
         allow_archive_paths=allow_archive_paths,
         allow_attachment_paths=allow_attachment_paths,
     )
@@ -422,6 +425,11 @@ def move_and_update_links(
             ) from exc
         applied.append({"source": move["source"], "dest": move["dest"]})
 
+    if prune_router is not None:
+        prune_vacated_owner_folders(
+            vault_root, [move["source"] for move in applied], prune_router
+        )
+
     return {
         "moves": [
             {"source": move["source"], "dest": move["dest"]}
@@ -439,6 +447,7 @@ def rename_and_update_links(
     router=None,
     *,
     allow_archive_paths=False,
+    prune_router=None,
 ):
     """Rename a file and update wikilinks via grep-and-replace.
 
@@ -450,10 +459,14 @@ def rename_and_update_links(
                 filename is validated against the target type's naming
                 contract using the source file's current frontmatter state.
                 ``_Archive/`` destinations are exempt (they carry an archival
-                prefix outside the naming contract).
+                prefix outside the naming contract). Passing ``router`` does
+                *not* prune; see ``prune_router``.
         allow_archive_paths: Allow internal archive/unarchive flows to move
                 into or out of ``_Archive/`` while keeping the default rename
                 contract stricter for direct callers.
+        prune_router: Optional compiled router that opts in to pruning the
+                vacated source directory after the move (see
+                ``move_and_update_links``).
 
     Returns:
         Number of wikilinks updated across all files.
@@ -473,8 +486,8 @@ def rename_and_update_links(
     result = move_and_update_links(
         vault_root,
         [{"source": source, "dest": dest}],
-        router=router,
         allow_archive_paths=allow_archive_paths,
+        prune_router=prune_router,
     )
     return result["links_updated"]
 
@@ -504,6 +517,7 @@ def rename_artefact(vault_root, router, source, dest):
         source,
         dest,
         router=router,
+        prune_router=router,
     )
     return {
         "old_path": source,
@@ -575,6 +589,7 @@ def delete_and_clean_links(
     recursive=False,
     *,
     return_details=False,
+    prune_router=None,
 ):
     """Delete a file and replace wikilinks with strikethrough text.
 
@@ -588,6 +603,9 @@ def delete_and_clean_links(
                 Router-less delete does not gate descendants and is only for
                 primitive/leaf deletion paths.
         recursive: When true, delete the living descendant subtree as well.
+        prune_router: Optional compiled router that opts in to pruning the
+                vacated owner folders once every file has been removed (see
+                ``move_and_update_links``); never runs after a partial delete.
 
     Returns:
         Number of wikilinks replaced across all files.
@@ -637,6 +655,8 @@ def delete_and_clean_links(
                 f"removed {removed}, failed at {rel_path}: {exc}"
             ) from exc
         removed.append(rel_path)
+    if prune_router is not None:
+        prune_vacated_owner_folders(vault_root, removed, prune_router)
     if return_details:
         return {
             "links_replaced": links_replaced,
@@ -676,7 +696,9 @@ def main(argv=None):
 
     try:
         with vault_mutation_lock(vault_root):
-            links_updated = rename_and_update_links(vault_root, source, dest, router=router)
+            links_updated = rename_and_update_links(
+                vault_root, source, dest, router=router, prune_router=router,
+            )
     except (MutationLockError, FileNotFoundError, ValueError, PartialApplyError, OSError) as e:
         message = public_mutation_error_message(e)
         if args.json:

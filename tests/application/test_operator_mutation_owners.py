@@ -174,6 +174,51 @@ def test_ownership_repair_projects_authoritative_parent(command_vault_clone):
     assert source.is_file()
 
 
+def test_ownership_repair_prunes_the_folder_it_vacates(command_vault_clone):
+    root = command_vault_clone.vault_root
+    source = root / DESIGN
+    stale_dir = source.parent / "stale"
+    stale_dir.mkdir()
+    source.rename(stale_dir / source.name)
+    router = compile_router.compile(str(root))
+    compile_router.persist_compiled_router(str(root), router)
+
+    result = application_for(root).invoke(
+        ArtefactRepairRequest(ArtefactRepairScope.OWNERSHIP)
+    )
+
+    assert result.status == "ok"
+    assert source.is_file()
+    assert not stale_dir.exists(), "ownership repair must prune the folder it vacates"
+    assert source.parent.is_dir()
+
+
+def test_empty_folders_repair_removes_vacated_owner_folder(command_vault_clone):
+    root = command_vault_clone.vault_root
+    stale = root / "Designs" / "project~command-fixture" / "stale" / "+Adopted"
+    stale.mkdir(parents=True)
+    (stale.parent / ".DS_Store").write_bytes(b"\x00")
+
+    preview = application_for(root, dry_run=True).invoke(
+        ArtefactRepairRequest(ArtefactRepairScope.EMPTY_FOLDERS)
+    )
+    assert preview.status == "ok"
+    assert preview.result.status.value == "planned"
+    assert "Designs/project~command-fixture/stale/+Adopted/" in preview.result.notes
+    assert stale.is_dir()
+
+    result = application_for(root).invoke(
+        ArtefactRepairRequest(ArtefactRepairScope.EMPTY_FOLDERS)
+    )
+
+    assert result.status == "ok"
+    assert result.result.scope == "empty_folders"
+    assert result.result.status.value == "ok"
+    assert result.committed_effects[0].kind == "artefact.repair"
+    assert not stale.parent.exists()
+    assert (root / DESIGN).is_file()
+
+
 def test_naming_migration_previews_and_applies_canonical_filename(
     command_vault_clone,
 ):
@@ -220,7 +265,7 @@ def test_artefact_repair_requires_one_explicit_scope():
     assert resolver.resolve(
         "artefact.repair", {"scope": "frontmatter"}
     ).scope is ArtefactRepairScope.FRONTMATTER
-    with pytest.raises(ValueError, match="frontmatter or ownership"):
+    with pytest.raises(ValueError, match="empty_folders"):
         resolver.resolve("artefact.repair", {"scope": "all"})
 
 
@@ -250,6 +295,11 @@ def test_artefact_repair_requires_one_explicit_scope():
         (
             "artefact.repair",
             {"scope": "ownership"},
+            ArtefactRepairRequest,
+        ),
+        (
+            "artefact.repair",
+            {"scope": "empty_folders"},
             ArtefactRepairRequest,
         ),
     ),

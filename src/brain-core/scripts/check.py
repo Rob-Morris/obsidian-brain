@@ -51,6 +51,7 @@ from _common import (
     validate_artefact_folder,
     validate_filename,
     resolve_and_validate_folder,
+    scan_empty_artefact_folders,
 )
 from _lifecycle.frontmatter_repairs import iter_candidate_artefact_markdown_files
 from _repair_common import attach_repair_guidance
@@ -655,6 +656,29 @@ def check_month_folders(vault_root, router, *, ctx=None):
     return findings
 
 
+def check_empty_folders(vault_root, router, *, ctx=None):
+    """Report vacated-empty artefact folders under type roots and ``_Archive``.
+
+    Severity is ``info``: an empty owner or status folder is harmless clutter
+    that may also be intentional, so it never fails a clean-vault exit code.
+    Each finding is repairable through the ``empty_folders`` scope.
+    """
+    findings = []
+    for entry in scan_empty_artefact_folders(vault_root, router):
+        finding = {
+            "check": "empty_folders",
+            "severity": "info",
+            "file": entry["path"],
+            "message": (
+                "Empty artefact folder (junk-only contents) — "
+                "remove via repair if unintentional."
+            ),
+            "repairable": True,
+        }
+        findings.append(attach_repair_guidance(finding, vault_root, "empty_folders"))
+    return findings
+
+
 def check_status_folders(vault_root, router, *, ctx=None):
     """Warn when living artefacts drift into or out of terminal-status folders."""
     findings = []
@@ -912,6 +936,7 @@ ALL_CHECKS = [
     check_authoring_hint_tokens,
     check_parent_contract,
     check_month_folders,
+    check_empty_folders,
     check_status_folders,
     check_archive_metadata,
     check_status_values,

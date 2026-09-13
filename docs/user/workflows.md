@@ -306,9 +306,11 @@ The Brain includes a structural compliance checker (`check.py`) that validates e
 
 When compliance detects shaped drift — including valid parent metadata whose
 folder projection was changed out-of-band in Obsidian — it points at the exact
-repair command. `brain artefact repair-ownership --dry-run --json` previews the metadata-
-authoritative move set; apply it explicitly after review. Brain never infers a
-missing parent field from folder structure.
+repair command. `brain artefact repair --request-json '{"scope":"ownership"}' --dry-run --json`
+previews the metadata-authoritative move set; apply it explicitly after review.
+Brain never infers a missing parent field from folder structure. Lifecycle moves
+prune the owner folders they vacate; `vault.check` reports any that remain as
+`info` findings, and the `empty_folders` repair scope clears them.
 
 ### Agents Edit Without Losing Concurrent Changes
 

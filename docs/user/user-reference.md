@@ -1,6 +1,6 @@
 # Brain Reference
 
-This page is the stable user-facing reference for Brain Core 0.66.0 and CLI 3.2.0. Exact command schemas, examples and availability come from the installed Brain rather than a duplicated hand-maintained inventory.
+This page is the stable user-facing reference for Brain Core 0.66.1 and CLI 3.2.1. Exact command schemas, examples and availability come from the installed Brain rather than a duplicated hand-maintained inventory.
 
 Document changes use a read–mutate loop. Read an editable artefact or named
 resource, retain its returned `revision`, then pass that value as
@@ -176,7 +176,15 @@ brain retrieval refresh-lexical --vault /path/to/brain --request-json '{"force":
 brain retrieval repair-semantic --vault /path/to/brain --json
 brain workspace repair-registry --vault /path/to/brain --json
 brain mcp repair --vault /path/to/brain --json
+brain artefact repair --vault /path/to/brain --request-json '{"scope":"empty_folders"}' --dry-run --json
 ```
+
+`artefact.repair` takes one explicit scope: `frontmatter`, `ownership` or
+`empty_folders`. The `empty_folders` scope removes vacated-empty artefact
+folders (folders holding nothing but empty folders and filesystem junk such as
+`.DS_Store`) under type roots and `_Archive`; `vault.check` reports them as
+`info` findings. Type roots and `_Archive` itself are never removed, and a
+folder that gains content between the check and the repair is skipped.
 
 `brain doctor` also reports the physical memory footprint of live Brain runtime processes (`machine.memory` in the JSON result) and warns when one process exceeds 512 MB or the total exceeds 2 GB. A session server that has answered semantic queries sits near 200 MB; anything heavier means a corpus encode or a heavyweight runtime is resident in a long-lived process, and restarting that MCP session reclaims it.
 

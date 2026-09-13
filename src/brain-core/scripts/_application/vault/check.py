@@ -23,9 +23,10 @@ class CheckSeverity(str, Enum):
 
 
 _REPAIR_COMMANDS = {
+    "empty_folders": "artefact.repair",
     "frontmatter": "artefact.repair",
     "lexical": "retrieval.refresh-lexical",
-    "mcp": "brain.repair-mcp",
+    "mcp": "mcp.repair",
     "ownership": "artefact.repair",
     "registry": "workspace.repair-registry",
     "router": "runtime.refresh-router",

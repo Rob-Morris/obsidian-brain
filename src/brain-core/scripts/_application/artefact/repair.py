@@ -19,6 +19,10 @@ from ..context import InvocationContext
 class ArtefactRepairScope(str, Enum):
     FRONTMATTER = "frontmatter"
     OWNERSHIP = "ownership"
+    EMPTY_FOLDERS = "empty_folders"
+
+
+_SCOPE_CHOICES = ", ".join(item.value for item in ArtefactRepairScope)
 
 
 @dataclass(frozen=True, slots=True)
@@ -37,12 +41,12 @@ class ArtefactRepairRequest:
 def execute(context: InvocationContext, request: ArtefactRepairRequest):
     import _repair_runtime
 
-    operation = (
-        _repair_runtime.repair_frontmatter
-        if request.scope is ArtefactRepairScope.FRONTMATTER
-        else _repair_runtime.repair_ownership_locked
-    )
-    return execute_repair(context, request, operation=operation)
+    operations = {
+        ArtefactRepairScope.FRONTMATTER: _repair_runtime.repair_frontmatter_locked,
+        ArtefactRepairScope.OWNERSHIP: _repair_runtime.repair_ownership_locked,
+        ArtefactRepairScope.EMPTY_FOLDERS: _repair_runtime.repair_empty_folders_locked,
+    }
+    return execute_repair(context, request, operation=operations[request.scope])
 
 
 def decode(payload: Mapping[str, object]) -> ArtefactRepairRequest:
@@ -54,7 +58,7 @@ def decode(payload: Mapping[str, object]) -> ArtefactRepairRequest:
         return ArtefactRepairRequest(ArtefactRepairScope(scope))
     except ValueError as exc:
         if scope not in {item.value for item in ArtefactRepairScope}:
-            raise ValueError("scope must be frontmatter or ownership") from exc
+            raise ValueError(f"scope must be one of: {_SCOPE_CHOICES}") from exc
         raise
 
 

@@ -11,7 +11,7 @@ Bootstrap layer:
 Runtime layer:
   - runs inside the central managed runtime
   - performs named repair scopes: runtime, mcp, router, lexical, registry, frontmatter,
-    semantic
+    ownership, semantic, empty_folders
   - every scope may rely on the shared managed-runtime owner to recover a
     usable managed interpreter path; scope-specific requirements only control
     extra managed-package needs beyond that bootstrap

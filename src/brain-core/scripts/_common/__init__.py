@@ -72,6 +72,8 @@ from ._artefacts import (
     iter_living_markdown_files,
     iter_markdown_under,
     parse_scalar_index_date,
+    INCIDENTAL_ENTRIES,
+    artefact_territory_roots,
     finalize_living_artefact_index,
     living_key_set,
     living_artefact_index_entry,
@@ -82,6 +84,7 @@ from ._artefacts import (
     parent_chain_error_message,
     parse_date_value,
     parse_artefact_key,
+    remove_empty_artefact_folders,
     prune_vacated_owner_folders,
     read_exact_file_content,
     read_file_content,
@@ -95,6 +98,7 @@ from ._artefacts import (
     resolve_type,
     scan_artefact_key_reference_index,
     scan_artefact_key_references,
+    scan_empty_artefact_folders,
     terminal_status_folder,
 )
 

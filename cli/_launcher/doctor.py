@@ -351,6 +351,7 @@ class BrainDoctorRequest:
 
 
 _REPAIR_COMMANDS = {
+    "empty_folders": "artefact.repair",
     "frontmatter": "artefact.repair",
     "lexical": "retrieval.refresh-lexical",
     "mcp": "mcp.repair",

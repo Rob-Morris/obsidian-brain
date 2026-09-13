@@ -210,6 +210,13 @@ indexes. Refresh failure reports committed effects with repair guidance. AUTO
 search falls back to lexical when semantic sidecars are unavailable.
 `artefact.delete` continues to require administrator authority.
 
+Every lifecycle move — rename, convert, reparent, archive, restore, status
+move, temporal relocation and router-backed delete — prunes the owner folders
+it vacates through the shared move engine (`rmdir`-only, bounded by type roots
+and `_Archive`, never inside `_Assets/Attachments/`). `vault.check` reports any
+remaining vacated-empty artefact folder as an `info` finding, and
+`artefact.repair` scope `empty_folders` removes them after an explicit dry run.
+
 Portable `vault.check` performs active model-load verification in a bounded
 selected-managed-runtime subprocess. Warm-up uses that same managed interpreter
 entry point for semantic assets, preserving the virtual environment symlink.

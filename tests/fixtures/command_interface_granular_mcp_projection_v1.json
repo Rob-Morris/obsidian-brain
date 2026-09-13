@@ -7,13 +7,13 @@
   },
   "clients": {
     "claude-code": {
-      "catalogue_hash": "sha256:6a25031d4484f99c3e49f37424349d68f826e568218ab90dc5356207e7e5565a",
+      "catalogue_hash": "sha256:e82cfd0f511fc5fc493f152f506a8c5b27031c06059d51d2a36f47201162926a",
       "client_version": "2.1.270",
       "maximum_tool_tokens": 2252,
       "projector": "claude-code-model-tool-declaration/2.1.270",
       "projector_source": "captured model request plus deterministic replay",
-      "raw_bytes": 47229,
-      "tokens": 10224,
+      "raw_bytes": 47245,
+      "tokens": 10228,
       "tool_count": 68,
       "tools": {
         "access_reduce": {
@@ -83,10 +83,10 @@
           "tokens": 70
         },
         "artefact_repair": {
-          "projected_declaration_hash": "sha256:835c8bafe27e3410a176db55d15bec5e553b903ae4739ff830160143863cb300",
-          "raw_bytes": 256,
-          "source_schema_hash": "sha256:3bee2138f8b5defeb81bb23b73f2f9ab673f7e29ea68c9538730877dc7b74723",
-          "tokens": 59
+          "projected_declaration_hash": "sha256:53feef55fb228274246b70fafb15246cdd821fc10f3ddf54b322d5bee6a8c156",
+          "raw_bytes": 272,
+          "source_schema_hash": "sha256:ec6eff2e58bde8f15d8d1d4cf56a2a2cb2782138a5a6b9ed05767d8cea7b69a7",
+          "tokens": 63
         },
         "artefact_reparent": {
           "projected_declaration_hash": "sha256:9cb9eb23b5eb927f8442e43672aa2a03dc365eeb5b1c5e28394cce75e3880202",
@@ -428,13 +428,13 @@
       "version_command": "claude --version"
     },
     "codex-cli": {
-      "catalogue_hash": "sha256:6aaa83d61a2319837d36170ad0a08c609d71fe04e1446b45aa6deff41c39e4b5",
+      "catalogue_hash": "sha256:1ec1ef27628af9a45a2c9079d77b45d4131bc6a09a313d70387c0455542052a3",
       "client_version": "0.154.0",
       "maximum_tool_tokens": 2256,
       "projector": "codex-cli-responses-function-declaration/0.154.0",
       "projector_source": "captured model request plus deterministic replay",
-      "raw_bytes": 48719,
-      "tokens": 10443,
+      "raw_bytes": 48735,
+      "tokens": 10447,
       "tool_count": 68,
       "tools": {
         "access_reduce": {
@@ -504,10 +504,10 @@
           "tokens": 78
         },
         "artefact_repair": {
-          "projected_declaration_hash": "sha256:68b33b09f4a0a6023d7a4686aff259270924833684a2009bf43a5786640fb1e4",
-          "raw_bytes": 296,
-          "source_schema_hash": "sha256:3bee2138f8b5defeb81bb23b73f2f9ab673f7e29ea68c9538730877dc7b74723",
-          "tokens": 67
+          "projected_declaration_hash": "sha256:a2f9063f613647e535bff5991378cb8e017cf6f7a5952d116ff7bc7afde4650d",
+          "raw_bytes": 312,
+          "source_schema_hash": "sha256:ec6eff2e58bde8f15d8d1d4cf56a2a2cb2782138a5a6b9ed05767d8cea7b69a7",
+          "tokens": 71
         },
         "artefact_reparent": {
           "projected_declaration_hash": "sha256:cf52e7727fadf5ae3f46a67eb1064135646df62b8f3bf1ee34594dc6b0a7edef",
@@ -851,9 +851,9 @@
   },
   "mcp_sdk_version": "2.0.0",
   "raw_fastmcp": {
-    "catalogue_hash": "sha256:cfe11d8116505d9013d1f73f81b113622227e554cd3052555e6a89d2f732746d",
-    "raw_bytes": 46413,
-    "tokens": 9884,
+    "catalogue_hash": "sha256:6b26150d90216a06b7d052f4ebf72872f31d2cacb9ece3d5d1f9eea978d2c1cf",
+    "raw_bytes": 46429,
+    "tokens": 9888,
     "tool_count": 68
   },
   "schema": "brain.command-interface-granular-mcp-projection/1",

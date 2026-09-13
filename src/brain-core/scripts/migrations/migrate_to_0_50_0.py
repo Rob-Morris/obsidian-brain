@@ -50,7 +50,6 @@ from _common import (
     make_artefact_key,
     normalize_artefact_key,
     parse_frontmatter,
-    prune_vacated_owner_folders,
     safe_write,
     serialize_frontmatter,
     resolve_folder,
@@ -478,11 +477,7 @@ def migrate_vault(vault_root, *, apply=False, router=None):
             move_result = move_and_update_links(
                 plan.vault_root,
                 list(plan.moves),
-            )
-            prune_vacated_owner_folders(
-                plan.vault_root,
-                [move["source"] for move in move_result.get("applied", [])],
-                plan.router,
+                prune_router=plan.router,
             )
         except PartialApplyError as exc:
             result = {

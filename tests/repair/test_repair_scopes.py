@@ -326,21 +326,20 @@ class TestRepairScopes:
             lambda *_args, **_kwargs: {"moves": moves},
         )
         applied = {}
-        monkeypatch.setattr(
-            repair_runtime.edit,
-            "move_and_update_links",
-            lambda _vault, planned: applied.setdefault(
+
+        def fake_move(_vault, planned, *, prune_router=None):
+            applied["prune_router"] = prune_router
+            return applied.setdefault(
                 "result", {"moves": planned, "links_updated": 2}
-            ),
-        )
-        monkeypatch.setattr(
-            repair_runtime.edit, "prune_vacated_owner_folders", lambda *_args: None
-        )
+            )
+
+        monkeypatch.setattr(repair_runtime.edit, "move_and_update_links", fake_move)
 
         result = repair_runtime.repair_ownership(repair_vault, dry_run=False)
 
         assert result["status"] == "ok"
         assert applied["result"]["moves"] == moves
+        assert applied["prune_router"] == {}, "repair must prune through the move engine"
         assert "updated 2 wikilink" in result["steps"][-1]["message"]
 
     def test_ownership_repair_envelopes_partial_apply_failure(

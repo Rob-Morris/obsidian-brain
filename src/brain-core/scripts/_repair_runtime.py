@@ -31,6 +31,8 @@ from _common import (
     mutation_lock_error_message,
     scan_artefact_key_reference_index,
     vault_mutation_lock,
+    remove_empty_artefact_folders,
+    scan_empty_artefact_folders,
 )
 
 
@@ -267,6 +269,22 @@ def repair_registry(vault_root: Path, dry_run: bool, bootstrap_steps: list[dict]
 
 
 def repair_frontmatter(vault_root: Path, dry_run: bool, bootstrap_steps: list[dict] | None = None) -> dict:
+    """Normalise duplicate frontmatter blocks, taking the vault mutation lock."""
+    try:
+        with vault_mutation_lock(vault_root):
+            return repair_frontmatter_locked(vault_root, dry_run, bootstrap_steps)
+    except MutationLockError as exc:
+        steps = list(bootstrap_steps or [])
+        steps.append(_step("frontmatter", "error", mutation_lock_error_message(exc)))
+        return _finalise_result("frontmatter", vault_root, dry_run, steps)
+
+
+def repair_frontmatter_locked(
+    vault_root: Path,
+    dry_run: bool,
+    bootstrap_steps: list[dict] | None = None,
+) -> dict:
+    """Plan and apply frontmatter repair while the caller holds the mutation lock."""
     steps = list(bootstrap_steps or [])
     result = normalize_duplicate_frontmatter_documents(vault_root, dry_run=dry_run)
     if result["updated"] == 0:
@@ -358,7 +376,9 @@ def repair_ownership_locked(
         return _finalise_result("ownership", vault_root, dry_run, steps, notes=notes)
 
     try:
-        result = edit.move_and_update_links(str(vault_root), moves)
+        result = edit.move_and_update_links(
+            str(vault_root), moves, prune_router=router
+        )
     except PartialApplyError as exc:
         steps.append(_step("ownership", "error", str(exc)))
         return _finalise_result(
@@ -368,21 +388,6 @@ def repair_ownership_locked(
         steps.append(_step("ownership", "error", str(exc)))
         return _finalise_result("ownership", vault_root, dry_run, steps, notes=notes)
 
-    try:
-        edit.prune_vacated_owner_folders(
-            str(vault_root), [move["source"] for move in moves], router
-        )
-    except (FileNotFoundError, OSError, ValueError) as exc:
-        steps.append(
-            _step(
-                "ownership",
-                "error",
-                f"Moves applied but vacated owner folders could not be pruned: {exc}",
-            )
-        )
-        return _finalise_result(
-            "ownership", vault_root, dry_run, steps, notes=notes, status="partial"
-        )
     steps.append(
         _step(
             "ownership",
@@ -391,6 +396,113 @@ def repair_ownership_locked(
         )
     )
     return _finalise_result("ownership", vault_root, dry_run, steps, notes=notes)
+
+
+def repair_empty_folders(vault_root: Path, dry_run: bool, bootstrap_steps: list[dict] | None = None) -> dict:
+    """Remove vacated-empty artefact folders under type roots and ``_Archive``."""
+    try:
+        with vault_mutation_lock(vault_root):
+            return repair_empty_folders_locked(vault_root, dry_run, bootstrap_steps)
+    except MutationLockError as exc:
+        steps = list(bootstrap_steps or [])
+        steps.append(_step("empty_folders", "error", mutation_lock_error_message(exc)))
+        return _finalise_result("empty_folders", vault_root, dry_run, steps)
+
+
+def repair_empty_folders_locked(
+    vault_root: Path,
+    dry_run: bool,
+    bootstrap_steps: list[dict] | None = None,
+) -> dict:
+    """Plan and apply empty-folder removal while the caller holds the mutation lock.
+
+    The dry run lists every directory and junk file each maximal finding would
+    take with it. An unreadable folder aborts before any removal, because a
+    plan built from a partial scan is not one the operator previewed. On
+    apply, each finding is re-verified immediately before removal; one that
+    gained content is skipped, never deleted, and the notes report what
+    actually happened to each folder.
+    """
+    steps = list(bootstrap_steps or [])
+    router = compile_router.compile(str(vault_root))
+    unreadable: list[str] = []
+    findings = scan_empty_artefact_folders(str(vault_root), router, unreadable=unreadable)
+    if unreadable:
+        steps.append(
+            _step(
+                "empty_folders",
+                "error",
+                f"Could not read {len(unreadable)} folder(s) during the scan: "
+                + ", ".join(unreadable),
+            )
+        )
+        return _finalise_result("empty_folders", vault_root, dry_run, steps)
+    if not findings:
+        steps.append(
+            _step("empty_folders", "noop", "No vacated-empty artefact folders were found.")
+        )
+        return _finalise_result("empty_folders", vault_root, dry_run, steps)
+
+    if dry_run:
+        notes = []
+        for finding in findings:
+            notes.extend(f"{rel_dir}/" for rel_dir in finding["directories"])
+            notes.extend(finding["junk_files"])
+        directory_count = sum(len(finding["directories"]) for finding in findings)
+        junk_count = sum(len(finding["junk_files"]) for finding in findings)
+        steps.append(
+            _step(
+                "empty_folders",
+                "planned",
+                f"Would remove {len(findings)} vacated-empty folder(s): "
+                f"{directory_count} directories and {junk_count} junk file(s).",
+            )
+        )
+        return _finalise_result("empty_folders", vault_root, dry_run, steps, notes=notes)
+
+    outcomes = remove_empty_artefact_folders(
+        str(vault_root), router, [finding["path"] for finding in findings]
+    )
+    notes = [
+        f"{item['status']}: {item['path']}"
+        + (f" — {item['reason']}" if item["reason"] else "")
+        + (
+            f" (removed {len(item['removed'])} entr{'y' if len(item['removed']) == 1 else 'ies'} first)"
+            if item["status"] == "failed" and item["removed"]
+            else ""
+        )
+        for item in outcomes
+    ]
+    removed = [item for item in outcomes if item["status"] == "removed"]
+    skipped = [item for item in outcomes if item["status"] == "skipped"]
+    failed = [item for item in outcomes if item["status"] == "failed"]
+    if failed:
+        steps.append(
+            _step(
+                "empty_folders",
+                "error",
+                f"Removed {len(removed)} folder(s), skipped {len(skipped)}; "
+                f"could not remove {len(failed)}: "
+                + "; ".join(f"{item['path']}: {item['reason']}" for item in failed),
+            )
+        )
+        return _finalise_result(
+            "empty_folders", vault_root, dry_run, steps, notes=notes, status="partial"
+        )
+    if not removed:
+        steps.append(
+            _step(
+                "empty_folders",
+                "noop",
+                f"Skipped {len(skipped)} folder(s) that changed since the scan.",
+            )
+        )
+        return _finalise_result("empty_folders", vault_root, dry_run, steps, notes=notes)
+    message = f"Removed {len(removed)} vacated-empty folder(s)."
+    if skipped:
+        message += f" Skipped {len(skipped)} that changed since the scan."
+    steps.append(_step("empty_folders", "changed", message))
+    return _finalise_result("empty_folders", vault_root, dry_run, steps, notes=notes)
 
 
 def run_scope(
@@ -414,6 +526,8 @@ def run_scope(
         return repair_frontmatter(vault_root, dry_run, bootstrap_steps)
     if scope == "ownership":
         return repair_ownership(vault_root, dry_run, bootstrap_steps)
+    if scope == "empty_folders":
+        return repair_empty_folders(vault_root, dry_run, bootstrap_steps)
     if scope == "semantic":
         from _lifecycle import semantic_repairs
 

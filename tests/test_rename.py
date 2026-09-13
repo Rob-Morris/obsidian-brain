@@ -137,34 +137,36 @@ class TestRenameAndUpdateLinks:
         def fake_move_and_update_links(
             vault_root,
             moves,
-            router=None,
             *,
             allow_archive_paths=False,
+            prune_router=None,
         ):
             calls.append({
                 "vault_root": vault_root,
                 "moves": moves,
-                "router": router,
                 "allow_archive_paths": allow_archive_paths,
+                "prune_router": prune_router,
             })
             return {"moves": moves, "applied": moves, "links_updated": 7}
 
         monkeypatch.setattr(rename, "move_and_update_links", fake_move_and_update_links)
 
+        prune_router = {"artefacts": [], "marker": "prune"}
         count = rename.rename_and_update_links(
             str(vault),
             "Wiki/topic-a.md",
             "Wiki/topic-a-renamed.md",
             router={"artefacts": []},
             allow_archive_paths=True,
+            prune_router=prune_router,
         )
 
         assert count == 7
         assert calls == [{
             "vault_root": str(vault),
             "moves": [{"source": "Wiki/topic-a.md", "dest": "Wiki/topic-a-renamed.md"}],
-            "router": {"artefacts": []},
             "allow_archive_paths": True,
+            "prune_router": prune_router,
         }]
 
     def test_cli_reports_runtime_error_without_traceback(self, vault, monkeypatch, capsys):

@@ -54,6 +54,7 @@ def _delete(root: str, router: dict, request: ArtefactDeleteRequest) -> dict:
         router=router,
         recursive=request.recursive,
         return_details=True,
+        prune_router=router,
     )
 
 
