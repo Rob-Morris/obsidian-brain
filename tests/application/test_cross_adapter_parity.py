@@ -242,4 +242,6 @@ def test_local_cli_crosses_a_real_selected_brain_process_boundary(tmp_path):
     assert result.structured_content["result"] == {
         "path": "README.md",
         "content": "selected Brain content\n",
+        "revision": "sha256:272fa697ca3b3d7a50b52f0befad352d5287a60dfd4075f984fa5c57855c9f8a",
+        "range": {"start": 0, "end": 23, "total_characters": 23, "next_cursor": None},
     }

@@ -17,7 +17,8 @@ from _common import (
 
 
 PUBLIC_BRAIN_CORE_FILES = frozenset(
-    {"colours.md", "guide.md", "index.md", "md-bootstrap.md", "session-core.md"}
+    {"colours.md", "guide.md", "index.md", "md-bootstrap.md", "session-core.md",
+     "plugins.md", "triggers.md"}
 )
 PUBLIC_BRAIN_CORE_TREES = frozenset(
     {"artefact-library", "client-adapters", "skills", "standards"}

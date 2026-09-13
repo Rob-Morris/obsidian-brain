@@ -32,6 +32,10 @@ from the router and the type files.
 
 ## Tooling
 
+When using commands, finish every `session.start` continuation before ordinary
+work (`bootstrap_complete: true`). Follow `range.next_cursor` for document
+reads until it is null; restart the read if its source revision changes.
+
 Relevant only where code can run. Both routes share the same typed request,
 semantic owner, structural result, profile gate, and vault mutation lock.
 

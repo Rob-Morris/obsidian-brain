@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
-from .._decoding import decode_empty
+from .._decoding import reject_unexpected
+from .._response_budget import (ContentRange, TextCursor, bounded_text_result,
+    decode_text_cursor, validate_text_window, encoded_result_size,
+    MODEL_TEXT_BUDGET, DEFAULT_TEXT_CHARACTERS)
 from dataclasses import dataclass
 from typing import ClassVar, Mapping
 
@@ -22,16 +25,9 @@ from .._read_support import command_error
 
 
 @dataclass(frozen=True, slots=True)
-class SessionLoadInstruction:
-    tool: str
-    path: str
-
-
-@dataclass(frozen=True, slots=True)
 class SessionCoreDocument:
     title: str
     path: str
-    load_with: SessionLoadInstruction
 
 
 @dataclass(frozen=True, slots=True)
@@ -49,13 +45,9 @@ class SessionTrigger:
 
 
 @dataclass(frozen=True, slots=True)
-class SessionArtefactType:
-    type: str
-    key: str
-    path: str
-    naming_pattern: str | None
-    status_enum: tuple[str, ...]
-    configured: bool
+class SessionResourceDiscovery:
+    artefact_types: str
+    core_documents: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -131,6 +123,7 @@ class SessionCommandCatalogue:
 
 @dataclass(frozen=True, slots=True)
 class SessionStartPayload:
+    bootstrap_complete: bool
     version: str
     brain_core_version: str
     compiled_at: str
@@ -140,7 +133,8 @@ class SessionStartPayload:
     preferences: str
     gotchas: str
     triggers: tuple[SessionTrigger, ...]
-    artefacts: tuple[SessionArtefactType, ...]
+    artefact_type_count: int
+    resource_discovery: SessionResourceDiscovery
     environment: SessionEnvironment
     memories: tuple[SessionMemory, ...]
     skills: tuple[SessionSkill, ...]
@@ -157,10 +151,25 @@ class SessionStartPayload:
 
 
 @dataclass(frozen=True, slots=True)
+class SessionBootstrapPage:
+    brain_core_version: str
+    bootstrap_complete: bool
+    content: str
+    revision: str
+    range: ContentRange
+    instruction: str
+
+
+@dataclass(frozen=True, slots=True)
 class SessionStartRequest:
     COMMAND_ID: ClassVar[str] = "session.start"
-    COMMAND_VERSION: ClassVar[int] = 4
-    RESULT_TYPE: ClassVar[type] = SessionStartPayload
+    COMMAND_VERSION: ClassVar[int] = 5
+    RESULT_TYPE: ClassVar = SessionStartPayload | SessionBootstrapPage
+
+    cursor: TextCursor | None = None
+
+    def __post_init__(self):
+        validate_text_window(self.cursor, DEFAULT_TEXT_CHARACTERS)
 
 
 def _optional(model, key, factory):
@@ -170,6 +179,7 @@ def _optional(model, key, factory):
 
 def _payload(model):
     return SessionStartPayload(
+        bootstrap_complete=True,
         version=model["version"],
         brain_core_version=model["brain_core_version"],
         compiled_at=model["compiled_at"],
@@ -181,7 +191,6 @@ def _payload(model):
                     SessionCoreDocument(
                         doc["title"],
                         doc["path"],
-                        SessionLoadInstruction(**doc["load_with"]),
                     )
                     for doc in section["docs"]
                 ),
@@ -200,17 +209,8 @@ def _payload(model):
             )
             for item in model["triggers"]
         ),
-        artefacts=tuple(
-            SessionArtefactType(
-                item["type"],
-                item["key"],
-                item["path"],
-                item.get("naming_pattern"),
-                tuple(item.get("status_enum") or ()),
-                bool(item["configured"]),
-            )
-            for item in model["artefacts"]
-        ),
+        artefact_type_count=model["artefact_type_count"],
+        resource_discovery=SessionResourceDiscovery(**model["resource_discovery"]),
         environment=SessionEnvironment(**model["environment"]),
         memories=tuple(
             SessionMemory(item["name"], tuple(item.get("triggers") or ()))
@@ -262,7 +262,7 @@ def _payload(model):
     )
 
 
-def execute(context: InvocationContext, _request: SessionStartRequest):
+def execute(context: InvocationContext, request: SessionStartRequest):
     from _bootstrap.readiness import ensure_runtime_warmup, read_runtime_status
 
     status = typed_snapshot(read_runtime_status(context.selected_brain.vault_root))
@@ -335,15 +335,31 @@ def execute(context: InvocationContext, _request: SessionStartRequest):
         payload = _payload(model)
     except (OSError, RuntimeError, ValueError) as exc:
         return command_error(SessionStartRequest, ErrorCode.CONFLICT, str(exc), None)
-    return Ok(
-        SessionStartRequest.COMMAND_ID,
-        SessionStartRequest.COMMAND_VERSION,
-        payload,
+    complete = Ok(request.COMMAND_ID, request.COMMAND_VERSION, payload)
+    if request.cursor is None and encoded_result_size(complete) <= MODEL_TEXT_BUDGET:
+        return complete
+    # The same canonical markdown is published as the fallback mirror. Use it
+    # for overflow instead of dropping required instructions from the model.
+    from _common import document_revision
+
+    content = session.render_session_markdown(model)
+    revision = document_revision(content)
+    return bounded_text_result(
+        SessionStartRequest, content, revision, cursor=request.cursor,
+        max_characters=DEFAULT_TEXT_CHARACTERS,
+        payload=lambda text, window: SessionBootstrapPage(
+            model["brain_core_version"], window.next_cursor is None,
+            text, revision, window,
+            ("Read every bootstrap page before ordinary work. Continue with "
+             "session.start(cursor=range.next_cursor) until bootstrap_complete is true; "
+             "a source conflict requires restarting session.start without a cursor."),
+        ),
     )
 
 
 def decode(payload: Mapping[str, object]) -> SessionStartRequest:
-    return decode_empty(payload, SessionStartRequest)
+    reject_unexpected(payload, {"cursor"})
+    return SessionStartRequest(decode_text_cursor(payload.get("cursor")))
 
 
 def catalogue_entry():

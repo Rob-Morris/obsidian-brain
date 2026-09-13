@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from ._decoding import reject_unexpected
+from ._response_budget import MODEL_TEXT_BUDGET, encoded_result_size
 
 import json
 from typing import Mapping
@@ -31,7 +32,7 @@ from .requests import (
     InvocationReadRequest,
     ResultVariantContract,
 )
-from .projection import canonical_result_envelope, minimal_request_payload, project_identity, request_schema, result_payload_schema
+from .projection import minimal_request_payload, project_identity, request_schema, result_payload_schema
 from .resolver import RequestResolver, ResolverEntry
 from .results import (
     CapabilityUnavailableDetails,
@@ -127,8 +128,7 @@ class _FoundationOwners:
                 else self._brief(entry, context, snapshot, access)
             )
             candidate = result_for([*page, item])
-            if len(json.dumps(canonical_result_envelope(candidate), ensure_ascii=False,
-                              separators=(",", ":")).encode("utf-8")) > 16000:
+            if encoded_result_size(candidate) > MODEL_TEXT_BUDGET:
                 if not page:
                     return Error(request.COMMAND_ID, request.COMMAND_VERSION,
                         CommandError(ErrorCode.INVALID_REQUEST,

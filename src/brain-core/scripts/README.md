@@ -142,3 +142,8 @@ rule and paired-file preflight. `_bootstrap/mcp_transport.py` and the native
 CLI transaction owner share those plans; diagnostics and repair recognise
 Grok alongside Claude and Codex. `_bootstrap/agent_skills.py` owns native Grok
 skill adapters through the same marker and backup rules as other clients.
+
+Bootstrap and document reads use the same bounded application results in every
+projection. Finish `session.start` pages until `bootstrap_complete` is true.
+For document reads, repeat the same selectors with `cursor: range.next_cursor`
+until null; revisions prevent mixing source versions between pages.

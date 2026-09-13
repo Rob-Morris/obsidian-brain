@@ -129,10 +129,6 @@ class TestBuildSessionModel:
                     {
                         "title": "Extend the vault",
                         "path": ".brain-core/standards/extending/README.md",
-                        "load_with": {
-                            "tool": "vault_read-file",
-                            "path": ".brain-core/standards/extending/README.md",
-                        },
                     }
                 ],
             },
@@ -142,10 +138,6 @@ class TestBuildSessionModel:
                     {
                         "title": "Track provenance",
                         "path": ".brain-core/standards/provenance.md",
-                        "load_with": {
-                            "tool": "vault_read-file",
-                            "path": ".brain-core/standards/provenance.md",
-                        },
                     }
                 ],
             },

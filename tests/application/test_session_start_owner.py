@@ -61,7 +61,8 @@ def test_session_start_returns_typed_bootstrap_and_refreshes_mirror(
     assert result.result.active_profile == "reader"
     assert result.result.core_bootstrap
     assert result.result.core_docs
-    assert result.result.artefacts
+    assert result.result.artefact_type_count > 0
+    assert result.result.bootstrap_complete
     assert result.result.config.default_profile == "operator"
     assert result.result.command_catalogue.schema == "brain.command-catalogue/1"
     assert result.result.command_catalogue.interface_epoch == 2

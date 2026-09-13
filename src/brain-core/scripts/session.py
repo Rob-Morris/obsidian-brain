@@ -450,10 +450,6 @@ def _load_core_docs(core_body):
                 {
                     "title": title.strip(),
                     "path": path,
-                    "load_with": {
-                        "tool": "vault_read-file",
-                        "path": path,
-                    },
                 }
             )
 
@@ -461,29 +457,6 @@ def _load_core_docs(core_body):
             sections.append({"section": heading, "docs": docs})
 
     return sections
-
-
-def _condense_artefacts(artefacts):
-    """Extract the fields agents need from full artefact entries."""
-    condensed = []
-    for a in artefacts:
-        naming = a.get("naming") or {}
-        fm = a.get("frontmatter") or {}
-        pattern = naming.get("pattern")
-        if pattern is None:
-            rule_patterns = [r.get("pattern") for r in (naming.get("rules") or []) if r.get("pattern")]
-            pattern = " | ".join(rule_patterns) if rule_patterns else None
-        condensed.append(
-            {
-                "type": a.get("frontmatter_type"),
-                "key": a.get("key"),
-                "path": a.get("path"),
-                "naming_pattern": pattern,
-                "status_enum": fm.get("status_enum"),
-                "configured": a.get("configured", False),
-            }
-        )
-    return condensed
 
 
 def _condense_memories(memories):
@@ -565,12 +538,6 @@ def _render_named_list(items, empty="_None._"):
     return "\n".join(lines)
 
 
-def _escape_table_cell(value):
-    """Escape markdown table cell content."""
-    text = _format_scalar(value)
-    return text.replace("|", r"\|").replace("\n", "<br>")
-
-
 def _render_triggers(triggers):
     """Render trigger summaries for the markdown mirror."""
     if not triggers:
@@ -604,30 +571,6 @@ def _render_doc_links(docs):
         f"- [{doc['title']}]({_doc_link_target(doc['path'])})"
         for doc in docs
     )
-
-
-def _render_artefacts_table(artefacts):
-    """Render condensed artefact metadata as a markdown table."""
-    if not artefacts:
-        return "_None._"
-    lines = [
-        "| Key | Type | Path | Naming | Status | Configured |",
-        "|---|---|---|---|---|---|",
-    ]
-    for artefact in artefacts:
-        lines.append(
-            "| "
-            + " | ".join([
-                _escape_table_cell(artefact.get("key")),
-                _escape_table_cell(artefact.get("type")),
-                _escape_table_cell(artefact.get("path")),
-                _escape_table_cell(artefact.get("naming_pattern")),
-                _escape_table_cell(", ".join(artefact.get("status_enum") or [])),
-                _escape_table_cell("yes" if artefact.get("configured") else "no"),
-            ])
-            + " |"
-        )
-    return "\n".join(lines)
 
 
 # ---------------------------------------------------------------------------
@@ -688,7 +631,7 @@ def build_session_model(
     brain_core_version = meta.get("brain_core_version", "")
 
     model = {
-        "version": "1",
+        "version": "2",
         "brain_core_version": brain_core_version,
         "compiled_at": meta.get("compiled_at", ""),
         "core_bootstrap": _load_core_bootstrap(core_body),
@@ -697,7 +640,11 @@ def build_session_model(
         "preferences": _read_user_body(vault_root, PREFERENCES_REL),
         "gotchas": _read_user_body(vault_root, GOTCHAS_REL),
         "triggers": router.get("triggers", []),
-        "artefacts": _condense_artefacts(router.get("artefacts", [])),
+        "artefact_type_count": len(router.get("artefacts", [])),
+        "resource_discovery": {
+            "artefact_types": "Use resource.list(resource='type') for keys, then resource.read(resource='type', reference=<key>) for naming, statuses and paths before creating a note.",
+            "core_documents": "Load each core_docs path with vault.read-file(path=<path>); follow range.next_cursor for complete text.",
+        },
         "environment": env,
         "memories": _condense_memories(router.get("memories", [])),
         "skills": _condense_skills(router.get("skills", [])),
@@ -795,7 +742,8 @@ def render_session_markdown(model):
         "",
         "## Artefacts",
         "",
-        _render_artefacts_table(model.get("artefacts", [])),
+        f"Artefact type entries: {model.get('artefact_type_count', 0)}.",
+        *model.get("resource_discovery", {}).values(),
         "",
         "## Environment",
         "",

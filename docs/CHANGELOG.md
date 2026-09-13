@@ -8,6 +8,7 @@ Never edit past changelog entries. Only add new entries at the top.
 
 | Version | Date | Summary |
 |---|---|---|
+| [v0.66.0](changelog/v0.66.0.md) | 2026-09-13 | Bound bootstrap and document reads with revision-safe continuation |
 | [v0.65.0](changelog/v0.65.0.md) | 2026-09-13 | Bound command discovery and expose concise access-aware listings |
 | [v0.64.2](changelog/v0.64.2.md) | 2026-09-13 | Preserve MCP results and invocation safety across client protocols |
 | [v0.64.1](changelog/v0.64.1.md) | 2026-09-13 | Add native Grok client setup, bootstrap and skill support |

@@ -1,5 +1,5 @@
 {
-  "captured_at": "2026-09-13T10:35:29.564284+10:00",
+  "captured_at": "2026-09-13T10:59:45.587137+10:00",
   "client_version": "1.0.30",
   "external_model_request": false,
   "localhost_model_endpoint": true,
@@ -13,7 +13,7 @@
   "schema": "brain.command-interface-grok-evidence/1",
   "sessions": {
     "fresh": {
-      "catalogue_hash": "sha256:16eb42affbc650dacd1969f4d0abd7879fffbf9d3eef3f03d89ae4451ccd5b62",
+      "catalogue_hash": "sha256:27299d43e766f0457214c835442d4f5b07aab985e1f4323286dbe30fd4e9aad2",
       "declarations": [
         {
           "description": "Create a typed note from inline content or a staged source using its configured naming and frontmatter.",
@@ -139,6 +139,29 @@
           "input_schema": {
             "additionalProperties": false,
             "properties": {
+              "cursor": {
+                "additionalProperties": false,
+                "default": null,
+                "description": "Continuation from range.next_cursor; repeat the same resource reference and other selectors.",
+                "properties": {
+                  "offset": {
+                    "description": "Offset",
+                    "type": "integer"
+                  },
+                  "revision": {
+                    "description": "Revision",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "revision",
+                  "offset"
+                ],
+                "type": [
+                  "object",
+                  "null"
+                ]
+              },
               "location": {
                 "default": "active",
                 "description": "Location",
@@ -147,6 +170,11 @@
                   "archived"
                 ],
                 "type": "string"
+              },
+              "max_characters": {
+                "default": 12000,
+                "description": "Maximum Unicode characters (1-12000) after newline normalization; the byte budget may return fewer.",
+                "type": "integer"
               },
               "reference": {
                 "description": "Reference",
@@ -234,7 +262,31 @@
           "description": "Load Brain instructions, preferences and discovery routes before doing vault work.",
           "input_schema": {
             "additionalProperties": false,
-            "properties": {},
+            "properties": {
+              "cursor": {
+                "additionalProperties": false,
+                "default": null,
+                "description": "Cursor",
+                "properties": {
+                  "offset": {
+                    "description": "Offset",
+                    "type": "integer"
+                  },
+                  "revision": {
+                    "description": "Revision",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "revision",
+                  "offset"
+                ],
+                "type": [
+                  "object",
+                  "null"
+                ]
+              }
+            },
             "type": "object"
           },
           "tool_name": "brain__session_start"
@@ -328,7 +380,7 @@
       ]
     },
     "resumed": {
-      "catalogue_hash": "sha256:16eb42affbc650dacd1969f4d0abd7879fffbf9d3eef3f03d89ae4451ccd5b62",
+      "catalogue_hash": "sha256:27299d43e766f0457214c835442d4f5b07aab985e1f4323286dbe30fd4e9aad2",
       "declarations": [
         {
           "description": "Create a typed note from inline content or a staged source using its configured naming and frontmatter.",
@@ -454,6 +506,29 @@
           "input_schema": {
             "additionalProperties": false,
             "properties": {
+              "cursor": {
+                "additionalProperties": false,
+                "default": null,
+                "description": "Continuation from range.next_cursor; repeat the same resource reference and other selectors.",
+                "properties": {
+                  "offset": {
+                    "description": "Offset",
+                    "type": "integer"
+                  },
+                  "revision": {
+                    "description": "Revision",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "revision",
+                  "offset"
+                ],
+                "type": [
+                  "object",
+                  "null"
+                ]
+              },
               "location": {
                 "default": "active",
                 "description": "Location",
@@ -462,6 +537,11 @@
                   "archived"
                 ],
                 "type": "string"
+              },
+              "max_characters": {
+                "default": 12000,
+                "description": "Maximum Unicode characters (1-12000) after newline normalization; the byte budget may return fewer.",
+                "type": "integer"
               },
               "reference": {
                 "description": "Reference",
@@ -549,7 +629,31 @@
           "description": "Load Brain instructions, preferences and discovery routes before doing vault work.",
           "input_schema": {
             "additionalProperties": false,
-            "properties": {},
+            "properties": {
+              "cursor": {
+                "additionalProperties": false,
+                "default": null,
+                "description": "Cursor",
+                "properties": {
+                  "offset": {
+                    "description": "Offset",
+                    "type": "integer"
+                  },
+                  "revision": {
+                    "description": "Revision",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "revision",
+                  "offset"
+                ],
+                "type": [
+                  "object",
+                  "null"
+                ]
+              }
+            },
             "type": "object"
           },
           "tool_name": "brain__session_start"

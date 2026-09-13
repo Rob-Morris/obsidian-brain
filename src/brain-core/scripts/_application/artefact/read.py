@@ -10,7 +10,9 @@ from enum import Enum
 from typing import ClassVar, Mapping
 
 from ..context import InvocationContext
-from ..results import Error, ErrorCode, Ok, request_error
+from .._response_budget import (ContentRange, TextCursor, bounded_text_result,
+    decode_text_cursor, validate_text_window, DEFAULT_TEXT_CHARACTERS, TEXT_WINDOW_DESCRIPTIONS)
+from ..results import Error, ErrorCode, request_error
 
 
 @dataclass(frozen=True, slots=True)
@@ -19,6 +21,7 @@ class ArtefactReadPayload:
     location: "ArtefactLocation"
     content: str
     revision: str
+    range: ContentRange
 
 
 class ArtefactLocation(str, Enum):
@@ -29,13 +32,17 @@ class ArtefactLocation(str, Enum):
 @dataclass(frozen=True, slots=True)
 class ArtefactReadRequest:
     COMMAND_ID: ClassVar[str] = "artefact.read"
-    COMMAND_VERSION: ClassVar[int] = 3
+    COMMAND_VERSION: ClassVar[int] = 4
     RESULT_TYPE: ClassVar[type] = ArtefactReadPayload
+    FIELD_DESCRIPTIONS: ClassVar[dict[str, str]] = TEXT_WINDOW_DESCRIPTIONS
 
     reference: str
     location: ArtefactLocation = ArtefactLocation.ACTIVE
+    cursor: TextCursor | None = None
+    max_characters: int = DEFAULT_TEXT_CHARACTERS
 
     def __post_init__(self) -> None:
+        validate_text_window(self.cursor, self.max_characters)
         if not isinstance(self.reference, str) or not self.reference.strip():
             raise ValueError("artefact.read reference must be a non-empty string")
         if not isinstance(self.location, ArtefactLocation):
@@ -70,14 +77,11 @@ def execute(context: InvocationContext, request: ArtefactReadRequest):
         return _error(ErrorCode.NOT_FOUND, message)
     if not isinstance(result, PersistedDocumentContent):
         raise TypeError("portable artefact reader returned non-persisted document text")
-    return Ok(
-        ArtefactReadRequest.COMMAND_ID,
-        ArtefactReadRequest.COMMAND_VERSION,
-        ArtefactReadPayload(
-            request.reference,
-            request.location,
-            result,
-            result.revision,
+    return bounded_text_result(
+        ArtefactReadRequest, result, result.revision,
+        cursor=request.cursor, max_characters=request.max_characters,
+        payload=lambda content, window: ArtefactReadPayload(
+            request.reference, request.location, content, result.revision, window,
         ),
     )
 
@@ -87,7 +91,7 @@ def _error(code: ErrorCode, message: str) -> Error:
 
 
 def decode(payload: Mapping[str, object]) -> ArtefactReadRequest:
-    reject_unexpected(payload, {"reference", "location"})
+    reject_unexpected(payload, {"reference", "location", "cursor", "max_characters"})
     reference = payload.get("reference")
     if not isinstance(reference, str):
         raise ValueError("reference must be a string")
@@ -95,7 +99,9 @@ def decode(payload: Mapping[str, object]) -> ArtefactReadRequest:
     if not isinstance(location, str):
         raise ValueError("location must be a string")
     try:
-        return ArtefactReadRequest(reference, ArtefactLocation(location))
+        return ArtefactReadRequest(reference, ArtefactLocation(location),
+            decode_text_cursor(payload.get("cursor")),
+            payload.get("max_characters", DEFAULT_TEXT_CHARACTERS))
     except ValueError as exc:
         if location not in {item.value for item in ArtefactLocation}:
             raise ValueError("location must be active or archived") from exc

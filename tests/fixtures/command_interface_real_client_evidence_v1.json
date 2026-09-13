@@ -1,9 +1,9 @@
 {
-  "captured_at": "2026-09-13T10:37:44+10:00",
+  "captured_at": "2026-09-13T10:59:32+10:00",
   "clients": {
     "claude-code": {
       "capture_path": "eager model request declarations",
-      "catalogue_hash": "sha256:cc1afd9272c5b352c2c1fea4175085f8a7677ea994b28969e4c8051b16fc891d",
+      "catalogue_hash": "sha256:6a25031d4484f99c3e49f37424349d68f826e568218ab90dc5356207e7e5565a",
       "client_version": "2.1.270",
       "declaration": {
         "description": "Discover commands with concise summaries, access state and pagination; use command.describe for schemas.",

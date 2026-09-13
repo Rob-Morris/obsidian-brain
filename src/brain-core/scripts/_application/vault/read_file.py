@@ -8,27 +8,36 @@ from typing import ClassVar, Mapping
 from .._read_support import (
     catalogue_entry as _catalogue_entry,
     command_error,
-    decode_required_string,
+
 )
 from ..context import InvocationContext
-from ..results import ErrorCode, Ok
+from .._decoding import reject_unexpected
+from .._response_budget import (ContentRange, TextCursor, bounded_text_result,
+    decode_text_cursor, validate_text_window, DEFAULT_TEXT_CHARACTERS, TEXT_WINDOW_DESCRIPTIONS)
+from ..results import ErrorCode
 
 
 @dataclass(frozen=True, slots=True)
 class VaultReadFilePayload:
     path: str
     content: str
+    revision: str
+    range: ContentRange
 
 
 @dataclass(frozen=True, slots=True)
 class VaultReadFileRequest:
     COMMAND_ID: ClassVar[str] = "vault.read-file"
-    COMMAND_VERSION: ClassVar[int] = 1
+    COMMAND_VERSION: ClassVar[int] = 2
     RESULT_TYPE: ClassVar[type] = VaultReadFilePayload
+    FIELD_DESCRIPTIONS: ClassVar[dict[str, str]] = TEXT_WINDOW_DESCRIPTIONS
 
     path: str
+    cursor: TextCursor | None = None
+    max_characters: int = DEFAULT_TEXT_CHARACTERS
 
     def __post_init__(self) -> None:
+        validate_text_window(self.cursor, self.max_characters)
         if not isinstance(self.path, str) or not self.path.strip():
             raise ValueError("vault.read-file path must be a non-empty string")
 
@@ -52,15 +61,20 @@ def execute(context: InvocationContext, request: VaultReadFileRequest):
             str(result["error"]),
             "path",
         )
-    return Ok(
-        VaultReadFileRequest.COMMAND_ID,
-        VaultReadFileRequest.COMMAND_VERSION,
-        VaultReadFilePayload(request.path, result),
+    return bounded_text_result(
+        VaultReadFileRequest, result, result.revision,
+        cursor=request.cursor, max_characters=request.max_characters,
+        payload=lambda content, window: VaultReadFilePayload(
+            request.path, content, result.revision, window,
+        ),
     )
 
 
 def decode(payload: Mapping[str, object]) -> VaultReadFileRequest:
-    return decode_required_string(payload, "path", VaultReadFileRequest)
+    reject_unexpected(payload, {"path", "cursor", "max_characters"})
+    return VaultReadFileRequest(payload.get("path"),
+        decode_text_cursor(payload.get("cursor")),
+        payload.get("max_characters", DEFAULT_TEXT_CHARACTERS))
 
 
 def catalogue_entry():

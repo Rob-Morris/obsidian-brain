@@ -27,6 +27,7 @@ from _application.document.structured_edit import (
 from _application.document.replace_text import AllMatches, OccurrenceMatch, UniqueMatch
 from _application.document.write_body import DocumentWriteBodyOperation
 from _application.requests import CatalogueCursor, CommandListView
+from _application._response_budget import TextCursor
 from _application.resource.create import (
     MemoryCreateTarget,
     SkillCreateTarget,
@@ -67,6 +68,7 @@ __all__ = (
     "CalloutPart",
     "CalloutSelection",
     "CatalogueCursor",
+    "TextCursor",
     "CommandListView",
     "CheckSeverity",
     "CommandOwner",

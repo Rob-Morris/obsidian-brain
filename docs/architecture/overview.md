@@ -143,3 +143,8 @@ Local calls bind to installed versions rather than accepting caller-supplied com
 - [MCP tools](../functional/mcp-tools.md)
 - [CLI](../functional/cli.md)
 - [Scripts](../functional/scripts.md)
+
+Bootstrap and document reads share a 16,000-byte canonical envelope budget.
+Bootstrap retains mandatory instructions and pages the canonical markdown mirror
+when necessary; type definitions and core documents load on demand. Document
+continuations bind Unicode offsets to source revisions before transport projection.

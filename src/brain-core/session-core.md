@@ -24,26 +24,33 @@ The system is self-extending. When content has no appropriate home, add a new ar
 7. **Separate concerns** — one topic per artefact; split when a file serves two purposes
 8. **Actively seek signal** — notice gaps, ambiguities, and opportunities; ask small questions at natural moments; capture answers as artefacts
 
+## Completing Bootstrap
+
+Finish `session.start(cursor=range.next_cursor)` pages until
+`bootstrap_complete` before ordinary work. For document reads, repeat the
+same command and reference with `range.next_cursor` until null. On revision
+conflict, restart without a cursor.
+
 ## Core Docs
 
-- [Extend the vault: add artefact types, memories, and principles](standards/extending/README.md)
-- [Browse the artefact library: type definitions and install guidance](artefact-library/README.md)
-- [Configure workflow triggers](triggers.md)
-- [Manage folder colours: palette, algorithm, and CSS outputs](colours.md)
-- [Build and extend plugins for external tools](plugins.md)
+- [Add types, memories and principles](standards/extending/README.md)
+- [Artefact library and installation](artefact-library/README.md)
+- [Workflow triggers](triggers.md)
+- [Folder colours](colours.md)
+- [Plugins for external tools](plugins.md)
 
 ## Standards
 
-- [Apply artefact naming conventions](standards/naming-conventions.md)
-- [Give every living artefact a canonical key](standards/keys.md)
-- [Only wikilink to artefacts that exist in the vault](standards/wikilinks.md)
-- [Keep links resolvable and maintainable](standards/linking.md)
-- [Track provenance and lineage between artefacts](standards/provenance.md)
-- [Archive living artefacts safely](standards/archiving.md)
-- [Use the hub pattern to group related artefacts](standards/hub-pattern.md)
-- [Decide when living artefact folders need subfolders](standards/subfolders.md)
-- [Run the artefact shaping process](standards/shaping.md)
-- [Interpret user preferences and gotchas files](standards/user-preferences.md)
+- [Naming conventions](standards/naming-conventions.md)
+- [Canonical keys](standards/keys.md)
+- [Wikilinks to existing artefacts](standards/wikilinks.md)
+- [Link maintenance](standards/linking.md)
+- [Provenance and lineage](standards/provenance.md)
+- [Archiving](standards/archiving.md)
+- [Hub pattern](standards/hub-pattern.md)
+- [Subfolders](standards/subfolders.md)
+- [Shaping](standards/shaping.md)
+- [Preferences and gotchas](standards/user-preferences.md)
 
 Always:
 - Use `artefact.list` rather than `artefact.search` when enumerating or filtering artefacts by type, date range, or tag — list is exhaustive; search is relevance-ranked and suited to content queries.

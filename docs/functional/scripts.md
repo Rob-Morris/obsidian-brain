@@ -94,3 +94,8 @@ scope, including vault-self registration. The native CLI commands are shown in
 [native Grok setup](cli.md#native-grok-setup). `repair.py mcp` and upgrade
 reconciliation inspect existing Grok project registrations and their owned
 startup rules. Standalone workspace bootstrap also accepts `--surface grok`.
+
+Bootstrap and document reads use the same bounded application results in every
+projection. Finish `session.start` pages until `bootstrap_complete` is true.
+For document reads, repeat the same selectors with `cursor: range.next_cursor`
+until null; revisions prevent mixing source versions between pages.

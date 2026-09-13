@@ -1,6 +1,6 @@
 # Brain Reference
 
-This page is the stable user-facing reference for Brain Core 0.65.0 and CLI 3.2.0. Exact command schemas, examples and availability come from the installed Brain rather than a duplicated hand-maintained inventory.
+This page is the stable user-facing reference for Brain Core 0.66.0 and CLI 3.2.0. Exact command schemas, examples and availability come from the installed Brain rather than a duplicated hand-maintained inventory.
 
 Document changes use a read–mutate loop. Read an editable artefact or named
 resource, retain its returned `revision`, then pass that value as
@@ -182,11 +182,13 @@ brain mcp repair --vault /path/to/brain --json
 
 Run `brain command describe <command-id> --json` before relying on an example here: the installed catalogue is authoritative.
 
+Document reads return `range.next_cursor` when more text remains. Repeat the same read with that cursor until it is null; restart without a cursor if the source revision changes.
+
 ## Bootstrap fallback
 
 Agents degrade in this order:
 
-1. MCP `session_start` returns the canonical JSON session model.
+1. MCP `session_start` returns the canonical bootstrap. Follow `range.next_cursor` with another `session_start` until `bootstrap_complete` is true.
 2. CLI `brain session start --json` returns the same application result through the selected Brain.
 3. Read `.brain-core/index.md`, then the generated `.brain/local/session.md`.
 4. Follow `.brain-core/md-bootstrap.md` when generated state is unavailable.

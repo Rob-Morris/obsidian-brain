@@ -50,7 +50,7 @@ To support this split cleanly:
 
 - `.brain-core/index.md` becomes a thin entry point only
 - `.brain-core/session-core.md` becomes the checked-in source for static core bootstrap content
-- `session.start` exposes session-core reference docs as structured `core_docs` entries with explicit MCP load instructions, while the markdown mirror renders them as local file links
+- `session.start` exposes session-core reference docs as structured `core_docs` title/path entries with one shared retrieval route, while the markdown mirror renders them as local file links. Since Core 0.66, oversized bootstrap returns revision-bound pages of that same canonical markdown, preserving all mandatory instructions within a 16,000-byte envelope budget
 - the temporary polyfill surface is removed entirely
 - `.brain-core/md-bootstrap.md` remains as the explicit degraded fallback for agents that have neither MCP nor a generated markdown session
 

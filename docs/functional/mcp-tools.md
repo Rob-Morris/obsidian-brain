@@ -60,6 +60,29 @@ Explicit refresh enforces provider-specific and aggregate deadlines. Timed-out p
 
 The former aggregates and variants are removed: `brain_init`, `brain_session`, `brain_read`, `brain_create`, `brain_edit`, `brain_define`, `brain_move`, `brain_action`, `brain_process` and the other flat v1 tools are not aliases and are not callable.
 
+## Bounded bootstrap and document reads
+
+`session.start` v5 returns the complete lean bootstrap when its canonical
+JSON envelope fits 16,000 UTF-8 bytes. It advertises the installed type count
+and shared retrieval routes; use `resource.list` with `resource: "type"` and
+`resource.read` to learn a type before creating it. Core-document references
+carry title and path; load them with `vault.read-file`.
+
+If the full bootstrap exceeds that budget, the same canonical markdown used
+by `.brain/local/session.md` is returned in pages. Repeat `session.start` with
+`cursor: range.next_cursor` until `bootstrap_complete` is true, before ordinary
+work. Mandatory preferences, rules and triggers are preserved across the pages.
+
+`artefact.read` v4, `vault.read-file` v2 and document variants of `resource.read`
+v3 return `revision` and `range` alongside their content. Repeat the same
+request with `cursor: range.next_cursor` until that cursor is null. Each page
+fits the same 16,000-byte envelope budget; `max_characters` optionally limits
+the requested window to 1–12,000 Unicode characters. Offsets describe text
+after newline normalization; revisions identify the persisted source bytes.
+A changed source returns `conflict`: restart without a cursor. These bounds
+apply before MCP, CLI and Python projections, so no transport cuts serialized
+JSON or silently drops the tail. Metadata-only resource variants remain intact.
+
 ## Ceiling, active grant and elevation
 
 Authentication establishes an immutable command ceiling for the MCP process. `tools/list`, the proxy interface header, `command.list` and `command.describe` omit commands above that ceiling. Changing credentials or the ceiling requires proxy replacement and client re-discovery; an ordinary elevation lease does not change tool definitions.
