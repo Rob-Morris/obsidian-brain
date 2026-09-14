@@ -9,7 +9,9 @@ from pathlib import Path, PurePosixPath
 from typing import Any, BinaryIO, Mapping, Sequence
 
 from .manifests import TreeManifest
-from .process import CommandRunner, ProcessExecution
+from .docker_configuration import DockerConfiguration, RegistryMode
+from .docker_errors import DockerError
+from .process import CommandRunner, ProcessExecution, ProcessLaunchError
 
 
 LABEL_PREFIX = "io.github.rob-morris.brain-lab"
@@ -18,21 +20,6 @@ KIND_LABEL = f"{LABEL_PREFIX}.kind"
 ID_LABEL = f"{LABEL_PREFIX}.id"
 IMPORTED_LABEL = f"{LABEL_PREFIX}.imported-vault"
 MAX_COMMANDS_PER_OPERATION = 32
-
-
-class DockerError(RuntimeError):
-    def __init__(
-        self,
-        message: str,
-        execution: ProcessExecution | None = None,
-        *,
-        cleanup_error: str | None = None,
-        survivor: Mapping[str, str] | None = None,
-    ):
-        super().__init__(message)
-        self.execution = execution
-        self.cleanup_error = cleanup_error
-        self.survivor = survivor
 
 
 class _HashingReader:
@@ -49,12 +36,13 @@ class _HashingReader:
 
 
 class DockerClient:
-    def __init__(self, runner: CommandRunner, *, executable: str = "docker"):
+    def __init__(self, runner: CommandRunner, *, executable: str = "docker", credential_config: Path | None = None):
         self.runner = runner
         self.executable = executable
         self.executions: list[ProcessExecution] = []
         self._operation_command_count = 0
         self._operation_command_limit = MAX_COMMANDS_PER_OPERATION
+        self.configuration = DockerConfiguration(runner, executable, credential_config)
 
     def begin_operation(self) -> int:
         self._operation_command_count = 0
@@ -96,22 +84,27 @@ class DockerClient:
         timeout_seconds: float = 300,
         stdin: bytes | None = None,
         stdin_writer=None,
+        registry_mode: RegistryMode = RegistryMode.PUBLIC,
     ) -> ProcessExecution:
         self._operation_command_count += 1
         if self._operation_command_count > self._operation_command_limit:
             raise DockerError(
                 f"operation exceeded the {self._operation_command_limit}-command evidence bundle bound"
             )
-        try:
-            execution = self.runner.run(
-                [self.executable, *arguments],
-                evidence_directory=evidence_directory,
-                timeout_seconds=timeout_seconds,
-                stdin=stdin,
-                stdin_writer=stdin_writer,
-            )
-        except OSError as exc:
-            raise DockerError(f"Docker invocation failed before completion: {exc}") from exc
+        with self.configuration.environment(evidence_directory, mode=registry_mode) as environment:
+            try:
+                execution = self.runner.run(
+                    [self.executable, *arguments],
+                    evidence_directory=evidence_directory,
+                    timeout_seconds=timeout_seconds,
+                    stdin=stdin,
+                    stdin_writer=stdin_writer,
+                    environment=environment,
+                    replace_environment=True,
+                    redact_output=registry_mode is RegistryMode.INLINE_AUTH,
+                )
+            except ProcessLaunchError as exc:
+                raise DockerError("Docker invocation failed before completion", evidence_complete=False) from exc
         self.executions.append(execution)
         return execution
 
@@ -143,6 +136,7 @@ class DockerClient:
             ["pull", "--platform", platform, image],
             evidence_directory=evidence_directory,
             timeout_seconds=timeout_seconds,
+            registry_mode=self.configuration.registry_mode,
         )
         self._require_success(execution, f"pull of {image}")
         return execution
@@ -176,6 +170,7 @@ class DockerClient:
         evidence_directory: Path,
         timeout_seconds: float = 1800,
         context_directory: Path | None = None,
+        pull: bool = False,
     ) -> ProcessExecution:
         temporary_context = None
         if context_directory is None:
@@ -185,6 +180,8 @@ class DockerClient:
             context = str(context_directory.resolve())
         try:
             arguments = ["build", "--platform", platform, "--file", "-", "--tag", tag]
+            if pull:
+                arguments.append("--pull")
             for key, value in sorted(labels.items()):
                 arguments.extend(["--label", f"{key}={value}"])
             for key, value in sorted(build_arguments.items()):
@@ -195,6 +192,7 @@ class DockerClient:
                 evidence_directory=evidence_directory,
                 timeout_seconds=timeout_seconds,
                 stdin=dockerfile.encode("utf-8"),
+                registry_mode=self.configuration.registry_mode,
             )
         finally:
             if temporary_context is not None:
@@ -259,6 +257,7 @@ class DockerClient:
                     f"{primary}; cleanup also failed, so image tag {tag} may survive",
                     primary.execution,
                     cleanup_error=str(cleanup_error),
+                    evidence_complete=primary.evidence_complete and cleanup_error.evidence_complete,
                     survivor={"kind": "image", "id": tag},
                 ) from primary
             raise
@@ -347,8 +346,22 @@ class DockerClient:
             stdin=stdin,
         )
 
-    def shell(self, container: str, *, shell: str = "/bin/bash") -> int:
-        return self.runner.interactive([self.executable, "exec", "-it", container, shell])
+    def shell(self, container: str, *, evidence_directory: Path, shell: str = "/bin/bash") -> int:
+        argv = [self.executable, "exec", "-it", container, shell]
+        with self.configuration.environment(evidence_directory) as environment:
+            returncode = None
+            try:
+                returncode = self.runner.interactive(argv, environment=environment, replace_environment=True)
+            except ProcessLaunchError as exc:
+                raise DockerError("Docker interactive invocation failed before completion", evidence_complete=False) from exc
+            except (Exception, KeyboardInterrupt) as exc:
+                raise DockerError("Docker interactive invocation did not complete", evidence_complete=False) from exc
+            finally:
+                (evidence_directory / "shell.json").write_text(json.dumps({
+                    "argv": argv, "returncode": returncode, "outcome": "success" if returncode == 0 else "failure",
+                    "evidence_completeness": "partial", "interactive_output_retained": False,
+                }, indent=2) + "\n", encoding="utf-8")
+        return returncode
 
     def copy_in(self, container: str, source: Path, destination: str, evidence_directory: Path) -> ProcessExecution:
         execution = self._execute(

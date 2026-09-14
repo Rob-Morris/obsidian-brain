@@ -18,7 +18,7 @@ from .scenarios import register_scenario_handlers
 from .store import StateStore
 
 
-VERSION = "0.2.0"
+VERSION = "0.3.0"
 
 
 def build_application(
@@ -26,9 +26,10 @@ def build_application(
     state_directory: Path | None = None,
     docker_executable: str = "docker",
     stream_limit: int = DEFAULT_STREAM_LIMIT,
+    credential_config: Path | None = None,
 ) -> Application:
     runner = CommandRunner(stream_limit=stream_limit)
-    docker = DockerClient(runner, executable=docker_executable)
+    docker = DockerClient(runner, executable=docker_executable, credential_config=credential_config)
     tool_root = Path(__file__).resolve().parents[1]
     application = Application(
         store=StateStore(state_directory),
@@ -67,6 +68,7 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--version", action="version", version=f"brain-lab {VERSION}")
     parser.add_argument("--state-dir", type=Path, help="Override the local lab receipt/evidence directory.")
     parser.add_argument("--docker", default="docker", help="Docker CLI executable (default: docker).")
+    parser.add_argument("--registry-auth-config", type=Path, help="Explicit inline-auth Docker config.json for registry pulls/builds; output is redacted.")
     parser.add_argument(
         "--stream-limit",
         type=int,
@@ -124,6 +126,7 @@ def main(argv: list[str] | None = None) -> int:
             state_directory=args.state_dir,
             docker_executable=args.docker,
             stream_limit=args.stream_limit,
+            credential_config=args.registry_auth_config,
         )
         operation = f"{args.resource}.{args.verb}"
         result = application.dispatch(operation, request).to_dict()

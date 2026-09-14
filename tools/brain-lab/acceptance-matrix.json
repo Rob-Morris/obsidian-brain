@@ -18,9 +18,32 @@
         "host-isolation",
         "worktree-upgrade"
       ]
+    },
+    "test-brain-lab-docker-configuration": {
+      "kind": "pytest-native-docker",
+      "path": "tests/repo/brain_lab/test_docker_configuration_native.py",
+      "covers": [
+        "docker-public-credential-isolation"
+      ]
     }
   },
   "rows": [
+    {
+      "id": "docker-public-credential-isolation",
+      "setup": "Install fail-fast native credential helpers on PATH and poison inherited Buildx and BuildKit settings.",
+      "command": "Native public-image build and pull through DockerClient",
+      "predicate": "The selected local daemon remains pinned while the public configuration invokes no helper and inherits no builder or plugin configuration.",
+      "evidence": "docker-connection documents, command transcripts, helper marker absence and exact image cleanup",
+      "owner": "automated-docker-configuration"
+    },
+    {
+      "id": "docker-authenticated-credential-isolation",
+      "setup": "Provide an explicit inline-auth config and accessible private-registry image through acceptance environment variables.",
+      "command": "Native authenticated forced-pull build and explicit pull through DockerClient",
+      "predicate": "Both registry-resolving operations use inline auth against the same pinned daemon, invoke no helper and persist no credential or config path.",
+      "evidence": "redacted connection documents, partial command transcripts, helper marker absence and recursive secret scan",
+      "owner": "manual-private-registry"
+    },
     {
       "id": "historical-template-baseline",
       "setup": "Capture official v0.51.0 source and its template seed on the native platform.",

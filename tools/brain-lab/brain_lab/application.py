@@ -137,6 +137,7 @@ class Application:
         self.tool_root = tool_root.resolve()
         self.compatibility = CompatibilityManifest(self.tool_root / "compatibility.json")
         self._operations: dict[str, OperationSpec] = {}
+        self._dispatch_depth = 0
 
     def register(
         self,
@@ -155,6 +156,15 @@ class Application:
         )
 
     def dispatch(self, operation: str, request: Any) -> OperationResult:
+        self._dispatch_depth += 1
+        try:
+            return self._dispatch(operation, request)
+        finally:
+            self._dispatch_depth -= 1
+            if self._dispatch_depth == 0 and isinstance(self.docker, DockerClient):
+                self.docker.configuration.reset()
+
+    def _dispatch(self, operation: str, request: Any) -> OperationResult:
         spec = self._operations.get(operation)
         if spec is None:
             raise ValueError(f"unknown operation: {operation}")
@@ -196,7 +206,7 @@ class Application:
             execution = exc.execution
             timed_out = bool(execution and execution.timed_out)
             cancelled = bool(execution and execution.cancelled)
-            complete = bool(execution is None or execution.evidence_complete)
+            complete = exc.evidence_complete
             result = _failure_result(
                 operation_id=operation_id,
                 operation=operation,
@@ -232,6 +242,8 @@ class Application:
             if spec.evidence_references is not None:
                 executions = []
             commands = [execution.to_dict() for execution in executions]
+            if any(not execution.evidence_complete for execution in executions):
+                result = replace(result, evidence_completeness=EvidenceCompleteness.PARTIAL)
             (evidence_directory / "commands.json").write_text(
                 json.dumps(commands, indent=2, sort_keys=True) + "\n", encoding="utf-8"
             )

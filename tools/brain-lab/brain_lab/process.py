@@ -16,6 +16,16 @@ THREAD_JOIN_GRACE_SECONDS = 1
 THREAD_CLEANUP_TIMEOUT_SECONDS = 5
 
 
+class ProcessLaunchError(OSError):
+    pass
+
+
+def _child_environment(environment: Mapping[str, str] | None, replace: bool) -> dict[str, str] | None:
+    if environment is None:
+        return None
+    return {**({} if replace else os.environ), **environment}
+
+
 @dataclass(frozen=True)
 class StreamReceipt:
     path: str
@@ -36,6 +46,7 @@ class ProcessExecution:
     stderr: StreamReceipt
     stdin_error: str | None = None
     stream_error: str | None = None
+    output_redacted: bool = False
 
     @property
     def succeeded(self) -> bool:
@@ -48,6 +59,7 @@ class ProcessExecution:
             and not self.stderr.truncated
             and self.stdin_error is None
             and self.stream_error is None
+            and not self.output_redacted
         )
 
     def to_dict(self) -> dict:
@@ -55,16 +67,19 @@ class ProcessExecution:
 
 
 class _BoundedSink:
-    def __init__(self, path: Path, limit: int):
+    def __init__(self, path: Path, limit: int, *, redact: bool = False):
         self._path = path
         self._limit = limit
         self._retained = 0
         self._total = 0
         self._digest = hashlib.sha256()
+        self._redact = redact
 
     def drain(self, source: BinaryIO) -> None:
         with self._path.open("wb") as destination:
             while chunk := source.read(64 * 1024):
+                if self._redact:
+                    continue
                 self._total += len(chunk)
                 self._digest.update(chunk)
                 remaining = max(0, self._limit - self._retained)
@@ -99,27 +114,29 @@ class CommandRunner:
         environment: Mapping[str, str] | None = None,
         stdin: bytes | None = None,
         stdin_writer: Callable[[BinaryIO], None] | None = None,
+        replace_environment: bool = False,
+        redact_output: bool = False,
     ) -> ProcessExecution:
         if not argv or stdin is not None and stdin_writer is not None:
             raise ValueError("argv is required and stdin must have exactly one source")
         if timeout_seconds <= 0:
             raise ValueError("timeout_seconds must be greater than zero")
         evidence_directory.mkdir(parents=True, exist_ok=True)
-        stdout_sink = _BoundedSink(evidence_directory / "stdout.log", self.stream_limit)
-        stderr_sink = _BoundedSink(evidence_directory / "stderr.log", self.stream_limit)
-        child_environment = None
-        if environment is not None:
-            child_environment = os.environ.copy()
-            child_environment.update(environment)
-        process = subprocess.Popen(
-            list(argv),
-            cwd=cwd,
-            env=child_environment,
-            stdin=subprocess.PIPE if stdin is not None or stdin_writer is not None else subprocess.DEVNULL,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            start_new_session=True,
-        )
+        stdout_sink = _BoundedSink(evidence_directory / "stdout.log", self.stream_limit, redact=redact_output)
+        stderr_sink = _BoundedSink(evidence_directory / "stderr.log", self.stream_limit, redact=redact_output)
+        child_environment = _child_environment(environment, replace_environment)
+        try:
+            process = subprocess.Popen(
+                list(argv),
+                cwd=cwd,
+                env=child_environment,
+                stdin=subprocess.PIPE if stdin is not None or stdin_writer is not None else subprocess.DEVNULL,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                start_new_session=True,
+            )
+        except OSError as exc:
+            raise ProcessLaunchError("Command process could not be launched") from exc
         assert process.stdout is not None and process.stderr is not None
         stream_errors: list[str] = []
 
@@ -192,6 +209,7 @@ class CommandRunner:
             stderr=stderr_sink.receipt(),
             stdin_error=stdin_errors[0] if stdin_errors else None,
             stream_error=stream_errors[0] if stream_errors else None,
+            output_redacted=redact_output,
         )
 
     @staticmethod
@@ -228,9 +246,9 @@ class CommandRunner:
                 process.wait(timeout=5)
 
     @staticmethod
-    def interactive(argv: Sequence[str], *, environment: Mapping[str, str] | None = None) -> int:
-        child_environment = None
-        if environment is not None:
-            child_environment = os.environ.copy()
-            child_environment.update(environment)
-        return subprocess.call(list(argv), env=child_environment)
+    def interactive(argv: Sequence[str], *, environment: Mapping[str, str] | None = None, replace_environment: bool = False) -> int:
+        child_environment = _child_environment(environment, replace_environment)
+        try:
+            return subprocess.call(list(argv), env=child_environment)
+        except OSError as exc:
+            raise ProcessLaunchError("Interactive command process could not be launched") from exc

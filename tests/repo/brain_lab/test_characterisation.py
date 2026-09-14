@@ -64,11 +64,15 @@ def test_acceptance_matrix_has_unique_executable_evidence_owners():
     rows = matrix["rows"]
 
     assert matrix["schema"] == "brain-lab.acceptance-matrix/2"
-    assert len({row["id"] for row in rows}) == len(rows) == 16
+    assert len({row["id"] for row in rows}) == len(rows) == 18
     for row in rows:
         assert all(row[field] for field in ("setup", "command", "predicate", "evidence", "owner"))
     targets = matrix["verification_targets"]
-    assert set(targets) == {"test-brain-lab", "test-brain-lab-docker"}
+    assert set(targets) == {
+        "test-brain-lab",
+        "test-brain-lab-docker",
+        "test-brain-lab-docker-configuration",
+    }
     for target in targets.values():
         paths = target.get("paths", [target.get("path")])
         assert all(
@@ -77,6 +81,12 @@ def test_acceptance_matrix_has_unique_executable_evidence_owners():
             for path in paths
         )
     docker_target = targets["test-brain-lab-docker"]
+    configuration_target = targets["test-brain-lab-docker-configuration"]
+    assert configuration_target == {
+        "kind": "pytest-native-docker",
+        "path": "tests/repo/brain_lab/test_docker_configuration_native.py",
+        "covers": ["docker-public-credential-isolation"],
+    }
     automated = {row["id"] for row in rows if row["owner"] == "automated-docker"}
     assert automated == set(docker_target["covers"])
     assert docker_target["kind"] == "docker-scenario-group"

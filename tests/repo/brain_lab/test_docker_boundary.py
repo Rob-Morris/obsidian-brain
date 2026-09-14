@@ -7,17 +7,16 @@ from pathlib import Path
 import pytest
 
 from brain_lab.docker import DockerClient, DockerError, MAX_COMMANDS_PER_OPERATION
+from brain_lab.docker_configuration import DockerEndpointError
 from brain_lab.manifests import manifest_tree
 from brain_lab.process import CommandRunner
+from conftest import write_fake_docker
 
 
 def _fake_docker(tmp_path: Path) -> tuple[Path, Path]:
     log = tmp_path / "argv.jsonl"
-    executable = tmp_path / "docker"
-    executable.write_text(
-        """#!/usr/bin/env python3
-import json, os, sys
-from pathlib import Path
+    executable = write_fake_docker(tmp_path,
+        """
 log = Path(os.environ['FAKE_DOCKER_LOG'])
 with log.open('a') as handle:
     handle.write(json.dumps(sys.argv[1:]) + '\\n')
@@ -36,9 +35,7 @@ elif sys.argv[1:3] == ['image', 'inspect']:
 else:
     print('{}')
 """,
-        encoding="utf-8",
     )
-    executable.chmod(0o755)
     return executable, log
 
 
@@ -65,6 +62,34 @@ def test_docker_import_streams_manifest_and_uses_explicit_platform_and_labels(tm
     assert argv[:3] == ["import", "--platform", "linux/arm64"]
     assert "LABEL io.github.rob-morris.brain-lab.id=source-1" in argv
     assert argv[-2:] == ["-", "brain-lab-source:source-1"]
+
+
+def test_docker_build_can_force_registry_resolution(tmp_path: Path, monkeypatch):
+    executable, log = _fake_docker(tmp_path)
+    monkeypatch.setenv("FAKE_DOCKER_LOG", str(log))
+    client = DockerClient(CommandRunner(), executable=str(executable))
+
+    client.build(
+        "FROM private.example/base:1\n",
+        tag="brain-lab-test:forced-pull",
+        platform="linux/arm64",
+        labels={},
+        build_arguments={},
+        evidence_directory=tmp_path / "evidence",
+        pull=True,
+    )
+
+    argv = json.loads(log.read_text().splitlines()[0])
+    assert argv[:8] == [
+        "build",
+        "--platform",
+        "linux/arm64",
+        "--file",
+        "-",
+        "--tag",
+        "brain-lab-test:forced-pull",
+        "--pull",
+    ]
 
 
 def test_failed_import_reports_cleanup_survivor(tmp_path: Path, monkeypatch):
@@ -97,7 +122,7 @@ def test_failed_import_reports_cleanup_survivor(tmp_path: Path, monkeypatch):
 def test_docker_launch_oserror_is_normalised_to_docker_error(tmp_path: Path):
     client = DockerClient(CommandRunner(), executable=str(tmp_path / "missing-docker"))
 
-    with pytest.raises(DockerError, match="Docker invocation failed"):
+    with pytest.raises(DockerEndpointError, match="Docker invocation failed"):
         client.verify_available(tmp_path / "evidence")
 
 

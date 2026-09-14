@@ -15,6 +15,57 @@ It does not ship in Brain Core or the template vault. A lab is a Linux container
 
 Docker control is powerful: a host process with access to the Docker socket can start privileged containers or request host mounts even though brain-lab itself does neither.
 
+### Docker configuration and registry credentials
+
+Brain Lab resolves Docker's selected context and daemon identity before replacing
+the client configuration. `DOCKER_CONTEXT` or `DOCKER_HOST` overrides the
+configured current context. If both variables are non-empty, Brain Lab rejects
+the selection as ambiguous; installed Docker CLI versions differ in how that
+combination is resolved (CLI 29.7.2 selects the host). The
+resolved Unix socket is pinned for the operation and its daemon identity is
+checked before each command, including interactive shells. Remote transports
+and TLS environment settings are currently unsupported and fail explicitly;
+there is no fallback to `/var/run/docker.sock`.
+
+Public workflows use a private temporary `DOCKER_CONFIG` with no credentials,
+credential helpers, inherited plugin configuration or inherited builder selection. Buildx itself may execute. A harmless empty
+`auths` entry for `brain-lab.invalid` prevents Docker's automatic native
+credential-store discovery (an entirely empty config does not). Temporary
+configuration files are removed after each command. Discovery reads Docker's
+existing endpoint configuration but does not request registry credentials.
+
+Private registry pulls and builds require explicit opt-in:
+
+```sh
+tools/brain-lab/brain-lab --registry-auth-config /path/to/registry-config.json \
+  --json base build --request-json \
+  '{"image":"private.example/ubuntu:24.04","platform":"linux/arm64"}'
+```
+
+The supplied file must contain only a non-empty `auths` object with inline Docker
+credentials. Each registry selects exactly one mode: strict base64 `auth`
+encoding a non-empty `username:secret`, a non-empty `identitytoken` or
+`registrytoken`, or a complete non-empty `username`/`password` pair. Empty,
+incomplete, malformed and mixed modes fail before invoking Docker.
+Helper-backed configurations (`credsStore`, `credHelpers`) are
+rejected. Credentials are copied only into the temporary configuration used by
+pull/build; other commands remain in public mode. Authenticated command output
+is discarded before evidence persistence, because a credential may be echoed in
+an unknown encoding. Receipts mark `output_redacted: true` and evidence as
+`partial`; credentials and their configuration file path are not recorded.
+
+Each daemon command records `docker-connection.json` containing the resolved
+endpoint, daemon identity, starting context, CLI/server versions, credential
+mode and the names of relevant starting environment variables. Values other
+than `DOCKER_HOST` and `DOCKER_CONTEXT` are redacted. Nested scenario steps
+share one endpoint/daemon pin until the outer dispatch completes. Interactive
+shells retain their connection document and command/return-code receipt in the
+operation bundle; their uncaptured interactive output makes evidence partial.
+Discovery failures, unsupported
+or ambiguous endpoint settings, daemon changes and invalid credential
+configuration return typed errors. Endpoint discovery diagnostics are kept in
+temporary storage and removed rather than copied into evidence.
+
 ## Prerequisites
 
 - Python 3.12 or newer on the host
@@ -301,6 +352,21 @@ Opt-in real Docker current-worktree acceptance:
 make test-brain-lab-docker
 ```
 
+Run only the Docker configuration boundary acceptance:
+
+```sh
+make test-brain-lab-docker-configuration
+```
+
+That target places fail-fast native credential helpers on `PATH`, poisons
+inherited Buildx/BuildKit selection, and proves public pull/build still use the
+pinned local daemon without invoking a helper. To include the authenticated
+private-registry case, also set `BRAIN_LAB_REGISTRY_AUTH_CONFIG` to an inline-auth
+configuration, `BRAIN_LAB_AUTHENTICATED_IMAGE` to an image it can read, and
+optionally `BRAIN_LAB_DOCKER_PLATFORM`. The authenticated case fails rather than
+falling back if either configured operation cannot use those credentials; its
+build forces remote base-image resolution rather than accepting a cached image.
+
 Run either constituent scenario while iterating:
 
 ```sh
@@ -318,7 +384,7 @@ BRAIN_LAB_HOST_FIXTURE_STATE_DIR=/path/to/brain-lab-state \
   tests/repo/brain_lab/test_host_fixture.py::test_live_fixture_bridge_lists_active_brain_tools
 ```
 
-The complete design traceability table is `acceptance-matrix.json`. Its owners distinguish checked-in Docker automation from unit coverage and manual live drills; only rows listed under the `test-brain-lab-docker` verification target are exercised by its checked-in current-template and historical-upgrade scenarios. Slow Docker workflows are not part of routine pre-commit tests.
+The complete design traceability table is `acceptance-matrix.json`. Its owners distinguish checked-in Docker automation from unit coverage and manual live drills. Rows under `test-brain-lab-docker` are exercised by its checked-in current-template and historical-upgrade scenarios; `test-brain-lab-docker-configuration` owns the native configuration boundary. Slow Docker workflows are not part of routine pre-commit tests.
 
 ## Troubleshooting
 
@@ -326,6 +392,6 @@ The complete design traceability table is `acceptance-matrix.json`. Its owners d
 - **Unsupported Brain version** — capture a version covered by `compatibility.json`; the lab never substitutes current-worktree commands for an unknown release.
 - **Core mismatch** — VERSION alone is insufficient. Provide the exact source whose normalised Brain Core fingerprint matches the imported vault.
 - **Failed preparation** — inspect the returned attempt ID/container directly and inspect its operation result; failed attempts are never promoted.
-- **Partial evidence** — a stream reached its retention limit. Total byte counts and hashes remain in `commands.json`; raise `--stream-limit` for a diagnostic rerun if content is required.
+- **Partial evidence** — a stream may have reached its retention limit, authenticated output may have been deliberately discarded, or interactive output may not have been captured. `commands.json` distinguishes truncation from authenticated redaction; `shell.json` records uncaptured interactive output. Raise `--stream-limit` only for truncation.
 - **macOS “access data from other apps” prompt** — Docker Desktop socket access can trigger this prompt for the host app, and some app/process identities may be prompted repeatedly. Use a trusted terminal or host app whose Docker access is approved; Full Disk Access is not a brain-lab prerequisite in itself.
 - **Disk growth** — capture/import records a conservative host-space preflight. Inspect `lab inventory` and `cleanup preview`, review references, sizes and labelled orphans, then destroy exact resources. There is intentionally no broad prune command.

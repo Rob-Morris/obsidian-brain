@@ -322,12 +322,17 @@ def shell_run(context: OperationContext, request: dict[str, Any]) -> HandlerResu
     receipt = context.store.read("run", request["id"])
     inspect = context.docker.container_inspect(receipt["container"]["id"], context.evidence_directory / "inspect")
     context.docker.verify_resource_labels(inspect, "run", request["id"])
-    returncode = context.docker.shell(inspect["Id"], shell=request.get("shell", "/bin/bash"))
+    returncode = context.docker.shell(inspect["Id"], evidence_directory=context.evidence_directory / "shell", shell=request.get("shell", "/bin/bash"))
     if returncode != 0:
-        raise RuntimeError(f"interactive shell exited with status {returncode}")
+        raise OperationFailure(
+            f"interactive shell exited with status {returncode}",
+            effect_certainty=EffectCertainty.UNKNOWN,
+            evidence_completeness=EvidenceCompleteness.PARTIAL,
+        )
     return HandlerResult(
         resource={"kind": "run", "id": request["id"], "docker_id": inspect["Id"]},
         payload={"returncode": returncode},
+        evidence_completeness=EvidenceCompleteness.PARTIAL,
         effect_certainty=EffectCertainty.UNKNOWN,
     )
 

@@ -121,7 +121,6 @@ def build_base(context: OperationContext, request: dict[str, Any]) -> HandlerRes
     timeout = float(request.get("timeout_seconds", 1800))
     if not isinstance(image, str):
         raise ValueError("base image must be a string")
-    context.docker.verify_available(context.evidence_directory / "00-docker")
     context.docker.pull(image, platform, context.evidence_directory / "01-pull", timeout_seconds=timeout)
     source_inspect = context.docker.image_inspect(image, context.evidence_directory / "02-source-inspect")
     repo_digests = source_inspect.get("RepoDigests") or []

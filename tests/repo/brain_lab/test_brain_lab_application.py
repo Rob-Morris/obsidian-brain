@@ -462,7 +462,7 @@ def test_interactive_shell_nonzero_exit_is_unknown_effect_failure(tmp_path: Path
         def verify_resource_labels(self, inspect, kind, resource_id):
             return None
 
-        def shell(self, container, *, shell):
+        def shell(self, container, *, evidence_directory, shell):
             return 7
 
     application.docker = ShellDocker()
