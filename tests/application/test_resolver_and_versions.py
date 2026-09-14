@@ -73,3 +73,40 @@ def test_unknown_invalid_and_wrong_decoder_requests_fail_before_execution():
     )
     with pytest.raises(RequestResolutionError, match="wrong request type"):
         wrong.resolve("command.list", {})
+
+
+def test_status_target_is_semantic_input_without_overriding_the_sealed_route():
+    from _application.access.status import AccessStatusRequest
+    from _application.registry import current_request_resolver
+
+    resolver = current_request_resolver()
+    request = resolver.resolve("access.status", {"target_command_id": "artefact.delete"}, expected_version=3)
+    assert type(request) is AccessStatusRequest
+    assert request.COMMAND_ID == "access.status"
+    assert request.target_command_id == "artefact.delete"
+    with pytest.raises(RequestResolutionError) as mismatch:
+        resolver.resolve("access.status", {}, expected_version=2)
+    assert mismatch.value.code is ResolutionErrorCode.UNSUPPORTED_COMMAND_VERSION
+
+
+@pytest.mark.parametrize("reserved", ["command_id", "command_version"])
+def test_status_rejects_old_or_forged_top_level_identity_fields(reserved):
+    from _application.registry import current_request_resolver
+
+    with pytest.raises(RequestResolutionError) as invalid:
+        current_request_resolver().resolve("access.status", {reserved: "artefact.delete"})
+    assert invalid.value.code is ResolutionErrorCode.INVALID_REQUEST
+
+
+def test_nested_consent_target_ids_remain_semantic_fields():
+    from _application.registry import current_request_resolver
+
+    resolver = current_request_resolver()
+    prepared = resolver.resolve("access.prepare", {"preparation": {
+        "kind": "operation", "command_id": "artefact.delete", "arguments": {"path": "Thoughts/Test.md"}}})
+    requested = resolver.resolve("access.request", {"consent": {
+        "scope": "command", "command_id": "artefact.delete", "review": "Canonical review"}})
+    assert prepared.COMMAND_ID == "access.prepare"
+    assert prepared.preparation.command_id == "artefact.delete"
+    assert requested.COMMAND_ID == "access.request"
+    assert requested.consent.command_id == "artefact.delete"

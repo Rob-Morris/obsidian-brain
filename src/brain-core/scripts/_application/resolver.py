@@ -7,6 +7,7 @@ from enum import Enum
 from typing import Callable, Mapping
 
 from .requests import CommandRequest, command_identity
+from .identity import REQUEST_IDENTITY_FIELDS
 from .types import validate_command_id
 
 
@@ -70,7 +71,7 @@ class RequestResolver:
         """
 
         validate_command_id(command_id)
-        if "command_id" in payload or "command_version" in payload:
+        if any(name in payload for name in REQUEST_IDENTITY_FIELDS):
             raise RequestResolutionError(
                 ResolutionErrorCode.INVALID_REQUEST,
                 "command identity and version are transport metadata, not request fields",

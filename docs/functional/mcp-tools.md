@@ -104,7 +104,7 @@ know whether a human clicked an approval button.
 - `access.prepare` validates an exact target request and returns its canonical
   review, operation ID and digest. Preparation does not enter the target or
   grant consent. Its inspect variant pages context-owned descriptor details.
-- `access.status(command_id=...)` returns canonical `command_review` for consent
+- `access.status(target_command_id=...)` returns canonical `command_review` for consent
   to that exact command throughout this Brain and current context. Its grants,
   operations and initial views are paged; operation rows recover preparations
   whose response was lost.

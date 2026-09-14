@@ -147,7 +147,7 @@ class BoundAuthorisationAccess:
                 state=dto.CommandAuthorisationState(state), boundary=boundary,
                 requestable=requestable,
                 command_review=self.service.command_review(command) if requestable else None,
-                next_action=CommandNextAction("access.status", (CommandArgument("command_id", command),))
+                next_action=CommandNextAction("access.status", (CommandArgument("target_command_id", command),))
                             if state != "authorised" and requestable else
                             CommandNextAction("vault.read-config")
                             if state != "authorised" and boundary == "policy" else None))

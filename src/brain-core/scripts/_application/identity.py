@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 
+REQUEST_IDENTITY_FIELDS = frozenset({"command_id", "command_version"})
+
+
 def command_identity(request: object) -> tuple[str, int, type]:
     """Return identity owned by the concrete request type, never caller input."""
 

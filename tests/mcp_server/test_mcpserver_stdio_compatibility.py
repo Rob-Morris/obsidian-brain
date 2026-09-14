@@ -155,6 +155,68 @@ def test_public_server_supports_stateless_2026_streamable_http(monkeypatch):
     anyio.run(exercise)
 
 
+def test_stdio_status_filter_and_returned_remedy_enable_explicit_blanket_consent(tmp_path):
+    async def exercise():
+        vault = _vault(tmp_path)
+        (vault / "README.md").write_text("This observation still needs its selected consent.\n", encoding="utf-8")
+        params = StdioServerParameters(command=sys.executable, args=[str(SERVER)],
+            env={**os.environ, "BRAIN_CAPTURE_VAULT": str(vault)})
+        async with stdio_client(params) as streams:
+            async with ClientSession(*streams) as session:
+                session.adopt(DiscoverResult.model_validate(await session.send_discover("2026-07-28")))
+                tools = {tool.name: tool for tool in (await session.list_tools()).tools}
+                properties = tools["access_status"].input_schema["properties"]
+                assert "target_command_id" in properties
+                assert "command_id" not in properties
+                reduced = await session.call_tool("access_reduce", {
+                    "reduction": {"kind": "commands", "commands": ["artefact.delete"]}})
+                assert not reduced.is_error
+
+                status = await session.call_tool("access_status", {"target_command_id": "artefact.delete"})
+                assert not status.is_error, status
+                envelope = status.structured_content
+                assert envelope["command"] == "access.status"
+                assert envelope["command_version"] == 3
+                command = envelope["result"]["command"]
+                assert command["command_id"] == "artefact.delete"
+                assert command["state"] == "authorisation_required"
+                remedy = command["next_action"]
+                assert remedy["command_id"] == "access.status"
+                repeated = await session.call_tool("access_status", {
+                    item["name"]: item["value"] for item in remedy["arguments"]})
+                assert not repeated.is_error
+                assert repeated.structured_content["result"]["command"]["command_review"] == command["command_review"]
+
+                granted = await session.call_tool("access_request", {"consent": {
+                    "scope": "command", "command_id": command["command_id"], "review": command["command_review"]}})
+                assert not granted.is_error, granted
+                assert granted.structured_content["result"]["state"] == "authorised"
+                authorised = await session.call_tool("access_status", {"target_command_id": "artefact.delete"})
+                assert authorised.structured_content["result"]["command"]["state"] == "authorised"
+                invalid = await session.call_tool("access_status", {"command_id": "artefact.delete"})
+                assert invalid.is_error
+
+                # Initial command access cannot authorise an explicitly selected,
+                # ungranted operation; its fallback remedy must also be usable.
+                prepared = await session.call_tool("access_prepare", {"preparation": {
+                    "kind": "operation", "command_id": "vault.read-file", "arguments": {"path": "README.md"}}})
+                assert not prepared.is_error, prepared.structured_content
+                selected = await session.call_tool("vault_read-file", {"path": "README.md",
+                    "brain_operation": prepared.structured_content["result"]["operation_id"]})
+                assert selected.is_error
+                denial = selected.structured_content["error"]
+                assert denial["code"] == "authorisation_required"
+                remedy = denial["next_action"]
+                assert remedy["command_id"] == "access.status"
+                arguments = {item["name"]: item["value"] for item in remedy["arguments"]}
+                assert arguments == {"target_command_id": "vault.read-file"}
+                recovered = await session.call_tool("access_status", arguments)
+                assert not recovered.is_error, recovered
+                assert recovered.structured_content["result"]["command"]["command_id"] == "vault.read-file"
+
+    anyio.run(exercise)
+
+
 def test_public_server_projects_only_the_authenticated_profile_ceiling(
     tmp_path,
     monkeypatch,

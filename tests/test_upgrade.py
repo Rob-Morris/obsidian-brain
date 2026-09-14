@@ -1607,6 +1607,61 @@ class TestPrecompileDefinitionRemediation:
         assert result["rollback_verified"] is True
         assert bootstrap.read_text(encoding="utf-8") == "original\n"
 
+    @pytest.mark.parametrize("existing_report", [False, True])
+    def test_cutover_failure_unwinds_overlapping_authorisation_migration_snapshots(
+        self, tmp_path, existing_report
+    ):
+        source = _make_real_compile_source(tmp_path, version=CORE_VERSION)
+        vault = _make_minimal_upgrade_vault(tmp_path, version="0.66.0")
+        shared = vault / ".brain" / "config.yaml"
+        local = vault / ".brain" / "local" / "config.yaml"
+        old_defaults = vault / ".brain-core" / "defaults" / "config.yaml"
+        old_defaults.parent.mkdir()
+        old_defaults.write_text(dump_yaml_text({"vault": {"profiles": {
+            "reader": {"allow": ["vault.read-file"]},
+            "contributor": {"allow": ["artefact.read"]},
+        }}}))
+        shared.write_text("defaults:\n  access:\n    initial_profile: reader\n")
+        local.write_text("defaults:\n  access:\n    initial_profile: contributor\n")
+        history = vault / ".brain" / "local" / "access-state.json"
+        history.write_text('{"historical": "preserve bytes, never import consent"}\n')
+        report = vault / ".brain" / "local" / "authorisation-migration.json"
+        if existing_report:
+            report.write_text('{"historical": "previous conversion evidence"}\n')
+        watched = (shared, local, history, report)
+        before = {path: path.read_bytes() if path.exists() else None for path in watched}
+        old_core = upgrade._tree_fingerprint(str(vault / ".brain-core"))
+
+        class CheckedExternalFailure(RuntimeError):
+            rollback_verified = True
+
+        observed_at_commit = {}
+
+        def fail_commit(_result):
+            observed_at_commit.update(
+                shared=load_mapping_file(shared), local=load_mapping_file(local),
+                report=json.loads(report.read_text()),
+            )
+            raise CheckedExternalFailure("reject after both migration stages")
+
+        result = upgrade.upgrade(
+            str(vault), str(source), sync=False, sync_deps=False,
+            commit_callback=fail_commit,
+        )
+
+        assert result["status"] == "error"
+        assert result["rollback_verified"] is True
+        assert result["rollback"]["recovery_backup"] is None
+        assert observed_at_commit["shared"]["defaults"]["access"]["initial"] == {
+            "mode": "explicit", "commands": ["vault.read-file"]
+        }
+        assert observed_at_commit["local"]["defaults"]["access"]["initial"] == {
+            "mode": "explicit", "commands": ["artefact.read"]
+        }
+        assert observed_at_commit["report"]["schema"] == "brain.authorisation-migration/1"
+        assert {path: path.read_bytes() if path.exists() else None for path in watched} == before
+        assert upgrade._tree_fingerprint(str(vault / ".brain-core")) == old_core
+
     def test_cutover_interrupt_restores_the_old_core_before_reraising(self, tmp_path):
         source = _make_real_compile_source(tmp_path, version=CORE_VERSION)
         vault = _make_minimal_upgrade_vault(tmp_path, version="0.62.8")

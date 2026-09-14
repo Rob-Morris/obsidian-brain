@@ -148,18 +148,29 @@ def test_new_ordinary_entries_cannot_omit_preparation_or_classification():
         ApplicationCatalogue((replace(entry, initial_class=InitialAuthorisationClass.CONTROL),))
 
 
-def test_reserved_operation_selector_cannot_become_a_business_field():
-    from dataclasses import dataclass
-    from typing import ClassVar
-    @dataclass(frozen=True)
-    class Collision:
-        COMMAND_ID: ClassVar[str] = "example.read"
-        COMMAND_VERSION: ClassVar[int] = 1
-        RESULT_TYPE: ClassVar[type] = str
-        brain_operation: str
+@pytest.mark.parametrize("reserved", ["brain_operation", "command_id", "command_version"])
+def test_reserved_transport_metadata_cannot_become_a_business_field(reserved):
+    from dataclasses import make_dataclass
+    Collision = make_dataclass("Collision", [(reserved, str)], frozen=True,
+        namespace={"COMMAND_ID": "example.read", "COMMAND_VERSION": 1, "RESULT_TYPE": str})
     entry = current_application_catalogue().entries[0]
     with pytest.raises(ValueError, match="reserved transport"):
         replace(entry, request_type=Collision)
+
+
+def test_status_remedy_resolves_through_sealed_dynamic_boundary(tmp_path):
+    from command_application import context_for
+    context = context_for(tmp_path, initial_commands=())
+    next_action = context.access.command_access("artefact.delete").next_action
+    assert next_action.command_id == "access.status"
+    arguments = {item.name: item.value for item in next_action.arguments}
+    assert arguments == {"target_command_id": "artefact.delete"}
+    typed = current_request_resolver().resolve(next_action.command_id, arguments)
+    result = status.execute(context, typed)
+    assert result.command_id == "access.status"
+    assert result.command_version == 3
+    assert result.result.command.command_id == "artefact.delete"
+    assert result.result.command.command_review
 
 
 @pytest.mark.parametrize("available,policy", [(True, "allowed"), (False, "allowed"), (True, "denied"), (True, "migration_required")])

@@ -114,7 +114,7 @@ def test_every_application_request_projects_to_a_strict_described_object_schema(
             property_schema.get("description")
             for property_schema in schema["properties"].values()
         ), entry.command_id
-        assert ("command_id" in schema["properties"]) is (entry.command_id == "access.status")
+        assert "command_id" not in schema["properties"], entry.command_id
         assert "command_version" not in schema["properties"], entry.command_id
 
         pending = [schema]

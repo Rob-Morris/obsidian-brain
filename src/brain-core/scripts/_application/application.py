@@ -191,7 +191,7 @@ def authority_denied_result(context: InvocationContext, entry: ApplicationEntry,
     return Error(entry.command_id, entry.command_version, CommandError(code, message,
         AuthorityDeniedDetails(profile, entry.authority.value, access.boundary, access.requestable),
         next_action=access.next_action or (CommandNextAction("access.status", (
-            CommandArgument("command_id", entry.command_id),)) if access.requestable else None)))
+            CommandArgument("target_command_id", entry.command_id),)) if access.requestable else None)))
 
 
 def consent_error_result(context, command_id, version, error: ConsentError):

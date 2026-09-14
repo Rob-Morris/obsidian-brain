@@ -11,7 +11,7 @@ if TYPE_CHECKING:
     from .preparation import PreparationSpec
 
 from .context import InvocationContext
-from .identity import command_identity
+from .identity import REQUEST_IDENTITY_FIELDS, command_identity
 from .results import CommandResult, RESULT_SCHEMA
 from .types import (
     Authority,
@@ -76,8 +76,10 @@ class ApplicationEntry:
         validate_command_id(self.command_id)
         if not isinstance(self.initial_class, InitialAuthorisationClass):
             raise ValueError("application entry requires an explicit initial authorisation class")
-        if any(item.init and item.name == "brain_operation" for item in fields(self.request_type)):
-            raise ValueError("brain_operation is reserved transport metadata")
+        reserved = REQUEST_IDENTITY_FIELDS | {"brain_operation"}
+        for item in fields(self.request_type):
+            if item.init and item.name in reserved:
+                raise ValueError(f"{item.name} is reserved transport metadata")
         if self.command_version < 1:
             raise ValueError("application entry command version must be positive")
         if self.locality is Locality.MACHINE_LOCAL:

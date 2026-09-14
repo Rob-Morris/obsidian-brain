@@ -42,7 +42,7 @@ def _context_factory(vault_root: Path, allowed_tools: frozenset[str]):
         counter += 1
         context = compose_local_context(
             vault_root=vault_root,
-            brain_id="real-client-capture",
+            brain_id=authorisation.service.identity.brain_id,
             profile="operator",
             authorisation=authorisation,
             dependency_tier=DependencyTier.MANAGED,

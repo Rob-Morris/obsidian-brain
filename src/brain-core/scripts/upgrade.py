@@ -2127,9 +2127,12 @@ def upgrade(
     def _rollback(msg, *, migration_result: Optional[dict] = None):
         restore_errors = []
         recovery_paths = []
+        snapshots_verified = True
+        # Unwind stages in reverse order. Their scopes can overlap: the later
+        # snapshot may contain an earlier migration's intermediate bytes.
         for snapshots, roots, label in (
-            (precompile_snapshots, precompile_snapshot_roots, "pre-compile state"),
             (postcompile_snapshots, postcompile_snapshot_roots, "post-compile state"),
+            (precompile_snapshots, precompile_snapshot_roots, "pre-compile state"),
         ):
             if not snapshots:
                 continue
@@ -2140,6 +2143,11 @@ def upgrade(
             )
             restore_errors.extend(f"{label}: {error}" for error in report.errors)
             recovery_paths.extend(report.recovery_paths)
+            # Verify each stage before its predecessor intentionally restores
+            # older bytes over overlapping paths. Both snapshots cannot be
+            # expected to match the final filesystem simultaneously.
+            stage_verified = _snapshots_verified(snapshots, roots=roots)
+            snapshots_verified = stage_verified and snapshots_verified
         try:
             _restore_brain_core(backup_dir, target)
         except BaseException as exc:
@@ -2149,13 +2157,6 @@ def upgrade(
         except OSError as exc:
             restore_errors.append(f"Brain Core verification: {exc}")
             core_verified = False
-        snapshots_verified = _snapshots_verified(
-            precompile_snapshots,
-            roots=precompile_snapshot_roots,
-        ) and _snapshots_verified(
-            postcompile_snapshots,
-            roots=postcompile_snapshot_roots,
-        )
         rollback_verified = not restore_errors and core_verified and snapshots_verified
         if rollback_verified:
             shutil.rmtree(backup_dir, ignore_errors=True)
