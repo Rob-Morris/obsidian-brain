@@ -537,7 +537,7 @@ class TestStartShaping:
     def test_transcript_write_failure_reports_applied_lifecycle(
         self, vault, router, monkeypatch
     ):
-        original_safe_write = start_shaping_session.safe_write
+        original_safe_write = start_shaping_session.safe_write_artefact
 
         def fail_transcript_write(path, content, **kwargs):
             if "Shaping Transcripts" in str(path):
@@ -545,7 +545,7 @@ class TestStartShaping:
             return original_safe_write(path, content, **kwargs)
 
         monkeypatch.setattr(
-            start_shaping_session, "safe_write", fail_transcript_write
+            start_shaping_session, "safe_write_artefact", fail_transcript_write
         )
 
         with pytest.raises(PartialApplyError, match="durable files.*My Design"):

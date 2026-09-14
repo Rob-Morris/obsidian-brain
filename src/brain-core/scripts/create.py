@@ -52,6 +52,7 @@ from _common import (
     resolve_parent_reference,
     resolve_type,
     safe_write,
+    safe_write_artefact,
     serialize_frontmatter,
     substitute_template_vars,
     title_to_slug,
@@ -256,7 +257,7 @@ def apply_artefact_creation(vault_root, router, plan, *, fix_links=False, file_i
     artefact, fields = plan.artefact, plan.fields
     resolved_parent, parent_context = plan.parent, plan.parent_context
     abs_path = os.path.join(vault_root, rel_path)
-    safe_write(abs_path, content, bounds=vault_root, exclusive=True)
+    safe_write_artefact(abs_path, content, bounds=vault_root, exclusive=True)
 
     artefact_index = router.get("artefact_index")
     if artefact_index is not None and artefact.get("classification") == "living":

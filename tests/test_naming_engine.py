@@ -2,6 +2,8 @@
 
 import pytest
 
+from naming_pattern_cases import UNSAFE_CACHED_NAMING_PATTERNS
+
 from _common._naming import (
     extract_title,
     naming_driver_fields,
@@ -71,6 +73,23 @@ WILDCARD_NAMING = {
     ],
     "placeholders": [],
 }
+
+
+@pytest.mark.parametrize("pattern", UNSAFE_CACHED_NAMING_PATTERNS)
+def test_render_rejects_paths_in_cached_naming_contracts(pattern):
+    with pytest.raises(ValueError, match="Naming pattern must be a single filename"):
+        render_filename({"pattern": pattern}, "Title", {})
+
+
+@pytest.mark.parametrize(("pattern", "expected"), [
+    ("{Title}.md", "Café notes.md"),
+    ("v1.2 - {Title}.md", "v1.2 - Café notes.md"),
+    ("Draft..{Title}.md", "Draft..Café notes.md"),
+    ("yyyymmdd-log~{Title}.md", "20260915-log~Café notes.md"),
+])
+def test_render_preserves_legitimate_filename_patterns(pattern, expected):
+    naming = {"rules": [{"pattern": pattern, "date_source": "created"}]}
+    assert render_filename(naming, "Café notes", {"created": "2026-09-15"}) == expected
 
 
 class TestSelectRule:

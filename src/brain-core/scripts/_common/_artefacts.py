@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 
 from ._document_revision import decode_persisted_document
 from ._frontmatter import parse_frontmatter
+from ._naming_contract import validate_naming_pattern
 from ._slugs import is_valid_key, title_to_filename, title_to_slug, validate_key
 from ._vault import match_artefact
 
@@ -960,8 +961,10 @@ def resolve_naming_pattern(pattern, title, variables=None, date_source=None):
     and no parseable ``date_source`` value raises ``ValueError``.
 
     Non-date placeholders (``{Title}``, ``{Version}`` etc.) are substituted
-    from ``variables`` or the ``title`` as usual.
+    from ``variables`` or the ``title`` as usual. Literal patterns must be
+    single filenames; absolute paths, separators and traversal are rejected.
     """
+    validate_naming_pattern(pattern)
     variables = variables or {}
     safe_title = title_to_filename(title)
     result = pattern

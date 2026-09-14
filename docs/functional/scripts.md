@@ -64,6 +64,19 @@ Local Python integrations can use `brain_application.local.LocalContextComposer(
 
 ## Internal script modules
 
+`compile_router.py` and `define.py` share taxonomy parsing. Filename patterns in
+simple and advanced `## Naming` contracts reject absolute paths, POSIX/Windows
+separators, drive prefixes and dot traversal segments before definition writes
+or router publication. Rendering validates cached patterns too. `create.py`,
+shaping, and backlink writers use the purpose-specific `safe_write_artefact()`
+boundary, while document/lifecycle and repair writers select the active or
+archive-only capability through `safe_write_active_or_archived_artefact()`; both check the
+fully resolved destination. `rename.py` uses the same destination policy for
+moves and verifies that each resolved source remains in its requested scope.
+Ordinary artefact destinations
+cannot enter `_Config/` or dot-prefixed system folders. Archived artefact,
+configuration, and internal writers retain narrower separate capabilities.
+
 Files such as `create.py`, `edit.py`, `read.py`, `repair.py`, `session.py`, `upgrade.py` and domain packages remain implementation providers where application or launcher owners use them. Their old independent aggregate parsers and compatibility entry points are not the public command grammar. `permission_admin.py` is a CLI-owned internal subprocess boundary that receives its operator secret only through trusted process context; it is not a direct-script command. `start_shaping.py` is removed; use `shaping.start` through `command.py`.
 
 Machine-global operations do not run through selected-Brain `command.py`. The versioned CLI distribution owns the separate stdlib-safe launcher catalogue and its install, upgrade, registry, runtime, MCP and diagnostic owners.

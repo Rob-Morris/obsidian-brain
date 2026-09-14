@@ -1,5 +1,11 @@
 Feature: Router compilation
 
+  Scenario: Reject a filename pattern that escapes its artefact folder
+    Given a compilable router vault
+    And a taxonomy filename pattern that traverses into configuration
+    When I attempt to compile the unsafe taxonomy
+    Then compilation rejects the filename path before publishing a router
+
   Scenario: Compile configured living and temporal artefacts
     Given a compilable router vault
     When I compile the router

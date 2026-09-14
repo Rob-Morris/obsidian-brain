@@ -46,6 +46,111 @@ def vault(tmp_path):
 # Core rename tests
 # ---------------------------------------------------------------------------
 
+@pytest.mark.parametrize("folder", ["_Config", ".brain-core", ".obsidian", "_Assets"])
+def test_move_rejects_resolved_protected_destination_before_link_rewrites(vault, folder):
+    before = {path: path.read_bytes() for path in vault.rglob("*") if path.is_file()}
+    with pytest.raises(ValueError, match="Cannot (write|modify)"):
+        rename.rename_and_update_links(str(vault), "Wiki/topic-a.md",
+                                       f"Wiki/../{folder}/new/topic-a.md")
+    assert {path: path.read_bytes() for path in vault.rglob("*") if path.is_file()} == before
+    assert not (vault / folder / "new").exists()
+
+
+@pytest.mark.parametrize("folder", ["_Config", ".brain-core"])
+def test_move_apply_rechecks_resolved_destination_before_link_rewrites(vault, folder):
+    destination = vault / "Wiki/target"
+    destination.mkdir()
+    plan = rename.plan_move_and_links(str(vault), [
+        {"source": "Wiki/topic-a.md", "dest": "Wiki/target/topic-a.md"},
+    ])
+    protected = vault / folder
+    protected.mkdir(exist_ok=True)
+    destination.rmdir()
+    destination.symlink_to(protected, target_is_directory=True)
+    before = {path: path.read_bytes() for path in vault.rglob("*") if path.is_file()}
+    with pytest.raises(ValueError, match="Cannot (write|modify)"):
+        rename.apply_move_and_links(str(vault), plan)
+    assert {path: path.read_bytes() for path in vault.rglob("*") if path.is_file()} == before
+    assert not (protected / "topic-a.md").exists()
+
+
+@pytest.mark.parametrize("folder", ["_Config", ".brain-core"])
+def test_move_apply_rechecks_resolved_source_before_link_rewrites(vault, folder):
+    holder = vault / "Wiki/holder"
+    holder.mkdir()
+    source = holder / "topic-a.md"
+    (vault / "Wiki/topic-a.md").rename(source)
+    plan = rename.plan_move_and_links(str(vault), [
+        {"source": "Wiki/holder/topic-a.md", "dest": "Wiki/topic-a-renamed.md"},
+    ])
+    protected = vault / folder
+    protected.mkdir(exist_ok=True)
+    protected_source = protected / "topic-a.md"
+    protected_source.write_bytes(source.read_bytes())
+    source.unlink()
+    holder.rmdir()
+    holder.symlink_to(protected, target_is_directory=True)
+    before = {path: path.read_bytes() for path in vault.rglob("*") if path.is_file()}
+
+    with pytest.raises(ValueError, match="different filesystem scope"):
+        rename.apply_move_and_links(str(vault), plan)
+
+    assert {path: path.read_bytes() for path in vault.rglob("*") if path.is_file()} == before
+    assert protected_source.exists()
+    assert not (vault / "Wiki/topic-a-renamed.md").exists()
+
+
+def test_attachment_move_apply_rechecks_canonical_source_scope(vault):
+    attachment_dir = vault / "_Assets/Attachments/topic-a"
+    attachment_dir.mkdir(parents=True)
+    attachment = attachment_dir / "source.pdf"
+    attachment.write_bytes(b"attachment")
+    plan = rename.plan_move_and_links(
+        str(vault),
+        [{
+            "source": "_Assets/Attachments/topic-a/source.pdf",
+            "dest": "_Assets/Attachments/topic-a/renamed.pdf",
+        }],
+        allow_attachment_paths=True,
+    )
+    protected = vault / "_Config"
+    protected.mkdir(exist_ok=True)
+    protected_source = protected / "source.pdf"
+    protected_source.write_bytes(attachment.read_bytes())
+    attachment.unlink()
+    attachment_dir.rmdir()
+    attachment_dir.symlink_to(protected, target_is_directory=True)
+    before = {path: path.read_bytes() for path in vault.rglob("*") if path.is_file()}
+
+    with pytest.raises(ValueError, match="different filesystem scope"):
+        rename.apply_move_and_links(str(vault), plan)
+
+    assert {path: path.read_bytes() for path in vault.rglob("*") if path.is_file()} == before
+    assert protected_source.exists()
+    assert not (vault / "_Assets/Attachments/topic-a/renamed.pdf").exists()
+
+
+def test_move_apply_rechecks_backlink_destinations_before_any_effect(vault):
+    plan = rename.plan_move_and_links(str(vault), [
+        {"source": "Wiki/topic-a.md", "dest": "Wiki/topic-a-renamed.md"},
+    ])
+    protected = vault / "_Config"
+    protected.mkdir()
+    protected_backlink = protected / "topic-b.md"
+    backlink = vault / "Wiki/topic-b.md"
+    protected_backlink.write_bytes(backlink.read_bytes())
+    backlink.unlink()
+    backlink.symlink_to(protected_backlink)
+    before = {path: path.read_bytes() for path in vault.rglob("*") if path.is_file()}
+
+    with pytest.raises(ValueError, match="Cannot write artefacts to '_Config'"):
+        rename.apply_move_and_links(str(vault), plan)
+
+    assert {path: path.read_bytes() for path in vault.rglob("*") if path.is_file()} == before
+    assert (vault / "Wiki/topic-a.md").exists()
+    assert not (vault / "Wiki/topic-a-renamed.md").exists()
+
+
 class TestRenameAndUpdateLinks:
     def test_renames_file(self, vault):
         rename.rename_and_update_links(str(vault), "Wiki/topic-a.md", "Wiki/topic-a-renamed.md")
@@ -1124,10 +1229,9 @@ class TestBrainCoreProtection:
             )
 
     def test_rename_source_out_of_brain_core_allowed(self, vault):
-        """Moving a file OUT of .brain-core is allowed (source not checked)."""
+        """Moving a directly named file out of .brain-core remains supported."""
         bc_file = vault / ".brain-core" / "movable.md"
         bc_file.write_text("---\ntype: living/wiki\n---\n\ntemp\n")
-        # Should not raise — only dest is checked
         rename.rename_and_update_links(
             str(vault), ".brain-core/movable.md", "Wiki/rescued.md",
         )

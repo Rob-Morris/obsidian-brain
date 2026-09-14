@@ -2,6 +2,8 @@
 
 import pytest
 
+from naming_pattern_cases import UNSAFE_NAMING_PATH_PATTERNS
+
 import compile_router
 import define
 
@@ -40,6 +42,25 @@ def _write_compile_skeleton(vault):
     (vault / ".brain-core/session-core.md").write_text("Always:\n")
     (vault / "_Config").mkdir(exist_ok=True)
     (vault / "_Config/router.md").write_text("Always:\n")
+
+
+@pytest.mark.parametrize("pattern", UNSAFE_NAMING_PATH_PATTERNS)
+@pytest.mark.parametrize("advanced", [False, True])
+def test_type_definition_rejects_path_patterns_without_writes(tmp_path, pattern, advanced):
+    before = set(tmp_path.rglob("*"))
+    naming = (
+        "Primary folder: `Widgets/`\n\n### Rules\n\n"
+        "| Match field | Match values | Pattern |\n|---|---|---|\n"
+        f"| `status` | `*` | `{pattern}` |"
+        if advanced else f"`{pattern}` in `Widgets/`"
+    )
+    definition = TYPE_DEFINITION.replace("`{Title}.md` in `Widgets/`", naming)
+    with pytest.raises(ValueError, match="Naming pattern must be a single filename"):
+        define.write_definition(
+            str(tmp_path), kind="type", operation="create", name="widgets",
+            classification="living", definition=definition, template=TYPE_TEMPLATE,
+        )
+    assert set(tmp_path.rglob("*")) == before
 
 
 def test_type_create_validates_identity_and_replace_requires_current_hash(tmp_path):

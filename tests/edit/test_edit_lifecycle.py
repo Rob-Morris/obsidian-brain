@@ -745,7 +745,9 @@ class TestOwnershipEditPaths:
             if len(calls) == 2:
                 raise OSError("disk full")
 
-        monkeypatch.setattr(edit, "safe_write", flaky_write)
+        monkeypatch.setattr(
+            edit, "safe_write_active_or_archived_artefact", flaky_write
+        )
 
         with pytest.raises(PartialApplyError, match="reference mutation partially applied") as exc_info:
             edit._write_frontmatter_mutations(
@@ -1644,6 +1646,22 @@ class TestArchiveArtefact:
         assert not (vault / rel).exists()
         assert (vault / result["new_path"]).exists()
 
+    def test_archive_apply_rejects_symlink_swap_into_configuration(self, vault, router):
+        rel = self._make_idea(vault)
+        plan = edit.plan_archive(str(vault), router, rel)
+        protected = vault / "_Config/my-idea.md"
+        protected.write_text((vault / rel).read_text())
+        (vault / rel).unlink()
+        (vault / "Ideas").rmdir()
+        (vault / "Ideas").symlink_to(vault / "_Config", target_is_directory=True)
+        before = protected.read_bytes()
+
+        with pytest.raises(ValueError, match="Cannot write artefacts to '_Config'"):
+            edit.apply_artefact_transition(str(vault), plan)
+
+        assert protected.read_bytes() == before
+        assert not (vault / plan.result["new_path"]).exists()
+
     def test_archive_adds_date_prefix(self, vault, router):
         rel = self._make_idea(vault)
         result = edit.archive_artefact(str(vault), router, rel)
@@ -1908,7 +1926,7 @@ class TestArchiveArtefact:
 
     def test_archive_write_failure_reports_written_context(self, vault, router, monkeypatch):
         router = self._make_archive_tree(vault)
-        original = edit.safe_write
+        original = edit.safe_write_active_or_archived_artefact
         calls = []
 
         def flaky_write(path, content, **kwargs):
@@ -1917,7 +1935,9 @@ class TestArchiveArtefact:
                 raise OSError("disk full")
             return original(path, content, **kwargs)
 
-        monkeypatch.setattr(edit, "safe_write", flaky_write)
+        monkeypatch.setattr(
+            edit, "safe_write_active_or_archived_artefact", flaky_write
+        )
 
         with pytest.raises(PartialApplyError, match="archive partially applied") as exc_info:
             edit.archive_artefact(
@@ -2162,7 +2182,9 @@ class TestReparentChildren:
         def fail_write(*_args, **_kwargs):
             raise OSError("disk full")
 
-        monkeypatch.setattr(edit, "safe_write", fail_write)
+        monkeypatch.setattr(
+            edit, "safe_write_active_or_archived_artefact", fail_write
+        )
 
         with pytest.raises(OSError, match="reparent failed before writing") as exc_info:
             edit.reparent_children(

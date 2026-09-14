@@ -61,6 +61,16 @@ scripts/
 
 It does not import `argparse`, the MCP SDK, terminal renderers, environment selectors or concrete provisioning. Lower-level packages never import back into `_application`.
 
+The shared naming validator in `_common/_naming_contract.py` restricts filename
+patterns to basenames during taxonomy parsing and rendering. `_common/_filesystem.py`
+owns bounds, atomic writes and the protected-folder policy. Creation, shaping,
+and backlink effects use `safe_write_artefact()` to apply that policy to the
+resolved destination, excluding `_Config/`; document/lifecycle and repair
+updates route through `safe_write_active_or_archived_artefact()` to the active or
+archive-only writer. `rename.py` checks the same resolved destination policy and
+verifies that move sources remain in their requested filesystem scope.
+Internal/configuration writers keep their separately derived destinations.
+
 The instance-authorisation foundation in `_application/consent.py` owns scope,
 admission, invalidation and replay rules over an opaque atomic state port.
 `preparation.py` defines immutable operation bindings; command families resolve

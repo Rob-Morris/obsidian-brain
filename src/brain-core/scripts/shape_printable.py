@@ -34,6 +34,7 @@ from _common import (
     parse_frontmatter,
     resolve_and_check_bounds,
     safe_write,
+    safe_write_artefact,
     slug_to_title,
     substitute_template_vars,
     title_to_filename,
@@ -282,7 +283,7 @@ def shape(vault_root, params, *, _plan=None):
     rel_path, created = plan.path, plan.created
     abs_path = os.path.join(vault_root, rel_path)
     if created:
-        safe_write(abs_path, plan.content, bounds=vault_root)
+        safe_write_artefact(abs_path, plan.content, bounds=vault_root)
 
     result = {
         "status": "ok",

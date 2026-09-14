@@ -13,6 +13,15 @@ Obsidian displays the filename as the note title everywhere — sidebar, tabs, g
 
 The `title_to_filename()` function in `_common/_slugs.py` implements this.
 
+Taxonomy naming patterns must describe one filename. Simple patterns and every
+advanced rule reject absolute paths, `/` or `\` separators, Windows drive
+prefixes (including `C:relative.md`) and `.` or `..` path segments. Put folder
+structure in the separate folder/parent contract. Literal dots within a filename
+remain valid, including version numbers and ellipses. Definition authoring,
+router compilation and filename rendering enforce this rule; artefact writes
+also check their resolved destination and cannot target `_Config/` or dot-prefixed
+system folders.
+
 **Hub tags** (e.g. `project/{key}`, `workspace/{key}`) use the canonical key format: lowercase alphanumeric with single hyphens, containing at least one letter. Key values are platform-generated at create time. See [[keys]] for the full contract.
 
 ## Temporal Artefacts

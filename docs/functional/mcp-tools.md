@@ -285,6 +285,16 @@ library-only definitions. Content and named-resource definition selectors retain
 their configured short key (`plans`), as described by their individual schemas.
 Custom taxonomy values come from the installed definition, never guessed plurals.
 
+`type.create` and `type.replace` reject naming patterns containing paths,
+including `/` or `\` separators, Windows drive prefixes and dot traversal
+segments, before writing definitions. Router compilation and cached-pattern
+rendering enforce the same filename-only contract. Artefact creation, shaping
+transcript writes, document/lifecycle edits, backlink updates, and lifecycle moves
+also check fully resolved destinations; moves verify that source resolution stays
+in its requested scope. Ordinary content cannot be written into `_Config/` or
+dot-prefixed system folders. Definition and named-resource commands retain their
+own configuration access.
+
 `artefact.archive` accepts every artefact type independently of lifecycle status,
 including statusless Thoughts. It preserves status, intrinsic dated filenames,
 ownership and link updates. Restore removes only the archival date prefix and

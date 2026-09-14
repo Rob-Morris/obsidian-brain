@@ -6,6 +6,7 @@ import re
 import sys
 from unittest.mock import patch
 from datetime import datetime, timezone, timedelta
+from dataclasses import replace
 
 import pytest
 
@@ -181,6 +182,26 @@ def router(vault):
 # ---------------------------------------------------------------------------
 # Tests
 # ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize("folder", ["_Config", ".brain-core"])
+def test_creation_apply_rejects_protected_rendered_path(vault, router, folder):
+    plan = create.plan_artefact_creation(str(vault), router, "wiki", "Traversal")
+    plan = replace(plan, path=f"Wiki/../{folder}/new/Traversal.md")
+    before = {path: path.read_bytes() for path in vault.rglob("*") if path.is_file()}
+    with pytest.raises(ValueError, match="Cannot (write|modify)"):
+        create.apply_artefact_creation(str(vault), router, plan)
+    assert {path: path.read_bytes() for path in vault.rglob("*") if path.is_file()} == before
+    assert not (vault / folder / "new").exists()
+
+
+@pytest.mark.parametrize("folder", ["_Config", ".brain-core"])
+def test_creation_rejects_unsafe_cached_pattern(vault, router, folder):
+    art = next(art for art in router["artefacts"] if art["key"] == "wiki")
+    art["naming"] = {"pattern": f"../{folder}/{{Title}}.md"}
+    with pytest.raises(ValueError, match="Naming pattern must be a single filename"):
+        create.create_artefact(str(vault), router, "wiki", "Traversal")
+    assert not (vault / folder / "Traversal.md").exists()
+
 
 class TestCreateArtefact:
     def test_create_living_type(self, vault, router):

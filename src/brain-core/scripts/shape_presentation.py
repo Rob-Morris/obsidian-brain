@@ -29,7 +29,7 @@ from _common import (
     coerce_bool,
     find_vault_root,
     resolve_and_check_bounds,
-    safe_write,
+    safe_write_artefact,
     slug_to_title,
     substitute_template_vars,
     title_to_filename,
@@ -188,7 +188,7 @@ def shape(vault_root, params, *, _plan=None):
     abs_path = os.path.join(vault_root, rel_path)
     theme_path = _resolve_theme_path(vault_root)
     if created:
-        safe_write(abs_path, plan.content, bounds=vault_root)
+        safe_write_artefact(abs_path, plan.content, bounds=vault_root)
 
     render = coerce_bool(params.get("render"), True)
     preview = coerce_bool(params.get("preview"), True)

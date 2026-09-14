@@ -155,6 +155,11 @@ Why? Obsidian's backlinks and graph view resolve body wikilinks. Body text is vi
 
 ## Filing Conventions
 
+Naming patterns specify one filename, with folder placement handled separately.
+Type definitions reject absolute paths, path separators and traversal in naming
+patterns. Ordinary artefact writes cannot target `_Config/` or dot-prefixed
+system folders, even through a symlink or a rendered path.
+
 ### Living Artefacts
 
 - Root-level folder, one per type

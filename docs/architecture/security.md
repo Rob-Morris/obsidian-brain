@@ -40,6 +40,28 @@ See: [DD-031: Path security model](decisions/dd-031-path-security-model.md)
 After bounds checking, `check_write_allowed(rel_path)` and
 `check_not_in_brain_core(path, vault_root)` filter which vault locations are writable.
 
+Naming patterns are filenames, not paths. The shared taxonomy parser rejects
+literal `/` and `\` separators, dot traversal segments and Windows drive prefixes
+in both simple patterns and advanced rule tables. `type.create` and
+`type.replace` use that parser before writing their definition bundle. Rendering
+applies the same validation to cached contracts; title and field substitutions
+continue to be sanitised independently. Dots within filenames, such as version
+numbers, remain valid.
+
+The purpose-specific `safe_write_artefact()` entry point requires vault bounds
+and applies `check_artefact_write_allowed()` to the fully resolved,
+vault-relative destination before creating directories or temporary files.
+Creation, shaping outputs, and backlink repairs use this entry point. Document,
+lifecycle, and repair updates use `safe_write_active_or_archived_artefact()`, which selects
+the ordinary writer or the narrower `safe_write_archived_artefact()` capability
+from the existing artefact's lexical scope. The shared move engine applies the
+ordinary content policy to resolved destinations and verifies that source
+resolution stays in its requested filesystem scope during preflight and again
+before any backlink rewrite or move. These final checks also block traversal or
+symlinks into protected folders when naming validation is bypassed.
+Internal and configuration writers retain their operation-specific destinations;
+the general atomic kernel alone provides bounds and atomicity, not authorisation.
+
 ### Dot-prefix rejection
 
 Any top-level folder whose name starts with `.` is unconditionally blocked:
@@ -64,7 +86,7 @@ allowlist `{_Temporal, _Config}`:
 | `_Plugins/` | **blocked** | Plugin data, not agent-written content |
 | `_Workspaces/` | **blocked** | Workspace config, not agent-written content |
 | `_Temporal/` | **allowed** | User-facing temporary/in-progress artefacts |
-| `_Config/` | **allowed** | User-facing configuration artefacts |
+| `_Config/` | **configuration operations only** | Definition and named-resource owners may write; ordinary artefact destinations are blocked |
 
 The model is additive: any new underscore-prefixed directory is blocked by default and
 must be explicitly added to `_WRITE_ALLOWED_UNDERSCORE` in `_common/_filesystem.py` to become
@@ -171,16 +193,19 @@ tmp-fsync-rename pattern:
 
 1. **Bounds check** — `resolve_and_check_bounds()` runs first; no I/O begins for
    out-of-bounds paths.
-2. **Write to a unique sibling temp file** — Content is written to a fresh
+2. **Artefact write policy** — Purpose-specific artefact writers check the
+   canonical relative destination against protected-folder rules, including
+   `_Config/` rejection.
+3. **Write to a unique sibling temp file** — Content is written to a fresh
    `mkstemp()` path in the same directory as the target. Keeping the temp file on
    the same filesystem guarantees that `os.replace()` is a single `rename(2)`
    syscall — atomic on POSIX.
-3. **`f.flush()` + `os.fsync(f.fileno())`** — Flushes the OS page cache to stable
+4. **`f.flush()` + `os.fsync(f.fileno())`** — Flushes the OS page cache to stable
    storage before the rename, so a crash after the rename cannot produce an empty file.
-4. **`os.replace(tmp, target)`** — Atomically replaces the target. The old content
+5. **`os.replace(tmp, target)`** — Atomically replaces the target. The old content
    remains intact until the rename completes. If the rename fails, the original file
    is untouched.
-5. **Cleanup on any exception** — A `BaseException` handler unlinks the tmp file if
+6. **Cleanup on any exception** — A `BaseException` handler unlinks the tmp file if
    any step fails, preventing orphan temp files in the vault.
 
 **Unique temp names:** Because each call gets its own sibling temp path, two

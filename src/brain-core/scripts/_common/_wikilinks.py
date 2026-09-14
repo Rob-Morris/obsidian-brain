@@ -6,7 +6,7 @@ from collections import namedtuple
 from dataclasses import dataclass
 
 from ._vault import is_system_dir, TEMPORAL_DIR
-from ._filesystem import safe_write
+from ._filesystem import safe_write_artefact, validate_artefact_write_target
 from ._markdown import in_any_range, literal_ranges
 from ._slugs import slug_to_title
 
@@ -240,7 +240,13 @@ def plan_wikilink_rewrites(vault_root, pattern, replacement, *, paths=None,
 def apply_wikilink_rewrites(vault_root, plan):
     """Persist the already resolved matching transforms."""
     for write in plan.writes:
-        safe_write(os.path.join(vault_root, write.path), write.after, bounds=vault_root)
+        validate_artefact_write_target(
+            os.path.join(vault_root, write.path), vault_root
+        )
+    for write in plan.writes:
+        safe_write_artefact(
+            os.path.join(vault_root, write.path), write.after, bounds=vault_root
+        )
     return sum(write.substitutions for write in plan.writes)
 
 

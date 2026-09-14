@@ -186,6 +186,66 @@ class TestSafeWrite:
 
 
 # ---------------------------------------------------------------------------
+# Artefact write policy at the atomic boundary
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize("folder", ["_Config", ".brain-core", ".brain", ".obsidian", "_Assets"])
+def test_artefact_write_rejects_resolved_protected_destinations(tmp_path, folder):
+    protected = tmp_path / folder
+    protected.mkdir()
+    existing = protected / "existing.md"
+    existing.write_text("original")
+    (tmp_path / "Wiki").mkdir()
+    target = tmp_path / "Wiki" / ".." / folder / "existing.md"
+    with pytest.raises(ValueError, match="Cannot (write|modify)"):
+        common.safe_write_artefact(target, "changed", bounds=tmp_path)
+    assert existing.read_text() == "original"
+    assert list(protected.iterdir()) == [existing]
+
+
+@pytest.mark.parametrize("folder", ["_Config", ".brain-core"])
+def test_artefact_write_rejects_symlink_to_protected_folder(tmp_path, folder):
+    protected = tmp_path / folder
+    protected.mkdir()
+    (tmp_path / "Wiki").symlink_to(protected, target_is_directory=True)
+    with pytest.raises(ValueError, match="Cannot (write|modify)"):
+        common.safe_write_artefact(
+            tmp_path / "Wiki/new/deep.md", "changed", bounds=tmp_path
+        )
+    assert list(protected.iterdir()) == []
+
+
+def test_artefact_write_requires_vault_bounds(tmp_path):
+    before = set(tmp_path.rglob("*"))
+    with pytest.raises(ValueError, match="require vault bounds"):
+        common.safe_write_artefact(tmp_path / "test.md", "content", bounds=None)
+    assert set(tmp_path.rglob("*")) == before
+
+
+@pytest.mark.parametrize("relative", ["Wiki/Café notes.md", "_Temporal/Logs/20260915-log.md"])
+def test_artefact_write_allows_content_folders(tmp_path, relative):
+    target = tmp_path / relative
+    common.safe_write_artefact(target, "content", bounds=tmp_path)
+    assert target.read_text() == "content"
+
+
+def test_explicit_configuration_writer_remains_allowed(tmp_path):
+    target = tmp_path / "_Config/Taxonomy/Living/wiki.md"
+    common.safe_write(target, "definition", bounds=tmp_path)
+    assert target.read_text() == "definition"
+
+
+def test_archived_artefact_writer_has_one_explicit_destination(tmp_path):
+    archived = tmp_path / "_Archive/Wiki/topic.md"
+    common.safe_write_archived_artefact(archived, "archived", bounds=tmp_path)
+    assert archived.read_text() == "archived"
+    with pytest.raises(ValueError, match="must stay inside '_Archive'"):
+        common.safe_write_archived_artefact(
+            tmp_path / "Wiki/topic.md", "active", bounds=tmp_path
+        )
+
+
+# ---------------------------------------------------------------------------
 # safe_write_json
 # ---------------------------------------------------------------------------
 

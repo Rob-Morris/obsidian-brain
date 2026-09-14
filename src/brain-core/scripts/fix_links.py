@@ -38,7 +38,7 @@ from _common import (
     replace_wikilinks_in_text,
     replace_wikilinks_in_vault,
     resolve_broken_link,
-    safe_write,
+    safe_write_artefact,
 )
 
 
@@ -193,7 +193,7 @@ def apply_fixes_to_file(vault_root, rel_path, fixes, links_filter=None):
         return 0
     new_content, count = replace_wikilinks_in_text(content, pattern, replacer)
     if count > 0:
-        safe_write(abs_path, new_content, bounds=vault_root)
+        safe_write_artefact(abs_path, new_content, bounds=vault_root)
     return count
 
 

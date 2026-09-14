@@ -67,6 +67,8 @@ from _common import (
     resolve_structural_target,
     scan_artefact_key_references,
     safe_write,
+    safe_write_artefact,
+    safe_write_active_or_archived_artefact,
     serialize_frontmatter,
     StaleArtefactIndexError,
     RequestCycleError,
@@ -466,7 +468,7 @@ def _save_artefact(abs_path, fields, new_body, vault_root):
     """Set modified timestamp, serialize, and write."""
     fields["modified"] = now_iso()
     new_content = serialize_frontmatter(fields, body=new_body)
-    safe_write(abs_path, new_content, bounds=vault_root)
+    safe_write_artefact(abs_path, new_content, bounds=vault_root)
 
 
 # ---------------------------------------------------------------------------
@@ -1219,11 +1221,18 @@ def _write_frontmatter_mutations(vault_root, operations, *, operation):
     written = []
     for op in operations:
         try:
-            safe_write(
+            safe_write_active_or_archived_artefact(
                 os.path.join(vault_root, op["path"]),
                 serialize_frontmatter(op["fields"], body=op["body"]),
                 bounds=vault_root,
             )
+        except ValueError as exc:
+            if not written:
+                raise
+            raise PartialApplyError(
+                f"{operation} partially applied — "
+                f"files written {written}, failed at {op['path']}: {exc}"
+            ) from exc
         except OSError as exc:
             if not written:
                 raise OSError(

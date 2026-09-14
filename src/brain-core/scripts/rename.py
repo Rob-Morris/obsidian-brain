@@ -23,8 +23,9 @@ from _common import (
     build_md_basename_counts,
     build_wikilink_pattern,
     canonical_living_artefact_key,
-    check_write_allowed,
+    check_artefact_write_allowed,
     check_not_in_brain_core,
+    check_write_allowed,
     descendant_entries,
     descendant_payload,
     find_vault_root,
@@ -80,24 +81,61 @@ def validate_move_path_request(
     allow_attachment_paths=False,
 ):
     """Validate path/bounds/write gates for a filesystem move."""
-    abs_source = os.path.join(vault_root, source)
-    abs_dest = os.path.join(vault_root, dest)
-    resolve_and_check_bounds(abs_source, vault_root)
-    resolve_and_check_bounds(abs_dest, vault_root)
-    check_not_in_brain_core(dest, vault_root)
-    attachment_move = (
-        allow_attachment_paths
-        and _is_scoped_attachment_path(source)
-        and _is_scoped_attachment_path(dest)
-    )
-    if not attachment_move and not (allow_archive_paths and is_archived_path(dest)):
-        check_write_allowed(dest)
+    abs_source, canonical_source = _resolve_move_path(vault_root, source)
+    abs_dest, canonical_dest = _resolve_move_path(vault_root, dest)
     if os.path.islink(abs_source):
         raise ValueError(f"Move source cannot be a symlink: {source}")
     if os.path.lexists(abs_dest) and os.path.islink(abs_dest):
         raise ValueError(f"Move destination cannot be a symlink: {dest}")
 
+    lexical_source = os.path.relpath(
+        os.path.abspath(abs_source), os.path.abspath(vault_root)
+    )
+    if _move_source_scope(lexical_source) != _move_source_scope(canonical_source):
+        raise ValueError(
+            "Move source resolves into a different filesystem scope: "
+            f"{source} -> {canonical_source}"
+        )
+
+    attachment_move = (
+        allow_attachment_paths
+        and _is_scoped_attachment_path(source)
+        and _is_scoped_attachment_path(canonical_source)
+        and _is_scoped_attachment_path(dest)
+        and _is_scoped_attachment_path(canonical_dest)
+    )
+    if not attachment_move:
+        if not (allow_archive_paths and _is_archived_move_path(canonical_dest)):
+            check_artefact_write_allowed(canonical_dest)
+
     return abs_source, abs_dest
+
+
+def _resolve_move_path(vault_root, path):
+    """Return one lexical move path and its canonical vault-relative path."""
+    absolute = os.path.join(vault_root, path)
+    resolved = resolve_and_check_bounds(absolute, vault_root)
+    canonical = os.path.relpath(resolved, os.path.realpath(vault_root))
+    return absolute, canonical
+
+
+def _is_archived_move_path(path):
+    """Return whether a native or portable move path is archived."""
+    return is_archived_path(str(path).replace("\\", "/"))
+
+
+def _move_source_scope(path):
+    """Classify a move source without granting authority to a different scope."""
+    if _is_scoped_attachment_path(path):
+        return "attachment"
+    if _is_archived_move_path(path):
+        return "archive"
+    try:
+        check_artefact_write_allowed(path)
+    except ValueError:
+        parts = str(path).replace("\\", "/").split("/")
+        return f"protected:{parts[0] if parts else ''}"
+    return "artefact"
 
 
 def _is_scoped_attachment_path(path):
@@ -148,18 +186,6 @@ def _validate_destination_parent_directory(vault_root, dest, abs_dest):
         raise NotADirectoryError(
             f"Destination parent is not a directory: {rel_parent} for {dest}"
         )
-
-
-def validate_destination_parent_directory(vault_root, dest, *, allow_archive_paths=False):
-    """Raise if an existing destination parent component is not a directory."""
-    abs_dest = os.path.join(vault_root, dest)
-    resolve_and_check_bounds(abs_dest, vault_root)
-    check_not_in_brain_core(dest, vault_root)
-    if not (allow_archive_paths and is_archived_path(dest)):
-        check_write_allowed(dest)
-    if os.path.lexists(abs_dest) and os.path.islink(abs_dest):
-        raise ValueError(f"Move destination cannot be a symlink: {dest}")
-    _validate_destination_parent_directory(vault_root, dest, abs_dest)
 
 
 def move_destination_collision(vault_root, source, dest, sources, *, source_ids=None):
@@ -383,6 +409,8 @@ class MoveLinksPlan:
     links: WikilinkRewritePlan
     prune_router: dict | None = None
     link_counts: dict = field(default_factory=dict)
+    allow_archive_paths: bool = False
+    allow_attachment_paths: bool = False
 
 
 class MoveApplyError(PartialApplyError):
@@ -396,13 +424,24 @@ class MoveApplyError(PartialApplyError):
             f"committed {applied}, failed at {failed['source']}->{failed['dest']}: {cause}")
 
 
-def plan_move_and_links(vault_root, moves, *, allow_archive_paths=False,
+def plan_move_and_links(vault_root, moves, *, router=None, allow_archive_paths=False,
                         allow_attachment_paths=False, prune_router=None,
                         overrides=None):
     """Resolve file identities and matching backlink writes without effects."""
-    planned = preflight_move_set(vault_root, moves,
-                                allow_archive_paths=allow_archive_paths,
-                                allow_attachment_paths=allow_attachment_paths)
+    if router is None:
+        planned = preflight_move_set(
+            vault_root,
+            moves,
+            allow_archive_paths=allow_archive_paths,
+            allow_attachment_paths=allow_attachment_paths,
+        )
+    else:
+        planned = preflight_rename_move_set(
+            vault_root,
+            moves,
+            router=router,
+            allow_archive_paths=allow_archive_paths,
+        )
     if not planned:
         return MoveLinksPlan((), (), WikilinkRewritePlan(()), prune_router)
     basename_counts = build_md_basename_counts(vault_root)
@@ -422,11 +461,19 @@ def plan_move_and_links(vault_root, moves, *, allow_archive_paths=False,
                                    overrides=overrides)
              if pattern is not None else WikilinkRewritePlan(()))
     return MoveLinksPlan(tuple(planned), tuple(_ordered_moves_for_apply(planned)),
-                         links, prune_router, link_counts)
+                         links, prune_router, link_counts,
+                         allow_archive_paths, allow_attachment_paths)
 
 
 def apply_move_and_links(vault_root, plan):
     """Apply admitted link writes and moves, preserving partial-apply reporting."""
+    for move in plan.ordered:
+        validate_move_path_request(
+            vault_root, os.path.relpath(move["abs_source"], vault_root),
+            os.path.relpath(move["abs_dest"], vault_root),
+            allow_archive_paths=plan.allow_archive_paths,
+            allow_attachment_paths=plan.allow_attachment_paths,
+        )
     links_updated = apply_wikilink_rewrites(vault_root, plan.links)
     applied = []
     for move in plan.ordered:
@@ -533,10 +580,8 @@ def plan_artefact_rename(vault_root, router, source, dest):
             "Rename cannot move an artefact between different type folders. "
             "Use the convert operation for type changes."
         )
-    validate_rename_request(vault_root, source, dest, router=router)
-    validate_destination_parent_directory(vault_root, dest)
     return plan_move_and_links(vault_root, [{"source": source, "dest": dest}],
-                               prune_router=router)
+                               router=router, prune_router=router)
 
 
 def apply_artefact_rename(vault_root, plan):

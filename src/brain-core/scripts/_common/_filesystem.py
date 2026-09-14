@@ -58,6 +58,20 @@ def check_write_allowed(rel_path):
         )
 
 
+def check_artefact_write_allowed(rel_path):
+    """Raise if an ordinary artefact path targets configuration or system data."""
+    parts = Path(rel_path).parts
+    if not parts:
+        raise ValueError("Empty path")
+    if parts[0] == ".brain-core":
+        raise ValueError(f"Cannot modify files inside .brain-core/: {rel_path}")
+    if parts[0] == "_Config":
+        raise ValueError(
+            "Cannot write artefacts to '_Config' — protected configuration folder."
+        )
+    check_write_allowed(rel_path)
+
+
 def check_not_in_brain_core(path, vault_root):
     """Raise ValueError if path resolves inside .brain-core/."""
     real = os.path.realpath(os.path.join(vault_root, path) if not os.path.isabs(path) else path)
@@ -80,22 +94,8 @@ def _resolve_write_target(path, *, bounds=None, follow_symlinks=True):
     return target
 
 
-def safe_write_via(path, writer, *, mode="wb", encoding="utf-8", bounds=None,
-                   follow_symlinks=True, exclusive=False):
-    """Atomic file write for callback-driven serializers.
-
-    Opens a unique sibling tempfile in the target directory, invokes *writer*
-    with the writable handle, flushes and fsyncs it, then atomically replaces
-    the destination via ``os.replace``.
-
-    **Concurrency note:** each call uses a unique tempfile in the destination
-    directory, so same-process concurrent writes to the same target do not
-    collide on a shared ``.tmp`` path. Higher-level last-writer-wins races are
-    still possible when callers mutate the same file concurrently.
-    """
-    target = _resolve_write_target(path, bounds=bounds,
-                                   follow_symlinks=follow_symlinks)
-
+def _safe_write_resolved(target, writer, *, mode, encoding, exclusive):
+    """Write atomically to one already resolved and authorised target."""
     if exclusive and os.path.exists(target):
         raise FileExistsError(f"File already exists: {target}")
 
@@ -125,6 +125,29 @@ def safe_write_via(path, writer, *, mode="wb", encoding="utf-8", bounds=None,
     return target
 
 
+def safe_write_via(path, writer, *, mode="wb", encoding="utf-8", bounds=None,
+                   follow_symlinks=True, exclusive=False):
+    """Atomic file write for callback-driven serializers.
+
+    Opens a unique sibling tempfile in the target directory, invokes *writer*
+    with the writable handle, flushes and fsyncs it, then atomically replaces
+    the destination via ``os.replace``.
+
+    **Concurrency note:** each call uses a unique tempfile in the destination
+    directory, so same-process concurrent writes to the same target do not
+    collide on a shared ``.tmp`` path. Higher-level last-writer-wins races are
+    still possible when callers mutate the same file concurrently.
+
+    This general primitive provides bounds and atomicity, not authorisation.
+    Ordinary artefact content must use ``safe_write_artefact`` instead.
+    """
+    target = _resolve_write_target(path, bounds=bounds,
+                                   follow_symlinks=follow_symlinks)
+    return _safe_write_resolved(
+        target, writer, mode=mode, encoding=encoding, exclusive=exclusive
+    )
+
+
 def safe_write(path, content, *, encoding="utf-8", bounds=None,
                follow_symlinks=True, exclusive=False):
     """Atomic file write with optional symlink resolution and bounds checking.
@@ -136,6 +159,92 @@ def safe_write(path, content, *, encoding="utf-8", bounds=None,
         path,
         lambda handle: handle.write(content),
         mode="w",
+        encoding=encoding,
+        bounds=bounds,
+        follow_symlinks=follow_symlinks,
+        exclusive=exclusive,
+    )
+
+
+def _resolve_vault_write_target(path, bounds, *, follow_symlinks=True):
+    """Return one resolved target and its canonical vault-relative path."""
+    if bounds is None:
+        raise ValueError("Artefact writes require vault bounds")
+    target = _resolve_write_target(
+        path, bounds=bounds, follow_symlinks=follow_symlinks
+    )
+    # Policy always sees canonical components, including when the atomic layer
+    # has been asked not to follow the final symlink.
+    resolved = resolve_and_check_bounds(target, bounds)
+    relative = os.path.relpath(resolved, os.path.realpath(bounds))
+    return target, relative
+
+
+def validate_artefact_write_target(path, bounds, *, follow_symlinks=True):
+    """Resolve and authorise an ordinary artefact content destination."""
+    target, relative = _resolve_vault_write_target(
+        path, bounds, follow_symlinks=follow_symlinks
+    )
+    check_artefact_write_allowed(relative)
+    return target
+
+
+def _validate_archived_artefact_write_target(path, bounds, *, follow_symlinks=True):
+    """Resolve and require a destination already inside ``_Archive``."""
+    target, relative = _resolve_vault_write_target(
+        path, bounds, follow_symlinks=follow_symlinks
+    )
+    parts = Path(relative).parts
+    if not parts or parts[0] != "_Archive":
+        raise ValueError("Archived artefact writes must stay inside '_Archive'.")
+    return target
+
+
+def safe_write_artefact(path, content, *, encoding="utf-8", bounds,
+                        follow_symlinks=True, exclusive=False):
+    """Atomically write ordinary artefact content to an authorised destination."""
+    target = validate_artefact_write_target(
+        path, bounds, follow_symlinks=follow_symlinks
+    )
+    return _safe_write_resolved(
+        target,
+        lambda handle: handle.write(content),
+        mode="w",
+        encoding=encoding,
+        exclusive=exclusive,
+    )
+
+
+def safe_write_archived_artefact(path, content, *, encoding="utf-8", bounds,
+                                 follow_symlinks=True, exclusive=False):
+    """Atomically update artefact content already stored under ``_Archive``."""
+    target = _validate_archived_artefact_write_target(
+        path, bounds, follow_symlinks=follow_symlinks
+    )
+    return _safe_write_resolved(
+        target,
+        lambda handle: handle.write(content),
+        mode="w",
+        encoding=encoding,
+        exclusive=exclusive,
+    )
+
+
+def safe_write_active_or_archived_artefact(
+    path, content, *, encoding="utf-8", bounds,
+    follow_symlinks=True, exclusive=False,
+):
+    """Write active or top-level archived artefact content by lexical scope."""
+    relative = os.path.relpath(str(path), str(bounds))
+    parts = Path(relative).parts
+    write = (
+        safe_write_archived_artefact
+        if parts and parts[0] == "_Archive"
+        else safe_write_artefact
+    )
+    return write(
+        path,
+        content,
         encoding=encoding,
         bounds=bounds,
         follow_symlinks=follow_symlinks,

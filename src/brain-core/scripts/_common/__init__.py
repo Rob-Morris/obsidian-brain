@@ -114,6 +114,10 @@ from ._naming import (
     validate_filename,
 )
 
+from ._naming_contract import (
+    validate_naming_pattern,
+)
+
 from ._paths import (
     config_home,
 )
@@ -124,6 +128,7 @@ from ._shell import (
 )
 
 from ._filesystem import (
+    check_artefact_write_allowed,
     check_not_in_brain_core,
     check_write_allowed,
     cleanup_temp_body_file,
@@ -131,9 +136,13 @@ from ._filesystem import (
     resolve_and_check_bounds,
     resolve_body_file,
     safe_write,
+    safe_write_archived_artefact,
+    safe_write_artefact,
+    safe_write_active_or_archived_artefact,
     safe_write_via,
     safe_write_json,
     temp_body_file_cleanup_path,
+    validate_artefact_write_target,
     validate_portable_relative_path,
     validate_windows_portable_filename_segment,
 )

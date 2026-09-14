@@ -44,6 +44,7 @@ from _common import (
     is_valid_key,
     living_artefact_index_entry,
     taxonomy_rel_path,
+    validate_naming_pattern,
 )
 from _common._artefacts import pattern_has_date_tokens
 from _repair_common import build_repair_command
@@ -355,6 +356,7 @@ def _parse_advanced_naming(naming_text):
         date_source = _unwrap_backticks(row.get("date source", "")) or None
         if not pattern:
             raise ValueError("## Naming ### Rules row missing pattern")
+        validate_naming_pattern(pattern)
         if not match_field:
             raise ValueError(
                 "## Naming ### Rules row missing match field "
@@ -447,6 +449,8 @@ def _parse_naming_section(content):
     if not (pattern_match or folder_match):
         return None
     pattern = pattern_match.group(1) if pattern_match else None
+    if pattern is not None:
+        validate_naming_pattern(pattern)
     folder = folder_match.group(1) if folder_match else None
     date_source = date_source_match.group(1) if date_source_match else None
     rules = (

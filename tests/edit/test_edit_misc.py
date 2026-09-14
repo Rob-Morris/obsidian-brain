@@ -17,6 +17,31 @@ from _common import (
 )
 
 
+def test_document_apply_rejects_symlink_swap_into_configuration(vault, router):
+    original = (vault / "Wiki/test-page.md").read_bytes()
+    opened = edit.open_document(
+        str(vault), router, "artefact", "Wiki/test-page.md"
+    )
+    plan = edit.plan_document_edit(
+        opened,
+        operation="edit",
+        body="# Test Page\n\nChanged body.\n",
+        target=":body",
+        scope="section",
+    )
+    protected = vault / "_Config/test-page.md"
+    protected.write_bytes(original)
+    (vault / "Wiki/test-page.md").unlink()
+    (vault / "Wiki").rmdir()
+    (vault / "Wiki").symlink_to(vault / "_Config", target_is_directory=True)
+    before = protected.read_bytes()
+
+    with pytest.raises(ValueError, match="Cannot write artefacts to '_Config'"):
+        edit.apply_document_edit(str(vault), router, plan)
+
+    assert protected.read_bytes() == before
+
+
 class TestDeleteSection:
     def test_delete_middle_section(self, vault, router):
         (vault / "Wiki" / "test-page.md").write_text(

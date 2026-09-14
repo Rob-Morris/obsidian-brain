@@ -7,11 +7,29 @@ import shutil
 
 import pytest
 
+from naming_pattern_cases import UNSAFE_NAMING_PATH_PATTERNS
+
 import compile_router as cr
 
 TEMPLATE_VAULT = os.path.join(
     os.path.dirname(__file__), "..", "template-vault"
 )
+
+
+@pytest.mark.parametrize("pattern", UNSAFE_NAMING_PATH_PATTERNS)
+@pytest.mark.parametrize("advanced", [False, True])
+def test_compile_rejects_path_patterns(vault, pattern, advanced):
+    naming = (
+        "Primary folder: `Wiki/`\n\n### Rules\n\n"
+        "| Match field | Match values | Pattern |\n|---|---|---|\n"
+        f"| `status` | `*` | `{pattern}` |"
+        if advanced else f"`{pattern}` in `Wiki/`."
+    )
+    taxonomy = vault / "_Config/Taxonomy/Living/wiki.md"
+    taxonomy.write_text(f"# Wiki\n\n## Naming\n\n{naming}\n")
+    with pytest.raises(ValueError, match="Naming pattern must be a single filename"):
+        cr.compile(str(vault))
+    assert not (vault / ".brain/local/compiled-router.json").exists()
 
 
 # ---------------------------------------------------------------------------

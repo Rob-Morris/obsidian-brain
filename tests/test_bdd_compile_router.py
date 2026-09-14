@@ -75,6 +75,28 @@ def preserved_discovery_type(router_vault):
     )
 
 
+@given("a taxonomy filename pattern that traverses into configuration")
+def traversal_naming_pattern(router_vault):
+    """Put literal traversal into a taxonomy's filename contract."""
+    taxonomy = router_vault / "_Config/Taxonomy/Living/wiki.md"
+    taxonomy.write_text(taxonomy.read_text().replace("{Title}.md", "../_Config/{Title}.md"))
+
+
+@when("I attempt to compile the unsafe taxonomy", target_fixture="compilation_error")
+def compile_unsafe_taxonomy(router_vault):
+    """Capture the rejected compilation without publishing a derived router."""
+    with pytest.raises(ValueError) as error:
+        compile_router.compile(str(router_vault))
+    return error.value
+
+
+@then("compilation rejects the filename path before publishing a router")
+def assert_unsafe_taxonomy_rejected(router_vault, compilation_error):
+    """Require an actionable naming error and no published cache."""
+    assert "Naming pattern must be a single filename" in str(compilation_error)
+    assert not (router_vault / ".brain/local/compiled-router.json").exists()
+
+
 @when("I compile the router", target_fixture="compiled_router")
 def compile_router_step(router_vault):
     """Compile the router for the configured vault."""

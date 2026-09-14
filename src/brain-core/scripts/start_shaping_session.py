@@ -27,7 +27,7 @@ from _common import (
     render_filename_or_default,
     resolve_and_validate_folder,
     resolve_folder,
-    safe_write,
+    safe_write_artefact,
     serialize_frontmatter,
     substitute_template_vars,
     strip_md_ext,
@@ -274,7 +274,7 @@ def _add_transcript_link(
         ):
             return False
         lines[index] = line.rstrip() + f" {link}"
-        safe_write(abs_path, "\n".join(lines), bounds=vault_root)
+        safe_write_artefact(abs_path, "\n".join(lines), bounds=vault_root)
         return True
 
     if not body.strip():
@@ -286,7 +286,7 @@ def _add_transcript_link(
             insert_at += 1
         body_lines.insert(insert_at, f"**Transcripts:** {link}\n")
         new_content = serialize_frontmatter(fields, body="\n".join(body_lines))
-    safe_write(abs_path, new_content, bounds=vault_root)
+    safe_write_artefact(abs_path, new_content, bounds=vault_root)
     return True
 
 
@@ -439,11 +439,10 @@ def start_shaping_session(
             f"\n\n## {session_mode.capitalize()} session start — "
             f"{now.strftime('%H:%M')}\n"
         )
-        os.makedirs(os.path.dirname(transcript_abs), exist_ok=True)
         if transcript_exists:
             with open(transcript_abs, "r", encoding="utf-8") as handle:
                 transcript_content = handle.read()
-            safe_write(
+            safe_write_artefact(
                 transcript_abs,
                 transcript_content.rstrip() + session_heading,
                 bounds=vault_root,
@@ -465,7 +464,7 @@ def start_shaping_session(
                 },
                 _now=now,
             )
-            safe_write(
+            safe_write_artefact(
                 transcript_abs,
                 transcript_content.rstrip() + session_heading,
                 bounds=vault_root,

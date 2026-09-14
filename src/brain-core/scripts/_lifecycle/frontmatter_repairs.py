@@ -5,7 +5,12 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-from _common import inspect_duplicate_frontmatter_document, now_iso, safe_write, serialize_frontmatter
+from _common import (
+    inspect_duplicate_frontmatter_document,
+    now_iso,
+    safe_write_active_or_archived_artefact,
+    serialize_frontmatter,
+)
 
 
 _ARTEFACT_TOP_LEVEL_SYSTEM_ROOTS = {"_Temporal", "_Archive"}
@@ -99,7 +104,7 @@ def normalize_duplicate_frontmatter_documents(
     if not dry_run:
         for item in findings:
             fields = dict(item["merged_fields"])
-            safe_write(
+            safe_write_active_or_archived_artefact(
                 str(vault_root / item["file"]),
                 serialize_frontmatter(fields, body=item["body"]),
                 bounds=str(vault_root),
