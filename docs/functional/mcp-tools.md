@@ -169,7 +169,7 @@ complete JSON envelope. No clean human/model display split is assumed.
 - `partial`: an error plus the exact known `committed_effects`;
 - `error`: no result and `effects: none` or `effects: unknown`.
 
-Warnings, stable error codes, typed details and next actions survive every projection. A mutating child loss is never blindly replayed. When no conclusive receipt exists, the result is non-retryable `command_outcome_unknown` with an outcome reference; query it with `invocation.read`. Lookup never creates receipt storage, locks files or deletes expired records; expiry is reported logically, while writes and explicit maintenance own cleanup.
+Warnings, stable error codes, typed details and next actions survive every projection. A dispatched semantic call is never blindly replayed, including observations. When no conclusive receipt exists, the result is non-retryable `command_outcome_unknown` with an outcome reference; query it with `invocation.read`. Lookup never creates receipt storage, locks files or deletes expired records; expiry is reported logically, while writes and explicit maintenance own cleanup.
 
 ## Authority profiles
 
@@ -191,25 +191,53 @@ Real Claude Code, Codex CLI and Grok captures verify fresh and resumed discovery
 
 The server advertises `brain.command-interface-header/1` in discovery and initialize capabilities. It binds proxy protocol range, interface epoch, catalogue and result schemas, catalogue fingerprint, and the exact tool-to-command/version/mutation mapping.
 
-The installed proxy supplies protocol 3. It follows the host's protocol era:
-legacy clients initialize normally, while modern connections use a private
+The installed proxy supplies private protocol 4. It follows the host's protocol
+era: legacy clients initialise normally; modern connections use private
 `server/discover` before the first host request, even if the host omits discovery.
-The child SDK fixes each stdio connection to one era. The proxy re-establishes
-that era and its validated command header on every replacement. It:
+Every replacement re-establishes that era and validates its command header.
 
-1. rejects an incompatible server before tool lookup;
-2. records accepted calls before dispatch;
-3. replays planned drift only when command identity, version and mutation class remain compatible;
-4. retries an unexpected read orphan once;
-5. never replays an unexpected mutation, resolving it through outcome receipts instead.
+Two transport-owned tools supplement the application catalogue:
 
-The 0.64.2 transport fix requires restarting MCP. Older proxies are gated
-before tool lookup; their restart instruction precedes the JSON fallback so
-legacy drift decoration cannot corrupt it.
+| Tool | Contract |
+|---|---|
+| `brain_proxy_status` | No arguments. Reports loaded/installed Core and proxy versions, child availability, refresh state, interface fingerprint/generation and next action. Works without a healthy child. |
+| `brain_proxy_refresh` | No arguments. Loads a compatible server from the selected Brain's already-installed files at an idle boundary. Does not fetch/install code, change permissions or replace the proxy. |
 
-Clients must restart and re-discover tools after the 0.55 cutover. There is no request translation map or legacy server mode.
+These controls appear in MCP `tools/list`, not application `command.list` or the
+CLI. Their compact `brain.proxy-result/1` envelope appears in both
+`structuredContent` and first-block JSON. They have no application invocation
+receipt. `runtime.status` remains the application warm-up observation.
 
-After startup, every generated tool handler checks the installed `.brain-core/VERSION` before composing trusted context or entering an executor. Drift exits with the proxy's distinguished code 10 so replacement and compatibility-checked replay occur within the triggering call.
+Before accepting a semantic call, the proxy checks installed Core drift. With no
+in-flight requests it asks its existing recovery worker to launch and negotiate a
+candidate, then retires the previous child only after validation. The triggering
+call is dispatched once against the replacement. Explicit refresh uses the same
+path. If another request is in flight, refresh returns `server_busy` immediately;
+there is no forced drain or queued semantic retry. This leaves host responses
+available to work that might need them. Wait for that work to finish and request
+refresh again. An unchanged healthy server needs no replacement.
+
+Failed validation retains the old child and blocks new semantic admission to the
+stale server. Status and explicit refresh remain available to diagnose/retry after
+the installation is repaired. A handshake has the existing bounded timeout;
+`refresh_in_progress` means inspect status rather than assume completion. Changed command versions or mutation classes require that tool to be rediscovered
+before another call can be accepted, including after explicit refresh. Unchanged
+contracts continue normally. Refresh never replays a dispatched command, including reads. Unexpected exits and the
+residual race between the pre-admission check and child execution continue to
+resolve owned receipts; an inconclusive receipt means unknown, not safe to retry.
+
+Compatible child replacement retains the proxy's consent owner. New proxy
+instances always need fresh exceptional consent. Proxy code itself still requires
+an MCP restart; killing a proxy does not portably make the host reconnect. Loaded
+proxy drift adds a bounded `follow_up_required` warning to the model-visible
+command envelope as well as the human line, preserving JSON validity. Ordinary
+results without proxy drift have no added payload.
+
+Legacy replacements publish `notifications/tools/list_changed`; modern callers
+can inspect the catalogue generation and rediscover with their negotiated
+protocol. Neither mechanism guarantees the harness refreshed model-visible tools.
+Existing proxies need one restart after deployment to acquire these controls.
+See [DD-074](../architecture/decisions/dd-074-proxy-owned-server-refresh.md).
 
 The long-lived child retains authenticated identity and parsed router/index
 snapshots between calls. Baseline and explicitly refreshed `command.list`

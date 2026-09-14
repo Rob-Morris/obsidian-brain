@@ -261,6 +261,14 @@ If your vault has the Brain MCP server running, every command within the authent
 
 Common families include `artefact.*`, `document.*`, `resource.*` (skills, memories, styles and templates all resolve through this family), `plugin.*`, `trigger.*`, `type.*`, `content.*`, `retrieval.*`, `links.*`, `shaping.*`, `workspace.*`, `vault.*`, `runtime.*`, `stage.*`, `access.*` and `attachment.upload`. Profiles authorise exact leaves rather than aggregate buckets.
 
+After an installed Core upgrade, an idle MCP proxy refreshes its child server
+before the next command. Use `brain_proxy_status` to inspect loaded/installed
+versions or `brain_proxy_refresh` to request that refresh explicitly. Both take
+`{}` and work even when the child is unavailable. Busy work is left running;
+finish it before refreshing. Proxy code changes still require restarting MCP,
+which ends exceptional consent. These are MCP transport tools; `runtime_status`
+reports application warm-up instead.
+
 Brain's MCP processes keep an always-on, content-free operational log under `.brain/local/diagnostics/` (bounded NDJSON: lifecycle, tool spans, command failures). On a development machine, set `BRAIN_LOG_BODIES=1` (or `true`) before starting MCP to additionally capture raw request/response bodies to `diagnostics/debug-bodies.log`.
 
 For structural compliance, run `brain vault check --json`.

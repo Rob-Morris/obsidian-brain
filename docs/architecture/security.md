@@ -255,6 +255,14 @@ its own `debug-bodies.log` family and flagged on the operational stream. See
 [DD-067](decisions/dd-067-operational-diagnostics-logging.md) and
 [Diagnostics](../functional/diagnostics.md).
 
+Proxy lifecycle controls accept no target, executable, environment or permission
+arguments. They observe or refresh only the selected Brain's installed child
+server, outside the application command catalogue. Refresh is refused while
+requests are in flight; candidate validation precedes retirement of the old
+child. It preserves the same proxy owner and does not renew or add consent.
+Proxy replacement and release installation are separate operations. A transport
+refresh response never claims an application receipt or authorises replay.
+
 The MCP proxy/server protocol marker is a local compatibility assertion, not an
 authentication credential. The long-lived proxy sets it only in the child
 environment; a replacement server with a missing, malformed or incompatible
@@ -262,11 +270,11 @@ marker completes initialisation but refuses every tool call before lookup or
 effects. Proxy 0.6.0 then validates the catalogue-derived interface header and
 owns the invocation identifier inserted into forwarded call metadata. Caller
 metadata cannot replace that identifier at the proxy boundary. After unexpected
-mutation loss the proxy queries only the fixed `invocation.read` command and
+semantic call loss the proxy queries only the fixed `invocation.read` command and
 validates the returned reference, command identity/version, state, timestamp
 and bounded effect records before reporting a known outcome. Any absent or
 contradictory fact remains non-retryable and outcome-unknown; the proxy never
-uses receipt absence as proof of no effect and never replays the mutation.
+uses receipt absence as proof of no effect and never replays the command.
 
 The staged direct `command.py` adapter keeps semantic request data separate
 from trusted locality. `--vault` must resolve to a regular installed Brain with
@@ -459,9 +467,9 @@ metadata once trusted invocation context exists.
 
 ## MCP invocation ownership
 
-Proxy protocol 3 requires a validated child command-interface header before
+Proxy protocol 4 requires a validated child command-interface header before
 forwarding any tool call. The proxy rejects caller-supplied `brainInvocation`
 metadata and records each accepted invocation itself. Legacy initialization
 and modern request-scoped discovery establish the same contract; replacement
-re-establishes it before replay or receipt lookup. Receipt queries also carry
+re-establishes it before protocol replay or receipt lookup. Receipt queries also carry
 a new proxy-owned invocation identity in the negotiated protocol era.

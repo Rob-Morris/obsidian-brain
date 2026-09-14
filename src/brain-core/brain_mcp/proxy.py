@@ -65,12 +65,16 @@ from ._interface_protocol import (
     interface_header_from_response,
 )
 from ._result_content import result_text_wire
+from ._proxy_controls import (
+    CONTROL_TOOLS, REFRESH_TOOL, STATUS_TOOL,
+    add_control_discovery, control_response, tool_definitions,
+)
 
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
 
-PROXY_VERSION = "0.10.0"
+PROXY_VERSION = "0.10.1"
 _CHILD_PROTOCOL_VERSION = "2026-07-28"
 
 
@@ -92,6 +96,13 @@ def _internal_request(method: str, request_id: str, params: dict, *, modern: boo
             } if modern else {}),
         },
     }
+
+
+def _uses_modern_protocol(request: dict) -> bool:
+    params = request.get("params")
+    metadata = params.get("_meta") if isinstance(params, dict) else None
+    return (request.get("method") != "initialize" and isinstance(metadata, dict)
+            and "io.modelcontextprotocol/protocolVersion" in metadata)
 
 _DEFAULT_BACKOFF = [0, 4, 8, 16, 32]
 _CHILD_ALIVE_RESET_SECS = 60  # reset backoff if child lives this long
@@ -600,8 +611,8 @@ def _decorate_with_drift_note(response: dict, old_ver: str, new_ver: str) -> dic
     """
     Inject a proxy drift note into any outbound response — success or error.
     Notifications (no result/error) are returned unchanged.
-    For success responses: appends to first text content item.
-    For error responses: appends to error.message.
+    Brain results gain a model-visible warning and retain first-block JSON.
+    Other text results and JSON-RPC errors retain their legacy human hint.
     Returns a (possibly modified) shallow copy.
     """
     note = (
@@ -611,6 +622,18 @@ def _decorate_with_drift_note(response: dict, old_ver: str, new_ver: str) -> dic
     # Success response with text content. Append to the human one-liner, never
     # the assistant JSON envelope, so first-block JSON stays parseable.
     result = response.get("result")
+    envelope = result.get("structuredContent") if isinstance(result, dict) else None
+    if isinstance(envelope, dict) and envelope.get("schema") == "brain.command-result/1":
+        warning = {"code": "follow_up_required", "message": (
+            f"MCP proxy {old_ver}; installed {new_ver}. Restart MCP to load it; "
+            f"{STATUS_TOOL} reports server refresh state."
+        )}
+        updated = {**envelope, "warnings": [*envelope.get("warnings", []), warning]}
+        content = result.get("content", [])
+        target = _human_text_index(content) if isinstance(content, list) else None
+        concise = content[target].get("text", "") if target is not None else "Brain result"
+        return {**response, "result": {**result, "structuredContent": updated,
+                "content": result_text_wire(concise + note, updated)}}
     content = result.get("content", []) if isinstance(result, dict) else []
     if isinstance(content, list):
         target = _human_text_index(content)
@@ -804,6 +827,7 @@ class Proxy:
         self._init_response: dict | None = None
         self._interface_header: CommandInterfaceHeader | None = None
         self._interface_header_error: str | None = None
+        self._advertised_tools: dict | None = None
         self._interface_lock = threading.Lock()
         self._client_protocol: str | None = None
         self._initial_protocol_selected = threading.Event()
@@ -818,6 +842,7 @@ class Proxy:
         # Proxy drift detection
         self._proxy_drift = False
         self._proxy_version_on_disk: str | None = None  # version read from disk
+        self._installed_proxy_version: str | None = None
         self._proxy_file_hash = self._compute_proxy_hash()  # hash at startup
 
         # In-flight request tracking — maps request ID to (request, sent_at)
@@ -849,6 +874,13 @@ class Proxy:
         self._recovery_exit_code: int | None = None
         self._version_reset_requested = False
         self._last_version_check: float = 0.0  # monotonic timestamp for cooldown
+        self._refresh_requested = False
+        self._refresh_done = threading.Event()
+        self._refresh_code: str | None = None
+        self._refresh_blocked_version: str | None = None
+        self._refresh_diagnostic: str | None = None
+        self._refresh_header_rejected = False
+        self._catalogue_generation = 0
 
         # Outbound message queue — all writes to sys.stdout.buffer go through here.
         # A single writer thread drains this queue, ensuring thread-safe writes
@@ -914,6 +946,7 @@ class Proxy:
         Validate the child interface before publishing it to the relay.
         Returns True on success, False on failure (timeout or crash).
         """
+        installed_version = _read_brain_version_from_disk(self.vault_root)
         child = ChildProcess(self.python_path, self.server_target)
         try:
             with self._launch_lock:
@@ -927,9 +960,6 @@ class Proxy:
         except Exception as e:
             _log().error("failed to start child process: %s", e)
             return False
-        self._child_start_time = time.monotonic()
-        self._last_launched_version = _read_brain_version_from_disk(self.vault_root)
-
         # Check for proxy drift
         self._check_proxy_drift()
 
@@ -960,22 +990,23 @@ class Proxy:
             child.send({"jsonrpc": "2.0", "method": "notifications/initialized"})
             _log().info("child restarted successfully, discarding init response")
 
-            # Notify client that tools may have changed
-            try:
-                self._send_to_client({
-                    "jsonrpc": "2.0",
-                    "method": "notifications/tools/list_changed",
-                })
-                _log().info("sent notifications/tools/list_changed to client")
-            except Exception as e:
-                _log().error("failed to send list_changed notification: %s", e)
-
         # The reader cannot race these proxy-owned receipt queries because
         # the replacement child is not published until resolution ends.
         self._resolve_pending_unexpected(child)
 
+        if installed_version != _read_brain_version_from_disk(self.vault_root):
+            child.kill()
+            return False
         with self._child_lock:
+            previous = self._child
             self._child = child
+        self._child_start_time = time.monotonic()
+        self._last_launched_version = installed_version
+        self._catalogue_generation += 1
+        if previous is not None:
+            previous.kill()
+        if self._init_response is not None:
+            self._send_to_client({"jsonrpc": "2.0", "method": "notifications/tools/list_changed"})
         self._child_ready.set()
         return True
 
@@ -992,6 +1023,14 @@ class Proxy:
             _log().error("child interface discovery failed: %s", exc)
         child.kill()
         return False
+
+    def _establish_initial_protocol(self, child: ChildProcess) -> bool:
+        """Negotiate modern discovery before releasing the sole child reader."""
+        ready = self._client_protocol != "modern" or self._discover_child(child)
+        self._initial_protocol_selected.set()
+        if not ready:
+            self._signal_recovery(1, child=child)
+        return ready
 
     def _send_to_client(self, obj: dict) -> None:
         """Enqueue a message for the client. Thread-safe. Never raises."""
@@ -1095,6 +1134,8 @@ class Proxy:
         with self._interface_lock:
             self._interface_header = header
             self._interface_header_error = None
+            if self._advertised_tools is None:
+                self._advertised_tools = dict(header.tools)
         _log().info(
             "accepted child command-interface header epoch=%d fingerprint=%s",
             header.interface_epoch,
@@ -1115,6 +1156,7 @@ class Proxy:
 
     def _check_proxy_drift(self) -> None:
         """Read proxy file from disk once, check version string and hash."""
+        self._installed_proxy_version = None
         try:
             with open(self.proxy_script, "rb") as f:
                 content = f.read()
@@ -1127,6 +1169,7 @@ class Proxy:
         if not m:
             return
         on_disk = m.group(1).decode("utf-8")
+        self._installed_proxy_version = on_disk
         if on_disk != PROXY_VERSION:
             if not self._proxy_drift:
                 _log().warning(
@@ -1404,6 +1447,109 @@ class Proxy:
             self._version_reset_requested = True
         self._recovery_trigger.set()
 
+    def _proxy_status(self) -> dict:
+        """Observe transport state without asking the application child."""
+        self._check_proxy_drift()
+        installed = _read_brain_version_from_disk(self.vault_root)
+        child = self._get_child()
+        alive = child is not None and child.poll() is None
+        with self._interface_lock:
+            header = self._interface_header
+        if self._restart_in_progress:
+            state = "refreshing"
+        elif self._refresh_blocked_version == installed and installed is not None:
+            state = "blocked"
+        elif not alive:
+            state = "unavailable"
+        elif installed is None:
+            state = "installation_unavailable"
+        elif installed != self._last_launched_version:
+            state = "available"
+        else:
+            state = "current"
+        return {
+            "proxy": {"loaded": PROXY_VERSION,
+                      "installed": self._installed_proxy_version,
+                      "restart_required": self._proxy_drift},
+            "server": {"loaded": self._last_launched_version, "installed": installed,
+                       "available": alive, "refresh": state},
+            "interface": {"proxy_protocol": PROXY_PROTOCOL,
+                          "epoch": header.interface_epoch if header else None,
+                          "catalogue_fingerprint": header.catalogue_fingerprint if header else None,
+                          "generation": self._catalogue_generation,
+                          "installed_compatibility": (
+                              "rejected" if state == "blocked" and self._refresh_header_rejected else
+                              "validated" if state == "current" and header else "unverified")},
+            "diagnostic": self._refresh_diagnostic if state == "blocked" else None,
+            "consent": "same-proxy; new proxy requires fresh exceptional consent",
+            "next_action": ("restart_mcp" if self._proxy_drift or (state == "blocked" and self._refresh_header_rejected) else
+                            REFRESH_TOOL if state in {"available", "unavailable", "blocked"} else
+                            STATUS_TOOL if state == "refreshing" else None),
+        }
+
+    def _request_refresh(self, *, explicit: bool) -> str | None:
+        """Request an idle handover from the existing recovery owner.
+
+        Never wait for in-flight work on the stdin thread: a child may need a
+        host response to finish that work. Returning busy leaves that path open.
+        """
+        installed = _read_brain_version_from_disk(self.vault_root)
+        if installed is None:
+            return "installation_unavailable"
+        if self._client_protocol is None or (self._client_protocol == "legacy" and self._init_response is None):
+            return "not_initialised"
+        with self._restart_lock:
+            if self._restart_in_progress:
+                return "refresh_in_progress"
+            if self._recovery_thread_failed or self._recovery_thread_is_dead():
+                return "proxy_restart_required"
+            with self._inflight_lock:
+                if self._inflight_requests:
+                    return "server_busy"
+            if not explicit and self._refresh_blocked_version == installed:
+                return "server_refresh_blocked"
+            child = self._get_child()
+            if child is not None and child.poll() is None and installed == self._last_launched_version and self._interface_header is not None:
+                return None
+            self._refresh_done.clear()
+            self._refresh_code = None
+            self._refresh_requested = True
+            self._restart_in_progress = True
+        self._recovery_trigger.set()
+        if not self._refresh_done.wait(timeout=_get_init_timeout() + 2):
+            return "refresh_in_progress"
+        return self._refresh_code
+
+    def _refresh_child(self) -> None:
+        """Validate a candidate before retiring the idle previous child."""
+        with self._interface_lock:
+            previous_header = self._interface_header
+            previous_error = self._interface_header_error
+        installed = _read_brain_version_from_disk(self.vault_root)
+        self._refresh_code = "server_refresh_blocked"
+        try:
+            if self._start_child():
+                self._gave_up = False
+                self._backoff_slot = 0
+                self._refresh_blocked_version = None
+                self._refresh_diagnostic = None
+                self._refresh_header_rejected = False
+                self._refresh_code = None
+            else:
+                with self._interface_lock:
+                    self._refresh_header_rejected = self._interface_header_error is not None
+                    self._refresh_diagnostic = (self._interface_header_error or "Replacement did not finish a stable installation handshake; repair installed files and request refresh again.")[:240]
+                    self._interface_header = previous_header
+                    self._interface_header_error = previous_error
+                self._refresh_blocked_version = installed
+                self._refresh_code = "server_refresh_blocked"
+            _op_event("child.refresh", outcome=self._refresh_code or "ok")
+        finally:
+            with self._restart_lock:
+                self._refresh_requested = False
+                self._restart_in_progress = False
+            self._refresh_done.set()
+
     def _maybe_begin_version_reset(self) -> bool:
         """
         After give-up, check whether VERSION changed and restart recovery if so.
@@ -1540,6 +1686,10 @@ class Proxy:
 
             if self._shutdown:
                 return
+
+            if self._refresh_requested:
+                self._refresh_child()
+                continue
 
             self._maybe_begin_version_reset()
 
@@ -1765,10 +1915,13 @@ class Proxy:
                 if msg_id is not None:
                     with self._inflight_lock:
                         entry = self._inflight_requests.pop(msg_id, None)
+                        if entry is not None:
+                            self._record_tool_discovery(obj, entry[0])
                         self._accepted_calls.pop(msg_id, None)
                         frame_seq = self._frame_seqs.pop(msg_id, None)
                     if entry is not None:
-                        _, sent_at = entry
+                        request, sent_at = entry
+                        obj = add_control_discovery(obj, request)
                         latency_s = time.monotonic() - sent_at
                     self._replay_depth = 0
 
@@ -1812,6 +1965,19 @@ class Proxy:
         with self._child_lock:
             return self._child
 
+    def _record_tool_discovery(self, response: dict, request: dict) -> None:
+        """Record exposed contracts while in-flight ownership still bars refresh."""
+        if request.get("method") != "tools/list" or not isinstance(response.get("result"), dict):
+            return
+        with self._interface_lock:
+            if self._interface_header is None or self._advertised_tools is None:
+                return
+            for tool in response["result"].get("tools", []):
+                name = tool.get("name") if isinstance(tool, dict) else None
+                mapping = self._interface_header.tool(name)
+                if mapping is not None:
+                    self._advertised_tools[name] = mapping
+
     # ------------------------------------------------------------------
     # Main loop (proxy stdin → child stdin)
     # ------------------------------------------------------------------
@@ -1846,6 +2012,8 @@ class Proxy:
                 "tool is not advertised by the active Brain command interface; "
                 "re-discover tools and use the canonical granular command"
             )
+        if self._advertised_tools is not None and self._advertised_tools.get(tool_name) != header.tool(tool_name):
+            raise ValueError("the tool contract changed; re-discover tools before making a new request")
         invocation_id = f"mcp-{uuid.uuid4()}"
         record, forwarded = accept_call(
             request,
@@ -1903,6 +2071,27 @@ class Proxy:
                 _log().warning("rejected tools/call notification without a request id")
                 continue
 
+            params = obj.get("params")
+            tool_name = params.get("name") if isinstance(params, dict) else None
+            if method == "tools/call" and tool_name in CONTROL_TOOLS:
+                if self._client_protocol is None:
+                    self._client_protocol = "modern" if _uses_modern_protocol(obj) else "legacy"
+                arguments = params.get("arguments", {})
+                code = None
+                if not isinstance(arguments, dict) or arguments:
+                    code = "invalid_arguments"
+                elif tool_name == REFRESH_TOOL:
+                    initial_child = self._get_child()
+                    if (self._client_protocol == "modern" and not self._initial_protocol_selected.is_set()
+                            and initial_child is not None and not self._establish_initial_protocol(initial_child)):
+                        code = "server_refresh_blocked"
+                    else:
+                        code = self._request_refresh(explicit=True)
+                    if self._interface_header is not None:
+                        self._initial_protocol_selected.set()
+                self._send_to_client(control_response(msg_id, tool_name, self._proxy_status(), code=code))
+                continue
+
             _log().debug("client→child: id=%s method=%s", msg_id, method)
             if _LOG_BODIES:
                 _capture_body("client_to_child", method, line)
@@ -1932,34 +2121,39 @@ class Proxy:
             if self._restart_in_progress or child is None:
                 if self._gave_up and method == "tools/call" and not recovery_thread_dead:
                     self._signal_version_reset()
-                if is_request:
+                if is_request and method == "tools/list":
+                    self._send_to_client({"jsonrpc": "2.0", "id": msg_id,
+                                          "result": {"tools": tool_definitions()}})
+                elif is_request:
                     self._send_to_client(self._error_response_for_dead_child(msg_id))
                 elif is_notification:
                     _log().debug("dropping notification (child dead): method=%s", method)
                 continue
 
-            if self._client_protocol is None:
-                params = obj.get("params")
-                metadata = params.get("_meta") if isinstance(params, dict) else None
-                modern = (
-                    method != "initialize"
-                    and isinstance(metadata, dict)
-                    and "io.modelcontextprotocol/protocolVersion" in metadata
-                )
-                self._client_protocol = "modern" if modern else "legacy"
+            if not self._initial_protocol_selected.is_set():
+                if self._client_protocol is None:
+                    self._client_protocol = "modern" if _uses_modern_protocol(obj) else "legacy"
                 # The SDK locks a stdio connection to its first protocol era.
                 # Modern discovery is proxy-owned; legacy initialize stays
                 # host-owned so its capabilities and instructions are exact.
-                ready = not modern or self._discover_child(child)
-                self._initial_protocol_selected.set()
+                ready = self._establish_initial_protocol(child)
                 if not ready:
-                    self._signal_recovery(1, child=child)
                     if is_request:
                         self._send_to_client(_interface_changed_response(msg_id, "child_header_invalid", detail=self._interface_header_error))
                     continue
 
             accepted_call = None
             if method == "tools/call":
+                installed = _read_brain_version_from_disk(self.vault_root)
+                if installed != self._last_launched_version:
+                    code = self._request_refresh(explicit=False)
+                    if code is not None:
+                        self._send_to_client(control_response(msg_id, REFRESH_TOOL, self._proxy_status(), code=code))
+                        continue
+                    child = self._get_child()
+                    if child is None:
+                        self._send_to_client(self._error_response_for_dead_child(msg_id))
+                        continue
                 try:
                     obj, accepted_call = self._prepare_interface_call(obj)
                 except (TypeError, ValueError) as exc:

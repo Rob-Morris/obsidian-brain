@@ -1,6 +1,6 @@
 # Brain Reference
 
-This page is the stable user-facing reference for Brain Core 0.68.1 and CLI 3.3.0. Exact command schemas, examples and availability come from the installed Brain rather than a duplicated hand-maintained inventory.
+This page is the stable user-facing reference for Brain Core 0.68.2 and CLI 3.3.0. Exact command schemas, examples and availability come from the installed Brain rather than a duplicated hand-maintained inventory.
 
 Document changes use a read–mutate loop. Read an editable artefact or named
 resource, retain its returned `revision`, then pass that value as
@@ -53,18 +53,18 @@ Descriptions include the exact strict request schema, minimal example, result sc
 
 ## MCP
 
-MCP names preserve the canonical dotted command ID exactly:
+MCP tool names replace the canonical command ID’s dot with an underscore:
 
-- `session.start` → `session.start`
-- `command.list` → `command.list`
-- `command.describe` → `command.describe`
-- `artefact.read` → `artefact.read`
-- `artefact.create` → `artefact.create`
-- `vault.check` → `vault.check`
+- `session.start` → `session_start`
+- `command.list` → `command_list`
+- `command.describe` → `command_describe`
+- `artefact.read` → `artefact_read`
+- `artefact.create` → `artefact_create`
+- `vault.check` → `vault_check`
 
 Each granular tool exposes its own top-level request fields. There is no generic `request` envelope and no compatibility aggregate. The removed 1.x tools—including `brain_session`, `brain_read`, `brain_create`, `brain_edit`, `brain_define`, `brain_move`, `brain_action` and `brain_process`—are not aliases.
 
-Start with `session.start`, then use `command.list` and `command.describe` for bounded discovery. For example, inspect `artefact.create` before supplying its fields to the `artefact.create` tool.
+Start with `session_start`, then use `command_list` and `command_describe` for bounded discovery. For example, inspect `artefact.create` before supplying its fields to the `artefact_create` tool.
 
 `shaping.start` opens or continues a taxonomy-declared shaping session after
 the shaping skill selects its mode. It applies the taxonomy's status behaviour:
@@ -73,7 +73,7 @@ leave an enduring non-terminal status unchanged and refuse terminal targets.
 
 The MCP server derives registrations, schemas, descriptions and tool hints from the selected Brain's catalogue, within the credential's permissions. Initial authorisation normally includes content work; it can be configured as read-only or an explicit command set. Exceptional operations use `access.prepare` for the exact operation and `access.request` for explicit consent, or request blanket consent for one command using its canonical review from `access.status`. A harness can approve the consent tool manually or automatically. `access.reduce` only narrows authorisation. Consent lasts for this Brain and MCP instance or explicit CLI job; new instances require fresh exceptional consent.
 
-Every MCP call checks the installed Brain Core version. A lost call or version drift triggers owned outcome recovery, never automatic replay. `invocation.read` reports execution independently from file effects, including for observations. An absent or incomplete receipt means the outcome remains unknown. Above-permission static command metadata is discoverable, with CLI administration guidance; discovery cannot expand permissions.
+Before accepting a command, the proxy checks installed Core drift and refreshes an idle child after validating its replacement. `brain_proxy_status` and `brain_proxy_refresh` are no-argument MCP transport tools available even without a healthy child; they are separate from application `runtime.status`. In-flight work returns busy rather than being interrupted. Proxy upgrades still require an MCP restart and fresh exceptional consent. A lost dispatched call, including a residual drift race, triggers owned outcome recovery, never automatic replay. `invocation.read` reports execution independently from file effects, including for observations. An absent or incomplete receipt means the outcome remains unknown. Above-permission static command metadata is discoverable, with CLI administration guidance; discovery cannot expand permissions.
 
 See [MCP tools](../functional/mcp-tools.md) for transport, protocol and result details.
 

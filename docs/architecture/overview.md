@@ -131,7 +131,7 @@ Caller-supplied paths are resolved against explicit roots and checked for traver
 
 Profile authority is derived from the application catalogue. Built-ins project exact cumulative reader, contributor and operator leaves. The 0.55.0 cutover migrates legacy profile names once; there is no runtime aggregate compatibility fallback.
 
-The MCP proxy and replacement server exchange a strict command-interface header in both legacy initialization and modern discovery. Modern clients may omit discovery; the proxy performs it before forwarding their first request. An incompatible proxy fails before tool lookup. Planned pre-effect restart can replay only a positively compatible command; unexpected read loss retries at most once; unexpected mutation loss uses receipts and never blind replay.
+The MCP proxy and replacement server exchange a strict command-interface header in legacy initialisation and modern discovery. Modern clients may omit discovery; the proxy performs it before forwarding their first request. Proxy-owned status and refresh controls remain available when the child is unavailable. Idle Core drift starts a candidate through the existing recovery worker; the previous child is retired only after negotiation succeeds. In-flight work makes refresh busy. No dispatched semantic call is replayed, including observations; uncertain outcomes use owned receipts. See [DD-074](decisions/dd-074-proxy-owned-server-refresh.md).
 
 ## Installation and checked cutover
 
