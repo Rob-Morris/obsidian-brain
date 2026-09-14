@@ -96,42 +96,6 @@ def execute(context: InvocationContext, request: AttachmentUploadRequest):
             str(exc),
         )
 
-    if context.dry_run:
-        try:
-            plan = upload_attachment.plan_attachment_upload(
-                vault_root,
-                router,
-                destination_key=request.destination_key,
-                name=filename,
-                content=content,
-            )
-        except FileExistsError as exc:
-            return no_effect_error(
-                AttachmentUploadRequest,
-                ErrorCode.CONFLICT,
-                str(exc),
-                "name",
-            )
-        except ValueError as exc:
-            return no_effect_error(
-                AttachmentUploadRequest,
-                ErrorCode.INVALID_REQUEST,
-                str(exc),
-            )
-        payload = _payload(
-            {
-                "destination": plan.destination,
-                "path": plan.path,
-                "embed": plan.embed,
-                "bytes": plan.bytes,
-                "sha256": plan.sha256,
-                "created": False,
-                "would_create": plan.would_create,
-            },
-            dry_run=True,
-        )
-        return Ok(request.COMMAND_ID, request.COMMAND_VERSION, payload)
-
     try:
         with vault_mutation_lock(vault_root):
             if upload_attachment.attachment_destination_requires_router(request.destination_key):
@@ -148,7 +112,10 @@ def execute(context: InvocationContext, request: AttachmentUploadRequest):
             from ..preparation import admit_owner
 
             admit_owner(context, request, attachment_binding, plan=plan)
-            result = upload_attachment.apply_attachment_upload(vault_root, plan)
+            result = ({"destination": plan.destination, "path": plan.path,
+                       "embed": plan.embed, "bytes": plan.bytes, "sha256": plan.sha256,
+                       "created": False, "would_create": plan.would_create}
+                      if context.dry_run else upload_attachment.apply_attachment_upload(vault_root, plan))
     except MutationLockError as exc:
         return no_effect_error(
             AttachmentUploadRequest,
@@ -169,7 +136,7 @@ def execute(context: InvocationContext, request: AttachmentUploadRequest):
             ErrorCode.INVALID_REQUEST,
             str(exc),
         )
-    payload = _payload(result, dry_run=False)
+    payload = _payload(result, dry_run=context.dry_run)
     effects = (
         (CommittedEffect("attachment.created", payload.path),)
         if payload.created

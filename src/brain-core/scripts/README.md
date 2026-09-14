@@ -73,9 +73,8 @@ and outcome records with Brain/principal/context ownership and bounded retention
 private process lifetime. `owner_attachment.py` captures, validates and forwards
 private channels at trusted process boundaries without importing application
 policy or the MCP SDK, while `_command_interface/consent_staging.py` retains
-immutable prepared content. These are internal foundations for DD-073; public
-access commands still use the existing lease contract until the coordinated
-cutover and complete catalogue integration.
+immutable prepared content. The public access controls now use these DD-073
+ports, with explicit configuration migration and no legacy lease runtime.
 
 `_command_interface/` is the trusted composition boundary for direct selected-Brain invocation. It resolves the selected vault/workspace, authenticates profile authority, composes providers, chooses the current tier and persists privacy-minimal outcome receipts. It does not own command semantics.
 
@@ -95,11 +94,11 @@ Editable artefacts and named resources share four document intents:
 for metadata. Each requires the exact persisted revision returned by the
 corresponding read command.
 
-`access.status`, `access.request` and `access.reduce` own the selected-Brain
-active-grant lifecycle across every application projection. External approval
-is intentionally outside that application boundary: the CLI-only
-`access.approve` launcher invokes `access_approval.py` with a separately trusted
-operator identity, and neither surface is registered in MCP or `command.py`.
+`access.status`, `access.prepare`, `access.request` and `access.reduce` own
+instance authorisation across application projections. The CLI-only
+`permission.set-profile` launcher invokes `permission_admin.py` with an explicit
+registered administrator identity; it changes enduring credential permissions
+and is absent from MCP and `command.py`.
 
 ## Dependency planes
 

@@ -14,7 +14,14 @@ import uuid
 from _application.availability import CapabilityRefresher
 from _application.catalogue import ApplicationCatalogue
 from _application.context import CapabilitySnapshot
-from _application.registry import current_application_catalogue
+from _application.registry import current_application_catalogue, current_request_resolver
+from _application.access_session import AuthorisationSession
+from _application.consent import ConsentError, ConsentIdentity, ConsentService
+from _application.receipts import ReceiptOwnership
+from _bootstrap.consent_state import MemoryStateStore
+from .authorisation_config import resolve_authorisation_config, authorisation_config_signature
+from .owner_authentication import OwnerAuthentication
+from .consent_staging import ConsentContentPins
 from _application.types import (
     Availability,
     DependencyTier,
@@ -27,8 +34,7 @@ import vault_registry
 
 from .context import SystemClock, compose_local_context
 from .derived_snapshots import FileDerivedSnapshotStore
-from .access import access_policy, compose_access_controller
-from .receipts import FileReceiptStore
+from .receipts import OwnedReceiptStore
 
 
 _LOCAL_PROVIDERS = (
@@ -51,6 +57,7 @@ class DirectIdentity:
     profile: str
     principal: str
     allowed_tools: frozenset[str]
+    resolved: object
 
 
 def resolve_direct_vault(
@@ -93,6 +100,9 @@ def compose_direct_context(
     clock=None,
     owner_attachment=None,
     owner_unavailable_reason: str | None = None,
+    transport_identity=None,
+    owner_initialisation_allowed: bool = False,
+    operation_id: str | None = None,
 ):
     """Resolve one fresh direct-process invocation context without hand-off."""
 
@@ -104,10 +114,13 @@ def compose_direct_context(
         clock=clock,
         owner_attachment=owner_attachment,
         owner_unavailable_reason=owner_unavailable_reason,
+        transport_identity=transport_identity,
+        owner_initialisation_allowed=owner_initialisation_allowed,
     ).compose(
         command_id=command_id,
         dry_run=dry_run,
         invocation_id=invocation_id,
+        operation_id=operation_id,
     )
 
 
@@ -126,6 +139,8 @@ class DirectContextComposer:
         session_mirror=None,
         owner_attachment=None,
         owner_unavailable_reason: str | None = None,
+        transport_identity=None,
+        owner_initialisation_allowed: bool = False,
     ):
         self._clock = clock or SystemClock()
         self._root = _require_vault(vault_root)
@@ -135,6 +150,17 @@ class DirectContextComposer:
         self._owner_store = owner_attachment.connect(self._root) if owner_attachment is not None else None
         self.owner_unavailable_reason = owner_unavailable_reason
         self._closed = False
+        self._context_kind = (transport_identity.kind if transport_identity is not None else
+                              owner_attachment.kind if owner_attachment is not None else "standalone")
+        self._context_id = (transport_identity.context_id if transport_identity is not None else
+                            self._owner_store.identity.context_id if self._owner_store is not None else str(uuid.uuid4()))
+        if self._owner_store is not None and (
+                self._context_id != self._owner_store.identity.context_id
+                or self._context_kind != owner_attachment.kind):
+            raise DirectContextError("transport identity does not match its private owner")
+        self._consent_store = self._owner_store if self._owner_store is not None else MemoryStateStore()
+        self._owner_initialisation_allowed = owner_initialisation_allowed
+        self._owner_auth = None
         self._catalogue = catalogue or current_application_catalogue()
         self._operator_key = operator_key
         self._workspace_dir = workspace_dir
@@ -184,18 +210,54 @@ class DirectContextComposer:
     def identity(self) -> DirectIdentity:
         if self._closed:
             raise DirectContextError("direct context composer is closed")
-        signature = _config_signature(self._root)
         with self._lock:
+            if self._owner_store is not None and self._owner_auth is None:
+                self._owner_auth = OwnerAuthentication(self._owner_store, self._owner_store.identity,
+                    brain_id=self._brain_id(), kind=self._context_kind)
+            binding = (self._owner_auth.binding(required=not self._owner_initialisation_allowed)
+                       if self._owner_auth is not None else None)
+            signature = (authorisation_config_signature(self._root), binding)
             if self._identity is not None and signature == self._identity_signature:
                 return self._identity
-            identity = resolve_direct_identity(
-                vault_root=self._root,
-                catalogue=self._catalogue,
-                operator_key=self._operator_key,
-            )
-            self._identity = identity
-            self._identity_signature = signature
+            try:
+                identity = resolve_direct_identity(vault_root=self._root, catalogue=self._catalogue,
+                    operator_key=self._operator_key, delegated_binding=binding)
+            except brain_config.OperatorBindingRevoked:
+                if self._owner_auth is not None:
+                    self._owner_auth.revoke()
+                raise
+            if self._owner_auth is not None and binding is None:
+                self._owner_auth.seed(identity.resolved.authentication_binding)
+                self._owner_initialisation_allowed = False
+                signature = (signature[0], identity.resolved.authentication_binding)
+            self._identity, self._identity_signature = identity, signature
             return identity
+
+    def _consent_identity(self, identity):
+        return ConsentIdentity(self._brain_id(), str(self._root), identity.principal,
+            self._context_id, self._context_kind, identity.resolved.permission_generation,
+            f"{self._catalogue.interface_epoch}:{self._catalogue.fingerprint}")
+
+    def _authorisation(self, identity):
+        def refresh():
+            current = self.identity()
+            return self._consent_identity(current), current.resolved.policy
+        service = ConsentService(self._consent_store, self._consent_identity(identity), identity.resolved.policy,
+            {entry.command_id: entry.command_version for entry in self._catalogue.entries}, refresh=refresh)
+        ownership = ReceiptOwnership(self._brain_id(), identity.principal, self._context_kind,
+            None if self._context_kind == "standalone" else self._context_id)
+        receipts = OwnedReceiptStore(self._root, self._clock, ownership=ownership)
+        def content_for(namespace):
+            if self._owner_store is None:
+                raise ConsentError("context_unavailable", "Prepared content requires a private owner context.")
+            owner = self._owner_store.identity
+            return ConsentContentPins(Path(owner.private_directory), self._owner_store,
+                namespace=namespace, coordination_path=Path(owner.coordination_path))
+        return AuthorisationSession(service, self._catalogue, current_request_resolver(), receipts, content_for,
+            configuration_provider=lambda: _access_configuration(self.identity().resolved),
+            context_available=self._owner_store is not None,
+            unavailable_reason=self.owner_unavailable_reason,
+            source="host-request" if self._context_kind == "mcp-instance" else "cli-request")
 
     def compose(
         self,
@@ -203,6 +265,7 @@ class DirectContextComposer:
         command_id: str | None = None,
         dry_run: bool = False,
         invocation_id: str | None = None,
+        operation_id: str | None = None,
     ):
         """Compose fresh authority/capability state over cached immutable inputs."""
 
@@ -210,14 +273,7 @@ class DirectContextComposer:
         merged = identity.config
         profile = identity.profile
         allowed_tools = identity.allowed_tools
-        access = compose_access_controller(
-            vault_root=self._root,
-            config=merged,
-            principal=identity.principal,
-            ceiling_profile=profile,
-            ceiling_commands=allowed_tools,
-            clock=self._clock,
-        )
+        authorisation = self._authorisation(identity)
         workspace = _resolve_workspace(self._root, self._workspace_dir)
         tier = (
             DependencyTier.MANAGED
@@ -230,7 +286,7 @@ class DirectContextComposer:
             tier,
         )
         relevant_providers = _relevant_providers(command_id, self._catalogue)
-        if relevant_providers:
+        if relevant_providers and command_id in allowed_tools:
             snapshot = refresher.refresh(relevant_providers)
         else:
             snapshot = baseline
@@ -246,12 +302,11 @@ class DirectContextComposer:
             or len(invocation_id) > 128
         ):
             raise DirectContextError("trusted invocation identity is invalid")
-        receipt_store = FileReceiptStore(self._root, self._clock)
+        receipt_store = authorisation.receipts
         return compose_local_context(
             vault_root=self._root,
             brain_id=self._brain_id(),
             profile=profile,
-            allowed_tools=allowed_tools,
             dependency_tier=tier,
             provider_ids=_LOCAL_PROVIDERS,
             capability_states=states,
@@ -261,7 +316,8 @@ class DirectContextComposer:
             correlation_id=invocation_id,
             invocation_id=invocation_id,
             receipt_store=receipt_store,
-            access=access,
+            authorisation=authorisation,
+            operation_id=operation_id,
             workspace_dir=workspace,
             capability_snapshots=refresher,
             dry_run=dry_run,
@@ -278,7 +334,7 @@ class DirectContextComposer:
                 and signature == self._brain_id_signature
             ):
                 return self._cached_brain_id
-            brain_id = _brain_id(self._root)
+            brain_id = resolve_direct_brain_id(self._root)
             self._cached_brain_id = brain_id
             self._brain_id_signature = signature
             return brain_id
@@ -323,42 +379,46 @@ class DirectContextComposer:
             return refresher, baseline
 
 
-def resolve_direct_identity(
-    *,
-    vault_root: Path,
-    catalogue: ApplicationCatalogue,
-    operator_key: str | None,
-) -> DirectIdentity:
-    """Authenticate one principal and return its immutable command ceiling."""
+def _access_configuration(resolved):
+    """Project only authorisation settings; never operator registrations or keys."""
+    from _application.access_contracts import (AccessConfiguration,
+        AccessConfigurationDiagnostic, InitialAuthorisationOverride)
+    defaults = resolved.config.get("defaults", {}).get("access", {})
+    initial = defaults.get("initial", {"mode": "normal"})
+    return AccessConfiguration(initial_mode=resolved.policy.initial_mode,
+        initial_commands=tuple(initial["commands"]) if initial["mode"] == "explicit" else None,
+        initial_source=resolved.initial_source,
+        overrides=tuple(InitialAuthorisationOverride(command, enabled)
+                        for command, enabled in sorted(defaults.get("overrides", {}).items())),
+        overrides_source=resolved.overrides_source,
+        request_policy=resolved.config.get("vault", {}).get("access", {}).get("request_policy", "allowed"),
+        effective_request_policy=resolved.policy.request_policy,
+        request_policy_source=resolved.request_policy_source,
+        diagnostics=tuple(AccessConfigurationDiagnostic(item.code, item.setting, item.source, item.message)
+                          for item in resolved.diagnostics), revision=resolved.revision)
 
-    merged = brain_config.load_config(
-        str(vault_root),
-        additional_valid_tools=frozenset(
-            entry.command_id for entry in catalogue.entries
-        ),
-    )
+
+def resolve_direct_identity(*, vault_root: Path, catalogue: ApplicationCatalogue,
+                            operator_key: str | None, delegated_binding=None) -> DirectIdentity:
+    """Resolve current config through its one authentication/policy owner."""
+    resolved = resolve_authorisation_config(vault_root=vault_root, catalogue=catalogue,
+        operator_key=operator_key, delegated_binding=delegated_binding)
+    return DirectIdentity(resolved.config, resolved.profile, resolved.principal,
+                          resolved.policy.permissions, resolved)
+
+
+def initialise_attached_job_owner(*, vault_root, owner_attachment, transport_identity,
+                                   operator_key=None, workspace_dir=None) -> None:
+    """Selected-Brain bootstrap authenticates before the supervisor launches its root."""
+    if transport_identity.kind != "cli-job" or owner_attachment.kind != "cli-job":
+        raise DirectContextError("job initialisation requires a private job attachment")
+    composer = DirectContextComposer(vault_root=vault_root, operator_key=operator_key,
+        workspace_dir=workspace_dir, owner_attachment=owner_attachment,
+        transport_identity=transport_identity, owner_initialisation_allowed=True)
     try:
-        profile, operator_id = brain_config.authenticate_operator(operator_key, merged)
-        access_policy(merged)
-    except ValueError as exc:
-        raise DirectContextError(str(exc)) from exc
-    return DirectIdentity(
-        merged,
-        profile,
-        (
-            f"operator:{operator_id}"
-            if operator_id is not None
-            else f"default:{profile}"
-        ),
-        _profile_tools(merged, profile),
-    )
-
-
-def _config_signature(root: Path):
-    return tuple(
-        _path_signature(Path(path))
-        for path in brain_config.config_input_paths(str(root))
-    )
+        composer._authorisation(composer.identity()).service.generation()
+    finally:
+        composer.close()
 
 
 def _path_signature(path: Path):
@@ -382,16 +442,8 @@ def _require_vault(candidate: Path) -> Path:
     return root
 
 
-def _profile_tools(config: dict, profile: str) -> frozenset[str]:
-    profiles = config.get("vault", {}).get("profiles", {})
-    definition = profiles.get(profile) if isinstance(profiles, dict) else None
-    allowed = definition.get("allow") if isinstance(definition, dict) else None
-    if not isinstance(allowed, list) or any(not isinstance(item, str) for item in allowed):
-        raise DirectContextError(f"profile '{profile}' has an invalid allow-list")
-    return frozenset(allowed)
-
-
-def _brain_id(root: Path) -> str:
+def resolve_direct_brain_id(root: Path) -> str:
+    """Resolve the canonical registry identity or stable selected-path identity."""
     try:
         entries = vault_registry.load_registry_entries()
     except vault_registry.RegistryReadError as exc:

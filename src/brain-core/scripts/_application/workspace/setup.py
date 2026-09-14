@@ -45,7 +45,7 @@ def execute(context: InvocationContext, request: WorkspaceSetupRequest):
         invoke=lambda before_write: setup._setup_workspace_core(
             context.selected_brain.vault_root,
             workspace_dir=target,
-            **({"before_write": before_write} if before_write is not None else {}),
+            before_write=before_write,
             brain_id=request.brain_id,
             slug=request.slug,
             force=request.force,

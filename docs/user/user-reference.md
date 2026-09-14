@@ -1,6 +1,6 @@
 # Brain Reference
 
-This page is the stable user-facing reference for Brain Core 0.67.3 and CLI 3.2.2. Exact command schemas, examples and availability come from the installed Brain rather than a duplicated hand-maintained inventory.
+This page is the stable user-facing reference for Brain Core 0.68.0 and CLI 3.3.0. Exact command schemas, examples and availability come from the installed Brain rather than a duplicated hand-maintained inventory.
 
 Document changes use a read–mutate loop. Read an editable artefact or named
 resource, retain its returned `revision`, then pass that value as
@@ -71,9 +71,9 @@ the shaping skill selects its mode. It applies the taxonomy's status behaviour:
 ordinary contracts enter `shaping`, while discovery-only preserving contracts
 leave an enduring non-terminal status unchanged and refuse terminal targets.
 
-The MCP server derives registrations, schemas, descriptions and tool hints from the selected Brain's catalogue, then exposes only the authenticated ceiling. The cumulative built-in ceilings expose 26 reader, 50 contributor, 61 maintainer, 62 operator and 63 administrator MCP tools; custom profiles use exact command names. Active access starts at Reader by default. Use `access.status`, request exact within-ceiling leases with `access.request`, and revoke them with `access.reduce`; leases do not change the visible tool catalogue.
+The MCP server derives registrations, schemas, descriptions and tool hints from the selected Brain's catalogue, within the credential's permissions. Initial authorisation normally includes content work; it can be configured as read-only or an explicit command set. Exceptional operations use `access.prepare` for the exact operation and `access.request` for explicit consent, or request blanket consent for one command using its canonical review from `access.status`. A harness can approve the consent tool manually or automatically. `access.reduce` only narrows authorisation. Consent lasts for this Brain and MCP instance or explicit CLI job; new instances require fresh exceptional consent.
 
-Every MCP call checks the installed Brain Core version before composing context or executing effects. Planned pre-effect drift exits for proxy replacement and is replayed only after positive command compatibility. An unexpectedly lost mutation is never blindly replayed; query its durable reference with `invocation.read`. Receipt lookup is read-only, including for missing or expired references.
+Every MCP call checks the installed Brain Core version. A lost call or version drift triggers owned outcome recovery, never automatic replay. `invocation.read` reports execution independently from file effects, including for observations. An absent or incomplete receipt means the outcome remains unknown. Above-permission static command metadata is discoverable, with CLI administration guidance; discovery cannot expand permissions.
 
 See [MCP tools](../functional/mcp-tools.md) for transport, protocol and result details.
 
@@ -109,7 +109,7 @@ Use `--request-json -` to read one object from stdin. `--vault`, `--brain` and w
 
 CLI 3 refuses application discovery against a pre-0.55 Brain. Launcher discovery and recovery remain available so the operator can run the checked upgrade. See [CLI](../functional/cli.md).
 
-With external elevation policy, `access.request` returns a pending identifier. A separately trusted local operator approves it with `brain access approve`; that launcher-only command is not exposed to MCP or the selected-Brain direct script.
+Use `brain session run -- program` for unattended work that needs one shared consent context across descendant CLI calls. Ordinary standalone content commands work within initial policy. Exceptional standalone requests name this explicit job route. The job does not request consent automatically; scripts must inspect the denial, request the intended scope explicitly, then invoke it with `--operation` for specific consent. See [CLI jobs and consent](../functional/cli.md#cli-jobs-and-consent) for platform limits and deliberate Python subprocess forwarding. Permission administration uses the separate CLI-only `brain permission set-profile` command.
 
 ## Direct script and Python projections
 

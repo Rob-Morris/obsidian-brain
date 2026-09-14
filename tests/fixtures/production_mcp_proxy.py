@@ -19,11 +19,15 @@ def main():
     os.environ["BRAIN_VAULT_ROOT"] = vault
     os.environ["PYTHONPATH"] = str(Path(vault) / ".brain-core")
     proxy._logger = proxy._setup_logging(vault)
-    relay = proxy.Proxy(sys.executable, "brain_mcp.server", vault)
-    relay._ensure_background_threads()
-    if not relay._start_child():
-        raise RuntimeError("test proxy could not negotiate its child interface")
-    relay.run()
+    owner, unavailable = proxy._create_process_owner(vault)
+    relay = proxy.Proxy(sys.executable, "brain_mcp.server", vault, owner=owner, owner_unavailable_code=unavailable)
+    try:
+        relay._ensure_background_threads()
+        if not relay._start_child():
+            raise RuntimeError("test proxy could not negotiate its child interface")
+        relay.run()
+    finally:
+        relay._initiate_shutdown()
 
 
 if __name__ == "__main__":

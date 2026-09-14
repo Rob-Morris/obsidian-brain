@@ -2,11 +2,16 @@
 
 from __future__ import annotations
 
+from ..types import InitialAuthorisationClass
+
 from .._decoding import reject_unexpected
 from .._response_budget import (ContentRange, TextCursor, bounded_text_result,
     decode_text_cursor, validate_text_window, encoded_result_size,
     MODEL_TEXT_BUDGET, DEFAULT_TEXT_CHARACTERS)
-from dataclasses import dataclass
+from dataclasses import dataclass, asdict
+import json
+
+from ..access_contracts import AccessSummary, AuthorisationSummary, PermissionsSummary
 from typing import ClassVar, Mapping
 
 from ..context import InvocationContext
@@ -143,7 +148,7 @@ class SessionStartPayload:
     workspace_configuration: SessionWorkspaceConfiguration
     command_catalogue: SessionCommandCatalogue
     config: SessionConfig | None
-    active_profile: str
+    access: AccessSummary
     workspace: SessionWorkspace | None
     workspace_binding: SessionWorkspaceBinding | None
     workspace_record: SessionWorkspaceRecord | None
@@ -163,7 +168,7 @@ class SessionBootstrapPage:
 @dataclass(frozen=True, slots=True)
 class SessionStartRequest:
     COMMAND_ID: ClassVar[str] = "session.start"
-    COMMAND_VERSION: ClassVar[int] = 5
+    COMMAND_VERSION: ClassVar[int] = 6
     RESULT_TYPE: ClassVar = SessionStartPayload | SessionBootstrapPage
 
     cursor: TextCursor | None = None
@@ -239,7 +244,8 @@ def _payload(model):
                 tuple(item["profiles"]),
             ),
         ),
-        active_profile=model["active_profile"],
+        access=AccessSummary(PermissionsSummary(**model["access"]["permissions"]),
+            AuthorisationSummary(**model["access"]["authorisation"])),
         workspace=_optional(model, "workspace", lambda item: SessionWorkspace(**item)),
         workspace_binding=_optional(
             model,
@@ -325,7 +331,7 @@ def execute(context: InvocationContext, request: SessionStartRequest):
                 str(context.workspace_dir) if context.workspace_dir is not None else None
             ),
             config=merged_config,
-            active_profile=context.profile,
+            access_summary=asdict(context.access.summary()),
             load_config_if_missing=False,
             include_command_catalogue=True,
         )
@@ -333,10 +339,12 @@ def execute(context: InvocationContext, request: SessionStartRequest):
             raise RuntimeError("session mirror publisher is not available")
         context.session_mirror.publish(model)
         payload = _payload(model)
+        if len(json.dumps(asdict(payload.access), ensure_ascii=False, separators=(",", ":")).encode("utf-8")) > 768:
+            raise ValueError("Authorisation bootstrap exceeds its 768-byte budget")
     except (OSError, RuntimeError, ValueError) as exc:
         return command_error(SessionStartRequest, ErrorCode.CONFLICT, str(exc), None)
     complete = Ok(request.COMMAND_ID, request.COMMAND_VERSION, payload)
-    if request.cursor is None and encoded_result_size(complete) <= MODEL_TEXT_BUDGET:
+    if request.cursor is None and encoded_result_size(complete) < MODEL_TEXT_BUDGET:
         return complete
     # The same canonical markdown is published as the fallback mirror. Use it
     # for overflow instead of dropping required instructions from the model.
@@ -346,7 +354,7 @@ def execute(context: InvocationContext, request: SessionStartRequest):
     revision = document_revision(content)
     return bounded_text_result(
         SessionStartRequest, content, revision, cursor=request.cursor,
-        max_characters=DEFAULT_TEXT_CHARACTERS,
+        max_characters=DEFAULT_TEXT_CHARACTERS, byte_budget=MODEL_TEXT_BUDGET - 1,
         payload=lambda text, window: SessionBootstrapPage(
             model["brain_core_version"], window.next_cursor is None,
             text, revision, window,
@@ -366,6 +374,7 @@ def catalogue_entry():
     from ..catalogue import ALL_APPLICATION_PROJECTIONS, ApplicationEntry
 
     return ApplicationEntry(
+        initial_class=InitialAuthorisationClass.CONTROL,
         request_type=SessionStartRequest,
         executor=execute,
         dependency_tier=DependencyTier.MANAGED,

@@ -1,55 +1,48 @@
-"""Behavioural tests for the shared selected-Brain invocation boundary."""
+"""Behavioural proofs for the mandatory selected-Brain admission boundary."""
+from dataclasses import dataclass, replace
+from typing import ClassVar
 
-from __future__ import annotations
+import pytest
 
-from dataclasses import replace
-from datetime import datetime
-from pathlib import Path
-
+from command_application import context_for, _Receipts
 from _application.application import CommandApplication
-from _application.catalogue import ApplicationCatalogue, ApplicationEntry
-from _application.context import (
-    Capability,
-    CapabilitySnapshot,
-    InvocationContext,
-    ProviderBindings,
-    SelectedBrain,
-    report_failure_safely,
-)
-from _application.receipts import ReceiptState
-from _application.requests import CommandListPayload, CommandListRequest
-from _application.results import Error, ErrorCode, Ok
-from _application.types import (
-    Authority,
-    Availability,
-    DependencyTier,
-    EffectClass,
-    Locality,
-    Projection,
-    ProjectionEligibility,
-    RetryClass,
-    SnapshotFreshness,
-)
+from _application.catalogue import ApplicationCatalogue, ApplicationEntry, ALL_APPLICATION_PROJECTIONS
+from _application.context import Capability, report_failure_safely
+from _application.preparation import LIVE_QUERY, OperationPreparation, live_query, admit_owner
+from _application.receipts import ExecutionState, ReceiptState
+from _application.results import ErrorCode, Ok
+from _application.types import Authority, Availability, DependencyTier, EffectClass, InitialAuthorisationClass, Locality, RetryClass
 
 
-NOW = datetime.fromisoformat("2026-08-09T09:30:00+10:00")
+@dataclass(frozen=True)
+class ProbePayload:
+    value: str = "observed"
 
 
-class _Authority:
-    def __init__(self, allowed=True, fail=False):
-        self.allowed = allowed
-        self.fail = fail
+@dataclass(frozen=True)
+class ProbeRequest:
+    COMMAND_ID: ClassVar[str] = "test.probe"
+    COMMAND_VERSION: ClassVar[int] = 1
+    RESULT_TYPE: ClassVar[type] = ProbePayload
+    query: str = "value"
 
-    def allows(self, **_kwargs):
-        if self.fail:
-            raise RuntimeError("authority backend unavailable")
-        return self.allowed
 
-    def ceiling_allows(self, _command_id):
-        return self.allowed
+def _ok(*_args):
+    return Ok("test.probe", 1, ProbePayload())
 
-    def consume(self, _command_id):
-        return self.allowed
+
+def _entry(executor=_ok, **changes):
+    return replace(ApplicationEntry(ProbeRequest, executor, DependencyTier.PORTABLE,
+        Locality.SELECTED_BRAIN_LOCAL, (), (), Authority.READER, EffectClass.NONE,
+        InitialAuthorisationClass.OBSERVATION, RetryClass.SAFE, ALL_APPLICATION_PROJECTIONS,
+        preparation=LIVE_QUERY), **changes)
+
+
+def _setup(root, entry=None, *, receipts=None, **kwargs):
+    entry = entry or _entry()
+    catalogue = ApplicationCatalogue((entry,))
+    context = context_for(root, catalogue=catalogue, receipts=receipts, invocation_id="inv-1", **kwargs)
+    return CommandApplication(context, catalogue), context
 
 
 class _Diagnostics:
@@ -62,423 +55,318 @@ class _Diagnostics:
 
 class _FailingDiagnostics:
     def report_failure(self, **_failure):
-        raise OSError("diagnostic sink unavailable")
+        raise OSError("private diagnostic sink detail")
 
 
-class _Receipts:
-    def __init__(self, fail=False):
-        self.fail = fail
-        self.written = []
+class _FaultReceipts(_Receipts):
+    def __init__(self, *, begin=False, finalise=False, after_begin=None):
+        super().__init__()
+        self.fail_begin, self.fail_finalise, self.after_begin = begin, finalise, after_begin
 
-    def write(self, receipt):
-        if self.fail:
-            raise OSError("receipt store unavailable")
-        self.written.append(receipt)
+    def begin(self, intent):
+        if self.fail_begin:
+            raise OSError("private receipt failure")
+        created = super().begin(intent)
+        if self.after_begin:
+            self.after_begin()
+        return created
 
-    def read(self, _reference):
-        return None
-
-
-class _Clock:
-    def now(self):
-        return NOW
-
-
-class _Provider:
-    def __init__(self, provider_id):
-        self.provider_id = provider_id
+    def finalise(self, outcome):
+        if self.fail_finalise:
+            raise OSError("private receipt failure")
+        super().finalise(outcome)
 
 
-def _context(
-    tmp_path: Path,
-    *,
-    authority=None,
-    receipts=None,
-    tier=DependencyTier.PORTABLE,
-    providers=(),
-    capabilities=(),
-    diagnostics=None,
-):
-    receipts = receipts or _Receipts()
-    return InvocationContext(
-        selected_brain=SelectedBrain("test", tmp_path.resolve()),
-        profile="reader",
-        authority=authority or _Authority(),
-        dependency_tier=tier,
-        capabilities=CapabilitySnapshot(
-            "snapshot",
-            SnapshotFreshness.FRESH,
-            NOW,
-            tuple(capabilities),
-        ),
-        providers=ProviderBindings(tuple(providers)),
-        correlation_id="corr-1",
-        invocation_id="inv-1",
-        receipt_writer=receipts,
-        receipt_reader=receipts,
-        clock=_Clock(),
-        **({"diagnostics": diagnostics} if diagnostics is not None else {}),
-    )
-
-
-def _entry(executor, **changes):
-    entry = ApplicationEntry(
-        request_type=CommandListRequest,
-        executor=executor,
-        dependency_tier=DependencyTier.PORTABLE,
-        locality=Locality.SELECTED_BRAIN_LOCAL,
-        required_providers=(),
-        optional_providers=(),
-        authority=Authority.READER,
-        effect_class=EffectClass.NONE,
-        retry_class=RetryClass.SAFE,
-        projections=tuple(
-            ProjectionEligibility(projection, True)
-            for projection in (
-                Projection.MCP,
-                Projection.CLI,
-                Projection.SCRIPT,
-                Projection.PYTHON,
-            )
-        ),
-    )
-    return replace(entry, **changes)
-
-
-def _invoke(tmp_path, entry, *, context=None):
-    context = context or _context(tmp_path)
-    catalogue = ApplicationCatalogue((entry,))
-    return CommandApplication(context, catalogue).invoke(CommandListRequest())
-
-
-def _payload():
-    return CommandListPayload(
-        "brain.command-catalogue/1",
-        "sha256:test",
-        (),
-        "snapshot",
-        SnapshotFreshness.FRESH,
-    )
-
-
-def test_success_flows_through_one_executor_and_records_no_effects(tmp_path):
-    calls = []
+def test_successful_observation_has_intent_before_entry_and_independent_effect_state(tmp_path):
     receipts = _Receipts()
-
     def execute(context, request):
-        calls.append((context, request))
-        return Ok("command.list", CommandListRequest.COMMAND_VERSION, _payload())
-
-    result = _invoke(
-        tmp_path,
-        _entry(execute),
-        context=_context(tmp_path, receipts=receipts),
-    )
-
-    assert result.status == "ok"
-    assert len(calls) == 1
-    assert len(receipts.written) == 1
-    assert receipts.written[0].state is ReceiptState.NONE
+        assert receipts.intents[context.invocation_id].command_id == request.COMMAND_ID
+        assert not receipts.outcomes
+        return _ok()
+    app, _ = _setup(tmp_path, _entry(execute), receipts=receipts)
+    assert app.invoke(ProbeRequest()).status == "ok"
+    outcome = receipts.outcomes["inv-1"]
+    assert outcome.execution is ExecutionState.SUCCEEDED
+    assert outcome.receipt.state is ReceiptState.NONE
 
 
-def test_authority_denial_occurs_before_executor_or_effects(tmp_path):
-    calls = []
-    receipts = _Receipts()
-
-    def execute(_context, _request):
-        calls.append(True)
-        raise AssertionError("executor must not run")
-
-    result = _invoke(
-        tmp_path,
-        _entry(execute),
-        context=_context(tmp_path, authority=_Authority(allowed=False), receipts=receipts),
-    )
-
-    assert isinstance(result, Error)
-    assert result.error.code is ErrorCode.AUTHORITY_DENIED
+@pytest.mark.parametrize(("allowed", "initial", "code"), [
+    ((), (), ErrorCode.AUTHORITY_DENIED),
+    (("test.probe",), (), ErrorCode.AUTHORISATION_REQUIRED),
+])
+def test_denial_precedes_executor_and_intent(tmp_path, allowed, initial, code):
+    def execute(*_args):
+        pytest.fail("denied operation entered")
+    app, context = _setup(tmp_path, _entry(execute), allowed_commands=allowed, initial_commands=initial)
+    result = app.invoke(ProbeRequest())
+    assert result.error.code is code
     assert result.effects == "none"
-    assert calls == []
-    assert receipts.written[0].state is ReceiptState.NONE
+    assert not context.authorisation.receipts.intents
 
 
-def test_missing_tier_and_provider_return_canonical_unavailable_before_executor(tmp_path):
-    calls = []
-
-    def execute(_context, _request):
-        calls.append(True)
-        raise AssertionError("executor must not run")
-
-    entry = _entry(
-        execute,
-        dependency_tier=DependencyTier.MANAGED,
-        required_providers=("document_renderer",),
-    )
-    result = _invoke(
-        tmp_path,
-        entry,
-        context=_context(tmp_path, tier=DependencyTier.PORTABLE),
-    )
-
+def test_missing_capability_precedes_intent_and_executor(tmp_path):
+    entry = _entry(lambda *_: pytest.fail("unavailable operation entered"),
+        dependency_tier=DependencyTier.MANAGED, required_providers=("document_renderer",))
+    app, context = _setup(tmp_path, entry)
+    result = app.invoke(ProbeRequest())
     assert result.error.code is ErrorCode.CAPABILITY_UNAVAILABLE
-    assert result.error.details.missing == (
-        "tier:managed",
-        "provider:document_renderer",
-    )
-    assert result.error.details.locality is Locality.SELECTED_BRAIN_LOCAL
-    assert result.error.details.recoverable is True
-    assert calls == []
+    assert result.error.details.missing == ("tier:managed", "provider:document_renderer")
+    assert not context.authorisation.receipts.intents
 
 
-def test_bound_but_unavailable_provider_is_not_silently_provisioned(tmp_path):
-    entry = _entry(
-        lambda *_args: Ok("command.list", CommandListRequest.COMMAND_VERSION, _payload()),
-        required_providers=("document_renderer",),
-    )
-    result = _invoke(
-        tmp_path,
-        entry,
-        context=_context(
-            tmp_path,
-            providers=(_Provider("document_renderer"),),
-            capabilities=(Capability("document_renderer", Availability.UNAVAILABLE),),
-        ),
-    )
-
-    assert result.error.code is ErrorCode.CAPABILITY_UNAVAILABLE
-    assert result.error.details.missing == ("capability:document_renderer",)
+def test_bound_unavailable_provider_remains_unavailable(tmp_path):
+    class Provider:
+        provider_id = "document_renderer"
+    app, _ = _setup(tmp_path, _entry(required_providers=("document_renderer",)),
+        providers=(Provider(),), capabilities=(Capability("document_renderer", Availability.UNAVAILABLE),))
+    assert app.invoke(ProbeRequest()).error.details.missing == ("capability:document_renderer",)
 
 
-def test_port_failure_and_bad_read_result_map_to_stable_internal_error(tmp_path):
-    diagnostics = _Diagnostics()
-    authority_failure = _invoke(
-        tmp_path,
-        _entry(lambda *_args: Ok("command.list", CommandListRequest.COMMAND_VERSION, _payload())),
-        context=_context(
-            tmp_path,
-            authority=_Authority(fail=True),
-            diagnostics=diagnostics,
-        ),
-    )
-    wrong_payload = _invoke(
-        tmp_path,
-        _entry(lambda *_args: Ok("command.list", CommandListRequest.COMMAND_VERSION, "wrong payload")),
-    )
-
-    for result in (authority_failure, wrong_payload):
-        assert result.error.code is ErrorCode.INTERNAL_ERROR
-        assert result.effects == "none"
-        assert result.error.details.correlation_id == "corr-1"
-    assert diagnostics.failures[0]["phase"] == "preflight"
-    assert diagnostics.failures[0]["command_id"] == "command.list"
-    assert diagnostics.failures[0]["correlation_id"] == "corr-1"
-    assert isinstance(diagnostics.failures[0]["error"], RuntimeError)
+def test_missing_explicit_composition_fails_closed(tmp_path):
+    _, context = _setup(tmp_path)
+    app = CommandApplication(replace(context, authorisation=None, access=None), context.authorisation.catalogue)
+    assert app.invoke(ProbeRequest()).error.code is ErrorCode.INTERNAL_ERROR
+    assert not context.authorisation.receipts.intents
 
 
-def test_missing_authority_consumption_fails_closed(tmp_path):
-    class _IncompleteAuthority:
-        def allows(self, **_kwargs):
-            return True
+def test_owner_guarded_success_cannot_bypass_admission(tmp_path):
+    app, context = _setup(tmp_path, _entry(preparation=OperationPreparation(live_query)))
+    assert app.invoke(ProbeRequest()).error.code is ErrorCode.INTERNAL_ERROR
+    assert not context.authorisation.receipts.intents
 
-        def ceiling_allows(self, _command_id):
-            return True
 
-    result = _invoke(
-        tmp_path,
-        _entry(lambda *_args: Ok("command.list", CommandListRequest.COMMAND_VERSION, _payload())),
-        context=_context(tmp_path, authority=_IncompleteAuthority()),
-    )
+@pytest.mark.parametrize("mutating", [False, True])
+def test_entered_crash_is_unknown_without_replay_even_for_observations(tmp_path, mutating):
+    def execute(context, request):
+        if mutating:
+            admit_owner(context, request, live_query)
+        raise OSError("private executor failure")
+    entry = _entry(execute, **({"effect_class": EffectClass.SELECTED_BRAIN_MUTATION,
+        "initial_class": InitialAuthorisationClass.CONTENT,
+        "retry_class": RetryClass.RECEIPT_REQUIRED,
+        "preparation": OperationPreparation(live_query)} if mutating else {}))
+    app, context = _setup(tmp_path, entry)
+    result = app.invoke(ProbeRequest())
+    assert result.error.code is ErrorCode.COMMAND_OUTCOME_UNKNOWN
+    assert result.effects == ("unknown" if mutating else "none")
+    assert not result.retryable
+    assert result.error.next_action.command_id == "invocation.read"
+    assert result.outcome_reference.invocation_id == "inv-1"
+    assert context.authorisation.receipts.outcomes["inv-1"].execution is ExecutionState.UNKNOWN
 
+
+def test_failed_intent_prevents_executor_entry(tmp_path):
+    receipts = _FaultReceipts(begin=True)
+    app, _ = _setup(tmp_path, _entry(lambda *_: pytest.fail("entry without durable intent")), receipts=receipts)
+    result = app.invoke(ProbeRequest())
     assert result.error.code is ErrorCode.INTERNAL_ERROR
+    assert not receipts.intents and not receipts.outcomes
+
+
+@pytest.mark.parametrize("basis", ["initial", "blanket"])
+@pytest.mark.parametrize("elapsed_seconds", [0, 1])
+def test_duplicate_invocation_cannot_reenter_with_durable_intent(tmp_path, basis, elapsed_seconds):
+    from datetime import timedelta
+    from _application.consent import ConsentScope
+    from _application.receipts import OutcomeReference, ReceiptOwnership
+    from _command_interface.receipts import OwnedReceiptStore
+
+    (tmp_path / ".brain-core").mkdir()
+    (tmp_path / ".brain-core" / "VERSION").write_text("0.68.0\n")
+    entered = []
+    def execute(*_args):
+        entered.append(True)
+        return Ok("test.probe", 1, ProbePayload(str(len(entered))))
+    app, context = _setup(tmp_path, _entry(execute),
+        initial_commands=() if basis == "blanket" else ("test.probe",))
+    class Clock:
+        value = context.clock.now()
+
+        def now(self):
+            return self.value
+
+    clock = Clock()
+    context = replace(context, clock=clock)
+    service = context.authorisation.service
+    receipts = OwnedReceiptStore(tmp_path, context.clock, ReceiptOwnership(
+        service.identity.brain_id, service.identity.principal, service.identity.kind,
+        service.identity.context_id))
+    session = replace(context.authorisation, receipts=receipts)
+    context = replace(context, authorisation=session, receipt_reader=receipts)
+    context = replace(context, access=session.bind(context))
+    app = CommandApplication(context, session.catalogue)
+    if basis == "blanket":
+        service.request(scope=ConsentScope.COMMAND, command_id="test.probe",
+            review=service.command_review("test.probe"), request_id="allow-probe")
+    assert app.invoke(ProbeRequest()).result.value == "1"
+    original = receipts.read(OutcomeReference(context.invocation_id))
+    clock.value += timedelta(seconds=elapsed_seconds)
+    duplicate = app.invoke(ProbeRequest())
+    assert duplicate.error.code is ErrorCode.CONFLICT
+    assert duplicate.error.next_action.command_id == "invocation.read"
+    assert entered == [True]
+    assert receipts.read(OutcomeReference(context.invocation_id)) == original
+
+
+def test_concurrent_control_invocations_require_one_atomic_intent_claim(tmp_path):
+    from concurrent.futures import ThreadPoolExecutor
+    from threading import Barrier
+    from _application.receipts import ReceiptOwnership
+    from _command_interface.receipts import OwnedReceiptStore
+
+    (tmp_path / ".brain-core").mkdir()
+    (tmp_path / ".brain-core" / "VERSION").write_text("0.68.0\n")
+    entered = []
+    def execute(*_args):
+        entered.append(True)
+        return _ok()
+    entry = _entry(execute, initial_class=InitialAuthorisationClass.CONTROL,
+        effect_class=EffectClass.SELECTED_BRAIN_MUTATION, preparation=None)
+    app, context = _setup(tmp_path, entry)
+    identity = context.authorisation.service.identity
+    barrier = Barrier(2)
+    class SimultaneousReceipts(OwnedReceiptStore):
+        def read(self, reference):
+            lookup = super().read(reference)
+            barrier.wait(timeout=10)
+            return lookup
+    receipts = SimultaneousReceipts(tmp_path, context.clock,
+        ReceiptOwnership(identity.brain_id, identity.principal, identity.kind, identity.context_id))
+    session = replace(context.authorisation, receipts=receipts)
+    context = replace(context, authorisation=session, receipt_reader=receipts)
+    context = replace(context, access=session.bind(context))
+    app = CommandApplication(context, session.catalogue)
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        results = list(pool.map(lambda _: app.invoke(ProbeRequest()), range(2)))
+    assert [result.status for result in results].count("ok") == 1
+    assert [result.error.code for result in results if result.status == "error"] == [ErrorCode.CONFLICT]
+    assert entered == [True]
+
+
+def test_receipt_port_without_positive_claim_cannot_authorise_entry(tmp_path):
+    class OldPort(_Receipts):
+        def begin(self, intent):
+            super().begin(intent)
+    app, context = _setup(tmp_path, _entry(lambda *_: pytest.fail("entry without positive claim")),
+        receipts=OldPort())
+    assert app.invoke(ProbeRequest()).error.code is ErrorCode.CONFLICT
+    assert not context.authorisation.receipts.outcomes
+
+
+@pytest.mark.parametrize("mutating", [False, True])
+def test_lost_completion_is_unknown_for_reads_and_writes(tmp_path, mutating):
+    def execute(context, request):
+        if mutating:
+            admit_owner(context, request, live_query)
+        return _ok()
+    entry = _entry(execute, **({"effect_class": EffectClass.SELECTED_BRAIN_MUTATION,
+        "initial_class": InitialAuthorisationClass.CONTENT,
+        "retry_class": RetryClass.RECEIPT_REQUIRED,
+        "preparation": OperationPreparation(live_query)} if mutating else {}))
+    receipts = _FaultReceipts(finalise=True)
+    app, _ = _setup(tmp_path, entry, receipts=receipts)
+    result = app.invoke(ProbeRequest())
+    assert result.error.code is ErrorCode.COMMAND_OUTCOME_UNKNOWN
+    assert result.effects == ("unknown" if mutating else "none")
+    assert "inv-1" in receipts.intents and not receipts.outcomes
+
+
+def test_revocation_after_durable_intent_wins_before_entry(tmp_path):
+    receipts = _FaultReceipts()
+    app, context = _setup(tmp_path, _entry(lambda *_: pytest.fail("revoked operation entered")), receipts=receipts)
+    receipts.after_begin = lambda: context.authorisation.service.reduce(commands=("test.probe",))
+    result = app.invoke(ProbeRequest())
+    assert result.status == "error"
     assert result.effects == "none"
+    assert receipts.outcomes["inv-1"].execution is ExecutionState.FAILED
 
 
-def test_diagnostic_reporter_failure_uses_local_fallback(tmp_path, capfd):
-    context = _context(tmp_path, diagnostics=_FailingDiagnostics())
+def test_wrong_read_payload_is_unknown_after_admission(tmp_path):
+    app, context = _setup(tmp_path, _entry(lambda *_: Ok("test.probe", 1, "wrong payload")))
+    assert app.invoke(ProbeRequest()).error.code is ErrorCode.COMMAND_OUTCOME_UNKNOWN
+    assert context.authorisation.receipts.outcomes["inv-1"].receipt.state is ReceiptState.NONE
 
-    report_failure_safely(
-        context,
-        phase="execute",
-        command_id="command.list",
-        error=RuntimeError("original failure"),
-    )
 
+def test_diagnostics_identify_phase_and_preserve_private_details_outside_envelope(tmp_path):
+    _, context = _setup(tmp_path)
+    diagnostics = _Diagnostics()
+    context = replace(context, diagnostics=diagnostics)
+    result = CommandApplication(context, ApplicationCatalogue(())).invoke(ProbeRequest())
+    assert result.error.code is ErrorCode.INTERNAL_ERROR
+    assert result.error.details.correlation_id == context.correlation_id
+    assert diagnostics.failures[0]["phase"] == "preflight"
+    assert diagnostics.failures[0]["command_id"] == "test.probe"
+    assert diagnostics.failures[0]["correlation_id"] == context.correlation_id
+
+
+def test_diagnostic_reporter_failure_uses_sanitised_fallback(tmp_path, capfd):
+    _, context = _setup(tmp_path)
+    context = replace(context, diagnostics=_FailingDiagnostics())
+    report_failure_safely(context, phase="execute", command_id="test.probe", error=RuntimeError("private original error"))
     fallback = capfd.readouterr().err
     assert "diagnostic reporter failed" in fallback
-    assert "diagnostic sink unavailable" not in fallback
-    assert "original failure" not in fallback
-    assert "Traceback" not in fallback
+    assert "private" not in fallback and "Traceback" not in fallback
 
 
-def test_diagnostic_reporter_failure_preserves_command_result(tmp_path, capfd):
-    result = _invoke(
-        tmp_path,
-        _entry(lambda *_args: (_ for _ in ()).throw(RuntimeError("executor failed"))),
-        context=_context(tmp_path, diagnostics=_FailingDiagnostics()),
-    )
-
-    assert result.error.code is ErrorCode.INTERNAL_ERROR
+def test_reporter_failure_does_not_obscure_unknown_outcome(tmp_path, capfd):
+    app, context = _setup(tmp_path, _entry(lambda *_: (_ for _ in ()).throw(OSError("private crash"))))
+    context = replace(context, diagnostics=_FailingDiagnostics())
+    result = CommandApplication(context, context.authorisation.catalogue).invoke(ProbeRequest())
+    assert result.error.code is ErrorCode.COMMAND_OUTCOME_UNKNOWN
     assert "diagnostic reporter failed" in capfd.readouterr().err
 
 
-def test_diagnostics_identify_each_application_failure_phase(tmp_path):
-    diagnostics = _Diagnostics()
-    base_context = _context(tmp_path, diagnostics=diagnostics)
-
-    CommandApplication(base_context, ApplicationCatalogue(())).invoke(CommandListRequest())
-    _invoke(
-        tmp_path,
-        _entry(lambda *_args: (_ for _ in ()).throw(RuntimeError("execute failed"))),
-        context=base_context,
-    )
-    _invoke(
-        tmp_path,
-        _entry(lambda *_args: Ok("command.list", CommandListRequest.COMMAND_VERSION, _payload())),
-        context=_context(
-            tmp_path,
-            authority=_Authority(allowed=False),
-            receipts=_Receipts(fail=True),
-            diagnostics=diagnostics,
-        ),
-    )
-    mutation_entry = _entry(
-        lambda *_args: Ok("command.list", CommandListRequest.COMMAND_VERSION, _payload()),
-        effect_class=EffectClass.SELECTED_BRAIN_MUTATION,
-        retry_class=RetryClass.RECEIPT_REQUIRED,
-        authority=Authority.CONTRIBUTOR,
-    )
-    mutation_context = replace(
-        _context(
-            tmp_path,
-            receipts=_Receipts(fail=True),
-            diagnostics=diagnostics,
-        ),
-        profile="contributor",
-        authority=_Authority(),
-    )
-    _invoke(tmp_path, mutation_entry, context=mutation_context)
-
-    assert [failure["phase"] for failure in diagnostics.failures] == [
-        "catalogue.resolve",
-        "execute",
-        "receipt.preflight",
-        "receipt.finalise",
-    ]
-    assert all(failure["command_id"] == "command.list" for failure in diagnostics.failures)
-    assert all(failure["correlation_id"] == "corr-1" for failure in diagnostics.failures)
+def test_catalogue_rejects_launcher_locality_and_duplicates():
+    with pytest.raises(ValueError, match="launcher manifest"):
+        _entry(locality=Locality.MACHINE_LOCAL)
+    with pytest.raises(ValueError, match="unique"):
+        ApplicationCatalogue((_entry(), _entry()))
 
 
-def test_mutation_executor_failure_is_unknown_non_retryable_and_receipted(tmp_path):
-    receipts = _Receipts()
-    entry = _entry(
-        lambda *_args: (_ for _ in ()).throw(OSError("crashed after possible write")),
-        effect_class=EffectClass.SELECTED_BRAIN_MUTATION,
-        retry_class=RetryClass.RECEIPT_REQUIRED,
-        authority=Authority.CONTRIBUTOR,
-    )
-    context = _context(tmp_path, receipts=receipts)
-    context = replace(context, profile="contributor", authority=_Authority())
+def test_catalogue_fingerprint_excludes_executor_identity():
+    assert ApplicationCatalogue((_entry(),)).fingerprint == ApplicationCatalogue((_entry(lambda *_: _ok()),)).fingerprint
 
-    result = _invoke(tmp_path, entry, context=context)
 
-    assert result.error.code is ErrorCode.COMMAND_OUTCOME_UNKNOWN
-    assert result.effects == "unknown"
-    assert result.retryable is False
-    assert result.outcome_reference.invocation_id == "inv-1"
+@pytest.mark.parametrize("terminal", [False, True])
+def test_control_intent_prevents_replay_against_later_state(tmp_path, terminal):
+    from _application.access.reduce import AccessReduceRequest, ClearGrants
+    from _application.consent import ConsentScope
+    from _application.receipts import AdmissionIntent, OutcomeReference
+    from _application.preparation import bind_operation, content_digest
+
+    context = context_for(tmp_path, invocation_id="clear-original", initial_commands=())
+    service = context.authorisation.service
+    request = AccessReduceRequest(ClearGrants())
+    app = CommandApplication(context)
+    if terminal:
+        assert app.invoke(request).result.changed is False
+    else:
+        context.authorisation.receipts.begin(AdmissionIntent(OutcomeReference("clear-original"),
+            request.COMMAND_ID, request.COMMAND_VERSION, context.clock.now(), "initial",
+            service.generation(), "host-request", operation_digest=content_digest(bind_operation(request).request_json),
+            request_id="clear-original"))
+    review = service.command_review("artefact.delete")
+    service.request(scope=ConsentScope.COMMAND, command_id="artefact.delete", review=review, request_id="grant-later")
+    result = app.invoke(request)
+    assert result.error.code is ErrorCode.CONFLICT
     assert result.error.next_action.command_id == "invocation.read"
-    assert result.error.next_action.arguments[0].value == "inv-1"
-    assert receipts.written[0].state is ReceiptState.UNKNOWN
+    assert result.error.next_action.arguments[0].value == "clear-original"
+    assert service.state("artefact.delete") == "authorised"
 
 
-def test_receipt_failure_after_mutation_success_returns_unknown(tmp_path):
-    entry = _entry(
-        lambda *_args: Ok("command.list", CommandListRequest.COMMAND_VERSION, _payload()),
-        effect_class=EffectClass.SELECTED_BRAIN_MUTATION,
-        retry_class=RetryClass.RECEIPT_REQUIRED,
-        authority=Authority.CONTRIBUTOR,
-    )
-    context = _context(tmp_path, receipts=_Receipts(fail=True))
-    context = replace(context, profile="contributor", authority=_Authority())
-
-    result = _invoke(tmp_path, entry, context=context)
-
-    assert result.error.code is ErrorCode.COMMAND_OUTCOME_UNKNOWN
-    assert result.effects == "unknown"
-
-
-def test_catalogue_rejects_launcher_locality_duplicates_and_unordered_entries():
-    executor = lambda *_args: Ok("command.list", CommandListRequest.COMMAND_VERSION, _payload())
-    entry = _entry(executor)
-
-    try:
-        ApplicationEntry(
-            request_type=CommandListRequest,
-            executor=executor,
-            dependency_tier=DependencyTier.BOOTSTRAP,
-            locality=Locality.MACHINE_LOCAL,
-            required_providers=(),
-            optional_providers=(),
-            authority=Authority.READER,
-            effect_class=EffectClass.NONE,
-            retry_class=RetryClass.SAFE,
-            projections=tuple(
-                ProjectionEligibility(projection, True)
-                for projection in (
-                    Projection.MCP,
-                    Projection.CLI,
-                    Projection.SCRIPT,
-                    Projection.PYTHON,
-                )
-            ),
-        )
-    except ValueError as exc:
-        assert "launcher manifest" in str(exc)
-    else:
-        raise AssertionError("machine-local application entry was accepted")
-
-    try:
-        ApplicationCatalogue((entry, entry))
-    except ValueError as exc:
-        assert "unique" in str(exc)
-    else:
-        raise AssertionError("duplicate application entry was accepted")
-
-
-def test_catalogue_fingerprint_excludes_executor_identity_and_dynamic_availability():
-    first = ApplicationCatalogue(
-        (_entry(lambda *_args: Ok("command.list", CommandListRequest.COMMAND_VERSION, _payload())),)
-    )
-    second = ApplicationCatalogue(
-        (_entry(lambda *_args: Ok("command.list", CommandListRequest.COMMAND_VERSION, _payload())),)
-    )
-
-    assert first.fingerprint == second.fingerprint
-    assert first.fingerprint.startswith("sha256:")
-
-
-def test_catalogue_records_static_projection_exclusions_with_reasons():
-    projections = tuple(
-        ProjectionEligibility(
-            projection,
-            projection is not Projection.MCP,
-            None if projection is not Projection.MCP else "caller-local command",
-        )
-        for projection in (
-            Projection.MCP,
-            Projection.CLI,
-            Projection.SCRIPT,
-            Projection.PYTHON,
-        )
-    )
-    entry = _entry(
-        lambda *_args: Ok("command.list", CommandListRequest.COMMAND_VERSION, _payload()),
-        locality=Locality.CALLER_LOCAL,
-        projections=projections,
-    )
-
-    assert entry.eligible_projections == (
-        Projection.CLI,
-        Projection.SCRIPT,
-        Projection.PYTHON,
-    )
-    assert entry.projections[0].reason == "caller-local command"
+@pytest.mark.parametrize("policy", ["denied", "migration_required"])
+def test_policy_denials_route_to_source_specific_configuration_inspection(tmp_path, policy):
+    from _application.access.request import AccessRequestRequest, CommandConsent
+    from _application.adapter import ApplicationAdapter
+    from _application.registry import current_application_catalogue, current_request_resolver
+    context = context_for(tmp_path, initial_commands=(), request_policy=policy)
+    ordinary = ApplicationAdapter(current_application_catalogue(), current_request_resolver()).invoke(
+        context, "artefact.delete", {})
+    assert ordinary.result.error.next_action.command_id == "vault.read-config"
+    assert ordinary.exit_code == 3
+    request = AccessRequestRequest(CommandConsent("artefact.delete",
+        context.authorisation.service.command_review("artefact.delete")))
+    result = CommandApplication(context).invoke(request)
+    assert result.error.next_action.command_id == "vault.read-config"
+    assert result.effects == "none"
+    assert not context.authorisation.service.inventory("grants")["items"]

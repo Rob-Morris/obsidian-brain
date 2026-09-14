@@ -70,7 +70,7 @@ def test_presentation_success_reports_markdown_pdf_and_preview_effects(
     monkeypatch.setattr(
         shape_presentation,
         "shape",
-        lambda _root, params: {
+        lambda _root, params, *, _plan: {
             "status": "ok",
             "path": "_Temporal/Presentations/deck.md",
             "created": True,

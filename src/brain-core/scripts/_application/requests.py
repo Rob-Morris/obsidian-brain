@@ -6,6 +6,8 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import ClassVar
 
+from .access_contracts import CommandAuthorisation, CommandAuthorisationState
+from .access.prepare import AccessPrepareRequest
 from .access.reduce import AccessReduceRequest
 from .access.request import AccessRequestRequest
 from .access.status import AccessStatusRequest
@@ -82,6 +84,7 @@ from .workspace.repair_registry import WorkspaceRepairRegistryRequest
 from .workspace.setup import WorkspaceSetupRequest
 from .workspace.unregister import WorkspaceUnregisterRequest
 from .workspace.update_metadata import WorkspaceUpdateMetadataRequest
+from .receipts import AdmissionIntent, InvocationOutcome, OwnedReceiptLookup
 from .receipts import OutcomeReceipt, OutcomeReference, ReceiptLookupState
 from .identity import command_identity
 from .types import (
@@ -91,6 +94,7 @@ from .types import (
     CommandOwner,
     DependencyTier,
     EffectClass,
+    InitialAuthorisationClass,
     Locality,
     Projection,
     ProjectionEligibility,
@@ -100,6 +104,7 @@ from .types import (
 )
 
 __all__ = (
+    "AccessPrepareRequest",
     "AccessReduceRequest",
     "AccessRequestRequest",
     "AccessStatusRequest",
@@ -199,9 +204,7 @@ class CommandListView(str, Enum):
     DETAILED = "detailed"
 
 
-class CommandAccess(str, Enum):
-    ACTIVE = "active"
-    INACTIVE = "inactive"
+CommandAccess = CommandAuthorisationState
 
 
 @dataclass(frozen=True, slots=True)
@@ -212,7 +215,11 @@ class CommandBrief:
     authority: Authority
     effect_class: EffectClass
     availability: Availability
-    access: CommandAccess
+    projections: tuple[Projection, ...]
+    access: CommandAuthorisationState
+    initial_class: InitialAuthorisationClass
+    static_disclosure: bool
+    permission_management: str | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -234,7 +241,10 @@ class CommandSummary:
     missing_optional_providers: tuple[str, ...]
     lifecycle: CommandLifecycle
     replacement_command_id: str | None
-    access: CommandAccess
+    access: CommandAuthorisationState
+    initial_class: InitialAuthorisationClass
+    static_disclosure: bool
+    permission_management: str | None
 
     def __post_init__(self) -> None:
         validate_command_id(self.command_id)
@@ -246,6 +256,7 @@ class CommandSummary:
 
 @dataclass(frozen=True, slots=True)
 class CommandListPayload:
+    interface_epoch: int
     catalogue_schema: str
     catalogue_fingerprint: str
     entries: tuple[CommandBrief | CommandSummary, ...]
@@ -332,7 +343,10 @@ class CommandDescriptionPayload:
     examples: tuple[CommandExample, ...]
     lifecycle: CommandLifecycle
     replacement_command_id: str | None
-    access: CommandAccess
+    access: CommandAuthorisationState
+    initial_class: InitialAuthorisationClass
+    static_disclosure: bool
+    permission_management: str | None
 
     def __post_init__(self) -> None:
         if not self.catalogue_schema.startswith("brain.command-catalogue/"):
@@ -354,21 +368,19 @@ class CommandDescriptionPayload:
 class InvocationReadPayload:
     reference: OutcomeReference
     state: ReceiptLookupState
-    receipt: OutcomeReceipt | None = None
+    intent: AdmissionIntent | None = None
+    outcome: InvocationOutcome | None = None
 
     def __post_init__(self) -> None:
-        if self.state is ReceiptLookupState.FOUND and self.receipt is None:
-            raise ValueError("found invocation outcome requires a receipt")
-        if self.state is ReceiptLookupState.STILL_UNKNOWN and self.receipt is not None:
-            raise ValueError("still-unknown invocation outcome cannot carry a receipt")
-        if self.receipt is not None and self.receipt.reference != self.reference:
-            raise ValueError("invocation outcome reference must match its receipt")
+        lookup = OwnedReceiptLookup(self.reference, self.intent, self.outcome)
+        if self.state is not lookup.state:
+            raise ValueError("invocation lookup state does not match its outcome")
 
 
 @dataclass(frozen=True, slots=True)
 class CommandListRequest:
     COMMAND_ID: ClassVar[str] = "command.list"
-    COMMAND_VERSION: ClassVar[int] = 3
+    COMMAND_VERSION: ClassVar[int] = 4
     RESULT_TYPE: ClassVar[type] = CommandListPayload
 
     query: str | None = None
@@ -429,7 +441,7 @@ class CommandListRequest:
 @dataclass(frozen=True, slots=True)
 class CommandDescribeRequest:
     COMMAND_ID: ClassVar[str] = "command.describe"
-    COMMAND_VERSION: ClassVar[int] = 3
+    COMMAND_VERSION: ClassVar[int] = 4
     RESULT_TYPE: ClassVar[type] = CommandDescriptionPayload
     MINIMAL_EXAMPLE: ClassVar[dict[str, str]] = {
         "target_command_id": "command.list"
@@ -444,7 +456,7 @@ class CommandDescribeRequest:
 @dataclass(frozen=True, slots=True)
 class InvocationReadRequest:
     COMMAND_ID: ClassVar[str] = "invocation.read"
-    COMMAND_VERSION: ClassVar[int] = 2
+    COMMAND_VERSION: ClassVar[int] = 3
     RESULT_TYPE: ClassVar[type] = InvocationReadPayload
     MINIMAL_EXAMPLE: ClassVar[dict[str, str]] = {"invocation_id": "example"}
 
@@ -460,7 +472,8 @@ class InvocationReadRequest:
 
 
 CommandRequest = (
-    AccessReduceRequest
+    AccessPrepareRequest
+    | AccessReduceRequest
     | AccessRequestRequest
     | AccessStatusRequest
     | CommandListRequest

@@ -58,8 +58,7 @@ def execute(context: InvocationContext, request: WorkspaceRepairRegistryRequest)
 
             before_write = workspace_admission(context, request)
             result = repair_registry(root, dry_run=context.dry_run, before_write=before_write)
-            if before_write is not None and not context.dry_run:
-                before_write()
+            before_write()
     except MutationLockError as exc:
         return no_effect_error(
             WorkspaceRepairRegistryRequest,
@@ -120,10 +119,11 @@ def catalogue_entry():
     from ..preparation import OperationPreparation
     from ._preparation import prepare_workspace
     from ..catalogue import exclude_projection
-    from ..types import Projection
+    from ..types import Projection, InitialAuthorisationClass
 
     return exclude_projection(
         replace(operator_mutation_entry(WorkspaceRepairRegistryRequest, execute),
+                initial_class=InitialAuthorisationClass.EXCEPTIONAL,
                 preparation=OperationPreparation(prepare_workspace)),
         Projection.MCP,
         "Local workspace-registry repair is reserved for deliberate CLI or "

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
+from command_application import context_for
 from pathlib import Path
 
 import pytest
@@ -58,32 +59,6 @@ class _Provider:
     provider_id: str
 
 
-class _Authority:
-    def allows(self, *, command_id, required, effect):
-        return required is Authority.READER
-
-    def ceiling_allows(self, _command_id):
-        return True
-
-    def consume(self, _command_id):
-        return True
-
-
-class _Receipts:
-    def __init__(self):
-        self.receipts = {}
-
-    def write(self, receipt):
-        self.receipts[receipt.reference.invocation_id] = receipt
-
-    def read(self, reference):
-        return self.receipts.get(reference.invocation_id)
-
-
-class _Clock:
-    def now(self):
-        return NOW
-
 
 def test_request_type_owns_identity_version_and_result_type():
     cases = [
@@ -93,7 +68,7 @@ def test_request_type_owns_identity_version_and_result_type():
     ]
 
     for request, command_id, result_type in cases:
-        expected_version = 3 if command_id.startswith("command.") else 2
+        expected_version = 4 if command_id.startswith("command.") else 3
         assert command_identity(request) == (command_id, expected_version, result_type)
         assert "command_id" not in request.__dataclass_fields__
 
@@ -148,6 +123,7 @@ def test_result_variants_have_one_structurally_valid_shape():
         "command.list",
         2,
         CommandListPayload(
+            3,
             "brain.command-catalogue/1",
             "sha256:test",
             (),
@@ -183,7 +159,7 @@ def test_partial_and_unknown_effect_invariants_fail_closed():
     command_error = CommandError(ErrorCode.CONFLICT, "Mutation did not complete.")
     with pytest.raises(ValueError, match="enumerate committed effects"):
         Partial("artefact.delete", 1, command_error, ())
-    with pytest.raises(ValueError, match="requires an outcome reference"):
+    with pytest.raises(ValueError, match="unknown effects require"):
         Error("artefact.delete", 1, command_error, effects="unknown")
     with pytest.raises(ValueError, match="cannot be retryable"):
         reference = OutcomeReference("inv-2")
@@ -199,7 +175,7 @@ def test_partial_and_unknown_effect_invariants_fail_closed():
             outcome_reference=reference,
             retryable=True,
         )
-    with pytest.raises(ValueError, match="cannot carry"):
+    with pytest.raises(ValueError, match="only unknown execution can carry"):
         Error(
             "artefact.delete",
             1,
@@ -280,27 +256,9 @@ def test_outcome_receipt_invariants_distinguish_partial_and_unknown():
 
 
 def test_context_contains_explicit_trusted_state_and_no_environment_resolution(tmp_path):
-    receipts = _Receipts()
-    snapshot = CapabilitySnapshot(
-        token="snapshot-1",
-        freshness=SnapshotFreshness.FRESH,
-        observed_at=NOW,
+    context = context_for(tmp_path,
         capabilities=(Capability("document_renderer", Availability.UNAVAILABLE),),
-    )
-    providers = ProviderBindings((_Provider("caller_filesystem"),))
-    context = InvocationContext(
-        selected_brain=SelectedBrain("test-brain", Path(tmp_path).resolve()),
-        profile="reader",
-        authority=_Authority(),
-        dependency_tier=DependencyTier.PORTABLE,
-        capabilities=snapshot,
-        providers=providers,
-        correlation_id="corr-1",
-        invocation_id="inv-1",
-        receipt_writer=receipts,
-        receipt_reader=receipts,
-        clock=_Clock(),
-    )
+        providers=(_Provider("caller_filesystem"),))
 
     assert context.selected_brain.vault_root == Path(tmp_path).resolve()
     assert context.capabilities.availability_of("document_renderer") is Availability.UNAVAILABLE

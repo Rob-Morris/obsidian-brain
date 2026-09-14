@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from .types import InitialAuthorisationClass
+
 from pathlib import Path
 
 from .types import (
@@ -26,6 +28,7 @@ def benchmark_entry(request_type, executor, *, mutation: bool):
     from .retrieval._preparation import BENCHMARK
 
     return ApplicationEntry(
+        initial_class=InitialAuthorisationClass.EXCEPTIONAL,
         preparation=BENCHMARK,
         request_type=request_type,
         executor=executor,

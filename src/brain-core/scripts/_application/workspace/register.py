@@ -42,7 +42,7 @@ def execute(context: InvocationContext, request: WorkspaceRegisterRequest):
             context.selected_brain.vault_root,
             request.slug,
             target,
-            **({"before_write": before_write} if before_write is not None else {}),
+            before_write=before_write,
         )
         return {
             "status": "ok",

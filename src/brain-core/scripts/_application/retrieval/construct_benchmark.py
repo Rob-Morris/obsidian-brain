@@ -105,10 +105,9 @@ def execute(context: InvocationContext, request: RetrievalConstructBenchmarkRequ
         return no_effect_error(type(request), ErrorCode.INVALID_REQUEST, str(exc))
 
     if context.dry_run:
-        if context.admission is not None:
-            with vault_mutation_lock(root):
-                plan = benchmark_inputs(context, request)
-                admit_owner(context, request, benchmark_binding, plan=plan)
+        with vault_mutation_lock(root):
+            plan = benchmark_inputs(context, request)
+            admit_owner(context, request, benchmark_binding, plan=plan)
         return Ok(
             request.COMMAND_ID,
             request.COMMAND_VERSION,

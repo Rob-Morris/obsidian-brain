@@ -141,68 +141,23 @@ def test_fresh_process_can_construct_context_and_invoke_read_and_mutation(
     command_vault_clone,
 ):
     script = r'''
-from datetime import datetime, timezone
 from pathlib import Path
 import sys
 
-from brain_application import CommandApplication, InvocationContext, SelectedBrain
-from brain_application.context import (
-    Authority,
-    CapabilitySnapshot,
-    DependencyTier,
-    MemoryReceiptStore,
-    ProviderBindings,
-    SnapshotFreshness,
-)
+from brain_application import CommandApplication
+from brain_application.local import LocalContextComposer
 from brain_application.documents import (
-    DocumentLocator,
-    DocumentResource,
-    DocumentWriteBodyOperation,
-    DocumentWriteBodyRequest,
-    InlineContent,
+    DocumentLocator, DocumentResource, DocumentWriteBodyOperation,
+    DocumentWriteBodyRequest, InlineContent,
 )
 from brain_application.requests import ArtefactReadRequest
 
 PATH = "Designs/project~command-fixture/Command Fixture Design.md"
-
-class Clock:
-    def now(self):
-        return datetime.now(timezone.utc)
-
-class AuthorityEvaluator:
-    def observe(self):
-        return self
-
-    def allows(self, *, command_id, required, effect):
-        return True
-    def ceiling_allows(self, command_id):
-        return True
-    def consume(self, command_id):
-        return True
-
 root = Path(sys.argv[1])
-clock = Clock()
-receipts = MemoryReceiptStore(clock)
+composer = LocalContextComposer(vault_root=root)
 
 def application(invocation_id):
-    context = InvocationContext(
-        SelectedBrain("test-brain", root),
-        "administrator",
-        AuthorityEvaluator(),
-        DependencyTier.MANAGED,
-        CapabilitySnapshot(
-            "fresh-process",
-            SnapshotFreshness.FRESH,
-            clock.now(),
-        ),
-        ProviderBindings(),
-        "fresh-process",
-        invocation_id,
-        receipts,
-        receipts,
-        clock,
-    )
-    return CommandApplication(context)
+    return CommandApplication(composer.compose(invocation_id=invocation_id))
 
 read = application("read-invocation").invoke(ArtefactReadRequest(PATH))
 assert read.status == "ok", read
@@ -216,6 +171,7 @@ mutation = application("write-invocation").invoke(
 )
 assert mutation.status == "ok", mutation
 assert "Typed façade mutation." in (root / PATH).read_text(encoding="utf-8")
+composer.close()
 '''
     completed = subprocess.run(
         [sys.executable, "-c", script, str(command_vault_clone.vault_root)],

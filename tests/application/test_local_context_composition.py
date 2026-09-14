@@ -9,7 +9,7 @@ from pathlib import Path
 import pytest
 
 from _application.adapter import ApplicationAdapter
-from _application.receipts import MemoryReceiptStore
+from command_application import context_for
 from _application.registry import current_application_catalogue, current_request_resolver
 from _application.results import ErrorCode
 from _application.types import Authority, Availability, DependencyTier, SnapshotFreshness
@@ -40,12 +40,13 @@ def _context(
     diagnostics=None,
 ):
     clock = _Clock()
-    receipts = MemoryReceiptStore(clock)
+    session = context_for(_vault(tmp_path), allowed_commands=tools).authorisation
+    receipts = session.receipts
     return compose_local_context(
         vault_root=_vault(tmp_path),
-        brain_id="test-brain",
+        brain_id="command-vault",
         profile="reader",
-        allowed_tools=tools,
+        authorisation=session,
         dependency_tier=DependencyTier.PORTABLE,
         provider_ids=("semantic_retrieval",),
         capability_states=(("semantic_retrieval", Availability.AVAILABLE),),
@@ -64,7 +65,7 @@ def _context(
 def test_local_context_uses_only_explicit_resolved_state(tmp_path):
     context = _context(tmp_path)
 
-    assert context.selected_brain.brain_id == "test-brain"
+    assert context.selected_brain.brain_id == "command-vault"
     assert context.profile == "reader"
     assert context.dependency_tier is DependencyTier.PORTABLE
     assert context.providers.require("semantic_retrieval").provider_id == "semantic_retrieval"
@@ -133,12 +134,12 @@ def test_adapter_bounds_authority_evaluator_failures_before_resolution(tmp_path)
     resolver = current_request_resolver()
     context = _context(tmp_path, invocation_id="inv-authority-failure")
 
-    class _BrokenAuthority:
+    class _BrokenAccess:
         @staticmethod
-        def allows(**_kwargs):
+        def command_access(*_args):
             raise RuntimeError("private authority backend detail")
 
-    context = replace(context, authority=_BrokenAuthority())
+    context = replace(context, access=_BrokenAccess())
     result = ApplicationAdapter(catalogue, resolver).invoke(
         context,
         "command.list",
@@ -154,11 +155,11 @@ def test_built_in_profiles_derive_cumulative_exact_application_commands():
     profiles = builtin_profile_allow_lists(current_application_catalogue())
 
     assert {name: len(tools) for name, tools in profiles.items()} == {
-        "reader": 27,
-        "contributor": 56,
-        "maintainer": 69,
-        "operator": 78,
-        "administrator": 79,
+        "reader": 29,
+        "contributor": 57,
+        "maintainer": 70,
+        "operator": 79,
+        "administrator": 80,
     }
     assert (
         set(profiles["reader"])
@@ -199,7 +200,7 @@ def test_every_application_command_has_the_exact_five_profile_authority_matrix()
         "administrator": 4,
     }
 
-    assert len(catalogue.entries) == 79
+    assert len(catalogue.entries) == 80
     for profile, maximum in profile_rank.items():
         allowed = set(profiles[profile])
         for entry in catalogue.entries:
@@ -210,11 +211,12 @@ def test_every_application_command_has_the_exact_five_profile_authority_matrix()
 
 def test_local_context_refuses_missing_or_symlinked_core_and_open_provider_sets(tmp_path):
     clock = _Clock()
-    receipts = MemoryReceiptStore(clock)
+    session = context_for(_vault(tmp_path)).authorisation
+    receipts = session.receipts
     common = dict(
-        brain_id="test-brain",
+        brain_id="command-vault",
         profile="reader",
-        allowed_tools=frozenset(),
+        authorisation=context_for(_vault(tmp_path)).authorisation,
         dependency_tier=DependencyTier.PORTABLE,
         capability_states=(),
         snapshot_token="snapshot",
@@ -251,9 +253,9 @@ def test_system_clock_is_timezone_aware():
 
 def test_local_context_requires_already_resolved_absolute_paths(tmp_path):
     common = dict(
-        brain_id="test-brain",
+        brain_id="command-vault",
         profile="reader",
-        allowed_tools=frozenset(),
+        authorisation=context_for(_vault(tmp_path)).authorisation,
         dependency_tier=DependencyTier.PORTABLE,
         provider_ids=(),
         capability_states=(),
@@ -262,7 +264,7 @@ def test_local_context_requires_already_resolved_absolute_paths(tmp_path):
         snapshot_observed_at=NOW,
         correlation_id="corr",
         invocation_id="inv",
-        receipt_store=MemoryReceiptStore(_Clock()),
+        receipt_store=context_for(_vault(tmp_path)).authorisation.receipts,
         clock=_Clock(),
     )
     with pytest.raises(ValueError, match="vault_root"):

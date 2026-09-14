@@ -5,13 +5,15 @@ from contextlib import closing
 import pytest
 
 from _bootstrap.consent_owner import ConsentOwner, OwnerConnectionError
-from _bootstrap.owner_attachment import OwnerAttachment
-from _command_interface.direct import DirectContextComposer, DirectContextError
+from _bootstrap.owner_attachment import OwnerAttachment, ProcessIdentity
+from _command_interface.direct import DirectContextComposer, DirectContextError, initialise_attached_job_owner
 
 
 def test_composer_reuses_attached_owner_but_close_does_not_close_job(command_vault_clone, tmp_path):
     root = command_vault_clone.vault_root
     with closing(ConsentOwner(root)) as owner:
+        initialise_attached_job_owner(vault_root=root, owner_attachment=OwnerAttachment.for_job(owner),
+            transport_identity=ProcessIdentity("cli-job", owner.identity.context_id))
         attachment = OwnerAttachment.for_job(owner)
         composer = DirectContextComposer(vault_root=root, owner_attachment=attachment)
         store = composer.owner_store

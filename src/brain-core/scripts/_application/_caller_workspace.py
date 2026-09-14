@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from .types import InitialAuthorisationClass
+
 from ._decoding import optional_bool, reject_unexpected
 
 from dataclasses import dataclass
@@ -85,25 +87,25 @@ def execute_workspace_lifecycle(
         vault_mutation_lock,
     )
 
-    if context.dry_run:
-        return Ok(
-            request.COMMAND_ID,
-            request.COMMAND_VERSION,
-            CallerWorkspacePayload(
-                operation,
-                CallerWorkspaceStatus.PLANNED,
-                True,
-                context.workspace_dir.name if context.workspace_dir else None,
-                (),
-                (),
-            ),
-        )
-
     try:
         with vault_mutation_lock(lock_root):
             before_write = workspace_admission(context, request)
+            if context.dry_run:
+                before_write()
+                return Ok(
+                    request.COMMAND_ID,
+                    request.COMMAND_VERSION,
+                    CallerWorkspacePayload(
+                        operation,
+                        CallerWorkspaceStatus.PLANNED,
+                        True,
+                        context.workspace_dir.name if context.workspace_dir else None,
+                        (),
+                        (),
+                    ),
+                )
             result = invoke(before_write)
-            if before_write is not None and isinstance(result, Mapping) and result.get("status") in {"ok", "noop"}:
+            if isinstance(result, Mapping) and result.get("status") in {"ok", "noop"}:
                 before_write()
     except MutationLockError as exc:
         return no_effect_error(
@@ -214,6 +216,7 @@ def caller_workspace_entry(request_type, executor):
     from .workspace._preparation import prepare_workspace
 
     return ApplicationEntry(
+        initial_class=InitialAuthorisationClass.EXCEPTIONAL,
         request_type=request_type,
         executor=executor,
         dependency_tier=DependencyTier.BOOTSTRAP,
@@ -235,8 +238,6 @@ def caller_workspace_entry(request_type, executor):
 
 def workspace_admission(context, request):
     """Share one admission across every write in a compound workspace action."""
-    if context.admission is None:
-        return None
     from .preparation import admit_owner
     from .workspace._preparation import prepare_workspace
 

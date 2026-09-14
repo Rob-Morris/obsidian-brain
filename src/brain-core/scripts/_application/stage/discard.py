@@ -50,19 +50,13 @@ def execute(context: InvocationContext, request: StageDiscardRequest):
             "handle",
         )
 
-    if context.dry_run:
-        return Ok(
-            request.COMMAND_ID,
-            request.COMMAND_VERSION,
-            StageDiscardPayload(request.handle, False),
-        )
     vault_root = str(context.selected_brain.vault_root)
     try:
         with vault_mutation_lock(vault_root):
             from ..preparation import admit_owner
 
             admit_owner(context, request, prepare)
-            discarded = discard_staged_body(vault_root, request.handle)
+            discarded = False if context.dry_run else discard_staged_body(vault_root, request.handle)
     except MutationLockError as exc:
         return no_effect_error(
             StageDiscardRequest,

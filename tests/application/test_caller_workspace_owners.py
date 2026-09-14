@@ -130,6 +130,7 @@ def test_workspace_bind_uses_only_trusted_context_directory(
     calls = []
 
     def bind(root, **kwargs):
+        kwargs.pop("before_write")()
         calls.append((root, kwargs))
         return {
             "status": "ok",
@@ -238,10 +239,9 @@ def test_workspace_setup_reports_known_partial_binding_effect(
 ):
     workspace = (tmp_path / "workspace").resolve()
     workspace.mkdir()
-    monkeypatch.setattr(
-        setup,
-        "_setup_workspace_core",
-        lambda *_args, **_kwargs: {
+    def partial_setup(*_args, **kwargs):
+        kwargs["before_write"]()
+        return {
             "status": "partial",
             "steps": [
                 {
@@ -255,8 +255,8 @@ def test_workspace_setup_reports_known_partial_binding_effect(
                     "message": "Git inspection failed.",
                 },
             ],
-        },
-    )
+        }
+    monkeypatch.setattr(setup, "_setup_workspace_core", partial_setup)
 
     result = _caller_application(command_vault_clone.vault_root, workspace).invoke(
         WorkspaceSetupRequest()
@@ -280,6 +280,7 @@ def test_workspace_metadata_decodes_typed_links_and_reports_manifest_effect(
     calls = []
 
     def update(root, **kwargs):
+        kwargs.pop("before_write")()
         calls.append((root, kwargs))
         return {
             "status": "ok",
@@ -363,3 +364,41 @@ def test_workspace_commands_reject_missing_context_and_ambiguous_payloads(
             "workspace.update-metadata",
             {"links": {1: "not-a-string-key"}},
         )
+
+
+@pytest.mark.parametrize('command_id', ['workspace.configure-bootstrap', 'workspace.repair-registry'])
+def test_workspace_preview_enters_and_spends_specific_consent_without_content_effects(
+    command_vault_clone, tmp_path, command_id,
+):
+    from dataclasses import replace
+    from _application.application import CommandApplication
+    from _application.consent import ConsentScope
+    from _application.receipts import OutcomeReference, ExecutionState, ReceiptState
+    from command_application import context_for
+
+    root = command_vault_clone.vault_root
+    workspace = tmp_path / 'preview-workspace'
+    workspace.mkdir()
+    registry = root / '.brain/local/workspaces.json'
+    registry.write_text('[malformed\n')
+    context = context_for(root, context_kind='cli-job', dry_run=True,
+        dependency_tier=DependencyTier.PORTABLE, workspace_dir=workspace,
+        providers=(_CallerFilesystemProvider(),), capabilities=(Capability('caller_filesystem', Availability.AVAILABLE),))
+    arguments = {'surface': 'all'} if command_id == 'workspace.configure-bootstrap' else {}
+    operation = context.access.prepare(command_id, arguments)
+    context.authorisation.service.request(request_id='consent-preview', scope=ConsentScope.OPERATION,
+        operation_id=operation.operation_id, digest=operation.digest, review=operation.review)
+    invocation = replace(context, invocation_id='execute-preview', operation_id=operation.operation_id)
+    invocation = replace(invocation, access=context.authorisation.bind(invocation))
+    request = current_request_resolver().resolve(command_id, arguments)
+    result = CommandApplication(invocation, context.authorisation.catalogue).invoke(request)
+
+    assert result.status == 'ok', result
+    assert result.committed_effects == ()
+    assert context.authorisation.service.inspect(operation.operation_id)['state'] == 'spent'
+    outcome = context.receipt_reader.read(OutcomeReference('execute-preview')).outcome
+    assert outcome.execution is ExecutionState.SUCCEEDED
+    assert outcome.receipt.state is ReceiptState.NONE
+    assert registry.read_text() == '[malformed\n'
+    assert not (workspace / 'AGENTS.md').exists()
+    assert not list(registry.parent.glob('workspaces.json.*.bak'))

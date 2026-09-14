@@ -13,7 +13,7 @@ from .context import InvocationContext, report_failure_safely
 from .preparation import OperationBinding, bind_operation, canonical_json, content_digest
 from .receipts import (
     AdmissionIntent, ExecutionState, InvocationOutcome, OutcomeReceipt,
-    OutcomeReference, OwnedReceiptPort, ReceiptState,
+    OutcomeReference, OwnedReceiptPort, ReceiptIntentConflict, ReceiptState,
 )
 from .results import Error, ErrorCode, Ok, Partial
 from .types import EffectClass
@@ -68,7 +68,8 @@ class PreparationCoordinator:
         self.catalogue = catalogue
         self.content_for = content_for
 
-    def prepare(self, context: InvocationContext, request, *, request_id: str) -> dict:
+    def prepare(self, context: InvocationContext, request, *, request_id: str,
+                validate_view: Callable[[dict], None] | None = None) -> dict:
         _check_context(self.service, context)
         entry = self.catalogue.resolve(request)
         self.service.check_permission(entry.command_id, request=True)
@@ -92,7 +93,8 @@ class PreparationCoordinator:
             self._discard_after_failure(context, entry.command_id, content)
             raise
         try:
-            view = self.service.prepare(binding, request_id=request_id, pin_namespace=namespace)
+            view = self.service.prepare(binding, request_id=request_id, pin_namespace=namespace,
+                                        validate_view=validate_view)
         except (ConsentError, ValueError):
             # These are known rejections. Uncertain owner-transport exceptions
             # retain the copy: a descriptor may already have committed remotely.
@@ -136,11 +138,12 @@ class InvocationAuthorisation:
     def __init__(self, service: ConsentService, entry: ApplicationEntry,
                  context: InvocationContext, receipts: OwnedReceiptPort, *,
                  operation_id: str | None = None,
-                 content_for: Callable[[str], PreparedContent]):
+                 content_for: Callable[[str], PreparedContent], source: str | None = None):
         _check_context(service, context)
         self.service, self.entry, self.context = service, entry, context
         self.receipts = receipts
         self.operation_id = operation_id
+        self.source = source or ("host-request" if service.identity.kind == "mcp-instance" else "cli-request")
         self._proof: AdmissionProof | None = None
         self._intent: AdmissionIntent | None = None
         self._finalised = False
@@ -163,6 +166,11 @@ class InvocationAuthorisation:
     def entered(self) -> bool:
         return self._proof is not None
 
+    @property
+    def intent_recorded(self) -> bool:
+        """A missing local proof after intent can still mean the remote owner entered."""
+        return self._intent is not None
+
     def retain_content(self, _source_key: str, _content: bytes) -> dict:
         raise ConsentError("stale_operation", "Execution cannot extend immutable prepared inputs; prepare again.")
 
@@ -180,12 +188,17 @@ class InvocationAuthorisation:
             intent = AdmissionIntent(
                 OutcomeReference(proof.invocation_id), proof.command_id, proof.command_version,
                 self.context.clock.now(), proof.basis, proof.generation,
-                "host-request" if self.service.identity.kind == "mcp-instance" else "cli-request",
+                self.source,
                 grant_id=proof.grant_id, operation_id=proof.operation_id,
                 operation_digest=binding.digest if binding is not None else None,
                 request_id=proof.request_id,
             )
-            self.receipts.begin(intent)
+            try:
+                created = self.receipts.begin(intent)
+            except ReceiptIntentConflict as exc:
+                raise ConsentError("operation_entered", "This invocation already has an admission intent; inspect its owned outcome.") from exc
+            if created is not True:
+                raise ConsentError("operation_entered", "This invocation already has an admission intent; inspect its owned outcome.")
             self._intent = intent
 
         self._proof = self.service.admit(
@@ -223,21 +236,26 @@ class InvocationAuthorisation:
                                           command_id=self.entry.command_id, error=exc)
 
     def _outcome(self, result) -> InvocationOutcome:
-        effects = ()
-        if isinstance(result, Ok):
-            execution = ExecutionState.SUCCEEDED
-            effects = result.committed_effects
-            state = ReceiptState.COMMITTED if effects else ReceiptState.NONE
-        elif isinstance(result, Partial):
-            execution, state, effects = ExecutionState.PARTIAL, ReceiptState.KNOWN_PARTIAL, result.committed_effects
-        elif result is None or (isinstance(result, Error) and result.error.code is ErrorCode.COMMAND_OUTCOME_UNKNOWN):
-            execution = ExecutionState.UNKNOWN
-            state = ReceiptState.NONE if self.entry.effect_class is EffectClass.NONE else ReceiptState.UNKNOWN
-        elif isinstance(result, Error) and result.effects == "unknown":
-            execution, state = ExecutionState.UNKNOWN, ReceiptState.UNKNOWN
-        else:
-            execution, state = ExecutionState.FAILED, ReceiptState.NONE
-        receipt = OutcomeReceipt(OutcomeReference(self.context.invocation_id),
-                                 self.entry.command_id, self.entry.command_version,
-                                 state, self.context.clock.now(), effects)
-        return InvocationOutcome(receipt, execution)
+        return invocation_outcome(self.entry, self.context, result)
+
+
+def invocation_outcome(entry, context, result) -> InvocationOutcome:
+    """Describe execution and actual effects independently for ordinary and control calls."""
+    effects = ()
+    if isinstance(result, Ok):
+        execution = ExecutionState.SUCCEEDED
+        effects = result.committed_effects
+        state = ReceiptState.COMMITTED if effects else ReceiptState.NONE
+    elif isinstance(result, Partial):
+        execution, state, effects = ExecutionState.PARTIAL, ReceiptState.KNOWN_PARTIAL, result.committed_effects
+    elif result is None or (isinstance(result, Error) and result.error.code is ErrorCode.COMMAND_OUTCOME_UNKNOWN):
+        execution = ExecutionState.UNKNOWN
+        state = ReceiptState.NONE if entry.effect_class is EffectClass.NONE else ReceiptState.UNKNOWN
+    elif isinstance(result, Error) and result.effects == "unknown":
+        execution, state = ExecutionState.UNKNOWN, ReceiptState.UNKNOWN
+    else:
+        execution, state = ExecutionState.FAILED, ReceiptState.NONE
+    receipt = OutcomeReceipt(OutcomeReference(context.invocation_id),
+                             entry.command_id, entry.command_version,
+                             state, context.clock.now(), effects)
+    return InvocationOutcome(receipt, execution)

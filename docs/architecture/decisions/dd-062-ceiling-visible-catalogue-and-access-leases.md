@@ -1,8 +1,8 @@
 # DD-062: Ceiling-visible catalogue with independent access leases
 
-**Status:** Implemented (v0.57.0)
+**Status:** Superseded by DD-073 (v0.68.0)
 **Extends:** DD-033, DD-044, DD-061
-**Superseding decision:** [DD-073](dd-073-instance-owned-agent-authorisation.md), accepted; runtime cutover pending
+**Superseded by:** [DD-073](dd-073-instance-owned-agent-authorisation.md) in v0.68.0
 
 ## Context
 

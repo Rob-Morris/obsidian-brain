@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, fields, replace
 import hashlib
 import json
 from typing import TYPE_CHECKING, Callable, get_args, get_origin
@@ -18,6 +18,7 @@ from .types import (
     CommandLifecycle,
     DependencyTier,
     EffectClass,
+    InitialAuthorisationClass,
     Locality,
     Projection,
     ProjectionEligibility,
@@ -50,6 +51,7 @@ class ApplicationEntry:
     optional_providers: tuple[str, ...]
     authority: Authority
     effect_class: EffectClass
+    initial_class: InitialAuthorisationClass
     retry_class: RetryClass
     projections: tuple[ProjectionEligibility, ...]
     summary: str = ""
@@ -72,6 +74,10 @@ class ApplicationEntry:
 
     def __post_init__(self) -> None:
         validate_command_id(self.command_id)
+        if not isinstance(self.initial_class, InitialAuthorisationClass):
+            raise ValueError("application entry requires an explicit initial authorisation class")
+        if any(item.init and item.name == "brain_operation" for item in fields(self.request_type)):
+            raise ValueError("brain_operation is reserved transport metadata")
         if self.command_version < 1:
             raise ValueError("application entry command version must be positive")
         if self.locality is Locality.MACHINE_LOCAL:
@@ -120,7 +126,7 @@ class ApplicationCatalogue:
     entries: tuple[ApplicationEntry, ...]
     schema: str = CATALOGUE_SCHEMA
     result_schema: str = RESULT_SCHEMA
-    interface_epoch: int = 2
+    interface_epoch: int = 3
 
     def __post_init__(self) -> None:
         if self.schema != CATALOGUE_SCHEMA:
@@ -129,6 +135,11 @@ class ApplicationCatalogue:
             raise ValueError(f"unsupported command result schema: {self.result_schema}")
         if self.interface_epoch < 1:
             raise ValueError("application catalogue interface epoch must be positive")
+        for entry in self.entries:
+            if entry.initial_class is not InitialAuthorisationClass.CONTROL and entry.preparation is None:
+                raise ValueError(f"{entry.command_id} requires an operation preparation strategy")
+            if entry.initial_class is InitialAuthorisationClass.CONTROL and entry.preparation is not None:
+                raise ValueError(f"{entry.command_id} control cannot have an operation preparation strategy")
         ids = [entry.command_id for entry in self.entries]
         request_types = [entry.request_type for entry in self.entries]
         if len(ids) != len(set(ids)):
@@ -174,6 +185,7 @@ class ApplicationCatalogue:
                     "optional_providers": entry.optional_providers,
                     "authority": entry.authority.value,
                     "effect_class": entry.effect_class.value,
+                    "initial_class": entry.initial_class.value,
                     "retry_class": entry.retry_class.value,
                     "summary": entry.summary,
                     "open_world": entry.open_world,

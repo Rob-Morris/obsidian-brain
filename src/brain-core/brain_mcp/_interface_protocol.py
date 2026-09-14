@@ -10,10 +10,10 @@ import json
 from typing import Mapping
 
 
-PROXY_PROTOCOL = 3
+PROXY_PROTOCOL = 4
 PROXY_PROTOCOL_ENV = "BRAIN_MCP_PROXY_PROTOCOL"
-MIN_PROXY_PROTOCOL = 3
-MAX_PROXY_PROTOCOL = 3
+MIN_PROXY_PROTOCOL = 4
+MAX_PROXY_PROTOCOL = 4
 INTERFACE_HEADER_SCHEMA = "brain.command-interface-header/1"
 INTERFACE_HEADER_EXTENSION = "brainCommandInterface"
 _ASCII_LOWER = frozenset("abcdefghijklmnopqrstuvwxyz")
@@ -93,7 +93,6 @@ class AcceptedCallRecord:
     mutation_class: str
     invocation_id: str
     accepted_at: datetime
-    read_retry_count: int = 0
 
     def __post_init__(self) -> None:
         if isinstance(self.request_id, bool) or not isinstance(
@@ -113,18 +112,7 @@ class AcceptedCallRecord:
         _non_empty(self.invocation_id, "accepted invocation identifier")
         if not isinstance(self.accepted_at, datetime) or self.accepted_at.tzinfo is None:
             raise ValueError("accepted call timestamp must be timezone-aware")
-        if (
-            not isinstance(self.read_retry_count, int)
-            or isinstance(self.read_retry_count, bool)
-            or self.read_retry_count < 0
-        ):
-            raise ValueError("accepted read retry count must be a non-negative integer")
 
-
-@dataclass(frozen=True, slots=True)
-class ReplayDecision:
-    compatible: bool
-    reason: str | None = None
 
 
 def command_interface_header(
@@ -286,36 +274,12 @@ def accept_call(
         metadata = dict(raw_meta)
     else:
         raise ValueError("tools/call _meta must be an object")
-    if "brainInvocation" in metadata:
-        raise ValueError("brainInvocation metadata is owned by the proxy")
+    if any(name in metadata for name in ("brainInvocation", "brainContext", "brainProcessContext", "brainOwner", "brainAuthorisation")):
+        raise ValueError("reserved Brain invocation/context metadata is owned by the proxy")
     metadata["brainInvocation"] = {"invocationId": invocation_id}
     forwarded_params["_meta"] = metadata
     forwarded["params"] = forwarded_params
     return record, forwarded
-
-
-def replay_decision(
-    record: AcceptedCallRecord,
-    replacement: CommandInterfaceHeader,
-    *,
-    proxy_protocol: int = PROXY_PROTOCOL,
-) -> ReplayDecision:
-    """Permit replay only from positive command-level compatibility evidence."""
-
-    if not proxy_protocol_supported(replacement, proxy_protocol):
-        return ReplayDecision(False, "proxy_protocol_incompatible")
-    if replacement.interface_epoch != record.interface_epoch:
-        return ReplayDecision(False, "interface_epoch_changed")
-    mapping = replacement.tool(record.projected_tool)
-    if mapping is None:
-        return ReplayDecision(False, "projected_tool_removed")
-    if mapping.command_id != record.command_id:
-        return ReplayDecision(False, "command_identity_changed")
-    if mapping.command_version != record.command_version:
-        return ReplayDecision(False, "command_version_changed")
-    if mapping.mutation_class != record.mutation_class:
-        return ReplayDecision(False, "mutation_class_changed")
-    return ReplayDecision(True)
 
 
 def _header_payload(header: CommandInterfaceHeader) -> dict[str, object]:

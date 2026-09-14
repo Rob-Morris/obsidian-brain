@@ -171,13 +171,13 @@ def test_content_ingest_post_commit_failure_is_honestly_unknown(
     command_vault_clone,
     monkeypatch,
 ):
-    real_ingest = process.ingest_content
+    real_ingest = process.apply_ingestion_plan
 
     def commit_then_fail(*args, **kwargs):
         real_ingest(*args, **kwargs)
         raise OSError("failed after ingest commit")
 
-    monkeypatch.setattr(process, "ingest_content", commit_then_fail)
+    monkeypatch.setattr(process, "apply_ingestion_plan", commit_then_fail)
     result = _managed(command_vault_clone.vault_root).invoke(
         ContentIngestRequest(
             InlineContent("# Uncertain Ingest Candidate\n\nBody.\n"),

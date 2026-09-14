@@ -8,9 +8,11 @@ from typing import Mapping
 from .application import (
     CommandApplication,
     authority_denied_result,
+    consent_error_result,
     internal_error_result,
 )
 from .catalogue import ApplicationCatalogue
+from .consent import ConsentError
 from .context import InvocationContext, report_failure_safely
 from .projection import canonical_result_envelope, canonical_result_json
 from .resolver import RequestResolutionError, RequestResolver, ResolutionErrorCode
@@ -93,6 +95,9 @@ class ApplicationAdapter:
         if entry is not None:
             try:
                 denied = authority_denied_result(context, entry)
+            except ConsentError as exc:
+                return project_adapter_result(consent_error_result(
+                    context, entry.command_id, entry.command_version, exc))
             except Exception as exc:
                 report_failure_safely(
                     context,
@@ -175,6 +180,7 @@ def _exit_code(result: CommandResult) -> int:
         return 2
     if result.error.code in {
         ErrorCode.AUTHORITY_DENIED,
+        ErrorCode.AUTHORISATION_REQUIRED,
         ErrorCode.CAPABILITY_UNAVAILABLE,
     }:
         return 3

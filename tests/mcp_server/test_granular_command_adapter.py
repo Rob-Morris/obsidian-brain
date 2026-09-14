@@ -14,12 +14,13 @@ from brain_mcp._command_adapter import (
     register_application_tools,
 )
 from _application.projection import minimal_request_payload, project_identity, request_schema
-from _application.receipts import MemoryReceiptStore
+from command_application import context_for
 from _application.registry import current_application_catalogue, current_request_resolver
 from _application.types import (
     Availability,
     DependencyTier,
     EffectClass,
+    InitialAuthorisationClass,
     Projection,
     RetryClass,
     SnapshotFreshness,
@@ -60,11 +61,12 @@ def _context_factory(tmp_path, allowed_tools):
         nonlocal counter
         counter += 1
         clock = _Clock()
+        authorisation = context_for(_vault(tmp_path), allowed_commands=allowed_tools).authorisation
         return compose_local_context(
             vault_root=_vault(tmp_path),
             brain_id="test-brain",
             profile="operator",
-            allowed_tools=frozenset(allowed_tools),
+            authorisation=authorisation,
             dependency_tier=DependencyTier.MANAGED,
             provider_ids=(
                 "caller_filesystem",
@@ -90,7 +92,7 @@ def _context_factory(tmp_path, allowed_tools):
             snapshot_observed_at=NOW,
             correlation_id=f"corr-{counter}",
             invocation_id=f"inv-{counter}",
-            receipt_store=MemoryReceiptStore(clock),
+            receipt_store=authorisation.receipts,
             clock=clock,
         )
 
@@ -125,7 +127,17 @@ def test_every_mcp_eligible_command_registers_one_flat_canonical_schema(tmp_path
     by_name = {tool.name: tool for tool in tools}
     for entry in eligible:
         tool = by_name[project_identity(entry.command_id).mcp_tool]
-        assert tool.input_schema == request_schema(entry.request_type)
+        schema = request_schema(entry.request_type)
+        actual = dict(tool.input_schema)
+        properties = dict(actual["properties"])
+        selector = properties.pop("brain_operation", None)
+        if entry.initial_class is InitialAuthorisationClass.CONTROL:
+            assert selector is None
+        else:
+            assert selector["type"] == ["string", "null"]
+        assert "brain_operation" not in actual.get("required", ())
+        actual["properties"] = properties
+        assert actual == schema
         assert tool.description == entry.summary
         assert "request" not in tool.input_schema["properties"]
         assert tool.annotations.read_only_hint is (
@@ -384,3 +396,49 @@ def test_dotted_canonical_id_is_not_a_callable_mcp_alias(tmp_path):
     mcp, _, _, _ = _registered(tmp_path, ("command.list",))
     with pytest.raises(ToolError, match="Unknown tool"):
         asyncio.run(mcp.call_tool("command.list", {}))
+
+
+def test_operation_selector_is_transport_metadata_and_never_business_input(tmp_path):
+    calls = []
+    resolved_payloads = []
+    resolver = current_request_resolver()
+
+    class ObservedResolver:
+        entries = resolver.entries
+
+        def resolve(self, command_id, arguments):
+            resolved_payloads.append(dict(arguments))
+            return resolver.resolve(command_id, arguments)
+
+    root = _vault(tmp_path)
+    (root / "README.md").write_text("Readable content")
+    context = context_for(root, allowed_commands=("vault.read-file",))
+    def compose(**metadata):
+        calls.append(metadata)
+        return context
+
+    mcp = MCPServer("operation-selector")
+    register_application_tools(mcp, catalogue=current_application_catalogue(), resolver=ObservedResolver(),
+                               context_factory=compose, invocation_guard=lambda: None)
+    result = asyncio.run(mcp.call_tool("vault_read-file", {"path": "README.md", "brain_operation": "owned-operation"}))
+    assert calls[0]["operation_id"] == "owned-operation"
+    assert resolved_payloads == [{"path": "README.md"}]
+    assert result.is_error is False
+
+
+@pytest.mark.parametrize("tool", ["vault_read-file", "command_list"])
+@pytest.mark.parametrize("selector", ["", "  ", "x" * 129, 12])
+def test_invalid_operation_selector_is_rejected_before_context(tmp_path, selector, tool):
+    calls = []
+    mcp = MCPServer("invalid-selector")
+    register_application_tools(mcp, catalogue=current_application_catalogue(), resolver=current_request_resolver(),
+                               context_factory=lambda **metadata: calls.append(metadata), invocation_guard=lambda: None)
+    result = asyncio.run(mcp.call_tool(tool, {"brain_operation": selector}))
+    assert result.structured_content["error"]["code"] == "invalid_request"
+    assert calls == []
+
+
+def test_control_rejects_even_null_unadvertised_operation_selector(tmp_path):
+    mcp, _, _, _ = _registered(tmp_path, ("command.list",))
+    result = asyncio.run(mcp.call_tool("command_list", {"brain_operation": None}))
+    assert result.structured_content["error"]["code"] == "invalid_request"

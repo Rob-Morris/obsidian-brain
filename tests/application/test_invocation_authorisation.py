@@ -188,8 +188,9 @@ def test_revocation_after_intent_prevents_entry_and_records_failure(system, monk
     before = (root / TARGET).read_bytes()
     begin = receipts.begin
     def revoke(intent):
-        begin(intent)
+        created = begin(intent)
         service.reduce(grant_ids=(decision.grant_id,))
+        return created
     monkeypatch.setattr(receipts, "begin", revoke)
     with pytest.raises(ConsentError, match="revoked"):
         entry.executor(execution, request)

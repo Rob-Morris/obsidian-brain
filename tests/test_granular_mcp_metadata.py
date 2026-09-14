@@ -36,7 +36,7 @@ def test_supported_client_projections_obey_release_token_ceilings():
         "full_catalogue_tokens": MAX_CATALOGUE_TOKENS,
     }
     assert set(capture["clients"]) == set(SUPPORTED_CLIENTS)
-    assert capture["raw_fastmcp"]["tool_count"] == 68
+    assert capture["raw_fastmcp"]["tool_count"] == 69
     for client, expected in SUPPORTED_CLIENTS.items():
         projected = capture["clients"][client]
         assert {
@@ -48,7 +48,7 @@ def test_supported_client_projections_obey_release_token_ceilings():
                 "projector_source",
             )
         } == expected
-        assert projected["tool_count"] == 68
+        assert projected["tool_count"] == 69
         assert projected["tokens"] <= MAX_CATALOGUE_TOKENS
         assert projected["maximum_tool_tokens"] <= MAX_TOOL_TOKENS
         assert {

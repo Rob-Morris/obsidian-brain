@@ -1,7 +1,10 @@
 """Supported value types used to construct public command requests."""
 
 from _application._mutation_support import FrontmatterField, InlineContent, StagedContent
-from _application.access.reduce import CommandReduction, LeaseReduction, ResetReduction
+from _application.access.reduce import ClearGrants, DiscardOperations, NarrowInitial, RevokeGrants
+from _application.access.request import CommandConsent, OperationConsent
+from _application.access.prepare import InspectOperation, PrepareCommand
+from _application.access_contracts import AccessPageCursor, AccessStatusView
 from _application.artefact.list import ArtefactListLocation, ArtefactSort
 from _application.artefact.read import ArtefactLocation
 from _application.artefact.repair import ArtefactRepairScope
@@ -72,7 +75,12 @@ __all__ = (
     "CommandListView",
     "CheckSeverity",
     "CommandOwner",
-    "CommandReduction",
+    "CommandConsent",
+    "OperationConsent",
+    "PrepareCommand",
+    "InspectOperation",
+    "AccessPageCursor",
+    "AccessStatusView",
     "ContentClassifyMode",
     "DeleteStructure",
     "DependencyTier",
@@ -89,7 +97,10 @@ __all__ = (
     "InlineContent",
     "InsertPosition",
     "InsertStructure",
-    "LeaseReduction",
+    "ClearGrants",
+    "DiscardOperations",
+    "NarrowInitial",
+    "RevokeGrants",
     "ListableResource",
     "Locality",
     "MemoryCreateTarget",
@@ -100,7 +111,6 @@ __all__ = (
     "ReadableResource",
     "ReparentChildrenMode",
     "ReplaceStructure",
-    "ResetReduction",
     "RetryClass",
     "SearchableResource",
     "ShapingMode",

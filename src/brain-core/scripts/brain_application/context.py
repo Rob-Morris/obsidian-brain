@@ -1,8 +1,6 @@
 """Supported trusted-context contracts for typed Python adapters."""
 
 from _application.context import (
-    AuthorityEvaluator,
-    AuthorityObservation,
     Capability,
     CapabilitySnapshot,
     CapabilitySnapshotStore,
@@ -14,21 +12,30 @@ from _application.context import (
     ProviderPort,
     SelectedBrain,
 )
-from _application.access_contracts import AccessController
+from _application.access_contracts import AuthorisationAccess
+from _application.access_session import AuthorisationSession
+from _application.consent import ConsentIdentity, ConsentPolicy, ConsentService, ConsentStateStore
 from _application.receipts import (
-    MemoryReceiptStore,
     OutcomeReceipt,
     OutcomeReference,
-    ReceiptReader,
-    ReceiptWriter,
+    OwnedReceiptPort,
+    OwnedReceiptLookup,
+    AdmissionIntent,
+    InvocationOutcome,
+    ReceiptOwnership,
+    ReceiptIntentConflict,
+    ReceiptOwnershipError,
 )
 from _application.types import Authority, Availability, DependencyTier, SnapshotFreshness
 
 __all__ = (
-    "AccessController",
+    "AuthorisationAccess",
+    "AuthorisationSession",
+    "ConsentIdentity",
+    "ConsentPolicy",
+    "ConsentService",
+    "ConsentStateStore",
     "Authority",
-    "AuthorityEvaluator",
-    "AuthorityObservation",
     "Availability",
     "Capability",
     "CapabilitySnapshot",
@@ -37,14 +44,18 @@ __all__ = (
     "DependencyTier",
     "DiagnosticReporter",
     "InvocationContext",
-    "MemoryReceiptStore",
     "NullDiagnosticReporter",
     "OutcomeReceipt",
     "OutcomeReference",
     "ProviderBindings",
     "ProviderPort",
-    "ReceiptReader",
-    "ReceiptWriter",
+    "OwnedReceiptPort",
+    "OwnedReceiptLookup",
+    "AdmissionIntent",
+    "InvocationOutcome",
+    "ReceiptOwnership",
+    "ReceiptIntentConflict",
+    "ReceiptOwnershipError",
     "SelectedBrain",
     "SnapshotFreshness",
 )

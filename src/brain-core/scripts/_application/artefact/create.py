@@ -152,15 +152,14 @@ def execute(context: InvocationContext, request: ArtefactCreateRequest):
             from ..preparation_creation import plan_artefact_create, creation_binding
             import fix_links
 
-            frozen = context.admission.frozen_inputs if context.admission else None
+            frozen = context.admission.frozen_inputs
             plan, frozen = plan_artefact_create(context, request, router, body,
                                                 frozen_inputs=frozen)
             index = fix_links.file_index_for_mutation(vault_root) if request.fix_links else None
-            if context.admission is not None:
-                binding = (creation_binding(context, request, plan=plan, file_index=index,
-                                            frozen_inputs=frozen)
-                           if context.admission.requires_binding else None)
-                context.admission.admit(binding)
+            binding = (creation_binding(context, request, plan=plan, file_index=index,
+                                        frozen_inputs=frozen)
+                       if context.admission.requires_binding else None)
+            context.admission.admit(binding)
             result = create.apply_artefact_creation(vault_root, router, plan,
                                                      fix_links=request.fix_links, file_index=index)
             staging_warning = finalise_staged_body(vault_root, staged_handle)

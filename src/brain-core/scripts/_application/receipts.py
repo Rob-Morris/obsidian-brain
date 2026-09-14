@@ -105,6 +105,10 @@ class ReceiptPolicy:
             raise ValueError("receipt max_records must be positive")
 
 
+class ReceiptIntentConflict(ValueError):
+    """This owned invocation already has a different immutable admission intent."""
+
+
 class ReceiptOwnershipError(ValueError):
     """The requested receipt is not owned by the authenticated caller context."""
 
@@ -134,6 +138,29 @@ class ReceiptOwnership:
 
 
 @dataclass(frozen=True, slots=True)
+class PermissionChange:
+    """Non-secret before/after permission attribution for the CLI administration owner."""
+
+    operator_id: str
+    before_profile: str
+    after_profile: str
+    added_permissions: tuple[str, ...]
+    removed_permissions: tuple[str, ...]
+    before_revision: str
+
+    def __post_init__(self):
+        for name in ("operator_id", "before_profile", "after_profile", "before_revision"):
+            _bounded_identity(getattr(self, name), name)
+        for values in (self.added_permissions, self.removed_permissions):
+            if not isinstance(values, tuple) or values != tuple(sorted(set(values))):
+                raise ValueError("permission changes must contain sorted unique command IDs")
+            for command in values:
+                validate_command_id(command)
+        if set(self.added_permissions) & set(self.removed_permissions):
+            raise ValueError("permission additions and removals must be disjoint")
+
+
+@dataclass(frozen=True, slots=True)
 class AdmissionIntent:
     """Durable attribution before entry; it does not prove execution happened."""
 
@@ -148,10 +175,15 @@ class AdmissionIntent:
     operation_id: str | None = None
     operation_digest: str | None = None
     request_id: str | None = None
+    permission_change: PermissionChange | None = None
 
     def __post_init__(self) -> None:
         _bounded_identity(self.reference.invocation_id, "invocation identity")
         validate_command_id(self.command_id)
+        if self.permission_change is not None and (
+            not isinstance(self.permission_change, PermissionChange) or self.command_id != "permission.set-profile"
+        ):
+            raise ValueError("permission audit is restricted to the permission administration command")
         if type(self.command_version) is not int or self.command_version < 1:
             raise ValueError("admission command version must be a positive integer")
         if self.recorded_at.tzinfo is None:
@@ -191,11 +223,16 @@ class InvocationOutcome:
 
     receipt: OutcomeReceipt
     execution: ExecutionState
+    config_revision: str | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.receipt, OutcomeReceipt) or not isinstance(self.execution, ExecutionState):
             raise ValueError("invocation outcome requires typed receipt and execution state")
         _bounded_identity(self.reference.invocation_id, "invocation identity")
+        if self.config_revision is not None:
+            _bounded_identity(self.config_revision, "configuration revision")
+            if self.command_id != "permission.set-profile":
+                raise ValueError("configuration revision belongs only to permission administration")
         allowed = {
             ExecutionState.SUCCEEDED: {ReceiptState.NONE, ReceiptState.COMMITTED},
             ExecutionState.FAILED: {ReceiptState.NONE},
@@ -249,7 +286,9 @@ class OwnedReceiptLookup:
 class OwnedReceiptPort(Protocol):
     """A trusted ownership-bound port; IDs select receipts, never authorise reads."""
 
-    def begin(self, intent: AdmissionIntent) -> None: ...
+    def begin(self, intent: AdmissionIntent) -> bool:
+        """Atomically persist intent; only a newly created record permits entry."""
+        ...
 
     def finalise(self, outcome: InvocationOutcome) -> None: ...
 

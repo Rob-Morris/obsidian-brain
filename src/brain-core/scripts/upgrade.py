@@ -2087,6 +2087,20 @@ def upgrade(
         message=f"Preparing upgrade {old_version or '(none)'} → {new_version}",
     )
 
+    # Preserve old security defaults before replacement; the existing pre-compile
+    # migration context carries only inert evidence, never old executable code.
+    from _command_interface.authorisation_migration import capture_legacy_authorisation
+    try:
+        authorisation_before_upgrade = capture_legacy_authorisation(vault_root, old_version)
+    except (OSError, ValueError, TypeError) as exc:
+        return {
+            "status": "error",
+            "old_version": old_version,
+            "new_version": new_version,
+            "message": f"Upgrade refused — could not capture existing authorisation settings: {exc}",
+            "rollback_verified": True,
+        }
+
     # --- Backup .brain-core/ before modifying anything ---
     old_core_fingerprint = _tree_fingerprint(target)
     backup_dir = _backup_brain_core(target)
@@ -2218,6 +2232,7 @@ def upgrade(
             message="Validating the upgraded router/compiler state",
         )
         compile_context = {
+            "authorisation_before_upgrade": authorisation_before_upgrade,
             "compile_error": _validate_compile(vault_root),
             "validate_compile": lambda: _validate_compile(vault_root),
             "snapshot_file": lambda path: _snapshot_file(path, precompile_snapshots),

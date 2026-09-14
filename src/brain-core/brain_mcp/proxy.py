@@ -20,7 +20,6 @@ Env:
     BRAIN_MCP_PROXY_PROTOCOL — set by this running proxy for the child handshake
 """
 
-from dataclasses import replace
 from contextlib import nullcontext
 from datetime import datetime, timezone
 import hashlib
@@ -46,6 +45,7 @@ from _bootstrap.runtime import same_executable_path
 from _bootstrap.consent_owner import ConsentOwner
 from _bootstrap.owner_attachment import (
     OWNER_UNAVAILABLE_ENV, OWNER_UNAVAILABLE_REASONS,
+    PROCESS_CONTEXT_ENV, ProcessIdentity,
     private_child_channel, without_owner_environment,
 )
 from _bootstrap.workspace_binding import (
@@ -63,7 +63,6 @@ from ._interface_protocol import (
     CommandInterfaceHeader,
     accept_call,
     interface_header_from_response,
-    replay_decision,
 )
 from ._result_content import result_text_wire
 
@@ -71,7 +70,7 @@ from ._result_content import result_text_wire
 # Constants
 # ---------------------------------------------------------------------------
 
-PROXY_VERSION = "0.9.2"
+PROXY_VERSION = "0.10.0"
 _CHILD_PROTOCOL_VERSION = "2026-07-28"
 
 
@@ -322,46 +321,16 @@ def _interface_changed_response(
     }
 
 
-def _read_orphan_response(record: AcceptedCallRecord) -> dict:
-    """Return a proven no-effect result after the one proxy retry is exhausted."""
-
-    message = (
-        "The Brain child was lost during a read-only call after its one safe "
-        "proxy retry; the call had no durable effects and may be retried by the caller."
-    )
-    payload = {
-        "schema": "brain.proxy-read-recovery/1",
-        "status": "error",
-        "command": record.command_id,
-        "command_version": record.command_version,
-        "error": {
-            "code": "read_transport_lost",
-            "message": message,
-            "effects": "none",
-            "retryable": True,
-        },
-    }
-    return {
-        "jsonrpc": "2.0",
-        "id": record.request_id,
-        "result": {
-            "content": result_text_wire(f"read_transport_lost: {message}", payload),
-            "structuredContent": payload,
-            "isError": True,
-        },
-    }
-
-
 def _outcome_unknown_response(
     record: AcceptedCallRecord,
     *,
     diagnostic: str | None = None,
 ) -> dict:
-    """Return the proxy-owned typed unknown-outcome result for a lost mutation."""
+    """Return unknown execution after child loss, including admitted observations."""
 
     message = (
-        "The Brain child was lost after accepting a mutating call and no conclusive "
-        "outcome receipt could be obtained. Do not retry the mutation blindly."
+        "The Brain child was lost after accepting this call and no conclusive "
+        "owned outcome could be obtained. Do not retry automatically; inspect the invocation outcome."
     )
     reference = {"invocation_id": record.invocation_id}
     payload = {
@@ -375,7 +344,7 @@ def _outcome_unknown_response(
             "code": "command_outcome_unknown",
             "message": message,
             "details": {"reference": reference},
-            "effects": "unknown",
+            "effects": "none" if record.mutation_class == "none" else "unknown",
             "retryable": False,
             "outcome_reference": reference,
             "next_action": {
@@ -388,7 +357,7 @@ def _outcome_unknown_response(
     }
     if diagnostic:
         _log().warning(
-            "mutation outcome remains unknown id=%s diagnostic=%s",
+            "invocation outcome remains unknown id=%s diagnostic=%s",
             record.request_id,
             diagnostic,
         )
@@ -412,11 +381,12 @@ def _resolved_outcome_response(
 ) -> dict:
     """Return a privacy-minimal conclusive receipt after child loss."""
 
-    state = receipt["state"]
-    partial = state == "known_partial"
+    state = receipt["receipt"]["state"]
+    execution = receipt["execution"]
+    partial = execution == "partial"
     message = (
         f"The original {record.command_id} response was lost, but its durable "
-        f"outcome receipt proves state {state}."
+        f"owned outcome records execution {execution} and effects {state}. The original result payload is unavailable."
     )
     payload = {
         "schema": "brain.proxy-outcome-resolution/1",
@@ -424,7 +394,7 @@ def _resolved_outcome_response(
         "command": record.command_id,
         "command_version": record.command_version,
         "outcome_reference": {"invocation_id": record.invocation_id},
-        "receipt": receipt,
+        "outcome": receipt,
         "retryable": False,
     }
     return {
@@ -433,7 +403,7 @@ def _resolved_outcome_response(
         "result": {
             "content": result_text_wire(message, payload),
             "structuredContent": payload,
-            "isError": partial,
+            "isError": execution != "succeeded",
         },
     }
 
@@ -447,11 +417,12 @@ def _parse_receipt_lookup_response(
 ) -> dict[str, object] | None:
     """Validate the exact useful subset of an ``invocation.read`` MCP result."""
 
-    if not isinstance(response, dict) or response.get("id") != query_id:
+    if (not isinstance(response, dict) or response.get("id") != query_id
+            or response.get("jsonrpc") != "2.0" or "error" in response):
         raise ValueError("receipt query response identity is invalid")
     result = response.get("result")
-    if not isinstance(result, dict):
-        raise ValueError("receipt query did not return an MCP tool result")
+    if not isinstance(result, dict) or result.get("isError") is not False:
+        raise ValueError("receipt query did not return a successful MCP tool result")
     structured = result.get("structuredContent")
     if not isinstance(structured, dict):
         raise ValueError("receipt query has no structured command result")
@@ -476,66 +447,94 @@ def _parse_receipt_lookup_response(
     ):
         raise ValueError("receipt query command-result facts are contradictory")
     payload = structured["result"]
-    if not isinstance(payload, dict) or set(payload) != {
-        "reference",
-        "state",
-        "receipt",
-    }:
-        raise ValueError("receipt query payload shape is invalid")
+    if not isinstance(payload, dict) or set(payload) != {"reference", "state", "intent", "outcome"}:
+        raise ValueError("owned receipt lookup shape is invalid")
     reference = {"invocation_id": record.invocation_id}
     if payload["reference"] != reference:
         raise ValueError("receipt query returned the wrong outcome reference")
+    intent, outcome = payload["intent"], payload["outcome"]
+    admitted_at = None
+    if intent is not None:
+        fields = {"reference", "command_id", "command_version", "recorded_at", "basis", "generation", "source",
+                  "grant_id", "operation_id", "operation_digest", "request_id", "permission_change"}
+        if not isinstance(intent, dict) or set(intent) != fields:
+            raise ValueError("admission intent shape is invalid")
+        _validate_outcome_identity(intent, record, reference)
+        admitted_at = _outcome_timestamp(intent["recorded_at"])
+        if intent["source"] != "host-request" or intent["permission_change"] is not None:
+            raise ValueError("MCP admission attribution is invalid")
+        if not isinstance(intent["basis"], str) or intent["basis"] not in {"initial", "command", "operation"}:
+            raise ValueError("admission basis is invalid")
+        _outcome_identifier(intent["generation"])
+        for name in ("grant_id", "operation_id", "request_id"):
+            if intent[name] is not None:
+                _outcome_identifier(intent[name])
+        if (intent["basis"] == "initial") != (intent["grant_id"] is None):
+            raise ValueError("admission grant contradicts its basis")
+        digest = intent["operation_digest"]
+        if digest is not None and (not isinstance(digest, str) or re.fullmatch(r"sha256:[0-9a-f]{64}", digest) is None):
+            raise ValueError("admission operation digest is invalid")
+        if intent["basis"] == "operation" and (intent["operation_id"] is None or digest is None):
+            raise ValueError("specific admission has no complete operation binding")
+        arguments = record.raw_request.get("params", {}).get("arguments", {})
+        selector = arguments.get("brain_operation") if isinstance(arguments, dict) else None
+        if selector is not None and (intent["basis"] != "operation" or intent["operation_id"] != selector):
+            raise ValueError("admission differs from the explicitly selected operation")
     if payload["state"] == "still_unknown":
-        if payload["receipt"] is not None:
-            raise ValueError("still-unknown lookup cannot carry a receipt")
+        if outcome is not None:
+            raise ValueError("still-unknown lookup cannot carry a final outcome")
         return None
-    if payload["state"] != "found" or not isinstance(payload["receipt"], dict):
-        raise ValueError("receipt query lookup state is invalid")
-    receipt = payload["receipt"]
-    if set(receipt) != {
-        "reference",
-        "command_id",
-        "command_version",
-        "state",
-        "recorded_at",
-        "committed_effects",
+    if payload["state"] != "found" or admitted_at is None:
+        raise ValueError("found outcome requires an owned admission intent")
+    if not isinstance(outcome, dict) or set(outcome) != {"receipt", "execution", "config_revision"}:
+        raise ValueError("final invocation outcome shape is invalid")
+    if outcome["config_revision"] is not None:
+        raise ValueError("MCP outcome cannot claim permission administration")
+    receipt = outcome["receipt"]
+    if not isinstance(receipt, dict) or set(receipt) != {
+        "reference", "command_id", "command_version", "state", "recorded_at", "committed_effects"
     }:
         raise ValueError("outcome receipt shape is invalid")
-    if (
-        receipt["reference"] != reference
-        or receipt["command_id"] != record.command_id
-        or receipt["command_version"] != record.command_version
-    ):
-        raise ValueError("outcome receipt contradicts the accepted call")
-    if receipt["state"] not in {"committed", "known_partial", "unknown"}:
-        raise ValueError("outcome receipt state is not conclusive or explicitly unknown")
-    recorded_at = receipt["recorded_at"]
-    if not isinstance(recorded_at, str):
-        raise ValueError("outcome receipt timestamp is invalid")
-    try:
-        parsed_at = datetime.fromisoformat(recorded_at)
-    except ValueError as exc:
-        raise ValueError("outcome receipt timestamp is invalid") from exc
-    if parsed_at.tzinfo is None:
-        raise ValueError("outcome receipt timestamp must be timezone-aware")
+    _validate_outcome_identity(receipt, record, reference)
+    if _outcome_timestamp(receipt["recorded_at"]) < admitted_at:
+        raise ValueError("final outcome predates its admission intent")
+    allowed = {"succeeded": {"none", "committed"}, "failed": {"none"},
+               "partial": {"known_partial"}, "unknown": {"none", "unknown"}}
+    if (not isinstance(outcome["execution"], str) or outcome["execution"] not in allowed
+            or not isinstance(receipt["state"], str) or receipt["state"] not in allowed[outcome["execution"]]):
+        raise ValueError("execution state contradicts the effect outcome")
     effects = receipt["committed_effects"]
     if not isinstance(effects, list):
         raise ValueError("outcome receipt effects must be a list")
     for effect in effects:
-        if (
-            not isinstance(effect, dict)
-            or set(effect) != {"kind", "subject"}
-            or not isinstance(effect["kind"], str)
-            or not effect["kind"].strip()
-            or not isinstance(effect["subject"], str)
-            or not effect["subject"].strip()
-        ):
+        if (not isinstance(effect, dict) or set(effect) != {"kind", "subject"}
+                or any(not isinstance(effect[key], str) or not effect[key].strip() for key in ("kind", "subject"))):
             raise ValueError("outcome receipt contains an invalid committed effect")
     if receipt["state"] == "known_partial" and not effects:
         raise ValueError("known-partial receipt must enumerate committed effects")
-    if receipt["state"] == "unknown" and effects:
-        raise ValueError("unknown receipt cannot claim committed effects")
-    return receipt
+    if receipt["state"] in {"none", "unknown"} and effects:
+        raise ValueError("none/unknown receipt cannot claim committed effects")
+    return outcome
+
+
+def _validate_outcome_identity(value, record, reference):
+    if (value["reference"] != reference or value["command_id"] != record.command_id
+            or type(value["command_version"]) is not int or value["command_version"] != record.command_version):
+        raise ValueError("owned outcome contradicts the accepted call")
+
+
+def _outcome_identifier(value):
+    if not isinstance(value, str) or not value.strip() or len(value.encode("utf-8")) > 128:
+        raise ValueError("owned outcome identifier is invalid")
+
+
+def _outcome_timestamp(value):
+    if not isinstance(value, str):
+        raise ValueError("outcome timestamp is invalid")
+    parsed = datetime.fromisoformat(value)
+    if parsed.tzinfo is None:
+        raise ValueError("outcome timestamp must be timezone-aware")
+    return parsed
 
 
 def _write_line(stream, obj: dict) -> None:
@@ -686,7 +685,8 @@ class ChildProcess:
         self._proc: subprocess.Popen | None = None
         self._stderr_thread: threading.Thread | None = None
 
-    def start(self, *, owner: ConsentOwner | None = None, owner_unavailable_code: str | None = None) -> None:
+    def start(self, *, owner: ConsentOwner | None = None, owner_unavailable_code: str | None = None,
+              transport_identity: ProcessIdentity | None = None, owner_initialisation_allowed: bool = False) -> None:
         """Spawn the child process."""
         env = without_owner_environment()
         if owner_unavailable_code is not None:
@@ -700,6 +700,9 @@ class ChildProcess:
             cmd = [self.python_path, "-m", self.server_target]
         channel = private_child_channel(owner, env) if owner is not None else nullcontext({"env": env})
         with channel as options:
+            if transport_identity is not None:
+                options["env"][PROCESS_CONTEXT_ENV] = transport_identity.launch_value(
+                    initialise_owner=owner_initialisation_allowed)
             self._proc = subprocess.Popen(
                 cmd,
                 stdin=subprocess.PIPE,
@@ -788,6 +791,9 @@ class Proxy:
         self.vault_root = vault_root
         self._owner = owner
         self._owner_unavailable_code = owner_unavailable_code
+        self._transport_identity = ProcessIdentity("mcp-instance", owner.identity.context_id if owner is not None else f"mcp-{uuid.uuid4()}")
+        self._launch_lock = threading.Lock()
+        self._child_has_launched = False
         self.proxy_script = os.path.abspath(__file__)
 
         self._child: ChildProcess | None = None
@@ -910,10 +916,14 @@ class Proxy:
         """
         child = ChildProcess(self.python_path, self.server_target)
         try:
-            if self._owner is None and self._owner_unavailable_code is None:
-                child.start()
-            else:
-                child.start(owner=self._owner, owner_unavailable_code=self._owner_unavailable_code)
+            with self._launch_lock:
+                try:
+                    child.start(owner=self._owner, owner_unavailable_code=self._owner_unavailable_code,
+                                transport_identity=self._transport_identity,
+                                owner_initialisation_allowed=self._owner is not None and not self._child_has_launched)
+                finally:
+                    if child.pid is not None:
+                        self._child_has_launched = True
         except Exception as e:
             _log().error("failed to start child process: %s", e)
             return False
@@ -1007,8 +1017,6 @@ class Proxy:
             if was_tracked:
                 if accepted is None:
                     self._send_to_client(self._error_response_for_dead_child(msg_id))
-                elif accepted.mutation_class == "none":
-                    self._send_to_client(_read_orphan_response(accepted))
                 else:
                     self._send_to_client(
                         _outcome_unknown_response(
@@ -1069,6 +1077,8 @@ class Proxy:
 
         try:
             header = interface_header_from_response(response)
+            if header.interface_epoch != 3:
+                raise ValueError("child command interface epoch is incompatible")
             if not (
                 header.minimum_proxy_protocol
                 <= PROXY_PROTOCOL
@@ -1178,8 +1188,6 @@ class Proxy:
             record = accepted.get(request.get("id"))
             if record is None:
                 self._send_client_errors([request], message)
-            elif record.mutation_class == "none":
-                self._send_to_client(_read_orphan_response(record))
             else:
                 self._send_to_client(
                     _outcome_unknown_response(record, diagnostic=message)
@@ -1196,7 +1204,7 @@ class Proxy:
             self._replay_requests(pending, accepted)
 
     def _resolve_pending_unexpected(self, child: ChildProcess) -> None:
-        """Resolve accepted calls after unplanned child loss without mutation replay."""
+        """Resolve accepted calls after child loss without semantic replay."""
 
         with self._restart_lock:
             pending = list(self._pending_unexpected)
@@ -1215,64 +1223,16 @@ class Proxy:
             if record is None:
                 self._send_client_errors([request], "accepted-call record was lost")
                 continue
-            if record.mutation_class == "none":
-                self._retry_read_orphan(child, request, record, header, header_error)
-            else:
-                self._resolve_mutation_orphan(child, record, header, header_error)
+            self._resolve_owned_orphan(child, record, header, header_error)
 
-    def _retry_read_orphan(
-        self,
-        child: ChildProcess,
-        request: dict,
-        record: AcceptedCallRecord,
-        header: CommandInterfaceHeader | None,
-        header_error: str | None,
-    ) -> None:
-        """Retry one compatible read orphan once, independently of drift replay."""
-
-        if record.read_retry_count >= 1:
-            self._send_to_client(_read_orphan_response(record))
-            return
-        if header is None:
-            self._refuse_interface_replay(
-                record.request_id,
-                "replacement_header_invalid",
-                detail=header_error,
-            )
-            return
-        decision = replay_decision(record, header)
-        if not decision.compatible:
-            self._refuse_interface_replay(record.request_id, decision.reason)
-            return
-        retried = replace(record, read_retry_count=record.read_retry_count + 1)
-        try:
-            child.send(request)
-        except Exception as exc:
-            _log().error("read-only orphan retry failed id=%s: %s", record.request_id, exc)
-            self._send_to_client(_read_orphan_response(retried))
-            return
-        with self._inflight_lock:
-            self._inflight_requests[record.request_id] = (request, time.monotonic())
-            self._accepted_calls[record.request_id] = retried
-            frame_seq = next(self._frame_counter)
-            self._frame_seqs[record.request_id] = frame_seq
-        _op_event(
-            "frame.forwarded",
-            family="proxy-rpc",
-            frame_seq=frame_seq,
-            method=_operational_log.normalise_rpc_method(request.get("method")),
-            replayed=True,
-        )
-        _log().info("retried read-only orphan id=%s once", record.request_id)
-
-    def _resolve_mutation_orphan(
+    def _resolve_owned_orphan(
         self,
         child: ChildProcess,
         record: AcceptedCallRecord,
         header: CommandInterfaceHeader | None,
         header_error: str | None,
     ) -> None:
-        """Query the replacement child for one mutating orphan's durable receipt."""
+        """Query an owned outcome for any accepted call without re-executing it."""
 
         if header is None:
             self._send_to_client(
@@ -1312,7 +1272,7 @@ class Proxy:
             )
         except Exception as exc:
             _log().warning(
-                "mutation outcome query inconclusive id=%s: %s",
+                "invocation outcome query inconclusive id=%s: %s",
                 record.request_id,
                 exc,
             )
@@ -1320,7 +1280,7 @@ class Proxy:
                 _outcome_unknown_response(record, diagnostic=str(exc))
             )
             return
-        if receipt is None or receipt["state"] == "unknown":
+        if receipt is None or receipt["execution"] == "unknown":
             self._send_to_client(
                 _outcome_unknown_response(
                     record,
@@ -1390,25 +1350,17 @@ class Proxy:
             can_replay = is_drift and self._replay_depth < _MAX_REPLAY_DEPTH
             drained_requests, accepted_calls = self._drain_inflight()
 
-            if can_replay:
-                for req in drained_requests:
-                    _log().info("saving in-flight request id=%s for replay", req.get("id"))
-                self._pending_replay = drained_requests
-                self._pending_accepted_calls = accepted_calls
-                self._pending_unexpected = []
-                self._pending_unexpected_calls = {}
-                self._replay_depth += 1
-            else:
-                if drained_requests:
-                    self._replay_depth = 0
-                self._pending_replay = []
-                self._pending_accepted_calls = {}
-                self._pending_unexpected = [
-                    request
-                    for request in drained_requests
-                    if request.get("id") in accepted_calls
-                ]
-                self._pending_unexpected_calls = accepted_calls
+            # Even a drift exit only proves the guard stopped one request, not
+            # that every concurrent accepted call was unentered. Recover all
+            # semantic calls from owned receipts; replay only protocol traffic.
+            self._pending_unexpected = [request for request in drained_requests
+                                        if request.get("id") in accepted_calls]
+            self._pending_unexpected_calls = accepted_calls
+            self._pending_accepted_calls = {}
+            self._pending_replay = ([request for request in drained_requests
+                                     if request.get("id") not in accepted_calls]
+                                    if can_replay else [])
+            self._replay_depth = self._replay_depth + 1 if self._pending_replay else 0
 
         recovery_dead = self._recovery_thread_is_dead() or self._recovery_thread_failed
         legacy_orphans = [
@@ -1679,9 +1631,6 @@ class Proxy:
         for req in requests:
             req_id = req.get("id")
             accepted = accepted_calls.get(req_id)
-            with self._interface_lock:
-                header = self._interface_header
-                header_error = self._interface_header_error
             if accepted is None and req.get("method") == "tools/call":
                 self._refuse_interface_replay(req_id, "accepted_call_missing")
                 continue
@@ -1689,22 +1638,12 @@ class Proxy:
                 self._refuse_interface_replay(req_id, "accepted_call_invalid")
                 continue
             if accepted is not None:
-                if header is None:
-                    self._refuse_interface_replay(
-                        req_id,
-                        "replacement_header_invalid",
-                        detail=header_error,
-                    )
-                    continue
-                decision = replay_decision(accepted, header)
-                if not decision.compatible:
-                    self._refuse_interface_replay(req_id, decision.reason)
-                    continue
+                self._send_to_client(_outcome_unknown_response(accepted,
+                                     diagnostic="semantic invocation replay is forbidden"))
+                continue
             _log().info("replaying request id=%s to new child", req_id)
             with self._inflight_lock:
                 self._inflight_requests[req_id] = (req, time.monotonic())
-                if accepted is not None:
-                    self._accepted_calls[req_id] = accepted
                 frame_seq = next(self._frame_counter)
                 self._frame_seqs[req_id] = frame_seq
             try:

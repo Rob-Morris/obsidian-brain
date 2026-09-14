@@ -63,21 +63,38 @@ def test_production_proxy_delivers_reads_and_mutations(command_vault_clone, prot
         assert injected["isError"] is True
         assert "owned by the proxy" in injected["structuredContent"]["error"]["details"]["diagnostic"]
 
-        grant = call("access_request", {"commands": ["artefact.create"], "duration_seconds": 60, "use_count": 1})
-        assert grant["isError"] is False
+        # Normal content creation starts authorised; no lease request is needed.
         created = call("artefact_create", {"type": "thought", "title": "Protocol round trip"})
         assert created["isError"] is False
         result = created["structuredContent"]
         assert (vault / result["result"]["path"]).exists()
         assert result["committed_effects"][0]["subject"] == result["result"]["path"]
         assert json.loads(created["content"][0]["text"]) == result
-        # The child imports the installed disposable source. Changing its
-        # marker causes a real exit-10 replacement with the same command ABI.
+        prepared = call("access_prepare", {"preparation": {"kind": "operation", "command_id": "artefact.read",
+                        "arguments": {"reference": "Projects/Command Fixture.md"}}})
+        assert prepared["isError"] is False
+        operation = prepared["structuredContent"]["result"]
+        grant = call("access_request", {"consent": {"scope": "operation",
+                     **{key: operation[key] for key in ("operation_id", "digest", "review")}}})
+        assert grant["isError"] is False
+        selected = call("artefact_read", {"reference": "Projects/Command Fixture.md", "brain_operation": operation["operation_id"]})
+        assert selected["isError"] is False, selected["structuredContent"].get("error")
+        assert selected["structuredContent"]["result"] == envelope["result"]
+        # Exit 10 cannot prove other accepted calls did not enter. The relay
+        # returns an owned unknown outcome, then accepts a separate fresh call.
         marker = vault / ".brain-core/VERSION"
         marker.write_text(marker.read_text().strip() + ".review\n")
-        replayed = call("artefact_read", {"reference": "Projects/Command Fixture.md"})
-        assert replayed["isError"] is False
-        assert replayed["structuredContent"]["result"] == envelope["result"]
+        interrupted = call("artefact_read", {"reference": "Projects/Command Fixture.md"})
+        assert interrupted["isError"] is True
+        error = interrupted["structuredContent"]["error"]
+        assert error["code"] == "command_outcome_unknown"
+        assert error["effects"] == "none" and error["retryable"] is False
+        lookup = call("invocation_read", error["outcome_reference"])
+        assert lookup["isError"] is False
+        assert lookup["structuredContent"]["result"]["state"] == "still_unknown"
+        fresh = call("artefact_read", {"reference": "Projects/Command Fixture.md"})
+        assert fresh["isError"] is False
+        assert fresh["structuredContent"]["result"] == envelope["result"]
 
     finally:
         process.terminate()

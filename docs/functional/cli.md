@@ -7,6 +7,8 @@ The `brain` CLI is the machine-local projection of the Brain command architectur
 ```text
 brain [selection] <launcher-entry-point> [--request-json JSON|-] [--json] [--dry-run]
 brain [selection] <noun> <verb> [--request-json JSON|-] [--json] [--dry-run]
+brain [selection] session run [--operator-key KEY] -- <program> [args...]
+brain [selection] <noun> <verb> --operation ID [--request-json JSON|-] [--json]
 brain command list [discovery filters] [--json]
 brain command describe <command-id> [--owner application|launcher|all] [--json]
 brain --version
@@ -99,16 +101,62 @@ machine's default Brain. Project exposure resolves an existing canonical binding
 for `--workspace` first and otherwise uses the machine default; it never creates
 or changes a binding.
 
-### External access approval
+### Permission administration
 
-When `vault.access.elevation_policy` is `external`, an agent's `access.request` returns a pending `request_id` without activating the command. A human or separately trusted local operator approves it through the CLI-only launcher owner:
+`permission.set-profile` assigns an existing registered operator to an existing profile in the selected Brain. Preview reports the exact permission difference and current configuration revision:
 
 ```bash
-brain --vault /path/to/brain access approve \
-  --request-json '{"request_id":"access-request-…"}' --json
+brain --vault /path/to/brain --dry-run permission set-profile \
+  --request-json '{"operator_id":"agent","profile":"contributor"}' --json
+brain --vault /path/to/brain permission set-profile \
+  --request-json '{"operator_id":"agent","profile":"contributor","expected_revision":"sha256:…"}' --json
 ```
 
-If `--operator-key` is omitted, an interactive terminal prompts without placing the secret in the request or receipt. Non-interactive use must supply `--operator-key`. The key must identify a different registered operator whose profile ceiling covers every requested command; a principal cannot approve its own request. `access.approve` is intentionally absent from MCP and selected-Brain `command.py`; agents receive only `access.status`, `access.request` and `access.reduce`.
+An explicit registered administrator-profile key is required. If `--operator-key` is omitted, an interactive terminal prompts; non-interactive use must supply it. The selected-Brain service re-authenticates and compares the preview revision under its mutation lock before recording audit intent and applying the profile change. The audit records actor, target, before/after profiles, exact permission changes and configuration revisions, without credential material. An uncertain final outcome must be inspected through the selected Brain's `invocation.read`, using the same principal; it is never automatically replayed.
+
+This command does not edit the default principal and is absent from MCP and selected-Brain `command.py`. Agent consent uses the dedicated `access.request` tool within existing credential permissions. Configure the harness's approval policy for that tool; Brain no longer runs an external approver or timed lease workflow.
+
+### CLI jobs and consent
+
+Use an explicit job when several CLI calls need the same exceptional consent:
+
+```bash
+brain --vault /path/to/brain session run -- python3 workflow.py
+```
+
+The supervisor authenticates before launching the program and pins that Brain and principal. Starting a job grants no exceptional access. Its descendants can prepare an operation with `access.prepare`, explicitly request its reviewed scope with `access.request`, check the decision, then invoke the ordinary command with `--operation ID`. Without that selector, only initial authorisation or an exact-command blanket grant applies. Use `command.describe` for the current preparation and request contracts. The CLI does not request consent automatically, and harness MCP-tool approval rules do not intercept shell commands inside the job.
+
+Consent ends when the root program exits, even if background children remain. A new job starts without exceptional consent. Standalone calls retain configured initial access, but cannot request reusable exceptional grants; their errors direct the caller to start a job. Missing or broken job channels cannot be replaced with a public context ID, copied environment value or repeated credential.
+
+Job transport requires POSIX inherited descriptors. It is verified on macOS; Linux needs its own platform verification. Native Windows private-owner transport is unsupported: CLI jobs are unavailable, and MCP can perform configured initial operations but cannot prepare or grant exceptional consent or retain context reductions. Existing owner loss always fails rather than becoming a standalone call.
+
+Shells normally preserve the inherited channel. Python's `subprocess` closes extra descriptors by default, so a job's Python program must deliberately forward it to trusted Brain subprocesses. The installed Core supplies the forwarding helper:
+
+```python
+import os
+from pathlib import Path
+import subprocess
+import sys
+
+# This program is launched by `brain session run`.
+core_scripts = Path(os.environ["BRAIN_VAULT_ROOT"]) / ".brain-core" / "scripts"
+sys.path.insert(0, str(core_scripts))
+from _bootstrap.owner_attachment import OwnerAttachment
+
+attachment = OwnerAttachment.capture()
+if attachment is None:
+    raise RuntimeError("Start this workflow with brain session run")
+try:
+    subprocess.run(
+        ["brain", "access", "status", "--json"],
+        check=True,
+        **attachment.forwarded_process(),
+    )
+finally:
+    attachment.close()
+```
+
+Capture once before launching subprocesses and retain the attachment for the workflow. `forwarded_process()` supplies the matching environment and `pass_fds`; forward it only to children that should share the job's consent. Ordinary provider subprocesses receive neither the locator nor the descriptor. Closing this local attachment releases its channel; the supervisor still owns the job lifetime.
 
 ## Dependency planes
 
@@ -147,12 +195,12 @@ After provisioning the target managed runtime, upgrade reconciles any existing c
 
 The installer writes a versioned distribution under the selected prefix and a small platform bootloader under `bin/`:
 
-- Unix-like user install: `~/.local/bin/brain` and `~/.local/lib/brain-cli/3.2.2/`.
-- Native Windows user install: `%LOCALAPPDATA%\Programs\Brain\bin\brain.cmd` and the adjacent `lib\brain-cli\3.2.2\` distribution.
+- Unix-like user install: `~/.local/bin/brain` and `~/.local/lib/brain-cli/3.3.0/`.
+- Native Windows user install: `%LOCALAPPDATA%\Programs\Brain\bin\brain.cmd` and the adjacent `lib\brain-cli\3.3.0\` distribution.
 
 The distribution contains the launcher application plus the Brain Core payload needed for install, upgrade and selected-Brain execution. Installation and replacement verify a content manifest and executable identity; failed replacement restores the proven old binary/distribution pair or retains recovery material and reports the outcome as unverified. Failed upgrade results carry every known absolute recovery path in the structural error and durable launcher receipt: residual staging material after a verified rollback is a known partial outcome, while unverified rollback remains outcome-unknown. Standalone human output lists the same paths before the failure message. Once the new pair is verified, failure or interruption while removing an old backup is committed post-upgrade recovery work and never rolls Brain Core back to an older version. Both the launcher result and standalone distribution JSON list the surviving `cleanup_recovery_paths`.
 
-The bootloader requires Python 3.12 or newer. `BRAIN_CLI_VERSION` is `3.2.2`; `BRAIN_INSTALL_REF` is `v0.67.3`.
+The bootloader requires Python 3.12 or newer. `BRAIN_CLI_VERSION` is `3.3.0`; `BRAIN_INSTALL_REF` is `v0.68.0`.
 
 JSON command invocations validate the structural stdout envelope, including
 command identity, version and exit category. Incidental child stderr does not

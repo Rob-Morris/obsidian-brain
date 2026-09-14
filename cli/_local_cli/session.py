@@ -1,4 +1,4 @@
-"""Internal root-job supervisor; public grammar activates with the access cutover."""
+"""Root-job supervisor for explicit instance-scoped CLI consent."""
 
 from __future__ import annotations
 
@@ -16,7 +16,6 @@ def run_owned_job(selected, argv, *, initialise_owner) -> int:
 
     The composition callback initialises application-owned principal/Brain state;
     this transport helper neither authenticates nor makes consent decisions.
-    It is intentionally not registered in the CLI before the public cutover.
     """
     if not argv or not argv[0] or any(not isinstance(value, str) for value in argv):
         raise ValueError("an owned job requires a program and string arguments")
@@ -41,6 +40,7 @@ def run_owned_job(selected, argv, *, initialise_owner) -> int:
         initialise_owner(owner)
         attachment = OwnerAttachment.for_job(owner)
         env = without_owner_environment()
+        env.pop("BRAIN_OPERATOR_KEY", None)
         env["BRAIN_VAULT_ROOT"] = str(selected.vault_root.resolve())
         env.pop("BRAIN_WORKSPACE_DIR", None)
         if selected.workspace is not None:

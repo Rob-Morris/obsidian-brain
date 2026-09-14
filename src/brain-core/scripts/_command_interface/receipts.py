@@ -22,7 +22,9 @@ from _application.receipts import (
     ReceiptPolicy,
     ReceiptOwnership,
     ReceiptOwnershipError,
+    ReceiptIntentConflict,
     ReceiptState,
+    PermissionChange,
 )
 from _common import safe_write_json
 from _common._file_lock import exclusive_file_lock
@@ -264,11 +266,17 @@ def _ensure_private_directory(root: Path, directory: Path) -> None:
         current = current / part
         if current.is_symlink():
             raise ValueError(f"refusing symlinked receipt directory: {current}")
-        if current.exists():
-            if not current.is_dir():
-                raise ValueError(f"receipt directory component is not a directory: {current}")
-        else:
-            current.mkdir()
+        if not current.exists():
+            try:
+                current.mkdir()
+            except FileExistsError:
+                # Another first invocation may create the directory before
+                # either caller reaches the shared receipt lock.
+                pass
+        if current.is_symlink():
+            raise ValueError(f"refusing symlinked receipt directory: {current}")
+        if not current.is_dir():
+            raise ValueError(f"receipt directory component is not a directory: {current}")
     if directory.resolve() != directory:
         raise ValueError("receipt directory resolves outside its fixed location")
 
@@ -451,8 +459,8 @@ class OwnedReceiptStore:
             if _read_json_path(path) is not None:
                 raise ReceiptOwnershipError("Legacy receipt has no authenticated ownership and cannot be adopted.")
 
-    def begin(self, intent: AdmissionIntent) -> None:
-        """Persist attribution before entry; retries cannot change the original intent."""
+    def begin(self, intent: AdmissionIntent) -> bool:
+        """Claim entry atomically; an identical retry returns False without re-entry."""
         if not isinstance(intent, AdmissionIntent):
             raise ValueError("admission requires a typed intent")
         ledger = self._ledger
@@ -466,7 +474,7 @@ class OwnedReceiptStore:
             if existing is not None:
                 self._require_owner(existing.ownership)
                 if existing.intent != intent:
-                    raise ValueError("admission intent is immutable once recorded")
+                    raise ReceiptIntentConflict("admission intent is immutable once recorded")
             else:
                 self._deny_legacy(intent.reference)
                 if _read_json_path(path.with_suffix(".outcome")) is not None:
@@ -482,6 +490,7 @@ class OwnedReceiptStore:
                 safe_write_json(path, _encode_owned(self.ownership, _INTENT_SCHEMA,
                                                     "intent", _encode_intent(intent)),
                                 bounds=ledger._root, follow_symlinks=False)
+            return existing is None
 
     def finalise(self, outcome: InvocationOutcome) -> None:
         """Publish one immutable completion without changing its admission intent."""
@@ -505,7 +514,8 @@ class OwnedReceiptStore:
                 return
             safe_write_json(path, _encode_owned(self.ownership, _OUTCOME_SCHEMA,
                                                 "outcome", {"execution": outcome.execution.value,
-                                                            "receipt": _encode(outcome.receipt)}),
+                                                            "receipt": _encode(outcome.receipt),
+                                                            **({"config_revision": outcome.config_revision} if outcome.config_revision is not None else {})}),
                             bounds=ledger._root, follow_symlinks=False)
 
     def _read_outcome(self, path):
@@ -514,9 +524,9 @@ class OwnedReceiptStore:
             return None
         owner, value = _owned_record(raw, _OUTCOME_SCHEMA, "outcome")
         self._require_owner(owner)
-        if not isinstance(value, dict) or set(value) != {"execution", "receipt"}:
+        if not isinstance(value, dict) or set(value) not in ({"execution", "receipt"}, {"execution", "receipt", "config_revision"}):
             raise ValueError("owned final outcome has an invalid shape")
-        return InvocationOutcome(_decode(value["receipt"]), ExecutionState(value["execution"]))
+        return InvocationOutcome(_decode(value["receipt"]), ExecutionState(value["execution"]), value.get("config_revision"))
 
     def read(self, reference: OutcomeReference) -> OwnedReceiptLookup:
         """Read only this owner's receipt; absence never authorises a replay."""
@@ -560,17 +570,28 @@ def _owned_record(raw, schema, field):
 def _encode_intent(intent):
     value = asdict(intent)
     value["recorded_at"] = intent.recorded_at.isoformat()
+    if intent.permission_change is None:
+        value.pop("permission_change")
     return value
 
 
 def _decode_intent(raw):
     fields = {"reference", "command_id", "command_version", "recorded_at", "basis", "generation",
               "source", "grant_id", "operation_id", "operation_digest", "request_id"}
-    if not isinstance(raw, dict) or set(raw) != fields:
+    if not isinstance(raw, dict) or set(raw) not in (fields, fields | {"permission_change"}):
         raise ValueError("admission intent has an invalid shape")
     reference = raw["reference"]
     if not isinstance(reference, dict) or set(reference) != {"invocation_id"}:
         raise ValueError("admission reference has an invalid shape")
     value = dict(raw, reference=OutcomeReference(_required_string(reference, "invocation_id")),
                  recorded_at=datetime.fromisoformat(_required_string(raw, "recorded_at")))
+    change = value.get("permission_change")
+    if change is not None:
+        expected = {"operator_id", "before_profile", "after_profile", "added_permissions", "removed_permissions", "before_revision"}
+        if not isinstance(change, dict) or set(change) != expected:
+            raise ValueError("permission change audit has an invalid shape")
+        if any(not isinstance(change[key], list) for key in ("added_permissions", "removed_permissions")):
+            raise ValueError("permission change audit command sets are invalid")
+        value["permission_change"] = PermissionChange(**{**change,
+            "added_permissions": tuple(change["added_permissions"]), "removed_permissions": tuple(change["removed_permissions"])})
     return AdmissionIntent(**value)

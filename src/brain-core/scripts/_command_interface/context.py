@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 import logging
 from pathlib import Path
@@ -17,15 +17,12 @@ from _application.context import (
     ProviderBindings,
     SelectedBrain,
 )
-from _application.access_contracts import AccessController
-from _application.receipts import ReceiptReader, ReceiptWriter
+from _application.access_session import AuthorisationSession
+from _application.receipts import OwnedReceiptPort
 from _application.types import (
-    Authority,
     Availability,
     DependencyTier,
-    EffectClass,
     SnapshotFreshness,
-    validate_command_id,
 )
 from _common import _operational_log
 
@@ -55,54 +52,6 @@ class SynchronousSessionMirror:
         import session
 
         session.persist_session_markdown(model, self.vault_root)
-
-
-@dataclass(frozen=True, slots=True)
-class ProfileAuthority:
-    """Enforce an active grant beneath one authenticated profile ceiling."""
-
-    profile: str
-    allowed_tools: frozenset[str]
-    access: AccessController | None = None
-
-    def __post_init__(self) -> None:
-        if not self.profile.strip():
-            raise ValueError("profile authority requires a profile name")
-        try:
-            for tool in self.allowed_tools:
-                validate_command_id(tool)
-        except (TypeError, ValueError) as exc:
-            raise ValueError(
-                "profile authority accepts only canonical Brain command identifiers"
-            ) from exc
-
-    def allows(
-        self,
-        *,
-        command_id: str,
-        required: Authority,
-        effect: EffectClass,
-    ) -> bool:
-        del required, effect
-        tool = command_id
-        return tool in self.allowed_tools and (
-            self.access is None or self.access.allows(tool)
-        )
-
-    def observe(self):
-        """Read grant state once and return a frozen, non-consuming observation."""
-        active = (self.allowed_tools if self.access is None else
-                  self.allowed_tools & frozenset(self.access.status().active_commands))
-        return ProfileAuthority(self.profile, active)
-
-    def ceiling_allows(self, command_id: str) -> bool:
-        return command_id in self.allowed_tools
-
-    def consume(self, command_id: str) -> bool:
-        tool = command_id
-        return tool in self.allowed_tools and (
-            self.access is None or self.access.consume(tool)
-        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -148,7 +97,6 @@ def compose_local_context(
     vault_root: Path,
     brain_id: str,
     profile: str,
-    allowed_tools: frozenset[str],
     dependency_tier: DependencyTier,
     provider_ids: tuple[str, ...],
     capability_states: tuple[tuple[str, Availability], ...],
@@ -157,8 +105,9 @@ def compose_local_context(
     snapshot_observed_at: datetime,
     correlation_id: str,
     invocation_id: str,
-    receipt_store: ReceiptReader | ReceiptWriter,
-    access: AccessController | None = None,
+    receipt_store: OwnedReceiptPort,
+    authorisation: AuthorisationSession,
+    operation_id: str | None = None,
     workspace_dir: Path | None = None,
     capability_snapshots: CapabilitySnapshotStore | None = None,
     dry_run: bool = False,
@@ -182,17 +131,15 @@ def compose_local_context(
         raise ValueError("capability states must use Availability")
     # Runtime-checkable protocols would enlarge the application port; validate
     # the concrete methods here instead.
-    if not callable(getattr(receipt_store, "read", None)) or not callable(
-        getattr(receipt_store, "write", None)
-    ):
-        raise ValueError("receipt_store must implement read and write")
+    if any(not callable(getattr(receipt_store, method, None))
+           for method in ("read", "begin", "finalise")):
+        raise ValueError("receipt_store must implement owned read, admission intent and completion")
     if workspace_dir is not None and not workspace_dir.is_absolute():
         raise ValueError("local context workspace_dir must be absolute")
     resolved_workspace = workspace_dir.resolve() if workspace_dir is not None else None
-    return InvocationContext(
+    context = InvocationContext(
         selected_brain=SelectedBrain(brain_id, root),
         profile=profile,
-        authority=ProfileAuthority(profile, allowed_tools, access),
         dependency_tier=dependency_tier,
         capabilities=CapabilitySnapshot(
             snapshot_token,
@@ -203,10 +150,10 @@ def compose_local_context(
         providers=ProviderBindings(tuple(BoundProvider(name) for name in provider_ids)),
         correlation_id=correlation_id,
         invocation_id=invocation_id,
-        receipt_writer=receipt_store,
         receipt_reader=receipt_store,
         clock=clock or SystemClock(),
-        access=access,
+        authorisation=authorisation,
+        operation_id=operation_id,
         dry_run=dry_run,
         workspace_dir=resolved_workspace,
         capability_snapshots=capability_snapshots,
@@ -222,6 +169,8 @@ def compose_local_context(
             else SynchronousSessionMirror(root)
         ),
     )
+
+    return replace(context, access=authorisation.bind(context))
 
 
 def _validate_vault(root: Path) -> None:

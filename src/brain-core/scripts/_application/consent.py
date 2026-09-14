@@ -212,9 +212,9 @@ class ConsentService:
         if request and self.policy.request_policy != "allowed":
             raise ConsentError(self.policy.request_policy,
                                "Consent requests are denied by Brain policy." if self.policy.request_policy == "denied"
-                               else "Resolve the legacy approval configuration before requesting consent.")
+                               else "Resolve the authorisation configuration conflicts shown by vault.read-config before requesting consent.")
         if request and self.identity.kind == "standalone":
-            raise ConsentError("context_required", "Start an explicit job with brain session run before requesting exceptional consent.")
+            raise ConsentError("context_required", "Start an explicit job with brain session run -- program before requesting exceptional consent.")
 
     def check_permission(self, command_id: str, *, request: bool = False) -> None:
         """Validate before any command-specific preparation reads resources."""
@@ -231,7 +231,7 @@ class ConsentService:
                     and grant["state"] == "authorised" and not grant.get("revoked"))
 
     def prepare(self, binding: OperationBinding, *, request_id: str,
-                pin_namespace: str | None = None) -> dict:
+                pin_namespace: str | None = None, validate_view: Callable[[dict], None] | None = None) -> dict:
         """Retain an immutable descriptor; repeated trusted preparation is stable."""
         self.check_permission(binding.command_id, request=True)
         if pin_namespace is not None:
@@ -268,6 +268,8 @@ class ConsentService:
                          "generation": context["generation"], "state": "prepared",
                          "pin_namespace": pin_namespace}
             view = self._view(operation)
+            if validate_view is not None:
+                validate_view(view)
             retry = {"operation_id": operation_id, "digest": binding.digest,
                      "request_digest": content_digest(binding.request_json),
                      "generation": context["generation"]}
@@ -415,6 +417,8 @@ class ConsentService:
 
     def state(self, command_id: str, *, operation_id: str | None = None) -> str:
         """Observe access without making specific consent command-wide."""
+        if operation_id is None:
+            return self.command_states((command_id,))[command_id]
         self._context()
         if command_id not in self.policy.permissions or command_id not in self.versions:
             return "denied"
@@ -433,6 +437,97 @@ class ConsentService:
         if self.policy.request_policy != "allowed" or command_id in self.policy.controls:
             return "denied"
         return "authorisation_required"
+
+    def command_states(self, command_ids: tuple[str, ...]) -> dict[str, str]:
+        """Observe a discovery page with batched owner reads, never grant per-row authority."""
+        commands = tuple(dict.fromkeys(command_ids))
+        keys = tuple(_key("command", command) for command in commands)
+        for _ in range(8):
+            observed = self._context()
+            snapshot = self.store.snapshot((_CONTEXT, *keys))
+            if snapshot.versions[_CONTEXT] != observed.versions[_CONTEXT]:
+                continue
+            context = snapshot.values[_CONTEXT]
+            grant_keys = tuple(dict.fromkeys(
+                _key("grant", value["grant_id"])
+                for key, value in snapshot.values.items()
+                if key != _CONTEXT and value.get("grant_id")
+            ))
+            grants = self.store.snapshot(grant_keys)
+            if not self.store.compare_exchange({**snapshot.versions, **grants.versions}, {}):
+                continue
+            states = {}
+            for command, key in zip(commands, keys):
+                grant_id = snapshot.values.get(key, {}).get("grant_id")
+                grant = grants.values.get(_key("grant", grant_id)) if grant_id else None
+                if command not in self.policy.permissions or command not in self.versions:
+                    state = "denied"
+                elif (command in self.policy.controls or self._initial(command, context)
+                      or self._valid_grant(grant, context, command)):
+                    state = "authorised"
+                else:
+                    state = "authorisation_required" if self.policy.request_policy == "allowed" else "denied"
+                states[command] = state
+            return states
+        raise ConsentError("conflict", "Authorisation changed during discovery; refresh the page.")
+
+    def inventory(self, view: str, *, after: str = "", revision: int | None = None,
+                  limit: int = 16, command_id: str | None = None) -> dict:
+        """Page bounded owned metadata, excluding private inputs and authentication."""
+        if view not in {"grants", "operations", "initial"} or not 1 <= limit <= 64:
+            raise ValueError("invalid authorisation inventory selection")
+        context_snapshot = self._context()
+        prefix = {"grants": "consent/grant/", "operations": "consent/operation/",
+                  "initial": "consent/command/"}[view]
+        try:
+            page = self.store.list_keys(prefix=prefix, revision=revision, limit=128)
+        except ValueError as exc:
+            raise ConsentError("stale_cursor", "Authorisation changed; restart this listing without a cursor.") from exc
+        context = context_snapshot.values[_CONTEXT]
+        items = []
+        if view == "initial":
+            for command in sorted(self.versions):
+                if command in self.policy.controls or command <= after:
+                    continue
+                if command_id is not None and command != command_id:
+                    continue
+                items.append((command, {"command_id": command,
+                    "authorised": command in self.policy.permissions and self._initial(command, context),
+                    "source": self.policy.initial_mode, "reduced": command in context["reduced"]}))
+        else:
+            keys = tuple(key for key in page.keys if key > after)
+            # Without a filter, only read the page and one continuation row.
+            selected = keys if command_id is not None else keys[:limit + 1]
+            records = self.store.snapshot(selected).values
+            for key in selected:
+                record = records.get(key)
+                if record is None:
+                    continue
+                command = record["command_id"] if view == "grants" else record["binding"]["command_id"]
+                version = record["command_version"] if view == "grants" else record["binding"]["command_version"]
+                if command_id is not None and command != command_id:
+                    continue
+                state = record["state"]
+                if record["generation"] != context["generation"] or version != self.versions.get(command):
+                    state = "invalidated"
+                item = {"command_id": command, "command_version": version, "state": state}
+                if view == "grants":
+                    item.update(grant_id=record["grant_id"], scope=record["scope"],
+                                operation_id=record.get("operation_id"))
+                else:
+                    item.update(operation_id=record["operation_id"], digest=record["digest"])
+                items.append((key, item))
+        try:
+            self.store.list_keys(prefix=prefix, revision=page.revision, limit=1)
+        except ValueError as exc:
+            raise ConsentError("stale_cursor", "Authorisation changed; restart this listing without a cursor.") from exc
+        if not self.store.compare_exchange(context_snapshot.versions, {}):
+            raise ConsentError("stale_cursor", "Authorisation changed; restart this listing without a cursor.")
+        return {"items": [item for _key_value, item in items[:limit]],
+                "next_after": items[limit - 1][0] if len(items) > limit else None,
+                "revision": page.revision, "generation": context["generation"],
+                "initial_count": len(self.policy.initial - set(context["reduced"])),
+                "reduced_count": len(context["reduced"])}
 
     def admit(self, command_id: str, command_version: int, invocation_id: str, *,
               operation_id: str | None = None, binding: OperationBinding | None = None,
@@ -665,6 +760,10 @@ class ConsentService:
                                   "prepare": "access.prepare", "request": "access.request",
                                   "status": "access.status", "reduce": "access.reduce",
                                   "rule": "Within permissions only. New instance needs fresh consent. Request explicitly; never auto-retry a denied operation."}}
+
+    def generation(self) -> str:
+        """Refresh current authority and return its irreversible owner generation."""
+        return self._context().values[_CONTEXT]["generation"]
 
     def grant_page(self, *, after: str | None = None, revision: int | None = None,
                    limit: int = 32) -> dict:

@@ -58,15 +58,21 @@ def test_session_start_returns_typed_bootstrap_and_refreshes_mirror(
 
     assert result.status == "ok", result
     assert result.result.brain_core_version == CORE_VERSION
-    assert result.result.active_profile == "reader"
+    assert result.result.access.permissions.ceiling == "reader"
+    assert result.result.access.authorisation.initial == "normal"
+    assert result.result.access.authorisation.context_available
+    from dataclasses import asdict
+    from _application._response_budget import encoded_result_size
+    assert encoded_result_size(result) < 16000
+    assert len(json.dumps(asdict(result.result.access), separators=(",", ":")).encode()) <= 768
     assert result.result.core_bootstrap
     assert result.result.core_docs
     assert result.result.artefact_type_count > 0
     assert result.result.bootstrap_complete
     assert result.result.config.default_profile == "operator"
     assert result.result.command_catalogue.schema == "brain.command-catalogue/1"
-    assert result.result.command_catalogue.interface_epoch == 2
-    assert result.result.command_catalogue.installed_application_command_count == 79
+    assert result.result.command_catalogue.interface_epoch == 3
+    assert result.result.command_catalogue.installed_application_command_count == 80
     assert result.result.command_catalogue.list.startswith("Use command.list")
     assert result.result.command_catalogue.describe.startswith(
         "Use command.describe"

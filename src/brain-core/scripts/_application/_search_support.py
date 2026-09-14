@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from .types import InitialAuthorisationClass
+
 from dataclasses import dataclass
 from .context import InvocationContext
 from .results import (
@@ -203,6 +205,7 @@ def catalogue_entry(request_type, executor, *, optional_semantic: bool = False):
     from .preparation import LIVE_QUERY
 
     return ApplicationEntry(
+        initial_class=InitialAuthorisationClass.OBSERVATION,
         request_type=request_type,
         executor=executor,
         dependency_tier=DependencyTier.PORTABLE,

@@ -30,6 +30,14 @@ requires a `key`. Every artefact of any type also carries `created` and
 yourself when authoring by hand. Beyond these entry points, navigate by wikilink
 from the router and the type files.
 
+## Authorisation
+
+Credentials set maximum permissions; initial authorisation normally includes
+content operations. Exceptional consent is explicit and scoped to this Brain
+and active MCP instance or CLI job. Use `access.status`/`access.prepare` before
+`access.request`; pass the operation selector for specific consent. A new
+instance requires fresh consent. Standalone CLI calls cannot retain it.
+
 ## Tooling
 
 When using commands, finish every `session.start` continuation before ordinary
@@ -37,7 +45,7 @@ work (`bootstrap_complete: true`). Follow `range.next_cursor` for document
 reads until it is null; restart the read if its source revision changes.
 
 Relevant only where code can run. Both routes share the same typed request,
-semantic owner, structural result, profile gate, and vault mutation lock.
+semantic owner, structural result, permission and authorisation checks, and vault mutation lock.
 
 - `brain <noun> <verb> --request-json '<object>' --json` — preferred. The launcher enters the vault's managed runtime, so managed-tier commands such as `session.start` are available.
 - `brain command list --owner all --json` — discover the composed local catalogue.

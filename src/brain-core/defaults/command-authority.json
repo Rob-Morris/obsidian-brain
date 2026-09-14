@@ -1,6 +1,7 @@
 {
   "schema": "brain.command-authority/1",
   "commands": [
+    "access.prepare",
     "access.reduce",
     "access.request",
     "access.status",

@@ -7,7 +7,7 @@ import json
 from pathlib import Path
 import sys
 from typing import TextIO
-from _bootstrap.owner_attachment import OwnerAttachment
+from _bootstrap.owner_attachment import OwnerAttachment, capture_process_identity
 from _bootstrap.consent_owner import OwnerConnectionError, OwnerTransportUnavailable
 
 from _application.adapter import AdapterRequestError, ApplicationAdapter
@@ -47,6 +47,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--vault", help="Selected Brain vault root.")
     parser.add_argument("--workspace", help="Bound caller workspace directory.")
     parser.add_argument("--operator-key", help="Operator key for profile authentication.")
+    parser.add_argument("--operation", help="Prepared operation ID selecting specific consent in this context.")
     parser.add_argument("--dry-run", action="store_true", help="Request no committed effects.")
     parser.add_argument("--json", action="store_true", help="Emit only canonical JSON on stdout.")
     return parser
@@ -61,14 +62,19 @@ def run(
     context_factory=compose_direct_context,
     script_path: Path | None = None,
     owner_attachment=None,
+    transport_identity=None,
+    owner_initialisation_allowed=False,
 ) -> int:
     attachment = owner_attachment
     try:
         if attachment is None:
             attachment = OwnerAttachment.capture()
+        if transport_identity is None:
+            transport_identity, owner_initialisation_allowed = capture_process_identity()
         return _run(argv, stdin=stdin, stdout=stdout, stderr=stderr,
                     context_factory=context_factory, script_path=script_path,
-                    owner_attachment=attachment)
+                    owner_attachment=attachment, transport_identity=transport_identity,
+                    owner_initialisation_allowed=owner_initialisation_allowed)
     except (OwnerConnectionError, OwnerTransportUnavailable) as exc:
         print(f"command.py: infrastructure — {exc}", file=stderr or sys.stderr)
         return 4
@@ -77,7 +83,37 @@ def run(
             attachment.close()
 
 
-def _run(argv, *, stdin, stdout, stderr, context_factory, script_path, owner_attachment) -> int:
+def initialise_job(argv, *, owner_attachment, transport_identity, owner_initialisation_allowed) -> int:
+    """Private selected-Brain initialisation; public CLI commands cannot grant this permission."""
+    parser = _Parser(add_help=False, allow_abbrev=False)
+    parser.add_argument("--initialise-job-owner", action="store_true", required=True)
+    parser.add_argument("--vault", required=True)
+    parser.add_argument("--operator-key")
+    parser.add_argument("--workspace")
+    try:
+        args = parser.parse_args(argv)
+        if (owner_attachment is None or owner_attachment.kind != "cli-job"
+                or transport_identity is None or transport_identity.kind != "cli-job"
+                or not owner_initialisation_allowed):
+            raise PermissionError("job initialisation requires the supervisor's private launch permission")
+        from .direct import initialise_attached_job_owner
+        initialise_attached_job_owner(
+            vault_root=Path(args.vault), owner_attachment=owner_attachment,
+            transport_identity=transport_identity, operator_key=args.operator_key,
+            workspace_dir=Path(args.workspace) if args.workspace else None,
+        )
+        print(json.dumps({"schema": "brain.owner-initialised/1", "context_id": transport_identity.context_id}))
+        return 0
+    except PermissionError as exc:
+        print(f"command.py: authority denied — {exc}", file=sys.stderr)
+        return 3
+    except (ScriptUsageError, ValueError, OSError, RuntimeError) as exc:
+        print(f"command.py: owner initialisation failed — {exc}", file=sys.stderr)
+        return 4
+
+
+def _run(argv, *, stdin, stdout, stderr, context_factory, script_path, owner_attachment,
+         transport_identity, owner_initialisation_allowed) -> int:
     stdin = stdin or sys.stdin
     stdout = stdout or sys.stdout
     stderr = stderr or sys.stderr
@@ -89,6 +125,8 @@ def _run(argv, *, stdin, stdout, stderr, context_factory, script_path, owner_att
         return 4
     try:
         args = build_parser().parse_args(argv)
+        if args.operation is not None and (not args.operation.strip() or len(args.operation.encode("utf-8")) > 128):
+            raise ScriptUsageError("--operation requires an ID of 1–128 UTF-8 bytes")
         command_id = command_id_from_argv(
             args.noun,
             args.verb,
@@ -110,7 +148,10 @@ def _run(argv, *, stdin, stdout, stderr, context_factory, script_path, owner_att
             operator_key=args.operator_key,
             workspace_dir=workspace,
             dry_run=args.dry_run,
+            **({"operation_id": args.operation} if args.operation is not None else {}),
             **({"owner_attachment": owner_attachment} if owner_attachment is not None else {}),
+            **({"transport_identity": transport_identity, "owner_initialisation_allowed": owner_initialisation_allowed}
+               if transport_identity is not None else {}),
         )
     except (DirectContextError, OSError, ValueError) as exc:
         print(f"command.py: infrastructure — {exc}", file=stderr)

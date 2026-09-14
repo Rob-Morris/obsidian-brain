@@ -167,30 +167,38 @@ in root `AGENTS.md`/`Agents.md` and `CLAUDE.md` to `session.start`, even when no
 shared profile config exists. Custom prose is untouched, and profile validation
 finishes before either config or bootstrap output is written.
 
-### Active access
+### Permissions and initial authorisation
 
-The authenticated profile is the command ceiling. Active access is configured separately:
+The authenticated profile sets the maximum available commands. Initial authorisation is configured separately:
 
 ```yaml
 vault:
   access:
-    elevation_policy: automatic  # automatic | external | denied
-    default_lease_seconds: 900
-    max_lease_seconds: 3600
-    pending_seconds: 900
-    max_use_count: 100
+    request_policy: allowed  # allowed | denied
 defaults:
   access:
-    initial_profile: reader
+    initial:
+      mode: normal  # normal | read-only | explicit
+    overrides: {}
 ```
 
-The shared `vault.access` policy cannot be overridden by machine-local config. `defaults.access.initial_profile` is locally customisable, but its commands are intersected with the authenticated ceiling. Leases are principal-scoped, exact, absolutely expiring and stored under `.brain/local/access-state.json`; `access.status` is read-only when that file does not exist. `external` policy requires a registered operator key supplied out of band to `brain access approve`; the approving operator profile must cover the requested commands.
+`normal` initially authorises ordinary observations and content work; `read-only` authorises observations and their necessary derived caches. `explicit` requires `commands: [exact.command, ...]`, including an empty list when intended. The catalogue owns these classifications. Initial commands are intersected with the authenticated maximum; authenticated control commands remain available independently. `overrides` maps exact command IDs to Booleans, adding or removing initial authorisation without increasing permissions. Attempts to override controls are reported as configuration conflicts.
+
+Shared `vault.access` policy cannot be overridden locally. Each authored `defaults.access.initial` object and the entire `defaults.access.overrides` map replace the lower layer, so an empty map clears inherited overrides and `false` remains meaningful. Other configuration merge rules are unchanged.
+
+`vault.read-config` exposes these effective settings, their template/shared/local sources, the configuration revision and actionable conflicts without credential material. Large inspection results use revision-bound pages. Migration also writes source-specific conflicts to `.brain/local/authorisation-migration.json`, including custom permission profiles missing required controls even when no configuration file needs conversion.
+
+Exceptional authorisation belongs to one Brain, principal and live MCP instance or CLI job. It has no timer and does not survive a new owner instance. `access.prepare` presents an exact operation; `access.request` is the dedicated harness-gatable consent tool. Requests never raise credential permissions. `denied` disables exceptional requests while retaining initial authorisation. Permission administration is the separately authenticated CLI-only `permission.set-profile` operation.
+
+Upgrade preserves stored initial selections as explicit command sets using the pre-upgrade profile definitions. Recognised shipped profiles receive current control commands; custom profiles are retained and conflicts are reported. Former `external` approval becomes the inert `request_policy: migration_required` marker: an administrator must explicitly replace it with `allowed` or `denied`. Historical lease/audit files are never imported as active consent.
 
 ### Authentication
 
 The MCP composition root accepts `BRAIN_OPERATOR_KEY` as trusted server configuration; the CLI accepts `--operator-key` as adapter input. Before composing invocation authority, Brain refreshes config, hashes the supplied key with SHA-256 and matches it against registered operators in the vault config. On a match, the invocation uses the operator's configured profile. If no key is supplied, the default profile is used. Operator identity is never a semantic request field.
 
-Every command is authorised before request resolution and executor entry. If config is malformed, unreadable, or names an unknown profile/tool, enforcement fails closed. `session.start` remains available as the explicit authentication/bootstrap command; it does not create a compatibility session state for removed aggregate tools.
+The default principal has stable identity `default`; its current profile is a separate property. A managed CLI job privately binds its authenticated registration so descendants need not receive the plaintext key. Each invocation re-evaluates current permissions; credential removal or rotation ends that binding. An explicitly supplied different key is refused. Configuration source identity and contents participate in permission generation, so ordinary reduction-and-restore edits invalidate existing grants. Completely unobserved external creation and removal of an optional configuration file are outside that guarantee.
+
+Invocation checks current permissions and applicable authorisation before executor entry. If config is malformed, unreadable, or names an unknown profile/tool, enforcement fails closed. `session.start` supplies the bootstrap; it does not bypass invalid configuration or create compatibility state for removed aggregate tools.
 
 ### Generating a key
 

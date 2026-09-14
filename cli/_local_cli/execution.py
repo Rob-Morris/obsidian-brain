@@ -88,6 +88,7 @@ class ApplicationProcessInvoker:
     target: SelectedBrainProcess
     runner: ProcessRunner = subprocess.run
     owner_attachment: OwnerAttachment | None = None
+    operation_id: str | None = None
     owner: str = field(default="application", init=False)
 
     def invoke(
@@ -121,6 +122,8 @@ class ApplicationProcessInvoker:
             argv.extend(("--operator-key", self.target.operator_key))
         if self.target.dry_run:
             argv.append("--dry-run")
+        if self.operation_id is not None:
+            argv.extend(("--operation", self.operation_id))
         options = self.owner_attachment.forwarded_process() if self.owner_attachment is not None else {}
         completed = self.runner(
             argv,
@@ -268,7 +271,7 @@ def _envelope_exit_code(envelope: Mapping[str, object]) -> int:
         raise ValueError("command error requires a structural error code")
     if error["code"] in {"invalid_request", "not_found", "conflict"}:
         return 2
-    if error["code"] in {"authority_denied", "capability_unavailable"}:
+    if error["code"] in {"authority_denied", "authorisation_required", "capability_unavailable"}:
         return 3
     return 4
 

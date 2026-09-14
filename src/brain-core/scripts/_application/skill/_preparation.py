@@ -97,8 +97,6 @@ def prepare_skill(context, request, *, frozen_inputs=None, source=None):
 
 def skill_execution_options(context, request):
     """Forward pinned acquisition and admission into the existing locked service."""
-    if context.admission is None:
-        return {}
     def before_write(source):
         admit_owner(context, request, prepare_skill, source=source)
     options = {"before_write": before_write}

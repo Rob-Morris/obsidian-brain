@@ -24,7 +24,7 @@ from brain_mcp._command_adapter import register_application_tools
 from _application.adapter import ApplicationAdapter
 from _application.application import CommandApplication
 from _application.projection import canonical_result_envelope
-from _application.receipts import MemoryReceiptStore
+from command_application import context_for
 from _application.registry import current_application_catalogue, current_request_resolver
 from _application.types import DependencyTier, SnapshotFreshness
 from _command_interface.context import compose_local_context
@@ -52,11 +52,12 @@ def _vault(tmp_path):
 
 def _context(vault):
     clock = _Clock()
+    authorisation = context_for(vault, allowed_commands=("command.list",)).authorisation
     return compose_local_context(
         vault_root=vault,
         brain_id="parity-brain",
         profile="reader",
-        allowed_tools=frozenset(("command.list",)),
+        authorisation=authorisation,
         dependency_tier=DependencyTier.PORTABLE,
         provider_ids=(),
         capability_states=(),
@@ -65,7 +66,7 @@ def _context(vault):
         snapshot_observed_at=NOW,
         correlation_id="corr-parity",
         invocation_id="inv-parity",
-        receipt_store=MemoryReceiptStore(clock),
+        receipt_store=authorisation.receipts,
         clock=clock,
     )
 

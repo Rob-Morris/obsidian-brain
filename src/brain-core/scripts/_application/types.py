@@ -63,6 +63,13 @@ class Authority(str, Enum):
     ADMINISTRATOR = "administrator"
 
 
+class InitialAuthorisationClass(str, Enum):
+    CONTROL = "control"
+    OBSERVATION = "observation"
+    CONTENT = "content"
+    EXCEPTIONAL = "exceptional"
+
+
 class EffectClass(str, Enum):
     NONE = "none"
     DERIVED_CACHE_WRITE = "derived_cache_write"

@@ -6,6 +6,8 @@ from dataclasses import replace
 from datetime import datetime
 from io import StringIO
 import json
+import pytest
+from command_application import context_for
 
 from _application.receipts import MemoryReceiptStore
 from _application.registry import current_application_catalogue
@@ -38,24 +40,11 @@ def _context_factory(tmp_path, tools):
     def create(**options):
         nonlocal counter
         counter += 1
-        clock = _Clock()
-        return compose_local_context(
-            vault_root=options["vault_root"],
-            brain_id="test-brain",
-            profile="reader",
-            allowed_tools=frozenset(tools),
-            dependency_tier=DependencyTier.PORTABLE,
-            provider_ids=(),
-            capability_states=(),
-            snapshot_token=f"snapshot-{counter}",
-            snapshot_freshness=SnapshotFreshness.FRESH,
-            snapshot_observed_at=NOW,
-            correlation_id=f"corr-{counter}",
-            invocation_id=f"inv-{counter}",
-            receipt_store=MemoryReceiptStore(clock),
-            dry_run=options["dry_run"],
-            clock=clock,
-        )
+        context = context_for(options["vault_root"], allowed_commands=tools,
+                              initial_commands=tools, dry_run=options["dry_run"],
+                              invocation_id=f"inv-{counter}")
+        return replace(context, correlation_id=f"corr-{counter}")
+
 
     return create
 
@@ -289,9 +278,11 @@ def test_direct_context_accepts_selected_vault_as_project_anchor(
     assert context.workspace_dir == vault
 
 
+@pytest.mark.parametrize("full_permissions", [False, True])
 def test_direct_provider_inventory_is_complete_and_refresh_is_deduplicated(
     tmp_path,
     monkeypatch,
+    full_permissions,
 ):
     catalogue = current_application_catalogue()
     declared = {
@@ -303,14 +294,10 @@ def test_direct_provider_inventory_is_complete_and_refresh_is_deduplicated(
 
     vault = _vault(tmp_path)
     (vault / ".brain").mkdir()
+    allowed = [entry.command_id for entry in catalogue.entries] if full_permissions else ["command.list"]
     (vault / ".brain" / "config.yaml").write_text(
-        "vault:\n"
-        "  profiles:\n"
-        "    operator:\n"
-        "      allow: [command.list]\n"
-        "defaults:\n"
-        "  default_profile: operator\n"
-    )
+        "vault:\n  profiles:\n    operator:\n      allow: " + json.dumps(allowed) + "\n"
+        "defaults:\n  default_profile: operator\n")
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config-home"))
     calls = {"obsidian": 0, "semantic": 0, "managed": 0}
 
@@ -354,7 +341,9 @@ def test_direct_provider_inventory_is_complete_and_refresh_is_deduplicated(
 
     assert code == 0
     assert json.loads(stdout.getvalue())["result"]["availability_freshness"] == "fresh"
-    assert calls == {"obsidian": 1, "semantic": 1, "managed": 2}
+    assert calls == ({"obsidian": 1, "semantic": 1, "managed": 2} if full_permissions
+                     else {"obsidian": 0, "semantic": 0, "managed": 0})
+    # Every permitted provider is refreshed once; above-permission providers are never probed.
 
 
 def test_long_lived_composer_reuses_identity_until_config_signature_changes(
@@ -370,6 +359,7 @@ def test_long_lived_composer_reuses_identity_until_config_signature_changes(
         "reader",
         "default:reader",
         frozenset({"command.list"}),
+        None,
     )
     calls = []
 
@@ -405,7 +395,7 @@ def test_long_lived_composer_reuses_brain_identity_until_registry_changes(
         calls.append("resolve")
         return "test-brain"
 
-    monkeypatch.setattr(direct_context, "_brain_id", resolve)
+    monkeypatch.setattr(direct_context, "resolve_direct_brain_id", resolve)
     composer = direct_context.DirectContextComposer(vault_root=vault)
 
     assert composer._brain_id() == "test-brain"

@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 from datetime import datetime
+from dataclasses import replace
+from command_application import context_for, _Receipts
 
 from _application.application import CommandApplication
 from _application.context import (
@@ -16,6 +18,7 @@ from _application.foundation import build_application_catalogue, build_request_r
 from _application.projection import canonical_result_envelope
 from _application.receipts import (
     OutcomeReceipt,
+    AdmissionIntent, InvocationOutcome, ExecutionState, OwnedReceiptLookup,
     OutcomeReference,
     ReceiptLookupState,
     ReceiptState,
@@ -43,57 +46,8 @@ from _application.types import (
 NOW = datetime.fromisoformat("2026-08-09T15:00:00+10:00")
 
 
-class _Authority:
-    def observe(self):
-        return self
-
-    def allows(self, **_kwargs):
-        return True
-
-    def ceiling_allows(self, _command_id):
-        return True
-
-    def consume(self, _command_id):
-        return True
-
-
-class _Receipts:
-    def __init__(self, receipts=()):
-        self.receipts = {
-            receipt.reference.invocation_id: receipt for receipt in receipts
-        }
-
-    def write(self, receipt):
-        self.receipts[receipt.reference.invocation_id] = receipt
-
-    def read(self, reference):
-        return self.receipts.get(reference.invocation_id)
-
-
-class _Clock:
-    def now(self):
-        return NOW
-
-
-def _context(tmp_path, receipts=None):
-    receipts = receipts or _Receipts()
-    return InvocationContext(
-        selected_brain=SelectedBrain("test", tmp_path.resolve()),
-        profile="reader",
-        authority=_Authority(),
-        dependency_tier=DependencyTier.PORTABLE,
-        capabilities=CapabilitySnapshot(
-            "snapshot",
-            SnapshotFreshness.FRESH,
-            NOW,
-        ),
-        providers=ProviderBindings(),
-        correlation_id="corr-foundation",
-        invocation_id="inv-query",
-        receipt_writer=receipts,
-        receipt_reader=receipts,
-        clock=_Clock(),
-    )
+def _context(tmp_path, receipts=None, **kwargs):
+    return context_for(tmp_path, receipts=receipts, **kwargs)
 
 
 def _application(tmp_path, receipts=None):
@@ -185,20 +139,7 @@ class _Snapshots:
 def test_command_list_refreshes_once_and_pagination_reuses_the_snapshot(tmp_path):
     snapshots = _Snapshots()
     context = _context(tmp_path)
-    context = InvocationContext(
-        selected_brain=context.selected_brain,
-        profile=context.profile,
-        authority=context.authority,
-        dependency_tier=context.dependency_tier,
-        capabilities=context.capabilities,
-        providers=context.providers,
-        correlation_id=context.correlation_id,
-        invocation_id=context.invocation_id,
-        receipt_writer=context.receipt_writer,
-        receipt_reader=context.receipt_reader,
-        clock=context.clock,
-        capability_snapshots=snapshots,
-    )
+    context = replace(context, capability_snapshots=snapshots)
     application = CommandApplication(context, build_application_catalogue())
 
     first = application.invoke(CommandListRequest(refresh=True, page_size=2))
@@ -233,7 +174,7 @@ def test_command_describe_returns_installed_identity_or_not_found(tmp_path):
     assert found.result.command_id == "invocation.read"
     assert found.result.catalogue_schema == "brain.command-catalogue/1"
     assert found.result.catalogue_fingerprint == build_application_catalogue().fingerprint
-    assert found.result.command_version == 2
+    assert found.result.command_version == 3
     assert found.result.owner.value == "application"
     assert found.result.request_schema_json
     assert found.result.result_schema_json
@@ -243,25 +184,26 @@ def test_command_describe_returns_installed_identity_or_not_found(tmp_path):
 
 def test_invocation_read_returns_receipt_or_explicit_still_unknown(tmp_path):
     reference = OutcomeReference("inv-target")
-    receipt = OutcomeReceipt(
-        reference,
-        "artefact.create",
-        1,
-        ReceiptState.COMMITTED,
-        NOW,
-    )
-    application = _application(tmp_path, _Receipts((receipt,)))
+    intent = AdmissionIntent(reference, "artefact.create", 1, NOW, "initial", "generation", "host-request")
+    receipt = OutcomeReceipt(reference, "artefact.create", 1, ReceiptState.COMMITTED, NOW)
+    outcome = InvocationOutcome(receipt, ExecutionState.SUCCEEDED)
+    receipts = _Receipts()
+    receipts.begin(intent)
+    receipts.finalise(outcome)
+    application = _application(tmp_path, receipts)
 
     found = application.invoke(InvocationReadRequest(reference.invocation_id))
     unknown_reference = OutcomeReference("inv-absent")
     unknown = application.invoke(InvocationReadRequest(unknown_reference.invocation_id))
 
     assert found.result.state is ReceiptLookupState.FOUND
-    assert found.result.receipt == receipt
+    assert found.result.outcome == outcome
+    assert found.result.intent == intent
     projected = canonical_result_envelope(found)
-    assert projected["result"]["receipt"]["recorded_at"] == NOW.isoformat()
+    assert projected["result"]["outcome"]["receipt"]["recorded_at"] == NOW.isoformat()
     assert unknown.result.state is ReceiptLookupState.STILL_UNKNOWN
-    assert unknown.result.receipt is None
+    assert unknown.result.outcome is None
+    assert unknown.result.intent is None
 
 
 def test_foundational_transport_resolver_is_strict_and_binds_installed_versions():

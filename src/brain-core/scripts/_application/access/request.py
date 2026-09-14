@@ -1,108 +1,93 @@
-"""Typed ``access.request`` owner."""
-
-from __future__ import annotations
-
-from .._decoding import reject_unexpected
-
-from dataclasses import dataclass
-from typing import ClassVar, Mapping
+"""Explicit harness-gated consent for one prepared operation or one command."""
+from dataclasses import dataclass, field
+import json
+from typing import ClassVar, Literal, Mapping
 
 from ..access_contracts import AccessRequestDecision
-from ..context import InvocationContext
+from ..consent import ConsentScope
 from ..receipts import CommittedEffect
 from ..results import Ok
-from ..types import (
-    Authority,
-    DependencyTier,
-    EffectClass,
-    Locality,
-    RetryClass,
-)
+from ..types import validate_command_id
+from ._support import control_entry, nonempty, object_fields
+
+MAX_CONSENT_REQUEST_BYTES = 8000
+
+
+@dataclass(frozen=True, slots=True)
+class OperationConsent:
+    operation_id: str
+    digest: str
+    review: str
+    scope: Literal["operation"] = field(default="operation", init=False)
+
+    def __post_init__(self):
+        nonempty(self.operation_id, "operation_id")
+        nonempty(self.digest, "digest")
+        nonempty(self.review, "review")
+
+
+@dataclass(frozen=True, slots=True)
+class CommandConsent:
+    command_id: str
+    review: str
+    scope: Literal["command"] = field(default="command", init=False)
+
+    def __post_init__(self):
+        nonempty(self.command_id, "command_id")
+        validate_command_id(self.command_id)
+        nonempty(self.review, "review")
+
+
+def validate_consent_request_size(consent):
+    from dataclasses import asdict
+    value = {"command_id": "access.request", "command_version": 2,
+             "arguments": {"consent": asdict(consent)}}
+    if len(json.dumps(value, ensure_ascii=False, separators=(",", ":")).encode("utf-8")) >= MAX_CONSENT_REQUEST_BYTES:
+        raise ValueError("Consent review exceeds the 8000-byte request budget; prepare a smaller operation.")
 
 
 @dataclass(frozen=True, slots=True)
 class AccessRequestRequest:
     COMMAND_ID: ClassVar[str] = "access.request"
-    COMMAND_VERSION: ClassVar[int] = 1
+    COMMAND_VERSION: ClassVar[int] = 2
     RESULT_TYPE: ClassVar[type] = AccessRequestDecision
-    MINIMAL_EXAMPLE: ClassVar[dict[str, object]] = {
-        "commands": ["invocation.read"],
-    }
     FIELD_DESCRIPTIONS: ClassVar[dict[str, str]] = {
-        "commands": "One exact command or a small coherent command set within the authenticated ceiling.",
-        "duration_seconds": "Optional requested absolute lease duration; server policy applies its maximum.",
-        "use_count": "Optional positive maximum number of command invocations across the lease.",
-    }
+        "consent": "Echo the exact canonical review from access.prepare or access.status. Command consent covers that command throughout this Brain until this context ends or is revoked."}
+    MINIMAL_EXAMPLE: ClassVar[dict[str, object]] = {"consent": {"scope": "command", "command_id": "artefact.delete", "review": "<exact command_review from access.status>"}}
+    consent: OperationConsent | CommandConsent
 
-    commands: tuple[str, ...]
-    duration_seconds: int | None = None
-    use_count: int | None = None
-
-    def __post_init__(self) -> None:
-        if not self.commands or self.commands != tuple(sorted(set(self.commands))):
-            raise ValueError("access.request commands must be non-empty, sorted and unique")
-        if len(self.commands) > 8:
-            raise ValueError("access.request accepts at most eight coherent commands")
-        if any(not isinstance(item, str) or not item.strip() for item in self.commands):
-            raise ValueError("access.request commands must be non-empty strings")
-        if self.duration_seconds is not None and (
-            not isinstance(self.duration_seconds, int)
-            or isinstance(self.duration_seconds, bool)
-            or self.duration_seconds < 1
-        ):
-            raise ValueError("duration_seconds must be a positive integer")
-        if self.use_count is not None and (
-            not isinstance(self.use_count, int)
-            or isinstance(self.use_count, bool)
-            or self.use_count < 1
-        ):
-            raise ValueError("use_count must be a positive integer")
+    def __post_init__(self):
+        if not isinstance(self.consent, (OperationConsent, CommandConsent)):
+            raise ValueError("consent must select operation or command scope")
+        validate_consent_request_size(self.consent)
 
 
-def execute(context: InvocationContext, request: AccessRequestRequest):
-    if context.access is None:
-        raise RuntimeError("access controller is unavailable")
-    decision = context.access.request(
-        request.commands,
-        duration_seconds=request.duration_seconds,
-        use_count=request.use_count,
-    )
-    effects = (
-        (CommittedEffect("access.changed", decision.snapshot.principal),)
-        if decision.changed
-        else ()
-    )
-    return Ok(
-        AccessRequestRequest.COMMAND_ID,
-        AccessRequestRequest.COMMAND_VERSION,
-        decision,
-        committed_effects=effects,
-    )
+def execute(context, request):
+    consent = request.consent
+    decision = context.access.request(scope=ConsentScope(consent.scope), review=consent.review,
+        command_id=consent.command_id if isinstance(consent, CommandConsent) else None,
+        operation_id=consent.operation_id if isinstance(consent, OperationConsent) else None,
+        digest=consent.digest if isinstance(consent, OperationConsent) else None)
+    effects = (CommittedEffect("access.authorised", decision.grant_id or decision.command_id),) if decision.changed else ()
+    return Ok(request.COMMAND_ID, request.COMMAND_VERSION, decision, committed_effects=effects)
 
 
-def decode(payload: Mapping[str, object]) -> AccessRequestRequest:
-    reject_unexpected(payload, {"commands", "duration_seconds", "use_count"})
-    commands = payload.get("commands")
-    if not isinstance(commands, list) or any(not isinstance(item, str) for item in commands):
-        raise ValueError("commands must be an array of strings")
-    duration = payload.get("duration_seconds")
-    use_count = payload.get("use_count")
-    return AccessRequestRequest(tuple(commands), duration, use_count)
+def decode(payload: Mapping[str, object]):
+    object_fields(payload, {"consent"}, {"consent"})
+    value = payload["consent"]
+    if not isinstance(value, Mapping):
+        raise ValueError("consent must be an object")
+    if value.get("scope") == "operation":
+        object_fields(value, {"scope", "operation_id", "digest", "review"}, {"scope", "operation_id", "digest", "review"})
+        consent = OperationConsent(value["operation_id"], value["digest"], value["review"])
+    elif value.get("scope") == "command":
+        object_fields(value, {"scope", "command_id", "review"}, {"scope", "command_id", "review"})
+        consent = CommandConsent(value["command_id"], value["review"])
+    else:
+        raise ValueError("consent scope must be operation or command")
+    return AccessRequestRequest(consent)
 
 
 def catalogue_entry():
-    from ..catalogue import ALL_APPLICATION_PROJECTIONS, ApplicationEntry
-
-    return ApplicationEntry(
-        request_type=AccessRequestRequest,
-        executor=execute,
-        dependency_tier=DependencyTier.BOOTSTRAP,
-        locality=Locality.SELECTED_BRAIN_LOCAL,
-        required_providers=(),
-        optional_providers=(),
-        authority=Authority.READER,
-        effect_class=EffectClass.SELECTED_BRAIN_MUTATION,
-        retry_class=RetryClass.SAFE,
-        projections=ALL_APPLICATION_PROJECTIONS,
-        summary="Request an exact, bounded elevation lease within the ceiling.",
-    )
+    return control_entry(AccessRequestRequest, execute, mutation=True,
+        summary="Explicitly authorise one prepared operation or one command in this Brain context.")

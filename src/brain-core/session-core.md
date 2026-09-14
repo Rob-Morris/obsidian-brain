@@ -31,6 +31,15 @@ Finish `session.start(cursor=range.next_cursor)` pages until
 same command and reference with `range.next_cursor` until null. On revision
 conflict, restart without a cursor.
 
+## Authorisation
+
+Normal content starts authorised within credential permissions. For exceptional
+work, follow `access.status` or `access.prepare`, then explicitly echo its review
+to `access.request`. Specific consent needs `brain_operation` on the target call;
+a successful read spends it too. Consent belongs to this Brain and MCP instance,
+ends with the instance, and cannot raise permissions. Never auto-request/retry a
+denial; recover uncertain calls with `invocation.read`.
+
 ## Core Docs
 
 - [Add types, memories and principles](standards/extending/README.md)

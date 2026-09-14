@@ -10,9 +10,10 @@ from typing import TYPE_CHECKING, Mapping, Protocol
 
 if TYPE_CHECKING:
     from .preparation import OperationBinding
+    from .access_session import AuthorisationSession
 
-from .access_contracts import AccessController
-from .receipts import ReceiptReader, ReceiptWriter
+from .access_contracts import AuthorisationAccess
+from .receipts import OwnedReceiptPort
 from .types import (
     Authority,
     Availability,
@@ -39,28 +40,6 @@ class InvocationAdmission(Protocol):
     def retain_content(self, source_key: str, content: bytes) -> dict: ...
 
     def read_pinned(self, source_key: str) -> bytes | None: ...
-
-
-class AuthorityObservation(Protocol):
-    """Observe command grants without consuming leases or rereading state."""
-
-    def allows(
-        self,
-        *,
-        command_id: str,
-        required: Authority,
-        effect: EffectClass,
-    ) -> bool: ...
-
-
-class AuthorityEvaluator(AuthorityObservation, Protocol):
-    """Evaluate a ceiling and live grants; freeze observations for discovery."""
-
-    def observe(self) -> AuthorityObservation: ...
-
-    def ceiling_allows(self, command_id: str) -> bool: ...
-
-    def consume(self, command_id: str) -> bool: ...
 
 
 class DiagnosticReporter(Protocol):
@@ -236,16 +215,16 @@ class InvocationContext:
 
     selected_brain: SelectedBrain
     profile: str
-    authority: AuthorityEvaluator
     dependency_tier: DependencyTier
     capabilities: CapabilitySnapshot
     providers: ProviderBindings
     correlation_id: str
     invocation_id: str
-    receipt_writer: ReceiptWriter
-    receipt_reader: ReceiptReader
+    receipt_reader: OwnedReceiptPort
     clock: Clock
-    access: AccessController | None = None
+    authorisation: AuthorisationSession | None = None
+    access: AuthorisationAccess | None = None
+    operation_id: str | None = None
     dry_run: bool = False
     workspace_dir: Path | None = None
     capability_snapshots: CapabilitySnapshotStore | None = None

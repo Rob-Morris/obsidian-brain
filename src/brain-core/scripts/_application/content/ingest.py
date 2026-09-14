@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from ..types import InitialAuthorisationClass
+
 from .._decoding import reject_unexpected
 
 from dataclasses import dataclass
@@ -259,22 +261,15 @@ def _ingest_locked(
             return inputs
         router, retrieval = inputs
         body, staged_handle = resolve_mutation_content(root, request.content, context=context)
-        if context.admission is None:
-            result = process.ingest_content(
-                router, root, body, title=request.title, type_hint=request.type_key,
-                index=retrieval.index, type_embeddings=retrieval.type_embeddings,
-                type_embeddings_meta=retrieval.metadata, doc_embeddings=retrieval.doc_embeddings,
-                doc_embeddings_meta=retrieval.metadata, classification_mode=request.mode.value)
-        else:
-            plan, frozen = plan_ingest(context, request, router, retrieval, body,
-                                       frozen_inputs=context.admission.frozen_inputs)
-            if plan["action_taken"] != "error":
-                # The planner freezes time/key choices; admission must compare that
-                # complete binding, not reconstruct it with a new naming choice.
-                def binding(context, request, *, frozen_inputs=None):
-                    return ingestion_binding(context, request, plan=plan, frozen_inputs=frozen)
-                admit_owner(context, request, binding)
-            result = process.apply_ingestion_plan(router, root, plan)
+        plan, frozen = plan_ingest(context, request, router, retrieval, body,
+                                   frozen_inputs=context.admission.frozen_inputs)
+        if plan["action_taken"] != "error":
+            # The planner freezes time/key choices; admission must compare that
+            # complete binding, not reconstruct it with a new naming choice.
+            def binding(context, request, *, frozen_inputs=None):
+                return ingestion_binding(context, request, plan=plan, frozen_inputs=frozen)
+            admit_owner(context, request, binding)
+        result = process.apply_ingestion_plan(router, root, plan)
         action = result.get("action_taken")
         staging_warning = (
             finalise_staged_body(root, staged_handle)
@@ -376,6 +371,7 @@ def catalogue_entry():
     from ..catalogue import ALL_APPLICATION_PROJECTIONS, ApplicationEntry
 
     return ApplicationEntry(
+        initial_class=InitialAuthorisationClass.CONTENT,
         preparation=INGESTION,
         request_type=ContentIngestRequest,
         executor=execute,

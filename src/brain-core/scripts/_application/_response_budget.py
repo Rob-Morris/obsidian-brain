@@ -60,7 +60,8 @@ def decode_text_cursor(value):
     return TextCursor(value["revision"], value["offset"])
 
 
-def bounded_text_result(request_type, content, revision, *, cursor, max_characters, payload):
+def bounded_text_result(request_type, content, revision, *, cursor, max_characters, payload,
+                        byte_budget=MODEL_TEXT_BUDGET):
     """Return the largest requested prefix that fits, preserving source revision."""
     if cursor is not None and cursor.revision != revision:
         return request_error(request_type, ErrorCode.CONFLICT,
@@ -78,17 +79,17 @@ def bounded_text_result(request_type, content, revision, *, cursor, max_characte
 
     low, high = start, min(len(content), start + max_characters)
     result = candidate(high)
-    if encoded_result_size(result) <= MODEL_TEXT_BUDGET:
+    if encoded_result_size(result) <= byte_budget:
         return result
     # Search character boundaries; never cut UTF-8 or serialized JSON.
     while low < high:
         middle = (low + high + 1) // 2
-        if encoded_result_size(candidate(middle)) <= MODEL_TEXT_BUDGET:
+        if encoded_result_size(candidate(middle)) <= byte_budget:
             low = middle
         else:
             high = middle - 1
     result = candidate(low)
-    if (low == start and start < len(content)) or encoded_result_size(result) > MODEL_TEXT_BUDGET:
+    if (low == start and start < len(content)) or encoded_result_size(result) > byte_budget:
         return request_error(request_type, ErrorCode.INVALID_REQUEST,
                              "Response metadata exceeds the text page budget.", "cursor")
     return result

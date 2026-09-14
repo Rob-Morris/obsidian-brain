@@ -96,17 +96,17 @@ Five cumulative built-in profiles define what each agent can do:
 
 | Profile | Allowed tools |
 |---|---|
-| `reader` | Inspect, discover and manage access state (26 application / 26 MCP commands) |
-| `contributor` | Reader access plus ordinary content creation, editing and lifecycle work (48 / 47 cumulative) |
-| `maintainer` | Contributor access plus definition, plugin and derived-index maintenance (61 / 58 cumulative) |
-| `operator` | Maintainer access plus workspace registration and runtime-operational changes (70 / 59 cumulative) |
-| `administrator` | Operator access plus irreversible artefact deletion (71 / 60 cumulative) |
+| `reader` | Observe and discover; inspect and request authorisation within its permissions |
+| `contributor` | Reader permissions plus ordinary content creation, editing and lifecycle work |
+| `maintainer` | Contributor permissions plus definition, plugin and derived-index maintenance |
+| `operator` | Maintainer permissions plus workspace registration and runtime operations |
+| `administrator` | Operator permissions plus irreversible artefact deletion |
 
 Profiles are defined in `defaults/config.yaml` under `vault.profiles` and can be
 extended or replaced in `.brain/config.yaml`. The default profile when no key is
 supplied is `operator` for single-operator local vaults.
 
-**Per-command enforcement:** Authentication fixes a profile ceiling before MCP discovery. The application boundary then checks both that ceiling and the principal's Reader-default active grant before dynamic request resolution, executor entry or effects. Exact expiring leases can activate commands only within the ceiling. Unknown commands, identities, profiles and malformed access state fail closed. The 0.57.0 upgrade adds the access controls only to exact shipped profiles; custom profiles are not widened.
+**Per-command enforcement:** Credential permissions define the enduring maximum. Current authorisation is checked separately before dynamic resolution and again at guarded operation entry. New configurations initially authorise normal content work within that maximum; explicit read-only or exact command settings can narrow it. Exceptional operations require an explicit `access.request` through the caller's harness. Unknown identities, malformed policy and requests above the maximum fail closed. Custom profiles are preserved, including missing controls; configuration inspection identifies conflicts without widening permissions.
 
 **Design intent:** A read-only summariser gets `reader`; an agent working normally
 with content gets `contributor`; a Brain custodian gets `maintainer`; an agent managing
@@ -116,11 +116,17 @@ config, so they are shared across all machines and cannot be overridden locally.
 
 See: [DD-033: Operator profiles](decisions/dd-033-operator-profiles.md)
 
-### Elevation boundary
+### Authorisation and permission boundaries
 
-`automatic` elevation is an intent/audit mechanism, not a defence against the authenticated agent. `external` elevation creates a pending request and requires the CLI-only `access.approve` launcher owner to authenticate a registered operator secret that is not part of the agent's semantic request. The approver's ceiling must contain every requested command. Leases are principal-scoped, expire at an absolute time, may carry a bounded use count and are enforced on every call; cached tool definitions never confer authority.
+`access.request` is a distinct tool so a harness can require manual approval for it or allow automatic execution. Brain does not assert that a human clicked approval. A request authorises one reviewed prepared operation or one exact command within the credential's existing permissions. Brain policy may deny requests entirely. There is no approval queue, timer, renewal or silent request-and-retry path.
 
-MCP discovery exposes a deterministic ceiling-visible catalogue. Active-grant changes do not alter `tools/list`, so correctness does not depend on client support for lazy loading or `tools/list_changed`. Credential or ceiling changes require reconnect/replacement.
+Consent belongs to one Brain, principal and private MCP instance or explicit CLI job. The proxy retains its owner across compatible child replacement; a fresh proxy starts without exceptional consent. A job authenticates once, passes a private inherited channel, and closes admission when its root program ends. Children must explicitly preserve that descriptor across subprocess APIs that close inherited descriptors. No environment token or public context identifier substitutes for the channel. Pinned operator registration removal or rotation revokes the owner; current configuration is checked on subsequent use.
+
+Permission changes, initial-policy changes and command/interface changes invalidate existing consent irreversibly. Restoring the old configuration cannot reactivate an observed invalidated grant. Permissions are changed only through the CLI-owned `permission.set-profile`, by an authenticated administrator, with revision-checked preview and audited update. It changes an existing registered operator's profile; it cannot change the anonymous default principal or invent access to a remote Brain.
+
+MCP registers commands within current permissions. `command.list` and `command.describe` also disclose static metadata for above-permission commands without probing providers or resources. Current authorisation does not change tool registration; cached definitions never grant authority. Permission changes require fresh discovery/reconnection where the host caches registrations.
+
+Legacy explicit initial-profile settings are preserved during migration. An old external-approval policy becomes `request_policy: migration_required` until an administrator deliberately selects the new policy. Unsupported legacy access settings are rejected, and custom-profile conflicts are reported for inspection.
 
 ---
 

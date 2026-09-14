@@ -22,6 +22,7 @@ class ErrorCode(str, Enum):
     NOT_FOUND = "not_found"
     CONFLICT = "conflict"
     AUTHORITY_DENIED = "authority_denied"
+    AUTHORISATION_REQUIRED = "authorisation_required"
     CAPABILITY_UNAVAILABLE = "capability_unavailable"
     COMMAND_OUTCOME_UNKNOWN = "command_outcome_unknown"
     INTERNAL_ERROR = "internal_error"
@@ -115,14 +116,15 @@ class CapabilityUnavailableDetails:
 class AuthorityDeniedDetails:
     profile: str
     required: str
-    boundary: Literal["ceiling", "active_grant"] = "ceiling"
+    boundary: Literal["permissions", "authorisation", "context", "policy"] = "permissions"
     requestable: bool = False
+    reason: str | None = None
 
     def __post_init__(self) -> None:
         if not self.profile.strip() or not self.required.strip():
             raise ValueError("authority-denied details require profile and required authority")
-        if self.requestable and self.boundary != "active_grant":
-            raise ValueError("only active-grant denial can be requestable")
+        if self.requestable and self.boundary != "authorisation":
+            raise ValueError("only an authorisation boundary can be requestable")
 
 
 @dataclass(frozen=True, slots=True)
@@ -213,21 +215,19 @@ class Error:
 
     def __post_init__(self) -> None:
         _validate_identity(self.command_id, self.command_version)
-        if self.effects == "unknown":
+        if self.error.code is ErrorCode.COMMAND_OUTCOME_UNKNOWN:
             if self.outcome_reference is None:
-                raise ValueError("unknown-effect error requires an outcome reference")
+                raise ValueError("unknown execution requires an outcome reference")
             if self.retryable:
-                raise ValueError("unknown-effect error cannot be retryable")
-            if self.error.code is not ErrorCode.COMMAND_OUTCOME_UNKNOWN:
-                raise ValueError("unknown effects require command_outcome_unknown")
+                raise ValueError("unknown execution cannot be retryable")
             if not isinstance(self.error.details, OutcomeUnknownDetails):
                 raise ValueError("unknown effects require typed outcome-unknown details")
             if self.error.details.reference != self.outcome_reference:
                 raise ValueError("unknown-effect details and outcome reference must agree")
+        elif self.effects == "unknown":
+            raise ValueError("unknown effects require command_outcome_unknown")
         elif self.outcome_reference is not None:
-            raise ValueError("no-effect error cannot carry an outcome reference")
-        elif self.error.code is ErrorCode.COMMAND_OUTCOME_UNKNOWN:
-            raise ValueError("command_outcome_unknown cannot claim effects none")
+            raise ValueError("only unknown execution can carry an outcome reference")
 
 
 CommandResult = Ok[T] | Partial | Error

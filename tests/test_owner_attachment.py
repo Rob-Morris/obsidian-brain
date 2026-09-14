@@ -163,7 +163,7 @@ def test_stream_cannot_be_shared_with_siblings_or_rehandshaken(owner):
 def test_real_managed_exec_preserves_attachment_and_scrubs_locator(owner, tmp_path, transport):
     attachment = OwnerAttachment.for_job(owner) if transport == "job" else None
     target = tmp_path / 'after_exec.py'
-    target.write_text(PROBE)
+    target.write_text('from _bootstrap.owner_attachment import capture_process_identity\nidentity, seed = capture_process_identity()\nassert identity.context_id == "exec-context" and seed\n' + PROBE)
     before = '''import sys
 from _bootstrap.owner_attachment import OwnerAttachment
 from _bootstrap.runtime import exec_managed_runtime
@@ -174,6 +174,8 @@ exec_managed_runtime(managed_python=sys.executable,script_path=sys.argv[1],forwa
         channel = (nullcontext(attachment.forwarded_process(environment())) if attachment is not None
                    else private_child_channel(owner, environment()))
         with channel as options:
+            from _bootstrap.owner_attachment import PROCESS_CONTEXT_ENV, ProcessIdentity
+            options["env"][PROCESS_CONTEXT_ENV] = ProcessIdentity("cli-job" if transport == "job" else "mcp-instance", "exec-context").launch_value(initialise_owner=True)
             result = subprocess.run([sys.executable, '-c', before, str(target), str(tmp_path), 'exec'],
                                     **options, capture_output=True, text=True, timeout=10)
         assert result.returncode == 0, result.stderr
@@ -361,7 +363,10 @@ from pathlib import Path
 try: os.fstat({fd}); inherited=True
 except OSError: inherited=False
 value={{"fd":inherited,"locator":"BRAIN_OWNER_CHANNEL" in os.environ}}
-Path({str(report)!r}).write_text(json.dumps(value))
+report=Path({str(report)!r})
+pending=report.with_name(report.name+"."+str(os.getpid())+".pending")
+pending.write_text(json.dumps(value))
+pending.replace(report)
 print(json.dumps({{"result":value}}))
 ''')
     executable.chmod(0o700)
@@ -508,7 +513,7 @@ def test_unavailable_marker_cannot_mask_broken_established_attachment():
 
 @pytest.mark.parametrize('available', [True, False])
 def test_real_server_captures_owner_before_eager_catalogue_composition(owner, command_vault_baseline, available):
-    from _bootstrap.owner_attachment import OWNER_UNAVAILABLE_ENV, OWNER_UNAVAILABLE_REASONS
+    from _bootstrap.owner_attachment import OWNER_UNAVAILABLE_ENV, OWNER_UNAVAILABLE_REASONS, PROCESS_CONTEXT_ENV, ProcessIdentity
 
     # Use an installed-shaped Brain for actual server registration/authentication.
     selected = ConsentOwner(command_vault_baseline.vault_root)
@@ -529,6 +534,7 @@ server._close_session_mirror()
 '''
     try:
         with channel as options:
+            options["env"][PROCESS_CONTEXT_ENV] = ProcessIdentity("mcp-instance", selected.identity.context_id).launch_value(initialise_owner=available)
             result = subprocess.run([sys.executable, '-c', program], **options,
                                     capture_output=True, text=True, timeout=15)
         assert result.returncode == 0, result.stderr
@@ -539,3 +545,36 @@ server._close_session_mirror()
                            'environment_clean': True}
     finally:
         selected.close()
+
+
+def test_real_server_keeps_authenticated_key_out_of_provider_subprocesses(command_vault_clone):
+    from _common import hash_key
+    from _common._yaml import dump_mapping_text
+    from _bootstrap.owner_attachment import PROCESS_CONTEXT_ENV, ProcessIdentity
+
+    root = command_vault_clone.vault_root
+    (root / '.brain/config.yaml').write_text(dump_mapping_text({'vault': {'operators': [
+        {'id': 'mcp-test', 'profile': 'operator', 'auth': {'type': 'key', 'hash': hash_key('mcp-test-key')}}]}}))
+    owner = ConsentOwner(root)
+    env = environment()
+    env.update(BRAIN_VAULT_ROOT=str(root), BRAIN_OPERATOR_KEY='mcp-test-key')
+    env['PYTHONPATH'] = os.pathsep.join((str(ROOT / 'src/brain-core'), env['PYTHONPATH']))
+    program = """import json,os,subprocess,sys
+from brain_mcp import server
+composer=server._mcp_context_composer()
+assert composer.identity().principal == 'operator:mcp-test'
+assert 'BRAIN_OPERATOR_KEY' not in os.environ
+result=subprocess.run([sys.executable,'-c',"import os; assert 'BRAIN_OPERATOR_KEY' not in os.environ; assert 'BRAIN_OWNER_CHANNEL' not in os.environ; assert 'BRAIN_PROCESS_CONTEXT' not in os.environ"],capture_output=True,text=True)
+assert result.returncode == 0, result.stderr
+composer.close()
+server._close_session_mirror()
+"""
+    try:
+        for initialise in (True, False):
+            with private_child_channel(owner, env) as options:
+                options['env'][PROCESS_CONTEXT_ENV] = ProcessIdentity('mcp-instance', owner.identity.context_id).launch_value(initialise_owner=initialise)
+                result = subprocess.run([sys.executable, '-c', program], **options, capture_output=True, text=True, timeout=15)
+            assert result.returncode == 0, result.stderr
+        assert env['BRAIN_OPERATOR_KEY'] == 'mcp-test-key', 'proxy replacement launch copy was mutated'
+    finally:
+        owner.close()

@@ -38,13 +38,13 @@ Neither catalogue imports, copies or manufactures the other's semantic owners.
 Application executors call lower-level `_bootstrap`, `_portable`, `_common`, `_lifecycle`, `_search` and related domain packages. Those packages do not import back into `_application`. The application package imports no MCP SDK, parser, terminal renderer, implicit environment selector or concrete provisioning owner.
 
 [DD-073](decisions/dd-073-instance-owned-agent-authorisation.md) defines the
-replacement for timed access leases. Its internal foundation separates the
+instance-owned replacement for timed access leases. The application separates the
 application's permission and consent rules from opaque process-owned storage,
 private caller transport and immutable input retention. Domain owners prepare
-and apply shared validated plans under their existing effect guards. Public
-activation awaits the coordinated adapter/config cutover; all ordinary owners
-have preparation strategies, while the current public access contract remains
-unchanged during this work.
+and apply shared validated plans under their existing effect guards. Every ordinary
+command has an explicit preparation strategy and initial-authorisation class.
+Specific consent binds the exact immutable operation; command consent covers
+one command throughout this Brain and owner context. Neither expires on a timer.
 Prepared content stays in a private owner directory. One inert machine-local
 coordination lock per canonical Brain sits outside that directory, allowing
 shutdown to delete private inputs without unlinking an open lock on Windows.
@@ -59,9 +59,8 @@ retryable cleanup handle until the private bytes have been released.
 The MCP proxy owns one private context across application-child replacements.
 Trusted entry points capture a non-inheritable owner channel before provider
 work, and only deliberate CLI dispatch or exact runtime replacement forwards
-it. Providers receive neither the locator nor the descriptor. The internal CLI
-job supervisor closes admission when its root process ends; its public command
-is introduced with the authorisation cutover. Native Windows owner-channel
+it. Providers receive neither the locator nor the descriptor. The `brain session run -- program` CLI
+job supervisor authenticates once and closes admission when its root process ends. Native Windows owner-channel
 inheritance is not yet supported.
 
 ### Machine-global launcher
@@ -72,12 +71,12 @@ The launcher cannot invent selected-Brain application commands. The outer CLI co
 
 ### Adapters
 
-- `brain_mcp/` registers every MCP-eligible application command under its canonical `<noun>.<verb>` identifier;
+- `brain_mcp/` registers every MCP-eligible application command under its `<noun>_<verb>` wire name, preserving hyphens within each component;
 - `cli/_local_cli/` maps the one noun/verb grammar to either a launcher owner or the selected Brain's own `command.py` process;
 - `scripts/command.py` is the direct selected-Brain projection;
 - typed Python constructs a sealed request and invokes `CommandApplication` with trusted context.
 
-Adapters own parsing, selection, transport and presentation. They do not own semantic branching. Trusted `InvocationContext`—selected Brain, authenticated profile, provider bindings, invocation identity, receipt writer, tier, clock and dry-run—is composed outside the semantic request and cannot be supplied as request JSON.
+Adapters own parsing, selection, transport and presentation. They do not own semantic branching. Trusted `InvocationContext`—selected Brain, authenticated profile, provider bindings, invocation identity, owned receipt port, tier, clock and dry-run—is composed outside the semantic request and cannot be supplied as request JSON.
 
 ## One command grammar
 
@@ -90,9 +89,9 @@ vault.check
 brain.upgrade
 ```
 
-The CLI spelling is `brain <noun> <verb>`. MCP names preserve canonical `<noun>.<verb>` identifiers exactly. The direct script uses `<noun> <verb>`, and Python uses the corresponding sealed request type. Alternatives become separate commands when they differ in required fields, results/errors, authority, dependency tier, locality, atomicity, retry or effect behaviour.
+The CLI spelling is `brain <noun> <verb>`. MCP replaces the canonical identifier's single dot with an underscore: `document.structured-edit` becomes `document_structured-edit`; result envelopes retain the canonical dot identifier. The direct script uses `<noun> <verb>`, and Python uses the corresponding sealed request type. Alternatives become separate commands when they differ in required fields, results/errors, authority, dependency tier, locality, atomicity, retry or effect behaviour.
 
-`command.list` v3 provides concise, byte-bounded pages and an explicit detailed view; `command.describe` v3 owns full installed contracts. Effective access is evaluated without consuming a lease and stays distinct from dependency availability. The CLI presents flat entries with page-level catalogue provenance. Static discovery never probes optional providers; explicit refresh creates one bounded capability snapshot. Provider and aggregate deadlines degrade late work to unknown behind a fixed process-wide daemon bound, so refresh cannot accumulate unbounded stuck workers or delay process exit. Documentation and generated fixtures point to catalogue discovery instead of becoming a second operation inventory.
+`command.list` v4 provides concise, byte-bounded pages and an explicit detailed view; `command.describe` v4 owns full installed contracts. Effective access is evaluated without consuming consent and stays distinct from dependency availability. The CLI presents flat entries with page-level catalogue provenance. Static discovery never probes optional providers; explicit refresh creates one bounded capability snapshot. Provider and aggregate deadlines degrade late work to unknown behind a fixed process-wide daemon bound, so refresh cannot accumulate unbounded stuck workers or delay process exit. Documentation and generated fixtures point to catalogue discovery instead of becoming a second operation inventory.
 
 ## Result and recovery model
 
@@ -102,7 +101,7 @@ All application projections preserve `brain.command-result/1`:
 - `partial` contains the known committed effects and a typed error;
 - `error` contains no result and declares either no effects or an unknown mutation outcome.
 
-Unexpected mutation loss is never replayed blindly. Effect-bearing invocation outcomes are written to bounded, privacy-minimal receipts. `invocation.read` resolves a durable reference without creating storage, locking files or deleting expired state; absence of a conclusive receipt never proves no effect. Stable exit categories and MCP error projection derive from the same structure.
+Unexpected execution loss is never replayed automatically, including observations and pre-effect drift. Every ordinary admitted invocation and stateful control records immutable intent and an independent execution/effect outcome in bounded, owned receipts. `invocation.read` resolves a durable reference for the same Brain, principal and context without deleting expired state; absence of a conclusive receipt never proves no effect. Stable exit categories and MCP error projection derive from the same structure.
 
 ## Dependency planes
 

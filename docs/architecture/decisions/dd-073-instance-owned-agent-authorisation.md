@@ -1,7 +1,7 @@
 # DD-073: Instance-owned agent authorisation
 
-**Status:** Accepted; implementation pending
-**Supersedes:** DD-062 (on coordinated runtime cutover)
+**Status:** Implemented (v0.68.0)
+**Supersedes:** DD-062 (v0.68.0 coordinated runtime cutover)
 **Extends:** DD-033, DD-061, DD-064, DD-067
 
 ## Context
@@ -128,6 +128,10 @@ target authorisation they are designed to request.
 
 Audit persists attributed intent before consent-controlled operation entry in a
 record separate from the immutable final outcome; failure prevents admission.
+The receipt ledger atomically claims each invocation ID. Only a newly published
+intent permits entry; an existing identical or conflicting intent directs the
+caller to owned outcome inspection and cannot authorise another execution.
+Initial, blanket, specific and mutating-control calls share this requirement.
 Duplicate identical completion is idempotent, incompatible completion conflicts,
 and surviving intent without completion is unknown. Completion-record failure produces an unknown
 outcome and recovery guidance. Audit never stores capabilities, keys, full bodies

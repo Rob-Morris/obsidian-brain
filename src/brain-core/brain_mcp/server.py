@@ -14,8 +14,11 @@ import logging
 import os
 from pathlib import Path
 import sys
+import uuid
 
-from mcp.server import MCPServer
+_OPERATOR_KEY = os.environ.pop("BRAIN_OPERATOR_KEY", None)
+
+from mcp.server import MCPServer  # noqa: E402
 from mcp.server.mcpserver import Context
 
 
@@ -28,7 +31,9 @@ from _application.registry import (  # noqa: E402
     current_request_resolver,
 )
 from _common import _operational_log  # noqa: E402
-from _bootstrap.owner_attachment import OwnerAttachment, capture_owner_unavailable  # noqa: E402
+from _bootstrap.owner_attachment import (  # noqa: E402
+    OwnerAttachment, ProcessIdentity, capture_owner_unavailable, capture_process_identity,
+)
 from _command_interface.direct import (  # noqa: E402
     DirectContextComposer,
 )
@@ -51,6 +56,8 @@ _MCP_CONTEXT_COMPOSER: DirectContextComposer | None = None
 _SESSION_MIRROR: SessionMirrorWorker | None = None
 _OWNER_ATTACHMENT: OwnerAttachment | None = None
 _OWNER_UNAVAILABLE_REASON: str | None = None
+_TRANSPORT_IDENTITY = None
+_OWNER_INITIALISATION_ALLOWED = False
 
 
 def _selected_vault() -> Path:
@@ -110,20 +117,32 @@ def _proxy_invocation_id(context: Context) -> str:
     return _invocation_id_from_metadata(metadata)
 
 
-def _mcp_context_factory(*, command_id, catalogue, mcp_context):
+def _mcp_context_factory(*, command_id, catalogue, mcp_context, operation_id=None):
     del catalogue
     composer = _mcp_context_composer()
     return composer.compose(
         command_id=command_id,
         invocation_id=_proxy_invocation_id(mcp_context),
+        operation_id=operation_id,
     )
 
 
 def _mcp_context_composer() -> DirectContextComposer:
-    global _MCP_CONTEXT_COMPOSER, _SESSION_MIRROR
+    global _MCP_CONTEXT_COMPOSER, _SESSION_MIRROR, _TRANSPORT_IDENTITY, _OWNER_UNAVAILABLE_REASON
     if _MCP_CONTEXT_COMPOSER is not None:
         return _MCP_CONTEXT_COMPOSER
     root = _selected_vault()
+    if _TRANSPORT_IDENTITY is None:
+        # A directly launched server still has MCP attribution, never the
+        # standalone CLI receipt namespace. It cannot claim restart continuity
+        # or initialise exceptional consent without trusted proxy launch facts.
+        context_id = (_OWNER_ATTACHMENT.connect(root).identity.context_id if _OWNER_ATTACHMENT is not None
+                      else f"mcp-{uuid.uuid4()}")
+        _TRANSPORT_IDENTITY = ProcessIdentity("mcp-instance", context_id)
+        if _OWNER_ATTACHMENT is None:
+            _OWNER_UNAVAILABLE_REASON = _OWNER_UNAVAILABLE_REASON or "Proxy instance context is unavailable; launch MCP through the Brain proxy."
+    if _TRANSPORT_IDENTITY.kind != "mcp-instance":
+        raise RuntimeError("MCP cannot adopt another transport's context")
     workspace_value = os.environ.get("BRAIN_WORKSPACE_DIR")
     workspace = Path(workspace_value).expanduser() if workspace_value else None
     if workspace is not None and not workspace.is_absolute():
@@ -132,12 +151,14 @@ def _mcp_context_composer() -> DirectContextComposer:
     _MCP_CONTEXT_COMPOSER = DirectContextComposer(
         vault_root=root,
         catalogue=current_application_catalogue(),
-        operator_key=os.environ.get("BRAIN_OPERATOR_KEY"),
+        operator_key=_OPERATOR_KEY,
         workspace_dir=workspace,
         session_mirror=_SESSION_MIRROR,
         owner_attachment=_OWNER_ATTACHMENT,
         owner_unavailable_reason=_OWNER_UNAVAILABLE_REASON or ("Private MCP child inheritance is unsupported on this platform."
                                   if os.name != "posix" else None),
+        transport_identity=_TRANSPORT_IDENTITY,
+        owner_initialisation_allowed=_OWNER_INITIALISATION_ALLOWED,
     )
     return _MCP_CONTEXT_COMPOSER
 
@@ -172,6 +193,7 @@ def _build_public_mcp() -> MCPServer:
 try:
     _OWNER_ATTACHMENT = OwnerAttachment.capture()
     _OWNER_UNAVAILABLE_REASON = capture_owner_unavailable()
+    _TRANSPORT_IDENTITY, _OWNER_INITIALISATION_ALLOWED = capture_process_identity()
     mcp = _build_public_mcp()
 except BaseException:
     if _OWNER_ATTACHMENT is not None:

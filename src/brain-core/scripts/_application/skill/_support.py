@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
+from ..types import InitialAuthorisationClass
 
 from .._mutation_support import contributor_mutation_entry, no_effect_error
 from ..receipts import CommittedEffect
@@ -44,6 +45,7 @@ def git_skill_catalogue_entry(request_type, executor):
 
     return replace(
         mutation_catalogue_entry(request_type, executor),
+        initial_class=InitialAuthorisationClass.EXCEPTIONAL,
         required_providers=("git_remote",),
         open_world=True,
     )

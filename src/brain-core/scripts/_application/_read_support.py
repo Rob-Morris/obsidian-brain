@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from .types import InitialAuthorisationClass
+
 from ._decoding import reject_unexpected
 
 from typing import Mapping
@@ -48,6 +50,7 @@ def catalogue_entry(request_type, executor):
     from .preparation import LIVE_QUERY
 
     return ApplicationEntry(
+        initial_class=InitialAuthorisationClass.OBSERVATION,
         request_type=request_type,
         executor=executor,
         dependency_tier=DependencyTier.PORTABLE,

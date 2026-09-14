@@ -9,6 +9,16 @@ Contributor standards:
 - [Changelog](../standards/changelog.md) — tiered public release-history standard
 - [Commit Messages](../standards/commit-messages.md) — release Summary subjects, required non-versioned prefixes, body structure, and drafting process
 
+## Agent Authorisation Contract
+
+Every ordinary command declares its initial authorisation class and domain-owned
+preparation/admission strategy. Normal content is initially authorised within
+credential permissions; exceptional consent is scoped to the selected Brain and
+active owner. Keep permission changes separate from explicit `access.request`,
+and never add adapter auto-request/retry or elapsed-time renewal. Bootstrap,
+static above-maximum discovery and paged controls derive from these typed
+contracts; measure actual UTF-8 envelopes when changing their byte budgets.
+
 ## Bootstrap Contract
 
 Bootstrap changes have an unusually high drift risk because the same user-facing behaviour spans JSON, markdown, install text, and fallback docs.

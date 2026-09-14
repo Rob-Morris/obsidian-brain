@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from .types import InitialAuthorisationClass, SnapshotFreshness
+from .access_contracts import CommandAuthorisationState
+
 from ._decoding import reject_unexpected
 from ._response_budget import MODEL_TEXT_BUDGET, encoded_result_size
 
@@ -15,7 +18,8 @@ from .catalogue import (
     type_identity,
 )
 from .context import InvocationContext
-from .receipts import ReceiptLookupState
+from .consent import ConsentError
+from .receipts import ReceiptLookupState, ReceiptOwnershipError
 from .requests import (
     CatalogueCursor,
     CommandDescribeRequest,
@@ -67,14 +71,17 @@ class _FoundationOwners:
     def command_list(self, context: InvocationContext, request: CommandRequest):
         if type(request) is not CommandListRequest:
             raise TypeError("command.list owner received the wrong request type")
-        snapshot = self._snapshot(context, request)
+        catalogue = self._require_catalogue()
+        access = {item.command_id: item for item in context.access.command_access_many(
+            tuple(entry.command_id for entry in catalogue.entries))}
+        snapshot = self._snapshot(context, request, access)
         if isinstance(snapshot, Error):
             return snapshot
         catalogue = self._require_catalogue()
         entries = tuple(
             entry
             for entry in catalogue.entries
-            if self._matches_list_filter(entry, request, context, snapshot)
+            if self._matches_list_filter(entry, request, context, snapshot, access)
         )
         start = 0
         if request.cursor is not None:
@@ -102,7 +109,6 @@ class _FoundationOwners:
             start = cursor_index + 1
         # Bound the canonical envelope, before any adapter duplicates it as
         # JSON text and structured content. Keep room for host status text.
-        access = context.authority.observe()
         fingerprint = catalogue.fingerprint
         page = []
 
@@ -115,7 +121,7 @@ class _FoundationOwners:
             return Ok(
                 request.COMMAND_ID, request.COMMAND_VERSION,
                 CommandListPayload(
-                    catalogue.schema, fingerprint, tuple(items),
+                    catalogue.interface_epoch, catalogue.schema, fingerprint, tuple(items),
                     snapshot.token, snapshot.freshness, cursor,
                 ),
             )
@@ -147,7 +153,7 @@ class _FoundationOwners:
                 candidate
                 for candidate in self._require_catalogue().entries
                 if candidate.command_id == request.target_command_id
-                and _ceiling_allows(context, candidate.command_id)
+
             ),
             None,
         )
@@ -169,17 +175,15 @@ class _FoundationOwners:
     def invocation_read(self, context: InvocationContext, request: CommandRequest):
         if type(request) is not InvocationReadRequest:
             raise TypeError("invocation.read owner received the wrong request type")
-        receipt = context.receipt_reader.read(request.reference)
-        state = (
-            ReceiptLookupState.FOUND
-            if receipt is not None
-            else ReceiptLookupState.STILL_UNKNOWN
-        )
-        return Ok(
-            InvocationReadRequest.COMMAND_ID,
-            InvocationReadRequest.COMMAND_VERSION,
-            InvocationReadPayload(request.reference, state, receipt),
-        )
+        try:
+            lookup = context.receipt_reader.read(request.reference)
+        except ReceiptOwnershipError:
+            raise ConsentError(
+                "foreign_context",
+                "The receipt is not available to this Brain and caller context.",
+            ) from None
+        return Ok(InvocationReadRequest.COMMAND_ID, InvocationReadRequest.COMMAND_VERSION,
+            InvocationReadPayload(lookup.reference, lookup.state, lookup.intent, lookup.outcome))
 
     def _require_catalogue(self) -> ApplicationCatalogue:
         if self._catalogue is None:
@@ -192,9 +196,8 @@ class _FoundationOwners:
         request: CommandListRequest,
         context: InvocationContext,
         snapshot,
+        access,
     ) -> bool:
-        if not _ceiling_allows(context, entry.command_id):
-            return False
         if request.owner is not None and request.owner is not CommandOwner.APPLICATION:
             return False
         if (
@@ -231,12 +234,12 @@ class _FoundationOwners:
             return False
         if (
             request.availability is not None
-            and _availability(entry, context, snapshot) is not request.availability
+            and _availability(entry, context, snapshot, access[entry.command_id]) is not request.availability
         ):
             return False
         return True
 
-    def _snapshot(self, context: InvocationContext, request: CommandListRequest):
+    def _snapshot(self, context: InvocationContext, request: CommandListRequest, access):
         if request.refresh:
             if context.capability_snapshots is None:
                 details = CapabilityUnavailableDetails(
@@ -261,6 +264,7 @@ class _FoundationOwners:
                     {
                         provider_id
                         for entry in self._require_catalogue().entries
+                        if not _static_disclosure(access[entry.command_id])
                         for provider_id in (*entry.required_providers, *entry.optional_providers)
                     }
                 )
@@ -292,12 +296,17 @@ class _FoundationOwners:
         return CommandBrief(
             entry.command_id, entry.command_version, entry.summary,
             entry.authority, entry.effect_class,
-            _availability(entry, context, snapshot), _access(entry, access),
+            _availability(entry, context, snapshot, access[entry.command_id]), entry.eligible_projections,
+            access[entry.command_id].state, entry.initial_class,
+            _static_disclosure(access[entry.command_id]),
+            _permission_management(access[entry.command_id]),
         )
 
     @staticmethod
     def _summary(entry: ApplicationEntry, context: InvocationContext, snapshot, access):
-        missing_optional = tuple(
+        observation = access[entry.command_id]
+        static = _static_disclosure(observation)
+        missing_optional = () if static else tuple(
             provider_id
             for provider_id in entry.optional_providers
             if (
@@ -318,16 +327,17 @@ class _FoundationOwners:
             entry.retry_class,
             entry.required_providers,
             entry.optional_providers,
-            _availability(entry, context, snapshot),
-            snapshot.freshness,
+            _availability(entry, context, snapshot, observation),
+            SnapshotFreshness.UNKNOWN if static else snapshot.freshness,
             missing_optional,
             entry.lifecycle,
             entry.replacement_command_id,
-            _access(entry, access),
+            observation.state, entry.initial_class, static, _permission_management(observation),
         )
 
     def _description(self, entry: ApplicationEntry, context: InvocationContext):
-        access = context.authority.observe()
+        observation = context.access.command_access(entry.command_id)
+        static = _static_disclosure(observation)
         identity = project_identity(entry.command_id)
         result_variants = [
             ResultVariantContract("ok", "The command completed with a typed result."),
@@ -360,8 +370,8 @@ class _FoundationOwners:
             entry.locality,
             entry.required_providers,
             entry.optional_providers,
-            _availability(entry, context, context.capabilities),
-            context.capabilities.freshness,
+            _availability(entry, context, context.capabilities, observation),
+            SnapshotFreshness.UNKNOWN if static else context.capabilities.freshness,
             entry.authority,
             entry.effect_class,
             entry.retry_class,
@@ -376,17 +386,22 @@ class _FoundationOwners:
             ),
             entry.lifecycle,
             entry.replacement_command_id,
-            _access(entry, access),
+            observation.state, entry.initial_class, static, _permission_management(observation),
         )
 
 
-def _access(entry: ApplicationEntry, observation) -> CommandAccess:
-    return (CommandAccess.ACTIVE if observation.allows(
-        command_id=entry.command_id, required=entry.authority, effect=entry.effect_class,
-    ) else CommandAccess.INACTIVE)
+def _permission_management(observation):
+    return ("permission.set-profile via an appropriately authorised CLI on this Brain"
+            if _static_disclosure(observation) else None)
 
 
-def _availability(entry: ApplicationEntry, context: InvocationContext, snapshot):
+def _static_disclosure(observation) -> bool:
+    return observation.boundary == "permissions"
+
+
+def _availability(entry: ApplicationEntry, context: InvocationContext, snapshot, observation):
+    if _static_disclosure(observation):
+        return Availability.UNKNOWN
     if not context.dependency_tier.supports(entry.dependency_tier):
         return Availability.UNAVAILABLE
     unknown = False
@@ -401,12 +416,6 @@ def _availability(entry: ApplicationEntry, context: InvocationContext, snapshot)
     return Availability.UNKNOWN if unknown else Availability.AVAILABLE
 
 
-def _ceiling_allows(context: InvocationContext, command_id: str) -> bool:
-    """Hide catalogue entries excluded by an authenticated profile ceiling."""
-
-    return context.authority.ceiling_allows(command_id)
-
-
 def _entry(
     request_type: type,
     executor,
@@ -414,6 +423,7 @@ def _entry(
     authority: Authority = Authority.READER,
 ) -> ApplicationEntry:
     return ApplicationEntry(
+        initial_class=InitialAuthorisationClass.CONTROL,
         request_type=request_type,
         executor=executor,
         dependency_tier=DependencyTier.PORTABLE,
@@ -439,7 +449,7 @@ def build_application_catalogue(
         _entry(
             InvocationReadRequest,
             owners.invocation_read,
-            authority=Authority.CONTRIBUTOR,
+            authority=Authority.READER,
         ),
         *additional_entries,
     )

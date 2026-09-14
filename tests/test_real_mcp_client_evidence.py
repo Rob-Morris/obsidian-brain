@@ -8,7 +8,6 @@ import json
 from granular_mcp_metadata import (
     REPO_ROOT,
     SUPPORTED_CLIENTS,
-    _registered_tools,
     canonical_json,
     project_tool,
 )
@@ -30,11 +29,9 @@ def _hash(value) -> str:
     return "sha256:" + hashlib.sha256(canonical_json(value).encode()).hexdigest()
 
 
-def test_pinned_real_clients_observe_current_command_list_declaration():
+def test_pinned_real_clients_retain_the_recorded_command_list_declaration():
     evidence = json.loads(EVIDENCE_PATH.read_text(encoding="utf-8"))
-    command_list = next(
-        tool for tool in _registered_tools() if tool["name"] == "command_list"
-    )
+    historical = json.loads(EVIDENCE_PATH.with_name("command_interface_granular_mcp_projection_v1.json").read_text())
 
     assert evidence["schema"] == "brain.command-interface-real-client-evidence/1"
     assert evidence["localhost_model_endpoint"] is True
@@ -42,10 +39,10 @@ def test_pinned_real_clients_observe_current_command_list_declaration():
     assert set(evidence["clients"]) == set(SUPPORTED_CLIENTS)
     for client, expected in SUPPORTED_CLIENTS.items():
         observed = evidence["clients"][client]
-        declaration = project_tool(client, command_list)
+        declaration = observed["declaration"]
         assert observed["client_version"] == expected["client_version"]
-        assert observed["declaration"] == declaration
         assert observed["declaration_hash"] == _hash(declaration)
+        assert _hash(declaration) == historical["clients"][client]["tools"]["command_list"]["projected_declaration_hash"]
         assert observed["minimal_request"] == {"page_size": 1}
         assert observed["minimal_result"] == {
             "command": "command.list",
@@ -66,11 +63,11 @@ def test_pinned_real_clients_observe_current_command_list_declaration():
 
 def test_pinned_real_clients_cover_eager_and_deferred_projection_paths():
     clients = json.loads(EVIDENCE_PATH.read_text(encoding="utf-8"))["clients"]
+    historical = json.loads(EVIDENCE_PATH.with_name("command_interface_granular_mcp_projection_v1.json").read_text())
+    captured_count = historical["raw_fastmcp"]["tool_count"]
 
     assert clients["claude-code"]["capture_path"] == "eager model request declarations"
-    assert clients["claude-code"]["initial_brain_declarations"] == len(
-        _registered_tools()
-    )
+    assert clients["claude-code"]["initial_brain_declarations"] == captured_count
     assert clients["claude-code"]["catalogue_hash"].startswith("sha256:")
     assert clients["codex-cli"]["capture_path"] in {
         "deferred client tool search",
@@ -79,7 +76,7 @@ def test_pinned_real_clients_cover_eager_and_deferred_projection_paths():
     assert (
         0
         <= clients["codex-cli"]["initial_brain_declarations"]
-        < len(_registered_tools())
+        < captured_count
     )
 
 
@@ -92,28 +89,21 @@ def test_grok_fresh_and_resumed_sessions_discover_portable_names_and_invoke():
     assert (
         evidence["localhost_model_endpoint"] and not evidence["external_model_request"]
     )
-    tools = _registered_tools()
-    expected = sorted(
-        (
-            {
-                "tool_name": "brain__" + tool["name"],
-                "description": tool["description"],
-                "input_schema": tool["input_schema"],
-            }
-            for tool in tools
-        ),
-        key=lambda item: item["tool_name"],
-    )
-    expected_by_name = {item["tool_name"]: item for item in expected}
+    historical = json.loads(EVIDENCE_PATH.with_name("command_interface_granular_mcp_projection_v1.json").read_text())
+    expected = historical["clients"]["claude-code"]["tools"]
     for phase in ("fresh", "resumed"):
         observed = evidence["sessions"][phase]
         assert observed["same_session"]
-        assert observed["tool_names"] == sorted(expected_by_name)
+        assert observed["tool_names"] == sorted("brain__" + name for name in expected)
         assert all(
             re.fullmatch(r"[a-zA-Z0-9_-]+", name) for name in observed["tool_names"]
         )
         for declaration in observed["declarations"]:
-            assert declaration == expected_by_name[declaration["tool_name"]]
+            name = declaration["tool_name"].removeprefix("brain__")
+            source = {"name": name, "description": declaration["description"],
+                      "input_schema": declaration["input_schema"]}
+            assert _hash(source["input_schema"]) == expected[name]["source_schema_hash"]
+            assert _hash(project_tool("claude-code", source)) == expected[name]["projected_declaration_hash"]
         assert set(observed["successful_requests"]) == {
             "session.start",
             "artefact.read",

@@ -20,19 +20,21 @@ The MCP server name remains `brain`. This projection is global, reversible and
 collision-free under the command grammar. Raw dotted names are not aliases.
 Command IDs in results, discovery arguments, permission profiles and access
 requests remain dotted; CLI commands remain `brain <noun> <verb>`.
-Interface epoch 2 requires clients to reconnect and rediscover tools after
+Interface epoch 3 requires clients to reconnect and rediscover tools after
 upgrade. Project registration repair updates exact managed bootstrap lines.
 
 The application catalogue owns the installed command inventory and marks each projection explicitly. A running server exposes only the MCP-eligible commands within the authenticated profile ceiling. Exact catalogue and profile counts are generated and checked from the authoritative catalogue; use MCP discovery or `command.list` for the selected installation rather than treating prose counts as a compatibility contract.
 
 Start an MCP session with `session_start`. On a cold Brain it starts or joins background warm-up and returns the shared `brain.runtime-status/1` snapshot with guidance to poll `runtime.status`; retry `session.start` when ready. `runtime.status` is a cheap read-only observation, while `runtime.warmup` explicitly starts, joins or retries warm-up. Discover commands with `command.list`, and inspect one exact request/result contract with `command.describe`. Default discovery uses static catalogue facts and does not probe optional providers; request an explicit refresh only when current provider availability matters.
 
-`command.list` v3 returns a brief view by default: command ID/version,
-summary, required authority, effect class, dependency availability and current
-`access` (`active` or `inactive`). Availability is a provider observation;
-access is one immutable grant observation per discovery invocation, not a promise that a future call will
-be authorized. Commands above the ceiling remain excluded. Use
-`access.request` for an inactive command within that ceiling.
+`command.list` v4 returns a brief view by default: command ID/version,
+summary, required authority, effect class, transport eligibility, initial class and
+current `access` (`authorised`, `authorisation_required` or `denied`). Availability
+is a provider observation, separate from authorisation. One batched access
+observation serves each discovery page. Commands above the credential maximum
+remain discoverable as `static_disclosure: true`: installed metadata and an
+administrative route only, with dynamic availability unknown and no provider
+probes. They are not callable or requestable through the current credential.
 
 The default page has at most 25 entries. Both `brief` and `detailed` views
 stop before the canonical JSON envelope exceeds 16,000 UTF-8 bytes, leaving
@@ -41,7 +43,7 @@ compatibility budget, not an MCP protocol limit. Pass `next_cursor` as `cursor`
 with the same filters to continue; a page may contain fewer than `page_size`
 entries. Shared catalogue identity and availability freshness occur once per
 page. Use `view: "detailed"` for provider/projection/retry/lifecycle metadata;
-`command.describe` v3 retains full schemas and examples and includes access.
+`command.describe` v4 retains full schemas and examples and includes access.
 The byte budget applies to list pages, not arbitrary command descriptions.
 
 Related named resources share the strict `resource.create`, `resource.list`, `resource.read` and `resource.search` tools. Each has a shallow resource or target discriminator and a closed resource-specific result union. Presentation and printable output similarly share `shaping.render` with a strict `output.kind` branch. These commands replace target-only leaves without introducing a generic invocation gateway.
@@ -62,7 +64,7 @@ The former aggregates and variants are removed: `brain_init`, `brain_session`, `
 
 ## Bounded bootstrap and document reads
 
-`session.start` v5 returns the complete lean bootstrap when its canonical
+`session.start` v6 returns the complete lean bootstrap when its canonical
 JSON envelope fits 16,000 UTF-8 bytes. It advertises the installed type count
 and shared retrieval routes; use `resource.list` with `resource: "type"` and
 `resource.read` to learn a type before creating it. Core-document references
@@ -83,23 +85,62 @@ A changed source returns `conflict`: restart without a cursor. These bounds
 apply before MCP, CLI and Python projections, so no transport cuts serialized
 JSON or silently drops the tail. Metadata-only resource variants remain intact.
 
-## Ceiling, active grant and elevation
+## Permissions and instance authorisation
 
-Authentication establishes an immutable command ceiling for the MCP process. `tools/list`, the proxy interface header, `command.list` and `command.describe` omit commands above that ceiling. Changing credentials or the ceiling requires proxy replacement and client re-discovery; an ordinary elevation lease does not change tool definitions.
+Credentials determine the maximum command permissions. Normal content operations
+and observations begin authorised within those permissions. Configuration can
+select a read-only initial set or exact initial commands. Permission and
+exceptional authorisation are distinct: `access.request` cannot enlarge a
+credential's permissions.
 
-The active grant starts at `defaults.access.initial_profile`, which is `reader` unless configured otherwise and is always intersected with the ceiling. Commands within the ceiling but outside the active grant return `authority_denied` with `boundary: active_grant`, `requestable: true` and an `access.request` next action. Commands above the ceiling are not requestable.
+Exceptional consent belongs to this Brain, principal and MCP instance. It ends
+when that instance closes; replacing the runtime child preserves the owner, but
+restarting the MCP instance requires fresh consent. There are no timed leases,
+automatic renewal, or implicit denial/request/retry loops. The harness may require
+manual approval specifically for `access_request`, or auto-approve that tool.
+Brain records the explicit request and requested scope; it does not claim to
+know whether a human clicked an approval button.
 
-- `access.status` reads the initial grant, active commands, inactive ceiling commands, leases and pending requests without writing state.
-- `access.request` requests one exact command or a sorted coherent set of at most eight. Leases have absolute expiry and may have a bounded use count.
-- `access.reduce` revokes exact leases or commands, or returns to the initial grant.
+- `access.prepare` validates an exact target request and returns its canonical
+  review, operation ID and digest. Preparation does not enter the target or
+  grant consent. Its inspect variant pages context-owned descriptor details.
+- `access.status(command_id=...)` returns canonical `command_review` for consent
+  to that exact command throughout this Brain and current context. Its grants,
+  operations and initial views are paged; operation rows recover preparations
+  whose response was lost.
+- `access.request` echoes the returned review for either one prepared operation
+  or one command. Specific consent requires the returned operation selector on
+  the target call (`brain_operation` in MCP); successful observation also spends
+  it. Changed target revisions or affected work sets require new preparation.
+- `access.reduce` revokes grants, disposes prepared operations or narrows initial
+  authorisation. It cannot restore an initial command or increase permissions.
 
-`vault.access.elevation_policy` is `automatic`, `external` or `denied`. Automatic elevation records intent but is not a security boundary against the authenticated agent. External elevation creates a pending request that only the CLI-only `brain access approve` launcher command can approve using a separately supplied registered operator secret whose profile covers every requested command; the requesting principal cannot approve its own request. Lease authority is checked on every call and a use is consumed only after request and capability preflight. Expiry or schema removal is never relied on for enforcement.
+`session.start` reports `access.permissions.ceiling` separately from
+`access.authorisation.initial`, request policy and exceptional-context availability.
+Unavailable context or migration-required policy does not advertise a usable
+request route. The compact access summary is at most 768 UTF-8 bytes; prepared
+reviews and complete consent requests remain below 8,000 bytes.
+`vault.read-config` reports the effective initial selection, overrides and
+configured request policy with their template/shared/local sources and actionable
+configuration diagnostics. `effective_request_policy` separately reports any
+restriction caused by those diagnostics. Oversized redacted configuration results use
+revision-bound JSON text pages; concatenate their content before parsing.
 
-This deliberately separates authorisation from client-side lazy loading. Claude Code may defer schemas and handles catalogue-change notifications; current Codex clients do not provide the same hot-refresh guarantee. Brain therefore keeps the ceiling-visible catalogue deterministic and uses call-time leases instead of mutating `tools/list` during a session.
+MCP tool definitions remain stable within the authenticated maximum. Discovery
+above that maximum gives the static `permission.set-profile` CLI route; changing
+permissions requires an appropriately authorised administrator for the target
+Brain. Agents do not search for keys or change their own credential permissions.
+
+Unattended callers should inspect command access, explicitly request a supported
+scope when configured to do so, and pass the operation selector for specific
+consent. Standalone CLI calls have no reusable exceptional context; use the
+explicit CLI job route for a multi-call workflow. An uncertain call is recovered
+through `invocation.read`, whose intent and final outcome distinguish admission
+from execution. Do not replay entered or uncertain operations automatically.
 
 ## Request contract
 
-Each tool exposes the exact strict object schema derived from its sealed command request. MCP arguments are the semantic request itself—there is no generic `request` envelope, action discriminator, command-name field or caller-supplied command version. Unknown fields fail before executor entry.
+Each tool exposes the exact strict object schema derived from its sealed command request. MCP arguments are the semantic request itself, plus the reserved optional `brain_operation` selector on ordinary tools. There is no generic invocation envelope or caller-supplied command version. Nested consent/preparation variants have explicit scope discriminators. Unknown fields fail before executor entry.
 
 The schema preserves required versus optional fields, explicit nullable fields, enums, nested object structure, descriptions and `additionalProperties: false`. Use the schema returned by MCP discovery or `command.describe`; do not infer one command's fields from a neighbouring command.
 
@@ -132,7 +173,7 @@ Warnings, stable error codes, typed details and next actions survive every proje
 
 ## Authority profiles
 
-Profiles authorise exact command names. The built-in `reader`, `contributor`, `maintainer`, `operator` and `administrator` ceilings are cumulative, while MCP exposes only each ceiling's eligible subset. Profile migration preserves an older broad document-mutation grant by granting all four replacements; custom profiles otherwise retain only their explicit grants. There is no runtime fallback or compatibility alias after cutover. Ceiling and active-grant checks both occur before dynamic request resolution.
+Profiles authorise exact command names. The built-in `reader`, `contributor`, `maintainer`, `operator` and `administrator` ceilings are cumulative, while MCP exposes only each ceiling's eligible subset. Profile migration preserves an older broad document-mutation grant by granting all four replacements; custom profiles otherwise retain only their explicit grants. There is no runtime fallback or compatibility alias after cutover. Credential permission and current-authorisation checks both occur before dynamic request resolution.
 
 ## Metadata and client budgets
 

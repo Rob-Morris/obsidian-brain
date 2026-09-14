@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from .types import InitialAuthorisationClass
+
 from dataclasses import dataclass, replace
 from enum import Enum
 
@@ -93,4 +95,4 @@ def execute_router_maintenance(
 
 
 def catalogue_entry(request_type, executor):
-    return replace(maintainer_mutation_entry(request_type, executor), preparation=MAINTENANCE)
+    return replace(maintainer_mutation_entry(request_type, executor), initial_class=InitialAuthorisationClass.OBSERVATION, preparation=MAINTENANCE)

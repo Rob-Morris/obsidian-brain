@@ -54,8 +54,8 @@ def test_missing_or_expired_receipt_remains_still_unknown():
     lookup = store.lookup(reference)
 
     assert lookup.state is ReceiptLookupState.STILL_UNKNOWN
-    payload = InvocationReadPayload(reference, lookup.state, lookup.receipt)
-    assert payload.receipt is None
+    payload = InvocationReadPayload(reference, lookup.state, None, None)
+    assert payload.intent is None and payload.outcome is None
 
 
 def test_cleanup_expires_records_without_reclassifying_their_effects():

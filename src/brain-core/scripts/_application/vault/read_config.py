@@ -2,8 +2,12 @@
 
 from __future__ import annotations
 
-from .._decoding import decode_empty
-from dataclasses import dataclass
+from .._decoding import reject_unexpected
+from .._response_budget import (ContentRange, TextCursor, bounded_text_result, decode_text_cursor,
+    encoded_result_size, validate_text_window, MODEL_TEXT_BUDGET, DEFAULT_TEXT_CHARACTERS, TEXT_WINDOW_DESCRIPTIONS)
+from ..access_contracts import AccessConfiguration
+from dataclasses import dataclass, asdict
+import json
 from typing import ClassVar, Mapping
 
 from .._read_support import (
@@ -24,16 +28,32 @@ class VaultConfigPayload:
     semantic_engine_installed: bool
     artefact_sync_exclusions: tuple[str, ...]
     warnings: tuple[str, ...]
+    access: AccessConfiguration
+
+
+@dataclass(frozen=True, slots=True)
+class VaultConfigPage:
+    content: str
+    revision: str
+    range: ContentRange
+    instruction: str
 
 
 @dataclass(frozen=True, slots=True)
 class VaultReadConfigRequest:
     COMMAND_ID: ClassVar[str] = "vault.read-config"
-    COMMAND_VERSION: ClassVar[int] = 1
-    RESULT_TYPE: ClassVar[type] = VaultConfigPayload
+    COMMAND_VERSION: ClassVar[int] = 2
+    RESULT_TYPE: ClassVar[object] = VaultConfigPayload | VaultConfigPage
+    FIELD_DESCRIPTIONS: ClassVar[dict[str, str]] = TEXT_WINDOW_DESCRIPTIONS
+
+    cursor: TextCursor | None = None
+    max_characters: int = DEFAULT_TEXT_CHARACTERS
+
+    def __post_init__(self):
+        validate_text_window(self.cursor, self.max_characters)
 
 
-def execute(context: InvocationContext, _request: VaultReadConfigRequest):
+def execute(context: InvocationContext, request: VaultReadConfigRequest):
     import warnings
 
     import config
@@ -72,26 +92,33 @@ def execute(context: InvocationContext, _request: VaultReadConfigRequest):
             "Invalid config: defaults.exclude.artefact_sync must be a string list",
             None,
         )
-    return Ok(
-        VaultReadConfigRequest.COMMAND_ID,
-        VaultReadConfigRequest.COMMAND_VERSION,
-        VaultConfigPayload(
-            brain_name=str(vault.get("brain_name") or ""),
-            default_profile=str(defaults.get("default_profile") or ""),
-            profiles=tuple(sorted(vault.get("profiles", {}))),
-            semantic_processing=bool(flags.get("semantic_processing")),
-            semantic_retrieval=bool(flags.get("semantic_retrieval")),
-            semantic_engine_installed=bool(
-                local_runtime.get("semantic_engine_installed")
-            ),
-            artefact_sync_exclusions=tuple(str(item) for item in exclusions),
-            warnings=tuple(str(item.message) for item in captured),
-        ),
+    payload = VaultConfigPayload(
+        brain_name=str(vault.get("brain_name") or ""),
+        default_profile=str(defaults.get("default_profile") or ""),
+        profiles=tuple(sorted(vault.get("profiles", {}))),
+        semantic_processing=bool(flags.get("semantic_processing")),
+        semantic_retrieval=bool(flags.get("semantic_retrieval")),
+        semantic_engine_installed=bool(local_runtime.get("semantic_engine_installed")),
+        artefact_sync_exclusions=tuple(str(item) for item in exclusions),
+        warnings=tuple(str(item.message) for item in captured),
+        access=context.access.configuration(),
     )
+    complete = Ok(request.COMMAND_ID, request.COMMAND_VERSION, payload)
+    if request.cursor is None and encoded_result_size(complete) < MODEL_TEXT_BUDGET:
+        return complete
+    from ..preparation import content_digest
+    content = json.dumps(asdict(payload), ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    revision = content_digest(content)
+    return bounded_text_result(VaultReadConfigRequest, content, revision,
+        cursor=request.cursor, max_characters=request.max_characters, byte_budget=MODEL_TEXT_BUDGET - 1,
+        payload=lambda text, window: VaultConfigPage(text, revision, window,
+            "Concatenate content from all range.next_cursor pages before parsing the redacted configuration JSON."))
 
 
 def decode(payload: Mapping[str, object]) -> VaultReadConfigRequest:
-    return decode_empty(payload, VaultReadConfigRequest)
+    reject_unexpected(payload, {"cursor", "max_characters"})
+    return VaultReadConfigRequest(decode_text_cursor(payload.get("cursor")),
+                                  payload.get("max_characters", DEFAULT_TEXT_CHARACTERS))
 
 
 def catalogue_entry():

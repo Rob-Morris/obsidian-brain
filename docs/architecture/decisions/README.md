@@ -101,7 +101,7 @@ Each DD captures the reasoning behind an architectural decision at the time it w
 | DD-059 | Narrow scoped attachment upload boundary under `_Assets/Attachments` | Implemented (v0.53.4) | [dd-059](dd-059-attachment-upload-boundary.md) |
 | DD-060 | Preserve recovery guidance when MCP clients degrade nested schemas | Implemented (v0.54.0) | [dd-060](dd-060-degraded-mcp-schema-recovery.md) |
 | DD-061 | Typed selected-Brain command application boundary | Implemented (v0.54.1; extended v0.54.2–v0.54.48) | [dd-061](dd-061-typed-command-application-boundary.md) |
-| DD-062 | Ceiling-visible catalogue with independent exact access leases | Implemented (v0.57.0) | [dd-062](dd-062-ceiling-visible-catalogue-and-access-leases.md) |
+| DD-062 | Ceiling-visible catalogue with independent exact access leases | Superseded by DD-073 (v0.68.0) | [dd-062](dd-062-ceiling-visible-catalogue-and-access-leases.md) |
 | DD-063 | Discovery shaping may preserve enduring lifecycle status | Implemented (v0.58.0) | [dd-063](dd-063-taxonomy-declared-shaping-status-behaviour.md) |
 | DD-064 | Document mutations use intent-specific commands and exact revisions | Implemented (v0.59.0) | [dd-064](dd-064-document-mutation-intents-and-revisions.md) |
 | DD-065 | Naive agent bootstrap is correctness-scoped, policied and enforced | Implemented (v0.59.1) | [dd-065](dd-065-naive-agent-bootstrap-policy.md) |
@@ -112,7 +112,7 @@ Each DD captures the reasoning behind an architectural decision at the time it w
 | DD-070 | The semantic encoder runs on onnxruntime, not torch | Implemented (v0.62.14) | [dd-070](dd-070-onnxruntime-semantic-encoder.md) |
 | DD-071 | Temporal artefacts file flat under their type root or owner chain | Implemented (v0.67.0) | [dd-071](dd-071-flat-temporal-filing.md) |
 | DD-072 | Migrations never touch definition files; definition sync owns convention updates | Implemented (v0.67.0) | [dd-072](dd-072-definition-convention-ownership.md) |
-| DD-073 | Agent authorisation belongs to an MCP instance or explicit CLI job | Accepted; implementation pending | [dd-073](dd-073-instance-owned-agent-authorisation.md) |
+| DD-073 | Agent authorisation belongs to an MCP instance or explicit CLI job | Implemented (v0.68.0) | [dd-073](dd-073-instance-owned-agent-authorisation.md) |
 
 ---
 

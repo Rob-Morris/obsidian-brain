@@ -1,304 +1,199 @@
-"""Reader-default active grants and exact elevation lease contracts."""
-
-from __future__ import annotations
-
-from datetime import datetime, timedelta, timezone
+"""Typed instance-authorisation controls expose scope without lease semantics."""
+from dataclasses import asdict, replace
 import json
+from types import SimpleNamespace
 
 import pytest
 
-from _application.adapter import ApplicationAdapter
-from _application.receipts import MemoryReceiptStore
+from _application.access import prepare, reduce, request, status
+from _application.access_contracts import (
+    AccessReductionResult, AccessRequestDecision, CommandAuthorisationState,
+    ConsentRecordState, PreparedOperation,
+)
+from _application.consent import ConsentScope
+from _application.projection import request_schema, canonical_result_envelope
 from _application.registry import current_application_catalogue, current_request_resolver
-from _application.results import ErrorCode
-from _application.types import DependencyTier, SnapshotFreshness
-from _command_interface.access import (
-    AccessPolicy,
-    FileAccessController,
-)
-from _command_interface.context import compose_local_context
-from _application.access_contracts import AccessRequestState, ElevationPolicy
-from _application.access.reduce import (
-    CommandReduction,
-    LeaseReduction,
-    ResetReduction,
-)
+from _application.types import InitialAuthorisationClass, RetryClass
 
 
-class _Clock:
-    def __init__(self):
-        self.value = datetime(2026, 8, 12, 8, 0, tzinfo=timezone.utc)
-
-    def now(self):
-        return self.value
-
-    def advance(self, seconds):
-        self.value += timedelta(seconds=seconds)
-
-
-def test_access_reduction_discriminators_are_constructor_owned():
-    assert ResetReduction().kind == "initial"
-    assert LeaseReduction(("lease-1",)).kind == "leases"
-    assert CommandReduction(("artefact.read",)).kind == "commands"
+def test_consent_and_reduction_discriminators_are_constructor_owned():
+    assert request.CommandConsent("artefact.delete", "review").scope == "command"
+    assert request.OperationConsent("operation-one", "sha256:digest", "review").scope == "operation"
+    assert reduce.RevokeGrants(("grant-one",)).kind == "grants"
+    assert reduce.DiscardOperations(("operation-one",)).kind == "operations"
+    assert reduce.NarrowInitial(("artefact.read",)).kind == "commands"
+    assert reduce.ClearGrants().kind == "all-grants"
     with pytest.raises(TypeError):
-        ResetReduction(kind="commands")
+        request.CommandConsent("artefact.delete", "review", scope="operation")
     with pytest.raises(TypeError):
-        LeaseReduction(("lease-1",), kind="commands")
-    with pytest.raises(TypeError):
-        CommandReduction(("artefact.read",), kind="leases")
+        reduce.ClearGrants(kind="initial")
 
 
-def _vault(tmp_path):
-    root = (tmp_path / "Brain").resolve()
-    (root / ".brain-core").mkdir(parents=True)
-    (root / ".brain-core/VERSION").write_text("0.57.0\n", encoding="utf-8")
-    return root
+@pytest.mark.parametrize("command,payload", [
+    ("access.request", {"commands": ["artefact.delete"]}),
+    ("access.request", {"consent": {"scope": "command", "command_id": "artefact.delete", "review": "review", "duration_seconds": 60}}),
+    ("access.request", {"consent": {"scope": "command", "command_id": "artefact.delete", "review": "review"}, "use_count": 1}),
+    ("access.request", {"consent": {"scope": "operation", "operation_id": "op", "digest": "digest", "review": "review", "profile": "administrator"}}),
+    ("access.reduce", {"reduction": {"kind": "initial"}}),
+    ("access.reduce", {"reduction": {"kind": "leases", "lease_ids": ["lease"]}}),
+    ("access.prepare", {"preparation": {"kind": "operation", "command_id": "artefact.read", "arguments": {"brain_operation": "op"}}}),
+    ("access.prepare", {"preparation": {"kind": "operation", "command_id": "artefact.read", "arguments": {"value": float("nan")}}}),
+    ("access.prepare", {"preparation": {"kind": "inspect", "operation_id": "op", "context_id": "other"}}),
+])
+def test_removed_lease_and_untrusted_context_inputs_are_rejected(command, payload):
+    with pytest.raises(ValueError):
+        current_request_resolver().resolve(command, payload)
 
 
-def _controller(tmp_path, *, policy=ElevationPolicy.AUTOMATIC, clock=None):
-    clock = clock or _Clock()
-    root = _vault(tmp_path)
-    controller = FileAccessController(
-        vault_root=root,
-        principal="operator:test",
-        ceiling_profile="contributor",
-        ceiling_commands=frozenset(
-            {
-                "access.reduce",
-                "access.request",
-                "access.status",
-                "command.describe",
-                "command.list",
-                "invocation.read",
-            }
-        ),
-        initial_profile="reader",
-        initial_commands=frozenset(
-            {
-                "access.reduce",
-                "access.request",
-                "access.status",
-                "command.describe",
-                "command.list",
-            }
-        ),
-        policy=AccessPolicy("reader", policy, 60, 300, 120, 5),
-        clock=clock,
-    )
-    return root, controller, clock
+@pytest.mark.parametrize("values", [(), ("b", "a"), ("a", "a"), ("",), (None,), tuple(str(i) for i in range(129))])
+def test_reduction_identifiers_are_bounded_canonical_sets(values):
+    with pytest.raises(ValueError):
+        reduce.RevokeGrants(values)
 
 
-def _adapter_context(
-    root,
-    controller,
-    clock,
-    invocation_id="access-test",
-    receipts=None,
-):
-    receipts = receipts or MemoryReceiptStore(clock)
-    return compose_local_context(
-        vault_root=root,
-        brain_id="test-brain",
-        profile="contributor",
-        allowed_tools=controller.ceiling_commands,
-        access=controller,
-        dependency_tier=DependencyTier.PORTABLE,
-        provider_ids=(),
-        capability_states=(),
-        snapshot_token="access-snapshot",
-        snapshot_freshness=SnapshotFreshness.FRESH,
-        snapshot_observed_at=clock.now(),
-        correlation_id=invocation_id,
-        invocation_id=invocation_id,
-        receipt_store=receipts,
-        clock=clock,
-    )
+@pytest.mark.parametrize("scope", ["command", "operation"])
+def test_escaped_review_budget_measures_actual_utf8_request(scope):
+    # Quotes double when encoded; both these reviews fit the old 7000-byte raw cap.
+    review = '"\\' * 2200
+    consent = (request.CommandConsent("artefact.delete", review) if scope == "command"
+               else request.OperationConsent("operation-one", "sha256:" + "a" * 64, review))
+    assert len(review.encode()) < 7000
+    with pytest.raises(ValueError, match="8000-byte"):
+        request.AccessRequestRequest(consent)
+    consent = replace(consent, review="é" * 1500)
+    request.AccessRequestRequest(consent)
 
 
-def test_access_status_is_read_only_on_a_fresh_brain(tmp_path):
-    root, controller, _clock = _controller(tmp_path)
-
-    snapshot = controller.status()
-
-    assert snapshot.active_commands == (
-        "access.reduce",
-        "access.request",
-        "access.status",
-        "command.describe",
-        "command.list",
-    )
-    assert snapshot.inactive_commands == ("invocation.read",)
-    assert not (root / ".brain/local").exists()
+@pytest.mark.parametrize("value", [0, 65, True, 1.5, "16"])
+def test_access_status_bounds_page_size(value):
+    with pytest.raises(ValueError):
+        status.AccessStatusRequest(page_size=value)
 
 
-def test_access_state_refuses_symlinked_private_directory(tmp_path):
-    root, controller, _clock = _controller(tmp_path)
-    outside = tmp_path / "outside"
-    outside.mkdir()
-    (root / ".brain").mkdir()
-    (root / ".brain/local").symlink_to(outside, target_is_directory=True)
-
-    try:
-        controller.request(
-            ("invocation.read",),
-            duration_seconds=30,
-            use_count=None,
-        )
-    except OSError as exc:
-        assert "symlinked access-state directory" in str(exc)
-    else:
-        raise AssertionError("access state followed a symlinked private directory")
-
-    assert list(outside.iterdir()) == []
+def test_controls_have_strict_schemas_and_no_operation_selector():
+    resolver = current_request_resolver()
+    for module in (prepare, request, status, reduce):
+        entry = module.catalogue_entry()
+        schema = request_schema(entry.request_type)
+        assert schema["additionalProperties"] is False
+        assert "brain_operation" not in schema["properties"]
+        assert entry.initial_class is InitialAuthorisationClass.CONTROL
+        assert entry.preparation is None
+        example = getattr(entry.request_type, "MINIMAL_EXAMPLE", {})
+        resolver.resolve(entry.command_id, example)
+    assert request.catalogue_entry().retry_class is RetryClass.RECEIPT_REQUIRED
 
 
-def test_automatic_exact_lease_activates_consumes_expires_and_reduces(tmp_path):
-    root, controller, clock = _controller(tmp_path)
-
-    decision = controller.request(
-        ("invocation.read",),
-        duration_seconds=30,
-        use_count=2,
-    )
-
-    assert decision.state is AccessRequestState.GRANTED
-    assert decision.lease is not None
-    assert controller.consume("invocation.read") is True
-    assert controller.status().leases[0].remaining_uses == 1
-    assert controller.reduce(
-        reset=False,
-        lease_ids=(),
-        commands=("invocation.read",),
-    ).changed is True
-    assert controller.allows("invocation.read") is False
-
-    controller.request(("invocation.read",), duration_seconds=1, use_count=None)
-    clock.advance(2)
-    assert controller.allows("invocation.read") is False
+def test_every_ordinary_command_has_explicit_class_and_preparation():
+    catalogue = current_application_catalogue()
+    controls = {entry.command_id for entry in catalogue.entries if entry.initial_class is InitialAuthorisationClass.CONTROL}
+    assert controls == {"access.prepare", "access.request", "access.status", "access.reduce", "command.list", "command.describe", "invocation.read", "session.start"}
+    assert catalogue.interface_epoch == 3
+    for entry in catalogue.entries:
+        assert (entry.preparation is None) == (entry.command_id in controls)
+    exceptional = {entry.command_id for entry in catalogue.entries if entry.initial_class is InitialAuthorisationClass.EXCEPTIONAL}
+    assert exceptional == {"artefact.delete", "skill.add-git", "skill.update", "type.sync", "retrieval.construct-benchmark", "retrieval.evaluate", "retrieval.rebuild-semantic", "retrieval.repair-semantic", "retrieval.enable", "workspace.bind", "workspace.configure-bootstrap", "workspace.register", "workspace.unregister", "workspace.setup", "workspace.update-metadata", "workspace.repair-registry"}
+    by_id = {entry.command_id: entry for entry in catalogue.entries}
+    assert by_id["shaping.render"].initial_class is InitialAuthorisationClass.CONTENT
+    assert by_id["skill.status"].initial_class is InitialAuthorisationClass.OBSERVATION
+    assert by_id["runtime.warmup"].initial_class is InitialAuthorisationClass.OBSERVATION
 
 
-def test_later_mutation_compacts_expired_state_without_status_writes(tmp_path):
-    root, controller, clock = _controller(tmp_path)
-    controller.request(
-        ("invocation.read",),
-        duration_seconds=1,
-        use_count=None,
-    )
-    clock.advance(2)
-
-    controller.status()
-    before = json.loads(
-        (root / ".brain/local/access-state.json").read_text(encoding="utf-8")
-    )
-    controller.request(
-        ("invocation.read",),
-        duration_seconds=30,
-        use_count=None,
-    )
-    after = json.loads(
-        (root / ".brain/local/access-state.json").read_text(encoding="utf-8")
-    )
-
-    assert len(before["principals"]["operator:test"]["leases"]) == 1
-    assert len(after["principals"]["operator:test"]["leases"]) == 1
+def test_request_owner_calls_only_explicit_selected_scope():
+    calls = []
+    class Access:
+        def request(self, **values):
+            calls.append(values)
+            return AccessRequestDecision(CommandAuthorisationState.AUTHORISED, "artefact.delete", ConsentScope.COMMAND, True, grant_id="grant-one")
+    typed = request.AccessRequestRequest(request.CommandConsent("artefact.delete", "canonical review"))
+    result = request.execute(SimpleNamespace(access=Access()), typed)
+    assert calls == [{"scope": ConsentScope.COMMAND, "command_id": "artefact.delete", "operation_id": None, "digest": None, "review": "canonical review"}]
+    assert result.committed_effects[0].subject == "grant-one"
+    assert canonical_result_envelope(result)["result"]["state"] == "authorised"
 
 
-def test_external_policy_requires_trusted_approval_seam(tmp_path):
-    _root, controller, _clock = _controller(
-        tmp_path,
-        policy=ElevationPolicy.EXTERNAL,
-    )
-
-    decision = controller.request(
-        ("invocation.read",),
-        duration_seconds=60,
-        use_count=1,
-    )
-
-    assert decision.state is AccessRequestState.APPROVAL_REQUIRED
-    assert decision.pending_request is not None
-    assert controller.allows("invocation.read") is False
-
-    lease = controller.approve(
-        decision.pending_request.request_id,
-        approver="local-user:terminal",
-    )
-
-    assert lease.policy is ElevationPolicy.EXTERNAL
-    assert controller.allows("invocation.read") is True
+def test_preparation_owner_never_requests_or_enters_target():
+    class Access:
+        def prepare(self, command_id, arguments):
+            assert (command_id, arguments) == ("artefact.delete", {"path": "Thoughts/Test.md"})
+            return PreparedOperation("operation-one", command_id, 1, "sha256:" + "a" * 64, "canonical review", ConsentRecordState.PREPARED)
+    result = prepare.execute(SimpleNamespace(access=Access()), prepare.decode(prepare.AccessPrepareRequest.MINIMAL_EXAMPLE))
+    assert result.result.state is ConsentRecordState.PREPARED
+    assert len(json.dumps(canonical_result_envelope(result), ensure_ascii=False).encode()) < 8000
 
 
-def test_ceiling_denial_never_creates_a_pending_request_or_lease(tmp_path):
-    root, controller, _clock = _controller(tmp_path)
-
-    decision = controller.request(
-        ("artefact.delete",),
-        duration_seconds=None,
-        use_count=None,
-    )
-
-    assert decision.state is AccessRequestState.DENIED
-    assert decision.denied_commands == ("artefact.delete",)
-    assert not (root / ".brain/local").exists()
-
-
-def test_application_denies_before_resolution_then_honours_one_use_lease(tmp_path):
-    root, controller, clock = _controller(tmp_path)
-    receipts = MemoryReceiptStore(clock)
-    adapter = ApplicationAdapter(
-        current_application_catalogue(),
-        current_request_resolver(),
-    )
-
-    denied = adapter.invoke(
-        _adapter_context(root, controller, clock, "denied", receipts),
-        "invocation.read",
-        {"malformed": "request must not be resolved before authority"},
-    )
-
-    assert denied.result.error.code is ErrorCode.AUTHORITY_DENIED
-    assert denied.result.error.details.boundary == "active_grant"
-    assert denied.result.error.details.requestable is True
-    assert denied.result.error.next_action.command_id == "access.request"
-
-    granted = adapter.invoke(
-        _adapter_context(root, controller, clock, "granted", receipts),
-        "access.request",
-        {"commands": ["invocation.read"], "use_count": 1},
-    )
-    invoked = adapter.invoke(
-        _adapter_context(root, controller, clock, "invoked", receipts),
-        "invocation.read",
-        {"invocation_id": "absent"},
-    )
-    expired = adapter.invoke(
-        _adapter_context(root, controller, clock, "expired", receipts),
-        "invocation.read",
-        {"invocation_id": "absent"},
-    )
-
-    assert granted.result.result.state is AccessRequestState.GRANTED
-    assert invoked.exit_code == 0
-    assert expired.result.error.code is ErrorCode.AUTHORITY_DENIED
+@pytest.mark.parametrize("variant,expected", [
+    (reduce.ClearGrants(), {"clear_grants": True}),
+    (reduce.NarrowInitial(("artefact.read",)), {"commands": ("artefact.read",)}),
+    (reduce.DiscardOperations(("operation-one",)), {"operation_ids": ("operation-one",)}),
+    (reduce.RevokeGrants(("grant-one",)), {"grant_ids": ("grant-one",)}),
+])
+def test_reduction_owner_preserves_selected_narrowing_variant(variant, expected):
+    class Access:
+        def reduce(self, **values):
+            assert {key: value for key, value in values.items() if value} == expected
+            return AccessReductionResult(True)
+    result = reduce.execute(SimpleNamespace(access=Access()), reduce.AccessReduceRequest(variant))
+    assert result.result.changed
 
 
-def test_foundation_discovery_omits_commands_above_the_ceiling(tmp_path):
-    root, controller, clock = _controller(tmp_path)
-    adapter = ApplicationAdapter(
-        current_application_catalogue(),
-        current_request_resolver(),
-    )
+def test_new_ordinary_entries_cannot_omit_preparation_or_classification():
+    from _application.catalogue import ApplicationCatalogue
+    entry = next(item for item in current_application_catalogue().entries if item.command_id == "artefact.read")
+    with pytest.raises(ValueError, match="explicit initial"):
+        replace(entry, initial_class=None)
+    with pytest.raises(ValueError, match="preparation strategy"):
+        ApplicationCatalogue((replace(entry, preparation=None),))
+    with pytest.raises(ValueError, match="control cannot"):
+        ApplicationCatalogue((replace(entry, initial_class=InitialAuthorisationClass.CONTROL),))
 
-    listed = adapter.invoke(
-        _adapter_context(root, controller, clock, "listed"),
-        "command.list",
-        {},
-    )
-    hidden = adapter.invoke(
-        _adapter_context(root, controller, clock, "described"),
-        "command.describe",
-        {"target_command_id": "artefact.delete"},
-    )
 
-    assert set(listed.result.result.command_ids) == set(controller.ceiling_commands)
-    assert hidden.result.error.code is ErrorCode.NOT_FOUND
+def test_reserved_operation_selector_cannot_become_a_business_field():
+    from dataclasses import dataclass
+    from typing import ClassVar
+    @dataclass(frozen=True)
+    class Collision:
+        COMMAND_ID: ClassVar[str] = "example.read"
+        COMMAND_VERSION: ClassVar[int] = 1
+        RESULT_TYPE: ClassVar[type] = str
+        brain_operation: str
+    entry = current_application_catalogue().entries[0]
+    with pytest.raises(ValueError, match="reserved transport"):
+        replace(entry, request_type=Collision)
+
+
+@pytest.mark.parametrize("available,policy", [(True, "allowed"), (False, "allowed"), (True, "denied"), (True, "migration_required")])
+def test_bootstrap_honestly_advertises_request_routes_within_byte_budget(tmp_path, available, policy):
+    from command_application import context_for
+    context = context_for(tmp_path, context_available=available, request_policy=policy)
+    summary = context.access.summary()
+    assert summary.authorisation.context_available is available
+    assert summary.authorisation.request_policy == policy
+    assert (summary.authorisation.request is not None) == (available and policy == "allowed")
+    assert summary.authorisation.status == "access.status"
+    assert len(json.dumps(asdict(summary), ensure_ascii=False, separators=(",", ":")).encode()) <= 768
+
+
+def test_specific_read_preparation_request_and_success_spend_in_real_application(command_vault_clone):
+    from command_application import application_for
+    from _application.vault.read_file import VaultReadFileRequest
+    from _application.results import ErrorCode
+    catalogue = current_application_catalogue()
+    controls = {entry.command_id for entry in catalogue.entries if entry.initial_class is InitialAuthorisationClass.CONTROL}
+    app = application_for(command_vault_clone.vault_root, initial_commands=controls)
+    target = VaultReadFileRequest(".brain-core/guide.md")
+    denied = app.invoke(target)
+    assert denied.error.code is ErrorCode.AUTHORISATION_REQUIRED
+    prepared = app.invoke(prepare.AccessPrepareRequest(prepare.PrepareCommand(target.COMMAND_ID, {"path": target.path})))
+    assert prepared.status == "ok", prepared
+    operation = prepared.result
+    listed = app.invoke(status.AccessStatusRequest(view=status.AccessStatusView.OPERATIONS))
+    assert listed.result.entries[0].operation_id == operation.operation_id
+    granted = app.invoke(request.AccessRequestRequest(request.OperationConsent(operation.operation_id, operation.digest, operation.review)))
+    assert granted.status == "ok", granted
+    app._context = replace(app._context, operation_id=operation.operation_id)
+    read = app.invoke(target)
+    assert read.status == "ok", read
+    repeated = app.invoke(target)
+    assert repeated.status == "error"
+    assert app._context.authorisation.service.inspect(operation.operation_id)["state"] == "spent"

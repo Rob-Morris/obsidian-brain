@@ -263,8 +263,7 @@ def admit_owner(context, request, planner, **inputs) -> None:
     """Admit after domain validation, immediately before the first effect."""
     admission = context.admission
     if admission is None:
-        # S1 foundation: production composition becomes mandatory at cutover.
-        return
+        raise RuntimeError("command owner requires explicit invocation admission")
     binding = None
     if admission.requires_binding:
         binding = planner(context, request,

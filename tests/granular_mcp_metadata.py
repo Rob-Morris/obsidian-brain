@@ -29,7 +29,7 @@ CAPTURE_PATH = (
     REPO_ROOT
     / "tests"
     / "fixtures"
-    / "command_interface_granular_mcp_projection_v1.json"
+    / "command_interface_granular_mcp_projection_v2.json"
 )
 REAL_CLIENT_CAPTURE_PATH = (
     REPO_ROOT
@@ -161,10 +161,11 @@ def build_granular_metadata_capture() -> dict[str, object]:
     encoding = tiktoken.get_encoding(TOKEN_ENCODING)
     capture: dict[str, object] = {
         "schema": "brain.command-interface-granular-mcp-projection/1",
-        "captured_at": _real_client_capture()["captured_at"],
+        "client_projector_observed_at": _real_client_capture()["captured_at"],
+        "interface_epoch": current_application_catalogue().interface_epoch,
         "capture_command": (
             ".venv/bin/python tests/capture_granular_mcp_projection.py "
-            "--output tests/fixtures/command_interface_granular_mcp_projection_v1.json"
+            "--output tests/fixtures/command_interface_granular_mcp_projection_v2.json"
         ),
         "mcp_sdk_version": importlib.metadata.version("mcp"),
         "tokeniser": TOKENISER,

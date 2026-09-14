@@ -13,6 +13,7 @@ from mcp.server import MCPServer
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 for _path in (
+    REPO_ROOT / "tests",
     REPO_ROOT / "src" / "brain-core",
     REPO_ROOT / "src" / "brain-core" / "scripts",
 ):
@@ -20,7 +21,7 @@ for _path in (
         sys.path.insert(0, str(_path))
 
 from brain_mcp._command_adapter import register_application_tools
-from _application.receipts import MemoryReceiptStore
+from command_application import context_for
 from _application.registry import current_application_catalogue, current_request_resolver
 from _application.types import Availability, DependencyTier, Projection, SnapshotFreshness
 from _command_interface.context import compose_local_context
@@ -34,16 +35,16 @@ class _Clock:
 def _context_factory(vault_root: Path, allowed_tools: frozenset[str]):
     counter = 0
     clock = _Clock()
-    receipts = MemoryReceiptStore(clock)
+    authorisation = context_for(vault_root, allowed_commands=allowed_tools).authorisation
 
     def create(**_metadata):
         nonlocal counter
         counter += 1
-        return compose_local_context(
+        context = compose_local_context(
             vault_root=vault_root,
             brain_id="real-client-capture",
             profile="operator",
-            allowed_tools=allowed_tools,
+            authorisation=authorisation,
             dependency_tier=DependencyTier.MANAGED,
             provider_ids=(),
             capability_states=(),
@@ -52,9 +53,11 @@ def _context_factory(vault_root: Path, allowed_tools: frozenset[str]):
             snapshot_observed_at=clock.now(),
             correlation_id=f"capture-correlation-{counter}",
             invocation_id=f"capture-invocation-{counter}",
-            receipt_store=receipts,
+            receipt_store=authorisation.receipts,
             clock=clock,
+            operation_id=_metadata.get("operation_id"),
         )
+        return context
 
     return create
 

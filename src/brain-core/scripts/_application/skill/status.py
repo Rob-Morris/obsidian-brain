@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
+from ..types import InitialAuthorisationClass
 from typing import ClassVar, Mapping
 
 from .._decoding import reject_unexpected
@@ -63,4 +64,5 @@ def decode(payload: Mapping[str, object]) -> SkillStatusRequest:
 
 
 def catalogue_entry():
-    return git_skill_catalogue_entry(SkillStatusRequest, execute)
+    return replace(git_skill_catalogue_entry(SkillStatusRequest, execute),
+                   initial_class=InitialAuthorisationClass.OBSERVATION)

@@ -185,11 +185,11 @@ LAUNCHER_CATALOGUE = LauncherCatalogue(
         sorted(
             (
                 _mutation(
-                    "access.approve",
-                    "_launcher.access:approve",
+                    "permission.set-profile",
+                    "_launcher.permission:set-profile",
                     "brain",
-                    "access",
-                    "approve",
+                    "permission",
+                    "set-profile",
                 ),
                 _mutation(
                     "agent-skill.configure",

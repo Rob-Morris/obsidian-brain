@@ -1,57 +1,60 @@
-"""Typed ``access.status`` owner."""
-
-from __future__ import annotations
-
-from .._decoding import decode_empty
+"""Bounded owner-local authorisation inventory and canonical command review."""
 from dataclasses import dataclass
-from typing import ClassVar, Mapping
+from typing import ClassVar
 
-from ..access_contracts import AccessSnapshot
-from ..context import InvocationContext
+from ..access_contracts import AccessPageCursor, AccessStatusPayload, AccessStatusView
+from .._response_budget import encoded_result_size, MODEL_TEXT_BUDGET
 from ..results import Ok
-from ..types import (
-    Authority,
-    DependencyTier,
-    EffectClass,
-    Locality,
-    RetryClass,
-)
+from ..types import validate_command_id
+from ._support import control_entry, object_fields, nonempty
 
 
 @dataclass(frozen=True, slots=True)
 class AccessStatusRequest:
     COMMAND_ID: ClassVar[str] = "access.status"
-    COMMAND_VERSION: ClassVar[int] = 1
-    RESULT_TYPE: ClassVar[type] = AccessSnapshot
+    COMMAND_VERSION: ClassVar[int] = 2
+    RESULT_TYPE: ClassVar[type] = AccessStatusPayload
+    FIELD_DESCRIPTIONS: ClassVar[dict[str, str]] = {"command_id": "Optional exact command; returns canonical command_review for explicit blanket consent.", "view": "List grants, prepared operations, or initial command authorisation.", "cursor": "Repeat the same view and command filter with the returned continuation.", "page_size": "Maximum rows, 1–64; the byte budget can return fewer."}
+    view: AccessStatusView = AccessStatusView.GRANTS
+    command_id: str | None = None
+    cursor: AccessPageCursor | None = None
+    page_size: int = 16
+
+    def __post_init__(self):
+        if not isinstance(self.view, AccessStatusView):
+            raise ValueError("invalid access status view")
+        if self.command_id is not None:
+            nonempty(self.command_id, "command_id")
+            validate_command_id(self.command_id)
+        if self.cursor is not None and not isinstance(self.cursor, AccessPageCursor):
+            raise ValueError("invalid access status cursor")
+        if isinstance(self.page_size, bool) or not isinstance(self.page_size, int) or not 1 <= self.page_size <= 64:
+            raise ValueError("page_size must be between 1 and 64")
 
 
-def execute(context: InvocationContext, _request: AccessStatusRequest):
-    if context.access is None:
-        raise RuntimeError("access controller is unavailable")
-    return Ok(
-        AccessStatusRequest.COMMAND_ID,
-        AccessStatusRequest.COMMAND_VERSION,
-        context.access.status(),
-    )
+def execute(context, request):
+    size = request.page_size
+    while True:
+        payload = context.access.status(view=request.view, command_id=request.command_id,
+            cursor=request.cursor, page_size=size)
+        result = Ok(request.COMMAND_ID, request.COMMAND_VERSION, payload)
+        if encoded_result_size(result) < MODEL_TEXT_BUDGET:
+            return result
+        if size == 1:
+            raise ValueError("A status entry exceeds the response budget")
+        size = max(1, size // 2)
 
 
-def decode(payload: Mapping[str, object]) -> AccessStatusRequest:
-    return decode_empty(payload, AccessStatusRequest)
+def decode(payload):
+    object_fields(payload, {"view", "command_id", "cursor", "page_size"})
+    cursor = payload.get("cursor")
+    if cursor is not None:
+        object_fields(cursor, {"revision", "after", "scope"}, {"revision", "after", "scope"})
+        cursor = AccessPageCursor(**cursor)
+    return AccessStatusRequest(AccessStatusView(payload.get("view", "grants")),
+        payload.get("command_id"), cursor, payload.get("page_size", 16))
 
 
 def catalogue_entry():
-    from ..catalogue import ALL_APPLICATION_PROJECTIONS, ApplicationEntry
-
-    return ApplicationEntry(
-        request_type=AccessStatusRequest,
-        executor=execute,
-        dependency_tier=DependencyTier.BOOTSTRAP,
-        locality=Locality.SELECTED_BRAIN_LOCAL,
-        required_providers=(),
-        optional_providers=(),
-        authority=Authority.READER,
-        effect_class=EffectClass.NONE,
-        retry_class=RetryClass.SAFE,
-        projections=ALL_APPLICATION_PROJECTIONS,
-        summary="Read the active grant, ceiling and expiring access leases.",
-    )
+    return control_entry(AccessStatusRequest, execute,
+        summary="Inspect permissions, current authorisation and canonical command consent reviews.")

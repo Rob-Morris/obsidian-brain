@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from .types import InitialAuthorisationClass
+
 from dataclasses import dataclass
 
 from ._mutation_support import maintainer_mutation_entry, no_effect_error
@@ -208,7 +210,7 @@ def catalogue_entry(request_type, executor):
     from .preparation import OperationPreparation
 
     return replace(maintainer_mutation_entry(request_type, executor),
-                   preparation=OperationPreparation(prepare_sync))
+                   initial_class=InitialAuthorisationClass.EXCEPTIONAL, preparation=OperationPreparation(prepare_sync))
 
 
 def plan_sync_request(context, request, *, frozen_inputs=None):

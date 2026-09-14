@@ -493,14 +493,6 @@ def _summarise_config(config):
     }
 
 
-def _resolve_active_profile(config, active_profile):
-    """Return the active profile when bootstrap can know it."""
-    if active_profile:
-        return active_profile
-    if not config:
-        return None
-    return config.get("defaults", {}).get("default_profile", "operator")
-
 
 def _format_scalar(value):
     """Render a scalar or simple structure for markdown output."""
@@ -585,7 +577,7 @@ def build_session_model(
     context=None,
     workspace_dir=None,
     config=None,
-    active_profile=None,
+    access_summary=None,
     load_config_if_missing=True,
     include_command_catalogue=False,
 ):
@@ -598,7 +590,7 @@ def build_session_model(
         context: Optional context slug for scoped sessions (not yet implemented).
         workspace_dir: Optional active workspace directory for this session.
         config: Optional merged config dict from config.load_config().
-        active_profile: Optional resolved active profile for this bootstrap flow.
+        access_summary: Trusted compact permission and context-authorisation summary.
         load_config_if_missing: Whether to lazily load config from disk when the
             caller did not supply it.
         include_command_catalogue: Whether to include the staged bounded route.
@@ -613,7 +605,6 @@ def build_session_model(
     env = dict(router.get("environment", {}))
     env["obsidian_cli_available"] = obsidian_cli_available
     config_summary = _summarise_config(config)
-    resolved_profile = _resolve_active_profile(config, active_profile)
     workspace_summary = _workspace_summary(workspace_dir, vault_root)
     workspace_manifest = _load_workspace_manifest(workspace_dir)
     workspace_defaults = _extract_workspace_defaults(workspace_manifest)
@@ -655,8 +646,8 @@ def build_session_model(
 
     if config_summary:
         model["config"] = config_summary
-    if resolved_profile:
-        model["active_profile"] = resolved_profile
+    if access_summary is not None:
+        model["access"] = access_summary
     if workspace_summary:
         model["workspace"] = workspace_summary
     if workspace_binding:
@@ -840,13 +831,11 @@ def render_session_markdown(model):
             ),
         ])
 
-    active_profile = model.get("active_profile")
-    if active_profile:
+    access = model.get("access")
+    if access:
         sections.extend([
-            "",
-            "## Active Profile",
-            "",
-            f"`{active_profile}`",
+            "", "## Permissions and Authorisation", "",
+            "```json", json.dumps(access, ensure_ascii=False, separators=(",", ":")), "```",
         ])
 
     context = model.get("context")

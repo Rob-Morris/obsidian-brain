@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
+from ..types import InitialAuthorisationClass
+
 from dataclasses import dataclass
 from typing import ClassVar, Mapping
 
@@ -55,11 +58,11 @@ def catalogue_entry():
     from dataclasses import replace
     from ..preparation_transition import TransitionPreparation
 
-    return replace(transition_catalogue_entry(
+    return replace(replace(transition_catalogue_entry(
         ArtefactDeleteRequest,
         execute,
         authority=Authority.ADMINISTRATOR,
-    ), preparation=TransitionPreparation(plan_operation))
+    ), preparation=TransitionPreparation(plan_operation)), initial_class=InitialAuthorisationClass.EXCEPTIONAL)
 
 
 def plan_operation(context, request, router, *, frozen_inputs=None):

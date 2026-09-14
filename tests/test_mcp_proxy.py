@@ -84,13 +84,19 @@ def _receipt_lookup_response(
             "structuredContent": {
                 "schema": "brain.command-result/1",
                 "command": "invocation.read",
-                "command_version": 2,
+                "command_version": 3,
                 "status": "ok",
                 "warnings": [],
                 "result": {
                     "reference": reference,
                     "state": "found" if found else "still_unknown",
-                    "receipt": receipt,
+                    "intent": ({"reference": reference, "command_id": record.command_id,
+                                "command_version": record.command_version, "recorded_at": "2026-08-10T09:59:00+10:00",
+                                "basis": "initial", "generation": "test-generation", "source": "host-request",
+                                "grant_id": None, "operation_id": None, "operation_digest": None,
+                                "request_id": None, "permission_change": None} if found else None),
+                    "outcome": ({"receipt": receipt, "execution": {"committed": "succeeded", "none": "succeeded",
+                                 "known_partial": "partial", "unknown": "unknown"}[state], "config_revision": None} if found else None),
                 },
                 "committed_effects": [],
             },
@@ -389,7 +395,7 @@ class _NoOpThread:
         self._target = target
         self._started = False
 
-    def start(self) -> None:
+    def start(self, **_options) -> None:
         self._started = True
 
     def is_alive(self) -> bool:
@@ -415,7 +421,7 @@ class _FakeChild:
         self.pid = 12345
         self.stdout_fd = None
 
-    def start(self) -> None:
+    def start(self, **_options) -> None:
         self.started = True
 
     def send(self, obj: dict) -> None:
@@ -1774,7 +1780,7 @@ class TestProxyDrift:
 
 
 class TestVersionDriftReplay:
-    """The request that triggers version drift is transparently replayed to the new child."""
+    """Transport compatibility never grants permission to repeat an accepted operation."""
 
     def test_granular_call_records_proxy_owned_identity_before_dispatch(
         self, tmp_path, monkeypatch
@@ -1826,7 +1832,7 @@ class TestVersionDriftReplay:
 
         assert proxy._accepted_calls == {}
 
-    def test_compatible_granular_replay_reaches_replacement_child(
+    def test_compatible_granular_call_is_not_replayed(
         self, tmp_path, monkeypatch
     ):
         proxy, sent_to_client = _make_inprocess_proxy(tmp_path, monkeypatch, [])
@@ -1847,12 +1853,12 @@ class TestVersionDriftReplay:
 
         proxy._replay_requests([forwarded], {201: record})
 
-        assert replacement.sent == [forwarded]
-        assert sent_to_client == []
-        assert proxy._accepted_calls == {201: record}
+        assert replacement.sent == []
+        assert proxy._accepted_calls == {}
+        assert sent_to_client[-1]["result"]["structuredContent"]["error"]["code"] == "command_outcome_unknown"
 
     @pytest.mark.parametrize("send_fails", [False, True])
-    def test_replay_tracking_precedes_response_and_cleans_up_send_failure(
+    def test_protocol_replay_tracking_precedes_response_and_cleans_up_send_failure(
         self, tmp_path, monkeypatch, send_fails
     ):
         proxy, sent_to_client = _make_inprocess_proxy(tmp_path, monkeypatch, [])
@@ -1860,11 +1866,7 @@ class TestVersionDriftReplay:
             proxy._interface_header = application_interface_header(
                 current_application_catalogue()
             )
-        request = {
-            "jsonrpc": "2.0", "id": 201, "method": "tools/call",
-            "params": {"name": "artefact_read", "arguments": {"path": "Example"}},
-        }
-        forwarded, record = proxy._prepare_interface_call(request)
+        forwarded = {"jsonrpc": "2.0", "id": 201, "method": "tools/list", "params": {}}
         response = {"jsonrpc": "2.0", "id": 201, "result": {"ok": True}}
         child = _ReadableFakeChild([json.dumps(response).encode()])
         with proxy._child_lock:
@@ -1876,7 +1878,7 @@ class TestVersionDriftReplay:
             proxy._shutdown = True
 
         def send_with_immediate_response(obj):
-            assert proxy._accepted_calls == {201: record}
+            assert proxy._accepted_calls == {}
             assert 201 in proxy._inflight_requests
             assert 201 in proxy._frame_seqs
             if send_fails:
@@ -1888,7 +1890,7 @@ class TestVersionDriftReplay:
         monkeypatch.setattr(proxy, "_send_to_client", send_and_stop)
         monkeypatch.setattr(child, "send", send_with_immediate_response)
 
-        proxy._replay_requests([forwarded], {201: record})
+        proxy._replay_requests([forwarded], {})
 
         assert proxy._inflight_requests == {}
         assert proxy._accepted_calls == {}
@@ -1935,26 +1937,10 @@ class TestVersionDriftReplay:
 
         assert replacement.sent == []
         result = next(message for message in sent_to_client if message.get("id") == 202)
-        assert result["result"]["structuredContent"]["error"] == {
-            "code": "interface_changed",
-            "message": (
-                "The Brain command interface changed while this call was in flight; "
-                "re-discover tools and reformulate the request."
-            ),
-            "effects": "none",
-            "retryable": False,
-            "details": {"reason": "command_version_changed", "diagnostic": None},
-            "next_action": {
-                "instruction": "rediscover_tools",
-                "description": (
-                    "The Brain command interface changed while this call was in flight; "
-                    "re-discover tools and reformulate the request."
-                ),
-            },
-        }
-        assert _find_notification(
-            sent_to_client, "notifications/tools/list_changed"
-        ) is not None
+        error = result["result"]["structuredContent"]["error"]
+        assert error["code"] == "command_outcome_unknown"
+        assert error["retryable"] is False
+        assert error["outcome_reference"] == {"invocation_id": record.invocation_id}
 
     @pytest.mark.parametrize("accepted", [{}, {203: object()}])
     def test_missing_or_invalid_accepted_record_refuses_mapped_replay(
@@ -1986,7 +1972,7 @@ class TestVersionDriftReplay:
 
 
 class TestUnexpectedChildOutcomeSafety:
-    """Unplanned child loss retries reads once and never replays mutations."""
+    """Every accepted call uses owned outcome recovery without semantic replay."""
 
     @staticmethod
     def _accepted(proxy, *, request_id: int, tool: str, arguments: dict):
@@ -2003,33 +1989,27 @@ class TestUnexpectedChildOutcomeSafety:
         forwarded, record = proxy._prepare_interface_call(raw)
         return header, forwarded, record
 
-    def test_read_only_orphan_is_retried_once_then_fails_with_no_effects(
-        self, tmp_path, monkeypatch
-    ):
+    @pytest.mark.parametrize("found", [True, False])
+    def test_read_only_orphan_queries_owned_outcome_without_replay(self, tmp_path, monkeypatch, found):
         proxy, sent_to_client = _make_inprocess_proxy(tmp_path, monkeypatch, [])
-        header, forwarded, record = self._accepted(
-            proxy,
-            request_id=301,
-            tool="artefact_read",
-            arguments={"path": "Designs/Example.md"},
-        )
+        header, forwarded, record = self._accepted(proxy, request_id=301, tool="artefact_read",
+                                                   arguments={"path": "Designs/Example.md"})
         replacement = _FakeChild()
-
-        proxy._retry_read_orphan(replacement, forwarded, record, header, None)
-
-        assert replacement.sent == [forwarded]
-        retried = proxy._accepted_calls[301]
-        assert retried.read_retry_count == 1
-        assert sent_to_client == []
-
-        proxy._inflight_requests.clear()
-        proxy._accepted_calls.clear()
-        proxy._retry_read_orphan(replacement, forwarded, retried, header, None)
-
-        assert replacement.sent == [forwarded]
+        monkeypatch.setattr(proxy, "_read_internal_response", lambda _child, query_id, _timeout:
+                            _receipt_lookup_response(query_id, record, state="none", found=found))
+        proxy._resolve_owned_orphan(replacement, record, header, None)
+        assert forwarded not in replacement.sent
+        assert len(replacement.sent) == 1
+        assert replacement.sent[0]["params"]["name"] == "invocation_read"
         result = sent_to_client[-1]["result"]["structuredContent"]
-        assert result["error"]["effects"] == "none"
-        assert result["error"]["retryable"] is True
+        if found:
+            assert result["outcome"]["execution"] == "succeeded"
+            assert result["outcome"]["receipt"]["state"] == "none"
+            assert result["retryable"] is False
+        else:
+            assert result["error"]["code"] == "command_outcome_unknown"
+            assert result["error"]["effects"] == "none"
+            assert result["error"]["retryable"] is False
 
     def test_crash_after_mutation_acceptance_queries_receipt_without_replay(
         self, tmp_path, monkeypatch
@@ -2064,7 +2044,7 @@ class TestUnexpectedChildOutcomeSafety:
         result = sent_to_client[-1]["result"]["structuredContent"]
         assert result["schema"] == "brain.proxy-outcome-resolution/1"
         assert result["status"] == "resolved"
-        assert result["receipt"]["state"] == "committed"
+        assert result["outcome"]["receipt"]["state"] == "committed"
         assert result["retryable"] is False
 
     @pytest.mark.parametrize("found,state", [(False, "committed"), (True, "unknown")])
@@ -2089,7 +2069,7 @@ class TestUnexpectedChildOutcomeSafety:
             )
 
         monkeypatch.setattr(proxy, "_read_internal_response", receipt_response)
-        proxy._resolve_mutation_orphan(
+        proxy._resolve_owned_orphan(
             replacement,
             record,
             proxy._interface_header,
@@ -2125,13 +2105,13 @@ class TestUnexpectedChildOutcomeSafety:
 
         def receipt_response(_child, query_id, _timeout):
             response = _receipt_lookup_response(query_id, record)
-            response["result"]["structuredContent"]["result"]["receipt"][
+            response["result"]["structuredContent"]["result"]["outcome"]["receipt"][
                 "command_version"
             ] += 1
             return response
 
         monkeypatch.setattr(proxy, "_read_internal_response", receipt_response)
-        proxy._resolve_mutation_orphan(
+        proxy._resolve_owned_orphan(
             replacement,
             record,
             proxy._interface_header,
@@ -2529,3 +2509,66 @@ class TestMainEnvCaptureOrder:
         assert captured["workspace_env"] == "/orig/workspace"
         assert captured["vault_root_env"] == "/orig/vault"
         assert captured["env_at_call"] == "/orig/vault"
+
+
+@pytest.mark.parametrize('failure', ['before_spawn', 'after_spawn'])
+def test_private_seed_permission_is_consumed_only_by_a_launched_child(tmp_path, monkeypatch, failure):
+    proxy, _responses = _make_inprocess_proxy(tmp_path, monkeypatch, [])
+    from _bootstrap.consent_owner import ConsentOwner
+    proxy._owner = ConsentOwner(tmp_path)
+    options_seen = []
+
+    class LaunchProbe(_FakeChild):
+        def __init__(self, *_args):
+            super().__init__()
+            self.pid = None
+
+        def start(self, **options):
+            options_seen.append(options)
+            if len(options_seen) == 1:
+                if failure == 'after_spawn':
+                    self.pid = 42
+                raise OSError('simulated launch failure')
+            self.pid = 43
+
+    monkeypatch.setattr(proxy_mod, 'ChildProcess', LaunchProbe)
+    try:
+        assert proxy._start_child() is False
+        assert proxy._start_child() is True
+        assert options_seen[0]['owner_initialisation_allowed'] is True
+        assert options_seen[1]['owner_initialisation_allowed'] is (failure == 'before_spawn')
+        assert options_seen[0]['transport_identity'] == options_seen[1]['transport_identity']
+    finally:
+        proxy._initiate_shutdown()
+
+
+@pytest.mark.parametrize('fault', ['missing_intent', 'foreign_source', 'wrong_command', 'wrong_operation',
+                                   'false_none_effect', 'missing_final', 'rpc_error', 'tool_error'])
+def test_owned_recovery_rejects_inconsistent_proof_without_replay(tmp_path, monkeypatch, fault):
+    proxy, responses = _make_inprocess_proxy(tmp_path, monkeypatch, [])
+    header, _forwarded, record = TestUnexpectedChildOutcomeSafety._accepted(
+        proxy, request_id=501, tool='artefact_read', arguments={'path': 'Designs/Example.md'})
+    child = _FakeChild()
+
+    def lookup(_child, query_id, _timeout):
+        value = _receipt_lookup_response(query_id, record, state='none')
+        payload = value['result']['structuredContent']['result']
+        if fault == 'missing_intent': payload['intent'] = None
+        elif fault == 'foreign_source': payload['intent']['source'] = 'cli-request'
+        elif fault == 'wrong_command': payload['intent']['command_id'] = 'artefact.create'
+        elif fault == 'wrong_operation': payload['intent']['basis'] = 'operation'
+        elif fault == 'false_none_effect': payload['outcome']['receipt']['committed_effects'] = [{'kind': 'write', 'subject': 'changed'}]
+        elif fault == 'missing_final': payload['outcome'] = None
+        elif fault == 'rpc_error': value['error'] = {'code': -1, 'message': 'contradiction'}
+        elif fault == 'tool_error': value['result']['isError'] = True
+        return value
+
+    monkeypatch.setattr(proxy, '_read_internal_response', lookup)
+    try:
+        proxy._resolve_owned_orphan(child, record, header, None)
+        assert len(child.sent) == 1 and child.sent[0]['params']['name'] == 'invocation_read'
+        error = responses[-1]['result']['structuredContent']['error']
+        assert error['code'] == 'command_outcome_unknown'
+        assert error['effects'] == 'none' and error['retryable'] is False
+    finally:
+        proxy._initiate_shutdown()

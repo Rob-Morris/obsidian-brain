@@ -78,9 +78,9 @@ def test_installed_cli_discovers_real_selected_brain_catalogue(
     payload = json.loads(completed.stdout)
     assert payload["schema"] == "brain.local-command-list/2"
     assert len(payload["entries"]) == 25
-    assert "artefact.delete" not in {
-        entry["command_id"] for entry in payload["entries"]
-    }
+    deletion = next(entry for entry in payload["entries"] if entry["command_id"] == "artefact.delete")
+    assert deletion["access"] == "denied"
+    assert deletion["authority"] == "administrator"
     assert payload["catalogues"]["application"]["schema"] == "brain.command-catalogue/1"
 
 
@@ -511,6 +511,10 @@ def test_installed_cli_packages_and_uses_private_owner_transport(tmp_path, comma
     )
     assert isolated.returncode == 0, isolated.stderr
     owner = ConsentOwner(command_vault_baseline.vault_root)
+    from types import SimpleNamespace
+    from _local_cli.main import _initialise_selected_job
+    from _local_cli.runtime import SelectedBrain
+    _initialise_selected_job(SelectedBrain(command_vault_baseline.vault_root, None, "test"), owner, SimpleNamespace(operator_key=None))
     attachment = OwnerAttachment.for_job(owner)
     connections = []
     serve = owner.serve_connection
@@ -532,3 +536,45 @@ def test_installed_cli_packages_and_uses_private_owner_transport(tmp_path, comma
     finally:
         attachment.close()
         owner.close()
+
+
+def test_installed_public_job_delegates_authenticated_principal_without_credentials(tmp_path, command_vault_clone):
+    import os
+    from _common._yaml import dump_mapping_text
+    from _common import hash_key
+
+    if os.name != 'posix':
+        pytest.skip('private CLI job inheritance requires POSIX')
+    root = command_vault_clone.vault_root
+    (root / '.brain/config.yaml').write_text(dump_mapping_text({
+        'vault': {'operators': [
+            {'id': 'job-user', 'profile': 'operator', 'auth': {'type': 'key', 'hash': hash_key('job-secret')}},
+            {'id': 'other-user', 'profile': 'operator', 'auth': {'type': 'key', 'hash': hash_key('other-secret')}},
+        ]}}))
+    installed = _install(tmp_path)
+    program = tmp_path / 'job.py'
+    program.write_text("""import json,os,subprocess,sys
+assert 'BRAIN_OPERATOR_KEY' not in os.environ
+brain=sys.argv[1]
+def call(key=None):
+    argv=[brain,'access','status','--json']
+    if key is not None: argv += ['--operator-key',key]
+    result=subprocess.run(argv,capture_output=True,text=True,pass_fds=(int(os.environ['BRAIN_OWNER_CHANNEL'].rsplit(':',1)[1]),))
+    return result.returncode,json.loads(result.stdout) if result.stdout else result.stderr
+first=call()
+other=call('other-secret')
+last=call()
+print(json.dumps({'first':first,'other':other,'last':last,'args':sys.argv[2:]}))
+""")
+    completed = subprocess.run([str(installed.cli_binary), '--vault', str(root), '--operator-key', 'job-secret',
+                                'session', 'run', '--', sys.executable, str(program), str(installed.cli_binary),
+                                '--json', '--operation', 'literal-program-argument'],
+                               env=dict(os.environ, BRAIN_OPERATOR_KEY='ambient-secret'),
+                               capture_output=True, text=True, timeout=30)
+    assert completed.returncode == 0, completed.stderr
+    payload = json.loads(completed.stdout)
+    assert payload['args'] == ['--json', '--operation', 'literal-program-argument']
+    assert payload['first'][0] == payload['last'][0] == 0, payload
+    assert payload['first'][1]['result']['identity']['principal'] == 'operator:job-user'
+    assert payload['last'][1]['result']['identity']['principal'] == 'operator:job-user'
+    assert payload['other'][0] != 0

@@ -170,6 +170,7 @@ def _make_real_compile_source(tmp_path, version="0.29.1"):
     (source / "index.md").write_text("# Index\n")
     (source / "md-bootstrap.md").write_text("# Markdown Bootstrap\n")
     _copy_real_scripts(source)
+    shutil.copytree(REPO_ROOT / "src" / "brain-core" / "defaults", source / "defaults")
     return source
 
 
@@ -257,13 +258,9 @@ def test_upgrade_runner_applies_the_v055_profile_migration(tmp_path):
     ]
     assert "0.55.0" in ledger["migrations"]
     profiles = load_mapping_file(config_path)["vault"]["profiles"]
-    assert {name: len(value["allow"]) for name, value in profiles.items()} == {
-        "reader": 27,
-        "contributor": 56,
-        "maintainer": 69,
-        "operator": 78,
-        "administrator": 79,
-    }
+    assert {name: tuple(value["allow"]) for name, value in profiles.items()} == (
+        builtin_profile_allow_lists(current_application_catalogue())
+    )
 
 
 def _v055_granular_builtins():

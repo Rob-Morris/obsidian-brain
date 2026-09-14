@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 from contextlib import contextmanager
+from dataclasses import dataclass
+import json
 import os
 from pathlib import Path
 import re
@@ -17,6 +19,7 @@ from .consent_owner import (
 
 OWNER_CHANNEL_ENV = "BRAIN_OWNER_CHANNEL"
 OWNER_UNAVAILABLE_ENV = "BRAIN_OWNER_UNAVAILABLE"
+PROCESS_CONTEXT_ENV = "BRAIN_PROCESS_CONTEXT"
 OWNER_UNAVAILABLE_REASONS = {
     "platform": "Private process owner inheritance is unsupported on this platform.",
     "storage": "Private consent state could not be initialised; repair local runtime storage and restart the session.",
@@ -24,11 +27,55 @@ OWNER_UNAVAILABLE_REASONS = {
 _LOCATOR = re.compile(re.escape(PROTOCOL) + r":(stream|job):([0-9]{1,10})\Z")
 
 
+@dataclass(frozen=True, slots=True)
+class ProcessIdentity:
+    """Trusted launch attribution; its public identifier is never an attach token."""
+
+    kind: str
+    context_id: str
+
+    def __post_init__(self):
+        if self.kind not in {"mcp-instance", "cli-job"}:
+            raise ValueError("invalid owned process kind")
+        if not isinstance(self.context_id, str) or not re.fullmatch(r"[A-Za-z0-9_-]{1,128}", self.context_id):
+            raise ValueError("invalid process context identifier")
+
+    @property
+    def source(self) -> str:
+        return "host-request" if self.kind == "mcp-instance" else "cli-request"
+
+    def launch_value(self, *, initialise_owner: bool = False) -> str:
+        """Encode bounded private launch facts, distinct from request metadata."""
+        if type(initialise_owner) is not bool:
+            raise ValueError("owner initialisation marker must be Boolean")
+        return json.dumps({"schema": "brain.process-context/1", "kind": self.kind,
+                           "context_id": self.context_id, "initialise_owner": initialise_owner}, separators=(",", ":"))
+
+
+def capture_process_identity(environ=None) -> tuple[ProcessIdentity | None, bool]:
+    """Consume trusted launcher attribution before application composition."""
+    source = os.environ if environ is None else environ
+    raw = source.pop(PROCESS_CONTEXT_ENV, None)
+    if raw is None:
+        return None, False
+    try:
+        if len(raw) > 512:
+            raise ValueError("process context exceeds bound")
+        value = json.loads(raw)
+        if (not isinstance(value, dict) or set(value) != {"schema", "kind", "context_id", "initialise_owner"}
+                or value["schema"] != "brain.process-context/1" or type(value["initialise_owner"]) is not bool):
+            raise ValueError("invalid process context fields")
+        return ProcessIdentity(value["kind"], value["context_id"]), value["initialise_owner"]
+    except (TypeError, ValueError) as exc:
+        raise OwnerConnectionError("private process context is invalid") from exc
+
+
 def without_owner_environment(environ=None) -> dict[str, str]:
     """Copy the environment without an unrelated process's descriptor locator."""
     result = dict(os.environ if environ is None else environ)
     result.pop(OWNER_CHANNEL_ENV, None)
     result.pop(OWNER_UNAVAILABLE_ENV, None)
+    result.pop(PROCESS_CONTEXT_ENV, None)
     return result
 
 

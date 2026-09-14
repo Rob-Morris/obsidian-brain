@@ -26,7 +26,7 @@ def test_large_bootstrap_matches_complete_mirror_and_detects_changed_source(comm
         result = app.invoke(SessionStartRequest(cursor))
         assert result.status == "ok", result
         envelope = canonical_result_envelope(result)
-        assert len(json.dumps(envelope, ensure_ascii=False, separators=(",", ":")).encode()) <= 16000
+        assert len(json.dumps(envelope, ensure_ascii=False, separators=(",", ":")).encode()) < 16000
         pages.append(result.result.content)
         cursor = result.result.range.next_cursor
         first_cursor = first_cursor or cursor
@@ -56,7 +56,7 @@ def test_lean_bootstrap_retains_retrieval_routes_and_all_core_links_are_readable
     assert "resource.read" in result.result.resource_discovery.artefact_types
     assert "vault.read-file" in result.result.resource_discovery.core_documents
     assert len(json.dumps(canonical_result_envelope(result), ensure_ascii=False,
-                          separators=(",", ":")).encode()) <= 16000
+                          separators=(",", ":")).encode()) < 16000
     for section in result.result.core_docs:
         for doc in section.docs:
             request = VaultReadFileRequest(doc.path)

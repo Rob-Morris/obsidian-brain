@@ -392,17 +392,26 @@ def exec_managed_runtime(
     forwarded_args: list[str],
     summary: dict,
     owner_attachment=None,
+    transport_identity=None,
+    owner_initialisation_allowed=False,
 ) -> None:
     """Re-exec the current script inside the canonical managed runtime."""
-    from .owner_attachment import OwnerAttachment, without_owner_environment
+    from .owner_attachment import (OwnerAttachment, without_owner_environment,
+                                   capture_process_identity, PROCESS_CONTEXT_ENV)
 
     attachment = owner_attachment if owner_attachment is not None else OwnerAttachment.capture()
+    if transport_identity is None:
+        transport_identity, owner_initialisation_allowed = capture_process_identity()
     env = without_owner_environment()
     env[BOOTSTRAP_SUMMARY_ENV] = json.dumps(summary)
     argv = [managed_python, script_path, *forwarded_args]
+    if transport_identity is not None:
+        env[PROCESS_CONTEXT_ENV] = transport_identity.launch_value(initialise_owner=owner_initialisation_allowed)
     try:
         if attachment is not None:
             with attachment.exec_environment(env) as forwarded_env:
+                if transport_identity is not None:
+                    forwarded_env[PROCESS_CONTEXT_ENV] = transport_identity.launch_value(initialise_owner=owner_initialisation_allowed)
                 os.execve(managed_python, argv, forwarded_env)
         elif sys.platform == "win32":
             result = subprocess.run(argv, env=env)
@@ -485,6 +494,8 @@ def handoff_current_script_to_managed_runtime(
     launcher_python: str | None = None,
     timeout: int = 300,
     owner_attachment=None,
+    transport_identity=None,
+    owner_initialisation_allowed=False,
 ) -> dict:
     """Ensure the current wrapper executes inside the canonical managed runtime.
 
@@ -493,8 +504,10 @@ def handoff_current_script_to_managed_runtime(
     into it or raises `RuntimeError` when bootstrap could not produce a usable
     managed interpreter.
     """
-    from .owner_attachment import OwnerAttachment
+    from .owner_attachment import OwnerAttachment, capture_process_identity
 
+    if transport_identity is None:
+        transport_identity, owner_initialisation_allowed = capture_process_identity()
     attachment = owner_attachment if owner_attachment is not None else OwnerAttachment.capture()
     try:
         summary = ensure_managed_runtime(
@@ -512,6 +525,8 @@ def handoff_current_script_to_managed_runtime(
                 forwarded_args=forwarded_args,
                 summary=summary,
                 **({"owner_attachment": attachment} if attachment is not None else {}),
+                **({"transport_identity": transport_identity, "owner_initialisation_allowed": owner_initialisation_allowed}
+                   if transport_identity is not None else {}),
             )
         return summary
     finally:

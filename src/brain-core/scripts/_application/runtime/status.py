@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from ..types import InitialAuthorisationClass
+
 from .._decoding import decode_empty
 from dataclasses import dataclass
 from typing import ClassVar, Mapping
@@ -51,6 +53,7 @@ def catalogue_entry():
     from ..preparation import LIVE_QUERY
 
     return ApplicationEntry(
+        initial_class=InitialAuthorisationClass.OBSERVATION,
         request_type=RuntimeStatusRequest,
         executor=execute,
         dependency_tier=DependencyTier.BOOTSTRAP,

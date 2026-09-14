@@ -19,6 +19,7 @@ from .artefact import set_key as artefact_set_key
 from .artefact import set_naming_field as artefact_set_naming_field
 from .artefact import set_status as artefact_set_status
 from .artefact import unarchive as artefact_unarchive
+from .access import prepare as access_prepare
 from .access import reduce as access_reduce
 from .access import request as access_request
 from .access import status as access_status
@@ -83,6 +84,7 @@ from .resolver import ResolverEntry
 
 
 _COMMAND_OWNERS = (
+    access_prepare,
     access_reduce,
     access_request,
     access_status,

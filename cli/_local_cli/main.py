@@ -11,7 +11,8 @@ from pathlib import Path
 import subprocess
 import sys
 from typing import Mapping
-from _bootstrap.owner_attachment import OwnerAttachment
+from types import SimpleNamespace
+from _bootstrap.owner_attachment import OwnerAttachment, ProcessIdentity, PROCESS_CONTEXT_ENV
 from _bootstrap.consent_owner import OwnerConnectionError, OwnerTransportUnavailable
 
 from launcher_catalogue import LAUNCHER_CATALOGUE
@@ -86,7 +87,13 @@ def _run(argv, attachment) -> int:
             print(_help_text())
             return 0
         cli_binary, distribution_root = _trusted_distribution()
+        if common.operation is not None and (not common.operation.strip() or len(common.operation.encode("utf-8")) > 128):
+            raise LocalCliUsageError("--operation requires an ID of 1–128 UTF-8 bytes")
+        if command_argv[:2] == ["session", "run"]:
+            return _run_session(command_argv, common)
         if command_argv[:1] == ["command"]:
+            if common.operation is not None:
+                raise LocalCliUsageError("CLI discovery does not accept a prepared operation selector")
             selected = _resolve_optional(common, required=False)
             return _run_discovery(
                 command_argv,
@@ -96,6 +103,8 @@ def _run(argv, attachment) -> int:
                 distribution_root=distribution_root,
             )
         entry = _launcher_entry_for_argv(command_argv)
+        if entry is not None and common.operation is not None:
+            raise LocalCliUsageError("launcher commands do not accept application operation selectors")
         if entry is None:
             if len(command_argv) != 2:
                 raise LocalCliUsageError(
@@ -178,6 +187,7 @@ def _parse_common(argv: list[str]):
     parser.add_argument("--brain", dest="brain_id")
     parser.add_argument("--workspace")
     parser.add_argument("--operator-key")
+    parser.add_argument("--operation")
     parser.add_argument("--request-json")
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--json", dest="json_mode", action="store_true")
@@ -207,10 +217,12 @@ def _trusted_distribution() -> tuple[Path, Path]:
 def _resolve_optional(common, *, required: bool) -> SelectedBrain | None:
     explicit = any((common.vault, common.brain_id, common.workspace))
     try:
+        attachment = getattr(common, "owner_attachment", None)
+        inherited_job = attachment is not None and attachment.kind == "cli-job" and not explicit
         return resolve_selected_brain(
-            vault=common.vault,
+            vault=os.environ.get("BRAIN_VAULT_ROOT") if inherited_job else common.vault,
             brain_id=common.brain_id,
-            workspace=common.workspace,
+            workspace=os.environ.get("BRAIN_WORKSPACE_DIR") if inherited_job else common.workspace,
         )
     except Exception as exc:
         if required or explicit:
@@ -251,15 +263,15 @@ def _request_payload(value: str | None) -> dict[str, object]:
 
 
 def _launcher_operator_key(command_id: str, supplied: str | None) -> str | None:
-    if command_id != "access.approve" or supplied:
+    if command_id != "permission.set-profile" or supplied:
         return supplied
     if not sys.stdin.isatty():
         raise LocalCliUsageError(
-            "access approve requires --operator-key when no interactive terminal is available"
+            "permission set-profile requires --operator-key when no interactive terminal is available"
         )
     value = getpass.getpass("Brain operator key: ")
     if not value.strip():
-        raise LocalCliUsageError("access approve requires a non-empty operator key")
+        raise LocalCliUsageError("permission set-profile requires a non-empty operator key")
     return value
 
 
@@ -325,7 +337,48 @@ def _application_invoker(selected: SelectedBrain, entry: ComposedCommandEntry, c
             common.dry_run,
         ),
         owner_attachment=getattr(common, "owner_attachment", None),
+        operation_id=getattr(common, "operation", None),
     )
+
+
+def _run_session(command_argv, common) -> int:
+    """Start one explicitly selected job after checking the selected Brain contract."""
+    if len(command_argv) < 4 or command_argv[2] != "--":
+        raise LocalCliUsageError("use brain session run -- <program> [args...]")
+    if common.request_json is not None or common.operation is not None or common.dry_run or common.json_mode:
+        raise LocalCliUsageError("session run accepts target/credential options and a program after --")
+    selected = _resolve_optional(common, required=True)
+    # A new job does not reuse an outer job's principal or target ownership.
+    discovery = SimpleNamespace(operator_key=common.operator_key, owner_attachment=None)
+    envelope = _invoke_application(selected, "command.list", {"owner": "application", "page_size": 1},
+                                   discovery, dependency_tier="stdlib")
+    payload = _ok_payload(envelope, "command.list")
+    if type(payload.get("interface_epoch")) is not int or payload["interface_epoch"] != 3:
+        raise CliError("selected Brain must support command interface epoch 3; upgrade it before starting a consent job")
+    from .session import run_owned_job
+    return run_owned_job(selected, command_argv[3:], initialise_owner=lambda owner: _initialise_selected_job(selected, owner, common))
+
+
+def _initialise_selected_job(selected, owner, common) -> None:
+    """Run authentication in selected Brain code through a private supervisor-only handoff."""
+    attachment = OwnerAttachment.for_job(owner)
+    try:
+        options = attachment.forwarded_process()
+        options["env"][PROCESS_CONTEXT_ENV] = ProcessIdentity("cli-job", owner.identity.context_id).launch_value(initialise_owner=True)
+        argv = [str(command_python(selected, "stdlib")), str(selected.command_script),
+                "--initialise-job-owner", "--vault", str(selected.vault_root)]
+        if common.operator_key is not None:
+            argv.extend(("--operator-key", common.operator_key))
+        if selected.workspace is not None:
+            argv.extend(("--workspace", str(selected.workspace)))
+        result = subprocess.run(argv, **options, capture_output=True, text=True, timeout=30)
+        if result.returncode != 0:
+            raise CliError("selected Brain could not initialise the job: " + result.stderr.strip())
+        expected = {"schema": "brain.owner-initialised/1", "context_id": owner.identity.context_id}
+        if json.loads(result.stdout) != expected:
+            raise CliError("selected Brain returned an invalid owner-initialisation acknowledgement")
+    finally:
+        attachment.close()
 
 
 def _unreachable_application_invoker():
@@ -428,7 +481,7 @@ def _run_discovery(command_argv, *, common, selected, cli_binary, distribution_r
                         "effect_class", "availability", "access", "entry_point")
         entries = []
         for item in composed.entries:
-            fields = (dict(item.payload) if arguments.view == "detailed" else
+            fields = (dict(item.payload) if arguments.view == "detailed" or item.owner == "application" else
                       {key: item.payload[key] for key in brief_fields if key in item.payload})
             entries.append({**fields, "owner": item.owner})
         payload = {
@@ -552,11 +605,14 @@ Usage:
   brain <noun> <verb> [--request-json JSON|-] [--vault PATH|--brain ID] [--json]
   brain command list [--owner application|launcher|all] [filters] [--json]
   brain command describe <command-id> [--owner application|launcher|all] [--json]
+  brain session run [--vault PATH|--brain ID] [--operator-key KEY] -- <program> [args...]
   brain --version
 
 Application commands use their canonical noun/verb spelling. Launcher commands
 use the entry point advertised by discovery. Run `brain command describe
 <command-id> --json` for its exact request schema and minimal example.
+Use --operation ID on an application invocation to select explicitly authorised
+specific consent. A session job ends when its root program exits.
 """
 
 

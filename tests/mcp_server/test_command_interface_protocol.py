@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from copy import deepcopy
 from datetime import datetime, timezone
-from dataclasses import replace
 
 import pytest
 
@@ -17,7 +16,6 @@ from brain_mcp._interface_protocol import (
     interface_header_from_response,
     parse_command_interface_header,
     proxy_protocol_supported,
-    replay_decision,
 )
 from _application.registry import current_application_catalogue
 from _application.types import Projection
@@ -66,7 +64,7 @@ def test_application_header_is_exact_catalogue_derived_mcp_mapping():
         if Projection.MCP in entry.eligible_projections
     )
 
-    assert len(header.tools) == len(eligible) == 68
+    assert len(header.tools) == len(eligible) == 69
     assert header.interface_epoch == catalogue.interface_epoch
     assert header.catalogue_schema == catalogue.schema
     assert header.result_schema == catalogue.result_schema
@@ -196,70 +194,9 @@ def test_accepted_call_rejects_unknown_tool_and_caller_owned_invocation_identity
         )
 
 
-@pytest.mark.parametrize(
-    "replacement, reason",
-    (
-        (
-            lambda header: replace(header, interface_epoch=header.interface_epoch + 1),
-            "interface_epoch_changed",
-        ),
-        (
-            lambda header: replace(
-                header,
-                tools=tuple(
-                    item for item in header.tools if item[0] != "artefact_create"
-                ),
-            ),
-            "projected_tool_removed",
-        ),
-        (
-            lambda header: replace(
-                header,
-                tools=tuple(
-                    (
-                        (
-                            name,
-                            replace(
-                                mapping, command_version=mapping.command_version + 1
-                            ),
-                        )
-                        if name == "artefact_create"
-                        else (name, mapping)
-                    )
-                    for name, mapping in header.tools
-                ),
-            ),
-            "command_version_changed",
-        ),
-        (
-            lambda header: replace(
-                header,
-                tools=tuple(
-                    (
-                        (name, replace(mapping, mutation_class="none"))
-                        if name == "artefact_create"
-                        else (name, mapping)
-                    )
-                    for name, mapping in header.tools
-                ),
-            ),
-            "mutation_class_changed",
-        ),
-    ),
-)
-def test_replay_refuses_every_command_level_incompatibility(replacement, reason):
-    header, _request, record, _forwarded = _accepted_call()
-
-    assert replay_decision(record, replacement(header)).reason == reason
-
-
-def test_replay_allows_unchanged_command_across_unrelated_additive_fingerprint_change():
-    header, _request, record, _forwarded = _accepted_call()
-    replacement_header = replace(
-        header,
-        catalogue_fingerprint="sha256:" + "1" * 64,
-    )
-
-    decision = replay_decision(record, replacement_header)
-    assert decision.compatible is True
-    assert decision.reason is None
+@pytest.mark.parametrize("field", ["brainContext", "brainProcessContext", "brainOwner", "brainAuthorisation"])
+def test_public_metadata_cannot_supply_private_context_or_authority(field):
+    header, request, _record, _forwarded = _accepted_call()
+    request["params"]["_meta"] = {field: {"context_id": "forged", "initialise_owner": True}}
+    with pytest.raises(ValueError, match="owned by the proxy"):
+        accept_call(request, header, invocation_id="owned", accepted_at=datetime.now(timezone.utc))

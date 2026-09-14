@@ -38,7 +38,7 @@ MCP, CLI, direct script and typed Python share:
 
 Adapter-only concerns remain outside the semantic request. `--vault`, `--workspace`, `--operator-key`, `--dry-run`, process rendering and invocation identity are trusted composition inputs, not command fields.
 
-The direct projection honours the same ceiling and Reader-default active grant as MCP. Use `access.status`, `access.request` and `access.reduce` through `command.py` when appropriate. External approval is deliberately excluded: `access.approve` belongs only to the machine-global CLI launcher and cannot be invoked through this script or typed application catalogue.
+The direct projection honours the same credential permissions and configured initial authorisation as MCP. A managed CLI job provides one private lifetime for `access.prepare`, `access.request` and `access.reduce`; standalone calls retain initial authorisation and their own principal-scoped receipts. Permission administration belongs to the CLI-only `permission.set-profile` launcher and is absent from this script and the typed application catalogue.
 
 Frontmatter transport fields are JSON objects; typed Python constructors retain immutable field tuples. Artefact selectors resolve short or qualified singular/plural names through the configured taxonomy and return its canonical frontmatter type. MCP projects the dotted command ID to `noun_verb`; direct scripts keep noun/verb arguments.
 
@@ -58,18 +58,13 @@ Human output and JSON output are projections of the same result. Diagnostics nev
 
 Python consumers import the supported kernel from `brain_application`, construct sealed request types from `brain_application.requests`, and obtain their construction values from `brain_application.values` or a narrow domain module such as `brain_application.documents`. Trusted context contracts, including dependency and availability enums and receipt ports, are exported by `brain_application.context`. Invoke requests through `CommandApplication(context).invoke(request)`. Importing the kernel does not load command owners; importing the all-requests or all-values modules is an explicit opt-in to every dependency tier. The internal `_application` tree owns execution and registration and is not a supported integration surface. Dynamic infrastructure consumers resolve through the catalogue-bound `ApplicationAdapter`; free command strings are permitted only at that explicit adapter boundary.
 
-The trusted `InvocationContext` contains selected-Brain identity, authenticated authority, dependency tier, one capability snapshot, providers, invocation/correlation identity, receipt writer and effect facilities. Executors do not rediscover those facts from environment variables.
+The trusted `InvocationContext` contains selected-Brain identity, current permission and authorisation ports, dependency tier, capability snapshot, providers, invocation/correlation identity and owned outcome receipts. Executors do not rediscover these facts from environment variables. Ordinary owners must admit the operation under their existing domain guard before returning success; every entered observation or mutation has an immutable intent and independent execution/effect outcome.
 
-Discovery adapters implement `AuthorityEvaluator.observe()` to capture one
-immutable `AuthorityObservation` per list or description. Its `allows()`
-method must neither reread changing grant state nor consume a lease. Ordinary
-execution continues to use the live evaluator and its authenticated ceiling;
-an observation never grants permission to execute. Both protocols are exposed
-through `brain_application.context`.
+Local Python integrations can use `brain_application.local.LocalContextComposer(vault_root=...)`, invoke `CommandApplication(composer.compose(command_id=..., invocation_id=...)).invoke(request)`, then close the composer. This explicit infrastructure import resolves the same current credential permissions and initial policy as CLI and MCP. A standalone Python context cannot manufacture exceptional consent; a trusted adapter must attach an actual private instance owner. Advanced adapters can implement the public authorisation and owned-receipt ports directly. Discovery uses a batched, non-consuming observation from that authorisation service; it never grants permission to execute.
 
 ## Internal script modules
 
-Files such as `create.py`, `edit.py`, `read.py`, `repair.py`, `session.py`, `upgrade.py` and domain packages remain implementation providers where application or launcher owners use them. Their old independent aggregate parsers and compatibility entry points are not the public command grammar. `access_approval.py` is a CLI-owned internal subprocess boundary that receives its operator secret only through trusted process context; it is not a direct-script command. `start_shaping.py` is removed; use `shaping.start` through `command.py`.
+Files such as `create.py`, `edit.py`, `read.py`, `repair.py`, `session.py`, `upgrade.py` and domain packages remain implementation providers where application or launcher owners use them. Their old independent aggregate parsers and compatibility entry points are not the public command grammar. `permission_admin.py` is a CLI-owned internal subprocess boundary that receives its operator secret only through trusted process context; it is not a direct-script command. `start_shaping.py` is removed; use `shaping.start` through `command.py`.
 
 Machine-global operations do not run through selected-Brain `command.py`. The versioned CLI distribution owns the separate stdlib-safe launcher catalogue and its install, upgrade, registry, runtime, MCP and diagnostic owners.
 

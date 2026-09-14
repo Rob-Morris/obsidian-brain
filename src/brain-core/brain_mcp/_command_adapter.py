@@ -27,7 +27,7 @@ from _application.projection import (
 )
 from _application.resolver import RequestResolver
 from _application.results import CommandError, Error, ErrorCode
-from _application.types import EffectClass, Projection, RetryClass
+from _application.types import EffectClass, InitialAuthorisationClass, Projection, RetryClass
 from _common import _operational_log
 
 from ._interface_protocol import (
@@ -130,6 +130,11 @@ def register_application_tools(
             wrap_output=generated.wrap_output,
         )
         tool.parameters = request_schema(entry.request_type)
+        if entry.initial_class is not InitialAuthorisationClass.CONTROL:
+            tool.parameters["properties"]["brain_operation"] = {
+                "type": ["string", "null"], "minLength": 1, "maxLength": 128,
+                "description": "Prepared operation ID to select its specific consent in this Brain session; omit for initial or blanket authorisation.",
+            }
         names.append(name)
     if names != sorted(names) or len(names) != len(set(names)):
         raise RuntimeError("granular MCP registration must be sorted and collision-free")
@@ -161,8 +166,16 @@ def _handler(
     def invoke(*, mcp_context: Context, **arguments) -> CallToolResult:
         # This pre-effect boundary deliberately sits outside the recoverable
         # adapter error path. The server guard exits with code 10 so the proxy
-        # can replace stale command code and replay under the new interface.
+        # can replace stale command code and consult its owned outcome.
         invocation_guard()
+        if "brain_operation" in arguments and entry.initial_class is InitialAuthorisationClass.CONTROL:
+            return _tool_result(_error_projection(entry, ErrorCode.INVALID_REQUEST,
+                                                  "Session controls cannot select a prepared operation."))
+        operation_id = arguments.pop("brain_operation", None)
+        if operation_id is not None and (not isinstance(operation_id, str) or not operation_id.strip()
+                                         or len(operation_id.encode("utf-8")) > 128):
+            return _tool_result(_error_projection(entry, ErrorCode.INVALID_REQUEST,
+                                                  "brain_operation must be a non-empty operation ID of at most 128 UTF-8 bytes."))
         logger = _operational_log.current_logger()
         started = time.monotonic()
         try:
@@ -170,6 +183,7 @@ def _handler(
                 command_id=entry.command_id,
                 catalogue=catalogue,
                 mcp_context=mcp_context,
+                **({"operation_id": operation_id} if operation_id is not None else {}),
             )
         except Exception as exc:
             # Unpaired tool.handled: the invocation identity never composed.
@@ -220,15 +234,7 @@ def _handler(
                     duration_ms=int((time.monotonic() - started) * 1000),
                     outcome="error" if projection.is_error else "ok",
                 )
-        envelope = projection.structured_content
-        return CallToolResult(
-            content=result_text_content(
-                projection.concise_text,
-                envelope,
-            ),
-            structuredContent=envelope,
-            isError=projection.is_error,
-        )
+        return _tool_result(projection)
 
     invoke.__name__ = project_identity(entry.command_id).mcp_tool
     invoke.__doc__ = entry.summary
@@ -247,6 +253,9 @@ def _signature(entry: ApplicationEntry) -> inspect.Signature:
             annotation=Context,
         )
     ]
+    if entry.initial_class is not InitialAuthorisationClass.CONTROL:
+        parameters.append(inspect.Parameter("brain_operation", inspect.Parameter.KEYWORD_ONLY,
+                                            default=None, annotation=str | None))
     for field in fields(entry.request_type):
         if not field.init:
             continue
@@ -270,6 +279,13 @@ def _signature(entry: ApplicationEntry) -> inspect.Signature:
             )
         )
     return inspect.Signature(parameters, return_annotation=CallToolResult)
+
+
+def _tool_result(projection) -> CallToolResult:
+    """Project one canonical envelope for both structured and text-only clients."""
+    envelope = projection.structured_content
+    return CallToolResult(content=result_text_content(projection.concise_text, envelope),
+                          structuredContent=envelope, isError=projection.is_error)
 
 
 def _error_projection(

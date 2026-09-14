@@ -44,7 +44,8 @@ def _call_handler(mcp, request):
         ({PROXY_PROTOCOL_ENV: "02"}, "malformed", None),
         ({PROXY_PROTOCOL_ENV: "1"}, "too_old", 1),
         ({PROXY_PROTOCOL_ENV: "2"}, "too_old", 2),
-        ({PROXY_PROTOCOL_ENV: "4"}, "too_new", 4),
+        ({PROXY_PROTOCOL_ENV: "3"}, "too_old", 3),
+        ({PROXY_PROTOCOL_ENV: "5"}, "too_new", 5),
     ),
 )
 def test_incompatible_running_marker_is_explicit(environment, reason, value):
@@ -102,7 +103,7 @@ def test_old_proxy_call_is_blocked_before_lookup_even_for_retired_name(monkeypat
         "requested_tool": "brain_retired_aggregate",
         "running_proxy_protocol": None,
         "running_proxy_protocol_raw": None,
-        "required_proxy_protocol": {"minimum": 3, "maximum": 3},
+        "required_proxy_protocol": {"minimum": 4, "maximum": 4},
         "reason": "missing",
     }
 

@@ -26,12 +26,15 @@ def _module():
 
 def _expected_launcher_commands():
     fixture = json.loads(DISPOSITIONS.read_text(encoding="utf-8"))
-    return sorted(
+    historical = {
         command
         for group in fixture["command_contract_groups"].values()
         if group["contract"]["owner"] == "launcher"
         for command in group["commands"]
-    )
+    }
+    # The closed v1 audit remains evidence of its original surface. Epoch 3
+    # replaces external approval with explicit CLI-only permission administration.
+    return sorted((historical - {"access.approve"}) | {"permission.set-profile"})
 
 
 def test_launcher_catalogue_is_complete_against_the_closed_disposition_evidence():

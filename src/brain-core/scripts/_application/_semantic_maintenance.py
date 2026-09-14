@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from .types import InitialAuthorisationClass
+
 from dataclasses import dataclass, replace
 from enum import Enum
 
@@ -206,6 +208,7 @@ def catalogue_entry(
     from .catalogue import ALL_APPLICATION_PROJECTIONS, ApplicationEntry
 
     return ApplicationEntry(
+        initial_class=InitialAuthorisationClass.EXCEPTIONAL,
         preparation=MAINTENANCE,
         request_type=request_type,
         executor=executor,

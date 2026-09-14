@@ -170,6 +170,7 @@ def test_exact_0_3_no_release_data_runs_the_retained_migration_chain(tmp_path):
     scripts = vault / ".brain-core" / "scripts"
     shutil.rmtree(scripts)
     shutil.copytree(_REAL_SCRIPTS, scripts)
+    shutil.copytree(_REAL_SCRIPTS.parent / 'defaults', vault / '.brain-core/defaults')
     (scripts / "upgrade.py").unlink()
     compiled = compile_router.compile(str(vault))
     (vault / ".brain" / "local" / "compiled-router.json").write_text(
@@ -804,3 +805,38 @@ def test_remaining_pid_scoped_temp_helpers_are_gone():
         content = path.read_text()
         assert "os.getpid()" not in content, path
         assert ".{os.getpid()}.tmp" not in content, path
+
+
+def test_upgrade_captures_old_authorisation_before_replacing_defaults(tmp_path):
+    from _common._yaml import dump_mapping_text, load_mapping_file
+    migration = (_REAL_SCRIPTS / 'migrations/migrate_to_0_68_0.py').read_text()
+    source = _make_source(tmp_path, '0.68.0', migrations={'migrate_to_0_68_0.py': migration})
+    vault = _make_vault(tmp_path, '0.67.3')
+    old = {'vault': {'profiles': {'reader': {'allow': ['vault.read-file']}}},
+           'defaults': {'access': {'initial_profile': 'reader'}}}
+    new = {'vault': {'profiles': {'reader': {'allow': ['access.prepare', 'vault.read-file']}}},
+           'defaults': {'access': {'initial': {'mode': 'normal'}}}}
+    for directory, value in ((vault / '.brain-core/defaults', old), (source / 'defaults', new)):
+        directory.mkdir()
+        (directory / 'config.yaml').write_text(dump_mapping_text(value))
+    shutil.copy2(_REAL_SCRIPTS.parent / 'defaults/command-authority.json', source / 'defaults/command-authority.json')
+    (vault / '.brain/config.yaml').write_text(dump_mapping_text({
+        'defaults': {'access': {'initial_profile': 'reader'}}}))
+
+    result = upgrade.upgrade(str(vault), str(source), sync=False)
+
+    assert result['status'] == 'ok', result
+    access = load_mapping_file(vault / '.brain/config.yaml')['defaults']['access']
+    assert access == {'initial': {'mode': 'explicit', 'commands': ['vault.read-file']}}
+    assert (vault / '.brain/local/authorisation-migration.json').is_file()
+
+
+def test_upgrade_refuses_invalid_old_authorisation_before_core_replacement(tmp_path):
+    source = _make_source(tmp_path, '0.68.0', migrations={})
+    vault = _make_vault(tmp_path, '0.67.3')
+    (vault / '.brain/config.yaml').write_text('vault: [invalid]\n')
+    result = upgrade.upgrade(str(vault), str(source), sync=False)
+    assert result['status'] == 'error'
+    assert 'capture existing authorisation' in result['message']
+    assert result['rollback_verified'] is True
+    assert (vault / '.brain-core/VERSION').read_text().strip() == '0.67.3'

@@ -8,6 +8,7 @@ Never edit past changelog entries. Only add new entries at the top.
 
 | Version | Date | Summary |
 |---|---|---|
+| [v0.68.0](changelog/v0.68.0.md) | 2026-09-14 | BREAKING — Replace access.request leases with instance-owned consent |
 | [v0.67.3](changelog/v0.67.3.md) | 2026-09-14 | Connect private consent owners across Brain processes |
 | [v0.67.2](changelog/v0.67.2.md) | 2026-09-14 | Complete internal operation preparation and owned receipts |
 | [v0.67.1](changelog/v0.67.1.md) | 2026-09-14 | Add internal foundations for instance-owned authorisation |

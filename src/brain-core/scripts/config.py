@@ -22,6 +22,8 @@ import json
 import os
 import sys
 import warnings
+import hashlib
+from dataclasses import dataclass, field
 
 from _common import hash_key
 from _common._yaml import YamlError, load_mapping_file
@@ -112,7 +114,7 @@ def _read_yaml(path: str) -> dict:
 # Merge logic
 # ---------------------------------------------------------------------------
 
-def _merge_defaults(base: dict, overlay: dict) -> dict:
+def _merge_defaults(base: dict, overlay: dict, *, _path: tuple[str, ...] = ()) -> dict:
     """Merge overlay into base using type-based rules for the defaults zone.
 
     Scalars:  overlay wins if present
@@ -122,6 +124,9 @@ def _merge_defaults(base: dict, overlay: dict) -> dict:
     """
     result = dict(base)
     for key, overlay_val in overlay.items():
+        if (*_path, key) in {("access", "initial"), ("access", "overrides")}:
+            result[key] = overlay_val
+            continue
         if key not in result:
             result[key] = overlay_val
             continue
@@ -130,7 +135,7 @@ def _merge_defaults(base: dict, overlay: dict) -> dict:
 
         # Dict: recurse
         if isinstance(base_val, dict) and isinstance(overlay_val, dict):
-            result[key] = _merge_defaults(base_val, overlay_val)
+            result[key] = _merge_defaults(base_val, overlay_val, _path=(*_path, key))
         # List: additive (union)
         elif isinstance(base_val, list) and isinstance(overlay_val, list):
             seen = set()
@@ -261,32 +266,92 @@ def _validate_config(
     return warns
 
 
-def authenticate_operator(key: str | None, config: dict) -> tuple[str, str | None]:
-    """Match an operator key to a profile.
+class OperatorBindingRevoked(ValueError):
+    """A pinned registration is positively absent, replaced or ambiguous."""
 
-    Returns (profile_name, operator_id).
-    If key is None, returns the default profile with no operator id.
-    Raises ValueError if key is provided but doesn't match any operator.
-    """
+
+@dataclass(frozen=True, slots=True)
+class OperatorAuthenticationBinding:
+    """Private registration evidence, never a public credential or permission set."""
+
+    kind: str
+    operator_id: str | None = None
+    registration_fingerprint: str | None = field(default=None, repr=False)
+
+    def __post_init__(self):
+        if self.kind == "default":
+            if self.operator_id is not None or self.registration_fingerprint is not None:
+                raise ValueError("default authentication cannot claim a registration")
+        elif self.kind == "registered-key":
+            if not isinstance(self.operator_id, str) or not self.operator_id.strip():
+                raise ValueError("registered authentication requires an operator identity")
+            if not isinstance(self.registration_fingerprint, str) or len(self.registration_fingerprint) != 71:
+                raise ValueError("registered authentication requires private registration evidence")
+        else:
+            raise ValueError("authentication binding kind is invalid")
+
+
+def _registration_binding(operator: dict) -> OperatorAuthenticationBinding:
+    auth = operator.get("auth")
+    if not isinstance(auth, dict) or auth.get("type") != "key" or not isinstance(auth.get("hash"), str):
+        raise ConfigError("operator authentication registration is invalid")
+    payload = json.dumps({"id": operator.get("id"), "type": auth["type"], "hash": auth["hash"]},
+                         sort_keys=True, separators=(",", ":"))
+    return OperatorAuthenticationBinding("registered-key", operator.get("id"),
+                                         "sha256:" + hashlib.sha256(payload.encode()).hexdigest())
+
+
+def _operators(config: dict) -> list:
+    operators = config.get("vault", {}).get("operators", [])
+    if not isinstance(operators, list):
+        raise ConfigError("vault.operators must be a list")
+    if any(not isinstance(operator, dict) for operator in operators):
+        raise ConfigError("vault.operators entries must be mappings")
+    return operators
+
+
+def authenticate_operator_binding(key: str | None, config: dict) -> tuple[str, OperatorAuthenticationBinding]:
+    """Authenticate once, returning current profile and immutable private evidence."""
     defaults = config.get("defaults", {})
     default_profile = defaults.get("default_profile", "operator")
-
     if key is None:
-        return (default_profile, None)
-
+        return default_profile, OperatorAuthenticationBinding("default")
     key_hash = hash_key(key)
-    operators = config.get("vault", {}).get("operators", [])
+    operators = _operators(config)
+    matches = [op for op in operators if isinstance(op, dict) and isinstance(op.get("auth"), dict)
+               and op["auth"].get("type") == "key" and op["auth"].get("hash") == key_hash]
+    if not matches:
+        raise ValueError("operator key does not match any registered operator")
+    if len(matches) != 1:
+        raise ValueError("operator key has ambiguous registrations")
+    operator = matches[0]
+    binding = _registration_binding(operator)
+    if sum(isinstance(op, dict) and op.get("id") == binding.operator_id for op in operators) != 1:
+        raise ValueError("operator identity has ambiguous registrations")
+    return operator.get("profile", default_profile), binding
 
-    for op in operators:
-        if not isinstance(op, dict):
-            continue
-        auth = op.get("auth", {})
-        if not isinstance(auth, dict):
-            continue
-        if auth.get("type") == "key" and auth.get("hash") == key_hash:
-            return (op.get("profile", default_profile), op.get("id"))
 
-    raise ValueError("operator key does not match any registered operator")
+def resolve_operator_binding(binding: OperatorAuthenticationBinding, config: dict) -> str:
+    """Re-evaluate a trusted delegated registration without accepting it as a key."""
+    if not isinstance(binding, OperatorAuthenticationBinding):
+        raise ValueError("delegated authentication requires a typed private binding")
+    default = config.get("defaults", {}).get("default_profile", "operator")
+    if binding.kind == "default":
+        return default
+    matches = [op for op in _operators(config) if isinstance(op, dict) and op.get("id") == binding.operator_id]
+    if len(matches) != 1:
+        raise OperatorBindingRevoked("pinned operator registration was removed or is ambiguous; start a new session")
+    # Malformed configuration is transient, not positive evidence of revocation.
+    current = _registration_binding(matches[0])
+    if current != binding:
+        raise OperatorBindingRevoked("pinned operator credential changed; start a new session")
+    return matches[0].get("profile", default)
+
+
+def authenticate_operator(key: str | None, config: dict) -> tuple[str, str | None]:
+    """Return current profile and optional registered ID through the canonical matcher."""
+    profile, binding = authenticate_operator_binding(key, config)
+    return profile, binding.operator_id
 
 
 # ---------------------------------------------------------------------------
@@ -325,8 +390,14 @@ def load_config_from_paths(
     # Layer 2: local config (machine-specific, gitignored)
     local_cfg = _read_yaml(local_path)
 
-    # Merge
-    merged = _merge_config(template, vault_cfg, local_cfg)
+    return merge_config_sources(template, vault_cfg, local_cfg,
+                                additional_valid_tools=additional_valid_tools)
+
+
+def merge_config_sources(template: dict, shared: dict, local: dict, *,
+                         additional_valid_tools: frozenset[str] = frozenset()) -> dict:
+    """Resolve captured source documents with the same merge and validation as files."""
+    merged = _merge_config(template, shared, local)
 
     # Validate
     issues = _validate_config(

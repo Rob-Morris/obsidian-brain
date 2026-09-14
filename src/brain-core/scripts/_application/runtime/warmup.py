@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from ..types import InitialAuthorisationClass
+
 from .._decoding import decode_empty
 from dataclasses import dataclass
 from enum import Enum
@@ -46,15 +48,14 @@ def execute(context: InvocationContext, _request: RuntimeWarmupRequest):
     from _bootstrap.readiness import ensure_runtime_warmup
 
     options = {}
-    if context.admission is not None:
-        def enter():
-            from _common import vault_mutation_lock
-            with vault_mutation_lock(context.selected_brain.vault_root):
-                admit_owner(context, _request, maintenance_binding)
-        options["before_enter"] = enter
-        frozen = context.admission.frozen_inputs or {}
-        if context.admission.requires_binding:
-            options["expected_sources"] = frozen.get("maintenance_sources")
+    def enter():
+        from _common import vault_mutation_lock
+        with vault_mutation_lock(context.selected_brain.vault_root):
+            admit_owner(context, _request, maintenance_binding)
+    options["before_enter"] = enter
+    frozen = context.admission.frozen_inputs or {}
+    if context.admission.requires_binding:
+        options["expected_sources"] = frozen.get("maintenance_sources")
     outcome, value = ensure_runtime_warmup(
         context.selected_brain.vault_root,
         retry_failed=True,
@@ -78,6 +79,7 @@ def catalogue_entry():
     from ..catalogue import ALL_APPLICATION_PROJECTIONS, ApplicationEntry
 
     return ApplicationEntry(
+        initial_class=InitialAuthorisationClass.OBSERVATION,
         preparation=MAINTENANCE,
         request_type=RuntimeWarmupRequest,
         executor=execute,

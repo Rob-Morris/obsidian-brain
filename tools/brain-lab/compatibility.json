@@ -329,9 +329,9 @@
     },
     {
       "id": "brain-0.64",
-      "revision": 1,
+      "revision": 2,
       "minimum_version": "0.64.0",
-      "maximum_version_exclusive": "0.68.0",
+      "maximum_version_exclusive": "0.69.0",
       "install": [
         "bash",
         "{source}/install.sh",

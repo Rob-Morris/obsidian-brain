@@ -91,12 +91,11 @@ def execute(context: InvocationContext, request: ShapingStartRequest):
             if "error" in router:
                 return no_effect_error(ShapingStartRequest, ErrorCode.CONFLICT, router["error"])
             options = {}
-            if context.admission is not None:
-                plan, frozen = session_plan(context, request, router, frozen_inputs=context.admission.frozen_inputs)
-                def binding(context, request, *, frozen_inputs=None):
-                    return session_binding(context, request, plan=plan, router=router, frozen_inputs=frozen)
-                admit_owner(context, request, binding)
-                options["_plan"] = plan
+            plan, frozen = session_plan(context, request, router, frozen_inputs=context.admission.frozen_inputs)
+            def binding(context, request, *, frozen_inputs=None):
+                return session_binding(context, request, plan=plan, router=router, frozen_inputs=frozen)
+            admit_owner(context, request, binding)
+            options["_plan"] = plan
             result = start_shaping_session(
                 root,
                 router,

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from .types import InitialAuthorisationClass
+
 from dataclasses import dataclass, field
 from typing import Annotated, Literal, Mapping
 
@@ -185,6 +187,7 @@ def mutation_entry(request_type, executor, authority: Authority):
     from .catalogue import ALL_APPLICATION_PROJECTIONS, ApplicationEntry
 
     return ApplicationEntry(
+        initial_class=InitialAuthorisationClass.CONTENT,
         request_type=request_type,
         executor=executor,
         dependency_tier=DependencyTier.PORTABLE,

@@ -15,6 +15,7 @@ from _application.receipts import (
     AdmissionIntent, CommittedEffect, ExecutionState, InvocationOutcome,
     OutcomeReceipt, OutcomeReference, ReceiptLookupState, ReceiptOwnership,
     ReceiptOwnershipError, ReceiptPolicy, ReceiptState,
+    ReceiptIntentConflict,
 )
 from _command_interface import receipts
 
@@ -95,16 +96,41 @@ def test_separate_immutable_outcome_round_trip(root, execution, state):
 
 def test_identical_retries_are_idempotent_and_conflicts_refused(root):
     saved = store(root)
-    saved.begin(intent())
+    assert saved.begin(intent()) is True
     saved.finalise(outcome())
     before = (path(root).read_bytes(), path(root, suffix=".outcome").read_bytes())
-    saved.begin(intent())
+    assert saved.begin(intent()) is False
     saved.finalise(outcome())
     assert before == (path(root).read_bytes(), path(root, suffix=".outcome").read_bytes())
     with pytest.raises(ValueError, match="immutable"):
         saved.begin(intent(request_id="different"))
     with pytest.raises(ValueError, match="immutable"):
         saved.finalise(outcome(execution=ExecutionState.FAILED))
+
+
+def test_concurrent_identical_intents_have_one_entry_claim(root):
+    from threading import Barrier
+
+    ready = Barrier(8)
+
+    def claim(_):
+        caller = store(root)
+        ready.wait()
+        return caller.begin(intent())
+
+    with ThreadPoolExecutor(max_workers=8) as workers:
+        results = list(workers.map(claim, range(8)))
+    assert results.count(True) == 1
+    assert results.count(False) == 7
+    assert store(root).read(OutcomeReference('one')).intent == intent()
+
+
+def test_later_timestamp_conflicts_with_owned_intent_without_replacing_it(root):
+    saved = store(root)
+    assert saved.begin(intent()) is True
+    with pytest.raises(ReceiptIntentConflict, match='immutable'):
+        saved.begin(intent(recorded_at=NOW + timedelta(seconds=1)))
+    assert saved.read(OutcomeReference('one')).intent == intent()
 
 
 @pytest.mark.parametrize("foreign", [
@@ -328,3 +354,22 @@ def test_audit_records_have_only_compact_contract_fields(root):
 def test_execution_state_cannot_contradict_effects(execution, state):
     with pytest.raises(ValueError, match="contradicts"):
         outcome(execution=execution, state=state)
+
+
+def test_permission_audit_round_trips_separate_immutable_before_and_after(root):
+    from _application.receipts import PermissionChange
+    change = PermissionChange('rob', 'operator', 'reader', (), ('artefact.create',), 'sha256:' + 'b' * 64)
+    requested = intent(command_id='permission.set-profile', permission_change=change)
+    finished = replace(outcome(), receipt=replace(outcome().receipt, command_id='permission.set-profile'),
+                       config_revision='sha256:' + 'c' * 64)
+    saved = store(root)
+    saved.begin(requested)
+    saved.finalise(finished)
+    found = store(root).read(requested.reference)
+    assert found.intent == requested
+    assert found.outcome == finished
+    with pytest.raises(ValueError, match='immutable'):
+        saved.begin(replace(requested, permission_change=replace(change, after_profile='administrator')))
+    with pytest.raises(ValueError, match='immutable'):
+        saved.finalise(replace(finished, config_revision='sha256:' + 'd' * 64))
+    assert 'hash' not in json.dumps(json.loads(path(root).read_text()))

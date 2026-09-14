@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from .types import InitialAuthorisationClass
+
 from pathlib import Path
 from typing import Mapping
 
@@ -46,9 +48,8 @@ def execute_render(
         )
 
     if context.dry_run:
-        if context.admission is not None:
-            with vault_mutation_lock(root):
-                _render_plan_and_admit(context, request)
+        with vault_mutation_lock(root):
+            _render_plan_and_admit(context, request)
         return Ok(
             request.COMMAND_ID,
             request.COMMAND_VERSION,
@@ -113,8 +114,6 @@ def execute_render(
 
 
 def _render_plan_and_admit(context, request):
-    if context.admission is None:
-        return {}
     from .preparation import admit_owner
     from .shaping._render_preparation import render_plan, render_binding
     plan, frozen = render_plan(context, request, frozen_inputs=context.admission.frozen_inputs)
@@ -155,6 +154,7 @@ def catalogue_entry(request_type, executor):
     from .shaping._render_preparation import RENDER
 
     return ApplicationEntry(
+        initial_class=InitialAuthorisationClass.CONTENT,
         preparation=RENDER,
         request_type=request_type,
         executor=executor,
