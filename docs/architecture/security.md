@@ -219,6 +219,14 @@ they never refund entered consent. Execution state is independent of effects:
 an observation can succeed or become uncertain without mutating content.
 Bodies, credentials and prepared review text are excluded from durable records.
 
+The private owner channel is an inherited OS capability, not a public context
+identifier or environment token. Entry points remove its locator and mark its
+descriptor non-inheritable before executing providers; trusted CLI handoffs
+forward it explicitly. Each replacement MCP child receives a fresh stream to
+the same proxy-owned state. Closing the proxy or CLI job ends admission even
+when descendants survive. A failed established channel never becomes a new
+standalone context or permission to retry an uncertain invocation.
+
 `invocation.read` is a strictly non-mutating lookup. Missing receipt storage
 returns no receipt without creating directories or lock files; expired records
 are logically absent without deletion. Atomic publication lets readers avoid a

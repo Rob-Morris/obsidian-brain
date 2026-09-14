@@ -70,7 +70,9 @@ private input disposal, admission intent and final outcomes over application
 ports. `_command_interface/receipts.py` persists the separate immutable intent
 and outcome records with Brain/principal/context ownership and bounded retention.
 `_bootstrap/consent_state.py` and `consent_owner.py` own bounded storage and
-private process lifetime, while `_command_interface/consent_staging.py` retains
+private process lifetime. `owner_attachment.py` captures, validates and forwards
+private channels at trusted process boundaries without importing application
+policy or the MCP SDK, while `_command_interface/consent_staging.py` retains
 immutable prepared content. These are internal foundations for DD-073; public
 access commands still use the existing lease contract until the coordinated
 cutover and complete catalogue integration.

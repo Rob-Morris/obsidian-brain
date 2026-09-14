@@ -28,6 +28,7 @@ from _application.registry import (  # noqa: E402
     current_request_resolver,
 )
 from _common import _operational_log  # noqa: E402
+from _bootstrap.owner_attachment import OwnerAttachment, capture_owner_unavailable  # noqa: E402
 from _command_interface.direct import (  # noqa: E402
     DirectContextComposer,
 )
@@ -48,6 +49,8 @@ _LOADED_VERSION = (
 )
 _MCP_CONTEXT_COMPOSER: DirectContextComposer | None = None
 _SESSION_MIRROR: SessionMirrorWorker | None = None
+_OWNER_ATTACHMENT: OwnerAttachment | None = None
+_OWNER_UNAVAILABLE_REASON: str | None = None
 
 
 def _selected_vault() -> Path:
@@ -132,6 +135,9 @@ def _mcp_context_composer() -> DirectContextComposer:
         operator_key=os.environ.get("BRAIN_OPERATOR_KEY"),
         workspace_dir=workspace,
         session_mirror=_SESSION_MIRROR,
+        owner_attachment=_OWNER_ATTACHMENT,
+        owner_unavailable_reason=_OWNER_UNAVAILABLE_REASON or ("Private MCP child inheritance is unsupported on this platform."
+                                  if os.name != "posix" else None),
     )
     return _MCP_CONTEXT_COMPOSER
 
@@ -161,7 +167,16 @@ def _build_public_mcp() -> MCPServer:
     return public
 
 
-mcp = _build_public_mcp()
+# Registration authenticates and caches the composer at import time. Capture
+# before that boundary, not in main after an unattached composer already exists.
+try:
+    _OWNER_ATTACHMENT = OwnerAttachment.capture()
+    _OWNER_UNAVAILABLE_REASON = capture_owner_unavailable()
+    mcp = _build_public_mcp()
+except BaseException:
+    if _OWNER_ATTACHMENT is not None:
+        _OWNER_ATTACHMENT.close()
+    raise
 
 
 def _install_diagnostics(root: Path) -> _operational_log.OperationalLogger | None:
@@ -236,6 +251,18 @@ def _finish_server(
 
 
 def main() -> None:
+    try:
+        _run_server()
+    finally:
+        try:
+            if _MCP_CONTEXT_COMPOSER is not None:
+                _MCP_CONTEXT_COMPOSER.close()
+        finally:
+            if _OWNER_ATTACHMENT is not None:
+                _OWNER_ATTACHMENT.close()
+
+
+def _run_server() -> None:
     root = _selected_vault()
     logger = _install_diagnostics(root)
     exit_code = 1

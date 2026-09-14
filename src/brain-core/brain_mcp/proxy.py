@@ -21,6 +21,7 @@ Env:
 """
 
 from dataclasses import replace
+from contextlib import nullcontext
 from datetime import datetime, timezone
 import hashlib
 import itertools
@@ -42,6 +43,11 @@ if str(_SCRIPT_ROOT) not in sys.path:
     sys.path.insert(0, str(_SCRIPT_ROOT))
 
 from _bootstrap.runtime import same_executable_path
+from _bootstrap.consent_owner import ConsentOwner
+from _bootstrap.owner_attachment import (
+    OWNER_UNAVAILABLE_ENV, OWNER_UNAVAILABLE_REASONS,
+    private_child_channel, without_owner_environment,
+)
 from _bootstrap.workspace_binding import (
     WORKSPACE_ERROR_FILESYSTEM_ACCESS,
     WorkspaceBindingError,
@@ -65,7 +71,7 @@ from ._result_content import result_text_wire
 # Constants
 # ---------------------------------------------------------------------------
 
-PROXY_VERSION = "0.9.1"
+PROXY_VERSION = "0.9.2"
 _CHILD_PROTOCOL_VERSION = "2026-07-28"
 
 
@@ -680,21 +686,27 @@ class ChildProcess:
         self._proc: subprocess.Popen | None = None
         self._stderr_thread: threading.Thread | None = None
 
-    def start(self) -> None:
+    def start(self, *, owner: ConsentOwner | None = None, owner_unavailable_code: str | None = None) -> None:
         """Spawn the child process."""
-        env = os.environ.copy()
+        env = without_owner_environment()
+        if owner_unavailable_code is not None:
+            if owner is not None or owner_unavailable_code not in OWNER_UNAVAILABLE_REASONS:
+                raise ValueError("private owner availability does not match its channel")
+            env[OWNER_UNAVAILABLE_ENV] = owner_unavailable_code
         env[PROXY_PROTOCOL_ENV] = str(PROXY_PROTOCOL)
         if os.path.isfile(self.server_target):
             cmd = [self.python_path, self.server_target]
         else:
             cmd = [self.python_path, "-m", self.server_target]
-        self._proc = subprocess.Popen(
-            cmd,
-            stdin=subprocess.PIPE,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            env=env,
-        )
+        channel = private_child_channel(owner, env) if owner is not None else nullcontext({"env": env})
+        with channel as options:
+            self._proc = subprocess.Popen(
+                cmd,
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                **options,
+            )
         # Forward child stderr to proxy stderr in a background thread
         self._stderr_thread = threading.Thread(
             target=self._relay_stderr, daemon=True, name="child-stderr"
@@ -769,10 +781,13 @@ class Proxy:
     Spawns ChildProcess, forwards messages, handles restarts with backoff.
     """
 
-    def __init__(self, python_path: str, server_target: str, vault_root: str):
+    def __init__(self, python_path: str, server_target: str, vault_root: str, *, owner: ConsentOwner | None = None,
+                 owner_unavailable_code: str | None = None):
         self.python_path = python_path
         self.server_target = server_target
         self.vault_root = vault_root
+        self._owner = owner
+        self._owner_unavailable_code = owner_unavailable_code
         self.proxy_script = os.path.abspath(__file__)
 
         self._child: ChildProcess | None = None
@@ -895,7 +910,10 @@ class Proxy:
         """
         child = ChildProcess(self.python_path, self.server_target)
         try:
-            child.start()
+            if self._owner is None and self._owner_unavailable_code is None:
+                child.start()
+            else:
+                child.start(owner=self._owner, owner_unavailable_code=self._owner_unavailable_code)
         except Exception as e:
             _log().error("failed to start child process: %s", e)
             return False
@@ -1004,6 +1022,8 @@ class Proxy:
         self._shutdown = True
         self._child_ready.set()
         self._recovery_trigger.set()
+        if self._owner is not None:
+            self._owner.close()
 
     def _writer_thread(self) -> None:
         """
@@ -2185,6 +2205,17 @@ def _run_degraded_server(
 # Entry point
 # ---------------------------------------------------------------------------
 
+def _create_process_owner(vault_root: str) -> tuple[ConsentOwner | None, str | None]:
+    """Degrade only initial owner setup; established connection loss never falls back."""
+    if os.name != "posix":
+        return None, "platform"
+    try:
+        return ConsentOwner(Path(vault_root)), None
+    except OSError:
+        _log().warning("private consent state unavailable; ordinary command startup continues")
+        return None, "storage"
+
+
 def main() -> None:
     if len(sys.argv) != 3:
         print(
@@ -2281,7 +2312,11 @@ def main() -> None:
             )
             return
 
-    proxy = Proxy(python_path, server_target, vault_root)
+    # Process consent is available only on verified descriptor-inheritance paths.
+    # Ordinary commands remain usable on other platforms.
+    owner, unavailable_code = _create_process_owner(vault_root)
+    proxy = Proxy(python_path, server_target, vault_root, owner=owner,
+                  owner_unavailable_code=unavailable_code)
     _log().info(
         "proxy starting: version=%s python=%s target=%s vault=%s workspace=%s source=%s",
         PROXY_VERSION, python_path, server_target, vault_root, workspace_dir, target.source,
@@ -2293,17 +2328,20 @@ def main() -> None:
             resolution_source=target.source,
         )
 
-    proxy._start_writer_loop()
-    proxy._start_recovery_loop()
-    proxy._start_reader_loop()
+    try:
+        proxy._start_writer_loop()
+        proxy._start_recovery_loop()
+        proxy._start_reader_loop()
 
-    # Start the child for the first time
-    _log().info("spawning initial child process")
-    if not proxy._start_child():
-        _log().error("initial child start failed — entering restart backoff")
-        proxy._signal_recovery(exit_code=1)
+        # Start the child for the first time
+        _log().info("spawning initial child process")
+        if not proxy._start_child():
+            _log().error("initial child start failed — entering restart backoff")
+            proxy._signal_recovery(exit_code=1)
 
-    proxy.run()
+        proxy.run()
+    finally:
+        proxy._initiate_shutdown()
 
 
 if __name__ == "__main__":

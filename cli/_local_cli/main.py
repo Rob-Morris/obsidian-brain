@@ -11,6 +11,8 @@ from pathlib import Path
 import subprocess
 import sys
 from typing import Mapping
+from _bootstrap.owner_attachment import OwnerAttachment
+from _bootstrap.consent_owner import OwnerConnectionError, OwnerTransportUnavailable
 
 from launcher_catalogue import LAUNCHER_CATALOGUE
 from _launcher.adapter import LauncherAdapter
@@ -60,9 +62,23 @@ class _Parser(argparse.ArgumentParser):
 
 
 def run(argv: list[str] | None = None) -> int:
+    attachment = None
+    try:
+        attachment = OwnerAttachment.capture()
+        return _run(argv, attachment)
+    except (OwnerConnectionError, OwnerTransportUnavailable) as exc:
+        print(f"brain: infrastructure — {exc}", file=sys.stderr)
+        return 4
+    finally:
+        if attachment is not None:
+            attachment.close()
+
+
+def _run(argv, attachment) -> int:
     argv = list(sys.argv[1:] if argv is None else argv)
     try:
         common, command_argv = _parse_common(argv)
+        common.owner_attachment = attachment
         if common.version:
             print(f"brain {CLI_VERSION}")
             return 0
@@ -307,7 +323,8 @@ def _application_invoker(selected: SelectedBrain, entry: ComposedCommandEntry, c
             selected.workspace,
             common.operator_key,
             common.dry_run,
-        )
+        ),
+        owner_attachment=getattr(common, "owner_attachment", None),
     )
 
 
@@ -340,7 +357,9 @@ def _invoke_application(
         argv.extend(("--workspace", str(selected.workspace)))
     if common.operator_key:
         argv.extend(("--operator-key", common.operator_key))
-    completed = subprocess.run(argv, capture_output=True, text=True, check=False)
+    attachment = getattr(common, "owner_attachment", None)
+    options = attachment.forwarded_process() if attachment is not None else {}
+    completed = subprocess.run(argv, capture_output=True, text=True, check=False, **options)
     if completed.returncode not in range(5):
         raise CliError("selected Brain discovery failed its structural process contract")
     try:

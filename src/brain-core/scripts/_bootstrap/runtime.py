@@ -391,15 +391,27 @@ def exec_managed_runtime(
     script_path: str,
     forwarded_args: list[str],
     summary: dict,
+    owner_attachment=None,
 ) -> None:
     """Re-exec the current script inside the canonical managed runtime."""
-    env = os.environ.copy()
+    from .owner_attachment import OwnerAttachment, without_owner_environment
+
+    attachment = owner_attachment if owner_attachment is not None else OwnerAttachment.capture()
+    env = without_owner_environment()
     env[BOOTSTRAP_SUMMARY_ENV] = json.dumps(summary)
     argv = [managed_python, script_path, *forwarded_args]
-    if sys.platform == "win32":
-        result = subprocess.run(argv, env=env)
-        sys.exit(result.returncode)
-    os.execve(managed_python, argv, env)
+    try:
+        if attachment is not None:
+            with attachment.exec_environment(env) as forwarded_env:
+                os.execve(managed_python, argv, forwarded_env)
+        elif sys.platform == "win32":
+            result = subprocess.run(argv, env=env)
+            sys.exit(result.returncode)
+        else:
+            os.execve(managed_python, argv, env)
+    finally:
+        if owner_attachment is None and attachment is not None:
+            attachment.close()
 
 
 def ensure_managed_runtime(
@@ -472,6 +484,7 @@ def handoff_current_script_to_managed_runtime(
     required_modules: tuple[str, ...] = MANAGED_RUNTIME_REQUIRED_MODULES,
     launcher_python: str | None = None,
     timeout: int = 300,
+    owner_attachment=None,
 ) -> dict:
     """Ensure the current wrapper executes inside the canonical managed runtime.
 
@@ -480,23 +493,33 @@ def handoff_current_script_to_managed_runtime(
     into it or raises `RuntimeError` when bootstrap could not produce a usable
     managed interpreter.
     """
-    summary = ensure_managed_runtime(
-        vault_root,
-        required_modules=required_modules,
-        dependency_owner=dependency_owner,
-        launcher_python=launcher_python,
-        timeout=timeout,
-    )
+    from .owner_attachment import OwnerAttachment
 
-    managed_python = summary["managed_python"]
-    if not _is_self_executable(managed_python):
-        exec_managed_runtime(
-            managed_python=managed_python,
-            script_path=script_path,
-            forwarded_args=forwarded_args,
-            summary=summary,
+    attachment = owner_attachment if owner_attachment is not None else OwnerAttachment.capture()
+    try:
+        summary = ensure_managed_runtime(
+            vault_root,
+            required_modules=required_modules,
+            dependency_owner=dependency_owner,
+            launcher_python=launcher_python,
+            timeout=timeout,
         )
-    return summary
+        managed_python = summary["managed_python"]
+        if not _is_self_executable(managed_python):
+            exec_managed_runtime(
+                managed_python=managed_python,
+                script_path=script_path,
+                forwarded_args=forwarded_args,
+                summary=summary,
+                **({"owner_attachment": attachment} if attachment is not None else {}),
+            )
+        return summary
+    finally:
+        # Entry points retaining an application context pass their own attachment.
+        # Legacy wrappers without that context must not leak it to provider work.
+        if owner_attachment is None and attachment is not None:
+            attachment.close()
+
 
 
 def load_bootstrap_steps() -> list[dict]:

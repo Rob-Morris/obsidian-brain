@@ -42,8 +42,9 @@ replacement for timed access leases. Its internal foundation separates the
 application's permission and consent rules from opaque process-owned storage,
 private caller transport and immutable input retention. Domain owners prepare
 and apply shared validated plans under their existing effect guards. Public
-activation awaits complete owner coverage and the coordinated adapter/config
-cutover; the current public access contract remains unchanged during this work.
+activation awaits the coordinated adapter/config cutover; all ordinary owners
+have preparation strategies, while the current public access contract remains
+unchanged during this work.
 Prepared content stays in a private owner directory. One inert machine-local
 coordination lock per canonical Brain sits outside that directory, allowing
 shutdown to delete private inputs without unlinking an open lock on Windows.
@@ -54,6 +55,14 @@ intent before the final atomic admission check, then records execution outcome
 separately from effects. Successful observations consume specific consent too.
 Prepared-input disposal closes admission before reclamation and retains a
 retryable cleanup handle until the private bytes have been released.
+
+The MCP proxy owns one private context across application-child replacements.
+Trusted entry points capture a non-inheritable owner channel before provider
+work, and only deliberate CLI dispatch or exact runtime replacement forwards
+it. Providers receive neither the locator nor the descriptor. The internal CLI
+job supervisor closes admission when its root process ends; its public command
+is introduced with the authorisation cutover. Native Windows owner-channel
+inheritance is not yet supported.
 
 ### Machine-global launcher
 

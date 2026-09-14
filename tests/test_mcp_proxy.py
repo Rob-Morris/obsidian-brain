@@ -1154,7 +1154,7 @@ class TestInitialStartRecovery:
             import time
 
             _real_start = proxy_mod.ChildProcess.start
-            def _flaky_start(self):
+            def _flaky_start(self, **options):
                 try:
                     with open({fail_counter!r}, "r") as f:
                         remaining = int(f.read().strip())
@@ -1165,7 +1165,7 @@ class TestInitialStartRecovery:
                         f.write(str(remaining - 1))
                     time.sleep(0.2)
                     raise OSError("simulated initial start failure")
-                return _real_start(self)
+                return _real_start(self, **options)
             proxy_mod.ChildProcess.start = _flaky_start
             """)
 
@@ -1246,7 +1246,7 @@ class TestInitialStartRecovery:
         server_script = _echo_server_script(tmp_path)
 
         patch_body = textwrap.dedent("""\
-            def _always_fail(self):
+            def _always_fail(self, **options):
                 raise OSError("simulated permanent start failure")
             proxy_mod.ChildProcess.start = _always_fail
             """)

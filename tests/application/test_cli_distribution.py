@@ -490,3 +490,45 @@ def test_cli_install_refuses_a_symlink_target(tmp_path):
 
     assert caught.value.rollback_verified is True
     assert real.read_text() == "old\n"
+
+
+def test_installed_cli_packages_and_uses_private_owner_transport(tmp_path, command_vault_baseline, monkeypatch):
+    import os
+    from _bootstrap.consent_owner import ConsentOwner
+    from _bootstrap.owner_attachment import OwnerAttachment
+
+    if os.name != 'posix':
+        pytest.skip('private CLI job inheritance requires POSIX')
+    installed = _install(tmp_path)
+    packaged_scripts = installed.distribution_root / 'src/brain-core/scripts'
+    for name in ('owner_attachment.py', 'consent_owner.py', 'consent_state.py', 'file_lock.py', 'paths.py'):
+        assert (packaged_scripts / '_bootstrap' / name).is_file()
+    isolated = subprocess.run(
+        [sys.executable, '-I', '-c',
+         f'import sys; sys.path.insert(0,{str(packaged_scripts)!r}); import _bootstrap.owner_attachment as owner; '
+         f'assert owner.__file__.startswith({str(packaged_scripts)!r})'],
+        cwd=tmp_path, capture_output=True, text=True, timeout=5,
+    )
+    assert isolated.returncode == 0, isolated.stderr
+    owner = ConsentOwner(command_vault_baseline.vault_root)
+    attachment = OwnerAttachment.for_job(owner)
+    connections = []
+    serve = owner.serve_connection
+    def record(channel):
+        connections.append(True)
+        return serve(channel)
+    monkeypatch.setattr(owner, 'serve_connection', record)
+    try:
+        env = dict(os.environ, PYTHONPATH='')
+        completed = subprocess.run(
+            [str(installed.cli_binary), '--vault', str(command_vault_baseline.vault_root),
+             '--json', 'command', 'list', '--owner', 'application'],
+            cwd=tmp_path, **attachment.forwarded_process(env),
+            capture_output=True, text=True, timeout=20,
+        )
+        assert completed.returncode == 0, completed.stderr
+        assert json.loads(completed.stdout)['schema'] == 'brain.local-command-list/2'
+        assert connections, 'installed launcher did not attach its discovery child to the job owner'
+    finally:
+        attachment.close()
+        owner.close()

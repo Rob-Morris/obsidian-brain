@@ -7,6 +7,8 @@ import json
 from pathlib import Path
 import sys
 from typing import TextIO
+from _bootstrap.owner_attachment import OwnerAttachment
+from _bootstrap.consent_owner import OwnerConnectionError, OwnerTransportUnavailable
 
 from _application.adapter import AdapterRequestError, ApplicationAdapter
 from _application.context import report_failure_safely
@@ -58,7 +60,24 @@ def run(
     stderr: TextIO | None = None,
     context_factory=compose_direct_context,
     script_path: Path | None = None,
+    owner_attachment=None,
 ) -> int:
+    attachment = owner_attachment
+    try:
+        if attachment is None:
+            attachment = OwnerAttachment.capture()
+        return _run(argv, stdin=stdin, stdout=stdout, stderr=stderr,
+                    context_factory=context_factory, script_path=script_path,
+                    owner_attachment=attachment)
+    except (OwnerConnectionError, OwnerTransportUnavailable) as exc:
+        print(f"command.py: infrastructure — {exc}", file=stderr or sys.stderr)
+        return 4
+    finally:
+        if attachment is not None:
+            attachment.close()
+
+
+def _run(argv, *, stdin, stdout, stderr, context_factory, script_path, owner_attachment) -> int:
     stdin = stdin or sys.stdin
     stdout = stdout or sys.stdout
     stderr = stderr or sys.stderr
@@ -91,6 +110,7 @@ def run(
             operator_key=args.operator_key,
             workspace_dir=workspace,
             dry_run=args.dry_run,
+            **({"owner_attachment": owner_attachment} if owner_attachment is not None else {}),
         )
     except (DirectContextError, OSError, ValueError) as exc:
         print(f"command.py: infrastructure — {exc}", file=stderr)

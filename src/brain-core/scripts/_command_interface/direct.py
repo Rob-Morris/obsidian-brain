@@ -91,6 +91,8 @@ def compose_direct_context(
     dry_run: bool = False,
     invocation_id: str | None = None,
     clock=None,
+    owner_attachment=None,
+    owner_unavailable_reason: str | None = None,
 ):
     """Resolve one fresh direct-process invocation context without hand-off."""
 
@@ -100,6 +102,8 @@ def compose_direct_context(
         operator_key=operator_key,
         workspace_dir=workspace_dir,
         clock=clock,
+        owner_attachment=owner_attachment,
+        owner_unavailable_reason=owner_unavailable_reason,
     ).compose(
         command_id=command_id,
         dry_run=dry_run,
@@ -120,9 +124,17 @@ class DirectContextComposer:
         clock=None,
         derived_snapshots=None,
         session_mirror=None,
+        owner_attachment=None,
+        owner_unavailable_reason: str | None = None,
     ):
         self._clock = clock or SystemClock()
         self._root = _require_vault(vault_root)
+        if owner_attachment is not None and owner_unavailable_reason is not None:
+            raise DirectContextError("an attached owner cannot also be unavailable")
+        self._owner_attachment = owner_attachment
+        self._owner_store = owner_attachment.connect(self._root) if owner_attachment is not None else None
+        self.owner_unavailable_reason = owner_unavailable_reason
+        self._closed = False
         self._catalogue = catalogue or current_application_catalogue()
         self._operator_key = operator_key
         self._workspace_dir = workspace_dir
@@ -146,10 +158,32 @@ class DirectContextComposer:
         ] | None = None
 
     @property
+    def owner_store(self):
+        """Private process-owned state for trusted authorisation composition."""
+        if self._closed:
+            raise DirectContextError("direct context composer is closed")
+        return self._owner_store
+
+    @property
+    def owner_kind(self) -> str | None:
+        return self._owner_attachment.kind if self._owner_attachment is not None else None
+
+    def close(self) -> None:
+        """Release this caller's channel without ending the proxy/job owner's lifetime."""
+        with self._lock:
+            if self._closed:
+                return
+            self._closed = True
+        if self._owner_attachment is not None:
+            self._owner_attachment.close()
+
+    @property
     def catalogue(self) -> ApplicationCatalogue:
         return self._catalogue
 
     def identity(self) -> DirectIdentity:
+        if self._closed:
+            raise DirectContextError("direct context composer is closed")
         signature = _config_signature(self._root)
         with self._lock:
             if self._identity is not None and signature == self._identity_signature:

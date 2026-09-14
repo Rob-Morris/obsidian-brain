@@ -5,8 +5,20 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from _command_interface.script import run
-
-
 if __name__ == "__main__":
-    raise SystemExit(run(script_path=Path(__file__)))
+    from _bootstrap.owner_attachment import OwnerAttachment
+    from _bootstrap.consent_owner import OwnerConnectionError, OwnerTransportUnavailable
+    import sys
+
+    # Remove the inherited locator before contract imports or provider probes.
+    try:
+        attachment = OwnerAttachment.capture()
+    except (OwnerConnectionError, OwnerTransportUnavailable) as exc:
+        print(f"command.py: infrastructure — {exc}", file=sys.stderr)
+        raise SystemExit(4) from exc
+    try:
+        from _command_interface.script import run
+        raise SystemExit(run(script_path=Path(__file__), owner_attachment=attachment))
+    finally:
+        if attachment is not None:
+            attachment.close()

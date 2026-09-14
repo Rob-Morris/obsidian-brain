@@ -7,6 +7,7 @@ import json
 from pathlib import Path
 import subprocess
 from typing import Callable, Mapping, Protocol
+from _bootstrap.owner_attachment import OwnerAttachment
 
 from _launcher.adapter import LauncherAdapter
 from _launcher.context import LauncherContext
@@ -86,6 +87,7 @@ ProcessRunner = Callable[..., subprocess.CompletedProcess[str]]
 class ApplicationProcessInvoker:
     target: SelectedBrainProcess
     runner: ProcessRunner = subprocess.run
+    owner_attachment: OwnerAttachment | None = None
     owner: str = field(default="application", init=False)
 
     def invoke(
@@ -119,11 +121,13 @@ class ApplicationProcessInvoker:
             argv.extend(("--operator-key", self.target.operator_key))
         if self.target.dry_run:
             argv.append("--dry-run")
+        options = self.owner_attachment.forwarded_process() if self.owner_attachment is not None else {}
         completed = self.runner(
             argv,
             capture_output=True,
             text=True,
             check=False,
+            **options,
         )
         if completed.returncode not in range(5):
             raise RuntimeError("selected Brain command returned an invalid exit category")
