@@ -77,13 +77,11 @@ class TransitionPreparation:
 
     def prepare(self, context, request, *, frozen_inputs=None):
         from _common import vault_mutation_lock
-        from _lifecycle.derived_cache_state import load_fresh_compiled_router
+        from _lifecycle.derived_cache_state import require_fresh_compiled_router
 
         root = str(context.selected_brain.vault_root)
         with vault_mutation_lock(root):
-            router = load_fresh_compiled_router(root)
-            if "error" in router:
-                raise ValueError(router["error"])
+            router = require_fresh_compiled_router(root)
             plan, frozen = self.planner(context, request, router, frozen_inputs=frozen_inputs)
             return transition_binding(context, request, plan=plan, router=router, frozen_inputs=frozen)
 

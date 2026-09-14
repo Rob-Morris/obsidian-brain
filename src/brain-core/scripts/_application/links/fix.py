@@ -85,21 +85,16 @@ def execute(context: InvocationContext, request: LinksFixRequest):
         public_mutation_error_message,
         vault_mutation_lock,
     )
-    from _lifecycle.derived_cache_state import load_fresh_compiled_router
+    from _lifecycle.derived_cache_state import require_fresh_compiled_router
     import fix_links
 
     root = str(context.selected_brain.vault_root)
-    router = load_fresh_compiled_router(root)
-    if "error" in router:
-        return no_effect_error(LinksFixRequest, ErrorCode.CONFLICT, router["error"])
     apply = not context.dry_run
     try:
         with vault_mutation_lock(root):
             from ..preparation import admit_owner
 
-            router = load_fresh_compiled_router(root)
-            if "error" in router:
-                raise ValueError(router["error"])
+            router = require_fresh_compiled_router(root)
             plan = fix_links.plan_link_fixes(root, path=request.path,
                                              links_filter=request.links, router=router)
             admit_owner(context, request, fix_binding, plan=plan)
@@ -163,14 +158,12 @@ def fix_binding(context, request, *, plan, frozen_inputs=None):
 
 def prepare(context, request, *, frozen_inputs=None):
     from _common import vault_mutation_lock
-    from _lifecycle.derived_cache_state import load_fresh_compiled_router
+    from _lifecycle.derived_cache_state import require_fresh_compiled_router
     import fix_links
 
     root = str(context.selected_brain.vault_root)
     with vault_mutation_lock(root):
-        router = load_fresh_compiled_router(root)
-        if "error" in router:
-            raise ValueError(router["error"])
+        router = require_fresh_compiled_router(root)
         plan = fix_links.plan_link_fixes(root, path=request.path, links_filter=request.links, router=router)
         return fix_binding(context, request, plan=plan, frozen_inputs=frozen_inputs)
 

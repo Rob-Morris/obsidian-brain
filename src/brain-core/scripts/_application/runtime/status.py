@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from typing import ClassVar, Mapping
 
 from ..context import InvocationContext
-from ..results import Ok
+from ..results import CommandNextAction, CommandArgument, Ok
 from ..runtime_status import RuntimeStatusSnapshot
 from ..types import (
     Authority,
@@ -24,6 +24,8 @@ from ._snapshot import typed_snapshot
 @dataclass(frozen=True, slots=True)
 class RuntimeStatusPayload:
     runtime_status: RuntimeStatusSnapshot
+    instruction: str = "Ready records completed warm-up, not current cache health. Use router_check to diagnose blocked writes."
+    router_check: CommandNextAction = CommandNextAction("vault.check", (CommandArgument("check", "router"),))
 
 
 @dataclass(frozen=True, slots=True)

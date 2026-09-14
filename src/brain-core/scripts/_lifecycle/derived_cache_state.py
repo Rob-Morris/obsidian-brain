@@ -33,6 +33,7 @@ class CacheState:
     reason: str
     path: str
     payload: Mapping[str, Any] | None = None
+    source_path: str | None = None
 
 
 def inspect_router_cache(
@@ -115,25 +116,25 @@ def inspect_router_cache(
                 )
             current_hash = current_index_sources.get(source_rel_path)
             if current_hash is None:
-                return CacheState(True, "artefact-index-source-unreadable", rel_path, data)
+                return CacheState(True, "artefact-index-source-unreadable", rel_path, data, source_rel_path)
             if current_hash != expected_hash:
-                return CacheState(True, "artefact-index-source-drift", rel_path, data)
+                return CacheState(True, "artefact-index-source-drift", rel_path, data, source_rel_path)
             continue
 
         if verify_content:
             try:
                 current_hash = compile_router.hash_file(abs_path)
             except OSError:
-                return CacheState(True, "missing-source", rel_path, data)
+                return CacheState(True, "missing-source", rel_path, data, source_rel_path)
             if current_hash != expected_hash:
-                return CacheState(True, "source-content-drift", rel_path, data)
+                return CacheState(True, "source-content-drift", rel_path, data, source_rel_path)
             continue
 
         try:
             if os.path.getmtime(abs_path) > compiled_ts:
-                return CacheState(True, "source-newer-than-router", rel_path, data)
+                return CacheState(True, "source-newer-than-router", rel_path, data, source_rel_path)
         except OSError:
-            return CacheState(True, "missing-source", rel_path, data)
+            return CacheState(True, "missing-source", rel_path, data, source_rel_path)
 
     if resources_changed:
         _router_resource_signatures[vault_root] = (source_hash, resource_signature)
@@ -176,17 +177,31 @@ def _append_filtered_tree(path: Path, vault_root: Path, signature: list) -> None
             continue
 
 
-def load_fresh_compiled_router(vault_root: str | Path) -> dict[str, Any]:
-    """Load the compiled router only when the cache is fresh enough to mutate."""
+class RouterCacheUnavailable(RuntimeError):
+    """A router cannot safely admit work; retain its diagnostic across layers."""
+
+    def __init__(self, state: CacheState):
+        self.state = state
+        super().__init__(
+            f"Compiled router cache is stale or unreadable ({state.reason}). "
+            "Run runtime.refresh-router, then retry only after repair succeeds."
+        )
+
+
+def require_fresh_compiled_router(vault_root: str | Path) -> dict[str, Any]:
+    """Read a router using the same authoritative check as explicit repair."""
     state = inspect_router_cache(vault_root, verify_content=True)
     if state.stale:
-        return {
-            "error": (
-                "Compiled router cache is stale or unreadable "
-                f"({state.reason}). Run compile_router.py or repair.py before mutating."
-            )
-        }
+        raise RouterCacheUnavailable(state)
     return dict(state.payload or {})
+
+
+def load_fresh_compiled_router(vault_root: str | Path) -> dict[str, Any]:
+    """Retain the standalone scripts' error-dictionary loading contract."""
+    try:
+        return require_fresh_compiled_router(vault_root)
+    except RouterCacheUnavailable as exc:
+        return {"error": str(exc)}
 
 
 def inspect_lexical_cache(vault_root: str | Path) -> CacheState:
@@ -229,10 +244,21 @@ def inspect_lexical_cache(vault_root: str | Path) -> CacheState:
         compile_router.scan_living_types(str(vault_root))
         + compile_router.scan_temporal_types(str(vault_root))
     )
+    documents = data.get("documents", [])
+    if not isinstance(documents, list) or any(
+        not isinstance(doc, dict) or not isinstance(doc.get("path"), str)
+        for doc in documents
+    ):
+        return CacheState(True, "invalid-documents", rel_path)
+    indexed_paths = {doc["path"] for doc in documents}
+    if len(documents) != expected_count or len(indexed_paths) != expected_count:
+        return CacheState(True, "invalid-document-count", rel_path)
     count = 0
     for type_info in all_types:
         for rel_path_doc in iter_artefact_paths(str(vault_root), type_info):
             count += 1
+            if rel_path_doc not in indexed_paths:
+                return CacheState(True, "document-path-drift", rel_path, data, rel_path_doc)
             if count > expected_count:
                 return CacheState(True, "document-count-drift", rel_path, data)
             try:

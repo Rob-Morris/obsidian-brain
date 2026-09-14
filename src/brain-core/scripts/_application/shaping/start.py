@@ -74,7 +74,7 @@ def execute(context: InvocationContext, request: ShapingStartRequest):
         public_mutation_error_message,
         vault_mutation_lock,
     )
-    from _lifecycle.derived_cache_state import load_fresh_compiled_router
+    from _lifecycle.derived_cache_state import require_fresh_compiled_router
     from start_shaping_session import start_shaping_session
 
     if context.dry_run:
@@ -87,9 +87,7 @@ def execute(context: InvocationContext, request: ShapingStartRequest):
 
     try:
         with vault_mutation_lock(root):
-            router = load_fresh_compiled_router(root)
-            if "error" in router:
-                return no_effect_error(ShapingStartRequest, ErrorCode.CONFLICT, router["error"])
+            router = require_fresh_compiled_router(root)
             options = {}
             plan, frozen = session_plan(context, request, router, frozen_inputs=context.admission.frozen_inputs)
             def binding(context, request, *, frozen_inputs=None):

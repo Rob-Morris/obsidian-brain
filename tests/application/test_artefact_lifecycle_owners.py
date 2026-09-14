@@ -119,7 +119,7 @@ def test_artefact_set_naming_field_renames_through_naming_engine(
         ],
     }
     monkeypatch.setattr(
-        derived_cache_state, "load_fresh_compiled_router", lambda _root: router
+        derived_cache_state, "require_fresh_compiled_router", lambda _root: router
     )
 
     result = application_for(vault_root).invoke(

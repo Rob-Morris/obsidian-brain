@@ -442,6 +442,7 @@ def _validate_state(value: object) -> dict:
 def _public_snapshot(state: dict) -> dict[str, object]:
     return {
         "schema": STATUS_SCHEMA,
+        "observation": "recorded-warmup",
         "state": state["state"],
         "phase": state["phase"],
         "components": dict(state["components"]),
@@ -454,6 +455,7 @@ def _public_snapshot(state: dict) -> dict[str, object]:
 def _cold_snapshot() -> dict[str, object]:
     return {
         "schema": STATUS_SCHEMA,
+        "observation": "recorded-warmup",
         "state": "cold",
         "phase": None,
         "components": {
@@ -475,6 +477,7 @@ def _failed_snapshot(
 ) -> dict[str, object]:
     return {
         "schema": STATUS_SCHEMA,
+        "observation": "recorded-warmup",
         "state": "failed",
         "phase": None,
         "components": {

@@ -39,7 +39,7 @@ def execute_named_create_values(
         public_mutation_error_message,
         vault_mutation_lock,
     )
-    from _lifecycle.derived_cache_state import load_fresh_compiled_router
+    from _lifecycle.derived_cache_state import require_fresh_compiled_router
     from _staging import finalise_staged_body
     from pathlib import Path
     import create
@@ -51,18 +51,9 @@ def execute_named_create_values(
             f"{request.COMMAND_ID} does not support dry-run",
         )
     vault_root = str(context.selected_brain.vault_root)
-    router = load_fresh_compiled_router(vault_root)
-    if "error" in router:
-        return no_effect_error(
-            type(request),
-            ErrorCode.CONFLICT,
-            router["error"],
-        )
     try:
         with vault_mutation_lock(vault_root):
-            router = load_fresh_compiled_router(vault_root)
-            if "error" in router:
-                raise ValueError(router["error"])
+            router = require_fresh_compiled_router(vault_root)
             if resource == "template":
                 rel_path = create.config_resource_rel_path(router, resource, name)
                 target = Path(vault_root) / rel_path

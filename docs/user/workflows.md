@@ -333,3 +333,14 @@ Agents are encouraged to ask honestly after meaningful work: "Was that good enou
 ### Archive an artefact
 
 Use `artefact_archive` in MCP (or `brain artefact archive`) to remove any artefact from active use, including a Thought with no status. Archive preserves its lifecycle status; `artefact_unarchive` restores it. Active listing and lexical search refresh after archive, restore and deletion. Permanent `artefact.delete` requires Administrator authority and is absent from lower-ceiling callable catalogues.
+
+### Recovering a blocked write
+
+For a stale-router error, follow its `next_action` to `runtime.refresh-router`.
+Retry the content operation only after repair succeeds. `force` requests an
+unconditional rebuild and is normally unnecessary. A partial result means some
+work committed: inspect the result before retrying. Lifecycle moves maintain
+router and listing indexes themselves; no manual refresh between moves is needed.
+
+`runtime.status` records warm-up progress. Its `ready` state is not proof that
+caches are still current; use its `router_check` action for a blocked write.

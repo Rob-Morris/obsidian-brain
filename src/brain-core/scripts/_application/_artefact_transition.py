@@ -123,6 +123,7 @@ def execute_transition(
     planner=None,
     apply_plan=None,
 ):
+    from ._transition_indexes import combine_transition_errors, transition_error
     from _common import (
         MutationLockError,
         ParentChainError,
@@ -131,7 +132,7 @@ def execute_transition(
         public_mutation_error_message,
         vault_mutation_lock,
     )
-    from _lifecycle.derived_cache_state import load_fresh_compiled_router
+    from _lifecycle.derived_cache_state import require_fresh_compiled_router
 
     if context.dry_run:
         return no_effect_error(
@@ -140,15 +141,10 @@ def execute_transition(
             f"{request.COMMAND_ID} does not support dry-run",
         )
     vault_root = str(context.selected_brain.vault_root)
-    router = load_fresh_compiled_router(vault_root)
-    if "error" in router:
-        return no_effect_error(type(request), ErrorCode.CONFLICT, router["error"])
 
     try:
         with vault_mutation_lock(vault_root):
-            router = load_fresh_compiled_router(vault_root)
-            if "error" in router:
-                raise ValueError(router["error"])
+            router = require_fresh_compiled_router(vault_root)
             partial_error = None
             try:
                 if planner is None:
@@ -163,34 +159,15 @@ def execute_transition(
                     raw_result = apply_plan(vault_root, plan)
             except PartialApplyError as exc:
                 partial_error = exc
-            if request.COMMAND_ID in {
-                "artefact.archive",
-                "artefact.unarchive",
-                "artefact.delete",
-            }:
-                from _portable.router_maintenance import maintain_router
-                from _portable.lexical_maintenance import maintain_lexical_index
+            from ._transition_indexes import reconcile_transition_indexes
 
-                try:
-                    router_result = maintain_router(
-                        vault_root, dry_run=False, force=True
-                    )
-                    maintain_lexical_index(vault_root, dry_run=False, force=True)
-                    if router_result.status == "partial":
-                        raise RuntimeError("Session mirror refresh failed")
-                except (OSError, RuntimeError, ValueError) as exc:
-                    raise PartialApplyError(
-                        (
-                            public_mutation_error_message(partial_error) + " "
-                            if partial_error
-                            else ""
-                        )
-                        + "Artefact mutation committed effects, but derived index refresh failed; "
-                        "run runtime.refresh-router and retrieval.refresh-lexical."
-                    ) from exc
-                finally:
-                    if context.derived_snapshots is not None:
-                        context.derived_snapshots.invalidate()
+            try:
+                if partial_error is not None or effect_subject(payload_builder(raw_result)) is not None:
+                    reconcile_transition_indexes(context)
+            except PartialApplyError as exc:
+                if partial_error is not None:
+                    raise combine_transition_errors(partial_error, exc) from exc
+                raise
             if partial_error is not None:
                 raise partial_error
     except MutationLockError as exc:
@@ -204,15 +181,10 @@ def execute_transition(
         message = parent_chain_error_message(exc)
         return no_effect_error(type(request), ErrorCode.INVALID_REQUEST, message)
     except PartialApplyError as exc:
-        message = public_mutation_error_message(exc)
         return Partial(
             request.COMMAND_ID,
             request.COMMAND_VERSION,
-            CommandError(
-                ErrorCode.CONFLICT,
-                message,
-                RequestErrorDetails(None, message),
-            ),
+            transition_error(exc),
             (CommittedEffect(request.COMMAND_ID, _request_subject(request)),),
         )
     except FileNotFoundError as exc:

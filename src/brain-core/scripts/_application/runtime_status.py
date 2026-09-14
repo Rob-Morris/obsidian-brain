@@ -66,6 +66,7 @@ class RuntimeStatusSnapshot:
     started_at: str | None
     last_error: RuntimeStatusError | None
     schema: Literal["brain.runtime-status/1"] = "brain.runtime-status/1"
+    observation: Literal["recorded-warmup"] = "recorded-warmup"
 
     def __post_init__(self) -> None:
         if self.phase is not None and not self.phase.strip():

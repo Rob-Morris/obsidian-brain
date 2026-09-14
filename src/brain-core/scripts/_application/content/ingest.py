@@ -167,10 +167,8 @@ def execute(context: InvocationContext, request: ContentIngestRequest):
 
 def load_ingestion_inputs(context, request):
     """Resolve current router and retrieval state while the caller holds the guard."""
-    from _lifecycle.derived_cache_state import load_fresh_compiled_router
-    router = load_fresh_compiled_router(context.selected_brain.vault_root)
-    if "error" in router:
-        return no_effect_error(type(request), ErrorCode.CONFLICT, router["error"])
+    from _lifecycle.derived_cache_state import require_fresh_compiled_router
+    router = require_fresh_compiled_router(context.selected_brain.vault_root)
     retrieval = _prepare_retrieval_state(context, request, router)
     return retrieval if isinstance(retrieval, Error) else (router, retrieval)
 

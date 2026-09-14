@@ -61,14 +61,12 @@ def creation_binding(context, request, *, plan, file_index=None, frozen_inputs=N
 
 def prepare_artefact_create(context, request, *, frozen_inputs=None):
     from _common import vault_mutation_lock
-    from _lifecycle.derived_cache_state import load_fresh_compiled_router
+    from _lifecycle.derived_cache_state import require_fresh_compiled_router
     import fix_links
 
     root = str(context.selected_brain.vault_root)
     with vault_mutation_lock(root):
-        router = load_fresh_compiled_router(root)
-        if "error" in router:
-            raise ValueError(router["error"])
+        router = require_fresh_compiled_router(root)
         body, frozen = prepare_content(context, request.content, frozen_inputs)
         plan, frozen = plan_artefact_create(context, request, router, body,
                                             frozen_inputs=frozen)
@@ -90,14 +88,12 @@ def named_creation_binding(context, request, *, plan, frozen_inputs=None):
 
 def prepare_named_create(context, request, *, frozen_inputs=None):
     from _common import vault_mutation_lock
-    from _lifecycle.derived_cache_state import load_fresh_compiled_router
+    from _lifecycle.derived_cache_state import require_fresh_compiled_router
     import create
 
     root = str(context.selected_brain.vault_root)
     with vault_mutation_lock(root):
-        router = load_fresh_compiled_router(root)
-        if "error" in router:
-            raise ValueError(router["error"])
+        router = require_fresh_compiled_router(root)
         body, frozen = prepare_content(context, request.content, frozen_inputs)
         fields = getattr(request.target, "frontmatter", None)
         plan = create.plan_named_resource_creation(root, router, request.target.resource,

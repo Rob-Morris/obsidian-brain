@@ -25,7 +25,7 @@ upgrade. Project registration repair updates exact managed bootstrap lines.
 
 The application catalogue owns the installed command inventory and marks each projection explicitly. A running server exposes only the MCP-eligible commands within the authenticated profile ceiling. Exact catalogue and profile counts are generated and checked from the authoritative catalogue; use MCP discovery or `command.list` for the selected installation rather than treating prose counts as a compatibility contract.
 
-Start an MCP session with `session_start`. On a cold Brain it starts or joins background warm-up and returns the shared `brain.runtime-status/1` snapshot with guidance to poll `runtime.status`; retry `session.start` when ready. `runtime.status` is a cheap read-only observation, while `runtime.warmup` explicitly starts, joins or retries warm-up. Discover commands with `command.list`, and inspect one exact request/result contract with `command.describe`. Default discovery uses static catalogue facts and does not probe optional providers; request an explicit refresh only when current provider availability matters.
+Start an MCP session with `session_start`. On a cold Brain it starts or joins background warm-up and returns the shared `brain.runtime-status/1` snapshot with guidance to poll `runtime.status`; retry `session.start` when ready. `runtime.status` is a cheap read-only observation, while `runtime.warmup` explicitly starts, joins or retries warm-up. The snapshot is labelled `observation: recorded-warmup`: ready means the recorded warm-up finished, not that caches remain current. `runtime.status` supplies `router_check` (`vault.check` with `check: router`) for blocked writes. Discover commands with `command.list`, and inspect one exact request/result contract with `command.describe`. Default discovery uses static catalogue facts and does not probe optional providers; request an explicit refresh only when current provider availability matters.
 
 `command.list` v4 returns a brief view by default: command ID/version,
 summary, required authority, effect class, transport eligibility, initial class and
@@ -309,3 +309,21 @@ can retry a ready snapshot whose semantic component is deferred. A valid CLI
 JSON result remains authoritative when native libraries write incidental stderr;
 identity, schema and exit-category validation still apply. Diagnostic fallback
 messages exclude exception contents.
+
+### Cache coherence and router recovery
+
+Artefact creation, lifecycle changes (status, parent, key and naming fields) and
+artefact transitions complete router and lexical maintenance under the vault mutation lock. Other
+sessions observe the newly persisted files through their existing signature-based
+snapshot stores. These operations do not synchronously rebuild semantic embeddings.
+If content commits but index maintenance fails, the command reports a partial
+outcome; inspect and repair derived state rather than replaying the content change.
+
+Stale-router admission failures carry `details.cache`, `details.reason`,
+`details.source_path` where known, and `next_action: runtime.refresh-router`.
+They report no effects and require successful repair before another content
+attempt. The same diagnostic is projected through CLI and MCP. Router checks,
+repair decisions and mutation admission all verify source content; repair also
+verifies its postcondition. If sources change during rebuilding, it reports a
+partial outcome with recovery guidance instead of looping. `force: true` requests
+an unconditional rebuild, not a stronger repair algorithm.

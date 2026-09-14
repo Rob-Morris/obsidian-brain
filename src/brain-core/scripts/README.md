@@ -162,3 +162,10 @@ Bootstrap and document reads use the same bounded application results in every
 projection. Finish `session.start` pages until `bootstrap_complete` is true.
 For document reads, repeat the same selectors with `cursor: range.next_cursor`
 until null; revisions prevent mixing source versions between pages.
+
+`_application/_transition_indexes.py` owns completion of router/lexical state
+for artefact creation and lifecycle transitions while their mutation lock is held.
+`_lifecycle/derived_cache_state.py` owns authoritative router inspection and its
+typed admission failure; application results project the repair next action.
+`runtime.status` is recorded warm-up evidence, not current cache validation;
+its `router_check` action routes to the explicit diagnostic.

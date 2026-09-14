@@ -12,3 +12,8 @@ Feature: Router compilation
     And a discovery-shaped type that preserves lifecycle status
     When I compile the router
     Then the compiled artefact "people" preserves shaping lifecycle status
+
+  Scenario: A lifecycle move leaves the router and listing ready for other sessions
+    Given two Brain clients sharing a compiled vault
+    When one client moves an idea into its terminal status folder
+    Then the other client sees the moved idea and can change it without repair

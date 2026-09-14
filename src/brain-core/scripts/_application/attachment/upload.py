@@ -65,26 +65,12 @@ def execute(context: InvocationContext, request: AttachmentUploadRequest):
         public_mutation_error_message,
         vault_mutation_lock,
     )
-    from _lifecycle.derived_cache_state import load_fresh_compiled_router
+    from _lifecycle.derived_cache_state import require_fresh_compiled_router
     import upload_attachment
 
     vault_root = str(context.selected_brain.vault_root)
     try:
         router = None
-        if upload_attachment.attachment_destination_requires_router(
-            request.destination_key
-        ):
-            router = load_fresh_compiled_router(vault_root)
-            if "error" in router:
-                return no_effect_error(
-                    AttachmentUploadRequest,
-                    ErrorCode.CONFLICT,
-                    router["error"],
-                )
-        destination = upload_attachment.resolve_attachment_destination(
-            router,
-            request.destination_key,
-        )
         filename = upload_attachment.validate_attachment_name(request.name)
         content = upload_attachment.decode_attachment_base64(
             request.content_base64
@@ -99,9 +85,7 @@ def execute(context: InvocationContext, request: AttachmentUploadRequest):
     try:
         with vault_mutation_lock(vault_root):
             if upload_attachment.attachment_destination_requires_router(request.destination_key):
-                router = load_fresh_compiled_router(vault_root)
-                if "error" in router:
-                    raise ValueError(router["error"])
+                router = require_fresh_compiled_router(vault_root)
             plan = upload_attachment.plan_attachment_upload(
                 vault_root,
                 router,
@@ -204,16 +188,14 @@ def attachment_binding(context, request, *, plan, frozen_inputs=None):
 
 def prepare(context, request, *, frozen_inputs=None):
     from _common import vault_mutation_lock
-    from _lifecycle.derived_cache_state import load_fresh_compiled_router
+    from _lifecycle.derived_cache_state import require_fresh_compiled_router
     import upload_attachment
 
     root = str(context.selected_brain.vault_root)
     with vault_mutation_lock(root):
         router = None
         if upload_attachment.attachment_destination_requires_router(request.destination_key):
-            router = load_fresh_compiled_router(root)
-            if "error" in router:
-                raise ValueError(router["error"])
+            router = require_fresh_compiled_router(root)
         plan = upload_attachment.plan_attachment_upload(
             root, router, destination_key=request.destination_key, name=request.name,
             content=upload_attachment.decode_attachment_base64(request.content_base64))

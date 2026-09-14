@@ -248,6 +248,13 @@ def test_naming_migration_previews_and_applies_canonical_filename(
     assert canonical.is_file()
     assert not legacy.exists()
     assert applied.committed_effects[0].kind == "artefact.migrate-naming"
+    from _lifecycle.derived_cache_state import inspect_router_cache
+    from _application.artefact.list import ArtefactListRequest
+    assert not inspect_router_cache(root, verify_content=True).stale
+    listed = application_for(root).invoke(ArtefactListRequest())
+    assert DESIGN in {item.path for item in listed.result.items}
+    assert legacy.relative_to(root).as_posix() not in {item.path for item in listed.result.items}
+
 
 
 def test_zero_input_naming_migration_rejects_hidden_options():

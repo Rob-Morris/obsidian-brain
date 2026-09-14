@@ -287,3 +287,14 @@ Without MCP, read `.brain-core/index.md` first. Use `brain <noun> <verb>` or the
 Any artefact can be archived independently of its status, including Thoughts.
 Use `artefact_archive` and `artefact_unarchive` through MCP. These transitions
 preserve lifecycle state and keep the active lexical index consistent.
+
+### Recovering a blocked write
+
+For a stale-router error, follow its `next_action` to `runtime.refresh-router`.
+Retry the content operation only after repair succeeds. `force` requests an
+unconditional rebuild and is normally unnecessary. A partial result means some
+work committed: inspect the result before retrying. Lifecycle moves maintain
+router and listing indexes themselves; no manual refresh between moves is needed.
+
+`runtime.status` records warm-up progress. Its `ready` state is not proof that
+caches are still current; use its `router_check` action for a blocked write.

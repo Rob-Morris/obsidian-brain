@@ -639,15 +639,15 @@ class TestRepairScopes:
     def test_router_repair_uses_shared_cache_detector(self, repair_vault, monkeypatch):
         from _portable import router_maintenance
 
-        monkeypatch.setattr(
-            router_maintenance,
-            "inspect_router_cache",
-            lambda _vault: CacheState(
+        def inspect(_vault, *, verify_content):
+            assert verify_content is True
+            return CacheState(
                 stale=True,
                 reason="source-newer-than-router",
                 path=".brain/local/compiled-router.json",
-            ),
-        )
+            )
+
+        monkeypatch.setattr(router_maintenance, "inspect_router_cache", inspect)
 
         result = repair_runtime.repair_router(repair_vault, dry_run=True)
 

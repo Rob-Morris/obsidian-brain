@@ -107,3 +107,35 @@ def assert_preserved_shaping_status(compiled_router, artefact_key):
         "bar": "The current intended scope is faithfully captured.",
         "status_behaviour": "preserve",
     }
+
+
+@given("two Brain clients sharing a compiled vault", target_fixture="shared_clients")
+def shared_clients(command_vault_clone):
+    from _command_interface.derived_snapshots import FileDerivedSnapshotStore
+    root = command_vault_clone.vault_root
+    store = FileDerivedSnapshotStore(root)
+    store.load_router()
+    store.load_lexical_index()
+    return root, store
+
+
+@when("one client moves an idea into its terminal status folder", target_fixture="moved_idea")
+def move_idea(shared_clients):
+    from _application.artefact.set_status import ArtefactSetStatusRequest
+    from command_application import application_for
+    result = application_for(shared_clients[0]).invoke(
+        ArtefactSetStatusRequest("Ideas/Command Fixture Candidate.md", "adopted"))
+    assert result.status == "ok"
+    return result.result.path
+
+
+@then("the other client sees the moved idea and can change it without repair")
+def other_client_uses_moved_idea(shared_clients, moved_idea):
+    from _application.artefact.list import ArtefactListRequest
+    from _application.artefact.set_status import ArtefactSetStatusRequest
+    from command_application import application_for
+    root, store = shared_clients
+    listed = application_for(root, derived_snapshots=store).invoke(ArtefactListRequest())
+    assert moved_idea in {item.path for item in listed.result.items}
+    result = application_for(root).invoke(ArtefactSetStatusRequest(moved_idea, "ready"))
+    assert result.status == "ok"

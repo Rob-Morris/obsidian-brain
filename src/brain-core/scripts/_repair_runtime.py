@@ -196,6 +196,12 @@ def repair_router(vault_root: Path, dry_run: bool, bootstrap_steps: list[dict] |
             f"Rebuilt the compiled router ({result.reason}) and cleared semantic embeddings sidecars.",
         )
     )
+    if result.cache_error:
+        steps.append(_step(
+            "router_validation", "error",
+            f"Router repair remains incomplete ({result.cache_error.reason}); "
+            "inspect the source and retry runtime.refresh-router.",
+        ))
     if result.session_error:
         steps.append(_step(
             "router_session",

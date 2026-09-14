@@ -8,6 +8,7 @@ Never edit past changelog entries. Only add new entries at the top.
 
 | Version | Date | Summary |
 |---|---|---|
+| [v0.68.4](changelog/v0.68.4.md) | 2026-09-15 | Keep artefact caches coherent and router recovery actionable |
 | [v0.68.3](changelog/v0.68.3.md) | 2026-09-14 | Preserve MCP stdio across bounded proxy upgrades |
 | [v0.68.2](changelog/v0.68.2.md) | 2026-09-14 | Refresh idle MCP servers and expose loaded runtime versions |
 | [v0.68.1](changelog/v0.68.1.md) | 2026-09-14 | Fix consent discovery and restore configuration on upgrade rollback |

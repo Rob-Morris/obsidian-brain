@@ -94,7 +94,8 @@ def test_router_refresh_failure_is_known_partial(command_vault_clone, monkeypatc
 
     assert result.status == "partial"
     assert result.error.code is ErrorCode.CONFLICT
-    assert "session write failed" in result.error.message
+    assert "session markdown refresh failed" in result.error.message
+    assert result.error.details.reason == "session-mirror-refresh-failed"
     assert result.committed_effects[0].subject == ROUTER_PATH
 
 

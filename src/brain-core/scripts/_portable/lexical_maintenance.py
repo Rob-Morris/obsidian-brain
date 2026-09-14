@@ -71,3 +71,15 @@ def maintain_lexical_index(
         term_count,
         removed,
     )
+
+
+def update_lexical_documents(vault_root, index, paths):
+    """Update known in-place writes from a fresh snapshot held under the lock."""
+    from datetime import datetime, timezone
+
+    for path in paths:
+        if search_index.index_update(index, vault_root, path) is None:
+            raise OSError("A changed document disappeared during lexical maintenance")
+    index["meta"]["built_at"] = datetime.now(timezone.utc).astimezone().isoformat()
+    search_index.persist_retrieval_index(vault_root, index)
+    clear_embeddings_outputs(vault_root)

@@ -12,7 +12,7 @@ from .context import InvocationContext
 from ._managed_preparation import MAINTENANCE, maintenance_binding
 from .preparation import admit_owner
 from .receipts import CommittedEffect
-from .results import CommandError, ErrorCode, Ok, Partial, RequestErrorDetails
+from .results import CommandError, CommandNextAction, CommandArgument, ErrorCode, Ok, Partial, RequestErrorDetails, router_cache_error
 
 
 class RouterMaintenanceStatus(str, Enum):
@@ -58,18 +58,9 @@ def execute_router_maintenance(
         )
 
     if result.status == "partial":
-        message = (
-            "Router rebuilt but session markdown refresh failed: "
-            f"{result.session_error}"
-        )
         return Partial(
-            request.COMMAND_ID,
-            request.COMMAND_VERSION,
-            CommandError(
-                ErrorCode.CONFLICT,
-                message,
-                RequestErrorDetails(None, message),
-            ),
+            request.COMMAND_ID, request.COMMAND_VERSION,
+            router_partial_error(result),
             (CommittedEffect(request.COMMAND_ID, ".brain/local/compiled-router.json"),),
         )
     status = RouterMaintenanceStatus(result.status)
@@ -96,3 +87,17 @@ def execute_router_maintenance(
 
 def catalogue_entry(request_type, executor):
     return replace(maintainer_mutation_entry(request_type, executor), initial_class=InitialAuthorisationClass.OBSERVATION, preparation=MAINTENANCE)
+
+
+def router_partial_error(result):
+    """Name the exact repair needed after an already-persisted router build."""
+    if result.cache_error is not None:
+        error = router_cache_error(result.cache_error)
+        return replace(error, message=
+            f"Router rebuilt but verification failed ({result.cache_error.reason}). "
+            "Repair derived state before continuing; do not repeat committed content changes.")
+    message = "Router rebuilt but session markdown refresh failed. Rebuild to refresh the mirror."
+    return CommandError(
+        ErrorCode.CONFLICT, message, RequestErrorDetails(None, "session-mirror-refresh-failed"),
+        CommandNextAction("runtime.refresh-router", (CommandArgument("force", True),)),
+    )

@@ -1,9 +1,7 @@
 """Tests for check.py — router-driven vault compliance checker."""
 
 import json
-import os
 import sys
-import time
 
 import pytest
 
@@ -58,14 +56,14 @@ class TestRunChecks:
     def test_stale_loaded_router_adds_router_repair_error(self, tmp_path):
         compile_minimal_router(tmp_path)
         router_source = tmp_path / "_Config" / "router.md"
-        future = time.time() + 10
-        os.utime(router_source, (future, future))
+        router_source.write_text(router_source.read_text() + "\nContent changed after compilation.\n")
 
         result = check.run_checks(str(tmp_path))
 
         hit = next(f for f in result["findings"] if f["check"] == "router")
         assert hit["severity"] == "error"
-        assert "source-newer-than-router" in hit["message"]
+        assert "source-content-drift" in hit["message"]
+        assert hit["file"] == "_Config/router.md"
         assert hit["repair"]["scope"] == "router"
         assert "repair.py router" in hit["repair"]["command"]
         assert result["summary"]["errors"] >= 1

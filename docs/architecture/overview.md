@@ -123,7 +123,7 @@ Vault configuration merges:
 
 The shared `vault` zone cannot be overridden locally. Malformed configuration and unknown profile tools fail closed.
 
-`.brain/local/compiled-router.json`, lexical/semantic indexes, session mirrors, registries and other derived state are hash-validated caches. Human-readable config and content remain authoritative. Owners either rebuild stale state or return an explicit unavailable/error result; they do not silently serve known-stale data.
+`.brain/local/compiled-router.json`, lexical/semantic indexes, session mirrors, registries and other derived state are hash-validated caches. Human-readable config and content remain authoritative. Owners either rebuild stale state or return an explicit unavailable/error result; they do not silently serve known-stale data. Artefact creation and transitions share application-owned router/lexical reconciliation under the mutation lock; known maintenance failures after content effects are partial outcomes. Router admission, explicit checks and repair share content validation, and repair verifies its postcondition. Recorded warm-up status is labelled separately from current cache health.
 
 ## Security boundaries
 

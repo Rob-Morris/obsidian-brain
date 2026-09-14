@@ -152,12 +152,12 @@ def _lexical_cache_message(reason):
     return f"Lexical retrieval index cache is stale or unreadable ({reason})."
 
 
-def _repairable_router_finding(vault_root, reason):
+def _repairable_router_finding(vault_root, state):
     finding = {
         "check": "router",
         "severity": "error",
-        "file": None,
-        "message": _router_cache_message(reason),
+        "file": state.source_path,
+        "message": _router_cache_message(state.reason),
     }
     return attach_repair_guidance(finding, vault_root, "router")
 
@@ -967,9 +967,9 @@ def run_checks(vault_root, router=None):
     inspect_derived_cache = router is None
     derived_findings = []
     if router is None:
-        router_state = inspect_router_cache(vault_root)
+        router_state = inspect_router_cache(vault_root, verify_content=True)
         if router_state.stale:
-            derived_findings.append(_repairable_router_finding(vault_root, router_state.reason))
+            derived_findings.append(_repairable_router_finding(vault_root, router_state))
         if router_state.payload is None:
             return _result_envelope(
                 vault_root,

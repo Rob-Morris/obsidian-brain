@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import compile_router
-from _lifecycle.derived_cache_state import inspect_router_cache
+from _lifecycle.derived_cache_state import CacheState, inspect_router_cache
 from _semantic.runtime import clear_embeddings_outputs
 
 
@@ -19,6 +19,7 @@ class RouterMaintenanceResult:
     sidecars_removed: tuple[str, ...] = ()
     session_refreshed: bool = False
     session_error: str | None = None
+    cache_error: CacheState | None = None
 
 
 def maintain_router(
@@ -29,7 +30,7 @@ def maintain_router(
 ) -> RouterMaintenanceResult:
     """Repair a stale router or explicitly rebuild it when ``force`` is true."""
     root = Path(vault_root)
-    state = inspect_router_cache(root)
+    state = inspect_router_cache(root, verify_content=True)
     if not force and not state.stale:
         return RouterMaintenanceResult("noop", state.reason, dry_run, force)
 
@@ -50,6 +51,12 @@ def maintain_router(
             force,
             removed,
             session_error=str(exc),
+        )
+    verified = inspect_router_cache(root, verify_content=True)
+    if verified.stale:
+        return RouterMaintenanceResult(
+            "partial", reason, False, force, removed,
+            session_refreshed=True, cache_error=verified,
         )
     return RouterMaintenanceResult(
         "changed",

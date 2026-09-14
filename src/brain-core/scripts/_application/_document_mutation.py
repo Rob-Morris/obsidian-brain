@@ -161,7 +161,7 @@ def execute_document_mutation(
         validate_document_revision,
         vault_mutation_lock,
     )
-    from _lifecycle.derived_cache_state import load_fresh_compiled_router
+    from _lifecycle.derived_cache_state import require_fresh_compiled_router
     from _staging import finalise_staged_body
     import edit
     import fix_links
@@ -178,18 +178,13 @@ def execute_document_mutation(
         return no_effect_error(type(request), ErrorCode.INVALID_REQUEST, str(exc))
 
     vault_root = str(context.selected_brain.vault_root)
-    router = load_fresh_compiled_router(vault_root)
-    if "error" in router:
-        return no_effect_error(type(request), ErrorCode.CONFLICT, router["error"])
 
     subject_field = "path" if intent.resource == "artefact" else "name"
     subject_kwargs = {subject_field: intent.reference}
     materialised = None
     try:
         with vault_mutation_lock(vault_root):
-            router = load_fresh_compiled_router(vault_root)
-            if "error" in router:
-                raise ValueError(router["error"])
+            router = require_fresh_compiled_router(vault_root)
             opened = edit.open_document(
                 vault_root,
                 router,
@@ -423,7 +418,7 @@ def document_binding(context, request, *, intent, opened, body,
 
 def prepare_document_mutation(context, request, intent, *, frozen_inputs=None):
     from _common import DocumentRevisionConflict, vault_mutation_lock
-    from _lifecycle.derived_cache_state import load_fresh_compiled_router
+    from _lifecycle.derived_cache_state import require_fresh_compiled_router
     import edit
     import fix_links
 
@@ -431,9 +426,7 @@ def prepare_document_mutation(context, request, intent, *, frozen_inputs=None):
     _preflight_request(edit, intent)
     frozen = dict(frozen_inputs or {})
     with vault_mutation_lock(root):
-        router = load_fresh_compiled_router(root)
-        if "error" in router:
-            raise ValueError(router["error"])
+        router = require_fresh_compiled_router(root)
         opened = edit.open_document(root, router, intent.resource, intent.reference,
                                    allow_core_skill_read=(intent.resource == "skill" and ":" not in intent.reference))
         if opened.revision != intent.expected_revision:

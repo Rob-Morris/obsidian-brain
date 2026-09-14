@@ -46,27 +46,32 @@ class ArtefactMigrateNamingRequest:
 def execute(context: InvocationContext, request: ArtefactMigrateNamingRequest):
     from _common import (
         MutationLockError,
+        PartialApplyError,
         public_mutation_error_message,
         vault_mutation_lock,
     )
-    from _lifecycle.derived_cache_state import load_fresh_compiled_router
+    from _lifecycle.derived_cache_state import require_fresh_compiled_router
     import migrate_naming
 
     root = str(context.selected_brain.vault_root)
-    router = load_fresh_compiled_router(root)
-    if "error" in router:
-        return no_effect_error(type(request), ErrorCode.CONFLICT, router["error"])
     try:
         with vault_mutation_lock(root):
             from ..preparation import admit_owner
 
-            router = load_fresh_compiled_router(root)
-            if "error" in router:
-                raise ValueError(router["error"])
+            router = require_fresh_compiled_router(root)
             plan = migrate_naming.plan_naming_migration(root, router=router, dry_run=context.dry_run)
             if plan.movement is not None:
                 admit_owner(context, request, migration_binding, plan=plan, router=router)
             result = migrate_naming.apply_naming_migration(root, plan)
+            if not context.dry_run and (result.get("renamed") or any(
+                item.get("partial_apply") for item in result.get("errors", ())
+            )):
+                from .._transition_indexes import reconcile_transition_indexes
+                reconcile_transition_indexes(context)
+    except PartialApplyError as exc:
+        from .._transition_indexes import transition_error
+        return Partial(request.COMMAND_ID, request.COMMAND_VERSION,
+                       transition_error(exc), (CommittedEffect(request.COMMAND_ID, "vault"),))
     except MutationLockError as exc:
         return no_effect_error(
             type(request),
@@ -158,13 +163,11 @@ def migration_binding(context, request, *, plan, router, frozen_inputs=None):
 
 def prepare(context, request, *, frozen_inputs=None):
     from _common import vault_mutation_lock
-    from _lifecycle.derived_cache_state import load_fresh_compiled_router
+    from _lifecycle.derived_cache_state import require_fresh_compiled_router
     import migrate_naming
 
     root = str(context.selected_brain.vault_root)
     with vault_mutation_lock(root):
-        router = load_fresh_compiled_router(root)
-        if "error" in router:
-            raise ValueError(router["error"])
+        router = require_fresh_compiled_router(root)
         plan = migrate_naming.plan_naming_migration(root, router=router, dry_run=context.dry_run)
         return migration_binding(context, request, plan=plan, router=router, frozen_inputs=frozen_inputs)

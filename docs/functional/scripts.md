@@ -94,3 +94,17 @@ Bootstrap and document reads use the same bounded application results in every
 projection. Finish `session.start` pages until `bootstrap_complete` is true.
 For document reads, repeat the same selectors with `cursor: range.next_cursor`
 until null; revisions prevent mixing source versions between pages.
+
+### Router repair contract
+
+`runtime.refresh-router` verifies the same source fingerprints as mutation
+admission and verifies the persisted result. An unchanged, valid router is a
+no-op; `force: true` unconditionally rebuilds using the same algorithm. A source
+change detected after rebuilding is a partial repair, with an explicit command
+next action through CLI/MCP. `vault.check(check="router")` uses authoritative
+content validation and identifies an affected source path when available.
+
+`runtime.status` reports recorded warm-up progress, labelled `recorded-warmup`;
+ready is not a current-cache health assertion. Use its `router_check` action for
+current router diagnosis. Artefact creation and lifecycle-field commands maintain router and lexical
+state before returning success; semantic encoding remains separate.

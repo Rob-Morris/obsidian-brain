@@ -95,6 +95,13 @@ class RequestErrorDetails:
 
 
 @dataclass(frozen=True, slots=True)
+class CacheErrorDetails:
+    cache: str
+    reason: str
+    source_path: str | None
+
+
+@dataclass(frozen=True, slots=True)
 class CapabilityUnavailableDetails:
     required_tier: DependencyTier
     current_tier: DependencyTier
@@ -143,6 +150,7 @@ class OutcomeUnknownDetails:
 
 ErrorDetails = (
     RequestErrorDetails
+    | CacheErrorDetails
     | CapabilityUnavailableDetails
     | AuthorityDeniedDetails
     | InternalErrorDetails
@@ -255,3 +263,14 @@ def _validate_identity(command_id: str, command_version: int) -> None:
     validate_command_id(command_id)
     if command_version < 1:
         raise ValueError("command result version must be positive")
+
+
+def router_cache_error(state) -> CommandError:
+    """Project one router diagnostic into the shared CLI/MCP recovery contract."""
+    return CommandError(
+        ErrorCode.CONFLICT,
+        f"Compiled router cache is stale or unreadable ({state.reason}). "
+        "Run runtime.refresh-router; retry the original operation only after repair succeeds.",
+        CacheErrorDetails(state.path, state.reason, state.source_path),
+        CommandNextAction("runtime.refresh-router"),
+    )

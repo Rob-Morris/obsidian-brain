@@ -10,7 +10,7 @@ from typing import Mapping
 from ._mutation_support import contributor_mutation_entry, no_effect_error
 from .context import InvocationContext
 from .receipts import CommittedEffect
-from .results import ErrorCode, Ok
+from .results import ErrorCode, Ok, Partial
 
 
 @dataclass(frozen=True, slots=True)
@@ -72,12 +72,14 @@ def execute_lifecycle_mutation(
     field: str,
     value: str | None,
 ):
+    from ._transition_indexes import combine_transition_errors, transition_error
     from _common import (
         MutationLockError,
+        PartialApplyError,
         public_mutation_error_message,
         vault_mutation_lock,
     )
-    from _lifecycle.derived_cache_state import load_fresh_compiled_router
+    from _lifecycle.derived_cache_state import require_fresh_compiled_router
     import edit
 
     if context.dry_run:
@@ -88,29 +90,48 @@ def execute_lifecycle_mutation(
         )
 
     vault_root = str(context.selected_brain.vault_root)
-    router = load_fresh_compiled_router(vault_root)
-    if "error" in router:
-        return no_effect_error(type(request), ErrorCode.CONFLICT, router["error"])
 
     try:
         with vault_mutation_lock(vault_root):
             from .preparation import admit_owner
             from .preparation_transition import transition_binding
 
-            router = load_fresh_compiled_router(vault_root)
-            if "error" in router:
-                raise ValueError(router["error"])
+            router = require_fresh_compiled_router(vault_root)
             frozen = context.admission.frozen_inputs if context.admission else None
             plan, _frozen = plan_lifecycle_request(context, request, router, field=field,
                                                    value=value, frozen_inputs=frozen)
             admit_owner(context, request, transition_binding, plan=plan, router=router)
-            result = edit.apply_artefact_transition(vault_root, plan)
+            from ._transition_indexes import reconcile_transition_indexes
+
+            lexical_before = None
+            changed_paths = tuple(item["path"] for item in plan.writes)
+            if not plan.movement.moves and not plan.movement.links.writes:
+                from _lifecycle.derived_cache_state import inspect_lexical_cache
+                lexical = inspect_lexical_cache(vault_root)
+                if not lexical.stale:
+                    lexical_before = lexical.payload
+            try:
+                result = edit.apply_artefact_transition(vault_root, plan)
+            except PartialApplyError as exc:
+                try:
+                    reconcile_transition_indexes(context)
+                except PartialApplyError as repair_error:
+                    raise combine_transition_errors(exc, repair_error) from repair_error
+                raise
+            reconcile_transition_indexes(context, lexical_before=lexical_before,
+                                         changed_paths=changed_paths)
     except MutationLockError as exc:
         return no_effect_error(
             type(request),
             ErrorCode.CONFLICT,
             public_mutation_error_message(exc),
             retryable=True,
+        )
+    except PartialApplyError as exc:
+        return Partial(
+            request.COMMAND_ID, request.COMMAND_VERSION,
+            transition_error(exc),
+            (CommittedEffect(request.COMMAND_ID, plan.result["path"]),),
         )
     except FileNotFoundError as exc:
         return no_effect_error(

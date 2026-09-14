@@ -41,11 +41,9 @@ def session_binding(context, request, *, plan, router, frozen_inputs=None):
 
 def prepare_session(context, request, *, frozen_inputs=None):
     from _common import vault_mutation_lock
-    from _lifecycle.derived_cache_state import load_fresh_compiled_router
+    from _lifecycle.derived_cache_state import require_fresh_compiled_router
     with vault_mutation_lock(context.selected_brain.vault_root):
-        router = load_fresh_compiled_router(context.selected_brain.vault_root)
-        if "error" in router:
-            raise ValueError(router["error"])
+        router = require_fresh_compiled_router(context.selected_brain.vault_root)
         plan, frozen = session_plan(context, request, router, frozen_inputs=frozen_inputs)
         return session_binding(context, request, plan=plan, router=router, frozen_inputs=frozen)
 
