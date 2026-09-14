@@ -461,6 +461,7 @@ def test_child_process_marks_the_running_proxy_protocol(monkeypatch):
     class Process:
         pid = 4321
         stderr = ()
+        stdout = type("Output", (), {"fileno": lambda self: 123})()
 
     def popen(command, **kwargs):
         captured.update(command=command, **kwargs)

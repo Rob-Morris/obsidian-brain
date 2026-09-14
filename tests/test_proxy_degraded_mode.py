@@ -243,69 +243,20 @@ def test_main_allows_canonical_python_launch(monkeypatch, tmp_path):
     target = SimpleNamespace(vault_root=str(tmp_path), workspace_dir=None, source="vault_self")
     managed_python = str(tmp_path / ".brain" / "venvs" / "py3.12" / "bin" / "python")
 
-    class FakeProxy:
-        def __init__(self, python_path, server_target, vault_root, *, owner, owner_unavailable_code):
-            self.owner = owner
-            calls.append(("init", python_path, server_target, vault_root))
-
-        def _start_writer_loop(self):
-            calls.append(("writer",))
-
-        def _start_recovery_loop(self):
-            calls.append(("recovery",))
-
-        def _start_reader_loop(self):
-            calls.append(("reader",))
-
-        def _start_child(self):
-            calls.append(("child",))
-            return True
-
-        def run(self):
-            calls.append(("run",))
-
-        def _initiate_shutdown(self):
-            if self.owner is not None:
-                self.owner.close()
-
     monkeypatch.setattr(proxy.sys, "argv", ["proxy.py", managed_python, "brain_mcp.server"])
     monkeypatch.setattr(proxy, "resolve_and_heal", lambda **_kwargs: target)
     monkeypatch.setattr(proxy, "resolve_vault_venv_python", lambda _vault: Path(managed_python))
     monkeypatch.setattr(proxy, "_run_degraded_server", lambda reason, **kwargs: calls.append(("degraded", reason, kwargs)))
-    monkeypatch.setattr(proxy, "Proxy", FakeProxy)
+    monkeypatch.setattr(proxy, "_serve_proxy", lambda python, server, vault: calls.append(("serve", python, server, vault)))
 
     proxy.main()
 
-    assert not any(call[0] == "degraded" for call in calls)
-    assert ("run",) in calls
+    assert calls == [("serve", managed_python, "brain_mcp.server", str(tmp_path))]
 
 
 def test_main_skips_launch_validation_when_runtime_resolution_subprocess_fails(monkeypatch, tmp_path):
     calls = []
     target = SimpleNamespace(vault_root=str(tmp_path), workspace_dir=None, source="vault_self")
-
-    class FakeProxy:
-        def __init__(self, *_args, owner, owner_unavailable_code):
-            self.owner = owner
-
-        def _start_writer_loop(self):
-            pass
-
-        def _start_recovery_loop(self):
-            pass
-
-        def _start_reader_loop(self):
-            pass
-
-        def _start_child(self):
-            return True
-
-        def run(self):
-            calls.append("run")
-
-        def _initiate_shutdown(self):
-            if self.owner is not None:
-                self.owner.close()
 
     monkeypatch.setattr(proxy.sys, "argv", ["proxy.py", "/usr/bin/python3.12", "brain_mcp.server"])
     monkeypatch.setattr(proxy, "resolve_and_heal", lambda **_kwargs: target)
@@ -315,11 +266,11 @@ def test_main_skips_launch_validation_when_runtime_resolution_subprocess_fails(m
         lambda _vault: (_ for _ in ()).throw(subprocess.SubprocessError("launcher failed")),
     )
     monkeypatch.setattr(proxy, "_run_degraded_server", lambda reason, **kwargs: calls.append("degraded"))
-    monkeypatch.setattr(proxy, "Proxy", FakeProxy)
+    monkeypatch.setattr(proxy, "_serve_proxy", lambda python, server, vault: calls.append(("serve", python, server, vault)))
 
     proxy.main()
 
-    assert calls == ["run"]
+    assert calls == [("serve", "/usr/bin/python3.12", "brain_mcp.server", str(tmp_path))]
 
 
 @pytest.mark.slow

@@ -265,8 +265,10 @@ After an installed Core upgrade, an idle MCP proxy refreshes its child server
 before the next command. Use `brain_proxy_status` to inspect loaded/installed
 versions or `brain_proxy_refresh` to request that refresh explicitly. Both take
 `{}` and work even when the child is unavailable. Busy work is left running;
-finish it before refreshing. Proxy code changes still require restarting MCP,
-which ends exceptional consent. These are MCP transport tools; `runtime_status`
+finish it before refreshing. For proxy code changes, `brain_proxy_restart({})`
+loads the installed proxy while preserving POSIX stdio. It ends exceptional
+consent; unchanged proxy code is a no-op. Unsupported platforms or failed
+preflight may require restarting MCP through the host. These are MCP transport tools; `runtime_status`
 reports application warm-up instead.
 
 Brain's MCP processes keep an always-on, content-free operational log under `.brain/local/diagnostics/` (bounded NDJSON: lifecycle, tool spans, command failures). On a development machine, set `BRAIN_LOG_BODIES=1` (or `true`) before starting MCP to additionally capture raw request/response bodies to `diagnostics/debug-bodies.log`.

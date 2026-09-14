@@ -22,6 +22,8 @@ Env:
 
 from contextlib import nullcontext
 from datetime import datetime, timezone
+from dataclasses import asdict
+import base64
 import hashlib
 import itertools
 import json
@@ -30,6 +32,7 @@ import os
 import queue
 import re
 import select
+import signal
 import subprocess
 import sys
 import threading
@@ -43,6 +46,7 @@ if str(_SCRIPT_ROOT) not in sys.path:
 
 from _bootstrap.runtime import same_executable_path
 from _bootstrap.consent_owner import ConsentOwner
+from _bootstrap.file_lock import MutationLockError
 from _bootstrap.owner_attachment import (
     OWNER_UNAVAILABLE_ENV, OWNER_UNAVAILABLE_REASONS,
     PROCESS_CONTEXT_ENV, ProcessIdentity,
@@ -61,20 +65,26 @@ from ._interface_protocol import (
     PROXY_PROTOCOL_ENV,
     AcceptedCallRecord,
     CommandInterfaceHeader,
+    InterfaceTool,
     accept_call,
     interface_header_from_response,
 )
 from ._result_content import result_text_wire
 from ._proxy_controls import (
-    CONTROL_TOOLS, REFRESH_TOOL, STATUS_TOOL,
+    CONTROL_TOOLS, REFRESH_TOOL, RESTART_TOOL, STATUS_TOOL,
     add_control_discovery, control_response, tool_definitions,
+)
+
+from ._proxy_handoff import (
+    HANDOFF_TIMEOUT, HANDOFF_VERSION, RawLineReader, public_session,
+    read_state, state_descriptor,
 )
 
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
 
-PROXY_VERSION = "0.10.1"
+PROXY_VERSION = "0.10.2"
 _CHILD_PROTOCOL_VERSION = "2026-07-28"
 
 
@@ -161,7 +171,7 @@ def _read_child_line_with_timeout(child: "ChildProcess", timeout: int) -> bytes 
     if fd is None:
         return None
     try:
-        ready, _, _ = select.select([fd], [], [], timeout)
+        ready = [fd] if child.line_ready else select.select([fd], [], [], timeout)[0]
     except (ValueError, OSError):
         return None
     if not ready:
@@ -617,7 +627,7 @@ def _decorate_with_drift_note(response: dict, old_ver: str, new_ver: str) -> dic
     """
     note = (
         f"\n\nNote: MCP proxy has been upgraded ({old_ver} → {new_ver}). "
-        "Restart MCP to load the new proxy."
+        f"Use {RESTART_TOOL}, or restart MCP, to load it with fresh exceptional consent."
     )
     # Success response with text content. Append to the human one-liner, never
     # the assistant JSON envelope, so first-block JSON stays parseable.
@@ -625,7 +635,7 @@ def _decorate_with_drift_note(response: dict, old_ver: str, new_ver: str) -> dic
     envelope = result.get("structuredContent") if isinstance(result, dict) else None
     if isinstance(envelope, dict) and envelope.get("schema") == "brain.command-result/1":
         warning = {"code": "follow_up_required", "message": (
-            f"MCP proxy {old_ver}; installed {new_ver}. Restart MCP to load it; "
+            f"MCP proxy {old_ver}; installed {new_ver}. Use {RESTART_TOOL} or restart MCP; consent resets. "
             f"{STATUS_TOOL} reports server refresh state."
         )}
         updated = {**envelope, "warnings": [*envelope.get("warnings", []), warning]}
@@ -707,6 +717,7 @@ class ChildProcess:
         self.server_target = server_target
         self._proc: subprocess.Popen | None = None
         self._stderr_thread: threading.Thread | None = None
+        self._stdout_reader: RawLineReader | None = None
 
     def start(self, *, owner: ConsentOwner | None = None, owner_unavailable_code: str | None = None,
               transport_identity: ProcessIdentity | None = None, owner_initialisation_allowed: bool = False) -> None:
@@ -733,6 +744,8 @@ class ChildProcess:
                 stderr=subprocess.PIPE,
                 **options,
             )
+        if sys.platform != "win32":
+            self._stdout_reader = RawLineReader(self._proc.stdout.fileno())
         # Forward child stderr to proxy stderr in a background thread
         self._stderr_thread = threading.Thread(
             target=self._relay_stderr, daemon=True, name="child-stderr"
@@ -762,14 +775,26 @@ class ChildProcess:
     def readline(self) -> bytes | None:
         """Read one line from child stdout. Returns None on EOF."""
         assert self._proc is not None and self._proc.stdout is not None
-        line = self._proc.stdout.readline()
+        line = self._stdout_reader.readline() if self._stdout_reader else self._proc.stdout.readline()
         return line if line else None
+
+    @property
+    def line_ready(self) -> bool:
+        return self._stdout_reader is not None and self._stdout_reader.line_ready
+
+    def output_pending(self) -> bool:
+        return bool(self._stdout_reader and self._stdout_reader.remainder) or bool(
+            self.stdout_fd is not None and select.select([self.stdout_fd], [], [], 0)[0])
 
     def wait(self) -> int | None:
         """Wait for child to exit. Returns exit code."""
         if self._proc is None:
             return None
         return self._proc.wait()
+
+    def reap(self, timeout: float) -> None:
+        if self._proc is not None:
+            self._proc.wait(timeout=timeout)
 
     def kill(self) -> None:
         """Kill the child process."""
@@ -831,6 +856,12 @@ class Proxy:
         self._interface_lock = threading.Lock()
         self._client_protocol: str | None = None
         self._initial_protocol_selected = threading.Event()
+        self._public_session: dict | None = None
+        self._publication_gate = threading.Lock()
+        self._server_requests: dict[str, tuple[ChildProcess, int | str]] = {}
+        self._handoff_state: dict | None = None
+        self._handoff_error = "proxy_exec_failed"
+        self._owner_close_timeout: float | None = None
 
         # Backoff state
         self._backoff_schedule = _get_backoff_schedule()
@@ -885,7 +916,7 @@ class Proxy:
         # Outbound message queue — all writes to sys.stdout.buffer go through here.
         # A single writer thread drains this queue, ensuring thread-safe writes
         # and centralised drift-note decoration. None is the shutdown sentinel.
-        self._outbound: queue.Queue[dict | None] = queue.Queue()
+        self._outbound: queue.Queue[dict | threading.Event | None] = queue.Queue()
         self._writer_thread_handle: threading.Thread | None = None
         self._reader_thread_handle: threading.Thread | None = None
         self._recovery_thread_handle: threading.Thread | None = None
@@ -984,6 +1015,11 @@ class Proxy:
                 child.kill()
                 return False
 
+            response = add_control_discovery(response, self._init_request)
+            if self._public_session is not None and public_session(response) != self._public_session:
+                self._interface_header_error = "Replacement changed the negotiated public MCP session; restart MCP."
+                child.kill()
+                return False
             if not self._capture_interface_header(response):
                 child.kill()
                 return False
@@ -997,18 +1033,28 @@ class Proxy:
         if installed_version != _read_brain_version_from_disk(self.vault_root):
             child.kill()
             return False
-        with self._child_lock:
-            previous = self._child
-            self._child = child
-        self._child_start_time = time.monotonic()
-        self._last_launched_version = installed_version
-        self._catalogue_generation += 1
-        if previous is not None:
-            previous.kill()
-        if self._init_response is not None:
-            self._send_to_client({"jsonrpc": "2.0", "method": "notifications/tools/list_changed"})
-        self._child_ready.set()
-        return True
+        if not self._publication_gate.acquire(timeout=HANDOFF_TIMEOUT):
+            child.kill()
+            return False
+        try:
+            with self._child_lock:
+                previous = self._child
+                with self._inflight_lock:
+                    if any(entry[0] is previous for entry in self._server_requests.values()):
+                        child.kill()
+                        return False
+                    self._child = child
+            self._child_start_time = time.monotonic()
+            self._last_launched_version = installed_version
+            self._catalogue_generation += 1
+            if previous is not None:
+                previous.kill()
+            if self._init_response is not None:
+                self._send_to_client({"jsonrpc": "2.0", "method": "notifications/tools/list_changed"})
+            self._child_ready.set()
+            return True
+        finally:
+            self._publication_gate.release()
 
     def _discover_child(self, child: ChildProcess) -> bool:
         """Negotiate a modern child before its stdout reader is enabled."""
@@ -1017,7 +1063,10 @@ class Proxy:
         try:
             child.send(_internal_request("server/discover", discovery_id, {}, modern=True))
             response = self._read_internal_response(child, discovery_id, _get_init_timeout())
-            if self._capture_interface_header(response):
+            if self._public_session is not None and public_session(response) != self._public_session:
+                self._interface_header_error = "Replacement changed the public MCP discovery contract; restart MCP."
+            elif self._capture_interface_header(response):
+                self._public_session = public_session(response)
                 return True
         except (OSError, ValueError) as exc:
             _log().error("child interface discovery failed: %s", exc)
@@ -1070,7 +1119,12 @@ class Proxy:
         self._child_ready.set()
         self._recovery_trigger.set()
         if self._owner is not None:
-            self._owner.close()
+            try:
+                self._owner.close(lock_timeout=self._owner_close_timeout)
+            except (OSError, MutationLockError):
+                if self._owner_close_timeout is None:
+                    raise
+                _log().error("owner ended; private directory cleanup pending: %s", self._owner.private_directory)
 
     def _writer_thread(self) -> None:
         """
@@ -1082,6 +1136,9 @@ class Proxy:
             obj = self._outbound.get()
             if obj is None:
                 break
+            if isinstance(obj, threading.Event):
+                obj.set()
+                continue
             if self._proxy_drift and self._proxy_version_on_disk:
                 obj = _decorate_with_drift_note(obj, PROXY_VERSION, self._proxy_version_on_disk)
             if not _safe_write_line(
@@ -1352,6 +1409,8 @@ class Proxy:
             if response.get("id") == query_id:
                 return response
             if response.get("method"):
+                if "id" in response:
+                    raise ValueError("candidate requested host input during private negotiation")
                 self._send_to_client(response)
                 continue
             raise ValueError("internal request received a contradictory response identifier")
@@ -1391,6 +1450,8 @@ class Proxy:
 
             is_drift = exit_code == _EXIT_CODE_VERSION_DRIFT
             can_replay = is_drift and self._replay_depth < _MAX_REPLAY_DEPTH
+            with self._inflight_lock:
+                self._server_requests.clear()
             drained_requests, accepted_calls = self._drain_inflight()
 
             # Even a drift exit only proves the guard stopped one request, not
@@ -1482,10 +1543,175 @@ class Proxy:
                               "validated" if state == "current" and header else "unverified")},
             "diagnostic": self._refresh_diagnostic if state == "blocked" else None,
             "consent": "same-proxy; new proxy requires fresh exceptional consent",
-            "next_action": ("restart_mcp" if self._proxy_drift or (state == "blocked" and self._refresh_header_rejected) else
+            "next_action": (RESTART_TOOL if self._proxy_drift and os.name == "posix" else
+                            "restart_mcp" if self._proxy_drift or (state == "blocked" and self._refresh_header_rejected) else
                             REFRESH_TOOL if state in {"available", "unavailable", "blocked"} else
                             STATUS_TOOL if state == "refreshing" else None),
         }
+
+    def _transport_state(self, request_id, stdin: RawLineReader) -> dict:
+        return {
+            "version": HANDOFF_VERSION, "pid": os.getpid(), "vault": self.vault_root,
+            "workspace": os.environ.get("BRAIN_WORKSPACE_DIR"),
+            "python": self.python_path, "server": self.server_target,
+            "protocol": self._client_protocol, "initialise_request": self._init_request,
+            "initialise_response": self._init_response, "public_session": self._public_session,
+            "tools": {name: asdict(tool) for name, tool in (self._advertised_tools or {}).items()},
+            "generation": self._catalogue_generation, "request_id": request_id,
+            "remainder": base64.b64encode(stdin.remainder).decode("ascii"),
+        }
+
+    def _restore_transport(self, state: dict) -> None:
+        self._client_protocol = state["protocol"]
+        self._init_request = state["initialise_request"]
+        self._init_response = state["initialise_response"]
+        self._public_session = state["public_session"]
+        self._advertised_tools = {name: InterfaceTool(**tool) for name, tool in state["tools"].items()}
+        self._catalogue_generation = state["generation"]
+
+    def _handoff_environment(self) -> dict:
+        env = without_owner_environment()
+        env["BRAIN_VAULT_ROOT"] = self.vault_root
+        env["PYTHONPATH"] = str(Path(self.vault_root) / ".brain-core")
+        return env
+
+    def _preflight_handoff(self, fd: int) -> bool:
+        env = self._handoff_environment()
+        env.pop("BRAIN_OPERATOR_KEY", None)
+        process = subprocess.Popen(
+            [self.python_path, "-m", "brain_mcp.proxy", "--check-handoff", str(fd)],
+            env=env, pass_fds=(fd,), stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL, start_new_session=True,
+        )
+        try:
+            return process.wait(timeout=HANDOFF_TIMEOUT) == 0
+        except subprocess.TimeoutExpired:
+            return False
+        finally:
+            # Includes the probe's server if import or negotiation timed out.
+            try:
+                os.killpg(process.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+            process.wait(timeout=HANDOFF_TIMEOUT)
+
+    def _request_handoff(self, request_id, stdin) -> str | None:
+        if os.name != "posix" or not isinstance(stdin, RawLineReader):
+            return "proxy_handoff_unsupported"
+        self._check_proxy_drift()
+        if self._compute_proxy_hash() is None:
+            return "installation_unavailable"
+        if not self._proxy_drift:
+            return None
+        if self._public_session is None or self.server_target != "brain_mcp.server":
+            return "proxy_restart_required"
+        with self._inflight_lock:
+            if self._inflight_requests or self._server_requests:
+                return "server_busy"
+        if self._restart_in_progress or self._recovery_thread_failed:
+            return "refresh_in_progress"
+        state = self._transport_state(request_id, stdin)
+        image_hash = self._compute_proxy_hash()
+        try:
+            with state_descriptor(state) as fd:
+                if not self._preflight_handoff(fd):
+                    return "proxy_handoff_preflight_failed"
+                if self._compute_proxy_hash() != image_hash:
+                    return "installation_changed"
+                return self._replace_idle_image(fd, state, image_hash=image_hash)
+        except (OSError, ValueError, subprocess.SubprocessError) as exc:
+            if self._shutdown:
+                raise RuntimeError("proxy handoff failed after retirement; transport closed") from exc
+            _log().warning("proxy handoff refused: %s", type(exc).__name__)
+            return "proxy_handoff_preflight_failed"
+
+    def _replace_idle_image(self, fd: int, state: dict, *, image_hash: str | None = None) -> str | None:
+        # The reader owns each complete publication, including the gap between
+        # removing an in-flight request and queuing its response.
+        if not self._publication_gate.acquire(timeout=HANDOFF_TIMEOUT):
+            return "server_busy"
+        child = None
+        frozen = False
+        try:
+            with self._restart_lock:
+                if self._restart_in_progress or self._shutdown:
+                    return "refresh_in_progress"
+                with self._inflight_lock:
+                    if self._inflight_requests or self._server_requests:
+                        return "server_busy"
+                child = self._get_child()
+                if child is None or child.poll() is not None:
+                    return "server_unavailable"
+                os.kill(child.pid, signal.SIGSTOP)
+                frozen = True
+                deadline = time.monotonic() + HANDOFF_TIMEOUT
+                while True:
+                    pid, status = os.waitpid(child.pid, os.WUNTRACED | os.WNOHANG)
+                    if pid:
+                        if not os.WIFSTOPPED(status):
+                            return "server_unavailable"
+                        break
+                    if time.monotonic() >= deadline:
+                        return "server_busy"
+                    time.sleep(0.005)
+                # No producer can now publish after the barrier. Even an
+                # incomplete pending frame causes refusal, never truncation.
+                if child.output_pending():
+                    return "server_busy"
+                barrier = threading.Event()
+                self._outbound.put(barrier)
+                if not barrier.wait(HANDOFF_TIMEOUT):
+                    return "proxy_output_busy"
+                if image_hash is not None and self._compute_proxy_hash() != image_hash:
+                    return "installation_changed"
+                self._owner_close_timeout = HANDOFF_TIMEOUT
+                self._shutdown = True
+                self._child_ready.set()
+                self._recovery_trigger.set()
+                child.kill()
+                frozen = False
+        finally:
+            if frozen:
+                try:
+                    os.kill(child.pid, signal.SIGCONT)
+                except ProcessLookupError:
+                    pass
+            self._publication_gate.release()
+
+        child.reap(HANDOFF_TIMEOUT)
+
+        # Readers cannot enqueue after shutdown; the acknowledged barrier means
+        # the writer is no longer blocked on host output.
+        self._outbound.put(None)
+        for thread in (self._reader_thread_handle, self._recovery_thread_handle, self._writer_thread_handle):
+            if thread is not None:
+                thread.join(timeout=HANDOFF_TIMEOUT)
+                if thread.is_alive():
+                    raise RuntimeError("proxy handoff could not stop an output owner")
+        if self._owner is not None:
+            try:
+                self._owner.close(lock_timeout=HANDOFF_TIMEOUT)
+            except (MutationLockError, OSError):
+                _log().error("handoff ended consent but private owner directory cleanup is pending: %s", self._owner.private_directory)
+                self._handoff_state = state
+                self._handoff_error = "proxy_owner_cleanup_pending"
+                return self._handoff_error
+        logger = _operational_log.current_logger()
+        if logger is not None:
+            logger.close(exit_code=0)
+        if image_hash is not None and self._compute_proxy_hash() != image_hash:
+            self._handoff_state = state
+            self._handoff_error = "installation_changed"
+            return self._handoff_error
+        try:
+            os.execve(self.python_path,
+                      [self.python_path, "-m", "brain_mcp.proxy", "--handoff-fd", str(fd)],
+                      self._handoff_environment())
+        except OSError:
+            # The composition root creates a new owner and serves the retained
+            # stdio in this image. The old consent context is never revived.
+            self._handoff_state = state
+            return "proxy_exec_failed"
 
     def _request_refresh(self, *, explicit: bool) -> str | None:
         """Request an idle handover from the existing recovery owner.
@@ -1504,7 +1730,7 @@ class Proxy:
             if self._recovery_thread_failed or self._recovery_thread_is_dead():
                 return "proxy_restart_required"
             with self._inflight_lock:
-                if self._inflight_requests:
+                if self._inflight_requests or self._server_requests:
                     return "server_busy"
             if not explicit and self._refresh_blocked_version == installed:
                 return "server_refresh_blocked"
@@ -1852,12 +2078,12 @@ class Proxy:
                         line = None
                         ready = None
                         try:
-                            ready, _, _ = select.select([fd], [], [], timeout)
+                            ready = [fd] if child.line_ready else select.select([fd], [], [], timeout)[0]
                         except (ValueError, OSError):
                             line = None
                         if ready is not None:
                             if ready:
-                                line = child.readline()
+                                line = True
                                 hang_counter = 0
                             else:
                                 # Timeout — check child health
@@ -1889,77 +2115,120 @@ class Proxy:
                                         # No in-flight requests — idle is fine
                                         continue
 
-                if line is None:
-                    # Child stdout closed — wait for exit code
-                    exit_code = child.wait()
-                    _log().info("child stdout EOF, exit code=%s", exit_code)
-                    hang_counter = 0
-                    self._signal_recovery(exit_code, child=child)
-                    continue
+                with self._publication_gate:
+                    if self._shutdown:
+                        break
+                    if child is not self._get_child():
+                        continue
+                    if line is True:
+                        line = child.readline()
+                    if line is None:
+                        # Child stdout closed — wait for exit code
+                        exit_code = child.wait()
+                        _log().info("child stdout EOF, exit code=%s", exit_code)
+                        hang_counter = 0
+                        self._signal_recovery(exit_code, child=child)
+                        continue
 
-                # Parse and forward to client
-                try:
-                    obj = json.loads(line.decode("utf-8").strip())
-                except (json.JSONDecodeError, UnicodeDecodeError) as e:
-                    _log().debug("failed to parse child output: %s", e)
-                    continue
+                    # Parse and forward to client
+                    try:
+                        obj = json.loads(line.decode("utf-8").strip())
+                    except (json.JSONDecodeError, UnicodeDecodeError) as e:
+                        _log().debug("failed to parse child output: %s", e)
+                        continue
 
-                msg_id = obj.get("id")
-                method = obj.get("method")
+                    if obj.get("method") == "notifications/cancelled":
+                        obj = self._translate_child_cancellation(child, obj)
+                        if obj is None:
+                            continue
+                    msg_id = obj.get("id")
+                    method = obj.get("method")
 
-                # Remove from in-flight tracking (response received) and
-                # compute round-trip latency so we can attribute slow calls
-                # to the child rather than the proxy.
-                latency_s: float | None = None
-                frame_seq: int | None = None
-                if msg_id is not None:
-                    with self._inflight_lock:
-                        entry = self._inflight_requests.pop(msg_id, None)
+                    # Remove from in-flight tracking (response received) and
+                    # compute round-trip latency so we can attribute slow calls
+                    # to the child rather than the proxy.
+                    latency_s: float | None = None
+                    frame_seq: int | None = None
+                    if msg_id is not None and method:
+                        obj = self._correlate_child_request(child, obj)
+                    if msg_id is not None and not method:
+                        with self._inflight_lock:
+                            entry = self._inflight_requests.pop(msg_id, None)
+                            if entry is not None:
+                                self._record_tool_discovery(obj, entry[0])
+                            self._accepted_calls.pop(msg_id, None)
+                            frame_seq = self._frame_seqs.pop(msg_id, None)
                         if entry is not None:
-                            self._record_tool_discovery(obj, entry[0])
-                        self._accepted_calls.pop(msg_id, None)
-                        frame_seq = self._frame_seqs.pop(msg_id, None)
-                    if entry is not None:
-                        request, sent_at = entry
-                        obj = add_control_discovery(obj, request)
-                        latency_s = time.monotonic() - sent_at
-                    self._replay_depth = 0
+                            request, sent_at = entry
+                            obj = add_control_discovery(obj, request)
+                            latency_s = time.monotonic() - sent_at
+                        self._replay_depth = 0
 
-                if latency_s is not None:
-                    _log().debug(
-                        "child→client: id=%s method=%s latency=%.3fs",
-                        msg_id, method, latency_s,
-                    )
-                else:
-                    _log().debug("child→client: id=%s method=%s", msg_id, method)
-                if frame_seq is not None:
-                    _op_event(
-                        "frame.completed",
-                        family="proxy-rpc",
-                        frame_seq=frame_seq,
-                        duration_ms=(
-                            None if latency_s is None else int(latency_s * 1000)
-                        ),
-                        outcome="error" if "error" in obj else "ok",
-                    )
-                if _LOG_BODIES:
-                    _capture_body("child_to_client", method, line)
+                    if latency_s is not None:
+                        _log().debug(
+                            "child→client: id=%s method=%s latency=%.3fs",
+                            msg_id, method, latency_s,
+                        )
+                    else:
+                        _log().debug("child→client: id=%s method=%s", msg_id, method)
+                    if frame_seq is not None:
+                        _op_event(
+                            "frame.completed",
+                            family="proxy-rpc",
+                            frame_seq=frame_seq,
+                            duration_ms=(
+                                None if latency_s is None else int(latency_s * 1000)
+                            ),
+                            outcome="error" if "error" in obj else "ok",
+                        )
+                    if _LOG_BODIES:
+                        _capture_body("child_to_client", method, line)
 
-                # Capture initialize response (first time only)
-                if (
-                    self._init_response is None
-                    and self._init_request is not None
-                    and msg_id == self._init_request.get("id")
-                    and "result" in obj
-                ):
-                    self._init_response = obj
-                    self._capture_interface_header(obj)
-                    _log().info("captured initialize response from child")
+                    # Capture initialize response (first time only)
+                    if (
+                        self._init_response is None
+                        and self._init_request is not None
+                        and msg_id == self._init_request.get("id")
+                        and "result" in obj
+                    ):
+                        self._init_response = obj
+                        self._public_session = public_session(obj)
+                        self._capture_interface_header(obj)
+                        _log().info("captured initialize response from child")
 
-                self._send_to_client(obj)
+                    self._send_to_client(obj)
         except Exception:
             _log().exception("proxy reader thread crashed")
             self._initiate_shutdown()
+
+    def _correlate_child_request(self, child: ChildProcess, request: dict) -> dict:
+        host_id = f"brain-proxy-host-{uuid.uuid4()}"
+        with self._inflight_lock:
+            self._server_requests[host_id] = (child, request["id"])
+        return {**request, "id": host_id}
+
+    def _translate_child_cancellation(self, child: ChildProcess, notification: dict) -> dict | None:
+        params = notification.get("params", {})
+        original_id = params.get("requestId")
+        with self._inflight_lock:
+            for host_id, pending in tuple(self._server_requests.items()):
+                if pending == (child, original_id):
+                    del self._server_requests[host_id]
+                    return {**notification, "params": {**params, "requestId": host_id}}
+        return None
+
+    def _forward_host_response(self, response: dict) -> None:
+        with self._inflight_lock:
+            pending = self._server_requests.pop(response["id"], None)
+        if pending is None:
+            return
+        child, original_id = pending
+        if child is not self._get_child() or child.poll() is not None:
+            return
+        try:
+            child.send({**response, "id": original_id})
+        except OSError:
+            self._signal_recovery(child.poll(), child=child)
 
     def _get_child(self) -> ChildProcess | None:
         with self._child_lock:
@@ -2023,11 +2292,14 @@ class Proxy:
         )
         return forwarded, record
 
-    def run(self) -> None:
+    def run(self, *, remainder: bytes = b"") -> tuple[dict, str] | None:
         """Main proxy loop. Reads from stdin, forwards to child."""
         self._ensure_background_threads()
 
-        stdin = sys.stdin.buffer
+        try:
+            stdin = RawLineReader(sys.stdin.fileno(), remainder) if sys.platform != "win32" else sys.stdin.buffer
+        except (AttributeError, OSError):
+            stdin = sys.stdin.buffer
 
         while not self._shutdown:
             try:
@@ -2065,7 +2337,10 @@ class Proxy:
 
             method = obj.get("method", "")
             is_notification = not has_request_id and bool(method)
-            is_request = has_request_id
+            is_request = has_request_id and bool(method)
+            if has_request_id and not method:
+                self._forward_host_response(obj)
+                continue
 
             if method == "tools/call" and not is_request:
                 _log().warning("rejected tools/call notification without a request id")
@@ -2080,6 +2355,10 @@ class Proxy:
                 code = None
                 if not isinstance(arguments, dict) or arguments:
                     code = "invalid_arguments"
+                elif tool_name == RESTART_TOOL:
+                    code = self._request_handoff(msg_id, stdin)
+                    if self._handoff_state is not None:
+                        return self._handoff_state, self._handoff_error
                 elif tool_name == REFRESH_TOOL:
                     initial_child = self._get_child()
                     if (self._client_protocol == "modern" and not self._initial_protocol_selected.is_set()
@@ -2338,18 +2617,87 @@ def _run_degraded_server(
 # Entry point
 # ---------------------------------------------------------------------------
 
-def _create_process_owner(vault_root: str) -> tuple[ConsentOwner | None, str | None]:
+def _create_process_owner(vault_root: str, *, lock_timeout: float | None = None) -> tuple[ConsentOwner | None, str | None]:
     """Degrade only initial owner setup; established connection loss never falls back."""
     if os.name != "posix":
         return None, "platform"
     try:
-        return ConsentOwner(Path(vault_root)), None
-    except OSError:
+        return ConsentOwner(Path(vault_root), lock_timeout=lock_timeout), None
+    except (OSError, MutationLockError):
         _log().warning("private consent state unavailable; ordinary command startup continues")
         return None, "storage"
 
 
+def _serve_proxy(python_path: str, server_target: str, vault_root: str, *, state: dict | None = None) -> None:
+    failure = None
+    loaded_hash = None
+    while True:
+        owner, unavailable = _create_process_owner(vault_root, lock_timeout=HANDOFF_TIMEOUT if state else None)
+        proxy = Proxy(python_path, server_target, vault_root, owner=owner, owner_unavailable_code=unavailable)
+        if loaded_hash is None:
+            loaded_hash = proxy._proxy_file_hash
+        else:
+            proxy._proxy_file_hash = loaded_hash
+        try:
+            if state is not None:
+                proxy._restore_transport(state)
+            proxy._ensure_background_threads()
+            ready = proxy._start_child()
+            if state is not None:
+                proxy._initial_protocol_selected.set()
+                status = proxy._proxy_status()
+                status["handoff"] = {"consent": "fresh" if owner else "unavailable", "state": "failed" if failure or not ready else "completed"}
+                proxy._send_to_client(control_response(state["request_id"], RESTART_TOOL, status,
+                                                       code=failure or (None if ready else "proxy_server_start_failed"), effects="consent_ended"))
+            if not ready:
+                proxy._signal_recovery(exit_code=1)
+            next_state = proxy.run(remainder=base64.b64decode(state["remainder"]) if state else b"")
+        finally:
+            proxy._initiate_shutdown()
+        if next_state is None:
+            return
+        state, failure = next_state
+
+
+def _handoff_entry(mode: str, fd: int) -> None:
+    probe = mode == "--check-handoff"
+    state = read_state(fd, expected_pid=os.getppid() if probe else os.getpid())
+    if not probe:
+        os.close(fd)
+    vault = state["vault"]
+    installed_proxy = Path(vault) / ".brain-core" / "brain_mcp" / "proxy.py"
+    if Path(__file__).resolve() != installed_proxy.resolve() or not same_executable_path(sys.executable, state["python"]):
+        raise ValueError("handoff image or runtime does not match the pinned Brain")
+    os.environ["BRAIN_VAULT_ROOT"] = vault
+    os.environ["PYTHONPATH"] = str(Path(vault) / ".brain-core")
+    if state["workspace"] is None:
+        os.environ.pop("BRAIN_WORKSPACE_DIR", None)
+    else:
+        os.environ["BRAIN_WORKSPACE_DIR"] = state["workspace"]
+    if probe:
+        candidate = Proxy(state["python"], state["server"], vault)
+        candidate._restore_transport(state)
+        try:
+            if not candidate._start_child():
+                raise ValueError("replacement cannot preserve the public MCP session")
+        finally:
+            child = candidate._get_child()
+            if child is not None:
+                child.kill()
+        return
+    global _logger
+    _logger = _setup_logging(vault)
+    try:
+        _operational_log.install(Path(vault), "proxy")
+    except Exception as exc:
+        _log().warning("operational diagnostics unavailable: %s", exc)
+    _serve_proxy(state["python"], state["server"], vault, state=state)
+
+
 def main() -> None:
+    if len(sys.argv) == 3 and sys.argv[1] in {"--check-handoff", "--handoff-fd"}:
+        _handoff_entry(sys.argv[1], int(sys.argv[2]))
+        return
     if len(sys.argv) != 3:
         print(
             f"Usage: {sys.argv[0]} <python_path> <server_target>",
@@ -2445,36 +2793,10 @@ def main() -> None:
             )
             return
 
-    # Process consent is available only on verified descriptor-inheritance paths.
-    # Ordinary commands remain usable on other platforms.
-    owner, unavailable_code = _create_process_owner(vault_root)
-    proxy = Proxy(python_path, server_target, vault_root, owner=owner,
-                  owner_unavailable_code=unavailable_code)
-    _log().info(
-        "proxy starting: version=%s python=%s target=%s vault=%s workspace=%s source=%s",
-        PROXY_VERSION, python_path, server_target, vault_root, workspace_dir, target.source,
-    )
+    _log().info("proxy starting: version=%s source=%s", PROXY_VERSION, target.source)
     if op_logger is not None:
-        op_logger.record(
-            "process.started",
-            bodies_enabled=_LOG_BODIES or None,
-            resolution_source=target.source,
-        )
-
-    try:
-        proxy._start_writer_loop()
-        proxy._start_recovery_loop()
-        proxy._start_reader_loop()
-
-        # Start the child for the first time
-        _log().info("spawning initial child process")
-        if not proxy._start_child():
-            _log().error("initial child start failed — entering restart backoff")
-            proxy._signal_recovery(exit_code=1)
-
-        proxy.run()
-    finally:
-        proxy._initiate_shutdown()
+        op_logger.record("process.started", bodies_enabled=_LOG_BODIES or None, resolution_source=target.source)
+    _serve_proxy(python_path, server_target, vault_root)
 
 
 if __name__ == "__main__":

@@ -9,25 +9,18 @@ from pathlib import Path
 import sys
 
 
-ROOT = Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(ROOT / "src" / "brain-core"))
-from brain_mcp import proxy
-
-
 def main():
     vault = os.environ["BRAIN_CAPTURE_VAULT"]
+    sys.path.insert(0, str(Path(vault) / ".brain-core"))
+    from brain_mcp import proxy
     os.environ["BRAIN_VAULT_ROOT"] = vault
     os.environ["PYTHONPATH"] = str(Path(vault) / ".brain-core")
     proxy._logger = proxy._setup_logging(vault)
-    owner, unavailable = proxy._create_process_owner(vault)
-    relay = proxy.Proxy(sys.executable, "brain_mcp.server", vault, owner=owner, owner_unavailable_code=unavailable)
-    try:
-        relay._ensure_background_threads()
-        if not relay._start_child():
-            raise RuntimeError("test proxy could not negotiate its child interface")
-        relay.run()
-    finally:
-        relay._initiate_shutdown()
+    if os.environ.get("BRAIN_CAPTURE_EXEC_FAILURE") == "1":
+        def fail_exec(*args):
+            raise OSError("injected exec failure")
+        proxy.os.execve = fail_exec
+    proxy._serve_proxy(sys.executable, "brain_mcp.server", vault)
 
 
 if __name__ == "__main__":

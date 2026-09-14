@@ -260,7 +260,14 @@ arguments. They observe or refresh only the selected Brain's installed child
 server, outside the application command catalogue. Refresh is refused while
 requests are in flight; candidate validation precedes retirement of the old
 child. It preserves the same proxy owner and does not renew or add consent.
-Proxy replacement and release installation are separate operations. A transport
+`brain_proxy_restart` replaces only the installed proxy on POSIX, preserving
+stdio through a bounded private descriptor. Its state excludes credentials,
+consent and owner channels; existing trusted launch authentication stays in the
+private process environment. It preflights public protocol continuity, quiesces
+output and retires the old owner before replacement. Exceptional consent resets
+even though PID and stdio persist. Bounded cleanup failure ends state/channels
+and explicitly reports pending private-directory cleanup. Proxy replacement and
+release installation remain separate operations. A transport
 refresh response never claims an application receipt or authorises replay.
 
 The MCP proxy/server protocol marker is a local compatibility assertion, not an

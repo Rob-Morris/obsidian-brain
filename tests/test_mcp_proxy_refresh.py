@@ -66,11 +66,11 @@ def test_refresh_uses_existing_recovery_owner(tmp_path, monkeypatch):
 def test_controls_are_not_duplicated_on_child_pagination():
     original = {"jsonrpc": "2.0", "id": 1, "result": {"tools": [{"name": "artefact_read"}], "nextCursor": "next"}}
     first = add_control_discovery(original, {"method": "tools/list", "params": {}})
-    assert len(first["result"]["tools"]) == 3
+    assert len(first["result"]["tools"]) == 4
     assert first["result"]["nextCursor"] == "next"
     assert len(original["result"]["tools"]) == 1
     assert add_control_discovery(original, {"method": "tools/list", "params": {"cursor": "next"}}) == original
-    assert len(json.dumps(tool_definitions()).encode()) < 1100
+    assert len(json.dumps(tool_definitions()).encode()) < 1500
 
 
 def test_drift_is_model_visible_without_corrupting_envelope():
@@ -81,7 +81,7 @@ def test_drift_is_model_visible_without_corrupting_envelope():
     result = decorated["result"]
     assert json.loads(result["content"][0]["text"]) == result["structuredContent"]
     assert result["structuredContent"]["warnings"][0]["code"] == "follow_up_required"
-    assert "Restart MCP" in result["content"][0]["text"]
+    assert "brain_proxy_restart" in result["content"][0]["text"]
     assert original["result"]["structuredContent"]["warnings"] == []
     assert len(result["content"][0]["text"].encode()) - len(json.dumps(envelope).encode()) < 240
 
@@ -104,7 +104,7 @@ def test_control_discovery_and_status_survive_child_give_up(tmp_path, monkeypatc
     relay, responses = _make_inprocess_proxy(tmp_path, monkeypatch, [json.dumps(request).encode() for request in requests])
     relay._gave_up = True
     relay.run()
-    assert [tool["name"] for tool in responses[0]["result"]["tools"]] == ["brain_proxy_status", "brain_proxy_refresh"]
+    assert [tool["name"] for tool in responses[0]["result"]["tools"]] == ["brain_proxy_status", "brain_proxy_restart", "brain_proxy_refresh"]
     assert responses[1]["result"]["structuredContent"]["result"]["server"]["refresh"] == "unavailable"
     assert responses[2]["result"]["structuredContent"]["error"]["code"] == "invalid_arguments"
 

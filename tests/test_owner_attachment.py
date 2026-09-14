@@ -479,7 +479,7 @@ def test_initial_owner_storage_failure_keeps_child_usable_with_sanitised_reason(
     from brain_mcp import proxy as proxy_module
     from _bootstrap.owner_attachment import OWNER_UNAVAILABLE_REASONS
 
-    def fail(_root):
+    def fail(_root, *, lock_timeout=None):
         raise PermissionError('/private/sensitive-owner-path')
     monkeypatch.setattr(proxy_module, 'ConsentOwner', fail)
     owner, code = proxy_module._create_process_owner(str(tmp_path))

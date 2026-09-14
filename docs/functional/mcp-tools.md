@@ -196,12 +196,13 @@ era: legacy clients initialise normally; modern connections use private
 `server/discover` before the first host request, even if the host omits discovery.
 Every replacement re-establishes that era and validates its command header.
 
-Two transport-owned tools supplement the application catalogue:
+Three transport-owned tools supplement the application catalogue:
 
 | Tool | Contract |
 |---|---|
 | `brain_proxy_status` | No arguments. Reports loaded/installed Core and proxy versions, child availability, refresh state, interface fingerprint/generation and next action. Works without a healthy child. |
 | `brain_proxy_refresh` | No arguments. Loads a compatible server from the selected Brain's already-installed files at an idle boundary. Does not fetch/install code, change permissions or replace the proxy. |
+| `brain_proxy_restart` | No arguments. Explicit POSIX handoff to the selected Brain's installed proxy, preserving stdio and ending exceptional consent. Busy/pending output is refused. Unchanged proxy code is a no-op. |
 
 These controls appear in MCP `tools/list`, not application `command.list` or the
 CLI. Their compact `brain.proxy-result/1` envelope appears in both
@@ -227,8 +228,21 @@ residual race between the pre-admission check and child execution continue to
 resolve owned receipts; an inconclusive receipt means unknown, not safe to retry.
 
 Compatible child replacement retains the proxy's consent owner. New proxy
-instances always need fresh exceptional consent. Proxy code itself still requires
-an MCP restart; killing a proxy does not portably make the host reconnect. Loaded
+instances always need fresh exceptional consent. `brain_proxy_restart` preserves
+POSIX stdin/stdout through a bounded in-place process replacement. It preflights
+the installed proxy and child, preserves unread complete/partial input and drains
+completed output only after quiescing its producer. The replacement reports
+success after its child is ready; the same PID does not mean the same consent
+context. Unsupported platforms require host restart. Killing a proxy does not
+portably make the host reconnect.
+
+Preflight, busy or output-drain refusal leaves the old instance intact. Known
+exec failure resumes the retained image with a fresh owner and an error. A
+consent-cleanup lock timeout ends consent and reports `proxy_owner_cleanup_pending`;
+private-directory cleanup may need attention. These post-retirement failures
+report `effects: consent_ended`, not an application receipt. A child/output owner
+that cannot be proven stopped fails closed without exec. Concurrent installation
+changes after preflight remain a reason host restart may be necessary. Loaded
 proxy drift adds a bounded `follow_up_required` warning to the model-visible
 command envelope as well as the human line, preserving JSON validity. Ordinary
 results without proxy drift have no added payload.
@@ -237,7 +251,8 @@ Legacy replacements publish `notifications/tools/list_changed`; modern callers
 can inspect the catalogue generation and rediscover with their negotiated
 protocol. Neither mechanism guarantees the harness refreshed model-visible tools.
 Existing proxies need one restart after deployment to acquire these controls.
-See [DD-074](../architecture/decisions/dd-074-proxy-owned-server-refresh.md).
+See [DD-074](../architecture/decisions/dd-074-proxy-owned-server-refresh.md) and
+[DD-075](../architecture/decisions/dd-075-bounded-proxy-stdio-handoff.md).
 
 The long-lived child retains authenticated identity and parsed router/index
 snapshots between calls. Baseline and explicitly refreshed `command.list`

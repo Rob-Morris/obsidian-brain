@@ -5,7 +5,8 @@ from ._result_content import result_text_wire
 
 STATUS_TOOL = "brain_proxy_status"
 REFRESH_TOOL = "brain_proxy_refresh"
-CONTROL_TOOLS = (STATUS_TOOL, REFRESH_TOOL)
+RESTART_TOOL = "brain_proxy_restart"
+CONTROL_TOOLS = (STATUS_TOOL, REFRESH_TOOL, RESTART_TOOL)
 
 
 def tool_definitions() -> list[dict]:
@@ -24,17 +25,18 @@ def tool_definitions() -> list[dict]:
         }
         for name, description in (
             (STATUS_TOOL, "Inspect loaded and installed Brain Core/proxy versions and server refresh state, even when the server is unavailable."),
+            (RESTART_TOOL, "Replace the idle proxy from this Brain's installed files, preserving stdio. Ends exceptional consent; a new instance starts. POSIX only; does not install releases."),
             (REFRESH_TOOL, "Refresh the idle Brain server from this Brain's installed files. Does not install releases or restart the proxy; busy work is left running."),
         )
     ]
 
 
-def control_response(request_id, tool: str, status: dict, *, code: str | None = None) -> dict:
+def control_response(request_id, tool: str, status: dict, *, code: str | None = None, effects: str = "none") -> dict:
     """Return a transport result, never a fabricated application receipt."""
     envelope = {"schema": "brain.proxy-result/1", "tool": tool,
                 "status": "error" if code else "ok", "result": status}
     if code:
-        envelope["error"] = {"code": code, "effects": "none"}
+        envelope["error"] = {"code": code, "effects": effects}
     return {"jsonrpc": "2.0", "id": request_id, "result": {
         "content": result_text_wire(f"{tool}: {code or 'ok'}", envelope),
         "structuredContent": envelope, "isError": code is not None,

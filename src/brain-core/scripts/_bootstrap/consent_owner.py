@@ -228,7 +228,7 @@ class RemoteStateStore:
 class ConsentOwner:
     """Own opaque state and private connections for one pinned Brain root lifetime."""
 
-    def __init__(self, vault_root: Path, *, store: MemoryStateStore | None = None) -> None:
+    def __init__(self, vault_root: Path, *, store: MemoryStateStore | None = None, lock_timeout: float | None = None) -> None:
         root = Path(vault_root)
         if not root.is_absolute():
             raise ValueError("owner root must be absolute")
@@ -242,7 +242,7 @@ class ConsentOwner:
         root_digest = hashlib.sha256(str(self._root).encode("utf-8")).hexdigest()
         self.coordination_path = (config_home() / "brain" / "locks" /
                                   f"owner-pins-{root_digest}.lock").resolve()
-        with exclusive_file_lock(self.coordination_path, follow_symlinks=False):
+        with exclusive_file_lock(self.coordination_path, follow_symlinks=False, timeout=lock_timeout):
             pass
         self.private_directory = Path(tempfile.mkdtemp(prefix="brain-owner-")).resolve()
         self.identity = OwnerIdentity(
@@ -298,7 +298,7 @@ class ConsentOwner:
             self._clients.add(channel)
             Thread(target=self._serve, args=(channel,), daemon=True).start()
 
-    def close(self) -> None:
+    def close(self, *, lock_timeout: float | None = None) -> None:
         """End admission, destroy state and disconnect all surviving descendants."""
 
         with self._lock:
@@ -320,7 +320,7 @@ class ConsentOwner:
         # The application uses this same lock for all private input mutations.
         try:
             with exclusive_file_lock(self.coordination_path,
-                                     create_parent=False, follow_symlinks=False):
+                                     create_parent=False, follow_symlinks=False, timeout=lock_timeout):
                 shutil.rmtree(self.private_directory)
         except FileNotFoundError:
             # Another close or already-completed cleanup cannot revive state.
