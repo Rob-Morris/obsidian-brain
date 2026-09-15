@@ -78,7 +78,7 @@ If you add, move, remove, or rename repo docs, update the relevant `README.md` f
 | File | Audience | Purpose |
 |---|---|---|
 | [guide.md](../src/brain-core/guide.md) | Vault users + agents | Quick-start guide, ships in the vault |
-| [index.md](../src/brain-core/index.md) | Agents | Thin bootstrap entry point, read every session |
+| [index.md](../src/brain-core/index.md) | Agents | Thin route selector for the available session/bootstrap path |
 | [session-core.md](../src/brain-core/session-core.md) | Agents | Checked-in authored source for static core bootstrap content and core-doc references |
 | [standards/extending/README.md](../src/brain-core/standards/extending/README.md) | Agents + contributors | How to extend the vault (add types, memories, principles) |
 | [standards/](../src/brain-core/standards/README.md) | Agents + contributors | Operational standards — naming, provenance, archiving, hub pattern, subfolders, user preferences |
@@ -282,7 +282,7 @@ obsidian-brain/
 │       ├── session-core.md      # static authored source for canonical bootstrap content
 │       ├── guide.md             # quick-start guide (ships into vaults)
 │       ├── artefact-library/    # ready-to-install type definitions
-│       ├── md-bootstrap.md      # degraded fallback bootstrap for non-MCP/no-session-mirror environments
+│       ├── md-bootstrap.md      # authored Markdown fallback; no tools or generated assets required
 │       ├── standards/extending/  # how to extend the vault: types, memories, triggers, principles
 │       ├── triggers.md          # workflow trigger system
 │       ├── colours.md           # folder colour system design

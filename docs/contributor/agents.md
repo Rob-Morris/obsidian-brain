@@ -30,7 +30,7 @@ When touching bootstrap:
 - Treat `scripts/_bootstrap/` as the owner for launcher-safe shared bootstrap leaves. Runtime handoff belongs in `runtime.py`; launcher-safe diagnostics belong in `diagnostics.py`; env-aware vault discovery belongs in `vaults.py`; Brain-local ignore-rule scaffold belongs in `workspace_scaffold.py`; shared MCP/config-layout and init-state helpers belong in `mcp_state.py`; shared Claude/Codex/Grok transport writes belong in `mcp_transport.py`; and ownership-safe client discovery installation belongs in `agent_skills.py`, backed by checked-in templates under `client-adapters/`, not wrapper entry points.
 - Preserve parity between `session.start` JSON and `.brain/local/session.md` for shared bootstrap content.
 - Keep `index.md` thin. It is a bootloader, not a second payload surface.
-- Treat `md-bootstrap.md` as the degraded fallback only, not as a peer of the canonical session model.
+- Keep the bootstrap routes explicit: MCP `session.start`, then the `brain session start --json` launcher alternative, then supported direct scripts with their dependency requirements. The generated `.brain/local/session.md` is a projection of the canonical bootstrap. `md-bootstrap.md` is the authored Markdown fallback for agents without usable MCP, CLI, scripts or generated assets; it must work without code execution or compilation.
 - Do not put repo contributor workflow policy into shipped bootstrap surfaces. If it ships in `.brain-core/`, write it for normal vault agents, not contributors to `obsidian-brain`.
 
 ## Documentation Link Policy

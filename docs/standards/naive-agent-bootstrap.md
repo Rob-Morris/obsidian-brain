@@ -6,29 +6,33 @@ can still work with a Brain vault correctly.
 
 ## The promise
 
-Copy the template vault into a folder. Point an agent at it. With shipped markdown
-alone, the agent can discover which artefact types exist, author any of them
+Copy the template vault and `src/brain-core/` as `.brain-core/` into a folder.
+Point an agent at it. With shipped Markdown alone, the agent can discover which
+artefact types exist, author any of them
 correctly — right folder, right filename, right frontmatter, right links — and
 follow the vault owner's standing instructions.
 
-Progressive degradation, richest first:
+Bootstrap routes, in order of available capability:
 
-1. **MCP** — `session_start` returns the compiled payload.
-2. **Scripts / CLI** — `brain` or `command.py`; compiled routing reflects the
-   vault's actual installed types.
-3. **Naive** — shipped markdown only, routed from `.brain-core/md-bootstrap.md`.
+1. **MCP** — `session.start`, exposed as `session_start`, is the normal canonical bootstrap.
+2. **CLI** — `brain session start --json` invokes the same selected-Brain owner through the launcher.
+3. **Direct scripts** — supported scripts provide tool-backed access. `command.py session start` requires an interpreter that meets the command's managed dependency tier.
+4. **Generated mirror** — `.brain/local/session.md`, when present, is a generated Markdown projection of the canonical bootstrap model, not an independently authored source.
+5. **Naive** — copied core instructions and authored vault Markdown only, routed from `.brain-core/md-bootstrap.md` when MCP, CLI, scripts and generated assets cannot be used.
 
-Each higher tier supplies progressively richer bootstrap context than the one
-below. This is an information guarantee, not a claim that every transport
-exposes the same command capabilities. Tier 3 must be correct on a bare copy,
-with no compilation step having run.
+Finish all tool-backed `session.start` pages until `bootstrap_complete` is true
+before ordinary work. These routes do not promise identical command capabilities:
+direct scripts depend on their interpreter, the mirror is generated, and the
+naive route must be correct on a bare copy with no code execution or compilation.
 
 ## Scope
 
-The naive path is **legacy support** and applies only to vault-local agents — an
-agent running in the vault root. Remote vaults reached through tooling are out of
-scope. It is maintained for correctness, not extended for capability, and it must
-not impose cost on tiers 1 and 2.
+The naive path is an edge-case fallback for vault-local agents — agents that can
+read the vault files directly. Its real-world usage is unknown. Maintaining clear,
+correct authored instructions is low-cost good practice; the route is not
+deprecated. Remote vaults reached through tooling are out of scope. It is
+maintained for correctness and must not add payload or runtime cost to the
+tool-backed routes.
 
 ## Rules
 
@@ -85,12 +89,12 @@ agents, and reads as a machine-readable statement of those contracts for naive o
 `.brain-core/md-bootstrap.md` is the only file that carries naive-path routing. It
 routes; it does not inline content.
 
-Shipped docs that tiers 1 and 2 also read — `session-core.md`, `guide.md`,
+Shipped docs that tool-backed agents also read — `session-core.md`, `guide.md`,
 `standards/` — must not be contorted to serve the naive path. Where serving it
 would distort a shared doc, point at the script instead (R3).
 
 `session-core.md` is compiled into the MCP session payload, so anything added there
-costs every agent on every session. Add to it only what all tiers need.
+costs every agent on every session. Add to it only what every route needs.
 
 ### R5 — Every document has at least one exhaustive index
 
@@ -99,7 +103,7 @@ every file in `.brain-core/standards/` appears there. `md-bootstrap.md` routes t
 that index, so this alone makes every standard reachable on the naive path.
 
 `session-core.md`'s `## Standards` section stays **curated**, not exhaustive. It is
-compiled into the MCP session payload, so per R4 it carries what all tiers need
+compiled into the MCP session payload, so per R4 it carries what every route needs
 rather than everything that exists. A standard reached only through
 `standards/README.md` is correctly indexed.
 
@@ -112,6 +116,9 @@ exists.
 
 | Test | Rule |
 |---|---|
+| `index.md` orders MCP, CLI, direct scripts, generated mirror and authored fallback routes | Bootstrap routes |
+| Public introductions reach the canonical and authored fallback routes | Bootstrap routes |
+| `md-bootstrap.md` requires authored core rules, router rules and owner preferences first | R4 |
 | Every path referenced in `md-bootstrap.md` resolves | R4 |
 | Every `<noun>.<verb>` in shipped public docs exists in the command catalogue | R3 |
 | Every living taxonomy `## Frontmatter` example declares `key:` | R1 |
@@ -128,5 +135,5 @@ names). Every entry is justified inline; adding one is a deliberate act.
 ## Changing the layer
 
 When adding an artefact type, a standard, or a shipped doc, run the test. When it
-fails, fix the layer rather than the test — the assertions encode defects that have
-each reached a shipped release at least once.
+fails, check the contract before changing the test: the assertions protect
+bootstrap routes and authoring rules that have regressed in shipped releases.

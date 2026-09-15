@@ -115,6 +115,7 @@ Each DD captures the reasoning behind an architectural decision at the time it w
 | DD-073 | Agent authorisation belongs to an MCP instance or explicit CLI job | Implemented (v0.68.0) | [dd-073](dd-073-instance-owned-agent-authorisation.md) |
 | DD-074 | The MCP proxy owns idle server refresh and transport status | Implemented (v0.68.2) | [dd-074](dd-074-proxy-owned-server-refresh.md) |
 | DD-075 | Bounded proxy replacement preserves stdio and ends exceptional consent | Implemented (v0.68.3) | [dd-075](dd-075-bounded-proxy-stdio-handoff.md) |
+| DD-076 | Session-first routing with a maintained authored fallback | Implemented (v0.68.6) | [dd-076](dd-076-session-first-routing-and-maintained-authored-fallback.md) |
 
 ---
 
@@ -124,7 +125,7 @@ Related decisions grouped by domain. Arrows show supersede/extend chains.
 
 - **MCP tool surface:** DD-010 → DD-044 → DD-060 → DD-061 → DD-062, DD-010 → DD-045 → DD-046 → DD-047, DD-045 → DD-057, DD-045 → DD-059, DD-011 → DD-020 → DD-025 → DD-045 → DD-061, DD-026, DD-027, DD-028, DD-073 → DD-074 → DD-075
 - **Config & install:** DD-003 → DD-049 → DD-054, DD-049 → DD-055 → DD-058 → DD-068, DD-015, DD-023 → DD-039 → DD-043 → DD-048 → DD-049 → DD-054, DD-048 → DD-070, DD-023 → DD-055, DD-023/DD-039 → DD-051 → DD-055, DD-032, DD-033
-- **Router & bootstrap:** DD-008, DD-009 → DD-071, DD-009 → DD-072, DD-012, DD-013, DD-014, DD-017, DD-019, DD-038, DD-042, DD-054
+- **Router & bootstrap:** DD-008, DD-009 → DD-071, DD-009 → DD-072, DD-012, DD-013, DD-014, DD-017, DD-019, DD-038 → DD-065 → DD-076, DD-042, DD-054
 - **Security & integrity:** DD-031 → DD-059, DD-033 → DD-062 → DD-073, DD-036, DD-043, DD-067
 - **Plugins & platforms:** DD-004, DD-005, DD-006, DD-007, DD-021, DD-022
 - **Agent methodology:** DD-024 → DD-057 → DD-058 → DD-068 → DD-069, DD-057 → DD-063, DD-035

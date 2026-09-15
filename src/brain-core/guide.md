@@ -282,7 +282,7 @@ Without MCP, read `.brain-core/index.md` first. Use `brain <noun> <verb>` or the
 - [Workflows](https://github.com/rob-morris/obsidian-brain/blob/main/docs/user/workflows.md) — day-to-day usage patterns with examples
 - [Reference](https://github.com/rob-morris/obsidian-brain/blob/main/docs/user/user-reference.md) — every artefact type, configuration point, and system in detail
 - `.brain-core/standards/extending/` — extension procedures (developer reference)
-- `.brain-core/index.md` — bootstrap entry point for MCP, generated markdown, and degraded fallback paths
+- `.brain-core/index.md` — routes to MCP session bootstrap, CLI and direct scripts, the generated mirror, or the authored Markdown fallback
 
 Any artefact can be archived independently of its status, including Thoughts.
 Use `artefact_archive` and `artefact_unarchive` through MCP. These transitions

@@ -143,12 +143,17 @@ The current CLI refuses application discovery against a pre-cutover Brain but re
 
 ## Agent bootstrap
 
-Agents bootstrap in this order:
+`session.start` owns the canonical runtime bootstrap. Agents use these routes in order of available capability:
 
-1. MCP `session_start` returns the canonical JSON session model.
+1. MCP `session_start` is the normal entry point.
 2. CLI `brain session start --json` invokes the same selected-Brain command.
-3. `.brain-core/index.md` routes to the generated `.brain/local/session.md`.
-4. `.brain-core/md-bootstrap.md` routes to raw config when generated state is unavailable.
+3. Supported direct scripts provide tool-backed access without the CLI; `command.py session start` requires an interpreter at the command's managed dependency tier.
+4. If none of those tools can be used, `.brain-core/index.md` routes to `.brain/local/session.md` when present. This is a generated Markdown projection of the canonical bootstrap model, not an independently authored source.
+5. With no usable tools or generated mirror, `.brain-core/md-bootstrap.md` routes through copied core instructions and authored `_Config/router.md` and taxonomy. This fallback works without code execution or compilation.
+
+Complete every tool-backed `session.start` page using `range.next_cursor` until `bootstrap_complete` is true before ordinary work. Router and taxonomy are authoritative configuration inputs; routine agents discover them through the bootstrap's tool routes. The authored Markdown path exposes those inputs directly for manual discovery.
+
+This runtime contract is distinct from the repository's [contributor bootstrap](../contributor/agents.md).
 
 The workspace configuration record describes local CLI work and never substitutes server paths for the connecting agent's filesystem. Remote transport and gateway hosting are separate from this local command architecture.
 

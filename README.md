@@ -1,6 +1,6 @@
 # Obsidian Brain
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE) ![Version](https://img.shields.io/badge/version-0.68.5-blue) ![Platform](https://img.shields.io/badge/platform-Obsidian-7C3AED) ![Python](https://img.shields.io/badge/python-≥3.12-3776AB?logo=python&logoColor=white) ![MCP](https://img.shields.io/badge/MCP-server-green)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE) ![Version](https://img.shields.io/badge/version-0.68.6-blue) ![Platform](https://img.shields.io/badge/platform-Obsidian-7C3AED) ![Python](https://img.shields.io/badge/python-≥3.12-3776AB?logo=python&logoColor=white) ![MCP](https://img.shields.io/badge/MCP-server-green)
 
 A self-evolving knowledge base for agents and humans working together on what matters.
 
@@ -13,7 +13,7 @@ Agents are getting increasingly capable, but they're forgetful; and so are you. 
 | **Never forget** | Every conversation, decision, and idea goes into a linked graph. Your agent finds it when you need it; it remembers so you don't have to. |
 | **Context compounds** | The richer the vault, the better the answers. Ideas link to projects, decisions link to reasons, notes link to sources. Every session builds on the last. |
 | **Self-evolving** | Like a real brain, it grows around you and how you think. Your agent builds the vault out as you work; no one size fits all, and yours won't look like anyone else's. |
-| **Designed for retrieval** | The faster your agent finds the right context, the smarter it can be. A single router file tells your agent where everything lives. Taxonomy files describe each type. No searching blind. |
+| **Designed for retrieval** | The faster your agent finds the right context, the smarter it can be. Session bootstrap supplies the vault's instructions and discovery routes. Search finds relevant artefacts; taxonomy describes how each type works. |
 | **Works with any agent** | Any agent that can read files can understand the brain out of the box; the conventions are clear and the structure is self-documenting. We ship tooling that makes it even better. |
 | **You can read it too** | This isn't a hidden vector database. Everything is human-readable Markdown in an Obsidian vault. Browse it, search it, edit it. You see what your agent sees. |
 | **Free your data** | Your data is valuable and it's yours; put it to work. It stays on your machine by default. Keep it private, sync it to the cloud, access it from anywhere. |
@@ -25,13 +25,17 @@ Each brain is an Obsidian vault. You talk to your agent; the agent reads the vau
 
 All vault content is an **artefact**, either **living** (evolves over time; current version is truth) or **temporal** (bound to a moment; written once). Folders starting with `_` or `.` are infrastructure, not artefacts. Living artefacts sit at the vault root; temporal artefacts sit under `_Temporal/`.
 
-The **router** (`_Config/router.md`) is the single file agents read every session. It lists artefact types, workflow triggers, and links to configuration. **Taxonomy** files (`_Config/Taxonomy/`) describe each type in detail; agents read only the types they need.
+Agents normally start with MCP **`session.start`** (the `session_start` tool) and finish every bootstrap page before ordinary work. It supplies the vault's instructions, preferences and discovery routes. The launcher alternative is `brain session start --json`; supported direct scripts also provide tool-backed access where their runtime requirements are met.
+
+The **router** (`_Config/router.md`) supplies workflow triggers, vault-specific rules and configuration links. **Taxonomy** files (`_Config/Taxonomy/`) define each artefact type. These authored files are configuration inputs to the tools. Agents discover and read the types they need through the session's routes.
+
+The generated `.brain/local/session.md` is a Markdown mirror of the canonical bootstrap, not an independently authored source of truth. An agent that cannot use MCP, CLI or scripts can follow `.brain-core/index.md` to that mirror if present, or to `.brain-core/md-bootstrap.md` for the authored Markdown fallback. The latter works from copied `.brain-core/` instructions, the router and relevant taxonomy with no generated assets or code execution.
 
 The [Getting Started guide](docs/user/getting-started.md) walks through all of this with examples.
 
 ## Quick Start
 
-**You need:** git, Python 3.12+, plus an agent you can run in the vault folder. An MCP-capable agent such as [Claude Code](https://docs.anthropic.com/en/docs/claude-code), Codex or [Grok Build](https://docs.x.ai/build/overview) gives the best tool-backed experience, but Brain also has a markdown bootstrap fallback for agents without MCP. [Obsidian](https://obsidian.md) is strongly recommended — the brain is designed for it — but you can use any markdown editor or just talk to your agent directly.
+**You need for installation:** git and Python 3.12+, plus an agent you can run in the vault folder. An MCP-capable agent such as [Claude Code](https://docs.anthropic.com/en/docs/claude-code), Codex or [Grok Build](https://docs.x.ai/build/overview) uses the normal session bootstrap. CLI and direct scripts provide tool-backed alternatives; the authored Markdown fallback supports agents that cannot use any of those tools. [Obsidian](https://obsidian.md) is strongly recommended — the brain is designed for it — but you can use any markdown editor or just talk to your agent directly.
 
 **Create your vault:**
 
@@ -62,7 +66,7 @@ sidecars so ordinary semantic search stays fully local.
 
 **Open in Obsidian (recommended):** Open the vault folder, then enable the `brain-folder-colours` CSS snippet in Settings > Appearance > CSS Snippets.
 
-**Start talking:** Open your agent in the vault folder (for example `cd /path/to/brain && claude` or `cd /path/to/brain && codex`). It reads the vault structure and knows what to do. See [Workflows](docs/user/workflows.md) for what working with the brain looks like in practice.
+**Start talking:** Open your agent in the vault folder (for example `cd /path/to/brain && claude` or `cd /path/to/brain && codex`). It calls `session_start` and follows `range.next_cursor` until `bootstrap_complete` is true, then starts work. If MCP is unavailable, use `brain session start --json`. See [Getting Started](docs/user/getting-started.md#agent-bootstrap) for the alternatives and [Workflows](docs/user/workflows.md) for everyday use.
 
 **Command-line usage:** the installed [`brain` CLI](docs/functional/cli.md) uses canonical noun/verb command IDs with domain-explicit CLI entry points. For example, `brain vault check`, `brain artefact read`, `brain doctor`, and `brain runtime inspect`. Every semantic request is supplied as strict JSON; `brain command list --json` and `brain command describe <noun.verb> --json` are authoritative discovery. Selected-Brain automation can invoke eligible commands through `python3 .brain-core/scripts/command.py <noun> <verb>` or the typed Python application. See [Getting Started](docs/user/getting-started.md#command-line-usage), [User Reference](docs/user/user-reference.md), and the [Script Reference](docs/functional/scripts.md).
 

@@ -4,8 +4,10 @@
 **Extended by:** DD-040, DD-061
 
 **Cutover note (v0.55.0):** DD-061 renames the canonical MCP bootstrap tool
-from `brain_session` to `session.start`. The unified session model and fallback
-ordering defined here are unchanged.
+from `brain_session` to `session.start`. The unified session model remains.
+For current route selection, including CLI and direct-script bootstrap, see
+[Agent bootstrap](../overview.md#agent-bootstrap). The reading flow below records
+the original implementation.
 
 ## Context
 

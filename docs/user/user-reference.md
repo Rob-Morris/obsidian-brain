@@ -1,6 +1,6 @@
 # Brain Reference
 
-This page is the stable user-facing reference for Brain Core 0.68.5 and CLI 3.3.0. Exact command schemas, examples and availability come from the installed Brain rather than a duplicated hand-maintained inventory.
+This page is the stable user-facing reference for Brain Core 0.68.6 and CLI 3.3.0. Exact command schemas, examples and availability come from the installed Brain rather than a duplicated hand-maintained inventory.
 
 Document changes use a read–mutate loop. Read an editable artefact or named
 resource, retain its returned `revision`, then pass that value as
@@ -194,12 +194,15 @@ Document reads return `range.next_cursor` when more text remains. Repeat the sam
 
 ## Bootstrap fallback
 
-Agents degrade in this order:
+Use the first available route:
 
 1. MCP `session_start` returns the canonical bootstrap. Follow `range.next_cursor` with another `session_start` until `bootstrap_complete` is true.
 2. CLI `brain session start --json` returns the same application result through the selected Brain.
-3. Read `.brain-core/index.md`, then the generated `.brain/local/session.md`.
-4. Follow `.brain-core/md-bootstrap.md` when generated state is unavailable.
+3. Supported direct scripts provide tool-backed access without the CLI. From the vault, `python3 .brain-core/scripts/command.py session start --request-json '{}' --json` requires an interpreter that meets the command's managed-runtime requirements.
+4. Without usable MCP, CLI or scripts, read `.brain-core/index.md`, then `.brain/local/session.md` if present. This generated Markdown mirror is a projection of the canonical bootstrap, not an independently authored source of truth.
+5. If the generated mirror is also unavailable, follow `.brain-core/md-bootstrap.md` to the copied core instructions, authored `_Config/router.md` and relevant taxonomy. This fallback requires no code execution, compilation or generated assets.
+
+Complete every tool-backed `session.start` continuation before ordinary work; restart without a cursor on a source revision conflict.
 
 ## Further reference
 

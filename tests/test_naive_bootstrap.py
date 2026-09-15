@@ -70,9 +70,9 @@ def _read(path: Path) -> str:
     return path.read_text(encoding="utf-8")
 
 
-def _section_body(text: str, heading: str) -> str:
-    """Return the body of an H2 section using the canonical markdown resolver."""
-    resolved = resolve_structural_target(text, f"## {heading}")
+def _structural_body(text: str, target: str) -> str:
+    """Return one structural target's body using the canonical markdown resolver."""
+    resolved = resolve_structural_target(text, target)
     start, end = resolved["ranges"]["body"]
     return text[start:end]
 
@@ -101,7 +101,7 @@ def _cited_commands(text: str) -> set[str]:
 
 
 def _frontmatter_example(taxonomy_text: str) -> str | None:
-    body = _section_body(taxonomy_text, "Frontmatter")
+    body = _structural_body(taxonomy_text, "## Frontmatter")
     match = re.search(r"```yaml\n---\n(.*?)\n---\n```", body, re.S)
     return match.group(1) if match else None
 
@@ -137,7 +137,76 @@ def command_ids() -> frozenset[str]:
 
 
 class TestBootstrapRouting:
-    """md-bootstrap.md is the naive agent's only entry point — it must resolve."""
+    """The bootloader reaches tool-backed routes before the authored fallback."""
+
+    def test_bootloader_routes_by_available_capability(self):
+        routes = re.findall(r"^\d+\. (.+)$", _read(CORE / "index.md"), re.M)
+        expected_routes = (
+            "`session_start`",
+            "`brain session start --json`",
+            "`python3 .brain-core/scripts/command.py session start --request-json '{}' --json`",
+            "`.brain/local/session.md`",
+            "`.brain-core/md-bootstrap.md`",
+        )
+        assert len(routes) == len(expected_routes)
+        for route, target in zip(routes, expected_routes, strict=True):
+            assert target in route
+
+    @pytest.mark.parametrize(
+        ("path", "heading", "ordered_routes"),
+        (
+            (
+                REPO / "README.md",
+                "## How It Works",
+                ("session.start", "brain session start --json", "direct scripts", ".brain/local/session.md", ".brain-core/md-bootstrap.md"),
+            ),
+            (
+                REPO / "docs/user/getting-started.md",
+                "### Agent bootstrap",
+                ("session.start", "brain session start --json", "direct scripts", ".brain/local/session.md", ".brain-core/md-bootstrap.md"),
+            ),
+            (
+                REPO / "docs/architecture/overview.md",
+                "## Agent bootstrap",
+                ("session_start", "brain session start --json", "direct scripts", ".brain/local/session.md", ".brain-core/md-bootstrap.md"),
+            ),
+            (
+                REPO / "docs/user/user-reference.md",
+                "## Bootstrap fallback",
+                ("session_start", "brain session start --json", "direct scripts", ".brain/local/session.md", ".brain-core/md-bootstrap.md"),
+            ),
+            (
+                REPO / "docs/standards/naive-agent-bootstrap.md",
+                "## The promise",
+                ("session.start", "brain session start --json", "Direct scripts", ".brain/local/session.md", "Naive"),
+            ),
+        ),
+    )
+    def test_complete_bootstrap_summaries_preserve_route_order(
+        self,
+        path,
+        heading,
+        ordered_routes,
+    ):
+        section = _structural_body(_read(path), heading)
+        positions = [section.find(route) for route in ordered_routes]
+        assert all(position >= 0 for position in positions), (
+            f"{path.name} {heading} does not include every bootstrap route: "
+            f"{dict(zip(ordered_routes, positions, strict=True))}"
+        )
+        assert positions == sorted(positions), (
+            f"{path.name} {heading} does not preserve bootstrap route order: "
+            f"{dict(zip(ordered_routes, positions, strict=True))}"
+        )
+
+    def test_naive_read_first_includes_authored_rules_and_preferences(self):
+        section = _structural_body(_read(CORE / "md-bootstrap.md"), "## Read First")
+        assert BACKTICKED.findall(section) == [
+            ".brain-core/session-core.md",
+            "_Config/router.md",
+            "_Config/User/preferences-always.md",
+            "_Config/User/gotchas.md",
+        ]
 
     def test_every_referenced_path_exists_in_the_template_vault(self):
         text = _read(CORE / "md-bootstrap.md")
@@ -160,9 +229,10 @@ class TestBootstrapRouting:
                 missing.append(token)
         assert not missing, f"md-bootstrap.md references non-existent paths: {missing}"
 
-    def test_script_invocations_name_an_interpreter(self):
+    @pytest.mark.parametrize("name", ("index.md", "md-bootstrap.md"))
+    def test_script_invocations_name_an_interpreter(self, name):
         """command.py is mode 644 — a bare path invocation is permission denied."""
-        text = _read(CORE / "md-bootstrap.md")
+        text = _read(CORE / name)
         bare = [
             span
             for span in BACKTICKED.findall(text)

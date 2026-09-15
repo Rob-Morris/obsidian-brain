@@ -88,7 +88,7 @@ When temporal work produces something lasting, it spins out to a living artefact
 | `.brain-core/` | The Brain system itself (versioned, upgradeable) |
 | `.obsidian/` | Obsidian vault config and CSS snippets |
 
-`.brain-core/` is committed into the vault rather than gitignored. This is intentional — it makes the vault self-describing so that any agent can read the router and understand the system without needing access to the upstream `obsidian-brain` repository.
+`.brain-core/` is committed into the vault rather than gitignored. It makes the vault self-describing without access to the upstream `obsidian-brain` repository. Agents normally use `session.start`; an agent without usable tools or generated assets can follow `.brain-core/md-bootstrap.md` through the shipped instructions, authored router and taxonomy.
 
 Folders starting with `_` or `.` are infrastructure — excluded from content indexing and search.
 

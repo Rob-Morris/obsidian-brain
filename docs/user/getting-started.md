@@ -68,13 +68,21 @@ python3 .brain-core/scripts/command.py vault check \
   --request-json '{"actionable":true}' --json
 ```
 
-For agent bootstrap, MCP remains the primary path: call `session_start`. When MCP is unavailable from a bound external workspace, run:
+### Agent bootstrap
+
+MCP `session.start` (the `session_start` tool) is the normal bootstrap path. Follow `range.next_cursor` with another call until `bootstrap_complete` is true before ordinary work. If a source revision changes, restart without a cursor.
+
+When MCP is unavailable, the launcher alternative is:
 
 ```bash
 brain session start --json
 ```
 
-That command resolves the workspace binding through the machine-level launcher and dispatches the canonical `session_start` request only to the selected Brain's application owner.
+Run it in the vault or a bound external workspace, or select a vault with `--vault /path/to/brain`. The launcher resolves the selected Brain and invokes the same canonical `session.start` owner. Complete its bootstrap pages too. Supported direct scripts are another tool-backed route; `command.py` can invoke `session start` when its interpreter meets that command's managed-runtime requirements.
+
+The generated `.brain/local/session.md` is a Markdown mirror of the canonical session bootstrap. It is derived from the same model, not an independently authored source of truth. An agent without usable MCP, CLI or scripts can read that mirror through `.brain-core/index.md` if it exists.
+
+If those tools and generated assets are unavailable, follow `.brain-core/md-bootstrap.md`. It routes through shipped `.brain-core/` instructions, `_Config/router.md` and the relevant taxonomy. This explicit fallback requires no code execution or compilation; the copied core instructions and authored vault files are enough.
 
 Commands declare bootstrap, portable or managed dependency tiers. The adapter never silently provisions or changes tier; availability and one next action are part of the structural result. See [User Reference](user-reference.md#dependency-and-availability-model) and [Script Reference](../functional/scripts.md).
 
@@ -156,7 +164,7 @@ The Brain itself (`.brain-core/`) is a set of markdown docs and Python scripts t
 
 This means you can work with your vault directly in Obsidian. Open files, edit them, use Obsidian's graph view to see connections, search with Obsidian's built-in search. The Brain's conventions (consistent naming, typed frontmatter (YAML metadata at the top of each file), wikilinks (`[[double-bracket links]]` between files) in the body) are designed to make Obsidian's features work well — backlinks resolve cleanly, graph view shows meaningful structure, and Dataview queries can filter by type or status.
 
-When you work with an AI agent, it uses the same files. The agent reads your vault's router and taxonomy to understand the conventions, uses search tools to find relevant artefacts, and creates files that follow the same patterns you'd use yourself. But none of this requires the agent. You can create and edit files directly in Obsidian, and the structure holds because the conventions are simple enough to follow by hand.
+When you work with an AI agent, session bootstrap supplies instructions and discovery routes derived from these files. The router and taxonomy are configuration inputs; the agent uses the tools to find relevant artefacts and read the type definitions it needs. Agents using the authored Markdown fallback read those inputs directly. You can also create and edit files in Obsidian: the conventions are simple enough to follow by hand.
 
 The tools exist to make things faster, not to make things possible.
 

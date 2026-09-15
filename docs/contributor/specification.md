@@ -4,7 +4,7 @@ Design rationale and structural decisions for the Brain vault.
 
 ## Overview
 
-Brain is a self-extending system for organising Obsidian vaults, for agents and humans working together. Agents read a single router file on session start and follow workflow triggers throughout. Core methodology lives in `.brain-core/`, versioned and shared across vaults.
+Brain is a self-extending system for organising Obsidian vaults, for agents and humans working together. Agents normally bootstrap through MCP `session.start`, complete its pages, and use its instructions and discovery routes throughout their work. Core methodology lives in `.brain-core/`, versioned and shared across vaults. The router and taxonomy are authored configuration inputs to that bootstrap and the vault's tools.
 
 ## Design Principles
 
@@ -12,8 +12,10 @@ Brain is a self-extending system for organising Obsidian vaults, for agents and 
 2. **The filesystem is the canonical index** — manually maintained file lists are redundant. The vault's folder structure declares its artefact types; tooling discovers them by scanning, not by reading a registry.
 3. **Every file belongs in a folder** — no content in the vault root
 4. **Self-extending** — when content doesn't fit existing folders, the vault grows to accommodate it
-5. **Lean instructions** — the router stays minimal; detailed reference lives in core docs and config files
-6. **Agent-first** — `AGENTS.md` → `_Config/router.md` is the entry point; the router teaches agents everything they need for a session (`CLAUDE.md` is a symlink to `AGENTS.md` for Claude Code compatibility)
+5. **Lean instructions** — session bootstrap supplies instructions and discovery routes; detailed reference lives in core docs and config files
+6. **Agent-first** — `session.start` is the canonical runtime bootstrap, exposed through MCP `session_start`, the `brain session start --json` launcher alternative and supported direct scripts. `.brain/local/session.md` is its generated Markdown mirror. For agents without usable tools or generated assets, `.brain-core/md-bootstrap.md` routes to shipped instructions, the router and taxonomy without code execution or compilation.
+
+Repository contributor bootstrap is separate: contributors follow `AGENTS.md` and [contributor instructions](agents.md). Contributor workflow policy does not ship in the runtime bootstrap.
 
 ## Artefact Model
 

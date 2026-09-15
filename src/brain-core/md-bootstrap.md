@@ -1,14 +1,16 @@
 # Markdown Bootstrap
 
-Explicit degraded fallback for environments without MCP or a generated
-`.brain/local/session.md` mirror. Everything routed from here is plain markdown
-shipped in the vault — no scripts required.
+Explicit authored Markdown fallback for vault-local agents that cannot use MCP,
+CLI or scripts, cannot run code or compile anything, and have no generated
+assets such as `.brain/local/session.md`. Everything needed here is in the copied
+`.brain-core/` instructions and authored vault files.
 
 ## Read First
 
 1. `.brain-core/session-core.md` — the artefact model, system principles, and the standards index
-2. `_Config/User/preferences-always.md` — the vault owner's standing instructions
-3. `_Config/User/gotchas.md` — learned lessons and known pitfalls
+2. `_Config/router.md` — vault-specific rules, workflow triggers and configuration links
+3. `_Config/User/preferences-always.md` — the vault owner's standing instructions
+4. `_Config/User/gotchas.md` — learned lessons and known pitfalls
 
 ## Then Route By Need
 
@@ -30,24 +32,8 @@ requires a `key`. Every artefact of any type also carries `created` and
 yourself when authoring by hand. Beyond these entry points, navigate by wikilink
 from the router and the type files.
 
-## Authorisation
+## When Tools Become Available
 
-Credentials set maximum permissions; initial authorisation normally includes
-content operations. Exceptional consent is explicit and scoped to this Brain
-and active MCP instance or CLI job. Use `access.status`/`access.prepare` before
-`access.request`; pass the operation selector for specific consent. A new
-instance requires fresh consent. Standalone CLI calls cannot retain it.
-
-## Tooling
-
-When using commands, finish every `session.start` continuation before ordinary
-work (`bootstrap_complete: true`). Follow `range.next_cursor` for document
-reads until it is null; restart the read if its source revision changes.
-
-Relevant only where code can run. Both routes share the same typed request,
-semantic owner, structural result, permission and authorisation checks, and vault mutation lock.
-
-- `brain <noun> <verb> --request-json '<object>' --json` — preferred. The launcher enters the vault's managed runtime, so managed-tier commands such as `session.start` are available.
-- `brain command list --owner all --json` — discover the composed local catalogue.
-- `python3 .brain-core/scripts/command.py <noun> <verb> --request-json '<object>' --json` — direct projection. Runs at whatever tier the calling interpreter provides, so managed-tier commands are unavailable outside the managed runtime.
-- `python3 .brain-core/scripts/command.py command list --request-json '{}' --json` — discover the installed selected-Brain commands.
+Return to `.brain-core/index.md` for the tool-backed bootstrap routes and finish
+the canonical session before ordinary tool use. Its authorisation instructions
+apply to tool-backed work; reading this fallback grants no additional authority.
