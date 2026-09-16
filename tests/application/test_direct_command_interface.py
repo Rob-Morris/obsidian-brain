@@ -6,6 +6,9 @@ from dataclasses import replace
 from datetime import datetime
 from io import StringIO
 import json
+from pathlib import Path
+import subprocess
+import sys
 import pytest
 from command_application import context_for
 
@@ -247,6 +250,88 @@ def test_direct_command_observes_real_local_composition(tmp_path, monkeypatch):
     assert json.loads(stdout.getvalue())["command"] == "command.list"
     assert stderr.getvalue() == ""
     assert not (vault / ".brain" / "local" / "command-outcomes").exists()
+
+
+def test_runtime_status_succeeds_with_all_vault_writes_denied(tmp_path):
+    vault = _vault(tmp_path)
+    scripts = Path(direct_script.__file__).resolve().parents[1]
+    probe = '''
+import os, runpy, sys
+from pathlib import Path
+scripts, vault = sys.argv[1:]
+sys.path.insert(0, scripts)
+root = Path(vault).resolve()
+attempts = []
+def deny_vault_writes(event, args):
+    if event == "open":
+        path, mode, flags = args
+        writing = flags & (os.O_WRONLY | os.O_RDWR | os.O_CREAT | os.O_TRUNC | os.O_APPEND)
+    elif event in {"os.mkdir", "os.remove", "os.rmdir", "os.rename", "os.chmod"}:
+        path, writing = args[0], True
+    else:
+        return
+    if writing and isinstance(path, (str, bytes)):
+        target = Path(os.fsdecode(path)).absolute()
+        if target == root or root in target.parents:
+            attempts.append(event)
+            raise PermissionError("vault writes denied by test sandbox")
+sys.addaudithook(deny_vault_writes)
+sys.argv = [str(Path(scripts) / "command.py"), "runtime", "status", "--vault", vault, "--json"]
+try:
+    runpy.run_path(sys.argv[0], run_name="__main__")
+finally:
+    assert attempts == [], attempts
+'''
+    completed = subprocess.run(
+        [sys.executable, "-B", "-c", probe, str(scripts), str(vault)],
+        capture_output=True, text=True, check=False,
+    )
+
+    assert completed.returncode == 0, completed.stderr
+    assert completed.stderr == ""
+    result = json.loads(completed.stdout)
+    assert result["command"] == "runtime.status"
+    assert result["status"] == "ok"
+    assert result["committed_effects"] == []
+    assert not (vault / ".brain").exists()
+
+
+@pytest.mark.parametrize("diagnostics_writable", [False, True])
+def test_runtime_failure_has_only_content_free_diagnostics(
+    tmp_path, monkeypatch, capsys, caplog, diagnostics_writable,
+):
+    from _bootstrap import readiness
+    from _common import _operational_log
+
+    vault = _vault(tmp_path)
+    def fail(_root):
+        raise RuntimeError(f"private failure detail at {vault}")
+    monkeypatch.setattr(readiness, "read_runtime_status", fail)
+    if not diagnostics_writable:
+        mkdir = Path.mkdir
+        def deny(path, *args, **kwargs):
+            if path == vault / _operational_log.DIAGNOSTICS_REL:
+                raise PermissionError(f"private diagnostic path {path}")
+            return mkdir(path, *args, **kwargs)
+        monkeypatch.setattr(Path, "mkdir", deny)
+
+    code = run(["runtime", "status", "--vault", str(vault), "--json"])
+
+    captured = capsys.readouterr()
+    result = json.loads(captured.out)
+    assert code == 4
+    assert result["error"]["code"] == "internal_error"
+    for private in ("Traceback", "private failure", "private diagnostic", str(vault)):
+        assert private not in captured.out + captured.err + caplog.text
+    if diagnostics_writable:
+        assert captured.err == ""
+        record = json.loads((vault / _operational_log.DIAGNOSTICS_REL / "command.log").read_text().splitlines()[-1])
+    else:
+        record = json.loads(captured.err.splitlines()[-1].removeprefix("[brain-diagnostics] "))
+    assert record["command_id"] == "runtime.status"
+    assert record["event"] == "command.failed"
+    assert record["correlation_id"] == result["error"]["details"]["correlation_id"]
+    assert record["exception_type"] == "RuntimeError"
 
 
 def test_direct_context_accepts_selected_vault_as_project_anchor(

@@ -155,13 +155,15 @@ class CommandApplication:
                 raise ValueError("read-only command cannot report possible domain effects")
 
     def _unknown_result(self, entry):
+        if entry.effect_class is EffectClass.NONE:
+            return internal_error_result(self._context, entry.command_id, entry.command_version)
         reference = OutcomeReference(self._context.invocation_id)
         return Error(entry.command_id, entry.command_version, CommandError(
             ErrorCode.COMMAND_OUTCOME_UNKNOWN,
             "Execution may have entered; inspect the owned invocation outcome before any further action.",
             OutcomeUnknownDetails(reference), next_action=CommandNextAction("invocation.read", (
                 CommandArgument("invocation_id", reference.invocation_id),))),
-            effects="none" if entry.effect_class is EffectClass.NONE else "unknown",
+            effects="unknown",
             outcome_reference=reference)
 
     def _report(self, phase, command_id, error):
@@ -181,6 +183,11 @@ def authority_denied_result(context: InvocationContext, entry: ApplicationEntry,
         descriptor = service.inspect(context.operation_id)
         invocation_id = descriptor.get("invocation_id")
         if invocation_id:
+            if entry.effect_class is EffectClass.NONE:
+                return Error(entry.command_id, entry.command_version,
+                    CommandError(ErrorCode.CONFLICT,
+                        "This prepared observation has already been consumed; prepare and authorise a new operation.",
+                        RequestErrorDetails("brain_operation", "operation_consumed")))
             return Error(entry.command_id, entry.command_version,
                 CommandError(ErrorCode.CONFLICT,
                     "This prepared operation has already entered; inspect its owned outcome.",

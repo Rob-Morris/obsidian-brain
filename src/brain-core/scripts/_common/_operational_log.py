@@ -399,6 +399,49 @@ def _encode_line(record: dict[str, object]) -> bytes:
     )
 
 
+def matching_command_failure(
+    stderr: str, *, process: str, command_id: str, correlation_id: str,
+) -> str | None:
+    """Select one bounded content-free failure from untrusted child stderr.
+
+    Re-encode only a complete schema-valid record matching the structural result;
+    surrounding warnings, unknown fields and malformed records never propagate.
+    """
+    prefix = "[brain-diagnostics] "
+    header = {"schema", "ts", "run_id", "seq", "process", "pid", "version", "event"}
+    for line in stderr.splitlines():
+        if not line.startswith(prefix):
+            continue
+        raw = line[len(prefix):]
+        if len(raw) > MAX_RECORD_BYTES or len(raw.encode("utf-8")) + 1 > MAX_RECORD_BYTES:
+            continue
+        try:
+            record = json.loads(raw)
+            if not isinstance(record, dict) or not header <= record.keys():
+                continue
+            if (record["schema"] != SCHEMA or record["event"] != "command.failed"
+                    or record["process"] != process or process not in PROCESSES
+                    or record.get("command_id") != command_id
+                    or record.get("correlation_id") != correlation_id):
+                continue
+            for name in ("ts", "seq", "pid"):
+                _nonnegative_integer(record[name])
+            _closed_identifier(record["run_id"])
+            if record["version"] != "unknown" and _safe_version(record["version"]) != record["version"]:
+                continue
+            if "dropped_before" in record:
+                _nonnegative_integer(record["dropped_before"])
+            fields = {key: value for key, value in record.items()
+                      if key not in header and key != "dropped_before"}
+            _validated_event_fields("command.failed", fields)
+            encoded = _encode_line(record)
+            if len(encoded) <= MAX_RECORD_BYTES:
+                return prefix + encoded.decode("ascii").rstrip("\n")
+        except (ValueError, TypeError, RecursionError):
+            continue
+    return None
+
+
 # ---------------------------------------------------------------------------
 # File layer — locked appends, rotation, export, clear
 # ---------------------------------------------------------------------------

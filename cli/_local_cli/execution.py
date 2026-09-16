@@ -8,6 +8,7 @@ from pathlib import Path
 import subprocess
 from typing import Callable, Mapping, Protocol
 from _bootstrap.owner_attachment import OwnerAttachment
+from _common._operational_log import matching_command_failure
 
 from _launcher.adapter import LauncherAdapter
 from _launcher.context import LauncherContext
@@ -25,6 +26,7 @@ class LocalExecutionProjection:
     concise_text: str
     is_error: bool
     exit_code: int
+    diagnostic_text: str | None = None
 
     def __post_init__(self) -> None:
         if self.owner not in {"application", "launcher"}:
@@ -142,6 +144,15 @@ class ApplicationProcessInvoker:
         except json.JSONDecodeError as exc:
             raise RuntimeError("selected Brain command returned invalid JSON") from exc
         _validate_child_envelope(entry, envelope, completed.returncode)
+        diagnostic = None
+        error = envelope.get("error", {})
+        details = error.get("details") if isinstance(error, Mapping) else None
+        if (envelope["status"] == "error" and error.get("code") == "internal_error"
+                and isinstance(details, Mapping) and isinstance(details.get("correlation_id"), str)):
+            diagnostic = matching_command_failure(
+                completed.stderr, process="script", command_id=entry.command_id,
+                correlation_id=details["correlation_id"],
+            )
         return LocalExecutionProjection(
             self.owner,
             entry.command_id,
@@ -151,6 +162,7 @@ class ApplicationProcessInvoker:
             _concise_text(envelope),
             envelope["status"] != "ok",
             completed.returncode,
+            diagnostic,
         )
 
 
@@ -206,12 +218,13 @@ def render_local_result(
 ) -> tuple[str, str, int]:
     """Place one canonical local result on deterministic CLI streams."""
 
+    diagnostic = projection.diagnostic_text + "\n" if projection.diagnostic_text else ""
     if json_mode:
-        return projection.json_text + "\n", "", projection.exit_code
+        return projection.json_text + "\n", diagnostic, projection.exit_code
     line = projection.concise_text + "\n"
     if projection.is_error:
-        return "", line, projection.exit_code
-    return line, "", projection.exit_code
+        return "", line + diagnostic, projection.exit_code
+    return line, diagnostic, projection.exit_code
 
 
 def _require_entry_owner(entry: ComposedCommandEntry, owner: str) -> None:

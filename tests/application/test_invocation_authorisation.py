@@ -148,20 +148,28 @@ def test_pin_cleanup_failure_can_be_retried_without_reopening_consent(system, mo
 
 
 @pytest.mark.parametrize("lost", [False, True])
-def test_read_execution_is_recorded_and_spent_even_without_effects(system, lost):
+def test_read_execution_spends_consent_without_durable_receipts(system, lost, monkeypatch):
     from _application.artefact.read import ArtefactReadRequest
     _, context, _, service, preparation, receipts, _, _ = system
     request = ArtefactReadRequest(TARGET)
     descriptor = preparation.prepare(context, request, request_id="prepare-read")
     grant(service, descriptor)
+    def denied(_):
+        pytest.fail("read admission and completion must not write receipts")
+    monkeypatch.setattr(receipts, "begin", denied)
+    monkeypatch.setattr(receipts, "finalise", denied)
     entry, execution, admission = invocation(system, descriptor, request=request)
     result = entry.executor(execution, request)
     assert isinstance(result, Ok)
     admission.finalise(None if lost else result)
-    outcome = receipts.read(OutcomeReference(context.invocation_id)).outcome
-    assert outcome.execution is (ExecutionState.UNKNOWN if lost else ExecutionState.SUCCEEDED)
-    assert outcome.receipt.state is ReceiptState.NONE
+    assert not admission.intent_recorded
+    found = receipts.read(OutcomeReference(context.invocation_id))
+    assert found.intent is None and found.outcome is None
     assert service.inspect(descriptor["operation_id"])["state"] == "spent"
+    _, replay, retry = invocation(system, descriptor, request=request)
+    with pytest.raises(ConsentError, match="no longer available"):
+        entry.executor(replay, request)
+    assert not retry.entered
 
 
 def test_intent_failure_prevents_entry_and_preserves_specific_consent(system, monkeypatch):

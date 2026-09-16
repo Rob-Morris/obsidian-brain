@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass, replace
 from datetime import datetime, timezone
-import logging
 from pathlib import Path
 from typing import Mapping
 
@@ -69,13 +68,6 @@ class OperationalDiagnosticReporter:
         correlation_id: str,
         error: BaseException,
     ) -> None:
-        logging.getLogger("brain.command").error(
-            "command failure phase=%s command=%s correlation_id=%s",
-            phase,
-            command_id,
-            correlation_id,
-            exc_info=(type(error), error, error.__traceback__),
-        )
         fields = {
             "phase": phase,
             "command_id": command_id,

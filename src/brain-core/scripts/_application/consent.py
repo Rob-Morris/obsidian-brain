@@ -593,7 +593,7 @@ class ConsentService:
         return proof
 
     def _enter(self, proof: AdmissionProof) -> None:
-        """Linearise entry after durable intent and a final authority/lifetime check."""
+        """Linearise entry after any required intent and a final authority/lifetime check."""
         grant_key = _key("grant", proof.grant_id) if proof.grant_id else None
         operation_key = _key("operation", proof.operation_id) if proof.operation_id else None
         keys = tuple(key for key in (grant_key, operation_key) if key)

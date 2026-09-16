@@ -126,17 +126,26 @@ preparation or narrows this context's initial access. It cannot increase access.
 Authenticated session controls remain narrowly scoped and usable without the
 target authorisation they are designed to request.
 
-Audit persists attributed intent before consent-controlled operation entry in a
+For effect-bearing commands, audit persists attributed intent before operation entry in a
 record separate from the immutable final outcome; failure prevents admission.
 The receipt ledger atomically claims each invocation ID. Only a newly published
 intent permits entry; an existing identical or conflicting intent directs the
 caller to owned outcome inspection and cannot authorise another execution.
-Initial, blanket, specific and mutating-control calls share this requirement.
+Initial, blanket, specific and mutating-control calls with possible effects share this requirement.
 Duplicate identical completion is idempotent, incompatible completion conflicts,
 and surviving intent without completion is unknown. Completion-record failure produces an unknown
 outcome and recovery guidance. Audit never stores capabilities, keys, full bodies
 or invented human attribution. Historical audit and bounded receipt retention
 are distinct from ephemeral authorisation.
+
+Commands declaring no effects still pass permission, preparation, reservation,
+entry and consent-consumption checks, but do not write durable intent or outcome
+records. Read-only commands therefore work when the caller cannot write the
+selected Brain. Entered observation failures still spend specific consent and
+return a correlation-safe `internal_error`; there are no possible domain effects
+to reconcile through a receipt. Effect-bearing failures retain unknown-outcome
+receipts and reconciliation guidance, including commands that eventually report
+no committed effects.
 
 Bound owner metadata to 128 prepared operations, 128 grants, 4,096 request
 identities and 4 MiB aggregate descriptors/reviews/tombstones. Refuse new requests

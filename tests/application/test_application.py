@@ -45,6 +45,15 @@ def _setup(root, entry=None, *, receipts=None, **kwargs):
     return CommandApplication(context, catalogue), context
 
 
+def _effect_entry(executor=_ok):
+    def execute(context, request):
+        admit_owner(context, request, live_query)
+        return executor(context, request)
+    return _entry(execute, effect_class=EffectClass.SELECTED_BRAIN_MUTATION,
+        initial_class=InitialAuthorisationClass.CONTENT, retry_class=RetryClass.RECEIPT_REQUIRED,
+        preparation=OperationPreparation(live_query))
+
+
 class _Diagnostics:
     def __init__(self):
         self.failures = []
@@ -77,17 +86,24 @@ class _FaultReceipts(_Receipts):
         super().finalise(outcome)
 
 
-def test_successful_observation_has_intent_before_entry_and_independent_effect_state(tmp_path):
+@pytest.mark.parametrize("mutating", [False, True])
+def test_durable_intent_depends_on_possible_effects_not_final_effects(tmp_path, mutating):
     receipts = _Receipts()
     def execute(context, request):
-        assert receipts.intents[context.invocation_id].command_id == request.COMMAND_ID
+        if mutating:
+            assert receipts.intents[context.invocation_id].command_id == request.COMMAND_ID
+        else:
+            assert not receipts.intents
         assert not receipts.outcomes
         return _ok()
-    app, _ = _setup(tmp_path, _entry(execute), receipts=receipts)
+    app, _ = _setup(tmp_path, (_effect_entry if mutating else _entry)(execute), receipts=receipts)
     assert app.invoke(ProbeRequest()).status == "ok"
-    outcome = receipts.outcomes["inv-1"]
-    assert outcome.execution is ExecutionState.SUCCEEDED
-    assert outcome.receipt.state is ReceiptState.NONE
+    if mutating:
+        outcome = receipts.outcomes["inv-1"]
+        assert outcome.execution is ExecutionState.SUCCEEDED
+        assert outcome.receipt.state is ReceiptState.NONE
+    else:
+        assert not receipts.outcomes
 
 
 @pytest.mark.parametrize(("allowed", "initial", "code"), [
@@ -136,7 +152,7 @@ def test_owner_guarded_success_cannot_bypass_admission(tmp_path):
 
 
 @pytest.mark.parametrize("mutating", [False, True])
-def test_entered_crash_is_unknown_without_replay_even_for_observations(tmp_path, mutating):
+def test_entered_crash_requires_reconciliation_only_for_possible_effects(tmp_path, mutating):
     def execute(context, request):
         if mutating:
             admit_owner(context, request, live_query)
@@ -147,17 +163,59 @@ def test_entered_crash_is_unknown_without_replay_even_for_observations(tmp_path,
         "preparation": OperationPreparation(live_query)} if mutating else {}))
     app, context = _setup(tmp_path, entry)
     result = app.invoke(ProbeRequest())
-    assert result.error.code is ErrorCode.COMMAND_OUTCOME_UNKNOWN
     assert result.effects == ("unknown" if mutating else "none")
     assert not result.retryable
-    assert result.error.next_action.command_id == "invocation.read"
-    assert result.outcome_reference.invocation_id == "inv-1"
-    assert context.authorisation.receipts.outcomes["inv-1"].execution is ExecutionState.UNKNOWN
+    if mutating:
+        assert result.error.code is ErrorCode.COMMAND_OUTCOME_UNKNOWN
+        assert result.error.next_action.command_id == "invocation.read"
+        assert result.outcome_reference.invocation_id == "inv-1"
+        assert context.authorisation.receipts.outcomes["inv-1"].execution is ExecutionState.UNKNOWN
+    else:
+        assert result.error.code is ErrorCode.INTERNAL_ERROR
+        assert result.error.details.correlation_id == context.correlation_id
+        assert result.error.next_action is None
+        assert result.outcome_reference is None
+        assert not context.authorisation.receipts.intents
+        assert not context.authorisation.receipts.outcomes
+
+
+def test_spent_prepared_read_requires_new_preparation_not_missing_receipt(tmp_path):
+    from _application.authorisation import PreparationCoordinator
+    from _application.consent import ConsentScope
+
+    entry = _entry()
+    app, context = _setup(tmp_path, entry, initial_commands=())
+    service = context.authorisation.service
+    descriptor = PreparationCoordinator(
+        service, context.authorisation.catalogue, context.authorisation.content_for,
+    ).prepare(context, ProbeRequest(), request_id="prepare-read")
+    service.request(
+        request_id="allow-read", scope=ConsentScope.OPERATION,
+        operation_id=descriptor["operation_id"], digest=descriptor["digest"],
+        review=descriptor["review"],
+    )
+    selected = replace(context, operation_id=descriptor["operation_id"])
+    selected = replace(selected, access=selected.authorisation.bind(selected))
+    first = CommandApplication(selected, selected.authorisation.catalogue).invoke(ProbeRequest())
+    assert first.status == "ok", first
+
+    replay = replace(selected, invocation_id="inv-read-replay")
+    replay = replace(replay, access=replay.authorisation.bind(replay))
+    result = CommandApplication(replay, replay.authorisation.catalogue).invoke(ProbeRequest())
+
+    assert result.error.code is ErrorCode.CONFLICT
+    assert result.error.message == (
+        "This prepared observation has already been consumed; prepare and authorise a new operation."
+    )
+    assert result.error.details.reason == "operation_consumed"
+    assert result.error.next_action is None
+    assert not replay.authorisation.receipts.intents
+    assert not replay.authorisation.receipts.outcomes
 
 
 def test_failed_intent_prevents_executor_entry(tmp_path):
     receipts = _FaultReceipts(begin=True)
-    app, _ = _setup(tmp_path, _entry(lambda *_: pytest.fail("entry without durable intent")), receipts=receipts)
+    app, _ = _setup(tmp_path, _effect_entry(lambda *_: pytest.fail("entry without durable intent")), receipts=receipts)
     result = app.invoke(ProbeRequest())
     assert result.error.code is ErrorCode.INTERNAL_ERROR
     assert not receipts.intents and not receipts.outcomes
@@ -177,7 +235,7 @@ def test_duplicate_invocation_cannot_reenter_with_durable_intent(tmp_path, basis
     def execute(*_args):
         entered.append(True)
         return Ok("test.probe", 1, ProbePayload(str(len(entered))))
-    app, context = _setup(tmp_path, _entry(execute),
+    app, context = _setup(tmp_path, _effect_entry(execute),
         initial_commands=() if basis == "blanket" else ("test.probe",))
     class Clock:
         value = context.clock.now()
@@ -247,14 +305,14 @@ def test_receipt_port_without_positive_claim_cannot_authorise_entry(tmp_path):
     class OldPort(_Receipts):
         def begin(self, intent):
             super().begin(intent)
-    app, context = _setup(tmp_path, _entry(lambda *_: pytest.fail("entry without positive claim")),
+    app, context = _setup(tmp_path, _effect_entry(lambda *_: pytest.fail("entry without positive claim")),
         receipts=OldPort())
     assert app.invoke(ProbeRequest()).error.code is ErrorCode.CONFLICT
     assert not context.authorisation.receipts.outcomes
 
 
 @pytest.mark.parametrize("mutating", [False, True])
-def test_lost_completion_is_unknown_for_reads_and_writes(tmp_path, mutating):
+def test_completion_storage_failure_is_only_load_bearing_for_possible_effects(tmp_path, mutating):
     def execute(context, request):
         if mutating:
             admit_owner(context, request, live_query)
@@ -266,14 +324,18 @@ def test_lost_completion_is_unknown_for_reads_and_writes(tmp_path, mutating):
     receipts = _FaultReceipts(finalise=True)
     app, _ = _setup(tmp_path, entry, receipts=receipts)
     result = app.invoke(ProbeRequest())
-    assert result.error.code is ErrorCode.COMMAND_OUTCOME_UNKNOWN
-    assert result.effects == ("unknown" if mutating else "none")
-    assert "inv-1" in receipts.intents and not receipts.outcomes
+    if mutating:
+        assert result.error.code is ErrorCode.COMMAND_OUTCOME_UNKNOWN
+        assert result.effects == "unknown"
+        assert "inv-1" in receipts.intents and not receipts.outcomes
+    else:
+        assert result.status == "ok"
+        assert not receipts.intents and not receipts.outcomes
 
 
 def test_revocation_after_durable_intent_wins_before_entry(tmp_path):
     receipts = _FaultReceipts()
-    app, context = _setup(tmp_path, _entry(lambda *_: pytest.fail("revoked operation entered")), receipts=receipts)
+    app, context = _setup(tmp_path, _effect_entry(lambda *_: pytest.fail("revoked operation entered")), receipts=receipts)
     receipts.after_begin = lambda: context.authorisation.service.reduce(commands=("test.probe",))
     result = app.invoke(ProbeRequest())
     assert result.status == "error"
@@ -281,10 +343,10 @@ def test_revocation_after_durable_intent_wins_before_entry(tmp_path):
     assert receipts.outcomes["inv-1"].execution is ExecutionState.FAILED
 
 
-def test_wrong_read_payload_is_unknown_after_admission(tmp_path):
+def test_wrong_read_payload_returns_internal_error_without_effect_receipt(tmp_path):
     app, context = _setup(tmp_path, _entry(lambda *_: Ok("test.probe", 1, "wrong payload")))
-    assert app.invoke(ProbeRequest()).error.code is ErrorCode.COMMAND_OUTCOME_UNKNOWN
-    assert context.authorisation.receipts.outcomes["inv-1"].receipt.state is ReceiptState.NONE
+    assert app.invoke(ProbeRequest()).error.code is ErrorCode.INTERNAL_ERROR
+    assert not context.authorisation.receipts.outcomes
 
 
 def test_diagnostics_identify_phase_and_preserve_private_details_outside_envelope(tmp_path):
@@ -309,7 +371,7 @@ def test_diagnostic_reporter_failure_uses_sanitised_fallback(tmp_path, capfd):
 
 
 def test_reporter_failure_does_not_obscure_unknown_outcome(tmp_path, capfd):
-    app, context = _setup(tmp_path, _entry(lambda *_: (_ for _ in ()).throw(OSError("private crash"))))
+    app, context = _setup(tmp_path, _effect_entry(lambda *_: (_ for _ in ()).throw(OSError("private crash"))))
     context = replace(context, diagnostics=_FailingDiagnostics())
     result = CommandApplication(context, context.authorisation.catalogue).invoke(ProbeRequest())
     assert result.error.code is ErrorCode.COMMAND_OUTCOME_UNKNOWN

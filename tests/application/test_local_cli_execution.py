@@ -494,6 +494,95 @@ def test_local_execution_routes_each_owner_without_semantic_import_merging(tmp_p
     assert launcher.exit_code == 0
 
 
+def _application_failure_projection(tmp_path, stderr, *, error_code="internal_error", correlation_id="corr-child"):
+    vault = (tmp_path / "Brain").resolve()
+    script = vault / ".brain-core/scripts/command.py"
+    script.parent.mkdir(parents=True)
+    script.write_text("# selected Brain command owner\n", encoding="utf-8")
+    envelope = {
+        "schema": "brain.command-result/1", "command": "runtime.status",
+        "command_version": 1, "status": "error", "warnings": [],
+        "error": {"code": error_code, "message": "Command failed.",
+                  "details": {"correlation_id": correlation_id}},
+        "effects": "none",
+    }
+    def runner(argv, **_options):
+        return subprocess.CompletedProcess(argv, 4, json.dumps(envelope), stderr)
+    return ApplicationProcessInvoker(
+        SelectedBrainProcess(vault, Path(sys.executable).resolve()), runner,
+    ).invoke(_entry("application", "runtime.status"), {})
+
+
+def _child_failure_record():
+    return json.loads(_operational_log.encode_record(
+        process="script", run_id="run-child", seq=1, event="command.failed",
+        phase="execute", command_id="runtime.status", correlation_id="corr-child",
+        error_class="io", exception_type="PermissionError",
+    ))
+
+
+@pytest.mark.parametrize("json_mode", [False, True])
+def test_cli_renders_only_matching_bounded_child_failure(tmp_path, json_mode):
+    record = _child_failure_record()
+    line = "[brain-diagnostics] " + json.dumps(record)
+    projection = _application_failure_projection(
+        tmp_path, "private runtime warning at /secret/path\n" + line + "\n" + line + "\n",
+    )
+
+    stdout, stderr, code = render_local_result(projection, json_mode=json_mode)
+
+    assert code == 4
+    assert "private" not in stderr and "/secret" not in stderr
+    assert stderr.count("[brain-diagnostics]") == 1
+    assert json.loads(stderr.splitlines()[-1].removeprefix("[brain-diagnostics] ")) == record
+    assert len(stderr.splitlines()[-1].encode()) <= _operational_log.MAX_RECORD_BYTES + len("[brain-diagnostics] ")
+    if json_mode:
+        assert json.loads(stdout) == projection.structured_content
+    else:
+        assert stdout == ""
+        assert stderr.startswith(projection.concise_text + "\n")
+
+
+@pytest.mark.parametrize("changes", [
+    {"schema": "brain.debug-bodies/1"}, {"event": "tool.handled"},
+    {"process": "cli"}, {"command_id": "artefact.read"},
+    {"correlation_id": "corr-other"}, {"phase": "private phase /secret"},
+    {"exception_type": "PermissionError: /secret/path"}, {"error_class": "private"},
+    {"message": "private exception text"}, {"ts": "private"}, {"pid": True},
+    {"seq": -1}, {"run_id": "/secret/path"}, {"version": "/private/0.1.0"},
+    {"dropped_before": "private"}, {"command_id": None}, {"phase": None},
+])
+def test_cli_rejects_mismatched_or_non_content_free_child_records(tmp_path, changes):
+    record = {**_child_failure_record(), **changes}
+    projection = _application_failure_projection(tmp_path, "[brain-diagnostics] " + json.dumps(record))
+
+    assert render_local_result(projection, json_mode=True)[1] == ""
+
+
+@pytest.mark.parametrize("stderr", [
+    "Traceback: private exception /secret/path\n", "[brain-diagnostics] not JSON",
+    "[brain-diagnostics] []", "[brain-diagnostics] {}",
+    "[brain-diagnostics] operational log append failed: PermissionError\n",
+    "[brain-diagnostics] " + " " * _operational_log.MAX_RECORD_BYTES + "{}",
+    "[brain-diagnostics] " + "[" * 1100,
+])
+def test_cli_rejects_arbitrary_malformed_or_oversized_child_stderr(tmp_path, stderr):
+    projection = _application_failure_projection(tmp_path, stderr)
+
+    assert render_local_result(projection, json_mode=True)[1] == ""
+
+
+@pytest.mark.parametrize("options", [
+    {"correlation_id": None}, {"correlation_id": "different"},
+    {"error_code": "command_outcome_unknown"},
+])
+def test_cli_child_failure_requires_matching_internal_error_envelope(tmp_path, options):
+    stderr = "[brain-diagnostics] " + json.dumps(_child_failure_record())
+    projection = _application_failure_projection(tmp_path, stderr, **options)
+
+    assert render_local_result(projection, json_mode=True)[1] == ""
+
+
 def test_selected_brain_process_rejects_ambiguous_roots(tmp_path):
     vault = (tmp_path / "Brain").resolve()
     vault.mkdir()

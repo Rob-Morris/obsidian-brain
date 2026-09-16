@@ -203,7 +203,8 @@ class InvocationAuthorisation:
 
         self._proof = self.service.admit(
             self.entry.command_id, self.entry.command_version, self.context.invocation_id,
-            operation_id=self.operation_id, binding=binding, before_enter=record_intent,
+            operation_id=self.operation_id, binding=binding,
+            before_enter=record_intent if self.entry.effect_class is not EffectClass.NONE else None,
         )
 
     def admit_query(self, request) -> None:
@@ -215,16 +216,14 @@ class InvocationAuthorisation:
             self.admit(binding)
 
     def finalise(self, result: Ok | Partial | Error | None) -> None:
-        """Persist completion and spend entered consent, including observations."""
+        """Persist effect-bearing completion and spend all entered consent."""
         if self._finalised:
             raise RuntimeError("invocation finalisation was attempted more than once")
         if not self.entered and isinstance(result, (Ok, Partial)):
             raise RuntimeError("successful owner bypassed operation admission")
-        if self._intent is None:
-            self._finalised = True
-            return
         try:
-            self.receipts.finalise(self._outcome(result))
+            if self._intent is not None:
+                self.receipts.finalise(self._outcome(result))
         finally:
             self._finalised = True
             if self._proof is not None:

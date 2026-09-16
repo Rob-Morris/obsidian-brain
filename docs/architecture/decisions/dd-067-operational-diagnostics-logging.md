@@ -63,6 +63,11 @@ callers never supply paths):
   second write attempt or a second validation policy. Invalid records receive
   only a generic note; unavailable stderr is ignored. Daemon delivery remains
   asynchronous and best-effort.
+  The outer CLI carries at most one schema-validated script failure matching
+  the child result's command and `internal_error` correlation ID through its
+  local result projection to stderr, including JSON mode. It discards unrelated
+  child stderr. The trusted command reporter does not also emit raw tracebacks
+  through stdlib logging.
 - **Wiring**: proxy (`proxy.log` lifecycle/child/replay events;
   `proxy-rpc.log` `frame.*` pairs keyed by a per-run `frame_seq` surrogate —
   client-chosen JSON-RPC ids are never logged), server (`server.log`

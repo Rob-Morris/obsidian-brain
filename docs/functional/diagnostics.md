@@ -72,9 +72,20 @@ type, without exception text or paths. Invalid records produce only the generic
 note. This fallback is best-effort too: closed stderr never changes the command
 outcome, and daemon queue delivery is unchanged.
 
+The outer CLI forwards at most one matching bounded `command.failed` record
+from a direct-script child's stderr alongside a structural `internal_error`,
+including in JSON mode. It validates the complete operational schema, script
+process, command and returned correlation ID; arbitrary stderr, write-failure
+notes and mismatched records are discarded. Raw exception text and tracebacks
+are never emitted by the trusted command diagnostic reporter.
+
 Launcher no-effect (`none`) receipts are not persisted, so read-only
 commands do not depend on writable machine receipt storage. Receipts describing
 committed, partial or uncertain effects retain their durable-write requirement.
+Application commands declaring no effects likewise skip durable admission and
+outcome records while retaining permission and consent checks. Commands that
+may cause effects retain durable admission even when their final result reports
+no committed effects.
 
 Diagnostics directory components, lock files, active logs and archives are
 refused when they are symlinks or non-regular files. Opens verify the endpoint
