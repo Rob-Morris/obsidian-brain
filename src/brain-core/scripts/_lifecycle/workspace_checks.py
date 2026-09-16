@@ -28,7 +28,8 @@ def workspace_findings(vault_root, router, *, workspace_dir=None):
             workspace = membership(reference, fields)
         except ValueError as exc:
             report("workspace_reference_malformed", record.path, str(exc), "Use artefact.set-workspace with an explicit destination; workspace hubs must remain self-scoped")
-        if workspace:
+        archived_self = record.archived and fields.get("type") == "living/workspace" and workspace == record.reference
+        if workspace and not archived_self:
             entry = router.get("artefact_index", {}).get(workspace)
             if entry is None:
                 candidates = graph.identities.get(workspace, ())

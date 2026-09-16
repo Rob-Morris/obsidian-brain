@@ -23,6 +23,19 @@ def adoption_tree(scoped):
     return seed_tree(scoped[0], scoped[2])
 
 
+@given("the descendants store filename-form parent references")
+def filename_parent_references(scoped, adoption_tree):
+    rewrite_filename_parents(scoped[0], adoption_tree[1])
+
+
+def rewrite_filename_parents(root, descendants):
+    for descendant in descendants:
+        source = root / descendant
+        fields, body = parse_frontmatter(source.read_text())
+        fields["parent"] = fields["parent"].replace("/", "~")
+        source.write_text(serialize_frontmatter(fields, body=body))
+
+
 @when("the owner is recursively adopted into the bound workspace", target_fixture="adoption_result")
 def adopt_tree(scoped, adoption_tree):
     return scoped[2].invoke(ArtefactSetWorkspaceRequest(adoption_tree[0], recursive=True))
@@ -63,9 +76,12 @@ def seed_tree(root, app):
     return parent.result.path, (terminal.result.path, str(temporal.relative_to(root)), str(archive.relative_to(root)), str(archived_child.relative_to(root)))
 
 
-def test_recursive_adoption_covers_complete_graph_without_tag_inference(scoped):
+@pytest.mark.parametrize("parent_format", ["canonical", "filename"])
+def test_recursive_adoption_covers_complete_graph_without_tag_inference(scoped, parent_format):
     root, _workspace, app, _parents = scoped
     path, descendants = seed_tree(root, app)
+    if parent_format == "filename":
+        rewrite_filename_parents(root, descendants)
     refused = app.invoke(request(path))
     assert refused.status == "error" and "recursive" in refused.error.message
     result = app.invoke(request(path, recursive=True))

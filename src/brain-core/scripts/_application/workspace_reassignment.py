@@ -17,7 +17,7 @@ def plan_reassignment(context, request, router, *, frozen_inputs=None):
     import edit
     from _common import (resolve_type, living_artefact_index_entry, resolve_parent_reference,
                          document_revision_at, parent_chain_entries,
-                         resolve_folder, apply_terminal_status_folder)
+                         resolve_folder, apply_terminal_status_folder, normalize_artefact_key)
     from _common._workspace import validate_ownership
     from _lifecycle.ownership_graph import read_ownership_graph
     from .preparation_transition import transition_time
@@ -63,7 +63,7 @@ def plan_reassignment(context, request, router, *, frozen_inputs=None):
         updated[record.path] = apply_semantic_tags(fields, effective)
     index = dict(router.get("artefact_index", {}))
     needed = {item.reference for item in subjects if item.reference}
-    pending = [fields["parent"] for fields in updated.values() if fields.get("parent")]
+    pending = [normalize_artefact_key(fields["parent"]) for fields in updated.values() if fields.get("parent")]
     if root_parent:
         pending.append(root_parent)
     while pending:
@@ -90,7 +90,7 @@ def plan_reassignment(context, request, router, *, frozen_inputs=None):
         reference = record.reference or record.path
         validate_ownership(reference, fields, index)
         definition = resolve_type(router, fields["type"])
-        parent = fields.get("parent")
+        parent = normalize_artefact_key(fields.get("parent"))
         if parent:
             owner = graph.resolve(parent)
             if owner.archived and not record.archived:

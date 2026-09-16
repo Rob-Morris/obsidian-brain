@@ -5,3 +5,9 @@ Feature: Explicit complete workspace adoption
     Given an unscoped owner with terminal, temporal and archived descendants
     When the owner is recursively adopted into the bound workspace
     Then every owned record has explicit destination membership and policy tags
+
+  Scenario: Adopt descendants with filename-form stored parents
+    Given an unscoped owner with terminal, temporal and archived descendants
+    And the descendants store filename-form parent references
+    When the owner is recursively adopted into the bound workspace
+    Then every owned record has explicit destination membership and policy tags

@@ -412,7 +412,10 @@ Application-owned `workspace.setup` declares a selected-Brain plus caller-local
 effect. Its single operation binding observes the canonical hub, path registry
 and caller manifest/scaffold targets. It admits once under the Brain lock,
 completes registration, releases that lock, then acquires the caller lock and
-rechecks the admitted local observations before binding. Failures after a
+rechecks the admitted local observations before binding. The binding includes
+Git-root and Git-directory resolution, including absence, and the selected
+ignore-rule destination; setup revalidates that resolution under the caller
+lock and immediately before a scaffold write. Failures after a
 committed boundary return known partial effects. MCP cannot invoke this owner;
 the selected-Brain `workspace.ensure-registration` and `workspace.update-policy`
 owners require contributor authority and never write caller files.

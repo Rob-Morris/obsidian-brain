@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import shutil
 import subprocess
+from dataclasses import dataclass
 from pathlib import Path
 from typing import List, Optional
 
@@ -79,6 +80,26 @@ def _brain_ignore_entries(
     return entries
 
 
+@dataclass(frozen=True)
+class BrainIgnoreScaffold:
+    """Resolved Git context and the sole possible Brain ignore-rule destination."""
+
+    repo_root: Path | None
+    git_dir: Path | None
+    destination: Path | None
+
+
+def resolve_brain_ignore_scaffold(target_dir: Path) -> BrainIgnoreScaffold:
+    """Resolve the same ignore target for admission and writes, including absence."""
+    repo_root = _git_repo_root(target_dir)
+    if repo_root is None or repo_root != target_dir.resolve():
+        return BrainIgnoreScaffold(repo_root, None, None)
+    git_dir = _git_dir(target_dir)
+    gitignore = target_dir / ".gitignore"
+    destination = gitignore if gitignore.exists() else git_dir / "info/exclude" if git_dir else None
+    return BrainIgnoreScaffold(repo_root, git_dir, destination)
+
+
 def ensure_brain_ignore_rules(
     target_dir: Path,
     scope: str,
@@ -88,17 +109,9 @@ def ensure_brain_ignore_rules(
     before_write=None,
 ) -> str | None:
     """Ensure git ignore rules for Brain-owned local state when target is a repo root."""
-    repo_root = _git_repo_root(target_dir)
-    if repo_root is None or repo_root != target_dir.resolve():
-        return None
-
-    gitignore_path = target_dir / ".gitignore"
-    destination = gitignore_path if gitignore_path.exists() else None
+    destination = resolve_brain_ignore_scaffold(target_dir).destination
     if destination is None:
-        git_dir = _git_dir(target_dir)
-        if git_dir is None:
-            return None
-        destination = git_dir / "info" / "exclude"
+        return None
 
     entries = _brain_ignore_entries(scope, clients, skip_mcp=skip_mcp)
     try:

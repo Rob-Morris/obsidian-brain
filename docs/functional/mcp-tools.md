@@ -161,17 +161,23 @@ uses validated startup binding; `workspace/{key}` selects another workspace in
 the same Brain; `global` applies no workspace defaults. Invalid local bindings
 cannot be bypassed. This field never accepts filesystem paths and does not
 change connection state. Non-artefact document targets reject it.
+Semantic document edits preserve a workspace hub's type, including when its
+self-membership is explicitly stored.
 
 `artefact_set-workspace` uses that context as its destination membership. It accepts
 `path`, `recursive`, optional replacement `parent`, or `clear_parent`. Descendants
 require recursive intent; the complete graph includes terminal living, temporal,
 and archived records. Only living records have canonical owner identities.
+Stored parent references in filename form (`project~key`) resolve to the same
+owners as canonical references (`project/key`).
 Explicit `global` clears membership; omitted context uses a valid bound workspace
 but cannot implicitly clear membership in an unconfigured connection. It is a
 contributor command with CLI, script, MCP and typed Python projections.
 
 `vault_check` version 3 includes optional finding `code` values for workspace
 reference, ownership, policy, local-binding, and explicit-adoption diagnostics.
+An archived workspace hub's own self-membership is valid; other artefacts that
+still reference that archived hub receive `workspace_reference_archived`.
 
 The version-3 session payload exposes `workspace_policy.workspace` and separate
 `shared` / `local` parent-and-tag policy inputs. `workspace_default_tags` remains

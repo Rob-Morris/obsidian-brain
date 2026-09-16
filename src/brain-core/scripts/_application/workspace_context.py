@@ -166,6 +166,8 @@ def apply_semantic_tags(fields, effective):
 def validate_subject_membership(router, fields, reference, original_fields):
     """Preserve the subject's own historical membership independently of selected policy."""
     from _common._workspace import membership, require_workspace, validate_ownership
+    if original_fields.get("type") == "living/workspace" and fields.get("type") != "living/workspace":
+        raise ValueError("Semantic document edits must preserve workspace hub type")
     workspace = membership(reference, fields)
     if workspace != membership(reference, original_fields):
         raise ValueError("Semantic document edits must preserve workspace membership")

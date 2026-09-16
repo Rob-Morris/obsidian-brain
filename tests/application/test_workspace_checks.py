@@ -10,6 +10,31 @@ from _bootstrap.workspace_binding import read_workspace_manifest, save_workspace
 from test_workspace_mutation_context import scoped
 
 
+@pytest.mark.parametrize("explicit", [False, True])
+def test_archived_hub_self_membership_is_valid_but_member_reference_is_not(scoped, explicit):
+    from _application.artefact.archive import ArtefactArchiveRequest
+    from _application.artefact.set_workspace import ArtefactSetWorkspaceRequest
+    from _application.workspace.ensure_registration import WorkspaceEnsureRegistrationRequest
+    from _application.workspace_context import WorkspaceSelector
+
+    root, _local, app, _parents = scoped
+    assert app.invoke(WorkspaceEnsureRegistrationRequest("history")).status == "ok"
+    if explicit:
+        assigned = app.invoke(ArtefactSetWorkspaceRequest("workspace/history",
+            workspace_context=WorkspaceSelector("workspace/history")))
+        assert assigned.status == "ok", assigned
+    archived = app.invoke(ArtefactArchiveRequest("workspace/history"))
+    assert archived.status == "ok", archived
+    assert not workspace_findings(root, require_fresh_compiled_router(root))
+
+    member = root / "_Temporal/Plans/20260917-plan~Stranded.md"
+    member.parent.mkdir(parents=True, exist_ok=True)
+    member.write_text(serialize_frontmatter({"type": "temporal/plan", "workspace": "workspace/history"}, body="# Stranded\n"))
+    findings = workspace_findings(root, require_fresh_compiled_router(root))
+    assert [(item["code"], item["file"]) for item in findings] == [
+        ("workspace_reference_archived", str(member.relative_to(root)))]
+
+
 @pytest.mark.parametrize("workspace,code", [("bad", "workspace_reference_malformed"),
     ("workspace/missing", "workspace_reference_missing"),
     ("workspace/beta", "workspace_ownership_invalid"),

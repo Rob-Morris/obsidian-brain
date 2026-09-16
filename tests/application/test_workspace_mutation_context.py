@@ -264,17 +264,25 @@ def test_workspace_frontmatter_is_handler_owned_for_create_and_edit(scoped, valu
     assert "handler-owned" in denied.error.message
 
 
-def test_generic_type_edit_cannot_remove_implicit_workspace_hub_membership(scoped):
+@pytest.mark.parametrize("explicit", [False, True])
+def test_generic_type_edit_cannot_remove_workspace_hub_identity(scoped, explicit):
+    from _application.artefact.set_workspace import ArtefactSetWorkspaceRequest
     from _lifecycle.derived_cache_state import require_fresh_compiled_router
 
     root, _workspace, app, _parents = scoped
-    hub = require_fresh_compiled_router(str(root))["artefact_index"]["workspace/alpha"]["path"]
+    app = application_for(root)
+    assert app.invoke(WorkspaceEnsureRegistrationRequest("history")).status == "ok"
+    if explicit:
+        result = app.invoke(ArtefactSetWorkspaceRequest("workspace/history",
+            workspace_context=WorkspaceSelector("workspace/history")))
+        assert result.status == "ok", result
+    hub = require_fresh_compiled_router(str(root))["artefact_index"]["workspace/history"]["path"]
     revision = document_revision_at(root / hub)
     result = app.invoke(DocumentUpdateFrontmatterRequest(
         DocumentLocator(DocumentResource.ARTEFACT, hub), revision,
         (FrontmatterField("type", "living/project"),)))
     assert result.status == "error" and result.effects == "none"
-    assert "preserve workspace membership" in result.error.message
+    assert "workspace" in result.error.message
     assert document_revision_at(root / hub) == revision
 
 

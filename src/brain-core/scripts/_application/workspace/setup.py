@@ -6,7 +6,7 @@ from typing import ClassVar, Mapping
 
 from .._caller_workspace import (caller_workspace_entry, decode_workspace_binding,
     validate_workspace_binding_request, workspace_dir)
-from ..preparation import bind_operation, ObservedResource
+from ..preparation import bind_operation, ObservedResource, canonical_json, content_digest
 from ..receipts import CommittedEffect
 from ..results import Error, Ok
 from ..types import DependencyTier, EffectClass, Locality
@@ -43,11 +43,22 @@ class WorkspaceSetupRequest:
         validate_workspace_binding_request(self)
 
 
+def _observe_scaffold(target):
+    from _bootstrap.workspace_scaffold import resolve_brain_ignore_scaffold
+
+    scaffold = resolve_brain_ignore_scaffold(target)
+    revision = content_digest(canonical_json({
+        "repo_root": str(scaffold.repo_root) if scaffold.repo_root else None,
+        "git_dir": str(scaffold.git_dir) if scaffold.git_dir else None,
+        "destination": str(scaffold.destination) if scaffold.destination else None,
+    }))
+    return scaffold, ObservedResource("caller-scaffold", str(target), revision)
+
+
 def plan_setup(context, request, *, frozen_inputs=None):
     import vault_registry
     import workspace_registry
     from _bootstrap.workspace_binding import plan_workspace_binding, resolve_local_brain_vault
-    from _bootstrap.workspace_scaffold import _git_dir, _git_repo_root
     from _common._workspace import manifest_workspace_reference, workspace_policy
     from ._preparation import _observe_file
 
@@ -83,11 +94,12 @@ def plan_setup(context, request, *, frozen_inputs=None):
     observations.append(ObservedResource("embedded-workspace", str(embedded), None))
     files = {state.manifest_path, state.legacy_path, Path(vault_registry.registry_path()),
              Path(workspace_registry._registry_path(root))}
-    if _git_repo_root(target) == target.resolve():
+    scaffold, scaffold_observation = _observe_scaffold(target)
+    observations.append(scaffold_observation)
+    if scaffold.repo_root == target.resolve():
         files.add(target / ".gitignore")
-        gitdir = _git_dir(target)
-        if gitdir is not None and not (target / ".gitignore").exists():
-            files.add(gitdir / "info/exclude")
+    if scaffold.destination is not None:
+        files.add(scaffold.destination)
     stat = target.stat()
     observations.append(ObservedResource("caller-workspace", str(target.resolve()), f"{stat.st_dev}:{stat.st_ino}"))
     observations.extend(_observe_file(path) for path in sorted(files))
@@ -135,6 +147,11 @@ def execute(context, request):
             stat = target.stat()
             if identity.identity != str(target.resolve()) or identity.revision != f"{stat.st_dev}:{stat.st_ino}":
                 raise ValueError("Caller workspace identity changed after admission; retry setup")
+            admitted_scaffold = next(item for item in binding.observations if item.kind == "caller-scaffold")
+            def revalidate_scaffold():
+                if _observe_scaffold(target)[1] != admitted_scaffold:
+                    raise ValueError("Caller scaffold destination changed after admission; Brain registration is complete, retry setup")
+            revalidate_scaffold()
             if any(_observe_file(Path(item.identity)) != item for item in local):
                 raise ValueError("Caller workspace changed after admission; Brain registration is complete, retry setup")
             before_manifest = _observe_file(state.manifest_path)
@@ -147,7 +164,7 @@ def execute(context, request):
             before_scaffold = tuple(_observe_file(Path(item.identity)) for item in local
                                     if Path(item.identity).name in {".gitignore", "exclude"})
             try:
-                ensure_brain_ignore_rules(target, "project", [], skip_mcp=True)
+                ensure_brain_ignore_rules(target, "project", [], skip_mcp=True, before_write=revalidate_scaffold)
             finally:
                 for item in before_scaffold:
                     if _observe_file(Path(item.identity)) != item:

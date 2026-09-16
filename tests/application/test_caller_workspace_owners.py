@@ -259,6 +259,73 @@ def test_workspace_setup_reports_known_partial_binding_effect(
     assert (command_vault_clone.vault_root / result.committed_effects[0].subject).exists()
 
 
+@pytest.mark.parametrize("drift", ["git-init", "git-dir", "gitignore"])
+def test_workspace_setup_rechecks_scaffold_under_caller_lock(command_vault_clone, tmp_path, monkeypatch, drift):
+    from contextlib import contextmanager
+    import shutil
+    import subprocess
+    import _common
+    import vault_registry
+
+    root = command_vault_clone.vault_root
+    workspace = (tmp_path / "workspace").resolve()
+    workspace.mkdir()
+    vault_registry.register(root, "command-vault")
+    if drift == "git-dir":
+        subprocess.run(["git", "init", "--separate-git-dir", str(tmp_path / "original-git"), str(workspace)], check=True, capture_output=True)
+    elif drift != "git-init":
+        subprocess.run(["git", "init", str(workspace)], check=True, capture_output=True)
+    actual_lock = _common.vault_mutation_lock
+    destinations = []
+
+    @contextmanager
+    def change_before_caller_lock(target, *args, **kwargs):
+        if target == workspace:
+            if drift == "git-init":
+                subprocess.run(["git", "init", str(workspace)], check=True, capture_output=True)
+            elif drift == "git-dir":
+                gitdir = tmp_path / "moved-git"
+                shutil.copytree(tmp_path / "original-git", gitdir)
+                (workspace / ".git").write_text(f"gitdir: {gitdir}\n")
+            else:
+                (workspace / ".gitignore").write_text("user-owned\n")
+            destination = (tmp_path / "moved-git/info/exclude" if drift == "git-dir"
+                else workspace / ".gitignore" if drift == "gitignore"
+                else workspace / ".git/info/exclude")
+            destinations.append((destination, destination.read_bytes()))
+        with actual_lock(target, *args, **kwargs):
+            yield
+
+    monkeypatch.setattr(_common, "vault_mutation_lock", change_before_caller_lock)
+    result = _caller_application(root, workspace).invoke(WorkspaceSetupRequest())
+    assert result.status == "partial", result
+    assert "changed after admission" in result.error.message
+    assert [effect.kind for effect in result.committed_effects] == ["workspace.registered", "workspace.path-registered"]
+    assert not (workspace / ".brain/local/workspace.yaml").exists()
+    assert destinations
+    for destination, original in destinations:
+        assert destination.read_bytes() == original
+
+
+@pytest.mark.parametrize("destination", [".gitignore", ".git/info/exclude"])
+def test_workspace_setup_reports_admitted_scaffold_effect(command_vault_clone, tmp_path, destination):
+    import subprocess
+    import vault_registry
+
+    root = command_vault_clone.vault_root
+    workspace = (tmp_path / "workspace").resolve()
+    subprocess.run(["git", "init", str(workspace)], check=True, capture_output=True)
+    if destination == ".gitignore":
+        (workspace / destination).write_text("user-owned\n")
+    vault_registry.register(root, "command-vault")
+    result = _caller_application(root, workspace).invoke(WorkspaceSetupRequest())
+    assert result.status == "ok", result
+    assert ".brain/local/" in (workspace / destination).read_text()
+    assert [(effect.kind, effect.subject) for effect in result.committed_effects
+            if effect.kind == "workspace.scaffolded"] == [
+        ("workspace.scaffolded", "caller-workspace:" + str(workspace / destination))]
+
+
 def test_workspace_metadata_decodes_typed_links_and_reports_manifest_effect(
     command_vault_clone,
     tmp_path,
