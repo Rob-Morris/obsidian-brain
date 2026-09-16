@@ -57,6 +57,8 @@ def validate_document_request(request) -> None:
 
     if not isinstance(request.document, DocumentLocator):
         raise ValueError(f"{request.COMMAND_ID} document must be a DocumentLocator")
+    from ..workspace_context import validate_workspace_request
+    validate_workspace_request(request, resource=request.document.resource.value)
     validate_document_revision(request.expected_revision, label="expected_revision")
     if not isinstance(getattr(request, "fix_links", False), bool):
         raise ValueError(f"{request.COMMAND_ID} fix_links must be a boolean")

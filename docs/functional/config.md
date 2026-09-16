@@ -129,6 +129,34 @@ The distinction from Brain config:
 `workspace.bind` may scaffold `.brain/local/workspace.yaml`, but the file remains human-editable and is expected to evolve over time.
 `workspace.repair-registry` is intentionally narrower: it repairs or normalises `.brain/local/workspaces.json` only, not the human-owned workspace manifest.
 
+Canonical `workspace.setup` also ensures a `living/workspace` hub and stores its
+bare key in `links.workspace`. That exact link selects the canonical
+`workspace/{key}` identity; the slug, registered path and `workspace/*` tags
+cannot silently choose a replacement. A configured missing or inactive hub is
+reported explicitly by session bootstrap. The manifest's Brain alias must resolve
+to the selected vault. Generic metadata updates cannot set `links.workspace`,
+and clearing descriptive links preserves it; use composite setup for binding.
+
+Shared workspace policy lives on the hub as optional `default_parent` and
+`default_tags`. The local manifest can set `defaults.parent` and additive
+`defaults.tags`; it remains outside Brain config merging. Both parent fields
+must identify a non-terminal living artefact in the same workspace. Use
+`workspace.update-policy` for shared changes and `workspace.update-metadata`
+with `parent` or `clear_parent` for the local override. Shared policy fields are
+handler-owned: generic creation and frontmatter updates reject them. Workspace hubs are
+self-scoped; other membership is explicit `workspace: workspace/{key}` and is
+never inferred from tags.
+
+Creation uses explicit parent, then local `defaults.parent`, then shared
+`default_parent`, then no parent. Policy tags are additive; local policy applies
+only when the effective workspace equals the bound workspace. Artefact document
+edits retain their existing membership/parent but restore configured tags.
+For ordinary mutations, `workspace_context: global` suppresses these defaults without
+reassigning an existing subject. The explicit `artefact.set-workspace` transition
+instead uses its context as destination membership, with `global` clearing it.
+Even explicit selection fails closed while the
+active local binding or its policy is invalid.
+
 ---
 
 ## Authority Profiles

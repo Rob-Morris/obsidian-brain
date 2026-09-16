@@ -15,18 +15,20 @@ from .._artefact_transition import (
     validate_string,
 )
 from ..context import InvocationContext
+from ..workspace_context import WorkspaceAwareRequest, workspace_request_decoder, validate_workspace_request
 
 
 @dataclass(frozen=True, slots=True)
-class ArtefactArchiveRequest:
+class ArtefactArchiveRequest(WorkspaceAwareRequest):
     COMMAND_ID: ClassVar[str] = "artefact.archive"
-    COMMAND_VERSION: ClassVar[int] = 2
+    COMMAND_VERSION: ClassVar[int] = 3
     RESULT_TYPE: ClassVar[type] = ArtefactArchivePayload
 
     path: str
     recursive: bool = False
 
     def __post_init__(self) -> None:
+        validate_workspace_request(self)
         validate_string(self.COMMAND_ID, "path", self.path)
         validate_recursive(self.COMMAND_ID, self.recursive)
 
@@ -37,7 +39,7 @@ def execute(context: InvocationContext, request: ArtefactArchiveRequest):
     return execute_transition(
         context,
         request,
-        operation=None, planner=plan_operation, apply_plan=edit.apply_artefact_transition,
+        planner=plan_operation, apply_plan=edit.apply_artefact_transition,
         payload_builder=lambda result: ArtefactArchivePayload(
             result["old_path"],
             result["new_path"],
@@ -48,6 +50,7 @@ def execute(context: InvocationContext, request: ArtefactArchiveRequest):
     )
 
 
+@workspace_request_decoder
 def decode(payload: Mapping[str, object]) -> ArtefactArchiveRequest:
     return decode_path_recursive(payload, ArtefactArchiveRequest)
 

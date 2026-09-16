@@ -8,6 +8,15 @@ required:
     type: array
     contains: "workspace/{key}"
 optional:
+  workspace:
+    type: string
+    description: "Canonical self-reference workspace/{key}; omitted hubs remain self-scoped."
+  default_parent:
+    type: string
+    description: "Non-terminal living parent in this workspace, managed by workspace.update-policy."
+  default_tags:
+    type: array
+    description: "Additive semantic-mutation defaults, managed by workspace.update-policy."
   status:
     enum: [active, parked, completed, deprecated]
     default: active

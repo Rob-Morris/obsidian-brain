@@ -13,6 +13,7 @@ from ._mutation_support import (
 )
 from ._wikilink_results import WikilinkFinding, WikilinkFix, wikilink_result_values
 from .context import InvocationContext
+from .workspace_context import EffectiveMutationContext, WorkspaceMutationPartial
 from .preparation import (
     ObservedResource, admit_owner, bind_operation, canonical_json, content_digest,
     prepare_content,
@@ -52,6 +53,7 @@ class DocumentWriteBodyPayload:
     wikilink_fixes: tuple[WikilinkFix, ...]
     wikilink_substitutions: int
     staged_handle_consumed: bool
+    mutation_context: EffectiveMutationContext | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -66,6 +68,7 @@ class DocumentReplaceTextPayload:
     wikilink_warnings: tuple[WikilinkFinding, ...]
     wikilink_fixes: tuple[WikilinkFix, ...]
     wikilink_substitutions: int
+    mutation_context: EffectiveMutationContext | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -81,6 +84,7 @@ class DocumentStructuredEditPayload:
     wikilink_fixes: tuple[WikilinkFix, ...]
     wikilink_substitutions: int
     staged_handle_consumed: bool
+    mutation_context: EffectiveMutationContext | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -90,6 +94,7 @@ class DocumentFrontmatterUpdatePayload:
     updated_fields: tuple[str, ...]
     removed_fields: tuple[str, ...]
     revision: str
+    mutation_context: EffectiveMutationContext | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -165,6 +170,7 @@ def execute_document_mutation(
     from _staging import finalise_staged_body
     import edit
     import fix_links
+    from ._transition_indexes import reconcile_transition_indexes, TransitionIndexesIncomplete
 
     if context.dry_run:
         return no_effect_error(
@@ -208,10 +214,9 @@ def execute_document_mutation(
             file_index = None
             if _may_contain_wikilinks(opened, intent, body):
                 file_index = fix_links.file_index_for_mutation(vault_root)
-            plan = edit.plan_document_edit(opened, body=body,
-                                            **_plan_arguments(intent))
+            plan, effective = plan_semantic_document(context, request, router, opened, intent, body)
             admit_owner(context, request, document_binding, intent=intent,
-                        opened=opened, body=body, file_index=file_index)
+                        opened=opened, body=body, file_index=file_index, effective=effective)
             if intent.resource == "skill" and ":" not in intent.reference:
                 from _skill_library import materialise_core_skill_for_edit
 
@@ -249,6 +254,12 @@ def execute_document_mutation(
                     **subject_kwargs,
                 )
                 staging_warning = finalise_staged_body(vault_root, staged_handle)
+                if opened.resource == "artefact":
+                    from compile_router import _hash_index_payload
+                    if _hash_index_payload(opened.fields) != _hash_index_payload(plan.fields):
+                        reconcile_transition_indexes(context)
+                    elif context.derived_snapshots is not None:
+                        context.derived_snapshots.invalidate()
             except FileNotFoundError as exc:
                 raise MutationOutcomeUncertain(
                     "document mutation outcome could not be classified"
@@ -274,6 +285,9 @@ def execute_document_mutation(
                         "document mutation outcome could not be classified"
                     ) from exc
                 raise
+    except TransitionIndexesIncomplete as exc:
+        return WorkspaceMutationPartial(request.COMMAND_ID, request.COMMAND_VERSION, exc.error,
+                       (CommittedEffect(request.COMMAND_ID, result["path"]),), mutation_context=effective)
     except DocumentRevisionConflict as exc:
         return _revision_conflict(type(request), request, str(exc))
     except MutationLockError as exc:
@@ -312,7 +326,7 @@ def execute_document_mutation(
     except ValueError as exc:
         return no_effect_error(type(request), ErrorCode.INVALID_REQUEST, str(exc))
 
-    payload = _payload(intent, result, staged_handle, staging_warning)
+    payload = replace(_payload(intent, result, staged_handle, staging_warning, fields=plan.fields), mutation_context=effective)
     warnings = []
     if staging_warning:
         warnings.append(CommandWarning(WarningCode.FOLLOW_UP_REQUIRED, staging_warning))
@@ -387,8 +401,10 @@ def _plan_arguments(intent):
 
 
 def document_binding(context, request, *, intent, opened, body,
-                     file_index=None, frozen_inputs=None):
+                     file_index=None, frozen_inputs=None, effective=None):
     observations = [ObservedResource("document", opened.path, opened.revision)]
+    if effective is not None:
+        observations.extend(effective.sources)
     if opened.artefact is not None:
         observations.append(ObservedResource("definition", opened.path,
                                              content_digest(canonical_json(opened.artefact))))
@@ -413,6 +429,7 @@ def document_binding(context, request, *, intent, opened, body,
                           review={"document": opened.path, "revision": opened.revision,
                                   "body_sha256": content_digest(body),
                                   "operation": getattr(intent, "result_operation", "frontmatter"),
+                                  **({"mutation_context": effective.review()} if effective is not None else {}),
                                   "fix_links": getattr(intent, "fix_links", False)})
 
 
@@ -432,10 +449,32 @@ def prepare_document_mutation(context, request, intent, *, frozen_inputs=None):
         if opened.revision != intent.expected_revision:
             raise DocumentRevisionConflict("document changed; re-read it before preparing the operation")
         body, frozen = prepare_content(context, getattr(intent, "content", None), frozen)
-        edit.plan_document_edit(opened, body=body, **_plan_arguments(intent))
+        _plan, effective = plan_semantic_document(context, request, router, opened, intent, body)
         index = fix_links.file_index_for_mutation(root) if _may_contain_wikilinks(opened, intent, body) else None
         return document_binding(context, request, intent=intent, opened=opened,
-                                body=body, file_index=index, frozen_inputs=frozen)
+                                body=body, file_index=index, frozen_inputs=frozen, effective=effective)
+
+
+def plan_semantic_document(context, request, router, opened, intent, body):
+    """Only the selected artefact is semantic; downstream link rewrites remain maintenance."""
+    import edit
+    from _common import canonical_living_artefact_key
+    from .workspace_context import resolve_mutation_context, apply_semantic_tags, validate_subject_membership
+
+    plan = edit.plan_document_edit(opened, body=body, **_plan_arguments(intent))
+    if opened.resource != "artefact":
+        return plan, None
+    effective = resolve_mutation_context(context, router, request.workspace_context,
+                                        parent=opened.fields.get("parent"))
+    fields = apply_semantic_tags(plan.fields, effective)
+    reference = canonical_living_artefact_key(opened.artefact or {}, opened.fields) or opened.path
+    validate_subject_membership(router, fields, reference, opened.fields)
+    from .workspace_integrity import lifecycle_guard_observations
+    guards = lifecycle_guard_observations(context, router,
+        ((opened.path, reference, reference, opened.fields, fields),))
+    from _common._workspace import normalise_tags
+    effective = replace(effective, tags=normalise_tags(fields.get("tags", [])), sources=effective.sources + guards)
+    return replace(plan, fields=fields), effective
 
 
 def _may_contain_wikilinks(opened, intent: DocumentMutationIntent, body: str) -> bool:
@@ -479,7 +518,7 @@ def _edit_arguments(intent: DocumentMutationIntent) -> dict:
     }
 
 
-def _payload(intent, result, staged_handle, staging_warning):
+def _payload(intent, result, staged_handle, staging_warning, *, fields=None):
     findings, fixes, substitutions = wikilink_result_values(result)
     common = {
         "path": result["path"],
@@ -529,8 +568,8 @@ def _payload(intent, result, staged_handle, staging_warning):
             staged_handle_consumed=staged_handle is not None and staging_warning is None,
         )
     if isinstance(intent, DocumentFrontmatterIntent):
-        updated = tuple(item.name for item in intent.frontmatter if item.value is not None)
-        removed = tuple(item.name for item in intent.frontmatter if item.value is None)
+        updated = tuple(item.name for item in intent.frontmatter if item.name in fields)
+        removed = tuple(item.name for item in intent.frontmatter if item.name not in fields)
         return DocumentFrontmatterUpdatePayload(
             **common,
             updated_fields=updated,

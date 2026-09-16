@@ -148,17 +148,19 @@ def canonical_living_artefact_key(artefact, fields):
 
 def living_artefact_index_entry(artefact, rel_path, fields):
     """Return the compiled-router living-index entry for parsed frontmatter."""
+    from ._workspace import indexed_workspace_fields
     type_prefix = artefact_type_prefix(artefact)
     key_value = fields.get("key")
     return {
         "path": rel_path,
-        "type": artefact["frontmatter_type"],
+        "type": fields.get("type") or artefact["frontmatter_type"],
         "classification": artefact.get("classification", "living"),
         "type_key": artefact["key"],
         "type_prefix": type_prefix,
         "key": key_value,
         "parent": normalize_artefact_key(fields.get("parent")),
         "children_count": 0,
+        **indexed_workspace_fields(fields),
     }
 
 

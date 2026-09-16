@@ -30,6 +30,7 @@ from _application.document.replace_text import (
 from _application.document.update_frontmatter import DocumentUpdateFrontmatterRequest
 from _application.document.write_body import DocumentWriteBodyOperation, DocumentWriteBodyRequest
 from _application._mutation_support import FrontmatterField, InlineContent, StagedContent
+from _application.workspace_context import WorkspaceSelector
 
 __all__ = (
     "AllMatches",
@@ -58,4 +59,5 @@ __all__ = (
     "ReplaceStructure",
     "StagedContent",
     "UniqueMatch",
+    "WorkspaceSelector",
 )

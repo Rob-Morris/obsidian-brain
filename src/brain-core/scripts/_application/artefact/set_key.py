@@ -14,18 +14,20 @@ from .._lifecycle_mutation import (
     validate_required_value,
 )
 from ..context import InvocationContext
+from ..workspace_context import WorkspaceAwareRequest, workspace_request_decoder, validate_workspace_request
 
 
 @dataclass(frozen=True, slots=True)
-class ArtefactSetKeyRequest:
+class ArtefactSetKeyRequest(WorkspaceAwareRequest):
     COMMAND_ID: ClassVar[str] = "artefact.set-key"
-    COMMAND_VERSION: ClassVar[int] = 1
+    COMMAND_VERSION: ClassVar[int] = 2
     RESULT_TYPE: ClassVar[type] = ArtefactLifecyclePayload
 
     path: str
     key: str
 
     def __post_init__(self) -> None:
+        validate_workspace_request(self)
         validate_path(self.COMMAND_ID, self.path)
         validate_required_value(self.COMMAND_ID, "key", self.key)
 
@@ -34,6 +36,7 @@ def execute(context: InvocationContext, request: ArtefactSetKeyRequest):
     return execute_lifecycle_mutation(context, request, field="key", value=request.key)
 
 
+@workspace_request_decoder
 def decode(payload: Mapping[str, object]) -> ArtefactSetKeyRequest:
     return decode_lifecycle_request(
         payload, ArtefactSetKeyRequest, value_field="key", nullable=False

@@ -4,7 +4,7 @@ Living artefact. Workspace hub files.
 
 ## Purpose
 
-One file per workspace, linking to all related artefacts across the vault. The workspace hub connects brain artefacts (research, decisions, designs) to a bounded container of working files (`_Workspaces/`) that fall outside the vault's artefact taxonomy. Follows the hub pattern — the tag is the query mechanism, the hub is the index.
+One durable identity per workspace, connecting Brain artefacts to bounded working files. Canonical membership is the artefact's `workspace: workspace/{key}` field, never a relationship tag or filesystem location. The workspace hub is self-scoped even when its own `workspace` field is omitted.
 
 Workspaces solve the problem of work that involves non-markdown files (CSVs, JSON, API dumps, spreadsheets), pipelines (raw data, processed output), and scratch material that only makes sense within the scope of that work.
 
@@ -28,14 +28,20 @@ tags:
   - workspace/{key}
 status: active
 workspace_mode: embedded
+default_parent: project/yearly-taxes-2026
+default_tags: []
 ---
 ```
 
-**Optional:** `status`, `workspace_mode`
+**Optional:** `status`, `workspace_mode`, `default_parent`, `default_tags`
 
 `key` is the canonical identifier (see [[.brain-core/standards/keys]]). The platform generates it at create time.
 
-Every file related to a workspace should use the nested workspace tag, e.g. `workspace/yearly-taxes-2026`.
+Relationship tags such as `workspace/yearly-taxes-2026` remain useful for queries but do not assign membership. Adopt existing content explicitly with `artefact.set-workspace`; use recursive intent when it owns descendants. Ownership edges must stay wholly within one workspace or wholly unscoped.
+
+`default_parent` is a canonical non-terminal living artefact in this workspace. It supplies the create parent after any explicit or applicable local override. `default_tags` is an additive list applied to surviving semantic mutation subjects, not incidental link rewrites or maintenance. Change shared policy with `workspace.update-policy`, not generic frontmatter editing.
+
+Caller-local `.brain/local/workspace.yaml` stores the bare workspace key inside `links` and may supply a `parent` and additive `tags` inside `defaults`. Local overrides apply only when selecting that bound workspace; selecting another workspace uses its shared policy. Symbolic `workspace_context` selects a canonical workspace or `global`; filesystem paths are never semantic selectors.
 
 `workspace_mode` is `embedded` (data in `_Workspaces/`) or `linked` (data in an external folder connected via `.brain/local/workspaces.json`).
 
@@ -60,6 +66,8 @@ When a workspace reaches a terminal status (`completed` or `deprecated`), move t
   ```
 
 No rename, no `archiveddate` — terminal hubs stay searchable and indexed in their `+Status` folder.
+
+Terminal hubs remain valid historical membership identities, but cannot be selected for new scoped mutation. Archive/delete/key changes are refused while discoverable members, shared policy, or the active local binding refer to the hub. Ordinary type conversion cannot preserve hub self-scope and is refused. Configured default parents cannot be archived, deleted, made terminal, converted out of living classification, reassigned away, or rekeyed until policy is explicitly changed.
 
 The embedded data folder at `_Workspaces/{key}/` does **not** move regardless of hub status. The data bucket sits outside the artefact taxonomy (see [[#Data Folder]]), so its layout is independent of hub status.
 

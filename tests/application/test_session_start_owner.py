@@ -72,7 +72,7 @@ def test_session_start_returns_typed_bootstrap_and_refreshes_mirror(
     assert result.result.config.default_profile == "operator"
     assert result.result.command_catalogue.schema == "brain.command-catalogue/1"
     assert result.result.command_catalogue.interface_epoch == 3
-    assert result.result.command_catalogue.installed_application_command_count == 80
+    assert result.result.command_catalogue.installed_application_command_count == 83
     assert result.result.command_catalogue.list.startswith("Use command.list")
     assert result.result.command_catalogue.describe.startswith(
         "Use command.describe"
@@ -121,7 +121,7 @@ def test_session_start_carries_trusted_workspace_context(command_vault_clone):
     assert result.status == "ok", result
     assert result.result.workspace.directory == str(workspace.resolve())
     assert result.result.workspace.location == "external"
-    assert result.result.workspace_configuration.binding_status == "not configured"
+    assert result.result.workspace_configuration.binding_status == "unconfigured"
 
 
 def test_cold_session_start_returns_the_shared_progress_snapshot(

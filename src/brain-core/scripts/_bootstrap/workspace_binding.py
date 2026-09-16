@@ -216,7 +216,7 @@ def _walk_for_nearest_marker(start_dir: Path) -> BrainTarget | None:
                 raise WorkspaceBindingError(
                     f"workspace at {candidate} cannot be resolved: "
                     f"{_stale_binding_detail(brain)} — re-bind or repair this "
-                    f"workspace (brain setup workspace), or restore the registry "
+                    f"workspace (brain workspace setup), or restore the registry "
                     f"entry, before continuing.",
                     code="stale_binding",
                 )
@@ -299,7 +299,7 @@ def resolve_brain_target(
             raise WorkspaceBindingError(
                 f"BRAIN_WORKSPACE_DIR points to a workspace that cannot be "
                 f"resolved: {_stale_binding_detail(brain)} — re-bind or repair "
-                f"this workspace (brain setup workspace), or restore the registry "
+                f"this workspace (brain workspace setup), or restore the registry "
                 f"entry, before continuing.",
                 code="stale_binding",
             )
@@ -341,7 +341,7 @@ def resolve_brain_target(
         raise WorkspaceBindingError(
             f"BRAIN_WORKSPACE_DIR is set ({workspace_env}) but that workspace "
             f"has no Brain binding and no BRAIN_VAULT_ROOT is available to "
-            f"repair it — re-bind this workspace (brain setup workspace) before "
+            f"repair it — re-bind this workspace (brain workspace setup) before "
             f"continuing.",
             code="no_brain",
         )
@@ -377,7 +377,7 @@ def resolve_brain_target(
     # ------------------------------------------------------------------
     raise WorkspaceBindingError(
         "no Brain could be resolved — bind this workspace "
-        "(brain setup workspace) or set a machine default "
+        "(brain workspace setup) or set a machine default "
         "(vault_registry --set-default).",
         code="no_brain",
     )
@@ -649,6 +649,22 @@ def resolve_local_brain_vault(brain_id: str) -> Path | None:
     return candidate
 
 
+def resolve_selected_workspace_binding(vault_root, router, manifest):
+    """Require the local alias to identify the selected Brain before resolving policy."""
+    from _common._workspace import resolve_workspace_binding
+
+    error = None
+    if manifest and isinstance(manifest.get("brain"), str) and manifest["brain"].strip():
+        try:
+            bound_root = resolve_local_brain_vault(manifest["brain"])
+            if bound_root is None or bound_root != Path(vault_root).resolve():
+                error = (f"Workspace Brain alias {manifest['brain']!r} does not resolve to the selected Brain. "
+                         "Select the bound Brain or run brain workspace setup for the selected Brain.")
+        except WorkspaceBindingError as exc:
+            error = f"{exc}; repair the Brain registration, then run brain workspace setup."
+    return resolve_workspace_binding(router, manifest, brain_binding_error=error)
+
+
 def save_workspace_manifest_data(
     target_dir: Path,
     data: dict[str, Any],
@@ -715,6 +731,15 @@ def converge_workspace_binding(
     before_write=None,
 ) -> WorkspaceBindingConvergence:
     """Create or update the canonical workspace binding manifest."""
+    state, payload = plan_workspace_binding(target_dir, brain=brain, slug=slug,
+                                            allow_rebind=allow_rebind)
+    write = save_workspace_manifest_data(target_dir, payload, state=state, before_write=before_write)
+    return WorkspaceBindingConvergence(write.manifest_path, brain, payload["slug"],
+                                       write.status, write.message, write.migrated_legacy)
+
+
+def plan_workspace_binding(target_dir, *, brain, slug=None, allow_rebind=False):
+    """Validate and resolve a binding without writing either boundary."""
     # Refuse-guard: a vault root is a Brain, not a workspace of itself.
     # It resolves by path (vault_self) — binding it would create a circular
     # reference.  The vault-self MCP mode (apply_mcp_transport_action with
@@ -749,15 +774,7 @@ def converge_workspace_binding(
         )
 
     payload = _binding_payload(existing, brain=brain, slug=resolved_slug)
-    write = save_workspace_manifest_data(target_dir, payload, state=state, before_write=before_write)
-    return WorkspaceBindingConvergence(
-        manifest_path=write.manifest_path,
-        brain=brain,
-        slug=resolved_slug,
-        status=write.status,
-        message=write.message,
-        migrated_legacy=write.migrated_legacy,
-    )
+    return state, payload
 
 
 def _binding_payload(existing: dict[str, Any], *, brain: str, slug: str) -> dict[str, Any]:

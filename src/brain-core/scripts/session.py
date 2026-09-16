@@ -235,21 +235,19 @@ def _workspace_summary(workspace_dir, vault_root):
 def _workspace_configuration_summary(
     workspace_summary,
     workspace_binding,
+    resolution=("unconfigured", None, None),
 ):
     """Describe the local CLI workspace-binding capability for agent discovery."""
-    if workspace_summary is None:
-        binding_status = "unknown; no workspace directory is active"
-    elif workspace_binding:
-        binding_status = "configured"
-    else:
-        binding_status = "not configured"
+    binding_status, canonical_workspace, guidance = resolution
 
     result = {
         "surface": "local CLI",
         "binding_status": binding_status,
+        "canonical_workspace": canonical_workspace,
+        "guidance": guidance,
         "purpose": "Configure a local folder as a Brain workspace.",
         "command": (
-            "brain workspace bind --workspace <absolute-local-workspace-path> "
+            "brain workspace setup --workspace <absolute-local-workspace-path> "
             "--request-json '{}'"
         ),
         "selection": (
@@ -261,8 +259,8 @@ def _workspace_configuration_summary(
             "MCP cannot configure the connecting agent's local filesystem."
         ),
         "effect": (
-            f"Writes only {WORKSPACE_MANIFEST_REL}; does not create a Brain "
-            "project or workspace artefact."
+            "Ensures canonical Brain workspace registration, then writes "
+            f"{WORKSPACE_MANIFEST_REL}; reports each boundary separately."
         ),
     }
     if workspace_binding:
@@ -274,7 +272,7 @@ def _json_safe(value):
     """Convert YAML-loaded values into JSON-safe structures."""
     if value is None or isinstance(value, (str, int, float, bool)):
         return value
-    if isinstance(value, list):
+    if isinstance(value, (list, tuple)):
         return [_json_safe(item) for item in value]
     if isinstance(value, dict):
         return {str(key): _json_safe(val) for key, val in value.items()}
@@ -318,62 +316,21 @@ def _extract_workspace_defaults(manifest):
     return _json_safe(defaults)
 
 
-def _workspace_record_from_entry(entry):
-    """Project a workspace list entry into the bootstrap session shape."""
-    record = {
-        "slug": entry.get("slug", ""),
-        "workspace_mode": entry.get("mode", ""),
-    }
-    if entry.get("hub_path"):
-        record["hub_path"] = entry["hub_path"]
-    if entry.get("tags"):
-        record["tags"] = entry["tags"]
-    return record
+def _resolve_workspace_binding(vault_root, router, manifest):
+    """Resolve the local Brain alias before accepting its canonical workspace link."""
+    from _bootstrap.workspace_binding import resolve_selected_workspace_binding
+    return resolve_selected_workspace_binding(vault_root, router, manifest)
 
 
-def _resolve_workspace_record(vault_root, workspace, manifest):
-    """Resolve optional canonical workspace metadata when it is safe to do so."""
-    if not workspace:
+def _resolve_workspace_record(vault_root, workspace, manifest, router=None, *, resolution=None):
+    """Expose only a canonical hub selected by the exact manifest link."""
+    state, reference, _guidance = resolution or _resolve_workspace_binding(vault_root, router or {}, manifest)
+    if not workspace or state not in {"valid", "terminal_inactive"}:
         return None
-
-    try:
-        import workspace_registry
-    except ImportError:
-        workspace_registry = None
-
-    entries = []
-    if workspace_registry is not None:
-        try:
-            entries = workspace_registry.list_workspaces(vault_root)
-        except (OSError, ValueError, RuntimeError) as exc:
-            print(f"Warning: failed to read linked workspace registry: {exc}", file=sys.stderr)
-            entries = []
-
-    directory = os.path.abspath(workspace["directory"])
-    for entry in entries:
-        entry_path = entry.get("path")
-        if not entry_path:
-            continue
-        if os.path.abspath(os.path.expanduser(entry_path)) == directory:
-            return _workspace_record_from_entry(entry)
-
-    links = manifest.get("links") if isinstance(manifest, dict) else None
-    linked_slug = links.get("workspace") if isinstance(links, dict) else None
-    if not linked_slug:
-        return None
-
-    for entry in entries:
-        if entry.get("slug") == linked_slug:
-            return _workspace_record_from_entry(entry)
-
-    return {
-        "slug": str(linked_slug),
-        "workspace_mode": (
-            "embedded"
-            if workspace.get("location") == "embedded"
-            else "linked"
-        ),
-    }
+    entry = router["artefact_index"][reference]
+    return {"slug": reference.split("/", 1)[1],
+            "workspace_mode": "embedded" if workspace.get("location") == "embedded" else "linked",
+            "hub_path": entry["path"]}
 
 
 def _load_core_bootstrap(core_body):
@@ -609,20 +566,24 @@ def build_session_model(
     workspace_manifest = _load_workspace_manifest(workspace_dir)
     workspace_defaults = _extract_workspace_defaults(workspace_manifest)
     workspace_binding = extract_workspace_binding(workspace_manifest)
+    workspace_resolution = _resolve_workspace_binding(vault_root, router, workspace_manifest)
     workspace_record = _resolve_workspace_record(
         vault_root,
         workspace_summary,
         workspace_manifest,
+        router,
+        resolution=workspace_resolution,
     )
     workspace_configuration = _workspace_configuration_summary(
         workspace_summary,
         workspace_binding,
+        workspace_resolution,
     )
     core_body = _load_session_core_body(vault_root)
     brain_core_version = meta.get("brain_core_version", "")
 
     model = {
-        "version": "2",
+        "version": "3",
         "brain_core_version": brain_core_version,
         "compiled_at": meta.get("compiled_at", ""),
         "core_bootstrap": _load_core_bootstrap(core_body),
@@ -656,6 +617,15 @@ def build_session_model(
         model["workspace_record"] = workspace_record
     if workspace_defaults:
         model["workspace_defaults"] = workspace_defaults
+    if workspace_resolution[0] in {"valid", "terminal_inactive"}:
+        from dataclasses import asdict
+        from _common._workspace import workspace_policy
+        reference = workspace_resolution[1]
+        model["workspace_policy"] = {
+            "workspace": reference,
+            "shared": _json_safe(asdict(workspace_policy(router, reference, router["artefact_index"][reference]))),
+            "local": _json_safe(asdict(workspace_policy(router, reference, workspace_manifest.get("defaults", {}), local=True))),
+        }
     if include_command_catalogue:
         model["command_catalogue"] = _load_command_catalogue_route(
             vault_root,
@@ -783,6 +753,16 @@ def render_session_markdown(model):
                 formatter=lambda item: f"`{item[0]}`: `{_format_scalar(item[1])}`",
             ),
         ])
+
+    workspace_policy = model.get("workspace_policy")
+    if workspace_policy:
+        sections.extend(["", "## Workspace Policy", "",
+            _render_bullets(
+                [("workspace", workspace_policy["workspace"]),
+                 *[(f"{scope}.{key}", value) for scope in ("shared", "local")
+                   for key, value in workspace_policy[scope].items()]],
+                formatter=lambda item: f"`{item[0]}`: `{_format_scalar(item[1])}`",
+            )])
 
     workspace_defaults = model.get("workspace_defaults")
     if workspace_defaults:

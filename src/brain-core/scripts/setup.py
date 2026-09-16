@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
-"""setup.py — public setup owner for vaults and workspaces."""
+"""Legacy local binding/scaffold compatibility entry point.
+
+This script retains its historical local-only behaviour. Canonical registration
+and binding are owned by ``brain workspace setup`` / ``command.py workspace setup``.
+"""
 
 from __future__ import annotations
 

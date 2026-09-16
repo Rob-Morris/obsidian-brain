@@ -1225,6 +1225,38 @@ class TestTemplateVault:
 # ---------------------------------------------------------------------------
 
 class TestHashing:
+    @pytest.mark.parametrize("changed", ["workspace: workspace/demo", "status: completed"])
+    def test_living_membership_and_status_invalidate_index(self, vault, changed):
+        artefact = vault / "Wiki/Stable.md"
+        artefact.write_text("---\ntype: living/wiki\nkey: stable\n---\nBody\n")
+        before = cr.compile(vault)
+        artefact.write_text(f"---\ntype: living/wiki\nkey: stable\n{changed}\n---\nBody\n")
+        after = cr.compile(vault)
+        assert before["meta"]["source_hash"] != after["meta"]["source_hash"]
+        field, value = changed.split(": ")
+        assert after["artefact_index"]["wiki/stable"][field] == value
+
+    def test_workspace_policy_is_normalized_in_index_and_hash(self, vault):
+        (vault / "Workspaces").mkdir()
+        (vault / "_Config/Taxonomy/Living/Workspaces.md").write_text(
+            "# Workspaces\n\n## Frontmatter\n\n```yaml\n---\ntype: living/workspace\n---\n```\n")
+        hub = vault / "Workspaces/Demo.md"
+        hub.write_text("---\ntype: living/workspace\nkey: demo\ndefault_tags: [a, a]\n---\n")
+        before = cr.compile(vault)
+        assert before["artefact_index"]["workspace/demo"]["default_tags"] == ["a"]
+        hub.write_text("---\ntype: living/workspace\nkey: demo\ndefault_parent: workspace~demo\ndefault_tags: [b]\n---\n")
+        after = cr.compile(vault)
+        assert after["artefact_index"]["workspace/demo"]["default_parent"] == "workspace/demo"
+        assert before["meta"]["source_hash"] != after["meta"]["source_hash"]
+
+    def test_index_does_not_mask_wrong_type_at_workspace_path(self, vault):
+        (vault / "Workspaces").mkdir()
+        (vault / "_Config/Taxonomy/Living/Workspaces.md").write_text(
+            "# Workspaces\n\n## Frontmatter\n\n```yaml\n---\ntype: living/workspace\n---\n```\n")
+        (vault / "Workspaces/Wrong.md").write_text("---\ntype: living/wiki\nkey: wrong\n---\n")
+        result = cr.compile(vault)
+        assert result["artefact_index"]["workspace/wrong"]["type"] == "living/wiki"
+
     def test_hash_changes_on_file_change(self, vault):
         result1 = cr.compile(vault)
         # Modify a source file

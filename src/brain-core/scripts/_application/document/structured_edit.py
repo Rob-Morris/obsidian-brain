@@ -20,6 +20,7 @@ from .._mutation_support import (
     decode_mutation_content,
 )
 from ..context import InvocationContext
+from ..workspace_context import WorkspaceAwareRequest, workspace_request_decoder
 from ._types import DocumentLocator, decode_document, validate_document_request
 
 
@@ -189,9 +190,9 @@ DocumentStructuralChange = ReplaceStructure | InsertStructure | DeleteStructure
 
 
 @dataclass(frozen=True, slots=True)
-class DocumentStructuredEditRequest:
+class DocumentStructuredEditRequest(WorkspaceAwareRequest):
     COMMAND_ID: ClassVar[str] = "document.structured-edit"
-    COMMAND_VERSION: ClassVar[int] = 2
+    COMMAND_VERSION: ClassVar[int] = 3
     RESULT_TYPE: ClassVar[type] = DocumentStructuredEditPayload
     FIELD_DESCRIPTIONS: ClassVar[dict[str, str]] = {
         "document": "Existing editable Brain document.",
@@ -261,6 +262,7 @@ def prepare(context, request, *, frozen_inputs=None):
                                      frozen_inputs=frozen_inputs)
 
 
+@workspace_request_decoder
 def decode(payload: Mapping[str, object]) -> DocumentStructuredEditRequest:
     reject_unexpected(payload, {"document", "expected_revision", "change", "fix_links"})
     expected_revision = payload.get("expected_revision")

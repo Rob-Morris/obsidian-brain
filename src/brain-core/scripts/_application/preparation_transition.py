@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from .preparation import ObservedResource, bind_operation, canonical_json, content_digest
 
 
-def transition_binding(context, request, *, plan, router, frozen_inputs=None):
+def transition_binding(context, request, *, plan, router, frozen_inputs=None, effective=None):
     """Bind selected source revisions, moves and matching writes, never the whole vault."""
     from edit import ArtefactTransitionPlan
     from rename import DeletePlan, MoveLinksPlan
@@ -32,7 +32,7 @@ def transition_binding(context, request, *, plan, router, frozen_inputs=None):
     deleted = getattr(movement, "paths", ())
     sources = set(metadata) | set(deleted) | set(extra) | {item["source"] for item in moves}
     sources.update(item.path for item in movement.links.writes)
-    observations = []
+    observations = list(effective.sources) if effective is not None else []
     types = set()
     for path in sorted(sources):
         source = root / path
@@ -65,7 +65,8 @@ def transition_binding(context, request, *, plan, router, frozen_inputs=None):
                                         content_digest(canonical_json(manifest))))
     return bind_operation(request, observations=observations, frozen_inputs=frozen_inputs,
                           review={"moves": manifest["moves"], "delete": list(deleted),
-                                  "writes": sorted(writes)})
+                                  "writes": sorted(writes),
+                                  **({"mutation_context": effective.review()} if effective is not None else {})})
 
 
 @dataclass(frozen=True, slots=True)
@@ -83,7 +84,9 @@ class TransitionPreparation:
         with vault_mutation_lock(root):
             router = require_fresh_compiled_router(root)
             plan, frozen = self.planner(context, request, router, frozen_inputs=frozen_inputs)
-            return transition_binding(context, request, plan=plan, router=router, frozen_inputs=frozen)
+            from .workspace_transitions import prepare_workspace_transition
+            plan, effective = prepare_workspace_transition(context, request, router, plan)
+            return transition_binding(context, request, plan=plan, router=router, frozen_inputs=frozen, effective=effective)
 
 
 def transition_time(context, frozen_inputs):

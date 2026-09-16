@@ -82,6 +82,129 @@ Selection options are global and mutually constrained:
 
 Launcher commands may run without a selected Brain when their schema permits it. Application commands always execute through the selected Brain's own `.brain-core/scripts/command.py`; the machine-global CLI does not import or emulate another Brain's application semantics.
 
+### Workspace registration and policy
+
+`brain workspace setup --workspace /absolute/repo --request-json '{}'`
+converges canonical Brain registration and the caller-local binding. It requires
+an already registered selected Brain and operator authority. Setup has composite
+`selected_brain_and_caller_local` locality and
+`selected_brain_and_caller_local_mutation` effects: it creates or attaches the
+exact `living/workspace` hub, registers the local path in the selected Brain,
+then writes `brain`, `slug` and the bare `links.workspace` key locally.
+
+An existing `links.workspace` wins over the local slug and any registry path
+match. With no link, this explicit setup operation uses the binding slug and
+persists the link. Terminal workspaces require explicit reactivation. One
+preparation, admission and receipt cover both boundaries; their mutation locks
+are never held together. A local-write failure reports known Brain effects and
+can be retried without creating another hub. The success payload separates
+`registration` from `binding`.
+
+`workspace.ensure-registration` accepts `key` and optional `title`, mutates only
+the selected Brain and requires contributor authority. `workspace.update-policy`
+accepts canonical `workspace`, optional `default_parent`, `clear_parent`, and
+`default_tags` (an empty list clears tags). `workspace.update-metadata` retains
+local tag/descriptive-link updates and adds `parent` / `clear_parent` for `defaults.parent`.
+`links.workspace` is reserved to setup: metadata cannot set it and `clear_links`
+preserves it. Generic artefact creation and document frontmatter edits reject
+shared `default_parent` / `default_tags`; use the policy owner after registration.
+Both parent policies require an existing non-terminal living artefact in the
+same workspace; a workspace hub is self-scoped.
+
+Setup and local metadata updates support CLI, direct-script and Python adapters,
+and remain unavailable over MCP. Registration and shared policy support all
+application projections. Session bootstrap reports `valid`, `unconfigured`,
+`configured_invalid` or `terminal_inactive` and supplies repair guidance for
+invalid or inactive bindings. A manifest's Brain alias must resolve to the
+selected vault; an explicit selection of another Brain fails closed.
+
+### Effective workspace context for content mutations
+
+`artefact.create`, rename, naming-field/status/key changes, convert, reparent,
+reparent-children, archive, unarchive, delete, set-workspace, `shaping.start` v2 and the four `document.*` mutation
+commands accept the shared
+semantic field `workspace_context`: omit it (or pass null) to use validated
+startup context, use `workspace/{key}` to select a canonical workspace in the
+selected Brain, or `global` for intentional unscoped operation. This is never
+a path; CLI `--workspace /absolute/path` remains trusted adapter input. Invalid,
+stale or inactive local bindings must be repaired even when supplying an override.
+
+Create derives `workspace` membership and chooses its parent in this order:
+explicit, local default, shared default, none. Local defaults apply only to the
+locally bound workspace. Every ownership edge must be wholly global or within
+one workspace. Shared, local and explicit tags are additive and deduplicated;
+the normal parent relationship tag remains derived.
+
+Document mutations apply this policy only to artefact targets. A selector on a
+memory, skill, style or template is rejected. Edits preserve membership and
+parent, including when explicitly selecting another workspace; that selected
+workspace contributes its configured tags. Removing configured tags is undone
+by semantic editing; change policy or explicitly select `global` to stop adding
+them. Generic create/frontmatter inputs cannot write `workspace`.
+
+Preparation reviews and affected typed results include `mutation_context`, its
+separate shared/local inputs, effective parent/tags and source revisions. Policy
+source drift invalidates a prepared operation before writes. If index refresh
+fails after a workspace-aware mutation commits, its known-partial
+result retains that exact `mutation_context` alongside committed subjects and
+the index-repair action. Generic persisted receipts remain privacy-minimal.
+Maintenance-only link and repair rewrites do not acquire policy tags.
+
+`shaping.start` resolves one policy snapshot for its composite operation. A new
+temporal transcript receives membership, local/shared default parent (or none),
+configured tags and its explicit template tags. Source links are references, not
+ownership; transcripts remain temporal leaves. The source and any continued
+transcript preserve their membership and parent while restoring configured tags.
+Continuation follows an existing same-day source-linked transcript even when
+parent defaults change. Preparation binds both subjects and policy inputs; one
+lock, admission and receipt cover lifecycle, transcript and backlink writes.
+Known partials retain exact context, actual committed paths and index repair
+guidance. The lower `start_shaping_session.py` is an internal mechanical primitive,
+not a public workspace-aware adapter.
+
+Lifecycle transitions preserve membership and apply policy tags to every
+surviving semantic subject. Recursive archive/unarchive/convert include the
+selected descendants; reparent-children includes the direct children, not
+incidental descendant path moves or backlink rewrites. Delete applies no tags.
+Reparent and conversion outcomes must retain same-workspace ownership edges.
+
+Configured default parents cannot be deleted, archived, made terminal, converted
+out of living classification or given a different canonical key. Workspace hubs
+cannot be archived, deleted or re-keyed while discoverable member/policy references
+or the active local binding remain. Guards inspect active and terminal living,
+temporal and archived artefacts and the invocation's local manifest; they cannot
+inspect disconnected clones. Clear or replace reported policy references before
+retrying. Terminal workspace hubs remain historical identities but cannot be
+selected as effective mutation context. Hub type conversion fails closed because
+ordinary conversion cannot clear implicit self-membership.
+
+`artefact.set-workspace` explicitly assigns its effective `workspace_context` as
+membership. `global` explicitly clears membership; an unconfigured implicit
+context cannot clear it. Requests accept `path`, `recursive`, optional `parent`,
+and `clear_parent` (mutually exclusive with `parent`). Omitted parent is preserved
+only when compatible with the destination. Creation defaults do not replace the
+root parent during reassignment.
+
+Owners with descendants require `recursive: true`. The transition discovers
+active and terminal living records, parented temporal records, and archived
+records from explicit frontmatter, not the compiled living index alone. Only
+living canonical identities own descendants; temporal keys are vestigial and
+attempted temporal-owner edges fail closed. Duplicate living identities affecting
+the transition are ambiguous, including active/archive duplicates.
+
+Every selected subject receives destination membership and configured tags.
+Internal parent edges remain intact; replacing/clearing the root parent updates
+active/terminal folder projections and backlinks. Archive locations remain
+manual and unchanged. Explicit tags are retained except the intentionally
+changed root-parent relationship tag. The complete ownership snapshot and
+write/move set are admitted under one mutation lock; partial results identify
+actual committed subjects, exact context, and any required index repair.
+
+`vault.check` version 3 exposes optional finding `code` values under the
+`workspace_contract` check, including reference, ownership, policy, local binding,
+and adoption-candidate diagnostics. It inspects the caller-local manifest only
+when that trusted adapter context is available; disconnected clones are not scanned.
+
 ### Skill sources and exposure
 
 Selected-Brain commands `skill.list`, `skill.status`, `skill.add-git`,
@@ -200,7 +323,7 @@ The installer writes a versioned distribution under the selected prefix and a sm
 
 The distribution contains the launcher application plus the Brain Core payload needed for install, upgrade and selected-Brain execution. Installation and replacement verify a content manifest and executable identity; failed replacement restores the proven old binary/distribution pair or retains recovery material and reports the outcome as unverified. Failed upgrade results carry every known absolute recovery path in the structural error and durable launcher receipt: residual staging material after a verified rollback is a known partial outcome, while unverified rollback remains outcome-unknown. Standalone human output lists the same paths before the failure message. Once the new pair is verified, failure or interruption while removing an old backup is committed post-upgrade recovery work and never rolls Brain Core back to an older version. Both the launcher result and standalone distribution JSON list the surviving `cleanup_recovery_paths`.
 
-The bootloader requires Python 3.12 or newer. `BRAIN_CLI_VERSION` is `3.3.3`; `BRAIN_INSTALL_REF` is `v0.68.9`.
+The bootloader requires Python 3.12 or newer. `BRAIN_CLI_VERSION` is `3.3.3`; `BRAIN_INSTALL_REF` is `v0.69.0`.
 
 JSON command invocations validate the structural stdout envelope, including
 command identity, version and exit category. Incidental child stderr does not

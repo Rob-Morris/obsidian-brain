@@ -4,6 +4,63 @@ Day-to-day usage patterns for working with the Brain.
 
 ---
 
+## Workspace-aware changes
+
+When a local workspace is bound, creation and semantic edits use its shared and
+local default tags. Lifecycle operations (rename, status/key/type changes,
+reparent, archive and restore) also apply these tags to the selected surviving
+artefacts while preserving membership. Recursive operations include their
+explicitly selected descendants. Backlink fixes and maintenance do not add tags.
+
+Use the symbolic `workspace_context` field to select another `workspace/{key}`
+or `global` for one operation. Ordinary mutations do not reassign existing artefacts;
+the dedicated `artefact.set-workspace` command does.
+Invalid local bindings must be repaired before either choice can proceed.
+
+Before retiring a default parent, replace or clear the shared/local parent
+policy. Before deleting, archiving or re-keying a workspace hub, resolve the
+member and binding references reported by the guard. Closing a workspace with a
+terminal status preserves historical membership but stops its use as mutation
+context. Hub type conversion is refused because it would change self-membership.
+Only the selected vault and active local manifest are inspected; disconnected
+clones validate their bindings when next used.
+
+If a mutation reports partial completion, inspect its committed subjects,
+effective context and repair action before retrying. Do not assume that a failed
+index refresh rolled back the content change.
+
+### Explicit adoption and reassignment
+
+Checkpoint the vault before a bulk adoption and upgrade to a runtime that describes
+`artefact.set-workspace`. Review `vault.check` findings and the intended ownership
+tree first. Existing `workspace/*` tags are relationship evidence, not permission
+to adopt records automatically.
+
+For an existing unscoped project and its owned subtree, these commands provide a
+deliberate rollout (replace the example identities and selected vault):
+
+```bash
+brain workspace ensure-registration --vault /path/to/brain --request-json '{"key":"example"}'
+brain artefact set-workspace --vault /path/to/brain --request-json '{"path":"project/example","workspace_context":"workspace/example","recursive":true,"clear_parent":true}'
+brain workspace update-policy --vault /path/to/brain --request-json '{"workspace":"workspace/example","default_parent":"project/example"}'
+brain vault check --vault /path/to/brain --request-json '{"check":"workspace_contract","actionable":true}'
+```
+
+Use `clear_parent` only when intentionally making the root top-level; otherwise
+provide a same-workspace replacement `parent`, or omit both to preserve a compatible
+parent. Shared/local default parents do not implicitly reparent adoption roots.
+The recursive command includes terminal living, parented temporal, and archived
+records. Temporal artefacts are leaves, even if they carry a vestigial key.
+Archive locations stay unchanged; active owner-derived paths and backlinks follow
+an explicit root-parent change. Ambiguous identities and cyclic ownership fail
+closed before writing.
+
+Preserve existing local defaults unless deliberately changing them with
+`workspace.update-metadata`. Verify session binding, a newly created child's
+membership/parent/tags, and index health after adoption. Inspect any known partial
+result before retrying; checkpoint rollback is an explicit whole-vault action,
+never an automatic response to a reported partial write.
+
 ## A Day in the Life
 
 Here's what working with the Brain looks like in practice.
@@ -176,6 +233,16 @@ Back on the idea log, a callout records the spin-out:
 The idea has legs. Time to shape it properly:
 
 The shaping skill reads the design taxonomy, chooses its conversational mode, and calls the granular `shaping_start` MCP tool to open or continue today's linked session. The application command owns transcript and taxonomy-declared status mechanics; the skill owns adaptive questions, answer propagation, reconciliation, and the completion decision. Most types enter `shaping` and later move to their declared completion status. Discovery-shaped types whose lifecycle represents an enduring state may instead preserve their current non-terminal status throughout the pass.
+
+Shaping uses the same workspace context as other semantic mutations. New
+transcripts receive the selected workspace's membership, default parent and tags;
+source links are references rather than ownership. The source and any continued
+transcript retain their membership and parent while restoring configured tags.
+Use symbolic `workspace_context: global` for an unscoped new transcript, or
+`workspace/{key}` for another workspace's policy; filesystem paths remain adapter
+inputs. Invalid local bindings must be repaired before shaping, even with an
+explicit selector. A partial result identifies committed files and any required
+index repair; inspect it before retrying.
 
 The source artefact remains the current truth, while transcript reconciliation events preserve how decisions, work, possible questions, and body content were added, narrowed, resolved, reopened, or propagated. Each turn asks for one user commitment; question numbers identify transcript turns while stable decision numbers identify the artefact's evolving choices. At a candidate stopping point, the skill explains at a high level why the taxonomy bar is met and recommends an optional four-Cs review—independent when a separate reviewer is available. The review checks correctness, clarity, consistency, and completeness, asks before applying fixes, and either supports completion or returns decision-worthy gaps to shaping. The user chooses to run the review, skip it and complete or hand off the pass, or stop without asserting completion; status changes only when the taxonomy and chosen outcome require one.
 

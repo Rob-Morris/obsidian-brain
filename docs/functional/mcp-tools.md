@@ -48,7 +48,11 @@ The byte budget applies to list pages, not arbitrary command descriptions.
 
 Related named resources share the strict `resource.create`, `resource.list`, `resource.read` and `resource.search` tools. Each has a shallow resource or target discriminator and a closed resource-specific result union. Presentation and printable output similarly share `shaping.render` with a strict `output.kind` branch. These commands replace target-only leaves without introducing a generic invocation gateway.
 
-`shaping.start` opens or continues a taxonomy-declared shaping session. The
+`shaping.start` v2 opens or continues a taxonomy-declared shaping session. Its
+shared symbolic `workspace_context` follows the semantic mutation policy: new
+transcripts receive membership, default parent and tags; the source and existing
+transcripts preserve membership/parent and restore configured tags. Preparation
+and typed success/partial results expose the frozen effective context. The
 default `transition` behaviour enters `status: shaping`; discovery-only
 `preserve` leaves an enduring non-terminal status unchanged and rejects
 terminal targets before mutation. Its result reports the effective status
@@ -64,7 +68,7 @@ The former aggregates and variants are removed: `brain_init`, `brain_session`, `
 
 ## Bounded bootstrap and document reads
 
-`session.start` v6 returns the complete lean bootstrap when its canonical
+`session.start` v8 returns the complete lean bootstrap when its canonical
 JSON envelope fits 16,000 UTF-8 bytes. It advertises the installed type count
 and shared retrieval routes; use `resource.list` with `resource: "type"` and
 `resource.read` to learn a type before creating it. Core-document references
@@ -148,7 +152,50 @@ Large or retry-sensitive content uses the explicit staging commands where the de
 
 ## Trusted invocation context
 
+`artefact.create` and artefact-targeting `document.write-body`,
+`document.update-frontmatter`, `document.structured-edit` and
+`document.replace-text`, plus artefact rename, naming/status/key changes,
+convert, reparent, reparent-children, archive, unarchive, delete and set-workspace accept a
+symbolic `workspace_context` override. Omission
+uses validated startup binding; `workspace/{key}` selects another workspace in
+the same Brain; `global` applies no workspace defaults. Invalid local bindings
+cannot be bypassed. This field never accepts filesystem paths and does not
+change connection state. Non-artefact document targets reject it.
+
+`artefact_set-workspace` uses that context as its destination membership. It accepts
+`path`, `recursive`, optional replacement `parent`, or `clear_parent`. Descendants
+require recursive intent; the complete graph includes terminal living, temporal,
+and archived records. Only living records have canonical owner identities.
+Explicit `global` clears membership; omitted context uses a valid bound workspace
+but cannot implicitly clear membership in an unconfigured connection. It is a
+contributor command with CLI, script, MCP and typed Python projections.
+
+`vault_check` version 3 includes optional finding `code` values for workspace
+reference, ownership, policy, local-binding, and explicit-adoption diagnostics.
+
+The version-3 session payload exposes `workspace_policy.workspace` and separate
+`shared` / `local` parent-and-tag policy inputs. `workspace_default_tags` remains
+the local-only compatibility field, not the effective merged policy. Effective
+mutation context and observed policy revisions appear in preparation reviews and
+the affected mutation results, including known-partial results when index
+reconciliation fails after a semantic mutation commits. These
+partials retain truthful committed subjects and their repair action; the generic
+receipt schema does not persist workspace policy inputs.
+
+Lifecycle guards preserve discoverable workspace membership and default-parent
+references, including temporal and archived members. They report the selected
+vault and active local binding only, not disconnected clones. Recursive semantic
+subjects receive policy tags; deletion and incidental maintenance rewrites do not.
+
 MCP callers provide only semantic fields. The adapter derives selected Brain, workspace binding, authenticated profile, authority, dependency tier, providers, dry-run facilities and receipt storage from trusted server/proxy state.
+
+`workspace.ensure-registration` and `workspace.update-policy` are selected-Brain
+content commands and are available over MCP. `workspace.setup` and
+`workspace.update-metadata` require caller filesystem access and remain local
+CLI/script/Python operations. Session workspace configuration reports a
+canonical reference and explicit `valid`, `unconfigured`, `configured_invalid`
+or `terminal_inactive` state; unresolved manifest links never produce synthetic
+workspace records.
 
 The local proxy assigns every accepted call a bounded `mcp-...` invocation ID in MCP request metadata before child dispatch. The server refuses calls without that proxy-owned identity. Configure an operator key as trusted `BRAIN_OPERATOR_KEY` server environment when a non-default profile is required; it is not a semantic tool argument.
 

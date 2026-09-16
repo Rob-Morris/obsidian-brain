@@ -408,6 +408,36 @@ Existing fixed-file replacements retain the destination permission mode, so
 self-replacing `brain.upgrade` does not turn the global CLI into a non-executable
 data file.
 
+Application-owned `workspace.setup` declares a selected-Brain plus caller-local
+effect. Its single operation binding observes the canonical hub, path registry
+and caller manifest/scaffold targets. It admits once under the Brain lock,
+completes registration, releases that lock, then acquires the caller lock and
+rechecks the admitted local observations before binding. Failures after a
+committed boundary return known partial effects. MCP cannot invoke this owner;
+the selected-Brain `workspace.ensure-registration` and `workspace.update-policy`
+owners require contributor authority and never write caller files.
+
+Workspace-aware create, lifecycle and semantic document owners accept only a symbolic
+`workspace_context` (`workspace/{key}` or `global`). The trusted adapter's
+filesystem workspace remains separate and its binding must validate even for an
+explicit selector. Preparation binds the selected hub revision, local manifest
+digest and chosen parent revision, so changing policy requires fresh admission.
+Local overrides apply only to the locally bound workspace. Membership is
+handler-owned: semantic edits preserve it and apply selected policy tags only
+to their intentional subject, never to incidental link-maintenance rewrites.
+Preparation reviews and typed results expose the effective context; generic
+receipts retain their privacy-minimal committed-subject contract.
+
+The shared semantic inventory excludes link fixes, artefact repairs, naming
+migrations and cache maintenance from policy tagging. Lifecycle preparation
+validates same-workspace edges against the pending write set and observes
+discoverable guard references before admission. Guard scans include active,
+terminal, temporal and archived artefacts plus the active local manifest, never
+disconnected caller files. A newly discovered reference prevents a previously
+prepared identity-breaking operation. Known partial transitions report observed
+changed subjects and their original effective context; maintenance reconciliation
+does not manufacture policy-applied effects.
+
 Launcher-owned uninstall is constrained to the Brain selected in trusted
 context. Before any cleanup it requires a regular `.brain-core/VERSION` and
 rejects symlinks or non-directory values at `.brain-core/`, `.brain/` and
@@ -492,6 +522,16 @@ metadata once trusted invocation context exists.
 ---
 
 ## Cross-references
+
+Workspace reassignment admits a complete filesystem-derived ownership snapshot,
+the exact semantic write/move set, destination policy, and selected parent
+revisions. New descendants or changed ownership before admission conflict;
+ambiguous active/archive identities fail closed. The same single vault mutation
+lock covers planning, admission, writes, index reconciliation, and partial-effect
+observation. Archive locations are not interpreted as ownership. Only living
+canonical identities can own children; temporal keys are vestigial. Workspace
+checks inspect shared vault policy and the trusted active local manifest, not
+disconnected caller files. Adoption is never inferred from relationship tags.
 
 - [DD-031: Path security model](decisions/dd-031-path-security-model.md)
 - [DD-033: Operator profiles](decisions/dd-033-operator-profiles.md)

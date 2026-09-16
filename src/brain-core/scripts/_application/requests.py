@@ -25,6 +25,7 @@ from .artefact.rename import ArtefactRenameRequest
 from .artefact.reparent_children import ArtefactReparentChildrenRequest
 from .artefact.search import ArtefactSearchRequest
 from .artefact.set_key import ArtefactSetKeyRequest
+from .artefact.set_workspace import ArtefactSetWorkspaceRequest
 from .artefact.set_naming_field import ArtefactSetNamingFieldRequest
 from .artefact.set_status import ArtefactSetStatusRequest
 from .artefact.unarchive import ArtefactUnarchiveRequest
@@ -82,6 +83,8 @@ from .workspace.read import WorkspaceReadRequest
 from .workspace.register import WorkspaceRegisterRequest
 from .workspace.repair_registry import WorkspaceRepairRegistryRequest
 from .workspace.setup import WorkspaceSetupRequest
+from .workspace.ensure_registration import WorkspaceEnsureRegistrationRequest
+from .workspace.update_policy import WorkspaceUpdatePolicyRequest
 from .workspace.unregister import WorkspaceUnregisterRequest
 from .workspace.update_metadata import WorkspaceUpdateMetadataRequest
 from .receipts import AdmissionIntent, InvocationOutcome, OwnedReceiptLookup
@@ -122,6 +125,7 @@ __all__ = (
     "ArtefactReparentRequest",
     "ArtefactSearchRequest",
     "ArtefactSetKeyRequest",
+    "ArtefactSetWorkspaceRequest",
     "ArtefactSetNamingFieldRequest",
     "ArtefactSetStatusRequest",
     "ArtefactUnarchiveRequest",
@@ -183,6 +187,8 @@ __all__ = (
     "WorkspaceRegisterRequest",
     "WorkspaceRepairRegistryRequest",
     "WorkspaceSetupRequest",
+    "WorkspaceEnsureRegistrationRequest",
+    "WorkspaceUpdatePolicyRequest",
     "WorkspaceUnregisterRequest",
     "WorkspaceUpdateMetadataRequest",
 )
@@ -493,6 +499,7 @@ CommandRequest = (
     | ArtefactMigrateNamingRequest
     | ArtefactSearchRequest
     | ArtefactSetKeyRequest
+    | ArtefactSetWorkspaceRequest
     | ArtefactSetNamingFieldRequest
     | ArtefactSetStatusRequest
     | ArtefactUnarchiveRequest
@@ -550,6 +557,8 @@ CommandRequest = (
     | WorkspaceRegisterRequest
     | WorkspaceRepairRegistryRequest
     | WorkspaceSetupRequest
+    | WorkspaceEnsureRegistrationRequest
+    | WorkspaceUpdatePolicyRequest
     | WorkspaceUnregisterRequest
     | WorkspaceUpdateMetadataRequest
 )

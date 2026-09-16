@@ -79,7 +79,7 @@ def test_mcpserver_serves_a_2025_06_18_stdio_client(tmp_path):
         process.wait(timeout=5)
 
     assert responses[1]["result"]["protocolVersion"] == "2025-06-18"
-    assert len(responses[2]["result"]["tools"]) == 69
+    assert len(responses[2]["result"]["tools"]) == 72
     call = responses[3]["result"]
     assert call["isError"] is False
     assert call["structuredContent"]["command"] == "command.list"
@@ -108,7 +108,7 @@ def test_mcpserver_serves_a_2026_07_28_stdio_client(tmp_path):
 
         assert session.protocol_version == "2026-07-28"
         assert discovery.supported_versions == ["2026-07-28"]
-        assert len(tools.tools) == 69
+        assert len(tools.tools) == 72
         assert result.is_error is False
         assert result.structured_content["command"] == "command.list"
 
@@ -146,7 +146,7 @@ def test_public_server_supports_stateless_2026_streamable_http(monkeypatch):
                         result = await session.call_tool("command_list", {})
 
         assert session.protocol_version == "2026-07-28"
-        assert len(tools.tools) == 69
+        assert len(tools.tools) == 72
         assert result.is_error is True
         assert result.structured_content["error"]["code"] == (
             "proxy_restart_required"

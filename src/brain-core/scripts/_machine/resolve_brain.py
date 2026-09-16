@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import shlex
 import os
 from pathlib import Path
 import sys
@@ -48,11 +49,11 @@ def _recovery_for_error(code: str, context: dict[str, Any]) -> dict[str, str]:
         if code == "no_brain" and vault_root_env:
             return {
                 "action": "Repair this workspace binding or verify the explicit Brain vault root, then rerun brain session.",
-                "command": f"brain setup workspace {workspace_env} --vault {vault_root_env}",
+                "command": f"brain workspace setup --workspace {shlex.quote(workspace_env)} --vault {shlex.quote(vault_root_env)}",
             }
         return {
             "action": "Re-bind or repair this workspace, then rerun brain session.",
-            "command": f"brain setup workspace {workspace_env}",
+            "command": f"brain workspace setup --workspace {shlex.quote(workspace_env)}",
         }
 
     if code == "stale_binding":
@@ -67,7 +68,7 @@ def _recovery_for_error(code: str, context: dict[str, Any]) -> dict[str, str]:
     if code == "no_brain":
         return {
             "action": "Bind this workspace to a Brain or set a machine default Brain, then rerun brain session.",
-            "command": "brain setup workspace .",
+            "command": "brain workspace setup --workspace .",
         }
 
     return {

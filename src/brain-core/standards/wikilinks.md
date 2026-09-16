@@ -92,4 +92,4 @@ If you're working with the vault directly:
 1. Before writing `[[X]]`, confirm `X.md` exists in the vault.
 2. Prefer basename form. Path-qualified links (`[[Folder/X]]`) break on moves.
 3. If the target doesn't exist, write plain text and create the artefact — then link.
-4. After a rename, update every `[[old-name` reference. `scripts/rename.py:rename_and_update_links` does this automatically when used.
+4. After a rename, update every `[[old-name` reference. The canonical `artefact.rename` command does this while preserving workspace policy and indexes; use it through `brain`, `command.py`, MCP, or the supported Python application.

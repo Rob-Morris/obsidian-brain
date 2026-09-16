@@ -11,6 +11,7 @@ from _application.results import (
     Partial,
     WarningCode,
 )
+from _application.workspace_context import WorkspaceMutationPartial
 
 __all__ = (
     "CommandError",
@@ -22,4 +23,5 @@ __all__ = (
     "Ok",
     "Partial",
     "WarningCode",
+    "WorkspaceMutationPartial",
 )

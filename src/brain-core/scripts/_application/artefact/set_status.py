@@ -14,18 +14,20 @@ from .._lifecycle_mutation import (
     validate_required_value,
 )
 from ..context import InvocationContext
+from ..workspace_context import WorkspaceAwareRequest, workspace_request_decoder, validate_workspace_request
 
 
 @dataclass(frozen=True, slots=True)
-class ArtefactSetStatusRequest:
+class ArtefactSetStatusRequest(WorkspaceAwareRequest):
     COMMAND_ID: ClassVar[str] = "artefact.set-status"
-    COMMAND_VERSION: ClassVar[int] = 1
+    COMMAND_VERSION: ClassVar[int] = 2
     RESULT_TYPE: ClassVar[type] = ArtefactLifecyclePayload
 
     path: str
     status: str
 
     def __post_init__(self) -> None:
+        validate_workspace_request(self)
         validate_path(self.COMMAND_ID, self.path)
         validate_required_value(self.COMMAND_ID, "status", self.status)
 
@@ -36,6 +38,7 @@ def execute(context: InvocationContext, request: ArtefactSetStatusRequest):
     )
 
 
+@workspace_request_decoder
 def decode(payload: Mapping[str, object]) -> ArtefactSetStatusRequest:
     return decode_lifecycle_request(
         payload, ArtefactSetStatusRequest, value_field="status", nullable=False

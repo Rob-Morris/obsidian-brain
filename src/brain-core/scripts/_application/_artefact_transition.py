@@ -4,7 +4,9 @@ from __future__ import annotations
 
 from ._decoding import reject_unexpected
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
+from .workspace_context import WorkspaceMutationPayload
+from .workspace_context import WorkspaceMutationPartial
 from typing import Callable, Mapping
 
 from ._mutation_support import mutation_entry, no_effect_error
@@ -12,12 +14,9 @@ from .types import Authority
 from .context import InvocationContext
 from .receipts import CommittedEffect
 from .results import (
-    CommandError,
     CommandWarning,
     ErrorCode,
     Ok,
-    Partial,
-    RequestErrorDetails,
     WarningCode,
 )
 
@@ -35,14 +34,14 @@ class UninspectedArchiveCandidate:
 
 
 @dataclass(frozen=True, slots=True)
-class ArtefactRenamePayload:
+class ArtefactRenamePayload(WorkspaceMutationPayload):
     old_path: str
     new_path: str
     links_updated: int
 
 
 @dataclass(frozen=True, slots=True)
-class ArtefactConvertPayload:
+class ArtefactConvertPayload(WorkspaceMutationPayload):
     old_path: str
     new_path: str
     type: str
@@ -52,7 +51,7 @@ class ArtefactConvertPayload:
 
 
 @dataclass(frozen=True, slots=True)
-class ArtefactArchivePayload:
+class ArtefactArchivePayload(WorkspaceMutationPayload):
     old_path: str
     new_path: str
     links_updated: int
@@ -60,7 +59,7 @@ class ArtefactArchivePayload:
 
 
 @dataclass(frozen=True, slots=True)
-class ArtefactUnarchivePayload:
+class ArtefactUnarchivePayload(WorkspaceMutationPayload):
     old_path: str
     new_path: str
     links_updated: int
@@ -69,7 +68,7 @@ class ArtefactUnarchivePayload:
 
 
 @dataclass(frozen=True, slots=True)
-class ArtefactDeletePayload:
+class ArtefactDeletePayload(WorkspaceMutationPayload):
     path: str
     deleted: tuple[str, ...]
     links_replaced: int
@@ -117,11 +116,11 @@ def execute_transition(
     context: InvocationContext,
     request,
     *,
-    operation: Callable[[str, dict], dict],
     payload_builder: Callable[[dict], object],
     effect_subject: Callable[[object], str | None],
-    planner=None,
-    apply_plan=None,
+    planner,
+    apply_plan,
+    effect_subjects=None,
 ):
     from ._transition_indexes import combine_transition_errors, transition_error
     from _common import (
@@ -141,22 +140,23 @@ def execute_transition(
             f"{request.COMMAND_ID} does not support dry-run",
         )
     vault_root = str(context.selected_brain.vault_root)
+    from .workspace_transitions import (prepare_workspace_transition,
+        transition_effect_snapshot, committed_transition_effects)
 
     try:
         with vault_mutation_lock(vault_root):
             router = require_fresh_compiled_router(vault_root)
             partial_error = None
             try:
-                if planner is None:
-                    raw_result = operation(vault_root, router)
-                else:
-                    from .preparation import admit_owner
-                    from .preparation_transition import transition_binding
+                from .preparation import admit_owner
+                from .preparation_transition import transition_binding
 
-                    frozen = context.admission.frozen_inputs if context.admission else None
-                    plan, _frozen = planner(context, request, router, frozen_inputs=frozen)
-                    admit_owner(context, request, transition_binding, plan=plan, router=router)
-                    raw_result = apply_plan(vault_root, plan)
+                frozen = context.admission.frozen_inputs if context.admission else None
+                plan, _frozen = planner(context, request, router, frozen_inputs=frozen)
+                plan, effective = prepare_workspace_transition(context, request, router, plan)
+                admit_owner(context, request, transition_binding, plan=plan, router=router, effective=effective)
+                effects_before = transition_effect_snapshot(context, plan)
+                raw_result = apply_plan(vault_root, plan)
             except PartialApplyError as exc:
                 partial_error = exc
             from ._transition_indexes import reconcile_transition_indexes
@@ -165,10 +165,12 @@ def execute_transition(
                 if partial_error is not None or effect_subject(payload_builder(raw_result)) is not None:
                     reconcile_transition_indexes(context)
             except PartialApplyError as exc:
+                effects = committed_transition_effects(context, request, plan, effects_before)
                 if partial_error is not None:
                     raise combine_transition_errors(partial_error, exc) from exc
                 raise
             if partial_error is not None:
+                effects = committed_transition_effects(context, request, plan, effects_before)
                 raise partial_error
     except MutationLockError as exc:
         return no_effect_error(
@@ -181,11 +183,13 @@ def execute_transition(
         message = parent_chain_error_message(exc)
         return no_effect_error(type(request), ErrorCode.INVALID_REQUEST, message)
     except PartialApplyError as exc:
-        return Partial(
+        if not effects:
+            raise RuntimeError("Transition reported partial effects without an observable committed subject") from exc
+        return WorkspaceMutationPartial(
             request.COMMAND_ID,
             request.COMMAND_VERSION,
             transition_error(exc),
-            (CommittedEffect(request.COMMAND_ID, _request_subject(request)),),
+            effects, mutation_context=effective,
         )
     except FileNotFoundError as exc:
         return no_effect_error(type(request), ErrorCode.NOT_FOUND, str(exc))
@@ -194,18 +198,19 @@ def execute_transition(
     except ValueError as exc:
         return no_effect_error(type(request), ErrorCode.INVALID_REQUEST, str(exc))
 
-    payload = payload_builder(raw_result)
+    payload = replace(payload_builder(raw_result), mutation_context=effective)
     warnings = _warnings(payload)
     subject = effect_subject(payload)
     return Ok(
         request.COMMAND_ID,
         request.COMMAND_VERSION,
         payload,
-        committed_effects=(
+        committed_effects=(tuple(CommittedEffect(request.COMMAND_ID, item) for item in effect_subjects(payload))
+            if effect_subjects is not None else (
             ()
             if subject is None
             else (CommittedEffect(request.COMMAND_ID, subject),)
-        ),
+        )),
         warnings=warnings,
     )
 
@@ -221,14 +226,6 @@ def catalogue_entry(
     authority: Authority = Authority.CONTRIBUTOR,
 ):
     return mutation_entry(request_type, executor, authority)
-
-
-def _request_subject(request) -> str:
-    for field in ("path", "source"):
-        value = getattr(request, field, None)
-        if isinstance(value, str) and value:
-            return value
-    return request.COMMAND_ID
 
 
 def _warnings(payload) -> tuple[CommandWarning, ...]:

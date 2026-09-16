@@ -15,6 +15,7 @@ from ..access_contracts import AccessSummary, AuthorisationSummary, PermissionsS
 from typing import ClassVar, Mapping
 
 from ..context import InvocationContext
+from _workspace_contract import WorkspacePolicy
 from ..results import CommandError, Error, ErrorCode, InstructionNextAction, Ok
 from ..runtime._snapshot import typed_snapshot
 from ..runtime_status import RuntimeProgressDetails, RuntimeState
@@ -85,6 +86,8 @@ class SessionWorkspaceConfiguration:
     selection: str
     remote_boundary: str
     effect: str
+    canonical_workspace: str | None
+    guidance: str | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -113,6 +116,13 @@ class SessionWorkspaceRecord:
     workspace_mode: str
     hub_path: str | None
     tags: tuple[str, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class SessionWorkspacePolicies:
+    workspace: str
+    shared: WorkspacePolicy
+    local: WorkspacePolicy
 
 
 @dataclass(frozen=True, slots=True)
@@ -153,6 +163,7 @@ class SessionStartPayload:
     workspace_binding: SessionWorkspaceBinding | None
     workspace_record: SessionWorkspaceRecord | None
     workspace_default_tags: tuple[str, ...]
+    workspace_policy: SessionWorkspacePolicies | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -168,7 +179,7 @@ class SessionBootstrapPage:
 @dataclass(frozen=True, slots=True)
 class SessionStartRequest:
     COMMAND_ID: ClassVar[str] = "session.start"
-    COMMAND_VERSION: ClassVar[int] = 6
+    COMMAND_VERSION: ClassVar[int] = 8
     RESULT_TYPE: ClassVar = SessionStartPayload | SessionBootstrapPage
 
     cursor: TextCursor | None = None
@@ -265,6 +276,11 @@ def _payload(model):
         workspace_default_tags=tuple(
             model.get("workspace_defaults", {}).get("tags", ())
         ),
+        workspace_policy=_optional(model, "workspace_policy", lambda item: SessionWorkspacePolicies(
+            item["workspace"],
+            WorkspacePolicy(item["shared"]["parent"], tuple(item["shared"]["tags"])),
+            WorkspacePolicy(item["local"]["parent"], tuple(item["local"]["tags"])),
+        )),
     )
 
 

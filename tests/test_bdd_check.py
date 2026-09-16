@@ -102,6 +102,18 @@ def run_compliance_checks(compliance_context):
     return check.run_checks(str(compliance_context["vault"]))
 
 
+@given("a workspace member owned by an unscoped parent")
+def incompatible_ownership(compliance_context):
+    vault = compliance_context["vault"]
+    (vault / "_Config/Taxonomy/Living/Workspaces.md").write_text(
+        "# Workspaces\n\n## Frontmatter\n\n```yaml\n---\ntype: living/workspace\n---\n```\n")
+    _write_md(vault / "Workspaces/Demo.md", {"type": "living/workspace", "key": "demo"})
+    _write_md(vault / "Wiki/Parent.md", {"type": "living/wiki", "key": "owner"})
+    _write_md(vault / "Wiki/Child.md", {"type": "living/wiki", "key": "child", "parent": "wiki/owner", "workspace": "workspace/demo"})
+    compiled = compile_router.compile(str(vault))
+    (vault / ".brain/local/compiled-router.json").write_text(json.dumps(compiled))
+
+
 @then(parsers.parse('the compliance findings include check "{check_name}" for "{rel_path}"'))
 def assert_compliance_finding(compliance_result, check_name, rel_path):
     """Assert the expected finding exists."""

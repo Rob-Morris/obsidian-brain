@@ -186,6 +186,10 @@ def plan_artefact_creation(vault_root, router, type_key, title, body="",
 
     if artefact.get("frontmatter") and artefact["frontmatter"].get("type"):
         fields["type"] = artefact["frontmatter"]["type"]
+    from _common._workspace import reject_shared_policy_changes
+    reject_shared_policy_changes(fields.get("type"), fields)
+    from _common._workspace import reject_workspace_membership_changes
+    reject_workspace_membership_changes(fields)
     if "created" not in fields:
         fields["created"] = now_iso
     if "modified" not in fields:
@@ -516,6 +520,15 @@ def main(argv=None):
     router_warning = None
     try:
         with vault_mutation_lock(vault_root):
+            if args.resource == "artefact":
+                from _lifecycle.ownership_graph import read_ownership_graph
+                from _common import resolve_type
+                records = read_ownership_graph(vault_root).records
+                if resolve_type(router, args.type_key).get("frontmatter_type") == "living/workspace" or any(
+                    record.fields.get("type") == "living/workspace" or "workspace" in record.fields
+                    for record in records
+                ):
+                    raise ValueError("Legacy create.py recovery is limited to wholly unscoped vaults; use brain artefact create or command.py artefact create for workspace-aware mutation")
             body, _staged_handle = resolve_mutation_body(
                 vault_root,
                 body=args.body,

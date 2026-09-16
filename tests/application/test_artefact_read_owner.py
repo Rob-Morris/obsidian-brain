@@ -33,6 +33,7 @@ FINAL_COMMAND_IDS = (
     "artefact.set-key",
     "artefact.set-naming-field",
     "artefact.set-status",
+    "artefact.set-workspace",
     "artefact.unarchive",
     "attachment.upload",
     "command.describe",
@@ -86,6 +87,7 @@ FINAL_COMMAND_IDS = (
     "vault.read-router",
     "workspace.bind",
     "workspace.configure-bootstrap",
+    "workspace.ensure-registration",
     "workspace.list",
     "workspace.read",
     "workspace.register",
@@ -93,6 +95,7 @@ FINAL_COMMAND_IDS = (
     "workspace.setup",
     "workspace.unregister",
     "workspace.update-metadata",
+    "workspace.update-policy",
 )
 
 
@@ -174,6 +177,7 @@ def test_foundational_discovery_immediately_includes_cohesive_artefact_owners(
         "artefact.set-key",
         "artefact.set-naming-field",
         "artefact.set-status",
+        "artefact.set-workspace",
         "artefact.unarchive",
     )
 

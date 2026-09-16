@@ -161,9 +161,12 @@ def configure_workspace_metadata_action(
     clear_tags: bool,
     links: list[str],
     clear_links: bool,
+    parent: str | None = None,
+    clear_parent: bool = False,
     before_write=None,
 ) -> dict:
-    if not tags and not links and not clear_tags and not clear_links:
+    from _lifecycle.derived_cache_state import RouterCacheUnavailable
+    if not tags and not links and not clear_tags and not clear_links and parent is None and not clear_parent:
         return _result_envelope(
             "workspace_metadata",
             vault_root,
@@ -174,7 +177,7 @@ def configure_workspace_metadata_action(
         state = load_workspace_manifest_state(workspace_dir)
         if state.data is None:
             raise WorkspaceBindingError(
-                "workspace binding is missing; run `brain setup workspace` or `brain configure workspace binding` first."
+                "workspace binding is missing; run `brain workspace setup` or `brain configure workspace binding` first."
             )
         manifest = dict(state.data)
 
@@ -184,20 +187,18 @@ def configure_workspace_metadata_action(
         if not isinstance(defaults, dict):
             raise WorkspaceBindingError("workspace manifest defaults must be a mapping")
         defaults = dict(defaults)
+        if parent is not None and clear_parent:
+            raise WorkspaceBindingError("parent and clear_parent are mutually exclusive")
+        if clear_parent:
+            defaults.pop("parent", None)
+        elif parent is not None:
+            defaults["parent"] = parent
 
         if clear_tags:
             defaults.pop("tags", None)
         if tags:
-            current_tags = defaults.get("tags")
-            if current_tags is None:
-                current_tags = []
-            if not isinstance(current_tags, list) or not all(isinstance(item, str) for item in current_tags):
-                raise WorkspaceBindingError("workspace manifest defaults.tags must be a list of strings")
-            merged_tags = list(current_tags)
-            for tag in tags:
-                if tag not in merged_tags:
-                    merged_tags.append(tag)
-            defaults["tags"] = merged_tags
+            from _common._workspace import merge_metadata_tags
+            defaults["tags"] = list(merge_metadata_tags(defaults.get("tags", []), tags))
         if defaults:
             manifest["defaults"] = defaults
         else:
@@ -209,20 +210,30 @@ def configure_workspace_metadata_action(
             current_links = {}
         if not isinstance(current_links, dict):
             raise WorkspaceBindingError("workspace manifest links must be a mapping")
-        current_links = {} if clear_links else dict(current_links)
-        current_links.update(parsed_links)
+        from _common._workspace import update_metadata_links
+        current_links = update_metadata_links(current_links, parsed_links, clear=clear_links)
         if current_links:
             manifest["links"] = current_links
         else:
             manifest.pop("links", None)
 
+        if defaults.get("parent") is not None:
+            from _common._workspace import manifest_workspace_reference, require_workspace, workspace_policy
+            from _lifecycle.derived_cache_state import require_fresh_compiled_router
+            router = require_fresh_compiled_router(str(vault_root))
+            reference = manifest_workspace_reference(manifest)
+            require_workspace(router, reference, active=True)
+            policy = workspace_policy(router, reference, defaults, local=True)
+            if policy.parent is not None:
+                defaults["parent"] = policy.parent
+                manifest["defaults"] = defaults
         write = save_workspace_manifest_data(workspace_dir, manifest, before_write=before_write)
         return _result_envelope(
             "workspace_metadata",
             vault_root,
             [_step("workspace_metadata", write.status, write.message)],
         )
-    except WorkspaceBindingError as exc:
+    except (WorkspaceBindingError, ValueError, RouterCacheUnavailable) as exc:
         return _result_envelope(
             "workspace_metadata",
             vault_root,
@@ -395,7 +406,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     metadata.add_argument("--tag", action="append", default=[], help="Add one defaults.tags entry (repeatable).")
     metadata.add_argument("--clear-tags", action="store_true", help="Clear defaults.tags before applying any --tag values.")
     metadata.add_argument("--link", action="append", default=[], help="Set one workspace link as NAME=VALUE (repeatable).")
-    metadata.add_argument("--clear-links", action="store_true", help="Clear the links mapping before applying any --link values.")
+    metadata.add_argument("--clear-links", action="store_true", help="Clear descriptive links, preserving setup-owned links.workspace, before applying --link values.")
+    metadata.add_argument("--parent", help="Set defaults.parent to a living artefact in this workspace.")
+    metadata.add_argument("--clear-parent", action="store_true", help="Clear the local default parent.")
     metadata.add_argument("--json", action="store_true", help="Emit machine-readable JSON.")
 
     bootstrap_sub = workspace_subparsers.add_parser(
@@ -653,6 +666,8 @@ def main(argv: list[str] | None = None) -> int:
             clear_tags=args.clear_tags,
             links=args.link,
             clear_links=args.clear_links,
+            parent=args.parent,
+            clear_parent=args.clear_parent,
         )
         return _emit_result(result, as_json=args.json)
 

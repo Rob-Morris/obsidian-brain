@@ -51,6 +51,7 @@ class DependencyTier(str, Enum):
 
 class Locality(str, Enum):
     SELECTED_BRAIN_LOCAL = "selected_brain_local"
+    SELECTED_BRAIN_AND_CALLER_LOCAL = "selected_brain_and_caller_local"
     CALLER_LOCAL = "caller_local"
     MACHINE_LOCAL = "machine_local"
 
@@ -74,6 +75,7 @@ class EffectClass(str, Enum):
     NONE = "none"
     DERIVED_CACHE_WRITE = "derived_cache_write"
     SELECTED_BRAIN_MUTATION = "selected_brain_mutation"
+    SELECTED_BRAIN_AND_CALLER_LOCAL_MUTATION = "selected_brain_and_caller_local_mutation"
     CALLER_LOCAL_MUTATION = "caller_local_mutation"
     MACHINE_MUTATION = "machine_mutation"
 

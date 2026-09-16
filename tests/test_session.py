@@ -159,10 +159,12 @@ class TestBuildSessionModel:
         }
         assert model["workspace_configuration"] == {
             "surface": "local CLI",
-            "binding_status": "not configured",
+            "binding_status": "unconfigured",
+            "canonical_workspace": None,
+            "guidance": None,
             "purpose": "Configure a local folder as a Brain workspace.",
             "command": (
-                "brain workspace bind --workspace <absolute-local-workspace-path> "
+                "brain workspace setup --workspace <absolute-local-workspace-path> "
                 "--request-json '{}'"
             ),
             "selection": (
@@ -174,8 +176,8 @@ class TestBuildSessionModel:
                 "MCP cannot configure the connecting agent's local filesystem."
             ),
             "effect": (
-                "Writes only .brain/local/workspace.yaml; does not create a "
-                "Brain project or workspace artefact."
+                "Ensures canonical Brain workspace registration, then writes "
+                ".brain/local/workspace.yaml; reports each boundary separately."
             ),
         }
 
@@ -187,11 +189,11 @@ class TestBuildSessionModel:
         )
 
         assert model["workspace_configuration"]["binding_status"] == (
-            "unknown; no workspace directory is active"
+            "unconfigured"
         )
         assert model["workspace_configuration"]["surface"] == "local CLI"
         assert model["workspace_configuration"]["command"] == (
-            "brain workspace bind --workspace <absolute-local-workspace-path> "
+            "brain workspace setup --workspace <absolute-local-workspace-path> "
             "--request-json '{}'"
         )
 
@@ -207,7 +209,7 @@ class TestBuildSessionModel:
         )
 
         assert model["workspace_configuration"]["command"] == (
-            "brain workspace bind --workspace <absolute-local-workspace-path> "
+            "brain workspace setup --workspace <absolute-local-workspace-path> "
             "--request-json '{}'"
         )
         assert str(vault_root) not in model["workspace_configuration"]["command"]
@@ -233,10 +235,9 @@ class TestBuildSessionModel:
             load_config_if_missing=False,
         )
 
-        assert model["workspace_record"] == {
-            "slug": "brain-demo",
-            "workspace_mode": "linked",
-        }
+        assert "workspace_record" not in model
+        assert model["workspace_configuration"]["binding_status"] == "configured_invalid"
+        assert model["workspace_configuration"]["canonical_workspace"] == "workspace/brain-demo"
         assert model["workspace_defaults"] == {
             "tags": ["workspace/brain-demo", "project/brain"],
         }
@@ -275,7 +276,7 @@ class TestBuildSessionModel:
                 load_config_if_missing=False,
             )
 
-    def test_resolve_workspace_record_warns_when_registry_is_broken(self, tmp_path, monkeypatch, capsys):
+    def test_registry_cannot_fabricate_an_unresolved_workspace_record(self, tmp_path, monkeypatch, capsys):
         fake_registry = types.SimpleNamespace(
             list_workspaces=lambda _vault: (_ for _ in ()).throw(ValueError("registry is broken"))
         )
@@ -290,11 +291,8 @@ class TestBuildSessionModel:
             {"links": {"workspace": "brain-demo"}},
         )
 
-        assert record == {
-            "slug": "brain-demo",
-            "workspace_mode": "linked",
-        }
-        assert "failed to read linked workspace registry" in capsys.readouterr().err
+        assert record is None
+        assert capsys.readouterr().err == ""
 
 
 class TestSessionCli:
@@ -374,7 +372,7 @@ class TestSessionCli:
         assert "## Workspace Configuration" in content
         assert "`surface`: `local CLI`" in content
         assert (
-            "brain workspace bind --workspace <absolute-local-workspace-path> "
+            "brain workspace setup --workspace <absolute-local-workspace-path> "
             "--request-json '{}'"
         ) in content
 
@@ -638,7 +636,7 @@ def test_includes_workspace_binding_when_manifest_declares_brain(tmp_path):
         "brain": "brain",
         "slug": "demo-workspace",
     }
-    assert model["workspace_configuration"]["binding_status"] == "configured"
+    assert model["workspace_configuration"]["binding_status"] == "configured_invalid"
     assert model["workspace_configuration"]["current_binding"] == {
         "brain": "brain",
         "slug": "demo-workspace",

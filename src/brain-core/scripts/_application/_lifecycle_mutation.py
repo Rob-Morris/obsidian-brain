@@ -5,16 +5,18 @@ from __future__ import annotations
 from ._decoding import reject_unexpected
 
 from dataclasses import dataclass
+from .workspace_context import WorkspaceMutationPayload
+from .workspace_context import WorkspaceMutationPartial
 from typing import Mapping
 
 from ._mutation_support import contributor_mutation_entry, no_effect_error
 from .context import InvocationContext
 from .receipts import CommittedEffect
-from .results import ErrorCode, Ok, Partial
+from .results import ErrorCode, Ok
 
 
 @dataclass(frozen=True, slots=True)
-class ArtefactLifecyclePayload:
+class ArtefactLifecyclePayload(WorkspaceMutationPayload):
     path: str
     resolved_path: str
     field: str
@@ -81,6 +83,8 @@ def execute_lifecycle_mutation(
     )
     from _lifecycle.derived_cache_state import require_fresh_compiled_router
     import edit
+    from .workspace_transitions import (prepare_workspace_transition,
+        transition_effect_snapshot, committed_transition_effects)
 
     if context.dry_run:
         return no_effect_error(
@@ -100,7 +104,9 @@ def execute_lifecycle_mutation(
             frozen = context.admission.frozen_inputs if context.admission else None
             plan, _frozen = plan_lifecycle_request(context, request, router, field=field,
                                                    value=value, frozen_inputs=frozen)
-            admit_owner(context, request, transition_binding, plan=plan, router=router)
+            plan, effective = prepare_workspace_transition(context, request, router, plan)
+            admit_owner(context, request, transition_binding, plan=plan, router=router, effective=effective)
+            effects_before = transition_effect_snapshot(context, plan)
             from ._transition_indexes import reconcile_transition_indexes
 
             lexical_before = None
@@ -116,10 +122,16 @@ def execute_lifecycle_mutation(
                 try:
                     reconcile_transition_indexes(context)
                 except PartialApplyError as repair_error:
+                    effects = committed_transition_effects(context, request, plan, effects_before)
                     raise combine_transition_errors(exc, repair_error) from repair_error
+                effects = committed_transition_effects(context, request, plan, effects_before)
                 raise
-            reconcile_transition_indexes(context, lexical_before=lexical_before,
-                                         changed_paths=changed_paths)
+            try:
+                reconcile_transition_indexes(context, lexical_before=lexical_before,
+                                             changed_paths=changed_paths)
+            except PartialApplyError:
+                effects = committed_transition_effects(context, request, plan, effects_before)
+                raise
     except MutationLockError as exc:
         return no_effect_error(
             type(request),
@@ -128,10 +140,12 @@ def execute_lifecycle_mutation(
             retryable=True,
         )
     except PartialApplyError as exc:
-        return Partial(
+        if not effects:
+            raise RuntimeError("Lifecycle mutation reported partial effects without an observable committed subject") from exc
+        return WorkspaceMutationPartial(
             request.COMMAND_ID, request.COMMAND_VERSION,
             transition_error(exc),
-            (CommittedEffect(request.COMMAND_ID, plan.result["path"]),),
+            effects, mutation_context=effective,
         )
     except FileNotFoundError as exc:
         return no_effect_error(
@@ -148,6 +162,7 @@ def execute_lifecycle_mutation(
         new_value=result.get("new_value"),
         old_body_line_count=result["old_body_line_count"],
         new_body_line_count=result["new_body_line_count"],
+        mutation_context=effective,
     )
     return Ok(
         request.COMMAND_ID,

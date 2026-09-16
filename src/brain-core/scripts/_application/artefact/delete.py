@@ -17,19 +17,21 @@ from .._artefact_transition import (
     validate_string,
 )
 from ..context import InvocationContext
+from ..workspace_context import WorkspaceAwareRequest, workspace_request_decoder, validate_workspace_request
 from ..types import Authority
 
 
 @dataclass(frozen=True, slots=True)
-class ArtefactDeleteRequest:
+class ArtefactDeleteRequest(WorkspaceAwareRequest):
     COMMAND_ID: ClassVar[str] = "artefact.delete"
-    COMMAND_VERSION: ClassVar[int] = 2
+    COMMAND_VERSION: ClassVar[int] = 3
     RESULT_TYPE: ClassVar[type] = ArtefactDeletePayload
 
     path: str
     recursive: bool = False
 
     def __post_init__(self) -> None:
+        validate_workspace_request(self)
         validate_string(self.COMMAND_ID, "path", self.path)
         validate_recursive(self.COMMAND_ID, self.recursive)
 
@@ -40,7 +42,7 @@ def execute(context: InvocationContext, request: ArtefactDeleteRequest):
     return execute_transition(
         context,
         request,
-        operation=None, planner=plan_operation, apply_plan=rename.apply_artefact_delete,
+        planner=plan_operation, apply_plan=rename.apply_artefact_delete,
         payload_builder=lambda result: ArtefactDeletePayload(
             request.path,
             tuple(result["deleted"]),
@@ -50,6 +52,7 @@ def execute(context: InvocationContext, request: ArtefactDeleteRequest):
         effect_subject=lambda payload: payload.path,
     )
 
+@workspace_request_decoder
 def decode(payload: Mapping[str, object]) -> ArtefactDeleteRequest:
     return decode_path_recursive(payload, ArtefactDeleteRequest)
 

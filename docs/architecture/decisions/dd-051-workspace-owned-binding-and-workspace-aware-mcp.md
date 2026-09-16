@@ -30,9 +30,26 @@ The canonical workspace manifest is `.brain/local/workspace.yaml` in the workspa
 
 ### 2. Public command surface splits setup from configuration
 
+The current canonical contract extends this original decision: `workspace.setup`
+now ensures canonical Brain workspace registration before writing the local
+binding, with a composite locality/effect and separately reported outcomes.
+The historical `setup.py workspace` compatibility entry retains the local-only
+behavior below. See [the CLI contract](../../functional/cli.md#workspace-registration-and-policy)
+for the current supported grammar and policy owners.
+
+Canonical membership and shared mutation policy now extend the local-binding
+model: `living/workspace` is a durable self-scoped identity, artefacts store
+`workspace/{key}`, and shared parent/tag defaults live on the hub. The manifest's
+bare `links.workspace` is authoritative; paths and tags are diagnostic only.
+`artefact.set-workspace` performs explicit complete-graph reassignment, including
+temporal and archived owned records, under one prepared transition. Local policy
+applies only to the locally bound selection. Terminal hubs retain historical
+membership but cannot serve as active mutation context. This supersedes any
+local-only-default or tag-membership interpretation of the original decision.
+
 `init` is no longer the intended public noun for workspace setup. The public lifecycle surface becomes:
 
-- `brain setup workspace` — ensure a workspace is bound and minimally scaffolded
+- `brain workspace setup` — ensure a workspace is bound and minimally scaffolded
 - `brain configure workspace ...` — targeted workspace binding / metadata / bootstrap changes
 - `brain configure mcp` — explicit transport policy configuration
 

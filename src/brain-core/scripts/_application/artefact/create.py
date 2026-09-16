@@ -21,8 +21,9 @@ from .._mutation_support import (
     resolve_mutation_content,
 )
 from ..context import InvocationContext
+from ..workspace_context import WorkspaceAwareRequest, workspace_request_decoder, validate_workspace_request, EffectiveMutationContext, WorkspaceMutationPartial
 from ..receipts import CommittedEffect
-from ..results import CommandWarning, ErrorCode, Ok, Partial, WarningCode
+from ..results import CommandWarning, ErrorCode, Ok, WarningCode
 from .._wikilink_results import (
     WikilinkFinding,
     WikilinkFix,
@@ -58,12 +59,13 @@ class ArtefactCreatePayload:
     wikilink_fixes: tuple[WikilinkFix, ...]
     wikilink_substitutions: int
     staged_handle_consumed: bool
+    mutation_context: EffectiveMutationContext | None = None
 
 
 @dataclass(frozen=True, slots=True)
-class ArtefactCreateRequest:
+class ArtefactCreateRequest(WorkspaceAwareRequest):
     COMMAND_ID: ClassVar[str] = "artefact.create"
-    COMMAND_VERSION: ClassVar[int] = 2
+    COMMAND_VERSION: ClassVar[int] = 4
     RESULT_TYPE: ClassVar[type] = ArtefactCreatePayload
 
     MINIMAL_EXAMPLE: ClassVar[dict[str, object]] = {
@@ -81,6 +83,7 @@ class ArtefactCreateRequest:
     fix_links: bool = False
 
     def __post_init__(self) -> None:
+        validate_workspace_request(self)
         for field_name in ("type", "title"):
             value = getattr(self, field_name)
             if not isinstance(value, str) or not value.strip():
@@ -145,11 +148,11 @@ def execute(context: InvocationContext, request: ArtefactCreateRequest):
             import fix_links
 
             frozen = context.admission.frozen_inputs
-            plan, frozen = plan_artefact_create(context, request, router, body,
+            plan, frozen, effective = plan_artefact_create(context, request, router, body,
                                                 frozen_inputs=frozen)
             index = fix_links.file_index_for_mutation(vault_root) if request.fix_links else None
             binding = (creation_binding(context, request, plan=plan, file_index=index,
-                                        frozen_inputs=frozen)
+                                        frozen_inputs=frozen, effective=effective)
                        if context.admission.requires_binding else None)
             context.admission.admit(binding)
             result = create.apply_artefact_creation(vault_root, router, plan,
@@ -157,11 +160,12 @@ def execute(context: InvocationContext, request: ArtefactCreateRequest):
             staging_warning = finalise_staged_body(vault_root, staged_handle)
             reconcile_transition_indexes(context)
     except TransitionIndexesIncomplete as exc:
-        payload = _payload(result, staged_handle, staging_warning)
-        return Partial(
+        payload = _payload(result, staged_handle, staging_warning, effective)
+        return WorkspaceMutationPartial(
             request.COMMAND_ID, request.COMMAND_VERSION, exc.error,
             (CommittedEffect("artefact.created", result["path"]),),
             warnings=_creation_warnings(payload, staging_warning),
+            mutation_context=effective,
         )
     except MutationLockError as exc:
         return no_effect_error(
@@ -177,7 +181,7 @@ def execute(context: InvocationContext, request: ArtefactCreateRequest):
             str(exc),
         )
 
-    payload = _payload(result, staged_handle, staging_warning)
+    payload = _payload(result, staged_handle, staging_warning, effective)
     return Ok(
         request.COMMAND_ID,
         request.COMMAND_VERSION,
@@ -204,7 +208,7 @@ def _creation_warnings(payload, staging_warning) -> tuple[CommandWarning, ...]:
     return tuple(warnings)
 
 
-def _payload(result, staged_handle, staging_warning) -> ArtefactCreatePayload:
+def _payload(result, staged_handle, staging_warning, effective=None) -> ArtefactCreatePayload:
     findings, fixes, substitutions = wikilink_result_values(result)
     return ArtefactCreatePayload(
         path=result["path"],
@@ -213,6 +217,7 @@ def _payload(result, staged_handle, staging_warning) -> ArtefactCreatePayload:
         key=result.get("key"),
         parent=result.get("parent"),
         parent_context=_parent_context(result.get("parent_context")),
+        mutation_context=effective,
         wikilink_warnings=findings,
         wikilink_fixes=fixes,
         wikilink_substitutions=substitutions,
@@ -238,6 +243,7 @@ def _parent_context(value) -> ParentContext | None:
     )
 
 
+@workspace_request_decoder
 def decode(payload: Mapping[str, object]) -> ArtefactCreateRequest:
     allowed = {
         "type",

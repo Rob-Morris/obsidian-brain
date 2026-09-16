@@ -50,6 +50,7 @@ class VaultCheckFinding:
     message: str
     fix: str | None
     repair: CheckRepairAction | None
+    code: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -63,7 +64,7 @@ class VaultCheckPayload:
 @dataclass(frozen=True, slots=True)
 class VaultCheckRequest:
     COMMAND_ID: ClassVar[str] = "vault.check"
-    COMMAND_VERSION: ClassVar[int] = 2
+    COMMAND_VERSION: ClassVar[int] = 3
     RESULT_TYPE: ClassVar[type] = VaultCheckPayload
 
     severity: CheckSeverity | None = None
@@ -86,7 +87,7 @@ def execute(context: InvocationContext, request: VaultCheckRequest):
     import check
 
     try:
-        result = check.run_checks(context.selected_brain.vault_root)
+        result = check.run_checks(context.selected_brain.vault_root, workspace_dir=context.workspace_dir)
         result = check.filter_and_summarize_findings(
             result,
             severity=request.severity.value if request.severity else None,
@@ -123,6 +124,7 @@ def execute(context: InvocationContext, request: VaultCheckRequest):
                 message=source["message"],
                 fix=source.get("fix") if request.actionable and repair is None else None,
                 repair=repair,
+                code=source.get("code"),
             )
         )
     summary = result["summary"]

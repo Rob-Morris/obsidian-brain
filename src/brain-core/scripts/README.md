@@ -132,6 +132,11 @@ These are adapters over one application owner, not separate implementations.
 
 Many lower-level modules retain executable guards for repository tests, maintenance internals or platform recovery. They are not a supported semantic grammar. Do not add a new public operation by creating another top-level script or Python wrapper.
 
+The documented `create.py` recovery exception is limited to wholly unscoped
+vaults and cannot create workspace hubs. Workspace-aware semantic changes must
+use the canonical application, including explicit `artefact.set-workspace`
+adoption. Legacy edit/rename/lifecycle mains are not policy-aware adapters.
+
 To add or change an operation:
 
 1. define or revise one sealed request/result pair under `_application/`;

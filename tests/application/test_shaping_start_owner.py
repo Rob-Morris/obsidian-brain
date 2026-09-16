@@ -21,6 +21,38 @@ from command_application import application_for
 DESIGN_REFERENCE = "design/command-fixture-design"
 
 
+@pytest.mark.parametrize("entrypoint", ["direct", "application"])
+def test_shaping_status_change_refreshes_router_once(command_vault_clone, monkeypatch, entrypoint):
+    from _portable import router_maintenance
+    from _lifecycle.derived_cache_state import require_fresh_compiled_router
+
+    root = command_vault_clone.vault_root
+    refreshes = []
+    original = router_maintenance.maintain_router
+    def refresh(*args, **kwargs):
+        refreshes.append(args[0])
+        return original(*args, **kwargs)
+    monkeypatch.setattr(router_maintenance, "maintain_router", refresh)
+    if entrypoint == "direct":
+        start_shaping_session.main(["--vault", str(root), "--target", DESIGN_REFERENCE, "--mode", "refine"])
+    else:
+        app = application_for(root)
+        result = app.invoke(ShapingStartRequest(DESIGN_REFERENCE, ShapingMode.REFINE))
+        assert result.status == "ok", result
+    assert len(refreshes) == 1
+    view = require_fresh_compiled_router(str(root))
+    assert view["artefact_index"][DESIGN_REFERENCE]["status"] == "shaping"
+    if entrypoint == "direct":
+        continued = start_shaping_session.start_shaping_session(root, view, DESIGN_REFERENCE, mode="brainstorm")
+        assert continued["transcript_operation"] == "appended"
+        assert not continued["status_changed"]
+    else:
+        continued = app.invoke(ShapingStartRequest(DESIGN_REFERENCE, ShapingMode.BRAINSTORM))
+        assert continued.result.transcript_operation is TranscriptOperation.APPENDED
+        assert not continued.result.status_changed
+    assert len(refreshes) == (1 if entrypoint == "direct" else 2)
+
+
 def test_shaping_start_creates_transcript_and_transitions_status(
     command_vault_clone,
 ):
@@ -100,7 +132,7 @@ def test_shaping_start_preserves_known_partial_application(
 ):
     monkeypatch.setattr(
         start_shaping_session,
-        "start_shaping_session",
+        "_add_transcript_link",
         lambda *_args, **_kwargs: (_ for _ in ()).throw(
             PartialApplyError("transcript created but backlink failed")
         ),
@@ -112,7 +144,57 @@ def test_shaping_start_preserves_known_partial_application(
 
     assert result.status == "partial"
     assert result.error.code is ErrorCode.CONFLICT
-    assert result.committed_effects[0].subject == DESIGN_REFERENCE
+    assert len(result.committed_effects) == 2
+    assert all((command_vault_clone.vault_root / effect.subject).exists()
+               for effect in result.committed_effects)
+
+
+def test_shaping_index_failure_preserves_committed_paths_and_repair(command_vault_clone, monkeypatch):
+    from _portable import router_maintenance
+
+    def fail_refresh(*args, **kwargs):
+        raise OSError("index storage unavailable")
+    monkeypatch.setattr(router_maintenance, "maintain_router", fail_refresh)
+    root = command_vault_clone.vault_root
+    result = application_for(root).invoke(ShapingStartRequest(DESIGN_REFERENCE, ShapingMode.REFINE))
+    assert result.status == "partial", result
+    assert result.error.next_action.command_id == "runtime.refresh-router"
+    paths = tuple(effect.subject for effect in result.committed_effects)
+    assert len(paths) == 2
+    assert all((root / path).exists() for path in paths)
+    assert parse_frontmatter((root / paths[0]).read_text())[0]["status"] == "shaping"
+
+
+@pytest.mark.parametrize("maintenance_failure", ["exception", "partial"])
+def test_shaping_dual_failure_keeps_incomplete_session_and_index_repair(
+    command_vault_clone, monkeypatch, maintenance_failure,
+):
+    from _portable import router_maintenance
+
+    refreshes = []
+    guidance = "Transcript exists but backlink failed; repair the missing transcript backlink."
+    def fail_backlink(*args, **kwargs):
+        raise PartialApplyError(guidance)
+    def fail_refresh(*args, **kwargs):
+        refreshes.append(args[0])
+        if maintenance_failure == "exception":
+            raise OSError("index storage unavailable")
+        return router_maintenance.RouterMaintenanceResult(
+            "partial", "test", False, False, session_error="mirror storage unavailable")
+    monkeypatch.setattr(start_shaping_session, "_add_transcript_link", fail_backlink)
+    monkeypatch.setattr(router_maintenance, "maintain_router", fail_refresh)
+    root = command_vault_clone.vault_root
+    result = application_for(root).invoke(ShapingStartRequest(DESIGN_REFERENCE, ShapingMode.REFINE))
+    assert result.status == "partial", result
+    assert guidance in result.error.message
+    assert result.error.next_action.command_id == "runtime.refresh-router"
+    assert len(refreshes) == 1
+    paths = tuple(effect.subject for effect in result.committed_effects)
+    assert len(paths) == 2
+    assert all((root / path).exists() for path in paths)
+    fields, body = parse_frontmatter((root / paths[0]).read_text())
+    assert fields["status"] == "shaping"
+    assert paths[1].removesuffix(".md") not in body
 
 
 def test_shaping_start_transport_is_strict_contributor_command():

@@ -21,6 +21,7 @@
     "artefact.set-key",
     "artefact.set-naming-field",
     "artefact.set-status",
+    "artefact.set-workspace",
     "artefact.unarchive",
     "attachment.upload",
     "command.describe",
@@ -74,12 +75,14 @@
     "vault.read-router",
     "workspace.bind",
     "workspace.configure-bootstrap",
+    "workspace.ensure-registration",
     "workspace.list",
     "workspace.read",
     "workspace.register",
     "workspace.repair-registry",
     "workspace.setup",
     "workspace.unregister",
-    "workspace.update-metadata"
+    "workspace.update-metadata",
+    "workspace.update-policy"
   ]
 }

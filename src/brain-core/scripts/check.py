@@ -938,6 +938,12 @@ def check_broken_wikilinks(vault_root, router, file_index=None, *, ctx=None):
 # Orchestration
 # ---------------------------------------------------------------------------
 
+def check_workspace_contract(vault_root, router, *, ctx=None):
+    """Validate durable membership, shared defaults and same-workspace ownership."""
+    from _lifecycle.workspace_checks import workspace_findings
+    return workspace_findings(vault_root, router)
+
+
 ALL_CHECKS = [
     check_root_files,
     check_naming,
@@ -948,6 +954,7 @@ ALL_CHECKS = [
     check_living_key_fields,
     check_authoring_hint_tokens,
     check_parent_contract,
+    check_workspace_contract,
     check_empty_folders,
     check_taxonomy_conventions,
     check_status_folders,
@@ -959,7 +966,7 @@ ALL_CHECKS = [
 ]
 
 
-def run_checks(vault_root, router=None):
+def run_checks(vault_root, router=None, *, workspace_dir=None):
     """Run all compliance checks. Returns structured result dict.
 
     Safe for import — never calls sys.exit().
@@ -992,7 +999,11 @@ def run_checks(vault_root, router=None):
     ctx = CheckContext(vault_root, router)
     findings = list(derived_findings)
     for check_fn in ALL_CHECKS:
-        findings.extend(check_fn(vault_root, router, ctx=ctx))
+        if check_fn is check_workspace_contract and workspace_dir is not None:
+            from _lifecycle.workspace_checks import workspace_findings
+            findings.extend(workspace_findings(vault_root, router, workspace_dir=workspace_dir))
+        else:
+            findings.extend(check_fn(vault_root, router, ctx=ctx))
     findings.extend(collect_bootstrap_check_findings(vault_root))
     from _lifecycle.semantic_repairs import collect_managed_check_findings
 

@@ -11,12 +11,12 @@ from .._mutation_support import contributor_mutation_entry, no_effect_error
 from ..context import InvocationContext
 from ..preparation import admit_owner
 from ._start_preparation import SHAPING_SESSION, session_plan, session_binding
-from ..receipts import CommittedEffect
+from ..workspace_context import (WorkspaceAwareRequest, WorkspaceMutationPayload, WorkspaceMutationPartial,
+                                 workspace_request_decoder, validate_workspace_request)
 from ..results import (
     CommandError,
     ErrorCode,
     Ok,
-    Partial,
     RequestErrorDetails,
 )
 
@@ -38,7 +38,7 @@ class StatusBehaviour(str, Enum):
 
 
 @dataclass(frozen=True, slots=True)
-class ShapingStartPayload:
+class ShapingStartPayload(WorkspaceMutationPayload):
     resolved_target_path: str
     target_path: str
     target_path_changed: bool
@@ -52,15 +52,16 @@ class ShapingStartPayload:
 
 
 @dataclass(frozen=True, slots=True)
-class ShapingStartRequest:
+class ShapingStartRequest(WorkspaceAwareRequest):
     COMMAND_ID: ClassVar[str] = "shaping.start"
-    COMMAND_VERSION: ClassVar[int] = 1
+    COMMAND_VERSION: ClassVar[int] = 2
     RESULT_TYPE: ClassVar[type] = ShapingStartPayload
 
     target: str
     mode: ShapingMode
 
     def __post_init__(self) -> None:
+        validate_workspace_request(self)
         if not isinstance(self.target, str) or not self.target.strip():
             raise ValueError("target must be a non-empty string")
         if not isinstance(self.mode, ShapingMode):
@@ -75,6 +76,8 @@ def execute(context: InvocationContext, request: ShapingStartRequest):
         vault_mutation_lock,
     )
     from _lifecycle.derived_cache_state import require_fresh_compiled_router
+    from .._transition_indexes import index_refresh_error
+    from _portable.transition_indexes import IndexRefreshIncomplete
     from start_shaping_session import start_shaping_session
 
     if context.dry_run:
@@ -93,14 +96,21 @@ def execute(context: InvocationContext, request: ShapingStartRequest):
             def binding(context, request, *, frozen_inputs=None):
                 return session_binding(context, request, plan=plan, router=router, frozen_inputs=frozen)
             admit_owner(context, request, binding)
+            from ._start_preparation import session_effect_snapshot, committed_session_effects
+            before = session_effect_snapshot(context, plan)
             options["_plan"] = plan
-            result = start_shaping_session(
-                root,
-                router,
-                request.target.strip(),
-                mode=request.mode.value,
-                **options,
-            )
+            try:
+                result = start_shaping_session(
+                    root,
+                    router,
+                    request.target.strip(),
+                    mode=request.mode.value,
+                    **options,
+                )
+            finally:
+                effects = committed_session_effects(context, request, plan, before)
+                if context.derived_snapshots is not None:
+                    context.derived_snapshots.invalidate()
     except MutationLockError as exc:
         return no_effect_error(
             ShapingStartRequest,
@@ -108,9 +118,14 @@ def execute(context: InvocationContext, request: ShapingStartRequest):
             public_mutation_error_message(exc),
             retryable=True,
         )
+    except IndexRefreshIncomplete as exc:
+        return WorkspaceMutationPartial(request.COMMAND_ID, request.COMMAND_VERSION, index_refresh_error(exc),
+            effects, mutation_context=plan["mutation_context"])
     except PartialApplyError as exc:
         message = public_mutation_error_message(exc)
-        return Partial(
+        if not effects:
+            return no_effect_error(ShapingStartRequest, ErrorCode.CONFLICT, message)
+        return WorkspaceMutationPartial(
             request.COMMAND_ID,
             request.COMMAND_VERSION,
             CommandError(
@@ -118,7 +133,7 @@ def execute(context: InvocationContext, request: ShapingStartRequest):
                 message,
                 RequestErrorDetails(None, message),
             ),
-            (CommittedEffect(request.COMMAND_ID, request.target.strip()),),
+            effects, mutation_context=plan["mutation_context"],
         )
     except FileNotFoundError as exc:
         return no_effect_error(
@@ -150,19 +165,18 @@ def execute(context: InvocationContext, request: ShapingStartRequest):
         StatusBehaviour(result["status_behaviour"]),
         result["status_changed"],
         TranscriptOperation(result["transcript_operation"]),
-        tuple(result["changed_paths"]),
+        tuple(effect.subject for effect in effects),
+        mutation_context=plan["mutation_context"],
     )
     return Ok(
         request.COMMAND_ID,
         request.COMMAND_VERSION,
         payload,
-        committed_effects=tuple(
-            CommittedEffect(request.COMMAND_ID, path)
-            for path in payload.changed_paths
-        ),
+        committed_effects=effects,
     )
 
 
+@workspace_request_decoder
 def decode(payload: Mapping[str, object]) -> ShapingStartRequest:
     reject_unexpected(payload, {"target", "mode"})
     target = payload.get("target")

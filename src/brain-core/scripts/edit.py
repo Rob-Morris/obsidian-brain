@@ -993,6 +993,12 @@ def plan_document_edit(opened, *, operation="edit", body="", frontmatter_changes
         body, scope = _prepare_artefact_operation(operation, body, frontmatter_changes,
                                                  target, selector, scope)
         _reject_handler_owned_frontmatter(opened.artefact, frontmatter_changes)
+        from _common._workspace import reject_workspace_membership_changes
+        reject_workspace_membership_changes(frontmatter_changes)
+        from _common._workspace import reject_shared_policy_changes
+        reject_shared_policy_changes(opened.fields.get("type"), frontmatter_changes)
+        if frontmatter_changes and frontmatter_changes.get("type") == "living/workspace":
+            reject_shared_policy_changes("living/workspace", {**opened.fields, **frontmatter_changes})
     else:
         _validate_request_contract(operation, bool(body), frontmatter_changes,
                                     target, selector, scope)

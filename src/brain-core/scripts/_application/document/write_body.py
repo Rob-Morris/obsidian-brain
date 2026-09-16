@@ -20,6 +20,7 @@ from .._mutation_support import (
     decode_mutation_content,
 )
 from ..context import InvocationContext
+from ..workspace_context import WorkspaceAwareRequest, workspace_request_decoder
 from ._types import DocumentLocator, decode_document, validate_document_request
 
 
@@ -30,9 +31,9 @@ class DocumentWriteBodyOperation(str, Enum):
 
 
 @dataclass(frozen=True, slots=True)
-class DocumentWriteBodyRequest:
+class DocumentWriteBodyRequest(WorkspaceAwareRequest):
     COMMAND_ID: ClassVar[str] = "document.write-body"
-    COMMAND_VERSION: ClassVar[int] = 1
+    COMMAND_VERSION: ClassVar[int] = 2
     RESULT_TYPE: ClassVar[type] = DocumentWriteBodyPayload
     FIELD_DESCRIPTIONS: ClassVar[dict[str, str]] = {
         "document": "Existing editable Brain document.",
@@ -96,6 +97,7 @@ def prepare(context, request, *, frozen_inputs=None):
                                      frozen_inputs=frozen_inputs)
 
 
+@workspace_request_decoder
 def decode(payload: Mapping[str, object]) -> DocumentWriteBodyRequest:
     reject_unexpected(
         payload,

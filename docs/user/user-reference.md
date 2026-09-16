@@ -1,6 +1,6 @@
 # Brain Reference
 
-This page is the stable user-facing reference for Brain Core 0.68.9 and CLI 3.3.3. Exact command schemas, examples and availability come from the installed Brain rather than a duplicated hand-maintained inventory.
+This page is the stable user-facing reference for Brain Core 0.69.0 and CLI 3.3.3. Exact command schemas, examples and availability come from the installed Brain rather than a duplicated hand-maintained inventory.
 
 Document changes use a read–mutate loop. Read an editable artefact or named
 resource, retain its returned `revision`, then pass that value as
@@ -157,11 +157,24 @@ See [Configuration](../functional/config.md).
 `.brain/local/workspace.yaml` belongs to the connecting workspace, not the vault. It records the local Brain identity, workspace slug and filing defaults. Configure it on the agent's machine:
 
 ```bash
-brain workspace bind --vault /path/to/brain \
+brain workspace setup --vault /path/to/brain \
   --workspace /absolute/path/to/workspace --request-json '{}' --json
 ```
 
 MCP cannot configure the connecting agent's local filesystem. Remote-Brain transport and gateway hosting are separate from this local command architecture.
+
+Setup ensures a canonical hub before saving the local binding and reports the two
+outcomes separately. `links.workspace` stores a bare key; artefacts and selectors
+use `workspace/{key}`. Shared `default_parent` / `default_tags` live on the hub;
+local `defaults.parent` overrides the shared create parent and local tags add to
+shared tags only for the locally bound workspace. Generic metadata cannot relink
+the authoritative workspace.
+
+`brain artefact set-workspace --request-json '{"path":"project/example","workspace_context":"workspace/example","recursive":true,"clear_parent":true}'`
+explicitly adopts a subtree. Review the root parent choice and follow the
+[adoption workflow](workflows.md#explicit-adoption-and-reassignment); tags never
+trigger automatic membership migration. Terminal workspaces retain historical
+membership but cannot be selected for new scoped writes.
 
 ## Recovery and compliance
 

@@ -55,6 +55,7 @@ from _application.types import (
 )
 from _application.vault.check import CheckSeverity
 from _application.workspace.update_metadata import WorkspaceMetadataLink
+from _application.workspace_context import WorkspaceSelector
 
 __all__ = (
     "AllMatches",
@@ -120,4 +121,5 @@ __all__ = (
     "TemplateCreateTarget",
     "UniqueMatch",
     "WorkspaceMetadataLink",
+    "WorkspaceSelector",
 )

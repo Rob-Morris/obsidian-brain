@@ -18,13 +18,14 @@ from .._mutation_support import (
     contributor_mutation_entry,
 )
 from ..context import InvocationContext
+from ..workspace_context import WorkspaceAwareRequest, workspace_request_decoder
 from ._types import DocumentLocator, decode_document, validate_document_request
 
 
 @dataclass(frozen=True, slots=True)
-class DocumentUpdateFrontmatterRequest:
+class DocumentUpdateFrontmatterRequest(WorkspaceAwareRequest):
     COMMAND_ID: ClassVar[str] = "document.update-frontmatter"
-    COMMAND_VERSION: ClassVar[int] = 2
+    COMMAND_VERSION: ClassVar[int] = 4
     RESULT_TYPE: ClassVar[type] = DocumentFrontmatterUpdatePayload
     FIELD_DESCRIPTIONS: ClassVar[dict[str, str]] = {
         "document": "Existing editable Brain document.",
@@ -74,6 +75,7 @@ def prepare(context, request, *, frozen_inputs=None):
                                      frozen_inputs=frozen_inputs)
 
 
+@workspace_request_decoder
 def decode(payload: Mapping[str, object]) -> DocumentUpdateFrontmatterRequest:
     reject_unexpected(payload, {"document", "expected_revision", "updates"})
     expected_revision = payload.get("expected_revision")

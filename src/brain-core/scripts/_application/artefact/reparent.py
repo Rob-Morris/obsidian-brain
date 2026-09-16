@@ -14,18 +14,20 @@ from .._lifecycle_mutation import (
     validate_path,
 )
 from ..context import InvocationContext
+from ..workspace_context import WorkspaceAwareRequest, workspace_request_decoder, validate_workspace_request
 
 
 @dataclass(frozen=True, slots=True)
-class ArtefactReparentRequest:
+class ArtefactReparentRequest(WorkspaceAwareRequest):
     COMMAND_ID: ClassVar[str] = "artefact.reparent"
-    COMMAND_VERSION: ClassVar[int] = 1
+    COMMAND_VERSION: ClassVar[int] = 2
     RESULT_TYPE: ClassVar[type] = ArtefactLifecyclePayload
 
     path: str
     parent: str | None
 
     def __post_init__(self) -> None:
+        validate_workspace_request(self)
         validate_path(self.COMMAND_ID, self.path)
         validate_nullable_value(self.COMMAND_ID, "parent", self.parent)
 
@@ -36,6 +38,7 @@ def execute(context: InvocationContext, request: ArtefactReparentRequest):
     )
 
 
+@workspace_request_decoder
 def decode(payload: Mapping[str, object]) -> ArtefactReparentRequest:
     return decode_lifecycle_request(
         payload, ArtefactReparentRequest, value_field="parent", nullable=True

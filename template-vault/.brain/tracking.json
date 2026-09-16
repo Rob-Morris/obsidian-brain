@@ -114,15 +114,15 @@
       }
     },
     "living/workspaces": {
-      "brain_core_version": "0.63.0",
-      "installed_at": "2026-09-12T09:49:12.021399+00:00",
+      "brain_core_version": "0.69.0",
+      "installed_at": "2026-09-16T16:49:51.949036+00:00",
       "files": {
         "taxonomy": {
-          "source_hash": "sha256:1a3acccad1b439f93290a9115d2e2b392d6db4b577c12e3afc4392e344c44d07",
+          "source_hash": "sha256:0ade595d4016d710f7eb39f6a3dfd595cbf256dcae1979f42048fd7b96b8f51c",
           "target": "_Config/Taxonomy/Living/workspaces.md"
         },
         "template": {
-          "source_hash": "sha256:a517f168cb91ea153af9b461996c8d5b1a1e4fb347bd46cfe0012bb0d07ace72",
+          "source_hash": "sha256:83dd11dd2307c337237aa8991b77642087a4cb2c467e804f7748e333b5958272",
           "target": "_Config/Templates/Living/Workspaces.md"
         }
       }

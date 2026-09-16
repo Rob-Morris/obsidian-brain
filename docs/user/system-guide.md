@@ -210,6 +210,17 @@ At each transition, use provenance links (origin on child, callout on parent). C
 
 Hub artefacts (a living type like People, Projects, or Workspaces) are living summaries that other artefacts gather around. Child artefacts use canonical `parent` when they are structurally owned; the complete owner chain is projected into living child paths and into temporal child paths, which file flat beneath it. Additional temporal or thematic relationships still use tags and prose links. See `.brain-core/standards/hub-pattern` for the full standard.
 
+Workspace membership is separate from ownership: `workspace: workspace/{key}`
+identifies the canonical workspace hub, while `parent` controls filing. Hubs are
+self-scoped, and every parent edge must stay within one workspace or wholly
+unscoped. Shared `default_parent` and `default_tags` belong to the workspace hub;
+the bound local manifest can override the create parent and add tags. Ordinary
+edits preserve membership. Only `artefact.set-workspace` adopts/reassigns existing
+content, recursively when descendants exist, including temporal and archived
+records. Terminal workspace hubs remain valid historical identities but cannot
+be selected for new scoped mutation. Relationship tags never infer membership;
+see [explicit adoption](workflows.md#explicit-adoption-and-reassignment).
+
 **Temporal handshake:** Related temporal artefacts feed their hub. When a temporal changes the current picture, distil the change into the hub. Temporals preserve *when*; the hub reflects *now*.
 
 **Contextual linking:** Weave links into prose — don't list them as changelog entries. Link text should read naturally: `Scope narrowed after the [[decision-log|March review]]` not `- See [[20260320-decision~Review]]`.

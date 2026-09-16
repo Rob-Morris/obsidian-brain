@@ -16,6 +16,7 @@ from .artefact import rename as artefact_rename
 from .artefact import reparent_children as artefact_reparent_children
 from .artefact import search as artefact_search
 from .artefact import set_key as artefact_set_key
+from .artefact import set_workspace as artefact_set_workspace
 from .artefact import set_naming_field as artefact_set_naming_field
 from .artefact import set_status as artefact_set_status
 from .artefact import unarchive as artefact_unarchive
@@ -78,6 +79,8 @@ from .workspace import read as workspace_read
 from .workspace import register as workspace_register
 from .workspace import repair_registry as workspace_repair_registry
 from .workspace import setup as workspace_setup
+from .workspace import ensure_registration as workspace_ensure_registration
+from .workspace import update_policy as workspace_update_policy
 from .workspace import unregister as workspace_unregister
 from .workspace import update_metadata as workspace_update_metadata
 from .resolver import ResolverEntry
@@ -102,6 +105,7 @@ _COMMAND_OWNERS = (
     artefact_reparent_children,
     artefact_search,
     artefact_set_key,
+    artefact_set_workspace,
     artefact_set_naming_field,
     artefact_set_status,
     artefact_unarchive,
@@ -159,6 +163,8 @@ _COMMAND_OWNERS = (
     workspace_register,
     workspace_repair_registry,
     workspace_setup,
+    workspace_ensure_registration,
+    workspace_update_policy,
     workspace_unregister,
     workspace_update_metadata,
 )

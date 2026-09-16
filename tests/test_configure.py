@@ -549,7 +549,7 @@ def test_configure_workspace_metadata_updates_defaults_and_links(tmp_path, monke
         "--tag",
         "workspace/demo",
         "--link",
-        "workspace=brain-demo",
+        "repository=brain-demo",
         "--json",
     ])
 
@@ -563,8 +563,45 @@ def test_configure_workspace_metadata_updates_defaults_and_links(tmp_path, monke
         "  tags:\n"
         "    - workspace/demo\n"
         "links:\n"
-        "  workspace: brain-demo\n"
+        "  repository: brain-demo\n"
     )
+
+
+@pytest.mark.parametrize("existing,incoming", [([], ""), ([], "   "), ([""], "new"), (["   "], "new")])
+def test_configure_workspace_metadata_rejects_empty_tags_without_parent(tmp_path, capsys, existing, incoming):
+    from _bootstrap.workspace_binding import save_workspace_manifest_data
+
+    vault = _make_vault(tmp_path)
+    workspace = tmp_path / "demo-workspace"
+    workspace.mkdir()
+    write = save_workspace_manifest_data(workspace, {
+        "brain": "brain", "slug": "demo-workspace", "defaults": {"tags": existing},
+    })
+    before = write.manifest_path.read_bytes()
+    exit_code = configure.main([
+        "workspace", "metadata", "--vault", str(vault), "--path", str(workspace),
+        "--tag", incoming, "--json",
+    ])
+    assert exit_code == 2
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["status"] == "error"
+    assert "non-empty strings" in payload["steps"][0]["message"]
+    assert write.manifest_path.read_bytes() == before
+
+
+def test_configure_workspace_metadata_normalizes_and_deduplicates_tags_without_parent(tmp_path):
+    from _bootstrap.workspace_binding import save_workspace_manifest_data, read_workspace_manifest
+
+    vault = _make_vault(tmp_path)
+    workspace = tmp_path / "demo-workspace"
+    workspace.mkdir()
+    save_workspace_manifest_data(workspace, {
+        "brain": "brain", "slug": "demo-workspace", "defaults": {"tags": [" kept ", "kept"]},
+    })
+    result = configure.configure_workspace_metadata_action(vault, workspace_dir=workspace,
+        tags=[" next ", "kept", "next"], clear_tags=False, links=[], clear_links=False)
+    assert result["status"] == "ok"
+    assert read_workspace_manifest(workspace)["defaults"] == {"tags": ["kept", "next"]}
 
 
 def test_configure_workspace_bootstrap_installs_agents_and_claude(tmp_path, capsys):

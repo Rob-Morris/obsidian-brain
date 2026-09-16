@@ -191,7 +191,8 @@ def test_transition_partial_apply_is_structural_and_receipted(
     command_vault_clone,
     monkeypatch,
 ):
-    real_rename = rename.apply_artefact_rename
+    import edit
+    real_rename = edit.apply_artefact_transition
     destination = (
         "Designs/project~command-fixture/Uncertain Command Fixture Design.md"
     )
@@ -200,7 +201,7 @@ def test_transition_partial_apply_is_structural_and_receipted(
         real_rename(*args, **kwargs)
         raise PartialApplyError("links changed and move committed; refresh failed")
 
-    monkeypatch.setattr(rename, "apply_artefact_rename", commit_then_report_partial)
+    monkeypatch.setattr(edit, "apply_artefact_transition", commit_then_report_partial)
     result = application_for(command_vault_clone.vault_root).invoke(
         ArtefactRenameRequest(DESIGN, destination)
     )

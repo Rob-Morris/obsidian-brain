@@ -21,6 +21,7 @@ from typing import (
 )
 
 from ._mutation_support import FrontmatterCodec
+from .workspace_context import WorkspaceSelectorCodec, WorkspaceMutationPartial
 
 from .requests import CommandRequest
 from .results import CommandError, CommandResult, Error, Ok, Partial
@@ -116,7 +117,7 @@ def request_schema(request_type: type[CommandRequest]) -> dict[str, object]:
             continue
         annotation = hints.get(field.name, field.type)
         schema = _type_schema(annotation, command_id=command_id, trail=(request_type,))
-        description = descriptions.get(field.name)
+        description = descriptions.get(field.name, field.metadata.get("description"))
         if description is None:
             description = _fallback_description(field.name, command_id)
         if not isinstance(description, str) or not description.strip():
@@ -186,6 +187,8 @@ def canonical_result_envelope(result: CommandResult) -> dict[str, object]:
         envelope["result"] = {
             "committed_effects": _wire_value(result.committed_effects),
         }
+        if isinstance(result, WorkspaceMutationPartial):
+            envelope["result"]["mutation_context"] = _wire_value(result.mutation_context)
         envelope["error"] = _error_value(result.error, effects="known")
         return envelope
     envelope["result"] = None
@@ -266,7 +269,7 @@ _wire_value = canonical_wire_value
 def _field_wire_value(value, annotation):
     if get_origin(annotation) is Annotated:
         for codec in get_args(annotation)[1:]:
-            if isinstance(codec, FrontmatterCodec):
+            if isinstance(codec, (FrontmatterCodec, WorkspaceSelectorCodec)):
                 return _wire_value(codec.encode(value))
     return _wire_value(value)
 
@@ -276,7 +279,7 @@ def _type_schema(annotation, *, command_id: str, trail: tuple[type, ...]) -> dic
     arguments = get_args(annotation)
     if origin is Annotated:
         for codec in arguments[1:]:
-            if isinstance(codec, FrontmatterCodec):
+            if isinstance(codec, (FrontmatterCodec, WorkspaceSelectorCodec)):
                 return codec.schema()
         return _type_schema(arguments[0], command_id=command_id, trail=trail)
     if origin is ClassVar:

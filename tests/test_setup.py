@@ -97,7 +97,7 @@ def test_guided_setup_orchestrates_optional_branches(tmp_path, vault, monkeypatc
         "",
         "y",
         "workspace/demo",
-        "workspace=demo-workspace",
+        "repository=demo-workspace",
     ])
     monkeypatch.setattr("builtins.input", lambda _prompt='': next(prompts))
 
@@ -123,7 +123,7 @@ def test_guided_setup_orchestrates_optional_branches(tmp_path, vault, monkeypatc
     assert "brain: brain" in manifest
     assert "slug: demo-workspace" in manifest
     assert "workspace/demo" in manifest
-    assert "workspace: demo-workspace" in manifest
+    assert "repository: demo-workspace" in manifest
 
 
 def test_converge_workspace_binding_refuses_vault_root(tmp_path):

@@ -23,34 +23,29 @@ def transition_error(exc):
 
 def reconcile_transition_indexes(context, *, lexical_before=None, changed_paths=()):
     """Publish current router/listing state after content effects, without encoding."""
-    from _portable.router_maintenance import maintain_router
-    from _portable.lexical_maintenance import maintain_lexical_index, update_lexical_documents
-
-    root = context.selected_brain.vault_root
-    action = CommandNextAction("runtime.refresh-router")
+    from _portable.transition_indexes import reconcile_artefact_indexes, IndexRefreshIncomplete
     try:
-        router = maintain_router(root, dry_run=False, force=False)
-        if router.status == "partial":
-            from ._router_maintenance import router_partial_error
-            raise TransitionIndexesIncomplete(router_partial_error(router))
-        action = CommandNextAction("retrieval.refresh-lexical", (CommandArgument("force", True),))
-        if lexical_before is not None:
-            update_lexical_documents(root, lexical_before, changed_paths)
-        else:
-            # Moves preserve mtime, so rebuild when the affected extent is not
-            # confined to the in-place documents captured before admission.
-            maintain_lexical_index(root, dry_run=False, force=True)
-    except TransitionIndexesIncomplete:
-        raise
-    except (OSError, RuntimeError, ValueError) as exc:
-        raise TransitionIndexesIncomplete(CommandError(
-            ErrorCode.CONFLICT,
-            "Artefact changes committed, but derived index refresh failed; run " + action.command_id + ".",
-            RequestErrorDetails(None, "derived-index-refresh-failed"), action,
-        )) from exc
+        reconcile_artefact_indexes(context.selected_brain.vault_root,
+                                  lexical_before=lexical_before, changed_paths=changed_paths)
+    except IndexRefreshIncomplete as exc:
+        raise TransitionIndexesIncomplete(index_refresh_error(exc)) from exc
     finally:
         if context.derived_snapshots is not None:
             context.derived_snapshots.invalidate()
+
+
+def index_refresh_error(exc):
+    """Project portable completion failures into the command repair contract."""
+    if exc.router_result is not None:
+        from ._router_maintenance import router_partial_error
+        error = router_partial_error(exc.router_result)
+        if exc.operation_error is not None:
+            error = replace(error, message=public_mutation_error_message(exc.operation_error) + " " + error.message)
+        return error
+    arguments = (CommandArgument("force", True),) if exc.command_id == "retrieval.refresh-lexical" else ()
+    return CommandError(ErrorCode.CONFLICT, str(exc),
+                        RequestErrorDetails(None, "derived-index-refresh-failed"),
+                        CommandNextAction(exc.command_id, arguments))
 
 
 def combine_transition_errors(original, maintenance):

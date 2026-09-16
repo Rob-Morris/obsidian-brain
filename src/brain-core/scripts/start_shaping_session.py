@@ -118,23 +118,20 @@ def _transcript_artefact(router):
     return artefact
 
 
-def _transcript_layout(artefact, router, title, now):
+def _transcript_layout(artefact, router, title, now, overrides=None):
     fields = {
         "created": now.isoformat(),
         "modified": now.isoformat(),
         "type": artefact["frontmatter_type"],
     }
+    fields.update(overrides or {})
     reconcile_fields_for_render(fields, artefact)
-    folder = resolve_folder(artefact, router=router)
+    folder = resolve_folder(artefact, parent=fields.get("parent"), router=router)
     filename = render_filename_or_default(artefact["naming"], title, fields)
     return folder, filename, fields
 
 
-def _is_same_day_transcript(rel_path, artefact, folder, fields):
-    expected_folder = os.path.normpath(folder).replace(os.sep, "/")
-    actual_folder = os.path.normpath(os.path.dirname(rel_path)).replace(os.sep, "/")
-    if actual_folder != expected_folder:
-        return False
+def _is_same_day_transcript(rel_path, artefact, fields):
     filename = os.path.basename(rel_path)
     title = extract_title(artefact["naming"], fields, filename)
     if title is None:
@@ -148,7 +145,6 @@ def _linked_transcripts(
     source_path,
     file_index,
     transcript_artefact,
-    folder,
     layout_fields,
 ):
     matches = []
@@ -157,10 +153,10 @@ def _linked_transcripts(
             continue
         for link in extract_wikilinks(line):
             rel_path = _resolve_link_path(link["stem"], file_index)
-            if rel_path is None:
+            if rel_path is None or not rel_path.startswith(transcript_artefact["path"].rstrip("/") + "/"):
                 continue
             if not _is_same_day_transcript(
-                rel_path, transcript_artefact, folder, layout_fields
+                rel_path, transcript_artefact, layout_fields
             ):
                 continue
             abs_path = os.path.join(vault_root, rel_path)
@@ -183,9 +179,10 @@ def _choose_transcript_path(
     file_index,
     transcript_artefact,
     router,
+    transcript_fields=None,
 ):
     folder, filename, layout_fields = _transcript_layout(
-        transcript_artefact, router, artefact_title, now
+        transcript_artefact, router, artefact_title, now, transcript_fields
     )
     linked = _linked_transcripts(
         source_body,
@@ -193,7 +190,6 @@ def _choose_transcript_path(
         source_path,
         file_index,
         transcript_artefact,
-        folder,
         layout_fields,
     )
     if len(linked) > 1:
@@ -245,6 +241,18 @@ def _read_transcript_template(vault_root, artefact):
             f"Shaping transcript template not found at '{template_path}'"
         )
     return content
+
+
+def render_transcript_template(template, source_path, source_type, now):
+    """Render the same source variables before policy planning and durable application."""
+    source_stem = os.path.splitext(source_path)[0]
+    source_display = os.path.splitext(os.path.basename(source_path))[0]
+    return substitute_template_vars(template, {
+        "SOURCE_DOC_PATH|SOURCE_DOC_TITLE": f"{source_stem}|{source_display}",
+        "SOURCE_DOC_PATH": source_stem,
+        "SOURCE_DOC_TITLE": source_display,
+        "SOURCE_TYPE": source_type,
+    }, _now=now)
 
 
 def _add_transcript_link(
@@ -339,7 +347,7 @@ def _prepare_shaping_target(vault_root, router, target):
 
 
 def plan_shaping_session(vault_root, router, target, *, mode, _now=None, _prepared_target=None,
-                         chosen_transcript=None):
+                         chosen_transcript=None, transcript_fields=None):
     """Resolve transcript naming and lifecycle effects without writing anything."""
     vault_root = str(vault_root)
     prepared = _prepared_target or _prepare_shaping_target(
@@ -370,6 +378,7 @@ def plan_shaping_session(vault_root, router, target, *, mode, _now=None, _prepar
         file_index,
         transcript_artefact,
         router,
+        transcript_fields,
     )
     if chosen_transcript is not None and not transcript_exists:
         transcript_path = chosen_transcript
@@ -422,6 +431,8 @@ def start_shaping_session(
     lifecycle_applied = False
     transcript_changed = False
     target_path = resolved_path
+    operation_error = None
+    operation_cause = None
     try:
         if status_changed:
             lifecycle = edit.apply_artefact_transition(vault_root, plan["lifecycle"])
@@ -435,6 +446,10 @@ def start_shaping_session(
                     f"'{target_path}'"
                 )
             fields, body = parse_frontmatter(refreshed)
+        target_metadata_changed = False
+        if "target_fields" in plan:
+            target_metadata_changed = fields != plan["target_fields"]
+            fields = dict(plan["target_fields"])
         session_heading = (
             f"\n\n## {session_mode.capitalize()} session start — "
             f"{now.strftime('%H:%M')}\n"
@@ -442,6 +457,10 @@ def start_shaping_session(
         if transcript_exists:
             with open(transcript_abs, "r", encoding="utf-8") as handle:
                 transcript_content = handle.read()
+            if "transcript_fields" in plan:
+                existing_fields, transcript_body = parse_frontmatter(transcript_content)
+                if existing_fields != plan["transcript_fields"]:
+                    transcript_content = serialize_frontmatter(plan["transcript_fields"], body=transcript_body)
             safe_write_artefact(
                 transcript_abs,
                 transcript_content.rstrip() + session_heading,
@@ -450,20 +469,10 @@ def start_shaping_session(
             transcript_changed = True
             transcript_operation = "appended"
         else:
-            source_stem = os.path.splitext(target_path)[0]
-            source_display = os.path.splitext(os.path.basename(target_path))[0]
-            transcript_content = substitute_template_vars(
-                template,
-                {
-                    "SOURCE_DOC_PATH|SOURCE_DOC_TITLE": (
-                        f"{source_stem}|{source_display}"
-                    ),
-                    "SOURCE_DOC_PATH": source_stem,
-                    "SOURCE_DOC_TITLE": source_display,
-                    "SOURCE_TYPE": artefact["key"],
-                },
-                _now=now,
-            )
+            transcript_content = render_transcript_template(template, target_path, artefact["key"], now)
+            if "transcript_fields" in plan:
+                _, transcript_body = parse_frontmatter(transcript_content)
+                transcript_content = serialize_frontmatter(plan["transcript_fields"], body=transcript_body)
             safe_write_artefact(
                 transcript_abs,
                 transcript_content.rstrip() + session_heading,
@@ -483,20 +492,36 @@ def start_shaping_session(
             transcript_display,
             now.isoformat(),
         )
-    except PartialApplyError:
-        raise
+        if target_metadata_changed and not backlink_changed:
+            safe_write_artefact(os.path.join(vault_root, target_path),
+                               serialize_frontmatter(fields, body=body), bounds=vault_root)
+    except PartialApplyError as exc:
+        operation_error = exc
+        operation_cause = exc.__cause__
     except Exception as exc:
         if not lifecycle_applied and not transcript_changed:
             raise
         durable = [target_path] if lifecycle_applied else []
         if transcript_changed:
             durable.append(transcript_path)
-        raise PartialApplyError(
+        operation_error = PartialApplyError(
             "shaping session partially applied — durable files "
             f"{durable}; session write failed: {exc}"
-        ) from exc
+        )
+        operation_cause = exc
 
-    target_changed = status_changed or backlink_changed
+    if lifecycle_applied or plan.get("reconcile_indexes"):
+        from _portable.transition_indexes import reconcile_artefact_indexes, IndexRefreshIncomplete
+        try:
+            reconcile_artefact_indexes(vault_root)
+        except IndexRefreshIncomplete as exc:
+            durable = (target_path, transcript_path) if transcript_changed else (target_path,)
+            raise IndexRefreshIncomplete(exc.command_id, router_result=exc.router_result,
+                                         committed_paths=durable, operation_error=operation_error) from exc
+    if operation_error is not None:
+        raise operation_error from operation_cause
+
+    target_changed = status_changed or backlink_changed or target_metadata_changed
     changed_paths = [transcript_path]
     if target_changed:
         changed_paths.insert(0, target_path)

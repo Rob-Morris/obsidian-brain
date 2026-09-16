@@ -32,7 +32,7 @@ class WorkspaceMetadataLink:
 @dataclass(frozen=True, slots=True)
 class WorkspaceUpdateMetadataRequest:
     COMMAND_ID: ClassVar[str] = "workspace.update-metadata"
-    COMMAND_VERSION: ClassVar[int] = 1
+    COMMAND_VERSION: ClassVar[int] = 2
     RESULT_TYPE: ClassVar[type] = CallerWorkspacePayload
     MINIMAL_EXAMPLE: ClassVar[dict[str, bool]] = {"clear_tags": True}
 
@@ -40,8 +40,15 @@ class WorkspaceUpdateMetadataRequest:
     clear_tags: bool = False
     links: tuple[WorkspaceMetadataLink, ...] = ()
     clear_links: bool = False
+    parent: str | None = None
+    clear_parent: bool = False
 
     def __post_init__(self) -> None:
+        require_string(self.parent, "parent", optional=True)
+        if not isinstance(self.clear_parent, bool):
+            raise ValueError("clear_parent must be a boolean")
+        if self.parent is not None and self.clear_parent:
+            raise ValueError("parent and clear_parent are mutually exclusive")
         if not isinstance(self.tags, tuple):
             raise ValueError("tags must be a tuple")
         if any(not isinstance(tag, str) or not tag.strip() for tag in self.tags):
@@ -60,7 +67,7 @@ class WorkspaceUpdateMetadataRequest:
             bool,
         ):
             raise ValueError("clear_tags and clear_links must be booleans")
-        if not self.tags and not self.links and not self.clear_tags and not self.clear_links:
+        if not self.tags and not self.links and not self.clear_tags and not self.clear_links and self.parent is None and not self.clear_parent:
             raise ValueError("workspace.update-metadata requires at least one change")
 
 
@@ -82,6 +89,8 @@ def execute(context: InvocationContext, request: WorkspaceUpdateMetadataRequest)
             clear_tags=request.clear_tags,
             links=[f"{link.name}={link.value}" for link in request.links],
             clear_links=request.clear_links,
+            parent=request.parent,
+            clear_parent=request.clear_parent,
         ),
         effect_subjects=lambda result: lifecycle_effects(
             "caller-workspace:.brain/local/workspace.yaml",
@@ -92,7 +101,7 @@ def execute(context: InvocationContext, request: WorkspaceUpdateMetadataRequest)
 
 
 def decode(payload: Mapping[str, object]) -> WorkspaceUpdateMetadataRequest:
-    reject_unexpected(payload, {"tags", "clear_tags", "links", "clear_links"})
+    reject_unexpected(payload, {"tags", "clear_tags", "links", "clear_links", "parent", "clear_parent"})
     raw_tags = payload.get("tags", ())
     if not isinstance(raw_tags, (list, tuple)):
         raise ValueError("tags must be a list of strings")
@@ -113,6 +122,8 @@ def decode(payload: Mapping[str, object]) -> WorkspaceUpdateMetadataRequest:
         optional_bool(payload.get("clear_tags"), "clear_tags"),
         tuple(links),
         optional_bool(payload.get("clear_links"), "clear_links"),
+        require_string(payload.get("parent"), "parent", optional=True),
+        optional_bool(payload.get("clear_parent"), "clear_parent"),
     )
 
 

@@ -15,12 +15,13 @@ from .._lifecycle_mutation import (
     validate_required_value,
 )
 from ..context import InvocationContext
+from ..workspace_context import WorkspaceAwareRequest, workspace_request_decoder, validate_workspace_request
 
 
 @dataclass(frozen=True, slots=True)
-class ArtefactSetNamingFieldRequest:
+class ArtefactSetNamingFieldRequest(WorkspaceAwareRequest):
     COMMAND_ID: ClassVar[str] = "artefact.set-naming-field"
-    COMMAND_VERSION: ClassVar[int] = 1
+    COMMAND_VERSION: ClassVar[int] = 2
     RESULT_TYPE: ClassVar[type] = ArtefactLifecyclePayload
 
     path: str
@@ -28,6 +29,7 @@ class ArtefactSetNamingFieldRequest:
     value: str
 
     def __post_init__(self) -> None:
+        validate_workspace_request(self)
         validate_path(self.COMMAND_ID, self.path)
         validate_required_value(self.COMMAND_ID, "field", self.field)
         validate_required_value(self.COMMAND_ID, "value", self.value)
@@ -39,6 +41,7 @@ def execute(context: InvocationContext, request: ArtefactSetNamingFieldRequest):
     )
 
 
+@workspace_request_decoder
 def decode(payload: Mapping[str, object]) -> ArtefactSetNamingFieldRequest:
     reject_unexpected(payload, {"path", "field", "value"})
     missing = [name for name in ("path", "field", "value") if name not in payload]

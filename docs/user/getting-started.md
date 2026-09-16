@@ -96,14 +96,22 @@ If those tools and generated assets are unavailable, follow `.brain-core/md-boot
 
 Commands declare bootstrap, portable or managed dependency tiers. The adapter never silently provisions or changes tier; availability and one next action are part of the structural result. See [User Reference](user-reference.md#dependency-and-availability-model) and [Script Reference](../functional/scripts.md).
 
-When you already have a Brain and want to bind a folder without choosing transport policy, use `workspace.bind`:
+When you already have a registered Brain and want to register and bind a folder without choosing transport policy, use `workspace.setup`:
 
 ```bash
-brain workspace bind --vault /path/to/brain --workspace /path/to/project \
+brain workspace setup --vault /path/to/brain --workspace /path/to/project \
   --request-json '{}' --json
 ```
 
-That creates or repairs `.brain/local/workspace.yaml` with the workspace's `brain + slug` binding and adds Brain-owned machine-local ignore rules in git-backed targets without writing `.mcp.json`, `.codex/config.toml`, or SessionStart hooks. Configure transport later only if you want it, for example:
+That ensures a canonical Brain workspace hub first, then creates or repairs
+`.brain/local/workspace.yaml` with `brain + slug + links.workspace` and adds
+Brain-owned machine-local ignore rules in git-backed targets. Registration and
+local binding are reported separately: if the second step fails, inspect the
+known partial result and retry. Existing content is not adopted from tags; use
+the [explicit adoption workflow](workflows.md#explicit-adoption-and-reassignment)
+before selecting an existing project as the shared default parent. Setup does not
+write `.mcp.json`, `.codex/config.toml`, or SessionStart hooks. Configure transport
+later only if you want it, for example:
 
 ```bash
 # Project scope for one workspace and all three clients

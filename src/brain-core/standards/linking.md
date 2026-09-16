@@ -49,8 +49,8 @@ Shaping transcripts use a stable same-day filename (`yyyymmdd-shaping-transcript
 
 When renaming or deleting files programmatically, always use the link-aware tools:
 
-- **Rename**: `rename_and_update_links()` in `scripts/rename.py` — renames the file and rewrites all wikilinks pointing to the old name
-- **Delete**: `delete_and_clean_links()` in `scripts/rename.py` — removes the file and replaces wikilinks with strikethrough text
+- **Rename**: `artefact.rename` — renames the file and rewrites all wikilinks pointing to the old name while applying semantic workspace policy
+- **Delete**: `artefact.delete` — removes the file and replaces wikilinks with strikethrough text after lifecycle and workspace guards
 - **Bulk rename**: `scripts/migrate_naming.py` — uses `rename_and_update_links()` for every rename in a naming convention migration
 
 Never rename `.md` files with raw `os.rename()` or `mv` — this silently breaks every wikilink pointing to the old name.

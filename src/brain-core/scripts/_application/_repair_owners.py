@@ -65,6 +65,17 @@ def execute_repair(
             if not plan.error:
                 admit_owner(context, request, repair_binding, plan=plan)
             result = operation(root, context.dry_run, prepared_plan=plan)
+            if not context.dry_run and result.get("status") in {"ok", "partial"} and plan.scope != "empty_folders":
+                from ._transition_indexes import reconcile_transition_indexes, TransitionIndexesIncomplete
+                try:
+                    reconcile_transition_indexes(context)
+                except TransitionIndexesIncomplete as exc:
+                    from dataclasses import replace
+                    error = exc.error
+                    if result.get("status") == "partial":
+                        error = replace(error, message=_error_message(result) + " " + error.message)
+                    return Partial(request.COMMAND_ID, request.COMMAND_VERSION, error,
+                                   (CommittedEffect(request.COMMAND_ID, "vault"),))
     except MutationLockError as exc:
         return no_effect_error(
             type(request),

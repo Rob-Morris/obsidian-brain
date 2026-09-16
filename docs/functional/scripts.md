@@ -51,6 +51,21 @@ MCP, CLI, direct script and typed Python share:
 
 Adapter-only concerns remain outside the semantic request. `--vault`, `--workspace`, `--operator-key`, `--dry-run`, process rendering and invocation identity are trusted composition inputs, not command fields.
 
+For artefact creation, `shaping.start` v2, the existing semantic lifecycle owners and the four
+document mutation owners, semantic
+`workspace_context` in request JSON accepts `workspace/{key}` or `global`, never
+a filesystem path. Document targets other than artefacts reject this selector.
+The typed Python construction value is `brain_application.values.WorkspaceSelector`;
+CLI, script, Python and MCP share its strict schema and resolver. See the
+[workspace mutation contract](cli.md#effective-workspace-context-for-content-mutations)
+for parent/tag precedence and preparation freshness. `artefact.set-workspace`
+explicitly reassigns the complete owned subtree using that context as its
+destination; `global` clears membership only for this dedicated transition.
+Shaping creates transcripts with selected membership, default parent and tags;
+continuation preserves existing membership/parent and restores configured tags
+on the source and transcript. The linked contract above covers its composite
+preparation and partial-result behaviour.
+
 The direct projection honours the same credential permissions and configured initial authorisation as MCP. A managed CLI job provides one private lifetime for `access.prepare`, `access.request` and `access.reduce`; standalone calls retain initial authorisation and their own principal-scoped receipts. Permission administration belongs to the CLI-only `permission.set-profile` launcher and is absent from this script and the typed application catalogue.
 
 Frontmatter transport fields are JSON objects; typed Python constructors retain immutable field tuples. Artefact selectors resolve short or qualified singular/plural names through the configured taxonomy and return its canonical frontmatter type. MCP projects the dotted command ID to `noun_verb`; direct scripts keep noun/verb arguments.
@@ -99,8 +114,21 @@ compiled router after a committed create, so consecutive recovery creates do
 not require a manual compile between commands. If that post-commit refresh
 cannot complete, creation still reports its committed result with an explicit
 `runtime.refresh-router` warning rather than inviting a duplicate retry.
+This compatibility route is restricted to wholly unscoped recovery vaults and
+cannot create workspace hubs. If any workspace hub or membership metadata exists,
+it fails closed and directs callers to `artefact.create` through `brain` or
+`command.py`. Legacy `edit.py`, `rename.py`, and `lifecycle.py` mains are internal
+test/maintenance seams, not supported semantic routes; do not use them to bypass
+workspace preparation, policy, lifecycle guards, or index completion.
 
 Machine-global operations do not run through selected-Brain `command.py`. The versioned CLI distribution owns the separate stdlib-safe launcher catalogue and its install, upgrade, registry, runtime, MCP and diagnostic owners.
+
+The legacy `setup.py workspace` entry point retains its historical local
+binding and ignore-scaffold behavior for compatibility; it does not ensure a
+canonical workspace hub. Use `command.py workspace setup --workspace PATH`
+or `brain workspace setup --workspace PATH` for the compound registration and
+binding contract. This operation is unavailable over MCP because its second
+boundary needs caller filesystem access.
 
 ## Dependency boundaries
 

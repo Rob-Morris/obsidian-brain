@@ -228,8 +228,8 @@ Full details in the [Template Library Guide — Extending Your Vault](https://gi
 To bind a workspace and optionally configure Claude Code, Codex and Grok to use this vault's MCP server:
 
 ```bash
-# Bind one workspace to this Brain
-brain workspace bind --vault /path/to/vault --workspace /my/project --request-json '{}'
+# Register and bind one workspace to this Brain
+brain workspace setup --vault /path/to/vault --workspace /my/project --request-json '{}'
 
 # Configure project-scoped MCP transport for all three clients
 brain mcp configure --vault /path/to/vault --workspace /my/project --request-json '{"scope":"project","client":"all"}'
@@ -244,7 +244,37 @@ brain mcp configure --vault /path/to/vault --request-json '{"scope":"user","clie
 brain agent-skill configure --vault /path/to/vault --request-json '{"client":"all"}'
 ```
 
-`workspace.bind`, `workspace.configure-bootstrap` and `mcp.configure` are separate public setup and transport owners. Use `brain command describe` for their exact request contracts.
+`workspace.setup` ensures a canonical workspace hub before saving the local binding.
+Its result reports Brain registration and local binding separately; a local failure
+can be retried after inspecting the reported committed effects. `workspace.bind`
+changes only the local binding. `workspace.configure-bootstrap` and `mcp.configure`
+remain separate bootstrap and transport owners. Use `brain command describe` for
+their exact request contracts.
+
+Artefact creation, semantic document edits, shaping start, and artefact lifecycle mutations accept `workspace_context` as a
+canonical `workspace/{key}` or `global`; omission uses the validated bound
+workspace. The separate `--workspace` adapter option is still a local path.
+Creation writes membership and uses explicit, local-default, shared-default,
+then no parent, in that order. Semantic mutations preserve membership, and preserve
+parent unless explicitly reparenting or converting. Surviving semantic subjects
+receive shared and applicable local default tags; maintenance rewrites do not.
+New shaping transcripts follow creation defaults and remain temporal leaves;
+source links do not make their source the parent. Continuing a transcript preserves
+its membership and parent, while restoring configured tags on both transcript and source.
+Lifecycle changes cannot strand discoverable workspace membership or default-parent
+references. Terminal workspaces remain historical identities but cannot be selected
+for new scoped mutations.
+Use `workspace.update-policy` for shared defaults and `workspace.update-metadata`
+for local overrides. A stale or invalid local binding must be repaired before
+content mutation, including explicitly global operations.
+
+Use `artefact.set-workspace` for explicit adoption/reassignment: its symbolic
+context is the destination, and explicit `global` clears membership. Owners need
+`recursive: true`, covering living, terminal, temporal and archived descendants.
+Provide `parent` or `clear_parent` when the existing root parent is incompatible;
+omission preserves a compatible parent, not a create default. Relationship tags
+never imply adoption. Run `vault.check` afterward; checkpoint and upgrade the
+vault before a bulk rollout, and set a shared default parent only after adoption.
 
 For project scope, registration is not the whole story. Claude still needs the project's `.mcp.json` entry approved via `/mcp`, and Codex still needs the project trusted with the project-scoped `brain` MCP enabled. Once that project-scoped entry is active, it outranks the user-scoped one. Until then, either client may keep routing `mcp__brain__*` calls to a user-scoped `brain`.
 

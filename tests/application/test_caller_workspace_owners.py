@@ -43,7 +43,7 @@ class _CallerFilesystemProvider:
 def _caller_application(root, workspace: Path | None, *, dry_run=False):
     return application_for(
         root,
-        dependency_tier=DependencyTier.BOOTSTRAP,
+        dependency_tier=DependencyTier.PORTABLE,
         workspace_dir=workspace,
         providers=(_CallerFilesystemProvider(),),
         capabilities=(
@@ -85,12 +85,13 @@ def test_workspace_mutations_have_one_caller_local_contract(
     entry = current_application_catalogue().resolve(request)
 
     assert type(request) is request_type
-    assert entry.dependency_tier is DependencyTier.BOOTSTRAP
-    assert entry.locality is Locality.CALLER_LOCAL
+    compound = command_id == "workspace.setup"
+    assert entry.dependency_tier is (DependencyTier.PORTABLE if compound else DependencyTier.BOOTSTRAP)
+    assert entry.locality is (Locality.SELECTED_BRAIN_AND_CALLER_LOCAL if compound else Locality.CALLER_LOCAL)
     assert entry.required_providers == ("caller_filesystem",)
     assert entry.optional_providers == ()
     assert entry.authority is Authority.OPERATOR
-    assert entry.effect_class is EffectClass.CALLER_LOCAL_MUTATION
+    assert entry.effect_class is (EffectClass.SELECTED_BRAIN_AND_CALLER_LOCAL_MUTATION if compound else EffectClass.CALLER_LOCAL_MUTATION)
     assert entry.retry_class is RetryClass.RECEIPT_REQUIRED
     assert entry.eligible_projections == (
         Projection.CLI,
@@ -239,24 +240,12 @@ def test_workspace_setup_reports_known_partial_binding_effect(
 ):
     workspace = (tmp_path / "workspace").resolve()
     workspace.mkdir()
-    def partial_setup(*_args, **kwargs):
-        kwargs["before_write"]()
-        return {
-            "status": "partial",
-            "steps": [
-                {
-                    "name": "workspace_binding",
-                    "status": "changed",
-                    "message": "Bound workspace.",
-                },
-                {
-                    "name": "workspace_local_scaffold",
-                    "status": "error",
-                    "message": "Git inspection failed.",
-                },
-            ],
-        }
-    monkeypatch.setattr(setup, "_setup_workspace_core", partial_setup)
+    import vault_registry
+    from _bootstrap import workspace_binding
+    vault_registry.register(command_vault_clone.vault_root, "command-vault")
+    def fail_local(*_args, **kwargs):
+        raise OSError("Local manifest write failed.")
+    monkeypatch.setattr(workspace_binding, "save_workspace_manifest_data", fail_local)
 
     result = _caller_application(command_vault_clone.vault_root, workspace).invoke(
         WorkspaceSetupRequest()
@@ -264,10 +253,10 @@ def test_workspace_setup_reports_known_partial_binding_effect(
 
     assert result.status == "partial"
     assert result.error.code is ErrorCode.CONFLICT
-    assert result.error.message == "Git inspection failed."
-    assert tuple(effect.subject for effect in result.committed_effects) == (
-        "caller-workspace:.brain/local/workspace.yaml",
-    )
+    assert result.error.message == "Local manifest write failed."
+    assert [effect.kind for effect in result.committed_effects] == ["workspace.registered", "workspace.path-registered"]
+    assert not (workspace / ".brain/local/workspace.yaml").exists()
+    assert (command_vault_clone.vault_root / result.committed_effects[0].subject).exists()
 
 
 def test_workspace_metadata_decodes_typed_links_and_reports_manifest_effect(
@@ -314,6 +303,8 @@ def test_workspace_metadata_decodes_typed_links_and_reports_manifest_effect(
         "clear_tags": False,
         "links": ["repository=https://example.test/repo"],
         "clear_links": True,
+        "parent": None,
+        "clear_parent": False,
     }
     assert tuple(effect.subject for effect in result.committed_effects) == (
         "caller-workspace:.brain/local/workspace.yaml",

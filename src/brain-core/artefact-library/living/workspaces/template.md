@@ -13,3 +13,5 @@ workspace_mode: embedded
 Workspace data lives under `_Workspaces/` in a folder keyed to this workspace's key.
 
 ## Related Artefacts
+
+Membership uses `workspace: workspace/{key}` on member artefacts. Relationship tags do not adopt content. Set shared parent/tag defaults through `workspace.update-policy`; this hub is self-scoped.

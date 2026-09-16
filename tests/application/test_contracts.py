@@ -274,6 +274,7 @@ def test_dependency_tiers_are_ordered_without_conflating_locality():
     assert not DependencyTier.BOOTSTRAP.supports(DependencyTier.PORTABLE)
     assert {item.value for item in Locality} == {
         "selected_brain_local",
+        "selected_brain_and_caller_local",
         "caller_local",
         "machine_local",
     }
