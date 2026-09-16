@@ -19,7 +19,19 @@ separate from the application catalogue and `runtime.status`. They accept no
 arguments and remain reachable without a healthy child. Their distinct
 `brain.proxy-result/1` result makes no application receipt or mutation claim.
 
-The proxy checks installed Core drift before accepting each semantic call. At
+The proxy checks managed-runtime identity before accepting each semantic call
+and before every child launch, including recovery. The canonical installed-runtime
+lookup owns dependency identity and compatible-minor reuse; it tries an existing
+exact minor/hash then the highest compatible installed minor for that hash.
+Both proxy and child executable paths must match its selection without
+collapsing venv symlinks. Runtime drift leaves in-flight work running but refuses
+new calls with a model-visible `runtime_restart_required`, `effects: none` and
+MCP restart guidance. Missing/unreadable dependency inputs fail closed. Status
+reports loaded/required runtime paths and the restart requirement even when Core
+versions match. No child-only interpreter switch is permitted.
+
+With the same managed runtime, the proxy checks installed Core drift before
+accepting each semantic call. At
 an idle boundary it negotiates a candidate before retiring the previous child,
 then dispatches the unaccepted request once. Explicit refresh takes the same
 path. Failed validation retains the previous process but blocks admission to
@@ -49,7 +61,10 @@ are notified; negotiated host cache behaviour is not assumed.
 Two small declarations supplement MCP discovery without adding schemas to
 `command.list` or the bootstrap. These controls cannot select another Brain,
 execute caller-supplied code, install a release or raise permissions. Deployment
-requires one restart for old proxies to acquire the new control surface.
+requires one restart for old proxies to acquire the new control surface. Private
+protocol 5 requires the runtime admission guard. The header permits protocol 4
+negotiation so the existing server gate can return its explicit restart result,
+but the separate dispatch minimum refuses application execution below protocol 5.
 
 Subprocess tests exercise both negotiated protocol eras, compatible automatic
 and explicit handover, real consent continuity/spending, incompatible candidate

@@ -223,11 +223,14 @@ def test_main_enters_degraded_mode_on_noncanonical_python(monkeypatch, tmp_path)
     calls = []
     (tmp_path / ".brain-core" / "brain_mcp").mkdir(parents=True)
     (tmp_path / ".brain-core" / "brain_mcp" / "requirements.txt").write_text("mcp>=1.0.0\n")
+    (tmp_path / ".brain-core" / "brain_mcp" / "requirements-semantic.txt").write_text("mcp>=1.0.0\n")
     target = SimpleNamespace(vault_root=str(tmp_path), workspace_dir=None, source="vault_self")
 
     monkeypatch.setattr(proxy.sys, "argv", ["proxy.py", "/usr/bin/python3.12", "brain_mcp.server"])
     monkeypatch.setattr(proxy, "resolve_and_heal", lambda **_kwargs: target)
     monkeypatch.setattr(proxy, "_run_degraded_server", lambda reason, **kwargs: calls.append((reason, kwargs)))
+
+    monkeypatch.setattr(proxy, "find_existing_central_venv", lambda _vault: tmp_path / "managed/bin/python")
 
     proxy.main()
 
@@ -245,7 +248,7 @@ def test_main_allows_canonical_python_launch(monkeypatch, tmp_path):
 
     monkeypatch.setattr(proxy.sys, "argv", ["proxy.py", managed_python, "brain_mcp.server"])
     monkeypatch.setattr(proxy, "resolve_and_heal", lambda **_kwargs: target)
-    monkeypatch.setattr(proxy, "resolve_vault_venv_python", lambda _vault: Path(managed_python))
+    monkeypatch.setattr(proxy, "find_existing_central_venv", lambda _vault: Path(managed_python))
     monkeypatch.setattr(proxy, "_run_degraded_server", lambda reason, **kwargs: calls.append(("degraded", reason, kwargs)))
     monkeypatch.setattr(proxy, "_serve_proxy", lambda python, server, vault: calls.append(("serve", python, server, vault)))
 
@@ -254,7 +257,7 @@ def test_main_allows_canonical_python_launch(monkeypatch, tmp_path):
     assert calls == [("serve", managed_python, "brain_mcp.server", str(tmp_path))]
 
 
-def test_main_skips_launch_validation_when_runtime_resolution_subprocess_fails(monkeypatch, tmp_path):
+def test_main_degrades_when_runtime_resolution_subprocess_fails(monkeypatch, tmp_path):
     calls = []
     target = SimpleNamespace(vault_root=str(tmp_path), workspace_dir=None, source="vault_self")
 
@@ -262,7 +265,7 @@ def test_main_skips_launch_validation_when_runtime_resolution_subprocess_fails(m
     monkeypatch.setattr(proxy, "resolve_and_heal", lambda **_kwargs: target)
     monkeypatch.setattr(
         proxy,
-        "resolve_vault_venv_python",
+        "find_existing_central_venv",
         lambda _vault: (_ for _ in ()).throw(subprocess.SubprocessError("launcher failed")),
     )
     monkeypatch.setattr(proxy, "_run_degraded_server", lambda reason, **kwargs: calls.append("degraded"))
@@ -270,7 +273,7 @@ def test_main_skips_launch_validation_when_runtime_resolution_subprocess_fails(m
 
     proxy.main()
 
-    assert calls == [("serve", "/usr/bin/python3.12", "brain_mcp.server", str(tmp_path))]
+    assert calls == ["degraded"]
 
 
 @pytest.mark.slow

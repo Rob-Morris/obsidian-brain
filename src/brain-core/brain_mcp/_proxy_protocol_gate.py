@@ -13,6 +13,7 @@ from mcp_types import CallToolRequestParams
 from ._interface_protocol import (
     CommandInterfaceHeader,
     INTERFACE_HEADER_EXTENSION,
+    MIN_DISPATCH_PROXY_PROTOCOL,
     PROXY_PROTOCOL_ENV,
     command_interface_wire,
 )
@@ -37,9 +38,10 @@ def inspect_running_proxy_protocol(
     *,
     environ: Mapping[str, str] | None = None,
 ) -> RunningProxyProtocol:
-    """Inspect only the running process marker, never proxy code on disk."""
+    """Gate dispatch independently of the wider restart-negotiation range."""
 
     environ = os.environ if environ is None else environ
+    minimum = max(header.minimum_proxy_protocol, MIN_DISPATCH_PROXY_PROTOCOL)
     raw = environ.get(PROXY_PROTOCOL_ENV)
     value = None
     reason = None
@@ -54,14 +56,14 @@ def inspect_running_proxy_protocol(
             if value < 1 or str(value) != raw:
                 value = None
                 reason = "malformed"
-            elif value < header.minimum_proxy_protocol:
+            elif value < minimum:
                 reason = "too_old"
             elif value > header.maximum_proxy_protocol:
                 reason = "too_new"
     return RunningProxyProtocol(
         raw=raw,
         value=value,
-        minimum=header.minimum_proxy_protocol,
+        minimum=minimum,
         maximum=header.maximum_proxy_protocol,
         compatible=reason is None,
         reason=reason,

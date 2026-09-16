@@ -1,6 +1,6 @@
 # Obsidian Brain
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE) ![Version](https://img.shields.io/badge/version-0.68.6-blue) ![Platform](https://img.shields.io/badge/platform-Obsidian-7C3AED) ![Python](https://img.shields.io/badge/python-≥3.12-3776AB?logo=python&logoColor=white) ![MCP](https://img.shields.io/badge/MCP-server-green)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE) ![Version](https://img.shields.io/badge/version-0.68.7-blue) ![Platform](https://img.shields.io/badge/platform-Obsidian-7C3AED) ![Python](https://img.shields.io/badge/python-≥3.12-3776AB?logo=python&logoColor=white) ![MCP](https://img.shields.io/badge/MCP-server-green)
 
 A self-evolving knowledge base for agents and humans working together on what matters.
 
@@ -53,7 +53,7 @@ pwsh -NoProfile -ExecutionPolicy Bypass -File .\install.ps1 -VaultPath C:\path\t
 
 `install.cmd` is a cmd.exe wrapper over the same PowerShell launcher. Both launchers hand install policy to `src/brain-core/scripts/install.py`, the same Python installer core used by `install.sh`.
 
-Brain installs the managed Python runtime to `~/.brain/venvs/py<X.Y>-<sha16>/`, content-addressed by `requirements.txt`. Vaults sharing the same dependencies share one venv on disk. See [DD-048](docs/architecture/decisions/dd-048-central-managed-runtime.md) for rationale.
+Brain installs the managed Python runtime to `~/.brain/venvs/py<X.Y>-<sha16>/`, identified by the complete base and optional-semantic dependency exports. Vaults sharing that contract share one venv on disk; semantic installation remains opt-in. Install and repair verify exact locked package versions. Native release certification covers CPython 3.12 on macOS arm64, Linux x86_64 and Windows x86_64; other Python 3.12+ environments are best-effort. See [DD-077](docs/architecture/decisions/dd-077-dependency-reproducibility.md) and the [dependency workflow](docs/contributor/dependencies.md).
 
 Semantic retrieval remains explicit opt-in. Enable it at install time with
 `install.sh --enable-semantic`, or later with
@@ -161,7 +161,7 @@ If you prefer to do it yourself:
 2. Copy `template-vault/` to your preferred location: `cp -R template-vault /path/to/brain`
 3. Copy brain-core into the vault: `cp -R src/brain-core /path/to/brain/.brain-core`
 4. Install the CLI and its versioned distribution: `python3.12 cli/_distribution.py . ~/.local/bin/brain` (choose an equivalent user bin path on other platforms).
-5. Provision the central managed runtime: `cd /path/to/brain && python3.12 .brain-core/scripts/_common/_venv.py ensure --vault . --launcher python3.12`. This creates `~/.brain/venvs/py3.12-<sha16>/` if missing and installs `requirements.txt` into it.
+5. Provision the central managed runtime: `cd /path/to/brain && python3.12 .brain-core/scripts/_common/_venv.py ensure --vault . --launcher python3.12`. This creates `~/.brain/venvs/py3.12-<sha16>/` if missing, using the contract identity of both shipped runtime exports, and installs the complete base export into it.
 6. Optionally configure MCP transport with `brain mcp configure --vault /path/to/brain --request-json '{"scope":"project","client":"all"}'`. This launcher command and the installer share the same launcher-safe transport owner.
    For project scope, the file write is not the whole story: Claude still needs `/mcp` approval for `brain`, Codex needs the project trusted with `brain` enabled, and Grok needs folder trust.
 7. Optionally install the active-Brain shaping discovery adapter for all three clients: `brain agent-skill configure --vault /path/to/brain --request-json '{"client":"all"}'`. If an older unmanaged shaping skill is already installed, review it and rerun with `{"client":"all","replace":true}`; Brain archives the old directory instead of deleting it. Restart the clients after installation.

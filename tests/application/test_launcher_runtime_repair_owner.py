@@ -54,7 +54,9 @@ def _vault(tmp_path):
     core = vault / ".brain-core"
     core.mkdir(parents=True)
     (core / "VERSION").write_text("0.54.41\n")
-    (core / "requirements.txt").write_text("mcp>=1\n")
+    (core / "brain_mcp").mkdir()
+    (core / "brain_mcp" / "requirements.txt").write_text("mcp==2.0.0\n")
+    (core / "brain_mcp" / "requirements-semantic.txt").write_text("mcp==2.0.0\n")
     return vault
 
 
@@ -163,6 +165,7 @@ def test_runtime_repair_dry_run_returns_real_typed_plan(tmp_path, monkeypatch):
     assert result.result.status is RuntimeRepairStatus.PLANNED
     assert result.committed_effects == ()
     assert calls[0][1]["dry_run"] is True
+    assert calls[0][1]["full_conformance"] is True
     assert calls[0][1]["launcher_python"] == str(Path(sys.executable).resolve())
 
 

@@ -116,6 +116,7 @@ Each DD captures the reasoning behind an architectural decision at the time it w
 | DD-074 | The MCP proxy owns idle server refresh and transport status | Implemented (v0.68.2) | [dd-074](dd-074-proxy-owned-server-refresh.md) |
 | DD-075 | Bounded proxy replacement preserves stdio and ends exceptional consent | Implemented (v0.68.3) | [dd-075](dd-075-bounded-proxy-stdio-handoff.md) |
 | DD-076 | Session-first routing with a maintained authored fallback | Implemented (v0.68.6) | [dd-076](dd-076-session-first-routing-and-maintained-authored-fallback.md) |
+| DD-077 | One resolved dependency contract for contributors and managed runtimes | Implemented (v0.68.7) | [dd-077](dd-077-dependency-reproducibility.md) |
 
 ---
 

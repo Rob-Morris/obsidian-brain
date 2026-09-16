@@ -40,7 +40,7 @@ For non-interactive agent installs in restricted environments, scaffold the vaul
 bash install.sh --non-interactive --skip-mcp /path/to/brain
 ```
 
-The installer creates the vault from the template, copies `.brain-core/` into it, provisions the light machine resolution runtime used by no-MCP `brain session`, and then offers an MCP registration choice for Claude Code, Codex and Grok — register this Brain for this vault only (project scope, the default) or as your machine default brain (user scope) — provisioning the managed Python runtime as needed. `install.sh` and `install.ps1` both hand fresh/existing-vault install policy to the shared Python installer core at `src/brain-core/scripts/install.py`. The POSIX wrapper can also install brain-core into an existing Obsidian vault and detect already-installed Brain vaults; for those, the canonical upgrade path is `upgrade.py` and `install.sh` only delegates to it. In network-restricted environments you can pass `--skip-mcp` to scaffold the vault without runtime / MCP setup, or rerun the printed retry steps later if dependency installation fails. Use `--non-interactive` when you want installer automation without prompts; it selects the this-vault-only (project) scope. When upgrade changes `.brain-core/brain_mcp/requirements.txt`, `upgrade.py` provisions the matching shared runtime under `~/.brain/venvs/` itself; `install.sh --skip-mcp` passes through the opt-out. Same-version re-apply, downgrade, or explicit migration rerun flows remain explicit `upgrade.py --force` operations. Project scope still outranks user scope for all three clients once the project-scoped MCP is active: in Claude, approve `brain` via `/mcp`; in Codex, trust the project and ensure `brain` is enabled for that project; in Grok, review its folder-trust prompt. See [install.sh](../functional/scripts.md#installsh) and [install.py](../functional/scripts.md#installpy) for full details, modes, and flags.
+The installer creates the vault from the template, copies `.brain-core/` into it, provisions the light machine resolution runtime used by no-MCP `brain session`, and then offers an MCP registration choice for Claude Code, Codex and Grok — register this Brain for this vault only (project scope, the default) or as your machine default brain (user scope) — provisioning the managed Python runtime as needed. `install.sh` and `install.ps1` both hand fresh/existing-vault install policy to the shared Python installer core at `src/brain-core/scripts/install.py`. The POSIX wrapper can also install brain-core into an existing Obsidian vault and detect already-installed Brain vaults; for those, the canonical upgrade path is `upgrade.py` and `install.sh` only delegates to it. In network-restricted environments you can pass `--skip-mcp` to scaffold the vault without runtime / MCP setup, or rerun the printed retry steps later if dependency installation fails. Use `--non-interactive` when you want installer automation without prompts; it selects the this-vault-only (project) scope. When upgrade changes either shipped runtime dependency export (`requirements.txt` or `requirements-semantic.txt` under `.brain-core/brain_mcp/`), `upgrade.py` provisions the matching shared runtime under `~/.brain/venvs/` itself; `install.sh --skip-mcp` passes through the opt-out. Same-version re-apply, downgrade, or explicit migration rerun flows remain explicit `upgrade.py --force` operations. Project scope still outranks user scope for all three clients once the project-scoped MCP is active: in Claude, approve `brain` via `/mcp`; in Codex, trust the project and ensure `brain` is enabled for that project; in Grok, review its folder-trust prompt. See [install.sh](../functional/scripts.md#installsh) and [install.py](../functional/scripts.md#installpy) for full details, modes, and flags.
 
 Semantic retrieval remains optional. Enable it later with
 `brain retrieval enable --vault /path/to/brain --json`. That command
@@ -50,6 +50,16 @@ the pinned local model under `.brain/local/semantic-models/`, records
 so semantic search stays local-only at query time.
 
 **Requirements:** git and Python 3.12+. Python 3.12+ is required for install, init, upgrade, repair, and MCP server support because the shell launchers hand scaffold policy to the Python installer core. Brain installs its managed dependencies into a shared local runtime under `~/.brain/venvs/` rather than into your wider Python environment.
+
+Base and optional semantic dependencies use complete locked exports. Changes to
+either shipped export select a new shared runtime, even when semantic search is
+disabled; optional packages remain opt-in. Explicit runtime repair verifies
+installed versions as well as dependency consistency. Users need pip, not uv.
+Native release certification covers CPython 3.12 on macOS arm64, Linux x86_64 and
+Windows x86_64. Other Python 3.12+ combinations are best-effort. Current semantic
+wheels require macOS 14+ arm64 or glibc 2.28+ Linux, and ONNX Runtime has no Intel
+macOS wheel. Dependency or model download failures are reported separately
+from the usable vault scaffold.
 
 ## Command-line usage
 
@@ -298,6 +308,13 @@ adapter is first introduced or its template changes, it recommends
 `configure.py agent-skills --client all` but does not run it automatically.
 Ordinary updates to the active Brain's shaping workflow produce no adapter
 prompt because installed adapters load that workflow dynamically.
+
+An open MCP session refreshes Core automatically only when its managed runtime
+is unchanged. Dependency changes require an MCP restart: agents receive a clear
+`runtime_restart_required` result, while already-running work can finish. The
+agent can use `brain_proxy_restart` when idle on supported POSIX systems; if that
+fails or is unsupported, restart MCP in the host. CLI commands resolve the
+current runtime on each invocation and do not need that session restart.
 
 ---
 

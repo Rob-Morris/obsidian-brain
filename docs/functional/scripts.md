@@ -1,5 +1,18 @@
 # Direct Script and Python Command Interfaces
 
+## Managed dependency lifecycle
+
+The shared stdlib runtime owner consumes `.brain-core/brain_mcp/requirements.txt`
+and the complete optional `requirements-semantic.txt`. Both exports determine
+runtime identity and upgrade dependency-change detection. Installation uses
+`pip --no-deps -r`; fresh install, dependency-syncing upgrade, semantic provision
+and explicit `runtime.repair` verify all applicable package versions plus
+`pip check` before recording versioned readiness. Healthy handoff uses matching
+readiness without a package audit. Dependency-sync opt-outs remain explicit;
+copying core files does not prove dependency convergence. Contributor generation
+and certification commands are documented in the
+[dependency workflow](../contributor/dependencies.md).
+
 The selected Brain owns one public direct command projection:
 
 ```text

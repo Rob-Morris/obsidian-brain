@@ -57,7 +57,7 @@ from _bootstrap.workspace_binding import (
     WorkspaceBindingError,
     resolve_and_heal,
 )
-from _common import resolve_vault_venv_python
+from _common import find_existing_central_venv
 from _common import _operational_log
 from _repair_common import build_repair_command
 from ._interface_protocol import (
@@ -84,8 +84,15 @@ from ._proxy_handoff import (
 # Constants
 # ---------------------------------------------------------------------------
 
-PROXY_VERSION = "0.10.2"
+PROXY_VERSION = "0.10.3"
 _CHILD_PROTOCOL_VERSION = "2026-07-28"
+
+
+def _installed_runtime_python(vault_root: str | Path) -> str:
+    selected = find_existing_central_venv(Path(vault_root))
+    if selected is None:
+        raise FileNotFoundError("No installed managed runtime matches this Brain's dependencies.")
+    return str(selected)
 
 
 def _internal_request(method: str, request_id: str, params: dict, *, modern: bool) -> dict:
@@ -977,6 +984,8 @@ class Proxy:
         Validate the child interface before publishing it to the relay.
         Returns True on success, False on failure (timeout or crash).
         """
+        if self._runtime_error() is not None:
+            return False
         installed_version = _read_brain_version_from_disk(self.vault_root)
         child = ChildProcess(self.python_path, self.server_target)
         try:
@@ -1030,7 +1039,8 @@ class Proxy:
         # the replacement child is not published until resolution ends.
         self._resolve_pending_unexpected(child)
 
-        if installed_version != _read_brain_version_from_disk(self.vault_root):
+        if (installed_version != _read_brain_version_from_disk(self.vault_root)
+                or self._runtime_error() is not None):
             child.kill()
             return False
         if not self._publication_gate.acquire(timeout=HANDOFF_TIMEOUT):
@@ -1508,15 +1518,43 @@ class Proxy:
             self._version_reset_requested = True
         self._recovery_trigger.set()
 
+    def _required_runtime_python(self) -> str:
+        return _installed_runtime_python(self.vault_root)
+
+    def _runtime_status(self) -> dict:
+        """Keep the proxy and child in the same installed dependency environment."""
+        loaded = sys.executable
+        if self.server_target != "brain_mcp.server":
+            return {"loaded": loaded, "child": self.python_path, "required": None,
+                    "state": "unmanaged", "restart_required": False}
+        try:
+            required = self._required_runtime_python()
+        except (OSError, ValueError, subprocess.SubprocessError):
+            return {"loaded": loaded, "child": self.python_path, "required": None,
+                    "state": "installation_unavailable", "restart_required": True}
+        drift = not (same_executable_path(loaded, required)
+                     and same_executable_path(self.python_path, required))
+        return {"loaded": loaded, "child": self.python_path, "required": required,
+                "state": "restart_required" if drift else "current", "restart_required": drift}
+
+    def _runtime_error(self) -> str | None:
+        runtime = self._runtime_status()
+        if runtime["state"] == "installation_unavailable":
+            return "runtime_installation_unavailable"
+        return "runtime_restart_required" if runtime["restart_required"] else None
+
     def _proxy_status(self) -> dict:
         """Observe transport state without asking the application child."""
         self._check_proxy_drift()
+        runtime = self._runtime_status()
         installed = _read_brain_version_from_disk(self.vault_root)
         child = self._get_child()
         alive = child is not None and child.poll() is None
         with self._interface_lock:
             header = self._interface_header
-        if self._restart_in_progress:
+        if runtime["restart_required"]:
+            state = "runtime_restart_required"
+        elif self._restart_in_progress:
             state = "refreshing"
         elif self._refresh_blocked_version == installed and installed is not None:
             state = "blocked"
@@ -1531,7 +1569,8 @@ class Proxy:
         return {
             "proxy": {"loaded": PROXY_VERSION,
                       "installed": self._installed_proxy_version,
-                      "restart_required": self._proxy_drift},
+                      "restart_required": self._proxy_drift or runtime["restart_required"]},
+            "runtime": runtime,
             "server": {"loaded": self._last_launched_version, "installed": installed,
                        "available": alive, "refresh": state},
             "interface": {"proxy_protocol": PROXY_PROTOCOL,
@@ -1541,9 +1580,17 @@ class Proxy:
                           "installed_compatibility": (
                               "rejected" if state == "blocked" and self._refresh_header_rejected else
                               "validated" if state == "current" and header else "unverified")},
-            "diagnostic": self._refresh_diagnostic if state == "blocked" else None,
+            "diagnostic": (
+                "MCP must be restarted to load the installed managed runtime. "
+                "New application calls have no effects; already in-flight work may finish. "
+                "Use brain_proxy_restart when idle, or restart MCP in the host. "
+                "If the installed runtime is unavailable, repair it before restarting."
+                if runtime["restart_required"] else
+                self._refresh_diagnostic if state == "blocked" else None),
             "consent": "same-proxy; new proxy requires fresh exceptional consent",
-            "next_action": (RESTART_TOOL if self._proxy_drift and os.name == "posix" else
+            "next_action": ("restart_mcp" if runtime["state"] == "installation_unavailable" or (runtime["restart_required"] and not alive) else
+                            RESTART_TOOL if (self._proxy_drift or runtime["restart_required"]) and os.name == "posix" else
+                            "restart_mcp" if runtime["restart_required"] else
                             "restart_mcp" if self._proxy_drift or (state == "blocked" and self._refresh_header_rejected) else
                             REFRESH_TOOL if state in {"available", "unavailable", "blocked"} else
                             STATUS_TOOL if state == "refreshing" else None),
@@ -1575,11 +1622,11 @@ class Proxy:
         env["PYTHONPATH"] = str(Path(self.vault_root) / ".brain-core")
         return env
 
-    def _preflight_handoff(self, fd: int) -> bool:
+    def _preflight_handoff(self, fd: int, python: str) -> bool:
         env = self._handoff_environment()
         env.pop("BRAIN_OPERATOR_KEY", None)
         process = subprocess.Popen(
-            [self.python_path, "-m", "brain_mcp.proxy", "--check-handoff", str(fd)],
+            [python, "-m", "brain_mcp.proxy", "--check-handoff", str(fd)],
             env=env, pass_fds=(fd,), stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL, start_new_session=True,
         )
@@ -1601,7 +1648,10 @@ class Proxy:
         self._check_proxy_drift()
         if self._compute_proxy_hash() is None:
             return "installation_unavailable"
-        if not self._proxy_drift:
+        runtime = self._runtime_status()
+        if runtime["state"] == "installation_unavailable":
+            return "runtime_installation_unavailable"
+        if not self._proxy_drift and not runtime["restart_required"]:
             return None
         if self._public_session is None or self.server_target != "brain_mcp.server":
             return "proxy_restart_required"
@@ -1611,12 +1661,14 @@ class Proxy:
         if self._restart_in_progress or self._recovery_thread_failed:
             return "refresh_in_progress"
         state = self._transport_state(request_id, stdin)
+        state["python"] = runtime["required"]
         image_hash = self._compute_proxy_hash()
         try:
             with state_descriptor(state) as fd:
-                if not self._preflight_handoff(fd):
+                if not self._preflight_handoff(fd, state["python"]):
                     return "proxy_handoff_preflight_failed"
-                if self._compute_proxy_hash() != image_hash:
+                if (self._compute_proxy_hash() != image_hash
+                        or not same_executable_path(state["python"], self._required_runtime_python())):
                     return "installation_changed"
                 return self._replace_idle_image(fd, state, image_hash=image_hash)
         except (OSError, ValueError, subprocess.SubprocessError) as exc:
@@ -1662,7 +1714,8 @@ class Proxy:
                 self._outbound.put(barrier)
                 if not barrier.wait(HANDOFF_TIMEOUT):
                     return "proxy_output_busy"
-                if image_hash is not None and self._compute_proxy_hash() != image_hash:
+                if image_hash is not None and (self._compute_proxy_hash() != image_hash
+                        or not same_executable_path(state["python"], self._required_runtime_python())):
                     return "installation_changed"
                 self._owner_close_timeout = HANDOFF_TIMEOUT
                 self._shutdown = True
@@ -1699,13 +1752,23 @@ class Proxy:
         logger = _operational_log.current_logger()
         if logger is not None:
             logger.close(exit_code=0)
-        if image_hash is not None and self._compute_proxy_hash() != image_hash:
+        try:
+            changed = image_hash is not None and (
+                self._compute_proxy_hash() != image_hash
+                or not same_executable_path(state["python"], self._required_runtime_python()))
+        except (OSError, ValueError, subprocess.SubprocessError):
+            # Retirement has ended consent and output ownership. Preserve the
+            # retained transport so its fresh owner can answer the restart.
+            self._handoff_state = state
+            self._handoff_error = "runtime_installation_unavailable"
+            return self._handoff_error
+        if changed:
             self._handoff_state = state
             self._handoff_error = "installation_changed"
             return self._handoff_error
         try:
-            os.execve(self.python_path,
-                      [self.python_path, "-m", "brain_mcp.proxy", "--handoff-fd", str(fd)],
+            os.execve(state["python"],
+                      [state["python"], "-m", "brain_mcp.proxy", "--handoff-fd", str(fd)],
                       self._handoff_environment())
         except OSError:
             # The composition root creates a new owner and serves the retained
@@ -1719,6 +1782,9 @@ class Proxy:
         Never wait for in-flight work on the stdin thread: a child may need a
         host response to finish that work. Returning busy leaves that path open.
         """
+        runtime_error = self._runtime_error()
+        if runtime_error is not None:
+            return runtime_error
         installed = _read_brain_version_from_disk(self.vault_root)
         if installed is None:
             return "installation_unavailable"
@@ -2371,6 +2437,12 @@ class Proxy:
                 self._send_to_client(control_response(msg_id, tool_name, self._proxy_status(), code=code))
                 continue
 
+            if method == "tools/call":
+                runtime_error = self._runtime_error()
+                if runtime_error is not None:
+                    self._send_to_client(control_response(msg_id, tool_name, self._proxy_status(), code=runtime_error))
+                    continue
+
             _log().debug("client→child: id=%s method=%s", msg_id, method)
             if _LOG_BODIES:
                 _capture_body("client_to_child", method, line)
@@ -2434,6 +2506,10 @@ class Proxy:
                         self._send_to_client(self._error_response_for_dead_child(msg_id))
                         continue
                 try:
+                    runtime_error = self._runtime_error()
+                    if runtime_error is not None:
+                        self._send_to_client(control_response(msg_id, tool_name, self._proxy_status(), code=runtime_error))
+                        continue
                     obj, accepted_call = self._prepare_interface_call(obj)
                 except (TypeError, ValueError) as exc:
                     self._refuse_interface_replay(
@@ -2773,11 +2849,15 @@ def main() -> None:
         _log().warning("operational diagnostics unavailable: %s", exc)
 
     try:
-        expected_python = str(resolve_vault_venv_python(Path(vault_root)))
-    except (OSError, subprocess.SubprocessError) as exc:
-        # If the canonical runtime path cannot be resolved, proceed and let
-        # child startup/recovery surface the concrete bootstrap failure. The
-        # identity guard only rejects a positively-known stale launcher.
+        expected_python = _installed_runtime_python(vault_root)
+    except (OSError, ValueError, subprocess.SubprocessError) as exc:
+        if server_target == "brain_mcp.server":
+            _run_degraded_server(
+                str(exc),
+                guidance=f"Run `{build_repair_command(vault_root, 'runtime')}` from a shell, then restart MCP.",
+                lead="Brain MCP could not select an installed managed runtime.",
+            )
+            return
         _log().warning("could not resolve canonical managed Python for launch validation: %s", exc)
     else:
         if not same_executable_path(python_path, expected_python):

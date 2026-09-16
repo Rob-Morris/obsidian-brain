@@ -50,6 +50,7 @@ def _make_vault_with_helper(root: Path) -> Path:
     bc_req = vault / ".brain-core" / "brain_mcp"
     bc_req.mkdir(parents=True)
     (bc_req / "requirements.txt").write_text("mcp==1.0.0\n")
+    (bc_req / "requirements-semantic.txt").write_text("mcp==1.0.0\n")
 
     real_venv_py = REPO_ROOT / "src" / "brain-core" / "scripts" / "_common" / "_venv.py"
     (common / "_venv.py").write_text(real_venv_py.read_text())
@@ -77,6 +78,8 @@ def _make_3_13_central_venv(home: Path, rhash: str, *, with_modules: tuple[str, 
         "import os\n"
         "if os.path.isfile(os.path.join(venv_dir, 'pip-args.txt')):\n"
         "    available = None  # everything available\n"
+        "if 'importlib.metadata' in code and available is not None:\n"
+        "    sys.exit(1)  # model a runtime requiring its first audited sync\n"
         "if 'version_info' in code:\n"
         "    payload = {'major': 3, 'minor': 13, 'compatible': True}\n"
         "    m = re.search(r'mods = (\\([^)]*\\))', code)\n"
@@ -147,7 +150,8 @@ def brew_churn_env(tmp_path, monkeypatch):
 
     launcher = _make_3_12_launcher(tmp_path)
     existing_py313 = _make_3_13_central_venv(fake_home, rhash, with_modules=("mcp",))
-    (existing_py313.parent.parent / ".brain-deps-installed").write_text(rhash)
+    (existing_py313.parent.parent / ".brain-deps-installed").write_text(
+        json.dumps(_venv._readiness(existing_py313, _venv.vault_requirements_path(vault), "py3.13", False)))
     return vault, rhash, launcher, existing_py313, fake_home
 
 
@@ -218,7 +222,7 @@ def test_orchestrator_syncs_in_place_when_modules_missing(tmp_path, monkeypatch)
     # Sentinel records the requirements hash.
     sentinel = existing_py313.parent.parent / ".brain-deps-installed"
     assert sentinel.is_file()
-    assert sentinel.read_text().strip() == rhash
+    assert json.loads(sentinel.read_text())["contract"] == rhash
 
 
 def test_orchestrator_preserves_stderr_when_creating_runtime_fails(tmp_path, monkeypatch):
@@ -330,7 +334,7 @@ def test_format_subprocess_error_uses_real_called_process_output():
             text=True,
         )
 
-    rendered = _v._format_subprocess_error(excinfo.value)
+    rendered = _v.format_subprocess_error(excinfo.value)
     assert "command failed:" in rendered
     assert "boom" in rendered
     assert "exit 3" in rendered
@@ -356,7 +360,7 @@ def test_format_subprocess_error_uses_real_timeout_context():
             timeout=0.01,
         )
 
-    rendered = _v._format_subprocess_error(excinfo.value)
+    rendered = _v.format_subprocess_error(excinfo.value)
     assert "command timed out:" in rendered
     assert str(excinfo.value.timeout) in rendered
 
@@ -391,7 +395,7 @@ def test_orchestrator_honours_forced_sync_for_existing_runtime_without_sentinel(
     pip_args = existing_py313.parent.parent / "pip-args.txt"
     assert pip_args.is_file()
     assert sentinel.is_file()
-    assert sentinel.read_text().strip() == rhash
+    assert json.loads(sentinel.read_text())["contract"] == rhash
 
 
 # ---------------------------------------------------------------------------
@@ -550,4 +554,4 @@ def test_upgrade_repairs_existing_compatible_minor_runtime_without_sentinel(brew
     pip_args = existing_py313.parent.parent / "pip-args.txt"
     assert pip_args.is_file()
     assert sentinel.is_file()
-    assert sentinel.read_text().strip() == rhash
+    assert json.loads(sentinel.read_text())["contract"] == rhash

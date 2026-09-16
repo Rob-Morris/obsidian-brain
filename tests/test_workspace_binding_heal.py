@@ -629,6 +629,7 @@ class TestWriteOrderingApplyMcpTransport:
         (bc / "VERSION").write_text("1.0.0\n")
         (bc / "brain_mcp").mkdir()
         (bc / "brain_mcp" / "requirements.txt").write_text("mcp>=1.0.0\n")
+        (bc / "brain_mcp" / "requirements-semantic.txt").write_text("mcp>=1.0.0\n")
         brain_dir = vault / ".brain" / "local"
         brain_dir.mkdir(parents=True)
         return vault

@@ -2381,11 +2381,13 @@ class TestUpgradeProgressLogging:
         brain_mcp = source / "brain_mcp"
         brain_mcp.mkdir()
         (brain_mcp / "requirements.txt").write_text("mcp==2.0.0\n")
+        (brain_mcp / "requirements-semantic.txt").write_text("mcp==2.0.0\n")
 
         vault = _make_minimal_upgrade_vault(tmp_path)
         old_requirements = vault / ".brain-core" / "brain_mcp"
         old_requirements.mkdir(parents=True)
         (old_requirements / "requirements.txt").write_text("mcp==1.0.0\n")
+        (old_requirements / "requirements-semantic.txt").write_text("mcp==1.0.0\n")
         log_path = vault / ".brain" / "local" / "last-upgrade.json"
 
         def fake_upgrade(
@@ -2578,6 +2580,7 @@ class TestUpgradeCliCentralRuntime:
             path,
             "#!/bin/sh\n"
             "if [ \"$1\" = \"-c\" ]; then\n"
+            "  case \"$2\" in *importlib.metadata*) exit 0;; esac\n"
             f"  exec {shlex.quote(sys.executable)} \"$@\"\n"
             "fi\n"
             "if [ \"$1\" = \"-m\" ] && [ \"$2\" = \"venv\" ]; then\n"
@@ -2600,16 +2603,19 @@ class TestUpgradeCliCentralRuntime:
             "exit 1\n",
         )
 
-    def test_cli_creates_central_runtime_when_requirements_change(self, tmp_path, monkeypatch):
+    @pytest.mark.parametrize("changed_export", ["base", "semantic"])
+    def test_cli_creates_central_runtime_when_requirements_change(self, tmp_path, monkeypatch, changed_export):
         source = _make_real_compile_source(tmp_path)
         brain_mcp = source / "brain_mcp"
         brain_mcp.mkdir()
-        (brain_mcp / "requirements.txt").write_text("mcp==2.0.0\n")
+        (brain_mcp / "requirements.txt").write_text("mcp==2.0.0\n" if changed_export == "base" else "mcp==1.0.0\n")
+        (brain_mcp / "requirements-semantic.txt").write_text("mcp==2.0.0\n")
 
         vault = _make_minimal_upgrade_vault(tmp_path)
         old_requirements = vault / ".brain-core" / "brain_mcp"
         old_requirements.mkdir(parents=True)
         (old_requirements / "requirements.txt").write_text("mcp==1.0.0\n")
+        (old_requirements / "requirements-semantic.txt").write_text("mcp==1.0.0\n")
 
         fake_home = tmp_path / "home"
         fake_home.mkdir()
@@ -2639,22 +2645,92 @@ class TestUpgradeCliCentralRuntime:
         assert (venv_dir / "bin" / "python").is_file()
         # The fake-launcher records pip args; we should see the install of the new requirements
         pip_args = (venv_dir / "pip-args.txt").read_text()
-        assert "install --quiet --upgrade pip -r" in pip_args
+        assert "install --quiet --no-deps --only-binary=:all: -r" in pip_args
         assert str(vault / ".brain-core" / "brain_mcp" / "requirements.txt") in pip_args
         assert f"Created central runtime at {venv_dir}" in result.stderr
         assert "Lexical retrieval state reconciled after upgrade." in result.stderr
         assert str(vault / ".brain-core" / "scripts" / "build_index.py") not in result.stderr
+
+    @pytest.mark.parametrize("changed_export", ["base", "semantic"])
+    def test_no_sync_deps_defers_every_phase_that_can_provision_dependencies(
+        self,
+        tmp_path,
+        changed_export,
+    ):
+        source = _make_real_compile_source(tmp_path)
+        brain_mcp = source / "brain_mcp"
+        brain_mcp.mkdir()
+        (brain_mcp / "requirements.txt").write_text(
+            "mcp==2.0.0\n" if changed_export == "base" else "mcp==1.0.0\n"
+        )
+        (brain_mcp / "requirements-semantic.txt").write_text(
+            "mcp==2.0.0\n" if changed_export == "semantic" else "mcp==1.0.0\n"
+        )
+
+        vault = _make_minimal_upgrade_vault(tmp_path)
+        installed = vault / ".brain-core" / "brain_mcp"
+        installed.mkdir(parents=True)
+        (installed / "requirements.txt").write_text("mcp==1.0.0\n")
+        (installed / "requirements-semantic.txt").write_text("mcp==1.0.0\n")
+        (vault / ".mcp.json").write_text("{}\n")
+        (vault / ".brain" / "local" / "config.yaml").write_text(
+            "defaults:\n  flags:\n    semantic_retrieval: true\n"
+        )
+
+        fake_home = tmp_path / "home"
+        fake_home.mkdir()
+        launcher = tmp_path / "launcher" / "python"
+        self._fake_launcher(launcher)
+        script = (
+            Path(__file__).resolve().parents[1]
+            / "src"
+            / "brain-core"
+            / "scripts"
+            / "upgrade.py"
+        )
+        result = subprocess.run(
+            [
+                sys.executable,
+                str(script),
+                "--source",
+                str(source),
+                "--vault",
+                str(vault),
+                "--no-sync-deps",
+                "--json",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=60,
+            env={
+                **os.environ,
+                "HOME": str(fake_home),
+                "BRAIN_VENV_LAUNCHER": str(launcher),
+                "BRAIN_SKIP_BOOTSTRAP": "1",
+            },
+        )
+
+        assert result.returncode == 0, result.stderr
+        payload = json.loads(result.stdout)
+        assert payload["central_runtime"]["outcome"] == upgrade.RUNTIME_SKIPPED_DISABLED
+        assert payload["mcp_registration_repair"]["outcome"] == "deferred"
+        assert payload["retrieval_asset_repair"]["scope"] == "semantic"
+        assert payload["retrieval_asset_repair"]["outcome"] == "deferred"
+        assert payload["runtime_readiness"]["outcome"] == "deferred"
+        assert not (fake_home / ".brain" / "venvs").exists()
 
     def test_cli_forced_sync_deps_reuses_existing_central_runtime(self, tmp_path):
         source = _make_real_compile_source(tmp_path)
         brain_mcp = source / "brain_mcp"
         brain_mcp.mkdir()
         (brain_mcp / "requirements.txt").write_text("mcp==1.0.0\n")
+        (brain_mcp / "requirements-semantic.txt").write_text("mcp==1.0.0\n")
 
         vault = _make_minimal_upgrade_vault(tmp_path)
         old_requirements = vault / ".brain-core" / "brain_mcp"
         old_requirements.mkdir(parents=True)
         (old_requirements / "requirements.txt").write_text("mcp==1.0.0\n")
+        (old_requirements / "requirements-semantic.txt").write_text("mcp==1.0.0\n")
 
         fake_home = tmp_path / "home"
         fake_home.mkdir()

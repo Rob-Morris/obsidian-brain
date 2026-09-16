@@ -10,10 +10,11 @@ import json
 from typing import Mapping
 
 
-PROXY_PROTOCOL = 4
+PROXY_PROTOCOL = 5
 PROXY_PROTOCOL_ENV = "BRAIN_MCP_PROXY_PROTOCOL"
 MIN_PROXY_PROTOCOL = 4
-MAX_PROXY_PROTOCOL = 4
+MAX_PROXY_PROTOCOL = 5
+MIN_DISPATCH_PROXY_PROTOCOL = 5
 INTERFACE_HEADER_SCHEMA = "brain.command-interface-header/1"
 INTERFACE_HEADER_EXTENSION = "brainCommandInterface"
 _ASCII_LOWER = frozenset("abcdefghijklmnopqrstuvwxyz")

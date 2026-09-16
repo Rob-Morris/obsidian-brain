@@ -285,7 +285,8 @@ arguments. They observe or refresh only the selected Brain's installed child
 server, outside the application command catalogue. Refresh is refused while
 requests are in flight; candidate validation precedes retirement of the old
 child. It preserves the same proxy owner and does not renew or add consent.
-`brain_proxy_restart` replaces only the installed proxy on POSIX, preserving
+`brain_proxy_restart` replaces only the selected Brain's installed proxy in its
+canonically resolved managed interpreter on POSIX, preserving
 stdio through a bounded private descriptor. Its state excludes credentials,
 consent and owner channels; existing trusted launch authentication stays in the
 private process environment. It preflights public protocol continuity, quiesces

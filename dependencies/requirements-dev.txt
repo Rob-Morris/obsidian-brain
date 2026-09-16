@@ -1,0 +1,58 @@
+annotated-types==0.8.0
+anyio==4.15.1
+attrs==26.1.0
+certifi==2026.7.22
+cffi==2.1.1 ; platform_python_implementation != 'PyPy'
+charset-normalizer==3.5.1
+click==8.5.0
+colorama==0.4.6
+coverage==7.16.1
+cryptography==50.0.1
+execnet==2.1.2
+gherkin-official==29.0.0
+h11==0.16.0 ; sys_platform != 'emscripten'
+httpcore2==2.13.0 ; sys_platform != 'emscripten'
+httpx2==2.13.0
+httpx2-jsfetch==1.0 ; sys_platform == 'emscripten'
+idna==3.19
+iniconfig==2.3.0
+interrogate==1.7.0
+jsonschema==4.26.0
+jsonschema-specifications==2025.9.1
+mako==1.4.1
+markupsafe==3.0.3
+mcp==2.0.0
+mcp-types==2.0.0
+opentelemetry-api==1.44.0
+packaging==26.3
+parse==1.22.1
+parse-type==0.6.6
+pluggy==1.6.0
+py==1.11.0
+pycparser==3.0 ; implementation_name != 'PyPy' and platform_python_implementation != 'PyPy'
+pydantic==2.13.5
+pydantic-core==2.46.5
+pygments==2.21.0
+pyjwt==2.14.0
+pytest==9.1.1
+pytest-bdd==8.1.0
+pytest-cov==7.1.0
+pytest-xdist==3.8.0
+python-multipart==0.0.32
+pywin32==312 ; sys_platform == 'win32'
+pyyaml==6.0.3
+referencing==0.37.0
+regex==2026.9.10
+requests==2.34.2
+rpds-py==2026.6.3
+six==1.17.0
+sse-starlette==3.4.11
+starlette==1.6.0
+tabulate==0.10.0
+tiktoken==0.12.0
+truststore==0.10.4 ; sys_platform != 'emscripten'
+typing-extensions==4.16.0
+typing-inspection==0.4.4
+urllib3==2.7.0
+uv==0.12.14
+uvicorn==0.53.0 ; sys_platform != 'emscripten'

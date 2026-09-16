@@ -184,6 +184,10 @@ Every commit in this repo should have a scannable subject and a body that explai
 
 ## Testing
 
+Dependency intent and generator policy live under `dependencies/`; see the
+[dependency workflow](contributor/dependencies.md) for intentional updates,
+offline staged freshness checks and required native release certification.
+
 Run `make test` before committing, after your final edit. Uses `.venv` with Python 3.12. A green run that precedes a later edit — a VERSION bump, a `make sync-template` — says nothing about what you are committing; re-run it.
 
 ```bash

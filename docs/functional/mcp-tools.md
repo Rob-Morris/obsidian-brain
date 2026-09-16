@@ -191,7 +191,13 @@ Real Claude Code, Codex CLI and Grok captures verify fresh and resumed discovery
 
 The server advertises `brain.command-interface-header/1` in discovery and initialize capabilities. It binds proxy protocol range, interface epoch, catalogue and result schemas, catalogue fingerprint, and the exact tool-to-command/version/mutation mapping.
 
-The installed proxy supplies private protocol 4. It follows the host's protocol
+The installed proxy supplies private protocol 5. The interface header still
+allows protocol 4 negotiation so deployed proxies can load the replacement and
+deliver its restart signal. Application dispatch independently requires protocol
+5; the existing protocol gate refuses older callers with
+`proxy_restart_required` and no effects. This
+rollout prevents an old proxy from silently refreshing Core without the runtime
+admission guard. The proxy follows the host's protocol
 era: legacy clients initialise normally; modern connections use private
 `server/discover` before the first host request, even if the host omits discovery.
 Every replacement re-establishes that era and validates its command header.
@@ -200,16 +206,32 @@ Three transport-owned tools supplement the application catalogue:
 
 | Tool | Contract |
 |---|---|
-| `brain_proxy_status` | No arguments. Reports loaded/installed Core and proxy versions, child availability, refresh state, interface fingerprint/generation and next action. Works without a healthy child. |
+| `brain_proxy_status` | No arguments. Reports loaded/installed Core and proxy versions, loaded proxy/child and required managed Python paths, runtime restart requirement, child availability, refresh state, interface fingerprint/generation and next action. Works without a healthy child. |
 | `brain_proxy_refresh` | No arguments. Loads a compatible server from the selected Brain's already-installed files at an idle boundary. Does not fetch/install code, change permissions or replace the proxy. |
-| `brain_proxy_restart` | No arguments. Explicit POSIX handoff to the selected Brain's installed proxy, preserving stdio and ending exceptional consent. Busy/pending output is refused. Unchanged proxy code is a no-op. |
+| `brain_proxy_restart` | No arguments. Explicit POSIX handoff to the selected Brain's installed proxy and required managed Python, preserving stdio and ending exceptional consent. Busy/pending output is refused. A no-op only when both proxy code and runtime are current. |
 
 These controls appear in MCP `tools/list`, not application `command.list` or the
 CLI. Their compact `brain.proxy-result/1` envelope appears in both
 `structuredContent` and first-block JSON. They have no application invocation
 receipt. `runtime.status` remains the application warm-up observation.
 
-Before accepting a semantic call, the proxy checks installed Core drift. With no
+Before accepting a semantic call, the proxy checks the managed runtime identity
+using the same installed-runtime selection as installation and the CLI: reuse
+the current Python minor's matching runtime, otherwise select the highest
+compatible installed minor for the same dependency hash. No matching installed
+runtime is `runtime_installation_unavailable`, not a request to launch a
+nonexistent exact-minor path. Both the proxy
+and child must use that interpreter; executable paths are compared without
+collapsing venv symlinks. Dependency drift returns a transport
+`runtime_restart_required` error with `effects: none` and an explicit instruction
+to restart MCP. Already in-flight work may finish, including any host replies
+it needs. New calls, explicit child refresh and crash-recovery launches cannot
+run updated Core in the old runtime. Status reports `runtime_restart_required`
+even if the loaded and installed Core versions match. An unreadable dependency
+contract returns `runtime_installation_unavailable`; repair the installation
+before restarting. These checks do not install dependencies.
+
+When the runtime is unchanged, the proxy checks installed Core drift. With no
 in-flight requests it asks its existing recovery worker to launch and negotiate a
 candidate, then retires the previous child only after validation. The triggering
 call is dispatched once against the replacement. Explicit refresh uses the same
@@ -229,15 +251,20 @@ resolve owned receipts; an inconclusive receipt means unknown, not safe to retry
 
 Compatible child replacement retains the proxy's consent owner. New proxy
 instances always need fresh exceptional consent. `brain_proxy_restart` preserves
-POSIX stdin/stdout through a bounded in-place process replacement. It preflights
-the installed proxy and child, preserves unread complete/partial input and drains
+POSIX stdin/stdout through a bounded in-place process replacement. It resolves
+and pins the required managed interpreter for both preflight and exec, rechecking
+that selection before retirement and exec. It preflights the installed proxy and
+child, preserves unread complete/partial input and drains
 completed output only after quiescing its producer. The replacement reports
 success after its child is ready; the same PID does not mean the same consent
 context. Unsupported platforms require host restart. Killing a proxy does not
 portably make the host reconnect.
 
 Preflight, busy or output-drain refusal leaves the old instance intact. Known
-exec failure resumes the retained image with a fresh owner and an error. A
+exec failure resumes the retained image with a fresh owner and an error. If its
+runtime is stale, application calls and child launches remain blocked; use a
+full host MCP restart. Missing runtime, unsupported handoff and failed preflight
+also give explicit host restart guidance. A
 consent-cleanup lock timeout ends consent and reports `proxy_owner_cleanup_pending`;
 private-directory cleanup may need attention. These post-retirement failures
 report `effects: consent_ended`, not an application receipt. A child/output owner
@@ -250,7 +277,9 @@ results without proxy drift have no added payload.
 Legacy replacements publish `notifications/tools/list_changed`; modern callers
 can inspect the catalogue generation and rediscover with their negotiated
 protocol. Neither mechanism guarantees the harness refreshed model-visible tools.
-Existing proxies need one restart after deployment to acquire these controls.
+Existing proxies need one restart after deployment to acquire the runtime guard.
+The CLI resolves the managed runtime on each invocation and needs no persistent
+MCP restart; an already-running CLI invocation remains in its original process.
 See [DD-074](../architecture/decisions/dd-074-proxy-owned-server-refresh.md) and
 [DD-075](../architecture/decisions/dd-075-bounded-proxy-stdio-handoff.md).
 

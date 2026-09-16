@@ -205,7 +205,9 @@ def _short_circuit_managed_runtime(
     """Return a ready summary when bootstrap can be skipped safely."""
     if os.environ.get(SKIP_BOOTSTRAP_ENV) == "1" and _current_process_satisfies(required_modules):
         return _ready_runtime_summary()
-    if current_process_in_managed_runtime(vault_root):
+    if current_process_in_managed_runtime(vault_root) and _venv_module.runtime_is_verified(
+        Path(sys.executable), Path(vault_root) / REQUIREMENTS_REL, _venv_module.python_tag()
+    ):
         return _ready_runtime_summary()
     return None
 
@@ -230,6 +232,7 @@ def bootstrap_managed_runtime(
     dependency_owner: str,
     launcher_python: str | None = None,
     dry_run: bool = False,
+    full_conformance: bool = False,
     timeout: int = 300,
 ) -> dict:
     """Ensure the central managed runtime is ready for substantive work."""
@@ -252,6 +255,7 @@ def bootstrap_managed_runtime(
         launcher=launcher_path,
         launcher_probe=launcher_probe,
         required_modules=required_modules,
+        full_conformance=full_conformance,
         dry_run=dry_run,
         timeout=timeout,
     )

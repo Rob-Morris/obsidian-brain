@@ -19,6 +19,13 @@ from _bootstrap.file_lock import exclusive_file_lock, MutationLockError
 from test_mcp_proxy import _FakeChild, _write_vault
 
 
+@pytest.fixture(autouse=True)
+def canonical_unit_runtime(monkeypatch):
+    # These unit vaults have no dependency installation; subprocess tests use
+    # real managed interpreters and exercise the canonical resolver.
+    monkeypatch.setattr(proxy, "find_existing_central_venv", lambda vault: Path(sys.executable))
+
+
 def state():
     return {"version": HANDOFF_VERSION, "pid": os.getpid(), "vault": "/tmp/brain",
             "workspace": None, "python": sys.executable, "server": "brain_mcp.server",

@@ -25,6 +25,7 @@ def _fake_launcher(path: Path) -> Path:
     path.write_text(
         "#!/bin/sh\n"
         "if [ \"$1\" = \"-c\" ]; then\n"
+        "  case \"$2\" in *importlib.metadata*) exit 0;; esac\n"
         f"  exec {REAL_PYTHON} \"$@\"\n"
         "fi\n"
         "if [ \"$1\" = \"-m\" ] && [ \"$2\" = \"venv\" ]; then\n"
@@ -49,6 +50,7 @@ def _make_vault(tmp_path: Path, requirements: str = "mcp==1.0.0\n") -> Path:
     bc = vault / ".brain-core" / "brain_mcp"
     bc.mkdir(parents=True)
     (bc / "requirements.txt").write_text(requirements)
+    (bc / "requirements-semantic.txt").write_text(requirements)
     (vault / ".brain-core" / "VERSION").write_text("0.0.0\n")
     return vault
 
@@ -71,10 +73,8 @@ def test_python_tag_default_uses_running_interpreter():
 
 
 def test_requirements_hash_is_content_addressed(tmp_path):
-    a = tmp_path / "a.txt"
-    b = tmp_path / "b.txt"
-    a.write_text("one\n")
-    b.write_text("one\n")
+    a = _venv.vault_requirements_path(_make_vault(tmp_path / "a", "one\n"))
+    b = _venv.vault_requirements_path(_make_vault(tmp_path / "b", "one\n"))
     assert _venv.requirements_hash(a) == _venv.requirements_hash(b)
     b.write_text("two\n")
     assert _venv.requirements_hash(a) != _venv.requirements_hash(b)
@@ -125,7 +125,31 @@ def test_ensure_central_venv_creates_then_reuses(monkeypatch, tmp_path):
 
     second = _venv.ensure_central_venv(requirements, launcher=launcher)
     assert second["created"] is False
+    assert second["dependencies_installed"] is False
+    assert second["conformance_changed"] is False
     assert second["venv_dir"] == first["venv_dir"]
+
+
+def test_ensure_central_venv_reports_existing_runtime_conformance_repair(
+    monkeypatch,
+    tmp_path,
+):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    vault = _make_vault(tmp_path)
+    requirements = _venv.vault_requirements_path(vault)
+    launcher = _fake_launcher(tmp_path / "launcher" / "python")
+    _venv.ensure_central_venv(requirements, launcher=launcher)
+    monkeypatch.setattr(_venv, "conform_runtime", lambda *_args, **_kwargs: True)
+
+    result = _venv.ensure_central_venv(
+        requirements,
+        launcher=launcher,
+        full_conformance=True,
+    )
+
+    assert result["created"] is False
+    assert result["dependencies_installed"] is True
+    assert result["conformance_changed"] is True
 
 
 def test_ensure_central_venv_skips_pip_when_install_requirements_false(monkeypatch, tmp_path):
@@ -238,7 +262,7 @@ def test_ensure_central_venv_writes_sentinel_after_successful_pip(monkeypatch, t
     result = _venv.ensure_central_venv(requirements, launcher=launcher)
     sentinel = Path(result["venv_dir"]) / _venv.DEPS_SENTINEL_NAME
     assert sentinel.is_file()
-    assert sentinel.read_text().strip() == result["hash"]
+    assert json.loads(sentinel.read_text())["contract"] == result["hash"]
 
 
 def test_ensure_central_venv_skip_pip_does_not_write_sentinel(monkeypatch, tmp_path):
@@ -296,6 +320,11 @@ def test_ensure_central_venv_skips_pip_when_sentinel_matches(monkeypatch, tmp_pa
     _venv.ensure_central_venv(requirements, launcher=launcher)
     assert pip_args.stat().st_size == initial_size
 
+    # Lifecycle installation must audit even an otherwise matching sentinel.
+    _venv.ensure_central_venv(requirements, launcher=launcher, full_conformance=True)
+    assert pip_args.read_text().endswith("check\n")
+    assert pip_args.stat().st_size > initial_size
+
 
 def test_resolve_or_provision_probes_venv_symlink_not_launcher(monkeypatch, tmp_path):
     """A venv symlink to native Python must still be probed as the venv path.
@@ -312,7 +341,8 @@ def test_resolve_or_provision_probes_venv_symlink_not_launcher(monkeypatch, tmp_
     managed_python.parent.mkdir(parents=True)
     managed_python.symlink_to(sys.executable)
     rhash = _venv.requirements_hash(requirements)
-    (managed_python.parent.parent / _venv.DEPS_SENTINEL_NAME).write_text(rhash)
+    (managed_python.parent.parent / _venv.DEPS_SENTINEL_NAME).write_text(
+        json.dumps(_venv._readiness(managed_python, requirements, _venv.python_tag(), False)))
     captured: dict[str, str] = {}
 
     def _fake_probe(python_path: str, *, modules=()):

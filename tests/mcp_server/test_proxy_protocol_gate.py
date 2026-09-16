@@ -45,7 +45,8 @@ def _call_handler(mcp, request):
         ({PROXY_PROTOCOL_ENV: "1"}, "too_old", 1),
         ({PROXY_PROTOCOL_ENV: "2"}, "too_old", 2),
         ({PROXY_PROTOCOL_ENV: "3"}, "too_old", 3),
-        ({PROXY_PROTOCOL_ENV: "5"}, "too_new", 5),
+        ({PROXY_PROTOCOL_ENV: "4"}, "too_old", 4),
+        ({PROXY_PROTOCOL_ENV: "6"}, "too_new", 6),
     ),
 )
 def test_incompatible_running_marker_is_explicit(environment, reason, value):
@@ -77,7 +78,8 @@ def test_compatible_running_marker_passes_through_before_tool_execution():
     assert result.is_error is False
 
 
-def test_old_proxy_call_is_blocked_before_lookup_even_for_retired_name(monkeypatch):
+@pytest.mark.parametrize("environment", [{}, {PROXY_PROTOCOL_ENV: "4"}])
+def test_old_proxy_call_is_blocked_before_lookup_even_for_retired_name(monkeypatch, environment):
     mcp = MCPServer("gate-test")
     lookups = []
     original = mcp._tool_manager.get_tool
@@ -87,7 +89,7 @@ def test_old_proxy_call_is_blocked_before_lookup_even_for_retired_name(monkeypat
         return original(name)
 
     monkeypatch.setattr(mcp._tool_manager, "get_tool", observed_lookup)
-    install_proxy_protocol_gate(mcp, _header(), environ={})
+    install_proxy_protocol_gate(mcp, _header(), environ=environment)
     result = _call_handler(mcp, _request())
 
     assert lookups == []
@@ -101,10 +103,10 @@ def test_old_proxy_call_is_blocked_before_lookup_even_for_retired_name(monkeypat
     assert result.structured_content["error"]["effects"] == "none"
     assert result.structured_content["error"]["details"] == {
         "requested_tool": "brain_retired_aggregate",
-        "running_proxy_protocol": None,
-        "running_proxy_protocol_raw": None,
-        "required_proxy_protocol": {"minimum": 4, "maximum": 4},
-        "reason": "missing",
+        "running_proxy_protocol": 4 if environment else None,
+        "running_proxy_protocol_raw": "4" if environment else None,
+        "required_proxy_protocol": {"minimum": 5, "maximum": 5},
+        "reason": "too_old" if environment else "missing",
     }
 
 

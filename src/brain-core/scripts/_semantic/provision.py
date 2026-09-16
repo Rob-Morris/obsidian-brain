@@ -8,6 +8,7 @@ import subprocess
 from pathlib import Path
 
 from _bootstrap.runtime import probe_python, step as _step
+from _common._venv import conform_runtime, format_subprocess_error
 from _lifecycle.retrieval_assets import refresh_retrieval_assets
 from _lifecycle.retrieval_errors import (
     CompiledRouterUnavailableError,
@@ -19,12 +20,6 @@ import _semantic.config as semantic_config
 import _semantic.model as semantic_model
 
 
-SEMANTIC_RUNTIME_PACKAGES = (
-    "huggingface-hub==1.13.0",
-    "numpy==2.4.4",
-    "onnxruntime==1.30.0",
-    "tokenizers==0.23.2",
-)
 SEMANTIC_RUNTIME_MODULES = ("huggingface_hub", *semantic_model.ENCODER_MODULES)
 SEMANTIC_RUNTIME_TIMEOUT = 900
 _SEMANTIC_ASSET_REFRESH_SUMMARIES = {
@@ -72,23 +67,25 @@ def refresh_semantic_assets(vault_root: str | Path) -> list[str]:
 def semantic_runtime_supported_platform() -> tuple[bool, str | None]:
     """Return whether semantic runtime provisioning is supported on this platform.
 
-    onnxruntime and tokenizers publish wheels for every platform Brain runs on,
-    so no platform is currently excluded. The seam stays so a future runtime
-    pin with narrower wheel coverage has one place to declare it.
+    Admission is best-effort outside the certified CPython 3.12 matrix.
+    The current ONNX Runtime pin has macOS 14+ arm64 and glibc 2.28+ Linux
+    wheels, but no Intel macOS wheel. Installation reports missing wheels.
     """
     return True, None
 
 
-def sync_runtime_packages(python_executable: str) -> None:
-    """Install the pinned semantic runtime into the target Python environment."""
-    subprocess.run(
-        [python_executable, "-m", "pip", "install", *SEMANTIC_RUNTIME_PACKAGES],
-        check=True,
+def sync_runtime_packages(python_executable: str) -> bool:
+    """Conform the target to the complete shipped base-plus-semantic export."""
+    changed = conform_runtime(
+        python_executable,
+        Path(__file__).resolve().parents[2] / "brain_mcp" / "requirements.txt",
+        semantic=True,
         timeout=SEMANTIC_RUNTIME_TIMEOUT,
     )
     # The same interpreter imports the freshly installed packages next; make
     # sure its path finders notice the new site-packages entries.
     importlib.invalidate_caches()
+    return changed
 
 
 def format_asset_refresh_error(exc: BaseException) -> str:
@@ -240,18 +237,23 @@ def provision_semantic_runtime(
         runtime_ok = bool(runtime_probe.get("ok"))
     if not runtime_ok:
         semantic_config.set_semantic_engine_installed(vault_root, installed=False)
-        try:
-            sync_runtime_packages(python_executable)
-        except subprocess.CalledProcessError as exc:
-            raise SemanticProvisionError(
-                f"Semantic runtime dependency installation failed with exit code {exc.returncode}."
-            ) from exc
-        runtime_probe = probe_python(python_executable, modules=SEMANTIC_RUNTIME_MODULES)
-        if not runtime_probe.get("ok"):
-            raise SemanticProvisionError(
-                "Semantic runtime dependency installation completed, but required modules are still unavailable."
-            )
-        runtime_changed = True
+    try:
+        runtime_changed = bool(sync_runtime_packages(python_executable)) or not runtime_ok
+    except subprocess.SubprocessError as exc:
+        semantic_config.set_semantic_engine_installed(vault_root, installed=False)
+        raise SemanticProvisionError(
+            "Semantic runtime dependency conformance failed: "
+            + format_subprocess_error(exc)
+        ) from exc
+    except (OSError, ValueError) as exc:
+        semantic_config.set_semantic_engine_installed(vault_root, installed=False)
+        raise SemanticProvisionError(f"Semantic runtime dependency conformance failed: {exc}") from exc
+    runtime_probe = probe_python(python_executable, modules=SEMANTIC_RUNTIME_MODULES)
+    if not runtime_probe.get("ok"):
+        semantic_config.set_semantic_engine_installed(vault_root, installed=False)
+        raise SemanticProvisionError(
+            "Semantic runtime dependency installation completed, but required modules are still unavailable."
+        )
 
     try:
         model_outcome = semantic_model.provision_semantic_model(vault_root)

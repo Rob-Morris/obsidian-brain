@@ -1,7 +1,7 @@
 """
 _venv — Resolve and create the central Brain managed runtime.
 
-Brain installs a single Python virtualenv per `(python_minor, requirements.txt)`
+Brain installs a single Python virtualenv per `(python_minor, runtime_contract)`
 pair under `~/.brain/venvs/py<X.Y>-<sha16>/`, shared across vaults. This
 replaces the per-vault `<vault>/.venv/` layout, which on iCloud-hosted vaults
 caused 30s+ MCP cold-start failures from materialising thousands of
@@ -47,6 +47,9 @@ from typing import Optional
 REQUIREMENTS_REL = Path(".brain-core/brain_mcp/requirements.txt")
 LEGACY_VAULT_VENV_REL = Path(".venv")
 DEPS_SENTINEL_NAME = ".brain-deps-installed"
+RUNTIME_EXPORT_NAMES = ("requirements.txt", "requirements-semantic.txt")
+CONTRACT_SCHEMA = "brain-runtime-dependencies/1"
+VERIFICATION_SCHEMA = "brain-runtime-verification/1"
 _HASH_LEN = 16
 _LAUNCHER_OVERRIDE_ENV = "BRAIN_VENV_LAUNCHER"
 
@@ -89,8 +92,114 @@ def legacy_vault_venv_python(vault_root: Path) -> Path:
 
 
 def requirements_hash(requirements_path: Path) -> str:
-    """Stable, content-addressed identifier for a requirements file."""
-    return hashlib.sha256(Path(requirements_path).read_bytes()).hexdigest()[:_HASH_LEN]
+    """Hash both shipped exports with stable names and a versioned domain.
+
+    Normalise CRLF to LF for installed copies; Git attributes also protect the
+    repository inputs. Contributor-only exports never affect runtime identity.
+    """
+    digest = hashlib.sha256(CONTRACT_SCHEMA.encode() + b"\0")
+    for name in RUNTIME_EXPORT_NAMES:
+        content = (Path(requirements_path).parent / name).read_bytes().replace(b"\r\n", b"\n")
+        if b"\r" in content:
+            raise ValueError(f"invalid dependency line endings: {name}")
+        digest.update(name.encode() + b"\0" + str(len(content)).encode() + b"\0" + content)
+    return digest.hexdigest()[:_HASH_LEN]
+
+
+def _read_readiness(python: Path) -> dict:
+    try:
+        value = json.loads((python.parent.parent / DEPS_SENTINEL_NAME).read_text())
+    except (OSError, ValueError):
+        return {}
+    return value if isinstance(value, dict) else {}
+
+
+def _readiness(python: Path, requirements: Path, tag: str, semantic: bool) -> dict:
+    return {"schema": VERIFICATION_SCHEMA, "contract": requirements_hash(requirements),
+            "python": os.path.abspath(python), "python_tag": tag, "semantic": semantic}
+
+
+def runtime_is_verified(python: Path, requirements: Path, tag: str) -> bool:
+    """Check readiness without pip or an installed-distribution subprocess."""
+    recorded = _read_readiness(python)
+    semantic = recorded.get("semantic")
+    return isinstance(semantic, bool) and recorded == _readiness(python, requirements, tag, semantic)
+
+
+def verify_runtime_versions(python: str | Path, requirements: Path, *, timeout: int = 600) -> None:
+    """Audit every applicable exact pin and dependency consistency in the target.
+
+    Packaging comes from pip's bundled parser inside the target interpreter;
+    the external bootstrap remains stdlib-only. Extras and markers are evaluated
+    there so compatible-minor reuse verifies the interpreter actually in use.
+    """
+    code = '''
+import importlib.metadata as metadata
+import sys
+from pip._vendor.packaging.requirements import Requirement
+from pip._vendor.packaging.version import Version
+errors = []
+for line in open(sys.argv[1], encoding="utf-8"):
+    line = line.strip()
+    if not line or line.startswith("#"):
+        continue
+    requirement = Requirement(line)
+    if requirement.url or len(requirement.specifier) != 1 or next(iter(requirement.specifier)).operator != "==":
+        errors.append("not an exact registry requirement: " + line)
+        continue
+    if requirement.marker and not requirement.marker.evaluate():
+        continue
+    try:
+        actual = metadata.version(requirement.name)
+    except metadata.PackageNotFoundError:
+        actual = None
+    if actual is None or Version(actual) not in requirement.specifier:
+        errors.append(f"{requirement}: installed {actual or 'missing'}")
+if errors:
+    raise SystemExit("Runtime dependency conformance failed:\\n" + "\\n".join(errors))
+'''
+    subprocess.run([str(python), "-c", code, str(requirements)], check=True,
+                   capture_output=True, text=True, timeout=timeout)
+    subprocess.run([str(python), "-m", "pip", "check"], check=True,
+                   capture_output=True, text=True, timeout=timeout)
+
+
+def conform_runtime(python: str | Path, requirements: Path, *, tag: str | None = None,
+                    semantic: bool | None = None, install_first: bool = False,
+                    timeout: int = 600) -> bool:
+    """Audit and repair the selected closure, preserving a verified semantic extension.
+
+    Any attempted audit invalidates readiness until both exact versions and
+    dependency consistency pass. Returns whether packages or readiness changed.
+    """
+    python = Path(python)
+    recorded = _read_readiness(python)
+    semantic = semantic is True or recorded.get("semantic") is True
+    selected = requirements.parent / RUNTIME_EXPORT_NAMES[bool(semantic)]
+    # Check all contract inputs before changing the existing environment.
+    requirements_hash(requirements)
+    sentinel = python.parent.parent / DEPS_SENTINEL_NAME
+    sentinel.unlink(missing_ok=True)
+    if semantic:
+        # Preserve the authorised extension across a failed repair, without
+        # retaining any schema/digest that could claim verified readiness.
+        sentinel.write_text(json.dumps({"semantic": True}), encoding="utf-8")
+    changed = install_first
+    if not install_first:
+        try:
+            verify_runtime_versions(python, selected, timeout=timeout)
+        except subprocess.CalledProcessError:
+            changed = True
+    if changed:
+        subprocess.run([str(python), "-m", "pip", "install", "--quiet", "--no-deps",
+                        "--only-binary=:all:", "-r", str(selected)], check=True,
+                       capture_output=True, text=True, timeout=timeout)
+        verify_runtime_versions(python, selected, timeout=timeout)
+    if tag is None:
+        tag = python_tag(python)
+    verified = _readiness(python, requirements, tag, semantic)
+    sentinel.write_text(json.dumps(verified), encoding="utf-8")
+    return changed or recorded != verified
 
 
 @lru_cache(maxsize=None)
@@ -300,12 +409,14 @@ def ensure_central_venv(
     *,
     launcher: Path,
     install_requirements: bool = True,
+    full_conformance: bool = False,
     timeout: int = _DEFAULT_VENV_TIMEOUT,
 ) -> dict:
     """Create the central venv for these requirements if missing.
 
     Idempotent: if the managed venv interpreter and dependency sentinel already
-    exist, returns without re-running pip. Always uses `launcher` (an external
+    exist, returns without re-running pip unless a lifecycle caller requests
+    `full_conformance`. Always uses `launcher` (an external
     Python 3.12+ interpreter) to create the venv, so the resulting `pyX.Y` tag
     always matches `launcher`.
 
@@ -319,7 +430,9 @@ def ensure_central_venv(
     so a stuck pip resolver cannot hang the install/upgrade flow forever.
 
     Returns `{"venv_dir", "python", "created", "dependencies_installed",
-    "python_tag", "hash"}`.
+    "conformance_changed", "python_tag", "hash"}`. The explicit
+    `conformance_changed` outcome is true when package repair or readiness
+    reconciliation changed the existing runtime.
     Raises subprocess errors on failure.
     """
     requirements_path = Path(requirements_path)
@@ -335,8 +448,6 @@ def ensure_central_venv(
     rhash = requirements_hash(requirements_path)
     venv_dir = central_venvs_root() / f"{tag}-{rhash}"
     py = venv_python(venv_dir)
-    sentinel = venv_dir / DEPS_SENTINEL_NAME
-
     # Readiness probe: the venv interpreter alone is not a guarantee that the
     # venv is healthy. A previous `pip install` may have failed mid-stream,
     # leaving the interpreter present but packages missing. The sentinel file
@@ -352,15 +463,17 @@ def ensure_central_venv(
                 "python": str(py),
                 "created": False,
                 "dependencies_installed": False,
+                "conformance_changed": False,
                 "python_tag": tag,
                 "hash": rhash,
             }
-        if sentinel.is_file() and sentinel.read_text().strip() == rhash:
+        if not full_conformance and runtime_is_verified(py, requirements_path, tag):
             return {
                 "venv_dir": str(venv_dir),
                 "python": str(py),
                 "created": False,
                 "dependencies_installed": False,
+                "conformance_changed": False,
                 "python_tag": tag,
                 "hash": rhash,
             }
@@ -377,19 +490,21 @@ def ensure_central_venv(
         created = True
 
     if install_requirements:
-        subprocess.run(
-            [str(py), "-m", "pip", "install", "--quiet", "--upgrade", "pip", "-r", str(requirements_path)],
-            check=True,
-            capture_output=True,
-            text=True,
+        dependencies_changed = conform_runtime(
+            py,
+            requirements_path,
+            tag=tag,
+            install_first=created,
             timeout=timeout,
         )
-        sentinel.write_text(rhash)
+    else:
+        dependencies_changed = False
     return {
         "venv_dir": str(venv_dir),
         "python": str(py),
         "created": created,
-        "dependencies_installed": bool(install_requirements),
+        "dependencies_installed": dependencies_changed,
+        "conformance_changed": dependencies_changed,
         "python_tag": tag,
         "hash": rhash,
     }
@@ -457,7 +572,7 @@ def _decode_subprocess_output(value: str | bytes | None) -> str:
     return value or ""
 
 
-def _format_subprocess_error(exc: subprocess.SubprocessError) -> str:
+def format_subprocess_error(exc: subprocess.SubprocessError) -> str:
     """Render a subprocess failure with command and captured output."""
     if not isinstance(exc, (subprocess.CalledProcessError, subprocess.TimeoutExpired)):
         return str(exc)
@@ -489,6 +604,7 @@ def resolve_or_provision_central_venv(
     launcher_probe: Optional[dict] = None,
     required_modules: tuple[str, ...] = (),
     install_requirements: Optional[bool] = None,
+    full_conformance: bool = False,
     dry_run: bool = False,
     timeout: int = _DEFAULT_VENV_TIMEOUT,
 ) -> dict:
@@ -556,7 +672,7 @@ def resolve_or_provision_central_venv(
 
     try:
         rhash = requirements_hash(requirements)
-    except OSError as exc:
+    except (OSError, ValueError) as exc:
         return {
             "outcome": RUNTIME_ERROR,
             "python": None,
@@ -597,9 +713,7 @@ def resolve_or_provision_central_venv(
         else:
             missing = tuple(probe.get("missing", []))
             try:
-                sentinel_matches = (
-                    sentinel.is_file() and sentinel.read_text().strip() == rhash
-                )
+                sentinel_matches = runtime_is_verified(existing, requirements, tag)
             except OSError as exc:
                 return {
                     "outcome": RUNTIME_ERROR,
@@ -611,7 +725,7 @@ def resolve_or_provision_central_venv(
                     "effect_outcome": "none",
                     "message": f"runtime dependency sentinel could not be read: {exc}",
                 }
-            force_sync_existing = should_install_requirements and not sentinel_matches
+            force_sync_existing = should_install_requirements and (full_conformance or not sentinel_matches)
             if not missing and not force_sync_existing:
                 return {
                     "outcome": RUNTIME_REUSED,
@@ -643,12 +757,8 @@ def resolve_or_provision_central_venv(
                     "message": message,
                 }
             try:
-                subprocess.run(
-                    [str(existing), "-m", "pip", "install", "--quiet",
-                     "--upgrade", "pip", "-r", str(requirements)],
-                    check=True, capture_output=True, text=True, timeout=timeout,
-                )
-            except subprocess.SubprocessError as exc:
+                changed = conform_runtime(existing, requirements, tag=tag, timeout=timeout)
+            except (OSError, ValueError, subprocess.SubprocessError) as exc:
                 return {
                     "outcome": RUNTIME_ERROR,
                     "python": str(existing),
@@ -658,11 +768,12 @@ def resolve_or_provision_central_venv(
                     "missing_modules": missing,
                     "effect_outcome": "unknown",
                     "message": "pip install failed against existing runtime: "
-                    + _format_subprocess_error(exc),
+                    + format_subprocess_error(exc),
                 }
             verify = _probe_runtime(str(existing), modules=required_modules)
             still_missing = tuple(verify.get("missing", []))
             if still_missing:
+                sentinel.unlink(missing_ok=True)
                 return {
                     "outcome": RUNTIME_ERROR,
                     "python": str(existing),
@@ -673,28 +784,15 @@ def resolve_or_provision_central_venv(
                     "effect_outcome": "partial",
                     "message": f"sync completed but modules still missing: {', '.join(still_missing)}",
                 }
-            try:
-                sentinel.write_text(rhash)
-            except OSError as exc:
-                return {
-                    "outcome": RUNTIME_ERROR,
-                    "python": str(existing),
-                    "venv_dir": str(venv_dir),
-                    "python_tag": tag,
-                    "hash": rhash,
-                    "missing_modules": (),
-                    "effect_outcome": "partial",
-                    "message": f"dependencies synced but runtime sentinel could not be written: {exc}",
-                }
             return {
-                "outcome": RUNTIME_SYNCED,
+                "outcome": RUNTIME_SYNCED if changed else RUNTIME_REUSED,
                 "python": str(existing),
                 "venv_dir": str(venv_dir),
                 "python_tag": tag,
                 "hash": rhash,
                 "missing_modules": (),
                 "synced_modules": missing,
-                "effect_outcome": "committed",
+                "effect_outcome": "committed" if changed else "none",
             }
 
     # Step 5: no runtime exists — create the exact-tag venv.
@@ -726,7 +824,7 @@ def resolve_or_provision_central_venv(
             "python": None,
             "venv_dir": str(new_dir),
             "effect_outcome": "unknown",
-            "message": "ensure_central_venv failed: " + _format_subprocess_error(exc),
+            "message": "ensure_central_venv failed: " + format_subprocess_error(exc),
         }
     except OSError as exc:
         return {
@@ -738,7 +836,7 @@ def resolve_or_provision_central_venv(
         }
     if created["created"]:
         final_outcome = RUNTIME_CREATED
-    elif created.get("dependencies_installed"):
+    elif created.get("conformance_changed", created.get("dependencies_installed")):
         final_outcome = RUNTIME_SYNCED
     else:
         final_outcome = RUNTIME_REUSED
@@ -798,7 +896,14 @@ def _main(argv: Optional[list[str]] = None) -> int:
     ensure.add_argument("--vault", required=True)
     ensure.add_argument("--launcher", required=True)
 
+    verify = sub.add_parser("verify", help="Audit exact installed versions and dependency consistency.")
+    verify.add_argument("--requirements", type=Path, required=True)
+    verify.add_argument("--launcher", default=sys.executable)
+
     args = parser.parse_args(argv)
+    if args.cmd == "verify":
+        verify_runtime_versions(args.launcher, args.requirements)
+        return 0
     vault_root = Path(args.vault)
     launcher = Path(args.launcher) if args.launcher else None
 

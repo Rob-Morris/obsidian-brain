@@ -1,0 +1,43 @@
+name: Dependency certification
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  workflow_dispatch:
+
+jobs:
+  native:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-15
+            platform: darwin
+            machine: arm64
+          - runner: ubuntu-24.04
+            platform: linux
+            machine: x86_64
+          - runner: windows-2025
+            platform: win32
+            machine: AMD64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Certify clean base then semantic runtime
+        run: python src/scripts/dependency_certification.py --platform ${{ matrix.platform }} --machine ${{ matrix.machine }}
+
+  certified:
+    if: always()
+    needs: native
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Require every native matrix leg
+        env:
+          NATIVE_RESULT: ${{ needs.native.result }}
+        run: test "$NATIVE_RESULT" = success

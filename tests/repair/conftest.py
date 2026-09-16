@@ -31,6 +31,7 @@ def repair_vault(tmp_path):
     (bc / "session-core.md").write_text("Always:\n- Keep types tidy.\n")
     (bc / "brain_mcp").mkdir()
     (bc / "brain_mcp" / "requirements.txt").write_text("mcp>=1.0.0\n")
+    (bc / "brain_mcp" / "requirements-semantic.txt").write_text("mcp>=1.0.0\n")
     # Repair loads the canonical venv path-resolver from the vault to avoid
     # duplicating the rule in repair.py — copy it from source so the fixture
     # mirrors a real vault layout.

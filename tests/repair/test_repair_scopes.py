@@ -894,8 +894,8 @@ class TestRepairScopes:
         )
         monkeypatch.setattr(
             semantic_repairs.semantic_provision,
-            "sync_runtime_packages",
-            lambda _python: pytest.fail("runtime sync should not run when dependencies are already available"),
+            "conform_runtime",
+            lambda *_args, **_kwargs: False,
         )
         monkeypatch.setattr(
             semantic_repairs.semantic_provision.semantic_model,

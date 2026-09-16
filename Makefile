@@ -3,7 +3,7 @@ PYTHON := $(VENV)/bin/python
 PIP := $(VENV)/bin/pip
 PYTEST := $(VENV)/bin/pytest
 
-.PHONY: venv install install-semantic test test-parallel test-brain-lab test-brain-lab-docker test-brain-lab-docker-configuration test-brain-lab-current-docker test-brain-lab-upgrade-docker lint lint-docstrings lint-command-docs clean hooks sync-template sync-template-check dev-link precommit-check release-status
+.PHONY: venv install install-semantic dependencies-check dependencies-update test test-parallel test-brain-lab test-brain-lab-docker test-brain-lab-docker-configuration test-brain-lab-current-docker test-brain-lab-upgrade-docker lint lint-docstrings lint-command-docs clean hooks sync-template sync-template-check dev-link precommit-check release-status
 
 BRAIN_LAB_STATE_DIR ?= $(CURDIR)/.brain-lab
 
@@ -11,10 +11,18 @@ venv:
 	python3.12 -m venv $(VENV)
 
 install: venv
-	$(PIP) install -r src/brain-core/brain_mcp/requirements.txt "pytest>=9.0" "pytest-bdd>=8.0" "pytest-xdist>=3.6" "interrogate>=1.7" "pytest-cov>=6.0" "tiktoken==0.12.0" "PyYAML==6.0.3"
+	$(PIP) install --no-deps -r dependencies/requirements-dev.txt
+	$(PYTHON) src/brain-core/scripts/_common/_venv.py verify --requirements dependencies/requirements-dev.txt
 
 install-semantic: install
-	$(PIP) install "numpy==2.4.4" "onnxruntime==1.30.0" "tokenizers==0.23.2"
+	$(PIP) install --no-deps -r dependencies/requirements-dev-semantic.txt
+	$(PYTHON) src/brain-core/scripts/_common/_venv.py verify --requirements dependencies/requirements-dev-semantic.txt
+
+dependencies-check:
+	$(PYTHON) src/scripts/dependencies.py check
+
+dependencies-update:
+	$(PYTHON) src/scripts/dependencies.py update
 
 dev-link:
 	@[ -e template-vault/.brain-core ] || ln -s ../src/brain-core template-vault/.brain-core

@@ -8,6 +8,7 @@ reusable-script docstrings and supported command API/schema documentation. The
 
 - [Specification](specification.md) — design rationale and structural decisions
 - [Agents](agents.md) — contributor workflow guidance for agents
+- [Dependencies](dependencies.md) — locked exports, offline checks and native release certification
 - [Plugins](plugins.md) — writing and packaging plugin integrations
 - [Disposable Brain Linux Environments](../../tools/brain-lab/README.md) — reproducible Docker-backed installation, upgrade, diagnosis, and user-vault reproduction
 - [Contributing](../CONTRIBUTING.md) — general contributor guide and maintenance rules, including deterministic repository contracts, subjective canary review, testing, version surfaces, and commit hygiene

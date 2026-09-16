@@ -103,7 +103,7 @@ def test_install_ignores_machine_local_template_state(tmp_path):
     assert (central / "bin" / "python").is_file()
     assert str(central / "bin" / "python") in (target / ".mcp.json").read_text()
     assert (central / "pip-args.txt").read_text().startswith(
-        "install --quiet --upgrade pip -r "
+        "install --quiet --no-deps --only-binary=:all: -r "
     )
     assert not (target / ".brain" / "local" / "session.md").exists()
     assert not (target / ".brain" / "local" / "compiled-router.json").exists()
@@ -194,7 +194,7 @@ def test_install_continues_when_mcp_dependency_install_fails(tmp_path):
     central = venv_dirs[0]
     assert (central / "bin" / "python").is_file()
     assert (central / "pip-args.txt").read_text().startswith(
-        "install --quiet --upgrade pip -r "
+        "install --quiet --no-deps --only-binary=:all: -r "
     )
     assert not (target / ".mcp.json").exists()
     assert not (target / ".codex" / "config.toml").exists()
@@ -357,7 +357,7 @@ def test_install_enable_semantic_uses_real_configure_boundary(tmp_path):
         "venv_dir=$(cd \"$(dirname \"$0\")/..\" && pwd)\n"
         "if [ \"$1\" = \"-m\" ] && [ \"$2\" = \"pip\" ]; then\n"
         "  shift 2\n"
-        "  printf '%s\\n' \"$*\" > \"$venv_dir/pip-args.txt\"\n"
+        "  printf '%s\\n' \"$*\" >> \"$venv_dir/pip-args.txt\"\n"
         "  : > \"$venv_dir/yaml-installed\"\n"
         "  exit 0\n"
         "fi\n"
@@ -409,7 +409,7 @@ def test_install_enable_semantic_uses_real_configure_boundary(tmp_path):
     central_python = central_venv / "bin" / "python"
     assert str(central_python) in (target / "semantic-provision-ran.txt").read_text()
     assert (central_venv / "pip-args.txt").read_text().startswith(
-        "install --quiet --upgrade pip -r "
+        "install --quiet --no-deps --only-binary=:all: -r "
     )
     assert "configure.py semantic --enable --vault" in (central_venv / "invocations.txt").read_text()
 

@@ -37,6 +37,7 @@ from _repository_contracts.type_library import (  # noqa: E402
     validate_type_library,
 )
 from _repository_contracts.view import RepositoryView, read as _read  # noqa: E402
+from _repository_contracts.dependencies import validate_dependencies  # noqa: E402
 
 
 VERSION_PATH = "src/brain-core/VERSION"
@@ -644,6 +645,7 @@ def validate_repository(view: RepositoryView) -> list[str]:
         validate_decision_index,
         validate_type_library,
         validate_docs_reachability,
+        validate_dependencies,
     )
     return [error for validator in validators for error in validator(view)]
 

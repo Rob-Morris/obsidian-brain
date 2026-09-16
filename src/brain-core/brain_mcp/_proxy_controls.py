@@ -24,9 +24,9 @@ def tool_definitions() -> list[dict]:
             },
         }
         for name, description in (
-            (STATUS_TOOL, "Inspect loaded and installed Brain Core/proxy versions and server refresh state, even when the server is unavailable."),
-            (RESTART_TOOL, "Replace the idle proxy from this Brain's installed files, preserving stdio. Ends exceptional consent; a new instance starts. POSIX only; does not install releases."),
-            (REFRESH_TOOL, "Refresh the idle Brain server from this Brain's installed files. Does not install releases or restart the proxy; busy work is left running."),
+            (STATUS_TOOL, "Inspect loaded/installed Core, proxy and runtime, refresh state and required recovery, even without a server."),
+            (RESTART_TOOL, "Restart idle MCP in this Brain's installed managed runtime, preserving stdio. Ends exceptional consent. POSIX only; does not install releases."),
+            (REFRESH_TOOL, "Refresh idle Core only within the same managed runtime. Runtime changes require MCP restart. Does not install releases; busy work keeps running."),
         )
     ]
 
@@ -37,6 +37,14 @@ def control_response(request_id, tool: str, status: dict, *, code: str | None = 
                 "status": "error" if code else "ok", "result": status}
     if code:
         envelope["error"] = {"code": code, "effects": effects}
+        if code in {"runtime_restart_required", "runtime_installation_unavailable"}:
+            envelope["guidance"] = (
+                "MCP must be restarted before retrying this application call. "
+                "Use brain_proxy_restart when idle; if unsupported or unsuccessful, restart MCP in the host. "
+                "Repair an unavailable installed runtime first."
+            )
+        elif tool == RESTART_TOOL and code not in {"server_busy", "refresh_in_progress", "invalid_arguments"}:
+            envelope["guidance"] = "Proxy handoff did not complete. Restart MCP in the host to recover."
     return {"jsonrpc": "2.0", "id": request_id, "result": {
         "content": result_text_wire(f"{tool}: {code or 'ok'}", envelope),
         "structuredContent": envelope, "isError": code is not None,

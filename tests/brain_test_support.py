@@ -173,7 +173,7 @@ def write_fake_launcher(path, *, cversion="3.12", venv="none", real_python=None)
             "if [ \"$1\" = \"-m\" ] && [ \"$2\" = \"pip\" ]; then\n"
             "  shift 2\n"
             "  venv_dir=$(cd \"$(dirname \"$0\")/..\" && pwd)\n"
-            "  printf '%s\\n' \"$*\" > \"$venv_dir/pip-args.txt\"\n"
+            "  printf '%s\\n' \"$*\" >> \"$venv_dir/pip-args.txt\"\n"
             f"{pip_tail}"
             "fi\n"
             "printf 'unexpected venv python args: %s\\n' \"$*\" >&2\n"

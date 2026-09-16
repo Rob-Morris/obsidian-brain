@@ -34,6 +34,7 @@ class _ReexecCalled(Exception):
 
 
 def test_shared_handoff_short_circuits_when_already_in_managed_runtime(monkeypatch):
+    monkeypatch.setattr(bootstrap_runtime._venv_module, "runtime_is_verified", lambda *_args: True)
     monkeypatch.setattr(
         bootstrap_runtime,
         "resolve_vault_venv_python",
@@ -63,6 +64,7 @@ def test_managed_runtime_detection_preserves_venv_symlink_boundary(monkeypatch, 
     (vault / ".brain-core" / "brain_mcp").mkdir(parents=True)
     (vault / ".brain-core" / "VERSION").write_text("0.42.3\n")
     (vault / ".brain-core" / "brain_mcp" / "requirements.txt").write_text("mcp>=1.0.0\n")
+    (vault / ".brain-core" / "brain_mcp" / "requirements-semantic.txt").write_text("mcp>=1.0.0\n")
 
     managed_python = venv_helper.resolve_vault_venv_python(vault)
     managed_python.parent.mkdir(parents=True, exist_ok=True)
@@ -225,6 +227,7 @@ def test_ensure_managed_runtime_preserves_bootstrap_error_message(monkeypatch):
 
 
 def test_preview_managed_runtime_short_circuits_when_already_in_managed_runtime(monkeypatch):
+    monkeypatch.setattr(bootstrap_runtime._venv_module, "runtime_is_verified", lambda *_args: True)
     monkeypatch.setattr(
         bootstrap_runtime,
         "resolve_vault_venv_python",
@@ -354,6 +357,7 @@ def test_shared_handoff_reexecs_end_to_end_through_fake_managed_runtime(tmp_path
     (vault / ".brain-core" / "brain_mcp").mkdir(parents=True)
     (vault / ".brain-core" / "VERSION").write_text("0.42.3\n")
     (vault / ".brain-core" / "brain_mcp" / "requirements.txt").write_text("mcp>=1.0.0\n")
+    (vault / ".brain-core" / "brain_mcp" / "requirements-semantic.txt").write_text("mcp>=1.0.0\n")
 
     managed_python = venv_helper.resolve_vault_venv_python(vault)
     output_path = tmp_path / "handoff-output.json"

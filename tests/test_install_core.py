@@ -6,6 +6,7 @@ import importlib
 import json
 from pathlib import Path
 import stat
+import subprocess
 import sys
 import tomllib
 
@@ -24,22 +25,23 @@ def test_supported_mcp_major_is_shared_by_install_and_test_surfaces():
     runtime_requirements = (
         REPO_ROOT / "src" / "brain-core" / "brain_mcp" / "requirements.txt"
     ).read_text(encoding="utf-8").splitlines()
-    project = tomllib.loads((REPO_ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    project = tomllib.loads((REPO_ROOT / "dependencies/pyproject.toml").read_text(encoding="utf-8"))
 
-    assert runtime_requirements == [requirement]
+    assert requirement in runtime_requirements
+    assert len(runtime_requirements) > 1
     assert requirement in project["project"]["dependencies"]
-    assert "-r src/brain-core/brain_mcp/requirements.txt" in (
+    assert "--no-deps -r dependencies/requirements-dev.txt" in (
         REPO_ROOT / "Makefile"
     ).read_text(encoding="utf-8")
-    assert "-r src/brain-core/brain_mcp/requirements.txt" in (
+    assert "--no-deps -r dependencies/requirements-dev.txt" in (
         REPO_ROOT / ".github" / "workflows" / "windows-smoke.yml"
     ).read_text(encoding="utf-8")
 
 
 def test_contributor_install_declares_the_test_only_yaml_dependency():
-    makefile = (REPO_ROOT / "Makefile").read_text(encoding="utf-8")
-
-    assert '"PyYAML==6.0.3"' in makefile
+    project = tomllib.loads((REPO_ROOT / "dependencies/pyproject.toml").read_text(encoding="utf-8"))
+    assert "PyYAML==6.0.3" in project["dependency-groups"]["dev"]
+    assert "pyyaml==6.0.3" in (REPO_ROOT / "dependencies/requirements-dev.txt").read_text()
 
 
 def _copy_source(tmp_path: Path) -> Path:
@@ -54,7 +56,44 @@ def _runtime_result(vault_root: Path) -> dict:
     python = runtime / ("Scripts/python.exe" if sys.platform == "win32" else "bin/python")
     python.parent.mkdir(parents=True, exist_ok=True)
     python.write_text("python\n", encoding="utf-8")
-    return {"created": True, "venv_dir": str(runtime), "python": str(python)}
+    return {
+        "created": True,
+        "dependencies_installed": True,
+        "conformance_changed": True,
+        "venv_dir": str(runtime),
+        "python": str(python),
+    }
+
+
+def test_managed_runtime_step_reports_dependency_repair(monkeypatch, tmp_path):
+    runtime = _runtime_result(tmp_path)
+    runtime.update(created=False, dependencies_installed=True, conformance_changed=True)
+    monkeypatch.setattr(
+        install_core,
+        "ensure_central_venv",
+        lambda *_args, **_kwargs: runtime,
+    )
+
+    step = install_core._ensure_managed_runtime(tmp_path, Path(sys.executable))
+
+    assert step["status"] == "changed"
+    assert step["message"] == "Repaired managed runtime dependencies."
+
+
+def test_managed_runtime_step_preserves_subprocess_diagnostics(monkeypatch, tmp_path):
+    def fail(*_args, **_kwargs):
+        raise subprocess.CalledProcessError(
+            1,
+            ["python", "-m", "pip", "install"],
+            stderr="No matching distribution found for onnxruntime",
+        )
+
+    monkeypatch.setattr(install_core, "ensure_central_venv", fail)
+
+    step = install_core._ensure_managed_runtime(tmp_path, Path(sys.executable))
+
+    assert step["status"] == "error"
+    assert "No matching distribution found for onnxruntime" in step["message"]
 
 
 def test_install_core_scaffolds_fresh_vault_and_scrubs_machine_local_state(tmp_path):
@@ -168,7 +207,7 @@ def test_install_core_project_mcp_uses_vault_self_transport(tmp_path, monkeypatc
     monkeypatch.setattr(
         install_core,
         "ensure_central_venv",
-        lambda _requirements, *, launcher: _runtime_result(vault),
+        lambda _requirements, *, launcher, full_conformance: _runtime_result(vault),
     )
 
     def fake_apply(vault_root, **kwargs):
@@ -206,7 +245,7 @@ def test_install_core_user_scope_sets_machine_default(tmp_path, monkeypatch):
     monkeypatch.setattr(
         install_core,
         "ensure_central_venv",
-        lambda _requirements, *, launcher: _runtime_result(vault),
+        lambda _requirements, *, launcher, full_conformance: _runtime_result(vault),
     )
     monkeypatch.setattr(
         install_core.mcp_transport,
@@ -233,7 +272,7 @@ def test_install_core_keeps_scaffold_when_runtime_install_fails(tmp_path, monkey
     source = _copy_source(tmp_path)
     vault = tmp_path / "vault"
 
-    def fail_runtime(_requirements, *, launcher):
+    def fail_runtime(_requirements, *, launcher, full_conformance):
         raise RuntimeError("simulated pip failure")
 
     monkeypatch.setattr(install_core, "ensure_central_venv", fail_runtime)
@@ -260,7 +299,7 @@ def test_install_core_does_not_set_user_default_when_runtime_install_fails(tmp_p
     source = _copy_source(tmp_path)
     vault = tmp_path / "vault"
 
-    def fail_runtime(_requirements, *, launcher):
+    def fail_runtime(_requirements, *, launcher, full_conformance):
         raise RuntimeError("simulated pip failure")
 
     monkeypatch.setattr(install_core, "ensure_central_venv", fail_runtime)

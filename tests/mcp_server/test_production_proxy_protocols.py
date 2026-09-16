@@ -19,6 +19,60 @@ MODERN_META = {
 }
 
 
+@pytest.mark.parametrize("modern", [False, True])
+def test_frozen_protocol_four_negotiates_refresh_then_receives_restart_gate(command_vault_clone, modern):
+    vault = command_vault_clone.vault_root
+    invoked = vault.parent / "application-handler-invoked"
+    owner = vault / ".brain-core/scripts/_application/artefact/read.py"
+    owner.write_text(owner.read_text().replace(
+        "def execute(context, request):\n",
+        f"def execute(context, request):\n    from pathlib import Path\n    Path({str(invoked)!r}).touch()\n"))
+    process = subprocess.Popen(
+        [sys.executable, str(SERVER)], cwd=vault,
+        env={**os.environ, **command_vault_clone.environment, "BRAIN_CAPTURE_VAULT": str(vault),
+             "BRAIN_CAPTURE_PROTOCOL_FOUR": "1"},
+        stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+    )
+    sequence = 0
+    def request(method, params):
+        nonlocal sequence
+        sequence += 1
+        if modern:
+            params = {**params, "_meta": MODERN_META}
+        process.stdin.write(json.dumps({"jsonrpc": "2.0", "id": sequence, "method": method, "params": params}) + "\n")
+        process.stdin.flush()
+        return next(reply for reply in _read_until_id(process, sequence, timeout=20)
+                    if reply.get("id") == sequence)["result"]
+    def call(name, arguments=None):
+        return request("tools/call", {"name": name, "arguments": arguments or {}})
+    try:
+        initial = request("server/discover" if modern else "initialize", {} if modern else {
+            "protocolVersion": "2025-06-18", "capabilities": {}, "clientInfo": {"name": "v4-test", "version": "1"}})
+        if not modern:
+            process.stdin.write('{"jsonrpc":"2.0","method":"notifications/initialized"}\n')
+            process.stdin.flush()
+        assert initial["capabilities"]["experimental"]["brainCommandInterface"]["proxy_protocol"] == {"minimum": 4, "maximum": 5}
+        before = call("brain_proxy_status")["structuredContent"]["result"]
+        version = vault / ".brain-core/VERSION"
+        version.write_text(version.read_text().strip() + ".gate-upgrade\n")
+        refused = call("artefact_read", {"reference": "Projects/Command Fixture.md"})
+        envelope = refused["structuredContent"]
+        assert refused["isError"] is True
+        assert envelope["schema"] == "brain.proxy-gate-result/1"
+        assert envelope["error"]["code"] == "proxy_restart_required"
+        assert envelope["error"]["effects"] == "none"
+        assert envelope["error"]["details"]["running_proxy_protocol"] == 4
+        assert envelope["error"]["details"]["required_proxy_protocol"] == {"minimum": 5, "maximum": 5}
+        assert not invoked.exists()
+        after = call("brain_proxy_status")["structuredContent"]["result"]
+        assert after["interface"]["generation"] == before["interface"]["generation"] + 1
+        assert after["server"]["loaded"] == version.read_text().strip()
+        assert after["server"]["available"] is True
+    finally:
+        process.terminate()
+        process.wait(timeout=5)
+
+
 @pytest.mark.parametrize("protocol", ["2025-06-18", "2026-07-28", "modern-without-discover"])
 def test_production_proxy_delivers_reads_and_mutations(command_vault_clone, protocol):
     vault = command_vault_clone.vault_root
@@ -141,7 +195,7 @@ def test_incompatible_candidate_keeps_connection_and_can_be_repaired(command_vau
         contract = vault / ".brain-core/brain_mcp/_interface_protocol.py"
         original = contract.read_text()
         contract.write_text(original.replace("MIN_PROXY_PROTOCOL = 4", "MIN_PROXY_PROTOCOL = 99")
-                           .replace("MAX_PROXY_PROTOCOL = 4", "MAX_PROXY_PROTOCOL = 99"))
+                           .replace("MAX_PROXY_PROTOCOL = 5", "MAX_PROXY_PROTOCOL = 99"))
         version = vault / ".brain-core/VERSION"
         version.write_text(version.read_text().strip() + ".incompatible\n")
         blocked = call("brain_proxy_refresh")

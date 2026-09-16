@@ -213,6 +213,7 @@ def test_runtime_inspect_uses_selected_brain_with_empty_request(tmp_path):
     requirements = brain / ".brain-core" / "brain_mcp" / "requirements.txt"
     requirements.parent.mkdir()
     requirements.write_text("", encoding="utf-8")
+    requirements.with_name("requirements-semantic.txt").write_text("", encoding="utf-8")
 
     result = _run(
         tmp_path,

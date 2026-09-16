@@ -1,5 +1,11 @@
 # Architecture Overview
 
+Python package intent, one universal resolution and four exact pip exports form
+the [dependency contract](decisions/dd-077-dependency-reproducibility.md).
+Bootstrap stays stdlib-only; the installed runtime owner hashes both shipped
+exports and records version-verified readiness. Contributor tools never affect
+runtime identity unless their resolution changes a shipped export.
+
 ## System overview
 
 Obsidian Brain is a filesystem-first knowledge system with one typed command application shared by agents, CLI users, direct automation and Python callers. Markdown and YAML remain the durable source of truth; generated state is disposable and rebuildable.
@@ -132,6 +138,16 @@ Caller-supplied paths are resolved against explicit roots and checked for traver
 Profile authority is derived from the application catalogue. Built-ins project exact cumulative reader, contributor and operator leaves. The 0.55.0 cutover migrates legacy profile names once; there is no runtime aggregate compatibility fallback.
 
 The MCP proxy and replacement server exchange a strict command-interface header in legacy initialisation and modern discovery. Modern clients may omit discovery; the proxy performs it before forwarding their first request. Proxy-owned status and refresh controls remain available when the child is unavailable. Idle Core drift starts a candidate through the existing recovery worker; the previous child is retired only after negotiation succeeds. In-flight work makes refresh busy. No dispatched semantic call is replayed, including observations; uncertain outcomes use owned receipts. The separate `brain_proxy_restart` control preflights and replaces the installed proxy on POSIX while preserving stdio; it quiesces output, carries bounded unread input and starts fresh exceptional consent. Host replies are correlated to their originating child. See [DD-074](decisions/dd-074-proxy-owned-server-refresh.md) and [DD-075](decisions/dd-075-bounded-proxy-stdio-handoff.md).
+
+Seamless Core refresh requires an unchanged managed runtime. The proxy checks
+both its own and the child's interpreter against the canonical dependency
+resolver before new application admission and child launches. Runtime drift
+allows in-flight work to finish but blocks new calls with explicit MCP restart
+guidance. Status reports the loaded and required runtime even when Core versions
+match. POSIX restart preflights and execs the entire proxy into the required
+interpreter; failed or unsupported handoff requires a host MCP restart. Private
+protocol 5 gates older proxies during rollout. CLI invocations resolve their
+runtime afresh and do not share this long-lived transport state.
 
 ## Installation and checked cutover
 

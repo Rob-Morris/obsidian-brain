@@ -1467,6 +1467,7 @@ def _ensure_central_runtime(
             launcher=Path(sys.executable),
             required_modules=(),
             install_requirements=True,
+            full_conformance=True,
             dry_run=False,
             timeout=DEPENDENCY_SYNC_TIMEOUT,
         )
@@ -1601,6 +1602,18 @@ def _complete_runtime_readiness(
             "outcome": "error",
             "message": f"Runtime readiness could not be completed: {exc}",
         }
+
+
+def _deferred_runtime_readiness() -> dict:
+    """Describe the warm-up intentionally deferred by ``--no-sync-deps``."""
+    return {
+        "outcome": "deferred",
+        "command": ["brain", "runtime", "warmup"],
+        "message": (
+            "Runtime warm-up was deferred because dependency synchronisation "
+            "was disabled."
+        ),
+    }
 
 
 def _inspect_runtime_orphans(vault_root: Path) -> dict:
@@ -1896,15 +1909,20 @@ def _run_repair_scope_after_upgrade(
     return {**summary, "outcome": "ok", "result": payload}
 
 
-def _repair_mcp_registration_after_upgrade(vault_root: Path) -> dict:
-    """Reconcile existing current-vault MCP registrations to the new runtime."""
+def _has_current_vault_mcp_registration(vault_root: Path) -> bool:
+    """Return whether this vault records any MCP registration state."""
     local_state_paths = (
         vault_root / ".mcp.json",
         vault_root / ".codex" / "config.toml",
         vault_root / ".grok" / "config.toml",
         vault_root / ".brain" / "local" / "init-state.json",
     )
-    if not any(path.exists() for path in local_state_paths):
+    return any(path.exists() for path in local_state_paths)
+
+
+def _repair_mcp_registration_after_upgrade(vault_root: Path) -> dict:
+    """Reconcile existing current-vault MCP registrations to the new runtime."""
+    if not _has_current_vault_mcp_registration(vault_root):
         return {
             "scope": "mcp",
             "command": [],
@@ -1916,6 +1934,34 @@ def _repair_mcp_registration_after_upgrade(vault_root: Path) -> dict:
         "mcp",
         timeout=MCP_REGISTRATION_REPAIR_TIMEOUT,
     )
+
+
+def _deferred_mcp_registration_after_upgrade(vault_root: Path) -> dict:
+    """Describe MCP reconciliation intentionally deferred with dependencies."""
+    if not _has_current_vault_mcp_registration(vault_root):
+        return {
+            "scope": "mcp",
+            "command": [],
+            "outcome": "noop",
+            "message": "No existing current-vault MCP registrations need reconciliation.",
+        }
+    command = [
+        sys.executable,
+        str(vault_root / ".brain-core" / "scripts" / "repair.py"),
+        "mcp",
+        "--vault",
+        str(vault_root),
+        "--json",
+    ]
+    return {
+        "scope": "mcp",
+        "command": command,
+        "outcome": "deferred",
+        "message": (
+            "MCP registration repair was deferred because dependency "
+            "synchronisation was disabled."
+        ),
+    }
 
 
 def _repair_retrieval_assets_after_upgrade(vault_root: Path) -> dict:
@@ -1939,6 +1985,36 @@ def _repair_retrieval_assets_after_upgrade(vault_root: Path) -> dict:
         scope,
         timeout=RETRIEVAL_ASSET_REPAIR_TIMEOUT,
     )
+
+
+def _deferred_retrieval_assets_after_upgrade(vault_root: Path) -> dict:
+    """Describe retrieval reconciliation deferred with dependency work."""
+    try:
+        scope = _post_upgrade_retrieval_scope(vault_root)
+    except (OSError, ValueError) as exc:
+        return {
+            "scope": "retrieval-assets",
+            "command": [],
+            "outcome": "error",
+            "message": str(exc),
+        }
+    command = [
+        sys.executable,
+        str(vault_root / ".brain-core" / "scripts" / "repair.py"),
+        scope,
+        "--vault",
+        str(vault_root),
+        "--json",
+    ]
+    return {
+        "scope": scope,
+        "command": command,
+        "outcome": "deferred",
+        "message": (
+            "Retrieval asset repair was deferred because dependency "
+            "synchronisation was disabled."
+        ),
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -2421,8 +2497,11 @@ def upgrade(
                     f"{compile_error}"
                 )
 
-    requirements_changed = REQ_FILE_REL in (
-        result.get("files_added", []) + result.get("files_modified", [])
+    from _common._venv import RUNTIME_EXPORT_NAMES
+
+    requirements_changed = bool(
+        {os.path.join("brain_mcp", name) for name in RUNTIME_EXPORT_NAMES}
+        & set(result.get("files_added", []) + result.get("files_modified", []) + result.get("files_removed", []))
     )
     _write_upgrade_progress(
         vault_root,
@@ -2440,6 +2519,8 @@ def upgrade(
     if runtime is not None:
         result["central_runtime"] = runtime
 
+    dependency_provisioning_allowed = sync_deps is not False
+
     _write_upgrade_progress(
         vault_root,
         old_version=old_version,
@@ -2448,9 +2529,14 @@ def upgrade(
         stage="mcp_registration_repair",
         message="Reconciling existing current-vault MCP registrations",
     )
-    result["mcp_registration_repair"] = _repair_mcp_registration_after_upgrade(
-        Path(vault_root)
-    )
+    if dependency_provisioning_allowed:
+        result["mcp_registration_repair"] = _repair_mcp_registration_after_upgrade(
+            Path(vault_root)
+        )
+    else:
+        result["mcp_registration_repair"] = _deferred_mcp_registration_after_upgrade(
+            Path(vault_root)
+        )
 
     _write_upgrade_progress(
         vault_root,
@@ -2470,7 +2556,14 @@ def upgrade(
         stage="retrieval_asset_repair",
         message="Reconciling retrieval asset state after upgrade",
     )
-    result["retrieval_asset_repair"] = _repair_retrieval_assets_after_upgrade(Path(vault_root))
+    if dependency_provisioning_allowed:
+        result["retrieval_asset_repair"] = _repair_retrieval_assets_after_upgrade(
+            Path(vault_root)
+        )
+    else:
+        result["retrieval_asset_repair"] = _deferred_retrieval_assets_after_upgrade(
+            Path(vault_root)
+        )
 
     _write_upgrade_progress(
         vault_root,
@@ -2480,7 +2573,10 @@ def upgrade(
         stage="runtime_readiness",
         message="Completing selected-Brain runtime warm-up",
     )
-    result["runtime_readiness"] = _complete_runtime_readiness(Path(vault_root))
+    if dependency_provisioning_allowed:
+        result["runtime_readiness"] = _complete_runtime_readiness(Path(vault_root))
+    else:
+        result["runtime_readiness"] = _deferred_runtime_readiness()
 
     _write_upgrade_progress(
         vault_root,
@@ -2769,6 +2865,15 @@ def main() -> None:
                     info(f"Could not refresh brain CLI at {err['target']}: {err['message']}")
             print(file=sys.stderr)
 
+        mcp_registration_repair = result.get("mcp_registration_repair")
+        if (
+            isinstance(mcp_registration_repair, dict)
+            and mcp_registration_repair.get("outcome") == "deferred"
+        ):
+            info(mcp_registration_repair["message"])
+            info(f"  Run: {_join_argv(mcp_registration_repair['command'])}")
+            print(file=sys.stderr)
+
         retrieval_asset_repair = result.get("retrieval_asset_repair")
         if retrieval_asset_repair is not None:
             command = _join_argv(retrieval_asset_repair["command"])
@@ -2778,6 +2883,10 @@ def main() -> None:
                     info("Semantic retrieval asset state reconciled after upgrade.")
                 else:
                     info("Lexical retrieval state reconciled after upgrade.")
+            elif retrieval_asset_repair["outcome"] == "deferred":
+                info(retrieval_asset_repair["message"])
+                if command:
+                    info(f"  Run: {command}")
             else:
                 if scope == "semantic":
                     info(f"Semantic retrieval asset repair after upgrade failed: {retrieval_asset_repair['message']}")
@@ -2793,6 +2902,9 @@ def main() -> None:
         if runtime_readiness is not None:
             if runtime_readiness.get("outcome") == "ok":
                 info("Selected Brain runtime warm-up completed; session.start is ready.")
+            elif runtime_readiness.get("outcome") == "deferred":
+                info(runtime_readiness["message"])
+                info(f"  Run: {_join_argv(runtime_readiness['command'])}")
             else:
                 info(
                     "Selected Brain runtime warm-up is incomplete: "

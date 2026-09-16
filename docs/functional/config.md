@@ -359,11 +359,15 @@ Manual setup:
 
 ```bash
 python3.12 -m venv .venv
-.venv/bin/pip install -r src/brain-core/brain_mcp/requirements.txt "pytest>=9.0" "pytest-bdd>=8.0" "pytest-xdist>=3.6" "interrogate>=1.7" "pytest-cov>=6.0"
+.venv/bin/pip install --no-deps -r dependencies/requirements-dev.txt
+.venv/bin/pip check
 .venv/bin/pytest -q
 ```
 
 ### Test configuration
+
+For dependency updates and optional semantic setup, follow the
+[authoritative dependency workflow](../contributor/dependencies.md).
 
 `pyproject.toml` configures pytest with `pythonpath` entries for `src/brain-core` and `src/brain-core/scripts`, so test files can `import check` and `from brain_mcp import server` without `sys.path` manipulation.
 

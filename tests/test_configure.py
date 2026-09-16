@@ -16,6 +16,12 @@ import _semantic.model as semantic_model
 import _semantic.provision as semantic_provision
 
 
+@pytest.fixture(autouse=True)
+def isolated_semantic_conformance(monkeypatch):
+    """These lifecycle tests substitute package I/O; conformance has its own tests."""
+    monkeypatch.setattr(semantic_provision, "conform_runtime", lambda *_args, **_kwargs: False)
+
+
 def _load_local_config(vault):
     return semantic_config.load_config_checked(vault)
 
@@ -27,6 +33,7 @@ def _make_vault(tmp_path):
     (bc / "session-core.md").write_text("# Session Core\n")
     (bc / "brain_mcp").mkdir()
     (bc / "brain_mcp" / "requirements.txt").write_text("mcp>=1.0.0\n")
+    (bc / "brain_mcp" / "requirements-semantic.txt").write_text("mcp>=1.0.0\n")
     (tmp_path / ".brain" / "local").mkdir(parents=True)
     return tmp_path
 
@@ -414,24 +421,46 @@ def test_provision_semantic_runtime_preserves_model_notes(tmp_path, monkeypatch)
 def test_sync_runtime_packages_installs_pinned_runtime(monkeypatch):
     captured = {}
 
-    def fake_run(args, **kwargs):
-        captured["args"] = args
+    def fake_conform(python, requirements, **kwargs):
+        captured["python"] = python
+        captured["requirements"] = requirements
         captured["kwargs"] = kwargs
-        return None
+        return True
 
-    monkeypatch.setattr(semantic_provision.subprocess, "run", fake_run)
+    monkeypatch.setattr(semantic_provision, "conform_runtime", fake_conform)
 
     semantic_provision.sync_runtime_packages("/managed/python")
 
-    assert captured["args"] == [
-        "/managed/python",
-        "-m",
-        "pip",
-        "install",
-        *semantic_provision.SEMANTIC_RUNTIME_PACKAGES,
-    ]
-    assert captured["kwargs"]["check"] is True
+    assert captured["python"] == "/managed/python"
+    assert captured["requirements"].name == "requirements.txt"
+    assert captured["kwargs"]["semantic"] is True
     assert captured["kwargs"]["timeout"] == semantic_provision.SEMANTIC_RUNTIME_TIMEOUT
+
+
+def test_semantic_conformance_failure_preserves_subprocess_diagnostics(
+    tmp_path,
+    monkeypatch,
+):
+    vault = _make_vault(tmp_path)
+
+    def fail(_python):
+        raise subprocess.CalledProcessError(
+            1,
+            ["python", "-m", "pip", "install"],
+            stderr="No matching distribution found for onnxruntime",
+        )
+
+    monkeypatch.setattr(semantic_provision, "sync_runtime_packages", fail)
+
+    with pytest.raises(
+        semantic_provision.SemanticProvisionError,
+        match="No matching distribution found for onnxruntime",
+    ):
+        semantic_provision.provision_semantic_runtime(
+            vault,
+            python_executable="/managed/python",
+            runtime_ok=True,
+        )
 
 
 def test_load_config_checked_wraps_expected_failures(tmp_path, monkeypatch):

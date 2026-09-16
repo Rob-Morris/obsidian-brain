@@ -1,0 +1,33 @@
+[project]
+name = "brain-dependency-contract"
+version = "0"
+requires-python = ">=3.12"
+dependencies = ["mcp==2.0.0"]
+
+[tool.uv]
+package = false
+required-environments = [
+    "implementation_name == 'cpython' and python_version == '3.12' and sys_platform == 'darwin' and platform_machine == 'arm64'",
+    "implementation_name == 'cpython' and python_version == '3.12' and sys_platform == 'linux' and platform_machine == 'x86_64'",
+    "implementation_name == 'cpython' and python_version == '3.12' and sys_platform == 'win32' and platform_machine == 'AMD64'",
+]
+
+[project.optional-dependencies]
+semantic = [
+    "huggingface-hub==1.13.0",
+    "numpy==2.4.4",
+    "onnxruntime==1.30.0",
+    "tokenizers==0.23.2",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0",
+    "pytest-bdd>=8.0",
+    "pytest-xdist>=3.6",
+    "interrogate>=1.7",
+    "pytest-cov>=6.0",
+    "tiktoken==0.12.0",
+    "PyYAML==6.0.3",
+    "uv==0.12.14",
+]

@@ -1,0 +1,7 @@
+dependencies/pyproject.toml text eol=lf
+dependencies/uv.toml text eol=lf
+dependencies/uv.lock text eol=lf
+dependencies/requirements-dev.txt text eol=lf
+dependencies/requirements-dev-semantic.txt text eol=lf
+src/brain-core/brain_mcp/requirements.txt text eol=lf
+src/brain-core/brain_mcp/requirements-semantic.txt text eol=lf

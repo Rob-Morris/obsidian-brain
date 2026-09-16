@@ -120,7 +120,7 @@ def execute_repair(context: LauncherContext, request: RuntimeRepairRequest):
             f"The selected path is not an installed Brain: {vault_root}",
             "current_vault",
         )
-    if not (vault_root / ".brain-core" / "requirements.txt").is_file():
+    if not (vault_root / ".brain-core" / "brain_mcp" / "requirements.txt").is_file():
         return no_effect_error(
             type(request),
             ErrorCode.CONFLICT,
@@ -132,6 +132,7 @@ def execute_repair(context: LauncherContext, request: RuntimeRepairRequest):
         vault_root,
         required_modules=bootstrap_runtime.required_modules_for_scope("runtime"),
         dependency_owner="runtime repair",
+        full_conformance=True,
         launcher_python=(
             str(context.launcher_python)
             if context.launcher_python is not None

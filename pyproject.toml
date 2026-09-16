@@ -1,22 +1,3 @@
-[project]
-name = "obsidian-brain"
-requires-python = ">=3.12"
-dependencies = [
-    "mcp==2.0.0",
-]
-
-[project.optional-dependencies]
-dev = [
-    "pytest>=9.0",
-    "pytest-bdd>=8.0",
-    "tiktoken==0.12.0",
-]
-semantic = [
-    "numpy==2.4.4",
-    "onnxruntime==1.30.0",
-    "tokenizers==0.23.2",
-]
-
 [tool.interrogate]
 paths = ["src/brain-core/scripts"]
 exclude = ["src/brain-core/scripts/_application"]

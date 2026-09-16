@@ -14,7 +14,7 @@ from typing import Any
 from _bootstrap import mcp_transport
 from _bootstrap.runtime import step as _step
 from _bootstrap.workspace_scaffold import GitInspectionError, ensure_brain_ignore_rules
-from _common import ensure_central_venv, vault_requirements_path
+from _common import ensure_central_venv, format_subprocess_error, vault_requirements_path
 from _machine.resolution_runtime import ensure_resolution_runtime
 from _lifecycle_common import (
     emit_lifecycle_result,
@@ -203,9 +203,20 @@ def _ensure_git_ignore_rules(vault_root: Path, *, client: str, mcp_scope: str) -
 
 def _ensure_managed_runtime(vault_root: Path, launcher: Path) -> dict:
     try:
-        result = ensure_central_venv(vault_requirements_path(vault_root), launcher=launcher)
-        status = "changed" if result.get("created") else "noop"
-        message = "Created managed runtime." if status == "changed" else "Managed runtime already available."
+        result = ensure_central_venv(
+            vault_requirements_path(vault_root), launcher=launcher, full_conformance=True
+        )
+        created = bool(result.get("created"))
+        dependencies_changed = bool(
+            result.get("conformance_changed", result.get("dependencies_installed"))
+        )
+        status = "changed" if created or dependencies_changed else "noop"
+        if created:
+            message = "Created managed runtime."
+        elif dependencies_changed:
+            message = "Repaired managed runtime dependencies."
+        else:
+            message = "Managed runtime already available."
         return _step(
             "managed_runtime",
             status,
@@ -213,7 +224,13 @@ def _ensure_managed_runtime(vault_root: Path, launcher: Path) -> dict:
             python=result.get("python"),
             venv_dir=result.get("venv_dir"),
         )
-    except (OSError, RuntimeError, subprocess.SubprocessError) as exc:
+    except subprocess.SubprocessError as exc:
+        return _step(
+            "managed_runtime",
+            "error",
+            "Could not provision managed runtime: " + format_subprocess_error(exc),
+        )
+    except (OSError, RuntimeError) as exc:
         return _step("managed_runtime", "error", f"Could not provision managed runtime: {exc}")
 
 

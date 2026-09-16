@@ -281,6 +281,7 @@ from ._venv import (
     REQUIREMENTS_REL,
     central_venvs_root,
     ensure_central_venv,
+    format_subprocess_error,
     find_existing_central_venv,
     find_runnable_python,
     legacy_vault_venv_dir,

@@ -8,6 +8,7 @@ Never edit past changelog entries. Only add new entries at the top.
 
 | Version | Date | Summary |
 |---|---|---|
+| [v0.68.7](changelog/v0.68.7.md) | 2026-09-16 | Reproduce locked dependencies and keep live MCP runtimes coherent |
 | [v0.68.6](changelog/v0.68.6.md) | 2026-09-15 | Clarify session.start bootstrap and authored Markdown fallback |
 | [v0.68.5](changelog/v0.68.5.md) | 2026-09-15 | Block artefact naming patterns from reaching protected Brain folders |
 | [v0.68.4](changelog/v0.68.4.md) | 2026-09-15 | Keep artefact caches coherent and router recovery actionable |

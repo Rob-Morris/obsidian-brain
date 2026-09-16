@@ -43,6 +43,7 @@ def _make_vault(root: Path, name: str) -> Path:
     (vault / ".brain-core" / "brain_mcp").mkdir(parents=True)
     (vault / ".brain-core" / "VERSION").write_text("0.99.0\n")
     (vault / ".brain-core" / "brain_mcp" / "requirements.txt").write_text("mcp==1.0.0\n")
+    (vault / ".brain-core" / "brain_mcp" / "requirements-semantic.txt").write_text("mcp==1.0.0\n")
     return vault
 
 

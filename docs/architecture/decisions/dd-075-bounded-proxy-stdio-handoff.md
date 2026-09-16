@@ -13,7 +13,11 @@ buffered input and could lose the result of an already-entered invocation.
 ## Decision
 
 An explicit, no-argument `brain_proxy_restart` control loads only the selected
-Brain's installed proxy through its managed Python. Unchanged code is a no-op.
+Brain's installed proxy through its managed Python. A no-op requires both proxy
+code and managed-runtime identity to be unchanged. The canonical runtime resolver
+selects the interpreter; preflight and exec use the same pinned path, rechecked
+before retirement and exec. Both proxy and application child enter the selected
+environment together. No dependency installation occurs in this control.
 It requires an idle transport: no admitted calls, outstanding host replies,
 pending result publication or lifecycle recovery. Busy work is left running.
 
@@ -41,7 +45,13 @@ still require rediscovery. Host catalogue caches are not assumed to refresh.
 
 Preflight or drain refusal leaves the old instance intact. Exec failure after
 teardown resumes transport in the existing image with a fresh owner and an error;
-old consent is never restored. A bounded consent-cleanup lock timeout ends state
+old consent is never restored. When the retained image's runtime is stale,
+new child launches and application admission remain blocked. Status and restart
+failure results explicitly direct the agent to restart MCP in the host; an
+unavailable new interpreter is an explicit runtime-unavailable refusal, never
+permission to reuse old dependencies. If runtime resolution fails after
+retirement, the retained transport still returns that guided failure under a
+fresh or unavailable owner. A bounded consent-cleanup lock timeout ends state
 and channels, records pending private-directory cleanup and recovers with fresh
 or unavailable consent in the retained image. An unproven child/output-owner
 shutdown fails closed without exec, rather than misreporting preflight refusal.

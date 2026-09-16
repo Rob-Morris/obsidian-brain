@@ -28,7 +28,8 @@ def source_manifest(vault_root: str | Path) -> dict:
 
     root = Path(vault_root)
     paths = {".brain-core/VERSION", ".brain-core/session-core.md", ".brain/config.yaml",
-             ".brain-core/brain_mcp/requirements.txt", ".brain/local/config.yaml",
+             ".brain-core/brain_mcp/requirements.txt", ".brain-core/brain_mcp/requirements-semantic.txt",
+             ".brain/local/config.yaml",
              ".brain/local/semantic-model-manifest.json"}
     for info in scan_living_types(root) + scan_temporal_types(root):
         paths.update(iter_artefact_paths(root, info))
