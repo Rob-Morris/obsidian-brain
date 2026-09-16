@@ -92,6 +92,14 @@ configuration, and internal writers retain narrower separate capabilities.
 
 Files such as `create.py`, `edit.py`, `read.py`, `repair.py`, `session.py`, `upgrade.py` and domain packages remain implementation providers where application or launcher owners use them. Their old independent aggregate parsers and compatibility entry points are not the public command grammar. `permission_admin.py` is a CLI-owned internal subprocess boundary that receives its operator secret only through trusted process context; it is not a direct-script command. `start_shaping.py` is removed; use `shaping.start` through `command.py`.
 
+For repository maintenance and last-resort recovery, `compile_router.py` accepts
+an explicit `--vault`; its `--help` path performs no vault discovery or
+compilation. The retained `create.py` compatibility entry point republishes the
+compiled router after a committed create, so consecutive recovery creates do
+not require a manual compile between commands. If that post-commit refresh
+cannot complete, creation still reports its committed result with an explicit
+`runtime.refresh-router` warning rather than inviting a duplicate retry.
+
 Machine-global operations do not run through selected-Brain `command.py`. The versioned CLI distribution owns the separate stdlib-safe launcher catalogue and its install, upgrade, registry, runtime, MCP and diagnostic owners.
 
 ## Dependency boundaries

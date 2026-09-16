@@ -56,6 +56,13 @@ callers never supply paths):
   `close()` whose abandon flag prevents shutdown races — and a synchronous
   `append_record` for one-shot processes. Reporter routing is by discovery:
   `current_logger()` when installed, else `command.log`.
+  Synchronous appends return whether persistence succeeded; failed
+  `command.failed` appends also emit the already validated, bounded record on
+  stderr. Keeping this fallback at the shared append boundary gives launchers
+  and direct scripts the same content-free correlation metadata without a
+  second write attempt or a second validation policy. Invalid records receive
+  only a generic note; unavailable stderr is ignored. Daemon delivery remains
+  asynchronous and best-effort.
 - **Wiring**: proxy (`proxy.log` lifecycle/child/replay events;
   `proxy-rpc.log` `frame.*` pairs keyed by a per-run `frame_seq` surrogate —
   client-chosen JSON-RPC ids are never logged), server (`server.log`

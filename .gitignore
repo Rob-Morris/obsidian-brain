@@ -32,8 +32,9 @@ agents.local.md
 CLAUDE.local.md
 .worktrees/
 
-# Agent runtime locks (scheduler/session state, machine-local)
+# Agent runtime locks and session markers (machine-local)
 .claude/*.lock
+/:memory:.ses
 
 # Test/tool artefacts
 .coverage

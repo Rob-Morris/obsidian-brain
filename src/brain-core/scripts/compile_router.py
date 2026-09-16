@@ -7,10 +7,11 @@ styles, plugins) into .brain/local/compiled-router.json — a local, gitignored,
 hash-invalidated cache that all brain-core tools read.
 
 Usage:
-    python3 compile_router.py           # write .brain/local/compiled-router.json
-    python3 compile_router.py --json    # output JSON to stdout
+    python3 compile_router.py [--vault PATH]        # write the derived cache
+    python3 compile_router.py [--vault PATH] --json # output JSON to stdout
 """
 
+import argparse
 import hashlib
 import json
 import os
@@ -1387,15 +1388,30 @@ def refresh_session_markdown(vault_root, compiled):
 # Entry point
 # ---------------------------------------------------------------------------
 
-def main():
-    vault_root = find_vault_root()
+def _build_parser():
+    parser = argparse.ArgumentParser(
+        description="Compile one Brain vault's derived router cache."
+    )
+    parser.add_argument("--vault", help="Brain vault root.")
+    parser.add_argument(
+        "--json",
+        action="store_true",
+        help="Print the compiled router without persisting derived outputs.",
+    )
+    return parser
+
+
+def main(argv=None):
+    forwarded_args = list(sys.argv[1:] if argv is None else argv)
+    args = _build_parser().parse_args(forwarded_args)
+    vault_root = find_vault_root(args.vault)
     try:
         handoff_current_script_to_managed_runtime(
             vault_root,
             dependency_owner="compile_router.py",
             required_modules=required_modules_for_scope("router"),
             script_path=os.path.abspath(__file__),
-            forwarded_args=sys.argv[1:],
+            forwarded_args=forwarded_args,
         )
     except RuntimeError as exc:
         print(f"Error: {exc}", file=sys.stderr)
@@ -1406,7 +1422,7 @@ def main():
 
     json_output = json.dumps(compiled, indent=2, ensure_ascii=False)
 
-    if "--json" in sys.argv:
+    if args.json:
         print(json_output)
     else:
         persist_compiled_router(vault_root, compiled)

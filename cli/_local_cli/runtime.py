@@ -12,7 +12,7 @@ import time
 import uuid
 
 from _launcher.context import LauncherContext, ProviderBindings
-from _launcher.contracts import OutcomeReceipt
+from _launcher.contracts import OutcomeReceipt, ReceiptState
 from _distribution import source_versions
 
 
@@ -102,12 +102,14 @@ class LauncherDiagnosticReporter:
 
 
 class LauncherReceiptStore:
-    """Privacy-minimal durable machine receipt writer."""
+    """Persist actual or uncertain effects; no-effect receipts need no storage."""
 
     def __init__(self, root: Path) -> None:
         self._root = root
 
     def write(self, receipt: OutcomeReceipt) -> None:
+        if receipt.state is ReceiptState.NONE:
+            return
         if self._root.is_symlink():
             raise OSError("launcher receipt directory cannot be a symlink")
         self._root.mkdir(parents=True, exist_ok=True)

@@ -196,11 +196,12 @@ def test_staged_dependency_checker_uses_staged_bytes_and_code(tmp_path):
     root = tmp_path / "repo"
     root.mkdir()
     tracked = subprocess.check_output(["git", "ls-files", "-z"], cwd=ROOT).decode().split("\0")
+    current_version = (ROOT / "src/brain-core/VERSION").read_text(encoding="utf-8").strip()
     additions = [*dependencies.INPUTS, *dependencies.EXPORTS, ".gitattributes",
                  "src/scripts/dependencies.py", "src/scripts/_repository_contracts/dependencies.py",
                  "src/scripts/dependency_certification.py", ".github/workflows/dependency-certification.yml",
                  "docs/contributor/dependencies.md", "docs/architecture/decisions/dd-077-dependency-reproducibility.md",
-                 "docs/changelog/v0.68.7.md"]
+                 f"docs/changelog/v{current_version}.md"]
     for relative in set(tracked + additions) - {""}:
         source = ROOT / relative
         if not source.is_file():

@@ -513,6 +513,7 @@ def main(argv=None):
         sys.exit(1)
 
     staging_warning = None
+    router_warning = None
     try:
         with vault_mutation_lock(vault_root):
             body, _staged_handle = resolve_mutation_body(
@@ -544,6 +545,24 @@ def main(argv=None):
                     frontmatter=frontmatter,
                 )
             staging_warning = finalise_staged_body(vault_root, args.body_handle)
+            try:
+                from _portable.router_maintenance import maintain_router
+
+                maintenance = maintain_router(vault_root, dry_run=False, force=False)
+                if maintenance.status == "partial":
+                    router_warning = (
+                        "Created resource and refreshed the compiled router, but "
+                        "a derived-state follow-up remains; run runtime.refresh-router."
+                    )
+            except Exception:
+                # The content effect is already committed. Report a follow-up
+                # instead of presenting a failed create that callers may retry.
+                # This is deliberately the last post-commit recovery boundary:
+                # process-control exceptions still derive from BaseException.
+                router_warning = (
+                    "Created resource, but compiled router refresh failed; run "
+                    "runtime.refresh-router before the next command."
+                )
     except (MutationLockError, ValueError) as e:
         message = public_mutation_error_message(e)
         if args.json:
@@ -555,6 +574,9 @@ def main(argv=None):
     if staging_warning:
         result["staging_warning"] = staging_warning
         print(f"Warning: {staging_warning}", file=sys.stderr)
+    if router_warning:
+        result["router_warning"] = router_warning
+        print(f"Warning: {router_warning}", file=sys.stderr)
 
     if args.json:
         print(json.dumps(result, indent=2))

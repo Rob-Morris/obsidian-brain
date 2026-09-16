@@ -6,7 +6,9 @@ fact. Internal errors return a `correlation_id` that is also submitted to this
 best-effort stream; when the record is accepted and persisted, operators can
 use that identifier to correlate the failure. Queue pressure, lock contention,
 I/O failure or abrupt process termination can legitimately leave no persistent
-record. Design: DD-067.
+record. One-shot command failures also emit their validated record to stderr
+when persistence fails, preserving the correlation ID if stderr is available.
+Design: DD-067.
 
 ## Where
 
@@ -61,6 +63,18 @@ failure at startup never blocks serving. Separately, the proxy still verifies
 `.brain/local` is writable at startup and enters degraded mode when it is not —
 that gate is about vault-local state (receipts, access, runtime status), not
 logging.
+
+For one-shot CLI launcher and direct-script `command.failed` records, a failed
+append adds the already validated, at-most-4-KiB record to stderr, prefixed with
+`[brain-diagnostics]`, after the write-failure note. It includes the original
+failure's phase, canonical command ID, correlation ID, error class and exception
+type, without exception text or paths. Invalid records produce only the generic
+note. This fallback is best-effort too: closed stderr never changes the command
+outcome, and daemon queue delivery is unchanged.
+
+Launcher no-effect (`none`) receipts are not persisted, so read-only
+commands do not depend on writable machine receipt storage. Receipts describing
+committed, partial or uncertain effects retain their durable-write requirement.
 
 Diagnostics directory components, lock files, active logs and archives are
 refused when they are symlinks or non-regular files. Opens verify the endpoint

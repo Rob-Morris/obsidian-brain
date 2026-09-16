@@ -959,6 +959,77 @@ class TestCreateCliFreshRouter:
         assert "Compiled router cache is stale or unreadable" in err
         assert not (vault / "Wiki" / "Stale Router.md").exists()
 
+    def test_cli_refreshes_router_after_each_create(self, vault, router, capsys):
+        import compile_router
+
+        compile_router.persist_compiled_router(str(vault), router)
+
+        for title in ("First Batch Item", "Second Batch Item"):
+            create.main(
+                [
+                    "--type",
+                    "wiki",
+                    "--title",
+                    title,
+                    "--vault",
+                    str(vault),
+                    "--json",
+                ]
+            )
+            payload = json.loads(capsys.readouterr().out)
+            assert payload["title"] == title
+
+        refreshed = create.load_fresh_compiled_router(str(vault))
+        assert "error" not in refreshed
+        assert (vault / "Wiki" / "First Batch Item.md").is_file()
+        assert (vault / "Wiki" / "Second Batch Item.md").is_file()
+
+    @pytest.mark.parametrize("maintenance_outcome", ["partial", "exception"])
+    def test_cli_reports_committed_create_when_router_refresh_needs_follow_up(
+        self, vault, router, monkeypatch, capsys, maintenance_outcome
+    ):
+        import compile_router
+        from _portable import router_maintenance
+
+        compile_router.persist_compiled_router(str(vault), router)
+
+        if maintenance_outcome == "partial":
+            monkeypatch.setattr(
+                router_maintenance,
+                "maintain_router",
+                lambda *_args, **_kwargs: router_maintenance.RouterMaintenanceResult(
+                    "partial", "session-refresh-failed", False, False
+                ),
+            )
+        else:
+            monkeypatch.setattr(
+                router_maintenance,
+                "maintain_router",
+                lambda *_args, **_kwargs: (_ for _ in ()).throw(
+                    ImportError("maintenance unavailable")
+                ),
+            )
+
+        create.main(
+            [
+                "--type",
+                "wiki",
+                "--title",
+                f"Committed {maintenance_outcome.title()}",
+                "--vault",
+                str(vault),
+                "--json",
+            ]
+        )
+
+        captured = capsys.readouterr()
+        payload = json.loads(captured.out)
+        assert payload["path"] == f"Wiki/Committed {maintenance_outcome.title()}.md"
+        assert "router_warning" in payload
+        assert "runtime.refresh-router" in payload["router_warning"]
+        assert "Warning:" in captured.err
+        assert (vault / payload["path"]).is_file()
+
 
 class TestCreateWikilinkWarnings:
     def test_clean_body_no_warnings_key(self, vault, router):

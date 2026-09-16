@@ -57,6 +57,7 @@ _MAX_CONSECUTIVE_WRITE_FAILURES = 5
 _IDENTIFIER_EXTRA = frozenset(".-_")
 _COMMAND_ID_RE = re.compile(r"^[a-z][a-z0-9-]*(?:\.[a-z][a-z0-9-]*)+$")
 _EXCEPTION_TYPE_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,95}$")
+_VERSION_RE = re.compile(r"^\d+\.\d+\.\d+$")
 _RPC_METHODS = frozenset(
     {
         "completion.complete",
@@ -121,13 +122,22 @@ _RESOLUTION_SOURCES = frozenset(
 )
 
 
+def _safe_version(value: object) -> str:
+    if (
+        isinstance(value, str)
+        and len(value) <= MAX_IDENTIFIER_LENGTH
+        and _VERSION_RE.fullmatch(value)
+    ):
+        return value
+    return "unknown"
+
+
 def _core_version() -> str:
     try:
-        return (
+        return _safe_version(
             (Path(__file__).resolve().parents[2] / "VERSION")
             .read_text(encoding="utf-8")
             .strip()
-            or "unknown"
         )
     except OSError:
         return "unknown"
@@ -166,7 +176,11 @@ def _closed_identifier(value: object) -> str:
 
 
 def _command_id(value: object) -> str:
-    if not isinstance(value, str) or not _COMMAND_ID_RE.fullmatch(value):
+    if (
+        not isinstance(value, str)
+        or len(value) > MAX_IDENTIFIER_LENGTH
+        or not _COMMAND_ID_RE.fullmatch(value)
+    ):
         raise ValueError("diagnostics command_id is outside the command grammar")
     return value
 
@@ -320,7 +334,7 @@ def encode_record(
         "seq": int(seq),
         "process": process,
         "pid": os.getpid(),
-        "version": _VERSION,
+        "version": _safe_version(_VERSION),
         "event": event,
     }
     if dropped_before > 0:
@@ -339,7 +353,10 @@ def encode_record(
     marker["size"] = len(encoded)
     if dropped_before > 0:
         marker["dropped_before"] = int(dropped_before)
-    return _encode_line(marker)
+    marker_line = _encode_line(marker)
+    if len(marker_line) > MAX_RECORD_BYTES:
+        raise ValueError("operational diagnostics truncation marker exceeds its bound")
+    return marker_line
 
 
 def encode_bodies_line(
@@ -475,11 +492,21 @@ def append_lines(vault_root: Path, family: str, lines: list[bytes]) -> None:
                         active, os.O_WRONLY | os.O_APPEND | os.O_CREAT
                     )
                     size = 0
-                os.write(descriptor, line)
+                _write_all(descriptor, line)
                 size += len(line)
         finally:
             if descriptor >= 0:
                 os.close(descriptor)
+
+
+def _write_all(descriptor: int, payload: bytes) -> None:
+    """Write one complete record or raise so persistence is never overstated."""
+    remaining = memoryview(payload)
+    while remaining:
+        written = os.write(descriptor, remaining)
+        if written <= 0:
+            raise OSError(errno.EIO, "diagnostics write made no progress")
+        remaining = remaining[written:]
 
 
 def _rotate(directory: Path, family: str) -> None:
@@ -779,8 +806,13 @@ def current_logger() -> OperationalLogger | None:
     return _INSTALLED
 
 
-def append_record(vault_root: Path, process: str, event: str, **fields: object) -> None:
-    """Synchronously append one record to the ``command`` family. Never raises."""
+def append_record(vault_root: Path, process: str, event: str, **fields: object) -> bool:
+    """Return whether a one-shot record persisted, without raising.
+
+    Failed command appends also emit the validated, bounded record on stderr
+    so a caller's correlation ID survives an unwritable diagnostics directory.
+    """
+    line: bytes | None = None
     try:
         global _ONESHOT_RUN_ID
         with _ONESHOT_LOCK:
@@ -796,8 +828,20 @@ def append_record(vault_root: Path, process: str, event: str, **fields: object) 
             **fields,
         )
         append_lines(Path(vault_root), "command", [line])
+        return True
     except Exception as error:
-        _stderr_note(f"operational log append failed: {type(error).__name__}")
+        _stderr_note(
+            f"operational log append failed: {sanitise_identifier(type(error).__name__)}"
+        )
+        fallback_event = None
+        if line is not None:
+            try:
+                fallback_event = json.loads(line).get("event")
+            except Exception:
+                pass
+        if line is not None and fallback_event == "command.failed":
+            _stderr_note(line.decode("utf-8").rstrip("\n"))
+        return False
 
 
 def _stderr_note(message: str) -> None:

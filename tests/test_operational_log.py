@@ -187,6 +187,47 @@ def test_append_lines_creates_private_directory_and_files(tmp_path):
         assert oct((directory / "command.lock").stat().st_mode & 0o777) == "0o600"
 
 
+def test_append_lines_retries_short_writes(tmp_path, monkeypatch):
+    vault = _vault(tmp_path)
+    original_write = os.write
+    writes = []
+
+    def short_write(descriptor, payload):
+        length = max(1, len(payload) // 2)
+        writes.append(length)
+        return original_write(descriptor, payload[:length])
+
+    monkeypatch.setattr(os, "write", short_write)
+    line = b'{"schema":"short-write"}\n'
+
+    oplog.append_lines(vault, "command", [line])
+
+    assert len(writes) > 1
+    assert (oplog.diagnostics_directory(vault) / "command.log").read_bytes() == line
+
+
+def test_append_record_falls_back_when_write_makes_no_progress(
+    tmp_path, monkeypatch, capsys
+):
+    monkeypatch.setattr(os, "write", lambda *_args: 0)
+
+    accepted = oplog.append_record(
+        _vault(tmp_path),
+        "cli",
+        "command.failed",
+        phase="execute",
+        command_id="runtime.inspect",
+        correlation_id="corr-zero-write",
+        error_class="io",
+        exception_type="OSError",
+    )
+
+    assert accepted is False
+    captured = capsys.readouterr().err
+    assert "operational log append failed: OSError" in captured
+    assert '"correlation_id":"corr-zero-write"' in captured
+
+
 def test_append_lines_rejects_unknown_family(tmp_path):
     with pytest.raises(ValueError):
         oplog.append_lines(_vault(tmp_path), "nope", [b"x\n"])
@@ -568,10 +609,10 @@ def test_install_publishes_current_logger_once(tmp_path, monkeypatch):
         logger.close(exit_code=0)
 
 
-def test_append_record_works_without_an_installed_logger(tmp_path, monkeypatch):
+def test_append_record_works_without_an_installed_logger(tmp_path, monkeypatch, capsys):
     monkeypatch.setattr(oplog, "_INSTALLED", None)
     vault = _vault(tmp_path)
-    oplog.append_record(
+    accepted = oplog.append_record(
         vault,
         "script",
         "command.failed",
@@ -581,6 +622,8 @@ def test_append_record_works_without_an_installed_logger(tmp_path, monkeypatch):
         error_class="internal",
         exception_type="ValueError",
     )
+    assert accepted is True
+    assert capsys.readouterr().err == ""
     records = _lines(oplog.diagnostics_directory(vault) / "command.log")
     assert records[0]["event"] == "command.failed"
     assert records[0]["correlation_id"] == "direct-abc"
@@ -592,5 +635,132 @@ def test_append_record_never_raises(tmp_path, capsys):
     vault = _vault(tmp_path)
     (vault / ".brain" / "local").mkdir(parents=True)
     (vault / ".brain" / "local" / "diagnostics").symlink_to(tmp_path / "elsewhere")
-    oplog.append_record(vault, "script", "command.failed")
+    assert oplog.append_record(vault, "script", "command.failed") is False
     assert "operational log append failed" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("process", ["cli", "script"])
+def test_failed_append_emits_only_the_bounded_validated_record(
+    tmp_path, monkeypatch, capsys, process
+):
+    attempts = []
+
+    def deny_append(*args):
+        attempts.append(args)
+        raise PermissionError("private filesystem path /private/secret")
+
+    monkeypatch.setattr(oplog, "append_lines", deny_append)
+    fields = dict(
+        phase="execute",
+        command_id="runtime.inspect",
+        correlation_id="corr-unwritable",
+        error_class="internal",
+        exception_type="RuntimeError",
+    )
+    assert oplog.append_record(tmp_path, process, "command.failed", **fields) is False
+
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    note, fallback = captured.err.splitlines()
+    assert note == "[brain-diagnostics] operational log append failed: PermissionError"
+    record_line = fallback.removeprefix("[brain-diagnostics] ")
+    assert len(record_line.encode("utf-8")) < oplog.MAX_RECORD_BYTES
+    record = json.loads(record_line)
+    assert record["process"] == process
+    assert record["event"] == "command.failed"
+    assert fields.items() <= record.items()
+    assert not FORBIDDEN_RECORD_KEYS & set(record)
+    assert "private" not in captured.err
+    assert len(attempts) == 1
+    assert attempts[0][2] == [(record_line + "\n").encode("utf-8")]
+
+
+@pytest.mark.parametrize(
+    "field,value",
+    [
+        ("phase", "private phase"),
+        ("command_id", "/private/secret"),
+        ("correlation_id", "private\nsecret"),
+        ("error_class", "private error"),
+        ("exception_type", "private exception"),
+    ],
+)
+def test_failed_append_does_not_echo_unvalidated_fields(tmp_path, capsys, field, value):
+    fields = dict(
+        phase="execute",
+        command_id="runtime.inspect",
+        correlation_id="corr-unwritable",
+        error_class="internal",
+        exception_type="RuntimeError",
+    )
+    fields[field] = value
+
+    assert oplog.append_record(tmp_path, "cli", "command.failed", **fields) is False
+
+    assert capsys.readouterr().err == (
+        "[brain-diagnostics] operational log append failed: ValueError\n"
+    )
+    assert not (tmp_path / oplog.DIAGNOSTICS_REL).exists()
+
+
+def test_failed_append_rejects_overlong_command_id_without_truncation_fallback(
+    tmp_path, capsys
+):
+    accepted = oplog.append_record(
+        tmp_path,
+        "cli",
+        "command.failed",
+        phase="execute",
+        command_id="runtime." + "x" * oplog.MAX_IDENTIFIER_LENGTH,
+        correlation_id="corr-overlong",
+        error_class="internal",
+        exception_type="RuntimeError",
+    )
+
+    assert accepted is False
+    assert capsys.readouterr().err == (
+        "[brain-diagnostics] operational log append failed: ValueError\n"
+    )
+
+
+def test_malformed_core_version_never_reaches_encoded_record(monkeypatch):
+    monkeypatch.setattr(oplog, "_VERSION", "/private/secret\n" + "x" * 5000)
+
+    line = oplog.encode_record(
+        process="cli",
+        run_id="version-test",
+        seq=1,
+        event="command.failed",
+        phase="execute",
+        command_id="runtime.inspect",
+        correlation_id="corr-version",
+        error_class="internal",
+        exception_type="RuntimeError",
+    )
+
+    assert len(line) <= oplog.MAX_RECORD_BYTES
+    assert json.loads(line)["version"] == "unknown"
+    assert b"private" not in line
+
+
+def test_failed_append_and_stderr_failure_never_raise(tmp_path, monkeypatch):
+    def deny_append(*_args):
+        raise PermissionError("private path")
+
+    class ClosedStderr:
+        def write(self, _text):
+            raise OSError("stderr unavailable")
+
+    monkeypatch.setattr(oplog, "append_lines", deny_append)
+    monkeypatch.setattr(sys, "stderr", ClosedStderr())
+
+    assert oplog.append_record(
+        tmp_path,
+        "cli",
+        "command.failed",
+        phase="execute",
+        command_id="runtime.inspect",
+        correlation_id="corr-unwritable",
+        error_class="internal",
+        exception_type="RuntimeError",
+    ) is False

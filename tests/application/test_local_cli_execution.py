@@ -28,7 +28,10 @@ from _launcher.contracts import (
     Error,
     ErrorCode,
     Ok,
+    OutcomeReceipt,
+    OutcomeReference,
     Partial,
+    ReceiptState,
 )
 from _launcher.owners import LAUNCHER_OWNERS
 from _launcher.owners import LauncherOwners
@@ -44,6 +47,7 @@ from _local_cli.execution import (
 from _local_cli.main import CliError, _trusted_distribution, run
 from _local_cli.runtime import (
     LauncherDiagnosticReporter,
+    LauncherReceiptStore,
     SelectedBrain,
     command_python,
     resolve_project_exposure_brain,
@@ -216,10 +220,22 @@ def test_launcher_dynamic_adapter_rejects_unknown_identity_and_fields(tmp_path):
         adapter.invoke(_context(tmp_path), "brain.version", {"extra": True})
 
 
-def test_real_launcher_failure_persists_the_returned_correlation_id(tmp_path):
+@pytest.mark.parametrize("diagnostics_writable", [True, False])
+def test_real_launcher_failure_preserves_the_returned_correlation_id(
+    tmp_path, monkeypatch, capsys, diagnostics_writable
+):
     vault = (tmp_path / "Brain").resolve()
     (vault / ".brain-core").mkdir(parents=True)
     (vault / ".brain-core" / "VERSION").write_text("0.61.0\n", encoding="utf-8")
+    if not diagnostics_writable:
+        mkdir = Path.mkdir
+
+        def deny_diagnostics(path, *args, **kwargs):
+            if path == vault / _operational_log.DIAGNOSTICS_REL:
+                raise PermissionError("private diagnostics path")
+            return mkdir(path, *args, **kwargs)
+
+        monkeypatch.setattr(Path, "mkdir", deny_diagnostics)
     context = replace(
         _context(tmp_path),
         current_vault=vault,
@@ -242,17 +258,99 @@ def test_real_launcher_failure_persists_the_returned_correlation_id(tmp_path):
     )
 
     assert result.error.details.correlation_id == "corr-local-cli"
-    records = [
-        json.loads(line)
-        for line in (
-            _operational_log.diagnostics_directory(vault) / "command.log"
-        ).read_text(encoding="utf-8").splitlines()
-    ]
+    assert result.error.code is ErrorCode.INTERNAL_ERROR
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    if diagnostics_writable:
+        assert captured.err == ""
+        records = [
+            json.loads(line)
+            for line in (
+                _operational_log.diagnostics_directory(vault) / "command.log"
+            ).read_text(encoding="utf-8").splitlines()
+        ]
+    else:
+        assert "private" not in captured.err
+        assert str(vault) not in captured.err
+        records = [json.loads(captured.err.splitlines()[-1].removeprefix("[brain-diagnostics] "))]
     assert records[-1]["event"] == "command.failed"
     assert records[-1]["phase"] == "execute"
     assert records[-1]["command_id"] == "brain.version"
     assert records[-1]["correlation_id"] == result.error.details.correlation_id
+    assert records[-1]["exception_type"] == "RuntimeError"
+    assert records[-1]["error_class"] == "internal"
     assert "private failure detail" not in json.dumps(records[-1])
+
+
+@pytest.mark.parametrize("deny_writes", [False, True])
+def test_runtime_inspect_does_not_need_machine_receipt_storage(
+    tmp_path, monkeypatch, capsys, deny_writes
+):
+    vault = tmp_path / "external-brain"
+    core = vault / ".brain-core"
+    core.mkdir(parents=True)
+    (core / "VERSION").write_text("0.62.0\n", encoding="utf-8")
+    requirements = core / "brain_mcp"
+    requirements.mkdir()
+    for name in ("requirements.txt", "requirements-semantic.txt"):
+        (requirements / name).write_text("# test runtime\n", encoding="utf-8")
+    home = tmp_path / "home"
+    state = home / ".local" / "state"
+    caller = tmp_path / "caller-workspace"
+    caller.mkdir()
+    monkeypatch.chdir(caller)
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setattr(Path, "home", lambda: home)
+    monkeypatch.delenv("XDG_STATE_HOME", raising=False)
+    monkeypatch.setenv("BRAIN_CLI_BINARY", str(REPO_ROOT / "cli" / "brain"))
+    monkeypatch.setenv("BRAIN_CLI_DISTRIBUTION_ROOT", str(REPO_ROOT))
+    mkdir = Path.mkdir
+    attempts = []
+
+    def deny_machine_state(path, *args, **kwargs):
+        if path == state or state in path.parents:
+            attempts.append(path)
+            if deny_writes:
+                raise PermissionError("machine state is outside the sandbox")
+        return mkdir(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "mkdir", deny_machine_state)
+
+    code = run(["runtime", "inspect", "--vault", str(vault), "--json"])
+
+    captured = capsys.readouterr()
+    assert code == 0, captured
+    assert json.loads(captured.out)["status"] == "ok"
+    assert captured.err == ""
+    assert attempts == []
+    assert not state.exists()
+
+
+@pytest.mark.parametrize(
+    "state", [ReceiptState.COMMITTED, ReceiptState.KNOWN_PARTIAL, ReceiptState.UNKNOWN]
+)
+def test_launcher_effect_receipts_remain_durable_and_write_failures_propagate(
+    tmp_path, monkeypatch, state
+):
+    root = tmp_path / "command-outcomes"
+    store = LauncherReceiptStore(root)
+    effects = () if state is ReceiptState.UNKNOWN else (CommittedEffect("changed", "machine"),)
+    receipt = OutcomeReceipt(
+        OutcomeReference("cli-receipt"), "runtime.repair", 1, state, NOW, effects
+    )
+    store.write(receipt)
+    payload = json.loads((root / "cli-receipt.json").read_text(encoding="utf-8"))
+    assert payload["state"] == state.value
+    assert payload["committed_effects"] == [
+        {"kind": effect.kind, "subject": effect.subject} for effect in effects
+    ]
+
+    def deny_mkdir(*_args, **_kwargs):
+        raise PermissionError("receipt storage is outside the sandbox")
+
+    monkeypatch.setattr(Path, "mkdir", deny_mkdir)
+    with pytest.raises(PermissionError):
+        store.write(receipt)
 
 
 def test_launcher_projection_matches_application_structural_wire_vocabulary():
