@@ -1,11 +1,25 @@
-#!/usr/bin/env bash
+#!/bin/bash
 set -euo pipefail
 
-BRAIN_CLI_VERSION="3.3.3"
-BRAIN_INSTALL_REF="v0.69.1"
+BRAIN_CLI_VERSION="4.0.0"
+BRAIN_INSTALL_REF="v0.70.0"
 
-SELF_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd -P)"
-SELF_PATH="$SELF_DIR/$(basename -- "$0")"
+SELF_DIR="$(CDPATH= cd -- "${0%/*}" && pwd -P)"
+SELF_PATH="$SELF_DIR/${0##*/}"
+
+if [ "${1:-}" = "mcp" ] && [ "${2:-}" = "serve" ]; then
+    DISTRIBUTION_ROOT="$SELF_DIR/../lib/brain-cli/$BRAIN_CLI_VERSION"
+    if [ ! -f "$DISTRIBUTION_ROOT/.bootstrap-python" ] || [ ! -f "$DISTRIBUTION_ROOT/cli/_mcp_stdio.py" ]; then
+        printf 'brain: installed MCP bootstrap is missing; reinstall the CLI with an explicit --bootstrap-python\n' >&2
+        exit 4
+    fi
+    IFS= read -r PYTHON < "$DISTRIBUTION_ROOT/.bootstrap-python"
+    if [ ! -x "$PYTHON" ]; then
+        printf 'brain: recorded bootstrap Python is unavailable; reinstall the CLI with --bootstrap-python\n' >&2
+        exit 4
+    fi
+    exec "$PYTHON" -I -B "$DISTRIBUTION_ROOT/cli/_mcp_stdio.py" "$@"
+fi
 
 if [ -n "${BRAIN_CLI_BUNDLE:-}" ]; then
     DISTRIBUTION_ROOT="$BRAIN_CLI_BUNDLE"
@@ -35,4 +49,4 @@ fi
 export BRAIN_CLI_BINARY="$SELF_PATH"
 export BRAIN_CLI_DISTRIBUTION_ROOT="$DISTRIBUTION_ROOT"
 export PYTHONPATH="$DISTRIBUTION_ROOT/cli:$DISTRIBUTION_ROOT/src/brain-core/scripts${PYTHONPATH:+:$PYTHONPATH}"
-exec "$PYTHON" -m _local_cli.main "$@"
+exec "$PYTHON" -B -m _local_cli.main "$@"

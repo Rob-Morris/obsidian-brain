@@ -214,10 +214,17 @@ launcher Python discovery so it passes regardless of what the runner ships.
 The pre-commit hook reruns those fast predicates against staged content so a
 partially staged commit cannot bypass them.
 
-The `Windows user smoke` GitHub Actions workflow runs only
-`tests/test_windows_user_smoke.py` on `windows-latest`. It protects the native
-Windows user path (installer launcher, MCP startup, and one `vault.read-file` round
-trip) without making the full suite a Windows contributor gate.
+The `Windows user smoke` GitHub Actions workflow runs
+`tests/test_windows_user_smoke.py` and
+`tests/application/test_mcp_stable_bootstrap.py` on `windows-latest`. It protects
+the native Windows installer and persisted MCP startup/read/upload paths without
+making the full suite a Windows contributor gate.
+
+After pushing, complete the [post-push CI check](standards/agent-workflow.md#post-push-ci-check)
+for the exact pushed commit, including Linux, Windows and dependency certification.
+Follow failures through to fixes and verified replacement runs, or report an
+explicit blocker. Do not treat local success or a pending/missing CI run as
+completion, and do not deploy or propagate the candidate until that gate passes.
 
 If you touch semantic retrieval, embeddings, or the evaluation harness, also
 install the pinned optional repo-local dependencies first:

@@ -133,7 +133,7 @@ def test_version_and_launcher_discovery_need_no_selected_brain(tmp_path):
     command_ids = [entry["command_id"] for entry in commands["entries"]]
     assert len(command_ids) == len(set(command_ids))
     assert "brain.version" in command_ids
-    assert len(commands["entries"]) == 24
+    assert len(commands["entries"]) == 25
     by_id = {entry["command_id"]: entry for entry in commands["entries"]}
     assert by_id["brain.version"]["entry_point"] == ["brain", "version"]
     assert by_id["runtime.inspect"]["entry_point"] == [

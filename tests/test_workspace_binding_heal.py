@@ -618,108 +618,24 @@ class TestBuildMcpConfigNoVaultRoot:
 # Section 10: Write-ordering in apply_mcp_transport_action
 # ---------------------------------------------------------------------------
 
-class TestWriteOrderingApplyMcpTransport:
-    """Workspace binding converges BEFORE any MCP registration is written."""
+@pytest.mark.parametrize("client", ["claude", "codex"])
+def test_transport_refuses_unbound_target_without_implicit_binding(tmp_path, isolated_home, monkeypatch, client):
+    from _bootstrap import mcp_transport
 
-    def _make_vault_with_managed_runtime(self, tmp_path: Path) -> Path:
-        """Minimal vault with runtime requirements for mcp_transport."""
-        vault = tmp_path / "vault"
-        bc = vault / ".brain-core"
-        bc.mkdir(parents=True)
-        (bc / "VERSION").write_text("1.0.0\n")
-        (bc / "brain_mcp").mkdir()
-        (bc / "brain_mcp" / "requirements.txt").write_text("mcp>=1.0.0\n")
-        (bc / "brain_mcp" / "requirements-semantic.txt").write_text("mcp>=1.0.0\n")
-        brain_dir = vault / ".brain" / "local"
-        brain_dir.mkdir(parents=True)
-        return vault
-
-    def test_binding_written_before_registration(self, tmp_path, isolated_home, monkeypatch):
-        """apply_mcp_transport_action: binding is present before register_claude is called.
-
-        Strategy: monkeypatch register_claude to raise on its first call. After
-        the exception, the workspace.yaml must already exist — proving convergence
-        happened before registration.
-        """
-        from _bootstrap import mcp_transport
-
-        vault = self._make_vault_with_managed_runtime(tmp_path)
-        ws = tmp_path / "myproject"
-        ws.mkdir()
-
-        # Register the vault so the manifest convergence can look up the Brain ID.
-        vault_registry.register(str(vault))
-
-        # Patch _resolve_managed_python to return a fake python path.
-        monkeypatch.setattr(
-            mcp_transport,
-            "_resolve_managed_python",
-            lambda *_args, **_kwargs: "/usr/bin/python3",
+    vault = _make_vault(tmp_path, "vault")
+    vault_registry.register(str(vault))
+    workspace = tmp_path / "project"
+    workspace.mkdir()
+    def unexpected_runtime(*args, **kwargs):
+        raise AssertionError("Runtime work must follow target admission")
+    monkeypatch.setattr(mcp_transport, "_resolve_managed_python", unexpected_runtime)
+    with pytest.raises(mcp_transport.InitTransportError):
+        mcp_transport.apply_mcp_transport_action(
+            vault, client_arg=client, scope="project", target_dir=workspace, remove=False,
         )
-
-        # Patch register_claude to raise before writing anything.
-        def _raising_register_claude(*_args, **_kwargs):
-            raise OSError("simulated registration failure")
-
-        monkeypatch.setattr(mcp_transport, "register_claude", _raising_register_claude)
-
-        manifest_path = ws / ".brain" / "local" / "workspace.yaml"
-        assert not manifest_path.exists(), "workspace.yaml must not exist yet"
-
-        from _bootstrap.mcp_transport import InitTransportError, apply_mcp_transport_action
-
-        with pytest.raises(InitTransportError):
-            apply_mcp_transport_action(
-                vault,
-                client_arg="claude",
-                scope="project",
-                target_dir=ws,
-                remove=False,
-            )
-
-        # Binding must have been written before the registration attempt failed.
-        assert manifest_path.exists(), (
-            "workspace.yaml must exist after apply_mcp_transport_action raises "
-            "— convergence runs before registration"
-        )
-
-    def test_binding_written_before_codex_registration(self, tmp_path, isolated_home, monkeypatch):
-        """Same ordering invariant verified for the codex client path."""
-        from _bootstrap import mcp_transport
-
-        vault = self._make_vault_with_managed_runtime(tmp_path)
-        ws = tmp_path / "codexproject"
-        ws.mkdir()
-
-        vault_registry.register(str(vault))
-
-        monkeypatch.setattr(
-            mcp_transport,
-            "_resolve_managed_python",
-            lambda *_args, **_kwargs: "/usr/bin/python3",
-        )
-
-        def _raising_register_codex(*_args, **_kwargs):
-            raise OSError("simulated codex registration failure")
-
-        monkeypatch.setattr(mcp_transport, "register_codex", _raising_register_codex)
-
-        manifest_path = ws / ".brain" / "local" / "workspace.yaml"
-
-        from _bootstrap.mcp_transport import InitTransportError, apply_mcp_transport_action
-
-        with pytest.raises(InitTransportError):
-            apply_mcp_transport_action(
-                vault,
-                client_arg="codex",
-                scope="project",
-                target_dir=ws,
-                remove=False,
-            )
-
-        assert manifest_path.exists(), (
-            "workspace.yaml must exist — convergence runs before codex registration"
-        )
+    assert not (workspace / ".brain/local/workspace.yaml").exists()
+    assert not (workspace / ".mcp.json").exists()
+    assert not (workspace / ".codex/config.toml").exists()
 
 
 def test_rung4_default_resolution_writes_no_workspace_yaml(tmp_path, isolated_home):

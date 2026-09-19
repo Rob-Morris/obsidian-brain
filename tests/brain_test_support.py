@@ -167,6 +167,9 @@ def write_fake_launcher(path, *, cversion="3.12", venv="none", real_python=None)
             "  mkdir -p \"$venv_dir/bin\"\n"
             "  cat > \"$venv_dir/bin/python\" <<'EOF'\n"
             "#!/bin/sh\n"
+            "if [ \"$1\" = \"-I\" ] && [ \"$2\" = \"-c\" ]; then\n"
+            f"  exec {real_python} \"$@\"\n"
+            "fi\n"
             "if [ \"$1\" = \"-c\" ]; then\n"
             f"  exec {real_python} \"$@\"\n"
             "fi\n"
@@ -202,12 +205,14 @@ def write_fake_launcher(path, *, cversion="3.12", venv="none", real_python=None)
 def copy_install_source(dest):
     """Copy the repo's install entry points into *dest* for install.sh integration tests.
 
-    Copies install.sh, template-vault/, and src/brain-core/ — the minimum required
+    Copies the checked CLI, installers, template-vault/, and src/brain-core/
     to run ``bash install.sh`` against an isolated target.
     """
     repo_root = Path(__file__).resolve().parents[1]
     dest = Path(dest)
     shutil.copy2(repo_root / "install.sh", dest / "install.sh")
+    shutil.copy2(repo_root / "install.ps1", dest / "install.ps1")
+    shutil.copytree(repo_root / "cli", dest / "cli", ignore=shutil.ignore_patterns("__pycache__"))
     shutil.copytree(
         repo_root / "template-vault",
         dest / "template-vault",

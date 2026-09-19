@@ -133,7 +133,7 @@ def test_configure_vault_front_injected_semantic(tmp_path):
 
 def test_configure_vault_front_injected_mcp(tmp_path):
     """Front-injected form for ``configure --vault X mcp``."""
-    ns = configure.parse_args(["--vault", str(tmp_path), "mcp"])
+    ns = configure.parse_args(["--vault", str(tmp_path), "mcp", "--client", "all"])
     assert getattr(ns, "vault", None) == str(tmp_path)
     assert ns.command == "mcp"
 

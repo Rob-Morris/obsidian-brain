@@ -44,6 +44,7 @@ import os
 import re
 import sys
 from dataclasses import dataclass
+from pathlib import Path
 
 from _common._filesystem import safe_write
 from _common._file_lock import exclusive_file_lock
@@ -430,15 +431,32 @@ def backfill_action(vault_path, *, dry_run=False):
     return register_action(vault_path, dry_run=dry_run)
 
 
-def unregister_action(vault_path, *, dry_run=False):
+def _require_no_mcp_integrations(vault_path, plan=None):
+    from _bootstrap.file_transaction import FilePlan
+    from _bootstrap.mcp_registration import read_records, McpScope
+    from _bootstrap.mcp_inventory import require_owned_native_slots
+
+    plan = plan or FilePlan()
+    vault = Path(vault_path)
+    _, integrations = read_records(plan, vault, Path.home(), McpScope.PROJECT)
+    if integrations:
+        raise RegistryConflictError("Remove this Brain's registered MCP integrations before unregistering it; use Brain uninstall for composed removal")
+    require_owned_native_slots(plan, vault, Path.home(), ())
+
+
+def unregister_action(vault_path, *, dry_run=False, registration_plan=None):
     """Remove or plan path-matching entries and report exact state.
 
     When the removed Brain ID matches the stored default, the default pointer
     is cleared within the same lock. If that second write fails after registry
     rows commit, ``RegistryPartialApplyError`` reports the committed row IDs.
     """
+    from _bootstrap.mcp_registration import registration_lock
+
+    if registration_plan is not None and not dry_run:
+        raise ValueError("A planned MCP removal can only authorise an unregister preview")
     abs_path = _absolute(vault_path)
-    with _locked():
+    with registration_lock(Path.home()), _locked():
         entries = load_registry_entries()
         to_remove = [
             brain_id
@@ -448,6 +466,7 @@ def unregister_action(vault_path, *, dry_run=False):
         to_remove.sort()
         if not to_remove:
             return RegistryRemovalResult((), False, False)
+        _require_no_mcp_integrations(abs_path, registration_plan)
         current_default = get_default()
         default_cleared = current_default is not None and current_default in to_remove
         if dry_run:
@@ -524,7 +543,9 @@ def prune_action(*, dry_run=False):
     cleared within the same lock. As with ``unregister_action``, a failure after
     registry rows commit is surfaced as an explicit partial application.
     """
-    with _locked():
+    from _bootstrap.mcp_registration import registration_lock
+
+    with registration_lock(Path.home()), _locked():
         entries = load_registry_entries()
         stale = [
             brain_id
@@ -534,6 +555,8 @@ def prune_action(*, dry_run=False):
         stale.sort()
         if not stale:
             return RegistryRemovalResult((), False, False)
+        for brain_id in stale:
+            _require_no_mcp_integrations(entries[brain_id].value)
         current_default = get_default()
         default_cleared = current_default is not None and current_default in stale
         if dry_run:

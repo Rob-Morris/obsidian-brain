@@ -6,6 +6,8 @@ from datetime import datetime
 from pathlib import Path
 import sys
 
+import pytest
+
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 CLI_DIR = REPO_ROOT / "cli"
@@ -23,6 +25,12 @@ import vault_registry
 
 
 NOW = datetime.fromisoformat("2026-08-10T06:30:00+10:00")
+
+
+@pytest.fixture(autouse=True)
+def _no_live_runtime_processes(monkeypatch):
+    monkeypatch.setattr(maintenance, "find_live_brain_runtime_processes",
+                        lambda paths: {"available": True, "processes": {str(path): [] for path in paths}})
 
 
 class _Authority:
@@ -92,6 +100,7 @@ def _summary(runtime_dir: Path | None = None, *, scan_available=True):
             }
         )
     return {
+        "registration_coverage_complete": True,
         "live_process_scan_available": scan_available,
         "runtimes": runtimes,
     }

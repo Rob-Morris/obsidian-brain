@@ -55,7 +55,7 @@ from _bootstrap.owner_attachment import (
 from _bootstrap.workspace_binding import (
     WORKSPACE_ERROR_FILESYSTEM_ACCESS,
     WorkspaceBindingError,
-    resolve_and_heal,
+    resolve_brain_target,
 )
 from _common import find_existing_central_venv
 from _common import _operational_log
@@ -84,7 +84,7 @@ from ._proxy_handoff import (
 # Constants
 # ---------------------------------------------------------------------------
 
-PROXY_VERSION = "0.10.3"
+PROXY_VERSION = "0.10.4"
 _CHILD_PROTOCOL_VERSION = "2026-07-28"
 
 
@@ -2784,14 +2784,12 @@ def main() -> None:
     python_path = sys.argv[1]
     server_target = sys.argv[2]
 
-    # Capture env ONCE, before any os.environ mutation, so heal_legacy_config
-    # receives the original pre-mutation values (not the resolved vault root
-    # written below).  Do NOT re-read os.environ inside resolve_and_heal.
+    # Startup resolves only. Legacy writes belong to admitted migration.
     workspace_env = os.environ.get("BRAIN_WORKSPACE_DIR")
     vault_root_env = os.environ.get("BRAIN_VAULT_ROOT")
 
     try:
-        target = resolve_and_heal(
+        target = resolve_brain_target(
             workspace_env=workspace_env,
             vault_root_env=vault_root_env,
             start_dir=Path.cwd(),

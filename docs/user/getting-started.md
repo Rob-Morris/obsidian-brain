@@ -40,7 +40,7 @@ For non-interactive agent installs in restricted environments, scaffold the vaul
 bash install.sh --non-interactive --skip-mcp /path/to/brain
 ```
 
-The installer creates the vault from the template, copies `.brain-core/` into it, provisions the light machine resolution runtime used by no-MCP `brain session`, and then offers an MCP registration choice for Claude Code, Codex and Grok — register this Brain for this vault only (project scope, the default) or as your machine default brain (user scope) — provisioning the managed Python runtime as needed. `install.sh` and `install.ps1` both hand fresh/existing-vault install policy to the shared Python installer core at `src/brain-core/scripts/install.py`. The POSIX wrapper can also install brain-core into an existing Obsidian vault and detect already-installed Brain vaults; for those, the canonical upgrade path is `upgrade.py` and `install.sh` only delegates to it. In network-restricted environments you can pass `--skip-mcp` to scaffold the vault without runtime / MCP setup, or rerun the printed retry steps later if dependency installation fails. Use `--non-interactive` when you want installer automation without prompts; it selects the this-vault-only (project) scope. When upgrade changes either shipped runtime dependency export (`requirements.txt` or `requirements-semantic.txt` under `.brain-core/brain_mcp/`), `upgrade.py` provisions the matching shared runtime under `~/.brain/venvs/` itself; `install.sh --skip-mcp` passes through the opt-out. Same-version re-apply, downgrade, or explicit migration rerun flows remain explicit `upgrade.py --force` operations. Project scope still outranks user scope for all three clients once the project-scoped MCP is active: in Claude, approve `brain` via `/mcp`; in Codex, trust the project and ensure `brain` is enabled for that project; in Grok, review its folder-trust prompt. See [install.sh](../functional/scripts.md#installsh) and [install.py](../functional/scripts.md#installpy) for full details, modes, and flags.
+The installer creates the vault from the template, copies `.brain-core/` into it, provisions the light machine resolution runtime used by no-MCP `brain session`, and then asks for explicit client selection (Claude Code, Codex, Grok, or All supported clients) and a registration scope — register this Brain for this vault only (project scope, the default) or as your machine default brain (user scope) — provisioning the managed Python runtime as needed. `install.sh` and `install.ps1` both hand fresh/existing-vault install policy to the shared Python installer core at `src/brain-core/scripts/install.py`. The POSIX wrapper can also install brain-core into an existing Obsidian vault and detect already-installed Brain vaults; for those, the canonical upgrade path is `upgrade.py` and `install.sh` only delegates to it. In network-restricted environments you can pass `--skip-mcp` to scaffold the vault without runtime / MCP setup, or rerun the printed retry steps later if dependency installation fails. Use `--non-interactive --client all` (or name one client) for automated MCP setup; it selects the this-vault-only (project) scope. When upgrade changes either shipped runtime dependency export (`requirements.txt` or `requirements-semantic.txt` under `.brain-core/brain_mcp/`), `upgrade.py` provisions the matching shared runtime under `~/.brain/venvs/` itself; `install.sh --skip-mcp` passes through the opt-out. Same-version re-apply, downgrade, or explicit migration rerun flows remain explicit `upgrade.py --force` operations. Project scope still outranks user scope for all three clients once the project-scoped MCP is active: in Claude, approve `brain` via `/mcp`; in Codex, trust the project and ensure `brain` is enabled for that project; in Grok, review its folder-trust prompt. See [install.sh](../functional/scripts.md#installsh) and [install.py](../functional/scripts.md#installpy) for full details, modes, and flags.
 
 Semantic retrieval remains optional. Enable it later with
 `brain retrieval enable --vault /path/to/brain --json`. That command
@@ -348,11 +348,21 @@ brain workspace repair-registry --json
 brain retrieval repair-semantic --json
 ```
 
+New MCP setup requires an explicit client or `all` (All supported clients).
+For unattended installation, pass `--client all` alongside `--non-interactive`;
+use `--skip-mcp` for a scaffold only. Windows uses `-Client all`.
+
 For most broken-tooling cases, `brain runtime repair` is the important command when
 the shared managed runtime under `~/.brain/venvs/` is broken. `mcp.repair`
-repairs installed current-vault project MCP registration state against that
-usable runtime. It does not act as a first-time installer or add a second
-client to the vault. `retrieval.repair-semantic` is the semantic equivalent after a
+repairs recorded caller-workspace project MCP state against that usable runtime.
+Use `--request-json '{"scope":"user"}'` for the shared user connection,
+`'{"breadth":"brain"}'` for a selected Brain's runtime and all registered
+integrations, or `'{"breadth":"machine"}'` for all registered local Brains.
+None acts as a first-time installer or adds an unselected client. Existing
+pre-0.70 registrations first need `brain mcp migrate --json`; inspect with
+`--dry-run`. See [migration and bootstrap recovery](../functional/cli.md#migration-and-bootstrap-recovery)
+for missing base Python, conflicts and interrupted transitions.
+`retrieval.repair-semantic` is the semantic equivalent after a
 vault has been opted in with `retrieval.enable`. It
 restores the pinned runtime packages, local model snapshot/manifest, and
 embeddings sidecars together. `router`, `lexical`, and `registry` are narrower

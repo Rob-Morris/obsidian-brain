@@ -49,6 +49,8 @@ class DoctorCliStatus:
     launcher_python: str | None
     launcher_version: str | None
     launcher_probe_failed: bool
+    mcp_bootstrap_available: bool = False
+    mcp_bootstrap_message: str | None = None
 
     def __post_init__(self) -> None:
         if not self.version.strip():
@@ -198,6 +200,16 @@ class DoctorMemoryStatus:
 
 
 @dataclass(frozen=True, slots=True)
+class DoctorMcpRegistration:
+    path: str
+    state: str
+    client: str | None
+    scope: str | None
+    message: str | None
+    action: str
+
+
+@dataclass(frozen=True, slots=True)
 class DoctorMachineStatus:
     healthy: bool
     tidy: bool
@@ -210,6 +222,8 @@ class DoctorMachineStatus:
     brains: tuple[DoctorBrainStatus, ...]
     orphan_runtime_pythons: tuple[str, ...]
     memory: DoctorMemoryStatus | None
+    mcp_registrations: tuple[DoctorMcpRegistration, ...] = ()
+    registration_coverage_complete: bool = True
 
     def __post_init__(self) -> None:
         if self.memory is not None and not isinstance(self.memory, DoctorMemoryStatus):
@@ -433,6 +447,9 @@ def _machine_status(raw: dict) -> DoctorMachineStatus:
             )
         ),
         _memory_status(raw.get("memory")),
+        tuple(DoctorMcpRegistration(item["path"], item["state"], item.get("client"), item.get("scope"), item.get("message"), item["action"])
+              for item in raw.get("mcp_registrations", {}).get("registrations", [])),
+        raw.get("registration_coverage_complete", True),
     )
 
 
@@ -498,6 +515,13 @@ def _vault_status(raw: dict) -> DoctorVaultStatus:
 
 def execute_doctor(context: LauncherContext, request: BrainDoctorRequest):
     import doctor
+    from . import mcp as mcp_owner
+
+    try:
+        mcp_owner._verify_stable_launcher(context)
+        bootstrap_available, bootstrap_message = True, None
+    except (OSError, RuntimeError, ValueError) as exc:
+        bootstrap_available, bootstrap_message = False, str(exc)
 
     launcher_python = (
         str(context.launcher_python) if context.launcher_python is not None else None
@@ -515,6 +539,7 @@ def execute_doctor(context: LauncherContext, request: BrainDoctorRequest):
         launcher_python=launcher_python,
         synchronise_registry=False,
         measure_memory=True,
+        cli_binary=str(context.cli_binary),
     )
     vault = doctor.collect_vault_diagnosis(
         current_vault=current_vault,
@@ -523,6 +548,12 @@ def execute_doctor(context: LauncherContext, request: BrainDoctorRequest):
         severity=request.severity.value if request.severity is not None else None,
     )
     exit_code = doctor.overall_exit_code(cli=cli, machine=machine, vault=vault)
+    if not bootstrap_available and any(
+        item.get("scope") == "user" and item.get("state") != "absent"
+        for item in machine.get("mcp_registrations", {}).get("registrations", [])
+    ):
+        machine["healthy"] = False
+        exit_code = max(exit_code, 1)
     return Ok(
         request.COMMAND_ID,
         request.COMMAND_VERSION,
@@ -537,6 +568,8 @@ def execute_doctor(context: LauncherContext, request: BrainDoctorRequest):
                 cli["launcher_python"],
                 cli["launcher_version"],
                 cli["launcher_probe_failed"],
+                bootstrap_available,
+                bootstrap_message,
             ),
             _machine_status(machine),
             _vault_status(vault),

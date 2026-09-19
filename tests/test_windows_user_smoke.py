@@ -1,13 +1,14 @@
-"""Native Windows user-path smoke tests.
+"""Native Windows user-path smoke and portable MCP protocol tests.
 
-This file intentionally covers only the supported win32 user path. The full
-test suite remains macOS/Linux/WSL contributor coverage.
+Installation covers the supported win32 user path; the shared protocol contract
+also runs on macOS/Linux/WSL contributor platforms.
 """
 
 from __future__ import annotations
 
 import asyncio
 import base64
+from contextlib import asynccontextmanager
 import json
 import os
 from pathlib import Path
@@ -85,7 +86,22 @@ def test_environment_parser_requires_complete_structural_facts():
         _parse_environment(envelope)
 
 
-async def _call_installed_environment_read(vault_root: Path, env: dict[str, str]) -> dict:
+async def _call_installed_environment_read(
+    vault_root: Path, env: dict[str, str], *, timeout_seconds: float = 90,
+) -> dict:
+    try:
+        async with asyncio.timeout(timeout_seconds):
+            return await _installed_environment_round_trip(vault_root, env)
+    except TimeoutError as exc:
+        proxy_log = vault_root / ".brain" / "local" / "diagnostics" / "proxy.log"
+        diagnostics = proxy_log.read_text(encoding="utf-8") if proxy_log.is_file() else "<absent>"
+        raise AssertionError(
+            f"MCP smoke timed out after {timeout_seconds}s for {vault_root}"
+            f"\nproxy log={diagnostics}"
+        ) from exc
+
+
+async def _installed_environment_round_trip(vault_root: Path, env: dict[str, str]) -> dict:
     config = json.loads((vault_root / ".mcp.json").read_text(encoding="utf-8"))
     server_config = config["mcpServers"]["brain"]
     server_env = dict(env)
@@ -102,10 +118,10 @@ async def _call_installed_environment_read(vault_root: Path, env: dict[str, str]
         async with ClientSession(read_stream, write_stream) as session:
             await session.initialize()
             tools = await session.list_tools()
-            assert any(tool.name == "runtime.read-environment" for tool in tools.tools)
-            assert any(tool.name == "attachment.upload" for tool in tools.tools)
+            assert any(tool.name == "runtime_read-environment" for tool in tools.tools)
+            assert any(tool.name == "attachment_upload" for tool in tools.tools)
 
-            result = await session.call_tool("runtime.read-environment", {})
+            result = await session.call_tool("runtime_read-environment", {})
             if result.is_error:
                 direct = subprocess.run(
                     [
@@ -134,13 +150,13 @@ async def _call_installed_environment_read(vault_root: Path, env: dict[str, str]
                 )
                 raise AssertionError(result.content[0].text + diagnostics)
             environment = _parse_environment(result.structured_content)
-            elevation = await session.call_tool(
-                "access.request",
-                {"commands": ["attachment.upload"], "use_count": 1},
+            access = await session.call_tool(
+                "access_status", {"target_command_id": "attachment.upload"},
             )
-            assert not elevation.is_error, elevation.content[0].text
+            assert not access.is_error, access.content
+            assert access.structured_content["result"]["command"]["state"] == "authorised"
             upload = await session.call_tool(
-                "attachment.upload",
+                "attachment_upload",
                 {
                     "destination_key": "windows-smoke",
                     "name": "windows-smoke.txt",
@@ -155,6 +171,52 @@ async def _call_installed_environment_read(vault_root: Path, env: dict[str, str]
             uploaded_path = upload_envelope["result"]["path"]
             assert (vault_root / uploaded_path).read_bytes() == b"native windows attachment"
             return environment
+
+
+def test_installed_smoke_timeout_closes_transport_and_reports_diagnostics(tmp_path, monkeypatch):
+    (tmp_path / ".mcp.json").write_text(json.dumps({
+        "mcpServers": {"brain": {"command": "unused", "args": []}},
+    }))
+    proxy_log = tmp_path / ".brain" / "local" / "diagnostics" / "proxy.log"
+    proxy_log.parent.mkdir(parents=True)
+    proxy_log.write_text("proxy stalled during startup", encoding="utf-8")
+    closed = []
+
+    @asynccontextmanager
+    async def stalled_transport(_params):
+        try:
+            await asyncio.Event().wait()
+            yield  # pragma: no cover -- deliberately never starts a session
+        finally:
+            closed.append(True)
+
+    monkeypatch.setattr(sys.modules[__name__], "stdio_client", stalled_transport)
+    with pytest.raises(AssertionError, match="MCP smoke timed out.*") as error:
+        asyncio.run(_call_installed_environment_read(tmp_path, {}, timeout_seconds=0.01))
+    assert "proxy stalled during startup" in str(error.value)
+    assert closed == [True]
+
+
+def test_installed_smoke_protocol_contract_on_every_platform(command_vault_clone):
+    from _bootstrap.mcp_state import build_mcp_config
+
+    vault = command_vault_clone.vault_root
+    runtime = subprocess.run(
+        [sys.executable, str(REPO_ROOT / "tests/fixtures/managed_proxy_runtime.py"), str(vault)],
+        check=True, capture_output=True, text=True,
+    ).stdout.strip()
+    config = build_mcp_config(runtime, vault, workspace_dir=vault)
+    (vault / ".mcp.json").write_text(json.dumps({"mcpServers": {"brain": config}}))
+    home = vault.parent / "proxy-home"
+    env = {
+        **os.environ, **command_vault_clone.environment,
+        "HOME": str(home), "USERPROFILE": str(home),
+    }
+    for key in ("BRAIN_VAULT_ROOT", "BRAIN_WORKSPACE_DIR", "BRAIN_OWNER_CHANNEL"):
+        env.pop(key, None)
+    environment = asyncio.run(_call_installed_environment_read(vault, env))
+    assert Path(environment["vault_root"]) == vault
+    assert environment["platform"] == sys.platform
 
 
 def _run_install_ps1(vault: Path, env: dict[str, str], *, launcher: str | None) -> subprocess.CompletedProcess[str]:

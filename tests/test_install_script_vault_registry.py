@@ -2,11 +2,18 @@
 
 import os
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
 
 from brain_test_support import copy_install_source, launcher_discovery_path
+
+
+@pytest.fixture(autouse=True)
+def isolate_launcher_state_and_python(tmp_path, monkeypatch):
+    monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "machine-state"))
+    monkeypatch.setenv("PATH", str(Path(sys.executable).parent) + os.pathsep + os.environ.get("PATH", ""))
 
 
 @pytest.fixture(scope="module")
@@ -222,7 +229,7 @@ def _run_install_no_skip_mcp(source, vault_path, fake_home, *extra):
     return subprocess.run(
         [
             "bash", str(source / "install.sh"),
-            "--non-interactive",
+            "--non-interactive", "--client", "all",
             *extra, str(vault_path),
         ],
         env=env, capture_output=True, text=True, check=True,
@@ -278,7 +285,7 @@ def test_explicit_id_registers_under_given_id(tmp_path, install_source):
     env = os.environ.copy()
     env["HOME"] = str(fake_home)
     env.pop("XDG_CONFIG_HOME", None)
-    subprocess.run(
+    result = subprocess.run(
         [
             "bash", str(install_source / "install.sh"),
             "--non-interactive", "--skip-mcp",
@@ -368,13 +375,13 @@ def test_uninstall_removes_entry(tmp_path, install_source):
     env = os.environ.copy()
     env["HOME"] = str(fake_home)
     env.pop("XDG_CONFIG_HOME", None)
-    subprocess.run(
+    result = subprocess.run(
         [
             "bash", str(install_source / "install.sh"),
             "--uninstall", "--non-interactive",
             str(vault),
         ],
-        env=env, capture_output=True, text=True, check=True,
+        env=env, capture_output=True, text=True,
     )
-
+    assert result.returncode == 0, result.stdout + result.stderr
     assert _entries(fake_home / ".config" / "brain" / "vaults") == []

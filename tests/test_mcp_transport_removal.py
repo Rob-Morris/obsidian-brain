@@ -31,31 +31,19 @@ def test_remove_claude_project_registration_cleans_bootstrap_and_hook(bootstrap_
     assert not (project / ".claude").exists()
 
 
-def test_remove_claude_project_continues_when_bootstrap_cleanup_fails(bootstrap_vault, project, monkeypatch):
+def test_normal_remove_rejects_legacy_claims_before_any_cleanup(bootstrap_vault, project, monkeypatch):
     monkeypatch.setattr(mcp_transport, "_has_claude_cli", lambda: False)
     config = build_mcp_config("/usr/bin/python3", bootstrap_vault)
     record = mcp_transport.register_claude(bootstrap_vault, config, "project", project)
     record_init_target(bootstrap_vault, record)
-
-    def fail_cleanup(*_args, **_kwargs):
-        raise mcp_transport.InitTransportError("cannot read CLAUDE.md")
-
-    monkeypatch.setattr(mcp_transport, "cleanup_claude_bootstrap", fail_cleanup)
-
-    result = mcp_transport.apply_mcp_transport_action(
-        bootstrap_vault,
-        client_arg="claude",
-        scope="project",
-        target_dir=project,
-        remove=True,
-    )
-
-    assert result["status"] == "changed"
-    assert result["removed_count"] == 1
-    assert _load_init_state(bootstrap_vault)["records"] == []
-    assert not (project / ".mcp.json").exists()
-    assert not (project / ".claude").exists()
-    assert (project / "CLAUDE.md").is_file()
+    before = (project / ".mcp.json").read_bytes()
+    with pytest.raises(mcp_transport.InitTransportError, match="migration required"):
+        mcp_transport.apply_mcp_transport_action(
+            bootstrap_vault, client_arg="claude", scope="project", target_dir=project, remove=True,
+        )
+    assert (project / ".mcp.json").read_bytes() == before
+    assert len(_load_init_state(bootstrap_vault)["records"]) == 1
+    assert (project / "CLAUDE.md").exists()
 
 
 def test_remove_claude_project_registration_preserves_user_claude_md_content(

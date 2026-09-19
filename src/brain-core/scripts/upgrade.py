@@ -1911,29 +1911,35 @@ def _run_repair_scope_after_upgrade(
 
 def _has_current_vault_mcp_registration(vault_root: Path) -> bool:
     """Return whether this vault records any MCP registration state."""
+    from _bootstrap.mcp_registration import user_ledger_path
     local_state_paths = (
         vault_root / ".mcp.json",
         vault_root / ".codex" / "config.toml",
         vault_root / ".grok" / "config.toml",
         vault_root / ".brain" / "local" / "init-state.json",
+        user_ledger_path(Path.home()),
+        Path.home() / ".claude.json",
+        Path.home() / ".codex/config.toml",
+        Path.home() / ".grok/config.toml",
     )
     return any(path.exists() for path in local_state_paths)
 
 
 def _repair_mcp_registration_after_upgrade(vault_root: Path) -> dict:
-    """Reconcile existing current-vault MCP registrations to the new runtime."""
-    if not _has_current_vault_mcp_registration(vault_root):
-        return {
-            "scope": "mcp",
-            "command": [],
-            "outcome": "noop",
-            "message": "No existing current-vault MCP registrations need reconciliation.",
-        }
-    return _run_repair_scope_after_upgrade(
-        vault_root,
-        "mcp",
-        timeout=MCP_REGISTRATION_REPAIR_TIMEOUT,
-    )
+    """Verify migration then reconcile all registered projections through one owner."""
+    from _bootstrap.mcp_transport import delegate_machine_command, InitTransportError
+
+    effects = []
+    try:
+        migrated = delegate_machine_command("migrate", {}, vault_root=vault_root)
+        effects.extend(migrated.get("committed_effects", []))
+        repaired = delegate_machine_command("repair", {"breadth": "brain"}, vault_root=vault_root)
+        effects.extend(repaired.get("committed_effects", []))
+    except (InitTransportError, OSError, ValueError) as exc:
+        effects.extend(getattr(exc, "committed_effects", []))
+        return {"scope": "mcp", "outcome": "partial" if effects else "error", "message": str(exc), "committed_effects": effects}
+    return {"scope": "mcp", "outcome": "ok", "committed_effects": effects,
+            "message": "Canonical registrations reconciled; client-host reconnect and a normal MCP call remain separate verification."}
 
 
 def _deferred_mcp_registration_after_upgrade(vault_root: Path) -> dict:
@@ -1946,11 +1952,10 @@ def _deferred_mcp_registration_after_upgrade(vault_root: Path) -> dict:
             "message": "No existing current-vault MCP registrations need reconciliation.",
         }
     command = [
-        sys.executable,
-        str(vault_root / ".brain-core" / "scripts" / "repair.py"),
-        "mcp",
+        "brain", "mcp", "repair",
         "--vault",
         str(vault_root),
+        "--request-json", '{"breadth":"brain"}',
         "--json",
     ]
     return {
@@ -1959,7 +1964,8 @@ def _deferred_mcp_registration_after_upgrade(vault_root: Path) -> dict:
         "outcome": "deferred",
         "message": (
             "MCP registration repair was deferred because dependency "
-            "synchronisation was disabled."
+            "synchronisation was disabled. Run `brain mcp migrate --json` first, "
+            "then run the Brain-wide repair command."
         ),
     }
 

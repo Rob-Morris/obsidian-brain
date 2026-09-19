@@ -74,6 +74,7 @@ LAUNCHER_OWNERS = LauncherOwners(
                 machine.remove_orphans_owner(),
                 mcp.configure_owner(),
                 mcp.repair_owner(),
+                mcp.migrate_owner(),
                 registry.clear_default_owner(),
                 registry.get_default_owner(),
                 registry.list_owner(),

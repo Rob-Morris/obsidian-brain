@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from enum import Enum
 import json
+import os
 from pathlib import Path
 import re
 import shutil
@@ -152,20 +153,22 @@ class BrainUpgradePayload:
 @dataclass(frozen=True, slots=True)
 class BrainInstallRequest:
     COMMAND_ID: ClassVar[str] = "brain.install"
-    COMMAND_VERSION: ClassVar[int] = 2
+    COMMAND_VERSION: ClassVar[int] = 3
     RESULT_TYPE: ClassVar[type] = BrainInstallPayload
 
     vault_root: Path
     brain_id: str
     mcp_scope: InstallMcpScope = InstallMcpScope.PROJECT
-    client: InstallClient = InstallClient.ALL
+    client: InstallClient | None = field(default=None, metadata={"example": InstallClient.CLAUDE})
 
     def __post_init__(self) -> None:
         _absolute_request_path(self.vault_root, "vault_root")
         _brain_id(self.brain_id)
         if not isinstance(self.mcp_scope, InstallMcpScope):
             raise ValueError("install MCP scope must be closed and typed")
-        if not isinstance(self.client, InstallClient):
+        if self.client is None and self.mcp_scope is not InstallMcpScope.SKIP:
+            raise ValueError("Select an explicit MCP client or all supported clients")
+        if self.client is not None and not isinstance(self.client, InstallClient):
             raise ValueError("install client must be closed and typed")
 
 
@@ -263,6 +266,9 @@ def _raw_steps(raw_steps: list[dict]) -> tuple[LifecycleStep, ...]:
 def _install_effects(request: BrainInstallRequest, raw_steps: list[dict]) -> tuple[CommittedEffect, ...]:
     effects = []
     for step in raw_steps:
+        if "committed_effects" in step:
+            effects.extend(CommittedEffect(request.COMMAND_ID, effect["subject"]) for effect in step["committed_effects"])
+            continue
         if step.get("status") != "changed":
             continue
         subject = step.get("venv_dir") or step.get("path") or request.vault_root
@@ -370,7 +376,7 @@ def execute_install(context: LauncherContext, request: BrainInstallRequest):
         source_root=source_root,
         launcher=context.launcher_python,
         mcp_scope=request.mcp_scope.value,
-        client=request.client.value,
+        client=request.client.value if request.client is not None else None,
         brain_id=request.brain_id,
     )
     raw_steps = list(result.get("steps", []))
@@ -436,16 +442,34 @@ def _removal_requests():
 
 def _mcp_cleanup(context: LauncherContext):
     from . import mcp
+    from _bootstrap import mcp_inventory, mcp_registration as registration
+    from _bootstrap.file_transaction import FilePlan
+    from contextlib import nullcontext
 
     assert context.current_vault is not None
-    cleanup_context = replace(context, caller_dir=context.current_vault)
-    results = []
-    for request in _removal_requests():
-        result = mcp.execute_configure(cleanup_context, request)
-        results.append(result)
-        if isinstance(result, (Error, Partial)):
-            break
-    return tuple(results)
+    request = mcp.McpConfigureRequest(client=mcp.McpClient.ALL, action=mcp.McpConfigureAction.REMOVE)
+    try:
+        with nullcontext() if context.dry_run else registration.registration_lock(context.home_dir):
+            plan = FilePlan()
+            for client in registration._clients(registration.McpClient.ALL, registration.McpScope.USER):
+                path = registration._config_path(client, registration.McpScope.USER, None, context.home_dir)
+                current = registration.observed_server(plan, client, path)
+                env = (current or {}).get("env", {})
+                if env.get("BRAIN_VAULT_ROOT") == str(context.current_vault) or str(context.current_vault / ".brain-core") in env.get("PYTHONPATH", "").split(os.pathsep):
+                    raise ValueError(f"User MCP still depends on this Brain: {path}; migrate or explicitly remove it before uninstall")
+            targets = mcp_inventory.brain_targets(plan, context.current_vault, context.home_dir)
+            mcp_inventory.require_owned_native_slots(plan, context.current_vault, context.home_dir, targets)
+            for target in targets:
+                registration._remove_plan(target.vault, context.home_dir, target.target, target.scope, target.clients,
+                                          plan=plan, preserve_shared_routes=False)
+            from _bootstrap.mcp_state import CLAUDE_MD_FILE, bootstrap_line_for_target
+
+            registration._remove_bootstrap(plan, context.current_vault / CLAUDE_MD_FILE,
+                                           bootstrap_line_for_target(context.current_vault))
+            return (mcp._apply(request, context, mcp.McpOperation.REMOVE, mcp.McpScope.PROJECT,
+                               context.current_vault, mcp._clients(mcp.McpClient.ALL, mcp.McpScope.PROJECT), plan),), plan
+    except (OSError, RuntimeError, ValueError) as exc:
+        return (no_effect_error(type(request), ErrorCode.CONFLICT, str(exc)),), None
 
 
 def _map_effects(command_id: str, results) -> list[CommittedEffect]:
@@ -467,7 +491,7 @@ def execute_uninstall(context: LauncherContext, request: BrainUninstallRequest):
     from .registry import BrainUnregisterRequest, execute_unregister
 
     paths = _system_paths(vault)
-    cleanup_results = _mcp_cleanup(context)
+    cleanup_results, cleanup_plan = _mcp_cleanup(context)
     effects = _map_effects(request.COMMAND_ID, cleanup_results)
     failed_cleanup = next((result for result in cleanup_results if isinstance(result, (Error, Partial))), None)
     if failed_cleanup is not None:
@@ -475,7 +499,8 @@ def execute_uninstall(context: LauncherContext, request: BrainUninstallRequest):
             return Partial(request.COMMAND_ID, request.COMMAND_VERSION, failed_cleanup.error, tuple(effects))
         return Error(request.COMMAND_ID, request.COMMAND_VERSION, failed_cleanup.error)
 
-    registry_result = execute_unregister(context, BrainUnregisterRequest(vault))
+    registry_result = execute_unregister(context, BrainUnregisterRequest(vault),
+                                         registration_plan=cleanup_plan if context.dry_run else None)
     effects.extend(_map_effects(request.COMMAND_ID, (registry_result,)))
     if isinstance(registry_result, (Error, Partial)):
         if effects:
@@ -503,7 +528,26 @@ def execute_uninstall(context: LauncherContext, request: BrainUninstallRequest):
 
     removed: list[str] = []
     for path in paths:
-        shutil.rmtree(path)
+        try:
+            shutil.rmtree(path)
+        except OSError as exc:
+            reference = OutcomeReference(context.invocation_id)
+            recovery_paths = tuple(sorted({str(path), *removed, *(
+                effect.subject.split(":", 1)[1] for effect in effects
+                if effect.subject.startswith(("file:", "directory:"))
+            )}))
+            return Error(
+                request.COMMAND_ID, request.COMMAND_VERSION,
+                CommandError(
+                    ErrorCode.COMMAND_OUTCOME_UNKNOWN,
+                    f"Uninstall stopped while deleting {path}: {exc}. "
+                    f"Earlier committed steps: {', '.join(effect.subject for effect in effects) or 'none'}. "
+                    "The failed directory may be partially deleted.",
+                    OutcomeUnknownDetails(reference, recovery_paths),
+                    InstructionNextAction("Inspect the recorded recovery paths and restore/recover the Brain before retrying uninstall."),
+                ),
+                effects="unknown", outcome_reference=reference,
+            )
         removed.append(str(path))
         effects.append(CommittedEffect(request.COMMAND_ID, f"directory:{path}"))
     status = LifecycleStatus.CHANGED if effects else LifecycleStatus.NOOP

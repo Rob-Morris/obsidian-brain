@@ -153,6 +153,18 @@ runtime afresh and do not share this long-lived transport state.
 
 The Brain CLI is a small platform bootloader plus a versioned distribution. A fresh install writes a matching Brain Core, catalogue, launcher, CLI, proxy and installer set.
 
+MCP integration intent and exact ownership are canonical records, separate from
+observed client configuration. User records belong to the machine's OS user;
+project/local records belong to the Brain. Shared planners compose workspace,
+Brain and machine worksets without installing unselected clients. A bounded
+migration feeds this canonical model; normal repair does not adopt legacy files.
+The user route runs the checked absolute `brain mcp serve` bootloader using an
+installation-owned base Python, then resolves the selected Core's own managed
+runtime. No dependency provisioning or registration healing occurs at startup.
+Registration changes and CLI capability replacement share a machine lock.
+Destructive maintenance rechecks persisted references, selected runtimes and
+live use. See [DD-078](decisions/dd-078-registration-driven-mcp-lifecycle.md).
+
 Upgrade preflights the complete local Brain registry and classifies every local/remote/stale entry before mutation. Other local Brains affected by the machine-global CLI replacement require exact acknowledgement; stale exclusions are explicit. Brain Core and the CLI distribution commit inside one checked transaction. Failure either proves restoration of the old set or retains recovery material and reports uncertainty honestly.
 
 The current CLI refuses application discovery against a pre-cutover Brain but retains launcher-owned discovery and recovery. Old direct Brain scripts remain available only as recovery material in the old installation; the new release does not ship public compatibility aliases.

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from contextlib import nullcontext
 from enum import Enum
 import json
 from pathlib import Path
@@ -15,9 +16,12 @@ from .contracts import (
     CommandWarning,
     CapabilityUnavailableDetails,
     CommittedEffect,
+    Error,
     ErrorCode,
     InstructionNextAction,
     Ok,
+    OutcomeReference,
+    OutcomeUnknownDetails,
     Partial,
     RequestErrorDetails,
     WarningCode,
@@ -25,17 +29,30 @@ from .contracts import (
 )
 
 
-class McpClient(str, Enum):
-    CLAUDE = "claude"
-    CODEX = "codex"
-    GROK = "grok"
-    ALL = "all"
-
-
-class McpScope(str, Enum):
-    PROJECT = "project"
-    LOCAL = "local"
-    USER = "user"
+from _bootstrap.mcp_registration import (
+    McpClient, McpScope,
+    _clients,
+    _json_object,
+    _write_json,
+    _config_path,
+    _upsert_json_server,
+    _remove_json_server,
+    _ensure_bootstrap,
+    _remove_bootstrap,
+    _ensure_hook,
+    _remove_hook,
+    _init_records,
+    _record_id,
+    _save_records,
+    _record_for,
+    _configure_client,
+    _configure_plan,
+    _remove_plan,
+    _validate_target,
+    _runtime_python,
+    _validate_toml,
+)
+from _bootstrap import mcp_registration as registration
 
 
 class McpConfigureAction(str, Enum):
@@ -47,6 +64,13 @@ class McpOperation(str, Enum):
     CONFIGURE = "configure"
     REMOVE = "remove"
     REPAIR = "repair"
+    MIGRATE = "migrate"
+
+
+class RepairBreadth(str, Enum):
+    WORKSPACE = "workspace"
+    BRAIN = "brain"
+    MACHINE = "machine"
 
 
 class McpMutationStatus(str, Enum):
@@ -75,6 +99,9 @@ class McpMutationPayload:
     clients: tuple[McpClient, ...]
     status: McpMutationStatus
     files: tuple[McpFileStep, ...]
+    targets: tuple[str, ...] = ()
+    breadth: RepairBreadth = RepairBreadth.WORKSPACE
+    runtimes: tuple[McpFileStep, ...] = ()
 
     def __post_init__(self) -> None:
         if not isinstance(self.operation, McpOperation):
@@ -87,8 +114,8 @@ class McpMutationPayload:
         elif self.target_dir is None or not Path(self.target_dir).is_absolute():
             raise ValueError("workspace-scope MCP results require an absolute target")
         if not self.clients and not (
-            self.operation is McpOperation.REPAIR
-            and self.status is McpMutationStatus.NOOP
+            self.operation in (McpOperation.REPAIR, McpOperation.MIGRATE)
+            and (self.status is McpMutationStatus.NOOP or self.runtimes)
         ):
             raise ValueError("MCP mutation results require concrete clients")
         if any(client is McpClient.ALL for client in self.clients):
@@ -106,10 +133,10 @@ class McpMutationPayload:
 @dataclass(frozen=True, slots=True)
 class McpConfigureRequest:
     COMMAND_ID: ClassVar[str] = "mcp.configure"
-    COMMAND_VERSION: ClassVar[int] = 2
+    COMMAND_VERSION: ClassVar[int] = 3
     RESULT_TYPE: ClassVar[type] = McpMutationPayload
 
-    client: McpClient = McpClient.ALL
+    client: McpClient
     scope: McpScope = McpScope.PROJECT
     action: McpConfigureAction = McpConfigureAction.CONFIGURE
 
@@ -132,402 +159,26 @@ class McpConfigureRequest:
 @dataclass(frozen=True, slots=True)
 class McpRepairRequest:
     COMMAND_ID: ClassVar[str] = "mcp.repair"
-    COMMAND_VERSION: ClassVar[int] = 2
+    COMMAND_VERSION: ClassVar[int] = 3
     RESULT_TYPE: ClassVar[type] = McpMutationPayload
 
+    client: McpClient = McpClient.ALL
+    scope: McpScope = McpScope.PROJECT
+    breadth: RepairBreadth = RepairBreadth.WORKSPACE
 
-def _clients(client: McpClient, scope: McpScope) -> tuple[McpClient, ...]:
-    if client is McpClient.ALL:
-        return (
-            (McpClient.CLAUDE,)
-            if scope is McpScope.LOCAL
-            else (McpClient.CLAUDE, McpClient.CODEX, McpClient.GROK)
-        )
-    return (client,)
-
-
-def _json_object(plan, path: Path) -> dict:
-    content = plan.read_text(path)
-    if content is None:
-        return {}
-    try:
-        value = json.loads(content)
-    except json.JSONDecodeError as exc:
-        raise ValueError(f"MCP JSON is malformed: {path}: {exc}") from exc
-    if not isinstance(value, dict):
-        raise ValueError(f"MCP JSON must contain an object: {path}")
-    return value
+    def __post_init__(self) -> None:
+        McpConfigureRequest(client=self.client, scope=self.scope)
+        if not isinstance(self.breadth, RepairBreadth):
+            raise ValueError("Repair breadth must be workspace, brain or machine")
+        if self.breadth is not RepairBreadth.WORKSPACE and (self.client is not McpClient.ALL or self.scope is not McpScope.PROJECT):
+            raise ValueError("Brain/machine breadth composes all registered client/scopes; omit scope/client filters")
 
 
-def _write_json(plan, path: Path, value: dict, *, delete_empty: bool = False) -> None:
-    if delete_empty and not value:
-        plan.delete(path)
-    else:
-        plan.write_text(path, json.dumps(value, indent=2, ensure_ascii=False) + "\n")
-
-
-def _config_path(client: McpClient, scope: McpScope, target: Path | None, home: Path) -> Path:
-    from _bootstrap import mcp_state
-
-    if client is McpClient.CLAUDE:
-        if scope is McpScope.USER:
-            return home / mcp_state.CLAUDE_USER_CONFIG_FILE
-        if scope is McpScope.LOCAL:
-            assert target is not None
-            return target / mcp_state.CLAUDE_LOCAL_SETTINGS_FILE
-        assert target is not None
-        return target / mcp_state.CLAUDE_PROJECT_CONFIG_FILE
-    if client is McpClient.GROK:
-        return (home if scope is McpScope.USER else target) / mcp_state.GROK_CONFIG_REL
-    if scope is McpScope.USER:
-        return home / mcp_state.CODEX_CONFIG_REL
-    assert target is not None
-    return target / mcp_state.CODEX_CONFIG_REL
-
-
-def _upsert_json_server(plan, path: Path, server_config: dict) -> None:
-    from _bootstrap.mcp_state import BRAIN_SERVER_NAME
-
-    data = _json_object(plan, path)
-    servers = data.get("mcpServers")
-    if servers is None:
-        servers = {}
-        data["mcpServers"] = servers
-    if not isinstance(servers, dict):
-        raise ValueError(f"mcpServers must be an object: {path}")
-    servers[BRAIN_SERVER_NAME] = server_config
-    _write_json(plan, path, data)
-
-
-def _remove_json_server(plan, path: Path, server_config: dict) -> bool:
-    from _bootstrap.mcp_state import BRAIN_SERVER_NAME
-
-    data = _json_object(plan, path)
-    servers = data.get("mcpServers")
-    if not isinstance(servers, dict) or servers.get(BRAIN_SERVER_NAME) != server_config:
-        return False
-    del servers[BRAIN_SERVER_NAME]
-    if not servers:
-        data.pop("mcpServers", None)
-    _write_json(plan, path, data, delete_empty=True)
-    return True
-
-
-def _ensure_bootstrap(plan, target: Path, *, local: bool) -> tuple[Path, str]:
-    from _bootstrap import mcp_state
-
-    line = mcp_state.bootstrap_line_for_target(target)
-    path = target / (mcp_state.CLAUDE_LOCAL_MD_FILE if local else mcp_state.CLAUDE_MD_FILE)
-    existing = plan.read_text(path) or ""
-    if line not in existing.splitlines():
-        separator = "" if not existing else "\n" if existing.endswith("\n") else "\n\n"
-        plan.write_text(path, f"{existing}{separator}{line}\n")
-    return path, line
-
-
-def _remove_bootstrap(plan, path: Path, line: str) -> None:
-    content = plan.read_text(path)
-    if content is None:
-        return
-    lines = content.splitlines()
-    if not any(item.strip() == line for item in lines):
-        return
-    kept = [item for item in lines if item.strip() != line]
-    while kept and not kept[-1].strip():
-        kept.pop()
-    if kept:
-        plan.write_text(path, "\n".join(kept) + "\n")
-    else:
-        plan.delete(path)
-
-
-def _ensure_hook(plan, target: Path, vault: Path, python: str) -> tuple[Path, str]:
-    from _bootstrap import mcp_state, mcp_transport
-
-    path = target / mcp_state.CLAUDE_LOCAL_SETTINGS_FILE
-    settings = _json_object(plan, path)
-    hooks = settings.get("hooks")
-    if hooks is None:
-        hooks = {}
-        settings["hooks"] = hooks
-    if not isinstance(hooks, dict):
-        raise ValueError(f"hooks must be an object: {path}")
-    command = mcp_state.build_session_hook_command(vault, target, python_path=python)
-    kept, _ = mcp_transport._strip_brain_session_hooks(
-        hooks.get("SessionStart", []), vault, target, extra_valid=(command,)
-    )
-    child = {"type": "command", "command": command}
-    if sys.platform == "win32":
-        child["shell"] = "powershell"
-    kept.append({"hooks": [child]})
-    hooks["SessionStart"] = kept
-    _write_json(plan, path, settings)
-    return path, command
-
-
-def _remove_hook(plan, path: Path, vault: Path, target: Path, command: str | None) -> None:
-    from _bootstrap import mcp_transport
-
-    settings = _json_object(plan, path)
-    hooks = settings.get("hooks")
-    if not isinstance(hooks, dict):
-        return
-    extra = (command,) if isinstance(command, str) else ()
-    kept, changed = mcp_transport._strip_brain_session_hooks(
-        hooks.get("SessionStart", []), vault, target, extra_valid=extra
-    )
-    if not changed:
-        return
-    if kept:
-        hooks["SessionStart"] = kept
-    else:
-        hooks.pop("SessionStart", None)
-    if not hooks:
-        settings.pop("hooks", None)
-    _write_json(plan, path, settings, delete_empty=True)
-
-
-def _init_records(plan, vault: Path) -> tuple[Path, list[dict]]:
-    from _bootstrap.mcp_state import INIT_STATE_REL, INIT_STATE_VERSION
-
-    path = vault / INIT_STATE_REL
-    data = _json_object(plan, path)
-    if not data:
-        return path, []
-    if data.get("version", INIT_STATE_VERSION) != INIT_STATE_VERSION:
-        raise ValueError(f"Unsupported MCP init-state version: {path}")
-    records = data.get("records")
-    if not isinstance(records, list) or any(not isinstance(item, dict) for item in records):
-        raise ValueError(f"MCP init-state records must be objects: {path}")
-    return path, list(records)
-
-
-def _record_id(record: dict) -> tuple[object, ...]:
-    return (
-        record.get("client"),
-        record.get("scope"),
-        record.get("target_path"),
-        record.get("config_path"),
-    )
-
-
-def _save_records(plan, path: Path, records: list[dict]) -> None:
-    if records:
-        _write_json(plan, path, {"version": 1, "records": records})
-    else:
-        plan.delete(path)
-
-
-def _record_for(
-    client: McpClient,
-    scope: McpScope,
-    target: Path | None,
-    config_path: Path,
-    server_config: dict,
-    *,
-    bootstrap_path: Path | None = None,
-    bootstrap_line: str | None = None,
-    hook_path: Path | None = None,
-    hook_command: str | None = None,
-) -> dict:
-    record = {
-        "client": client.value,
-        "scope": scope.value,
-        "target_path": str(target) if target is not None else None,
-        "config_path": str(config_path),
-        "server_name": "brain",
-        "server_config": server_config,
-        "method": f"{config_path} (transactional direct)",
-    }
-    for key, value in (
-        ("bootstrap_path", bootstrap_path),
-        ("bootstrap_line", bootstrap_line),
-        ("hook_path", hook_path),
-        ("hook_command", hook_command),
-    ):
-        if value is not None:
-            record[key] = str(value)
-    return record
-
-
-def _configure_client(
-    plan,
-    vault: Path,
-    home: Path,
-    target: Path | None,
-    scope: McpScope,
-    client: McpClient,
-    server: dict,
-) -> dict:
-    from _bootstrap import mcp_state
-
-    config_path = _config_path(client, scope, target, home).absolute()
-    bootstrap_path = bootstrap_line = hook_path = hook_command = None
-    if client is McpClient.CLAUDE:
-        _upsert_json_server(plan, config_path, server)
-        if target is not None:
-            bootstrap_path, bootstrap_line = _ensure_bootstrap(
-                plan, target, local=scope is McpScope.LOCAL
-            )
-            hook_path, hook_command = _ensure_hook(
-                plan, target, vault, server["command"]
-            )
-    elif client is McpClient.GROK:
-        from _bootstrap import grok_mcp
-
-        config_path, bootstrap_path = grok_mcp.plan_configure(
-            plan, home if scope is McpScope.USER else target, server
-        )
-    else:
-        content = plan.read_text(config_path) or ""
-        _validate_toml(content, config_path)
-        plan.write_text(config_path, mcp_state.render_toml_config(content, server))
-    return _record_for(
-        client,
-        scope,
-        target,
-        config_path,
-        server,
-        bootstrap_path=bootstrap_path,
-        bootstrap_line=bootstrap_line,
-        hook_path=hook_path,
-        hook_command=hook_command,
-    )
-
-
-def _configure_plan(
-    vault: Path,
-    home: Path,
-    target: Path | None,
-    scope: McpScope,
-    clients: tuple[McpClient, ...],
-    server: dict,
-):
-    from _bootstrap.file_transaction import FilePlan
-
-    plan = FilePlan()
-    path, records = _init_records(plan, vault)
-    for client in clients:
-        record = _configure_client(plan, vault, home, target, scope, client, server)
-        identity = _record_id(record)
-        records = [item for item in records if _record_id(item) != identity]
-        records.append(record)
-    records.sort(key=lambda item: tuple(str(part) for part in _record_id(item)))
-    _save_records(plan, path, records)
-    return plan
-
-
-def _remove_plan(vault: Path, home: Path, target: Path | None, scope: McpScope, clients: tuple[McpClient, ...]):
-    from _bootstrap import mcp_state
-    from _bootstrap.file_transaction import FilePlan
-
-    plan = FilePlan()
-    init_path, records = _init_records(plan, vault)
-    wanted = {client.value for client in clients}
-    expected_paths = {
-        client.value: _config_path(client, scope, target, home).absolute()
-        for client in clients
-    }
-    retained: list[dict] = []
-    for record in records:
-        matches = (
-            record.get("client") in wanted
-            and record.get("scope") == scope.value
-            and record.get("target_path") == (str(target) if target is not None else None)
-            and record.get("config_path") == str(expected_paths[record["client"]])
-        )
-        if not matches:
-            retained.append(record)
-            continue
-        client = McpClient(record["client"])
-        server = record.get("server_config")
-        if not isinstance(server, dict):
-            raise ValueError("Recorded MCP server configuration is invalid")
-        config_path = expected_paths[client.value]
-        removed = False
-        if client is McpClient.CLAUDE:
-            removed = _remove_json_server(plan, config_path, server)
-            if removed and target is not None:
-                bootstrap_path = target / (
-                    mcp_state.CLAUDE_LOCAL_MD_FILE
-                    if scope is McpScope.LOCAL
-                    else mcp_state.CLAUDE_MD_FILE
-                )
-                _remove_bootstrap(
-                    plan,
-                    bootstrap_path,
-                    mcp_state.bootstrap_line_for_target(target),
-                )
-                _remove_hook(
-                    plan,
-                    target / mcp_state.CLAUDE_LOCAL_SETTINGS_FILE,
-                    vault,
-                    target,
-                    None,
-                )
-        elif client is McpClient.GROK:
-            from _bootstrap import grok_mcp
-
-            removed = grok_mcp.plan_remove(
-                plan, home if scope is McpScope.USER else target, server
-            )
-            if not removed:
-                retained.append(record)
-            continue
-        else:
-            content = plan.read_text(config_path)
-            if content is not None:
-                _validate_toml(content, config_path)
-                rendered = mcp_state.render_toml_without_server(content, server)
-                if rendered is not None:
-                    removed = True
-                    if rendered:
-                        plan.write_text(config_path, rendered)
-                    else:
-                        plan.delete(config_path)
-        if not removed and plan.read_bytes(config_path) is not None:
-            retained.append(record)
-    _save_records(plan, init_path, retained)
-    return plan
-
-
-def _validate_target(vault: Path, target: Path | None) -> None:
-    if target is None or target == vault:
-        return
-    from _bootstrap.workspace_binding import WorkspaceBindingError, resolve_brain_target
-
-    try:
-        resolved = resolve_brain_target(
-            workspace_env=str(target),
-            vault_root_env=None,
-            start_dir=target,
-        )
-    except WorkspaceBindingError as exc:
-        raise ValueError(str(exc)) from exc
-    if Path(resolved.vault_root).resolve() != vault:
-        raise ValueError(
-            f"Workspace {target} is not bound to the selected Brain {vault}."
-        )
-
-
-def _runtime_python(vault: Path) -> str:
-    from _bootstrap import diagnostics
-
-    state = diagnostics.inspect_runtime(vault)
-    if not state["healthy"]:
-        raise RuntimeError(state["message"])
-    return state["python"]
-
-
-def _validate_toml(content: str, path: Path) -> None:
-    if not content:
-        return
-    import tomllib
-
-    try:
-        tomllib.loads(content)
-    except tomllib.TOMLDecodeError as exc:
-        raise ValueError(f"MCP TOML is malformed: {path}: {exc}") from exc
+@dataclass(frozen=True, slots=True)
+class McpMigrateRequest:
+    COMMAND_ID: ClassVar[str] = "mcp.migrate"
+    COMMAND_VERSION: ClassVar[int] = 1
+    RESULT_TYPE: ClassVar[type] = McpMutationPayload
 
 
 def _warnings(client: McpClient, scope: McpScope) -> tuple[CommandWarning, ...]:
@@ -589,7 +240,8 @@ def _apply(
     if context.dry_run or not changes:
         return Ok(request.COMMAND_ID, request.COMMAND_VERSION, payload, warnings=warnings)
     try:
-        apply_file_changes(changes)
+        plan.validate()
+        apply_file_changes(changes, before_write=plan.validate_dependencies)
     except FileTransactionError as exc:
         effects = tuple(
             CommittedEffect(
@@ -619,23 +271,35 @@ def _apply(
 
 
 def execute_configure(context: LauncherContext, request: McpConfigureRequest):
+    try:
+        with nullcontext() if context.dry_run else registration.registration_lock(context.home_dir):
+            return _execute_configure(context, request)
+    except (OSError, RuntimeError, ValueError) as exc:
+        return no_effect_error(type(request), ErrorCode.CONFLICT, str(exc))
+
+
+def _execute_configure(context: LauncherContext, request: McpConfigureRequest):
     vault = context.current_vault
-    if vault is None or not (vault / ".brain-core" / "VERSION").is_file():
+    if request.scope is not McpScope.USER and (vault is None or not (vault / ".brain-core" / "VERSION").is_file()):
         return no_effect_error(
             type(request),
             ErrorCode.NOT_FOUND,
             "No installed current Brain is selected.",
             "current_vault",
         )
-    target = None if request.scope is McpScope.USER else context.caller_dir.resolve()
+    target = None if request.scope is McpScope.USER else (context.workspace_dir or context.caller_dir).resolve()
     clients = _clients(request.client, request.scope)
     try:
         if request.action is McpConfigureAction.CONFIGURE:
             _validate_target(vault, target)
             from _bootstrap.mcp_state import build_mcp_config
 
-            python = _runtime_python(vault)
-            server = build_mcp_config(python, vault, workspace_dir=target)
+            if request.scope is McpScope.USER:
+                _verify_stable_launcher(context)
+                server = registration.stable_server_config(context.cli_binary)
+            else:
+                python = _runtime_python(vault)
+                server = build_mcp_config(python, vault, workspace_dir=target)
             plan = _configure_plan(
                 vault, context.home_dir, target, request.scope, clients, server
             )
@@ -680,101 +344,137 @@ def _runtime_error(request_type, message: str):
     )
 
 
+def _verify_stable_launcher(context):
+    from _distribution import verify_distribution, validate_bootstrap_python
+
+    root = context.cli_binary.parent.parent / "lib/brain-cli" / context.cli_version
+    manifest = verify_distribution(root)
+    if manifest.get("cli_version") != context.cli_version or not (root / "cli/_mcp_stdio.py").is_file():
+        raise ValueError("Install the parity-capable machine CLI before changing user registrations")
+    source = root / "cli" / ("brain.cmd" if context.cli_binary.suffix.lower() == ".cmd" else "brain")
+    if context.cli_binary.is_symlink() or context.cli_binary.read_bytes() != source.read_bytes():
+        raise ValueError("Installed CLI bootloader does not match its checked distribution; reinstall the CLI")
+    validate_bootstrap_python(Path((root / ".bootstrap-python").read_text(encoding="utf-8").strip()))
+
+
 def execute_repair(context: LauncherContext, request: McpRepairRequest):
+    from _bootstrap.file_transaction import FilePlan
+    from _bootstrap.mcp_state import build_mcp_config
+
+    if request.breadth is not RepairBreadth.WORKSPACE:
+        return _execute_composed_repair(context, request)
+
     vault = context.current_vault
-    if vault is None or not (vault / ".brain-core" / "VERSION").is_file():
-        return no_effect_error(
-            type(request),
-            ErrorCode.NOT_FOUND,
-            "No installed current Brain is selected.",
-            "current_vault",
-        )
-    target = context.caller_dir.resolve()
+    target = None if request.scope is McpScope.USER else (context.workspace_dir or context.caller_dir).resolve()
+    if target is not None and (vault is None or not (vault / ".brain-core" / "VERSION").is_file()):
+        return no_effect_error(type(request), ErrorCode.NOT_FOUND, "No installed current Brain is selected.", "current_vault")
     try:
-        _validate_target(vault, target)
-        python = _runtime_python(vault)
-        from _bootstrap.mcp_state import (
-            BRAIN_SERVER_NAME,
-            CLAUDE_PROJECT_CONFIG_FILE,
-            CODEX_CONFIG_REL,
-            GROK_CONFIG_REL,
-            build_mcp_config,
-            render_toml_without_server,
-        )
-        from _bootstrap.file_transaction import FilePlan
-
-        probe = FilePlan()
-        claude_data = _json_object(probe, target / CLAUDE_PROJECT_CONFIG_FILE)
-        claude_servers = claude_data.get("mcpServers")
-        claude_present = (
-            isinstance(claude_servers, dict)
-            and BRAIN_SERVER_NAME in claude_servers
-        )
-        codex_content = probe.read_text(target / CODEX_CONFIG_REL)
-        if codex_content is not None:
-            _validate_toml(codex_content, target / CODEX_CONFIG_REL)
-        current_codex = _read_codex(target / CODEX_CONFIG_REL)
-        codex_present = (
-            codex_content is not None
-            and bool(current_codex)
-            and render_toml_without_server(codex_content, current_codex) is not None
-        )
-        from _bootstrap.grok_mcp import read_server
-
-        grok_content = probe.read_text(target / GROK_CONFIG_REL)
-        grok_present = (
-            grok_content is not None and read_server(grok_content) is not None
-        )
-        _, records = _init_records(probe, vault)
-        recorded = {
-            item.get("client")
-            for item in records
-            if item.get("scope") == "project" and item.get("target_path") == str(target)
-        }
-        clients = tuple(
-            client
-            for client, present in (
-                (McpClient.CLAUDE, claude_present or "claude" in recorded),
-                (McpClient.CODEX, codex_present or "codex" in recorded),
-                (McpClient.GROK, grok_present or "grok" in recorded),
-            )
-            if present
-        )
-        if not clients:
-            return Ok(
-                request.COMMAND_ID,
-                request.COMMAND_VERSION,
-                McpMutationPayload(
-                    McpOperation.REPAIR,
-                    McpScope.PROJECT,
-                    str(target),
-                    clients,
-                    McpMutationStatus.NOOP,
-                    (),
-                ),
-            )
-        server = build_mcp_config(python, vault, workspace_dir=target)
-        plan = _configure_plan(
-            vault,
-            context.home_dir,
-            target,
-            McpScope.PROJECT,
-            clients,
-            server,
-        )
+        with nullcontext() if context.dry_run else registration.registration_lock(context.home_dir):
+            _validate_target(vault, target)
+            plan = FilePlan()
+            _, records = registration.read_records(plan, vault, context.home_dir, request.scope)
+            selected = _clients(request.client, request.scope)
+            clients = tuple(client for client in selected if any(
+                record["client"] == client.value and record["scope"] == request.scope.value
+                and record["target_path"] == (str(target) if target else None)
+                for record in records
+            ))
+            # Inspect all selected slots: an unrecorded slot is not an empty healthy target.
+            for client in selected:
+                path = registration._config_path(client, request.scope, target, context.home_dir)
+                if client not in clients and registration.observed_server(plan, client, path) is not None:
+                    raise ValueError(f"Unowned MCP entry requires explicit migration/admission: {path}")
+            if clients:
+                if request.scope is McpScope.USER:
+                    _verify_stable_launcher(context)
+                server = (
+                    registration.stable_server_config(context.cli_binary)
+                    if request.scope is McpScope.USER
+                    else build_mcp_config(_runtime_python(vault), vault, workspace_dir=target)
+                )
+                _configure_plan(vault, context.home_dir, target, request.scope, clients, server, plan=plan, repair=True)
+            return _apply(request, context, McpOperation.REPAIR, request.scope, target, clients, plan,
+                          _warnings(request.client, request.scope))
     except RuntimeError as exc:
         return _runtime_error(type(request), str(exc))
     except (OSError, ValueError) as exc:
         return no_effect_error(type(request), ErrorCode.CONFLICT, str(exc))
-    return _apply(
-        request,
-        context,
-        McpOperation.REPAIR,
-        McpScope.PROJECT,
-        target,
-        clients,
-        plan,
-    )
+
+
+def _execute_composed_repair(context, request):
+    from _bootstrap import mcp_inventory
+    from _bootstrap import runtime as bootstrap_runtime
+    from _bootstrap.file_transaction import FilePlan
+    from dataclasses import replace
+
+    effects = []
+    try:
+        with nullcontext() if context.dry_run else registration.registration_lock(context.home_dir):
+            plan = FilePlan()
+            _verify_stable_launcher(context)
+            if request.breadth is RepairBreadth.MACHINE:
+                vaults = mcp_inventory.local_brains(plan)
+            elif context.current_vault is not None:
+                vaults = (context.current_vault,)
+            else:
+                raise ValueError("Brain repair requires a selected Brain")
+            runtime_work = {}
+            runtimes = {}
+            for vault in vaults:
+                plan.observe_directory(vault)
+                plan.read_bytes(vault / ".brain-core/VERSION")
+                plan.read_bytes(vault / ".brain-core/brain_mcp/requirements.txt")
+                plan.read_bytes(vault / ".brain-core/brain_mcp/requirements-semantic.txt")
+                plan.read_bytes(vault / ".brain-core/scripts/_common/_venv.py")
+                contract = bootstrap_runtime.target_runtime_contract(vault)
+                arguments = dict(required_modules=("mcp",), dependency_owner="MCP repair",
+                                 full_conformance=True, runtime_contract=contract,
+                                 launcher_python=str(context.launcher_python) if context.launcher_python else None)
+                preview = bootstrap_runtime.bootstrap_managed_runtime(vault, dry_run=True, **arguments)
+                if preview["status"] == "error" or not preview.get("managed_python"):
+                    raise ValueError(preview.get("message") or f"Cannot plan managed runtime for {vault}")
+                runtimes[vault] = Path(preview["managed_python"])
+                runtime_work.setdefault(preview["runtime_dir"], (vault, arguments, preview))
+            clients, targets = mcp_inventory.plan_repair(plan, vaults, context.home_dir, context.cli_binary, runtimes=runtimes)
+            runtime_steps = []
+            plan.validate()
+            for directory, (vault, arguments, preview) in runtime_work.items():
+                summary = preview if context.dry_run else bootstrap_runtime.bootstrap_managed_runtime(vault, **arguments)
+                if summary["effect_outcome"] not in ("none", "committed", "partial"):
+                    reference = OutcomeReference(context.invocation_id)
+                    recovery_paths = tuple(sorted({directory, *(effect.subject.split(":", 1)[1] for effect in effects)}))
+                    return Error(request.COMMAND_ID, request.COMMAND_VERSION,
+                                 CommandError(ErrorCode.COMMAND_OUTCOME_UNKNOWN,
+                                              summary.get("message") or "Managed-runtime repair effects are uncertain; inspect the recovery paths before retrying",
+                                              OutcomeUnknownDetails(reference, recovery_paths)),
+                                 effects="unknown", outcome_reference=reference)
+                if summary["effect_outcome"] in ("committed", "partial"):
+                    effects.append(CommittedEffect(request.COMMAND_ID, f"managed-runtime:{summary['runtime_dir']}"))
+                if summary["status"] == "error":
+                    raise ValueError(summary.get("message") or f"Managed runtime repair failed: {vault}")
+                if summary["managed_python"] != str(runtimes[vault]):
+                    raise ValueError(f"Runtime identity changed after admission: {vault}; rerun repair")
+                state = (McpMutationStatus.PLANNED if summary["status"] == "planned" else
+                         McpMutationStatus.CHANGED if summary["effect_outcome"] == "committed" else McpMutationStatus.NOOP)
+                runtime_steps.append(McpFileStep(directory, state))
+                plan.validate()
+            result = _apply(request, context, McpOperation.REPAIR, McpScope.USER, None, clients, plan)
+            if isinstance(result, Ok):
+                status = result.result.status
+                if any(step.status is not McpMutationStatus.NOOP for step in runtime_steps):
+                    status = McpMutationStatus.PLANNED if context.dry_run else McpMutationStatus.CHANGED
+                result = replace(result, committed_effects=(*effects, *result.committed_effects),
+                                 result=replace(result.result, targets=targets, breadth=request.breadth,
+                                                runtimes=tuple(runtime_steps), status=status))
+            elif effects:
+                result = Partial(request.COMMAND_ID, request.COMMAND_VERSION, result.error,
+                                 (*effects, *getattr(result, "committed_effects", ())))
+            return result
+    except (RuntimeError, OSError, ValueError) as exc:
+        if effects:
+            return Partial(request.COMMAND_ID, request.COMMAND_VERSION,
+                           CommandError(ErrorCode.CONFLICT, str(exc), RequestErrorDetails(None, str(exc))), tuple(effects))
+        return no_effect_error(type(request), ErrorCode.CONFLICT, str(exc))
 
 
 def _read_codex(path: Path) -> dict:
@@ -787,6 +487,44 @@ def configure_owner():
     from .owners import LauncherOwner
 
     return LauncherOwner(McpConfigureRequest, McpMutationPayload, "_launcher.mcp:configure", execute_configure)
+
+
+def execute_migrate(context: LauncherContext, request: McpMigrateRequest):
+    from _bootstrap import mcp_migration
+    from _bootstrap.file_transaction import FileTransactionError
+
+    committed = ()
+    try:
+        with nullcontext() if context.dry_run else registration.registration_lock(context.home_dir):
+            _verify_stable_launcher(context)
+            if not context.dry_run:
+                committed = mcp_migration.resume_migration(context.home_dir, context.current_vault)
+                committed = (*committed, *mcp_migration.verify_transition(context.home_dir, context.current_vault))
+            plan = mcp_migration.migration_plan(context.home_dir, context.cli_binary, context.current_vault)
+            payload = _payload(McpOperation.MIGRATE, McpScope.USER, None, _clients(McpClient.ALL, McpScope.USER), plan.changes(), dry_run=context.dry_run)
+            if not context.dry_run:
+                committed = (*committed, *mcp_migration.apply_migration(plan, context.home_dir))
+                committed = (*committed, *mcp_migration.verify_transition(context.home_dir, context.current_vault))
+            effects = tuple(CommittedEffect(request.COMMAND_ID, f"file:{path}") for path in sorted(set(committed), key=str))
+            if effects:
+                from dataclasses import replace
+
+                payload = replace(payload, status=McpMutationStatus.CHANGED,
+                                  files=tuple(McpFileStep(str(path), McpMutationStatus.CHANGED) for path in sorted(set(committed), key=str)))
+            return Ok(request.COMMAND_ID, request.COMMAND_VERSION, payload, effects)
+    except (OSError, ValueError, RuntimeError) as exc:
+        surviving = {*committed, *getattr(exc, "surviving_paths", ())}
+        if surviving:
+            return Partial(request.COMMAND_ID, request.COMMAND_VERSION,
+                           CommandError(ErrorCode.CONFLICT, str(exc), RequestErrorDetails(None, str(exc))),
+                           tuple(CommittedEffect(request.COMMAND_ID, f"file:{path}") for path in sorted(surviving, key=str)))
+        return no_effect_error(type(request), ErrorCode.CONFLICT, str(exc))
+
+
+def migrate_owner():
+    from .owners import LauncherOwner
+
+    return LauncherOwner(McpMigrateRequest, McpMutationPayload, "_launcher.mcp:migrate", execute_migrate)
 
 
 def repair_owner():

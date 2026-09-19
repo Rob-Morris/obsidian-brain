@@ -3,6 +3,7 @@
 **Status:** Implemented (v0.32.6); managed-runtime *location* superseded by [DD-048](dd-048-central-managed-runtime.md) in v0.37.0. The launcher-vs-managed-runtime split named here remains in force.
 **Extends:** DD-023, DD-039, DD-036
 **Superseded in part by:** DD-048
+**Extended by:** DD-078
 
 ## Context
 

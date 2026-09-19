@@ -62,11 +62,11 @@ def _managed_runtime_error_result(action: str, vault_root: Path, message: str) -
     )
 
 
-def _mcp_error(action: str, vault_root: Path, message: str) -> dict:
+def _mcp_error(action: str, vault_root: Path | None, message: str, *, committed_effects=()) -> dict:
     return _result_envelope(
         action,
         vault_root,
-        [_step("mcp_transport", "error", message)],
+        [_step("mcp_transport", "error", message, committed_effects=list(committed_effects))],
     )
 
 
@@ -439,8 +439,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     mcp.add_argument(
         "--client",
         choices=("claude", "codex", "grok", "all"),
-        default="all",
-        help="Which client config to write (default: all).",
+        required=True,
+        help="Explicit client selection; all selects all currently supported clients.",
     )
     mcp.add_argument("--user", action="store_true", help="Register as the default Brain route for all projects (user scope).")
     mcp.add_argument(
@@ -526,7 +526,7 @@ def configure_mcp_action(
     try:
         clients, _warnings = mcp_transport._resolve_clients_or_error(client, scope)
     except mcp_transport.InitTransportError as exc:
-        return _mcp_error(action, vault_root, str(exc))
+        return _mcp_error(action, vault_root, str(exc), committed_effects=getattr(exc, "committed_effects", ()))
 
     if remove and not force and not mcp_transport._confirm_removal(mcp_transport._scope_label(scope, workspace_dir), clients):
         return _result_envelope(
@@ -545,7 +545,7 @@ def configure_mcp_action(
             vault_self=vault_self,
         )
     except mcp_transport.InitTransportError as exc:
-        return _mcp_error(action, vault_root, str(exc))
+        return _mcp_error(action, vault_root, str(exc), committed_effects=getattr(exc, "committed_effects", ()))
 
     if remove:
         if mcp_result["status"] == "noop":
@@ -555,7 +555,7 @@ def configure_mcp_action(
             status = "changed"
             message = f"Removed recorded Brain-managed MCP entries for {client} ({scope})."
     else:
-        status = "changed"
+        status = mcp_result["status"]
         message = f"Configured Brain MCP transport for {client} ({scope})."
 
     notes = list(mcp_result.get("verification_notes") or [])
@@ -564,7 +564,8 @@ def configure_mcp_action(
     for warning in mcp_result.get("warnings", []):
         if warning not in notes:
             notes.append(warning)
-    return _result_envelope(action, vault_root, [_step("mcp_transport", status, message)], notes=notes)
+    return _result_envelope(action, vault_root, [_step("mcp_transport", status, message,
+                            committed_effects=mcp_result.get("committed_effects", []))], notes=notes)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -595,7 +596,7 @@ def main(argv: list[str] | None = None) -> int:
         return _emit_result(result, as_json=args.json)
 
     if args.command == "mcp":
-        vault_root = find_vault_root(getattr(args, "vault", None))
+        vault_root = None if args.user else find_vault_root(getattr(args, "vault", None))
         action = "mcp_remove" if args.remove else "mcp_configure"
         if args.vault_self and args.user:
             return _emit_result(_mcp_error(action, vault_root, "--vault-self cannot be combined with --user"), as_json=args.json)

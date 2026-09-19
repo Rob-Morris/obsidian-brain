@@ -30,6 +30,16 @@ class FilePlan:
     def __init__(self) -> None:
         self._before: dict[Path, bytes | None] = {}
         self._after: dict[Path, bytes | None] = {}
+        self._directories: dict[Path, tuple[int, int]] = {}
+
+    def observe_directory(self, path: Path) -> None:
+        """Bind an existing mutation target to its directory identity."""
+        path = _normalise(path)
+        _refuse_symlink_path(path)
+        info = path.stat()
+        if not stat.S_ISDIR(info.st_mode):
+            raise ValueError(f"Expected a directory: {path}")
+        self._directories[path] = (info.st_dev, info.st_ino)
 
     def read_bytes(self, path: Path) -> bytes | None:
         path = _normalise(path)
@@ -72,6 +82,27 @@ class FilePlan:
             for path, after in sorted(self._after.items(), key=lambda item: str(item[0]))
             if self._before[path] != after
         )
+
+    def validate(self) -> None:
+        """Revalidate all admission evidence, including files that need no write."""
+        for path, before in self._before.items():
+            _refuse_symlink_path(path)
+            if _current(path) != before:
+                raise FileTransactionError(f"MCP state changed after inspection: {path}")
+        self.validate_dependencies()
+
+    def validate_dependencies(self) -> None:
+        """Check immutable admission evidence again at each mutation boundary."""
+        for path, before in self._before.items():
+            if path not in self._after:
+                _refuse_symlink_path(path)
+                if _current(path) != before:
+                    raise FileTransactionError(f"MCP admission evidence changed: {path}")
+        for path, identity in self._directories.items():
+            _refuse_symlink_path(path)
+            info = path.stat()
+            if (info.st_dev, info.st_ino) != identity:
+                raise FileTransactionError(f"MCP target directory changed: {path}")
 
 
 def _write_bytes(path: Path, content: bytes) -> None:
@@ -137,7 +168,7 @@ def _missing_parent_dirs(path: Path) -> tuple[Path, ...]:
     return tuple(missing)
 
 
-def apply_file_changes(changes: tuple[FileChange, ...]) -> None:
+def apply_file_changes(changes: tuple[FileChange, ...], *, before_write=None) -> None:
     """Apply all changes or restore every known original file state."""
     for change in changes:
         try:
@@ -162,12 +193,19 @@ def apply_file_changes(changes: tuple[FileChange, ...]) -> None:
     )
     try:
         for change in changes:
+            if before_write is not None:
+                before_write()
+            _refuse_symlink_path(change.path)
+            if _current(change.path) != change.before:
+                raise OSError(f"MCP state changed before write: {change.path}")
             attempted.append(change)
             _apply(change.path, change.after)
     except BaseException as exc:
         rollback_errors: list[str] = []
         for change in reversed(attempted):
             try:
+                if before_write is not None:
+                    before_write()
                 current = _current(change.path)
                 if current == change.before:
                     continue

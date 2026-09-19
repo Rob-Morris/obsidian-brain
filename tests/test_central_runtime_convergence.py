@@ -400,6 +400,28 @@ def test_orchestrator_honours_forced_sync_for_existing_runtime_without_sentinel(
 
 # ---------------------------------------------------------------------------
 # bootstrap_managed_runtime envelope (used by repair.py and configure.py)
+
+
+def test_selected_pre_0687_runtime_repair_uses_its_supported_contract(tmp_path):
+    from types import SimpleNamespace
+    from _bootstrap import runtime
+
+    calls = []
+    python = tmp_path / "older-contract/bin/python"
+    def older_resolver(vault_root, *, launcher, launcher_probe=None, required_modules=(),
+                       install_requirements=None, dry_run=False, timeout=300):
+        calls.append((vault_root, required_modules, install_requirements, dry_run))
+        return {"outcome": "planned", "python": str(python), "venv_dir": str(python.parent.parent),
+                "planned_action": "create", "effect_outcome": "none"}
+
+    summary = runtime.bootstrap_managed_runtime(
+        tmp_path, required_modules=("mcp",), dependency_owner="MCP repair",
+        launcher_python=sys.executable, full_conformance=True, dry_run=True,
+        runtime_contract=SimpleNamespace(resolve_or_provision_central_venv=older_resolver),
+    )
+    assert calls == [(tmp_path, ("mcp",), True, True)]
+    assert summary["status"] == "planned"
+    assert summary["managed_python"] == str(python)
 # ---------------------------------------------------------------------------
 
 def test_bootstrap_managed_runtime_reports_reused_on_brew_churn(brew_churn_env):

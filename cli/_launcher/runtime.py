@@ -128,6 +128,11 @@ def execute_repair(context: LauncherContext, request: RuntimeRepairRequest):
             "current_vault",
         )
 
+    try:
+        contract = bootstrap_runtime.target_runtime_contract(vault_root)
+    except (OSError, RuntimeError, ValueError, ImportError) as exc:
+        return no_effect_error(type(request), ErrorCode.CONFLICT, str(exc))
+
     summary = bootstrap_runtime.bootstrap_managed_runtime(
         vault_root,
         required_modules=bootstrap_runtime.required_modules_for_scope("runtime"),
@@ -139,6 +144,7 @@ def execute_repair(context: LauncherContext, request: RuntimeRepairRequest):
             else None
         ),
         dry_run=context.dry_run,
+        runtime_contract=contract,
     )
     effect_outcome = summary["effect_outcome"]
     runtime_dir = summary.get("runtime_dir")

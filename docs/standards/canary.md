@@ -7,6 +7,11 @@ different quality contracts. For example, `make lint` combines the reusable
 script docstring ratchet with explicit command API/schema checks; record the
 umbrella result without conflating the component metrics.
 
+Remote CI is checked after an authorised push, following the
+[post-push CI check](agent-workflow.md#post-push-ci-check), not certified by a
+pre-commit receipt. Propagation canaries must defer deployment while that check
+is unresolved; a completed local checklist is not evidence of green native CI.
+
 ## How to use a canary brief
 
 1. Create a canary brief `my-canary-test.md`

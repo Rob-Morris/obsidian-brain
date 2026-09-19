@@ -44,6 +44,7 @@ def collect_machine_summary(
     launcher_python: str | None = None,
     synchronise_registry: bool,
     measure_memory: bool = False,
+    cli_binary: str | None = None,
 ) -> dict[str, Any]:
     """Collect machine runtime state, optionally synchronising derived registry.
 
@@ -60,6 +61,7 @@ def collect_machine_summary(
         discovery=discovery,
         machine_registry=machine_registry,
         measure_memory=measure_memory,
+        cli_binary=cli_binary,
     )
 
 
@@ -69,6 +71,7 @@ def inspect_machine_runtime_state(
     discovery: dict[str, Any],
     machine_registry: dict[str, Any],
     measure_memory: bool = False,
+    cli_binary: str | None = None,
 ) -> dict[str, Any]:
     """Inspect discovered Brains and shared runtimes on this machine."""
     brains: list[dict[str, Any]] = []
@@ -83,6 +86,12 @@ def inspect_machine_runtime_state(
         brains.append(record)
 
     runtimes = list_central_runtimes()
+    from _bootstrap.mcp_inventory import persisted_runtime_references, inspect_registrations
+
+    roots = tuple(Path(brain["path"]) for brain in brains)
+    persisted_references, registration_coverage = persisted_runtime_references(Path.home(), roots)
+    launcher = cli_binary or shutil.which("brain")
+    registration_state = inspect_registrations(Path.home(), roots, Path(launcher) if launcher else None)
     live_usage = find_live_brain_runtime_processes(rt["python"] for rt in runtimes)
     runtime_rows: list[dict[str, Any]] = []
     orphan_candidates: list[str] = []
@@ -99,16 +108,22 @@ def inspect_machine_runtime_state(
                 {**process, "footprint_bytes": measure_footprint_bytes(process["pid"])}
                 for process in live_processes
             ]
-        orphan_candidate = live_usage["available"] and not selected_by and not live_processes
+        persisted = any(Path(reference).is_relative_to(Path(runtime["dir"]))
+                        for reference in persisted_references)
+        orphan_candidate = registration_coverage and live_usage["available"] and not selected_by and not live_processes and not persisted
         if orphan_candidate:
             orphan_candidates.append(runtime["python"])
         row = dict(runtime)
         row["selected_by"] = selected_by
         row["live_processes"] = live_processes
         row["orphan_candidate"] = orphan_candidate
+        row["persisted_registration_reference"] = persisted
         runtime_rows.append(row)
 
     healthy = (
+        registration_state["healthy"]
+        and registration_coverage
+        and
         not discovery["stale_registry_entries"]
         and not machine_registry["stale_machine_registry_entries"]
         and not machine_registry["blocked"]
@@ -126,6 +141,8 @@ def inspect_machine_runtime_state(
 
     summary = {
         "healthy": healthy,
+        "mcp_registrations": registration_state,
+        "registration_coverage_complete": registration_coverage,
         "tidy": tidy,
         "launcher_python": launcher_python,
         "live_process_scan_available": live_usage["available"],
@@ -555,6 +572,39 @@ def prune_orphaned_runtimes(
     *,
     dry_run: bool,
 ) -> dict[str, Any]:
+    """Revalidate persisted launch references under the registration writer lock."""
+    from contextlib import nullcontext
+    from _bootstrap.mcp_registration import registration_lock
+    from _bootstrap.mcp_inventory import local_brains, persisted_runtime_references
+    from _bootstrap.runtime import target_runtime_contract
+    from _bootstrap.file_transaction import FilePlan
+
+    with nullcontext() if dry_run else registration_lock(Path.home()):
+        if not dry_run:
+            try:
+                roots = set(local_brains(FilePlan()))
+                roots.update(Path(brain["path"]) for brain in summary.get("brains", []))
+                references, complete = persisted_runtime_references(Path.home(), tuple(roots))
+                if not complete:
+                    raise ValueError("Persisted-registration coverage became incomplete; inspect/migrate before pruning")
+                for root in roots:
+                    contract = target_runtime_contract(root)
+                    selected = contract.find_existing_central_venv(root, launcher=Path(summary.get("launcher_python") or sys.executable))
+                    if selected is not None:
+                        references.add(str(selected))
+                for runtime in summary["runtimes"]:
+                    if runtime["orphan_candidate"] and any(Path(reference).is_relative_to(Path(runtime["dir"])) for reference in references):
+                        raise ValueError(f"Runtime has a selected or persisted reference after inspection; rerun maintenance: {runtime['dir']}")
+            except (OSError, RuntimeError, ValueError) as exc:
+                return _build_action_result("prune-runtimes", dry_run=dry_run,
+                    steps=[_step("selection", "error", str(exc))])
+        return _prune_orphaned_runtimes(summary, dry_run=dry_run)
+
+
+def _prune_orphaned_runtimes(summary: dict[str, Any], *, dry_run: bool) -> dict[str, Any]:
+    if not summary.get("registration_coverage_complete", False):
+        return _build_action_result("prune-runtimes", dry_run=dry_run,
+            steps=[_step("selection", "error", "Cannot prune shared runtimes: persisted-registration coverage is incomplete.")])
     if not summary["live_process_scan_available"]:
         return _build_action_result(
             "prune-runtimes",
@@ -603,12 +653,17 @@ def prune_orphaned_runtimes(
                 python=runtime["python"],
             )
         else:
-            prune_step = _execute_removal_step(
-                name="prune",
-                target_path=runtime_dir,
-                success_message="Removed the orphaned shared runtime directory.",
-                python=runtime["python"],
-            )
+            live = find_live_brain_runtime_processes((runtime["python"],))
+            if not live["available"] or live["processes"].get(runtime["python"]):
+                prune_step = _step("prune", "error", "Live-use revalidation did not prove this runtime unused; preserved.",
+                                   path=str(runtime_dir), python=runtime["python"])
+            else:
+                prune_step = _execute_removal_step(
+                    name="prune",
+                    target_path=runtime_dir,
+                    success_message="Removed the orphaned shared runtime directory.",
+                    python=runtime["python"],
+                )
 
         steps = [prune_step]
         target_status = derive_step_status(steps, dry_run=dry_run)

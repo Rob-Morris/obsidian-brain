@@ -38,6 +38,15 @@ The direct projection emits the same `brain.command-result/1` envelope and exit 
 
 ## Application structure
 
+Machine MCP lifecycle composition shares the stdlib-only `_bootstrap` owners:
+`mcp_registration.py` plans canonical intent and exact native projections;
+`mcp_inventory.py` enumerates registered worksets and retention references;
+`mcp_migration.py` admits bounded historical evidence with a resumable journal;
+`mcp_readiness.py` verifies a persisted command with an ordinary MCP read.
+`mcp_transport.py` adapts direct lifecycle scripts to these owners. Shared user
+operations do not require a selected Brain; selected-Brain application repair
+does not gain implicit access to a caller's home configuration.
+
 ```text
 scripts/
 ├── command.py                 canonical direct projection

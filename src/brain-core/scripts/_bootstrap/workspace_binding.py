@@ -756,6 +756,23 @@ def plan_workspace_binding(target_dir, *, brain, slug=None, allow_rebind=False):
     existing_brain = existing.get("brain")
     existing_slug = existing.get("slug")
 
+    if allow_rebind and existing_brain and (existing_brain != brain or slug is not None and slug != existing_slug):
+        from _bootstrap import mcp_registration
+        from _bootstrap.file_transaction import FilePlan
+
+        old_vault = resolve_local_brain_vault(existing_brain)
+        if old_vault is not None:
+            try:
+                mcp_registration.require_no_registered_integrations(old_vault, target_dir)
+            except (OSError, ValueError) as exc:
+                raise WorkspaceBindingError(str(exc)) from exc
+        probe = FilePlan()
+        for native_scope in (mcp_registration.McpScope.PROJECT, mcp_registration.McpScope.LOCAL):
+            for client in mcp_registration._clients(mcp_registration.McpClient.ALL, native_scope):
+                path = mcp_registration._config_path(client, native_scope, target_dir, Path.home())
+                if mcp_registration.observed_server(probe, client, path) is not None:
+                    raise WorkspaceBindingError("Remove the existing workspace MCP integrations before rebinding; configuration was preserved")
+
     resolved_slug = slug or (existing_slug if isinstance(existing_slug, str) and existing_slug else None)
     if not resolved_slug:
         resolved_slug = workspace_slug(target_dir.name)

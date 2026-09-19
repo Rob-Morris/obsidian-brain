@@ -2232,46 +2232,34 @@ class TestUpgradeRetrievalAssetRepair:
         assert result["result"]["message"] == "semantic refresh failed"
 
 
-def test_mcp_registration_repair_is_noop_without_existing_registration(
-    source_and_vault, monkeypatch
-):
+@pytest.mark.parametrize("local_state", [False, True])
+def test_upgrade_always_checks_shared_migration_and_registered_brain_breadth(source_and_vault, monkeypatch, local_state):
+    from _bootstrap import mcp_transport
     _source, vault = source_and_vault
-    monkeypatch.setattr(
-        upgrade.subprocess,
-        "run",
-        lambda *_args, **_kwargs: pytest.fail("repair subprocess should not run"),
-    )
-
-    result = upgrade._repair_mcp_registration_after_upgrade(vault)
-
-    assert result["outcome"] == "noop"
-    assert result["command"] == []
-
-
-def test_mcp_registration_repair_runs_canonical_scope_for_existing_state(
-    source_and_vault, monkeypatch
-):
-    _source, vault = source_and_vault
-    (vault / ".mcp.json").write_text("{}\n")
+    if local_state:
+        (vault / ".mcp.json").write_text("{}\\n")
     calls = []
-
-    def fake_run(args, **kwargs):
-        calls.append((args, kwargs))
-        return subprocess.CompletedProcess(
-            args=args,
-            returncode=0,
-            stdout=json.dumps({"status": "ok", "steps": []}),
-            stderr="",
-        )
-
-    monkeypatch.setattr(upgrade.subprocess, "run", fake_run)
-
+    def delegated(command, request, **kwargs):
+        calls.append((command, request, kwargs))
+        return {"status": "ok", "result": {"status": "noop"}, "committed_effects": []}
+    monkeypatch.setattr(mcp_transport, "delegate_machine_command", delegated)
     result = upgrade._repair_mcp_registration_after_upgrade(vault)
-
     assert result["outcome"] == "ok"
-    assert result["result"]["status"] == "ok"
-    assert calls[0][0][2] == "mcp"
-    assert calls[0][1]["timeout"] == upgrade.MCP_REGISTRATION_REPAIR_TIMEOUT
+    assert calls == [("migrate", {}, {"vault_root": vault}), ("repair", {"breadth": "brain"}, {"vault_root": vault})]
+
+
+def test_upgrade_reports_migration_effects_when_projection_repair_fails(source_and_vault, monkeypatch):
+    from _bootstrap import mcp_transport
+    _source, vault = source_and_vault
+    effects = [{"kind": "mcp.migrate", "subject": "machine-ledger"}]
+    def delegated(command, request, **kwargs):
+        if command == "migrate":
+            return {"status": "ok", "committed_effects": effects}
+        raise mcp_transport.InitTransportError("projection conflict")
+    monkeypatch.setattr(mcp_transport, "delegate_machine_command", delegated)
+    result = upgrade._repair_mcp_registration_after_upgrade(vault)
+    assert result["outcome"] == "partial"
+    assert result["committed_effects"] == effects
 
 
 class TestUpgradeProgressLogging:

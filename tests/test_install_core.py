@@ -257,6 +257,7 @@ def test_install_core_user_scope_sets_machine_default(tmp_path, monkeypatch):
         vault,
         source_root=source,
         launcher=sys.executable,
+        client="all",
         mcp_scope="user",
         brain_id="my-brain",
     )
@@ -286,6 +287,7 @@ def test_install_core_keeps_scaffold_when_runtime_install_fails(tmp_path, monkey
         vault,
         source_root=source,
         launcher=sys.executable,
+        client="all",
         mcp_scope="project",
     )
 
@@ -308,6 +310,7 @@ def test_install_core_does_not_set_user_default_when_runtime_install_fails(tmp_p
         vault,
         source_root=source,
         launcher=sys.executable,
+        client="all",
         mcp_scope="user",
         brain_id="my-brain",
     )

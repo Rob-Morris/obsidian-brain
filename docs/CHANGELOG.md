@@ -8,6 +8,7 @@ Never edit past changelog entries. Only add new entries at the top.
 
 | Version | Date | Summary |
 |---|---|---|
+| [v0.70.0](changelog/v0.70.0.md) | 2026-09-18 | BREAKING — Require explicit MCP clients and migrate registration |
 | [v0.69.1](changelog/v0.69.1.md) | 2026-09-17 | Preserve workspace identity and revalidate setup scaffold targets |
 | [v0.69.0](changelog/v0.69.0.md) | 2026-09-17 | Bind artefact mutations to canonical workspace context |
 | [v0.68.9](changelog/v0.68.9.md) | 2026-09-16 | Keep sandboxed application reads receipt-free and surface trusted diagnostics |

@@ -149,10 +149,13 @@ def test_grok_only_health_and_repair(bootstrap_vault, monkeypatch):
         diagnostics, "_expected_project_server_config", lambda _vault: server
     )
     monkeypatch.setattr(
-        diagnostics, "inspect_runtime", lambda _vault: {"healthy": True}
+        diagnostics, "inspect_runtime", lambda _vault: {"healthy": True, "python": server["command"]}
     )
-    record = mcp_transport.register_grok(server, "project", bootstrap_vault)
-    record_init_target(bootstrap_vault, record)
+    from _bootstrap import mcp_registration as registration
+    from _bootstrap.file_transaction import apply_file_changes
+    plan = registration._configure_plan(bootstrap_vault, Path.home(), bootstrap_vault, registration.McpScope.PROJECT,
+                                        (registration.McpClient.GROK,), server)
+    apply_file_changes(plan.changes())
     assert diagnostics.inspect_mcp(bootstrap_vault)["grok"]["healthy"]
     (bootstrap_vault / GROK_RULE_REL).unlink()
     assert not diagnostics.inspect_mcp(bootstrap_vault)["grok"]["healthy"]
@@ -162,13 +165,13 @@ def test_grok_only_health_and_repair(bootstrap_vault, monkeypatch):
     )
     result = _repair_runtime.repair_mcp(bootstrap_vault, dry_run=True)
     assert (
-        next(s for s in result["steps"] if s["name"] == "grok_project")["status"]
+        next(s for s in result["steps"] if s["name"] == "mcp_registration")["status"]
         == "planned"
     )
     assert not (bootstrap_vault / GROK_RULE_REL).exists()
     result = _repair_runtime.repair_mcp(bootstrap_vault, dry_run=False)
     assert (
-        next(s for s in result["steps"] if s["name"] == "grok_project")["status"]
+        next(s for s in result["steps"] if s["name"] == "mcp_registration")["status"]
         == "changed"
     )
     assert diagnostics.inspect_mcp(bootstrap_vault)["grok"]["healthy"]

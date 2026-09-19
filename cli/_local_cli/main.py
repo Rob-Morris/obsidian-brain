@@ -231,6 +231,9 @@ def _resolve_optional(common, *, required: bool) -> SelectedBrain | None:
 
 
 def _resolve_for_command(common, entry, payload) -> SelectedBrain | None:
+    if entry is not None and entry.command_id in {"mcp.configure", "mcp.repair"} and payload.get("scope") == "user":
+        # Machine transport ownership is independent of target/runtime readiness.
+        return None
     if (
         entry is not None
         and entry.command_id in {"skill.expose", "skill.unexpose"}

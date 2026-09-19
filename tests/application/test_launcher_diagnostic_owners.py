@@ -249,14 +249,21 @@ def test_doctor_returns_bounded_typed_diagnosis_without_registry_sync(
             "launcher_python": str(Path(sys.executable).resolve()),
             "synchronise_registry": False,
             "measure_memory": True,
+            "cli_binary": str((tmp_path / "bin" / "brain").resolve()),
         }
     ]
     assert receipts.values[-1].state is ReceiptState.NONE
 
 
-def test_doctor_without_vault_returns_explicit_unscoped_state(tmp_path, monkeypatch):
+@pytest.mark.parametrize("user_registered", [False, True])
+def test_doctor_without_vault_returns_explicit_unscoped_state(tmp_path, monkeypatch, user_registered):
     machine = _machine_report(tmp_path)
     machine["healthy"] = True
+    if user_registered:
+        machine["mcp_registrations"] = {"registrations": [{
+            "path": str(tmp_path / ".claude.json"), "state": "current", "client": "claude",
+            "scope": "user", "action": "reinstall CLI", "message": None,
+        }]}
     monkeypatch.setattr(
         doctor_script,
         "collect_cli_diagnosis",
@@ -284,6 +291,8 @@ def test_doctor_without_vault_returns_explicit_unscoped_state(tmp_path, monkeypa
 
     assert result.result.vault.state is DoctorVaultState.NOT_SCOPED
     assert result.result.vault.vault_root is None
+    assert not result.result.cli.mcp_bootstrap_available
+    assert result.result.healthy is not user_registered
 
 
 def test_operator_key_generation_returns_typed_candidates(tmp_path, monkeypatch):

@@ -399,6 +399,25 @@ For dependency updates and optional semantic setup, follow the
 
 `pyproject.toml` configures pytest with `pythonpath` entries for `src/brain-core` and `src/brain-core/scripts`, so test files can `import check` and `from brain_mcp import server` without `sys.path` manipulation.
 
+## MCP ownership and migration
+
+MCP ownership is not vault configuration. Canonical user claims live in
+`<Brain config-home>/brain/mcp-registrations.json`; project/local claims live in
+`<vault>/.brain/local/init-state.json`. Both use ledger version 2 and record
+schema `brain.mcp-registration/2`. The machine config-home follows XDG (or the
+native Windows application-data location). Native client files retain their
+own layouts. A claim records client/scope/target and exact last-applied server
+and bootstrap evidence; it does not authorise arbitrary stored paths.
+`transport_enabled: false` retains ownership of Claude bootstrap projections
+needed by another admitted route without expressing intent to reinstall the
+removed transport. Brain/workspace repair maintains that bootstrap or removes
+it once no surviving route needs it.
+
+The migration journal is adjacent to the machine ledger as `mcp-migration.json`.
+It contains exact before/after configuration evidence and must be treated with
+the same care as the client configuration itself. Normal repair does not parse
+legacy ledgers as canonical state. See [MCP lifecycle](cli.md#mcp-registration-and-repair).
+
 ## Grok client configuration
 
 The supported client selectors are `claude`, `codex`, `grok` and `all`.
@@ -416,8 +435,9 @@ folder trust, permission policy or model settings.
 | Global skill adapter | `~/.grok/skills/<name>/` |
 | Project skill adapter | `<workspace>/.grok/skills/<name>/` |
 
-MCP registration uses the same managed Python, Brain proxy and workspace binding
-as the other clients. Native configuration takes precedence over inherited
+Project MCP registration uses the selected Brain's managed Python and proxy;
+user scope uses the stable installed CLI bootstrap, like the other clients.
+Both follow the same workspace binding. Native configuration takes precedence over inherited
 Claude registrations. Project setup adds only `.grok/config.toml` to Brain's
 machine-local ignore entries; the portable startup rule remains discoverable.
 Open Grok in the target directory, review its trust prompt and check

@@ -6,6 +6,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 import functools
 import importlib.util
+import inspect
 import json
 import os
 from pathlib import Path
@@ -41,6 +42,35 @@ BOOTSTRAP_SCOPE_MODULES = {
     # contract to ensure `requirements.txt` has been applied first.
     "semantic": MANAGED_RUNTIME_REQUIRED_MODULES,
 }
+
+
+def target_runtime_contract(vault_root: Path):
+    """Load the selected Core's runtime rules, not the launcher's bundled version."""
+    source = vault_root / ".brain-core/scripts/_common/_venv.py"
+    if not source.is_file():
+        raise RuntimeError(f"Selected Brain has no supported runtime resolver: {source}; upgrade/recover that Brain")
+    spec = importlib.util.spec_from_file_location("_brain_selected_runtime", source)
+    if spec is None or spec.loader is None:
+        raise RuntimeError(f"Cannot load selected Brain runtime resolver: {source}")
+    module = importlib.util.module_from_spec(spec)
+    # Inspection must not create bytecode in a selected (possibly read-only) Core.
+    exec(compile(source.read_bytes(), str(source), "exec"), module.__dict__)
+    return module
+
+
+def target_managed_python(vault_root: Path, *, launcher: Path | None = None) -> Path:
+    """Resolve using the selected Core's versioned contract, without provisioning."""
+    module = target_runtime_contract(vault_root)
+    resolver = getattr(module, "find_existing_central_venv", None)
+    if resolver is None:
+        raise RuntimeError("Selected Brain runtime resolver is unsupported; upgrade that Brain")
+    python = resolver(vault_root, launcher=launcher or Path(sys.executable))
+    if python is None:
+        raise RuntimeError(f"Managed MCP runtime unavailable; run brain runtime repair --vault {vault_root}")
+    probe = subprocess.run([str(python), "-I", "-c", "import mcp"], capture_output=True, timeout=15)
+    if probe.returncode:
+        raise RuntimeError(f"Managed MCP runtime unusable; run brain runtime repair --vault {vault_root}")
+    return python
 
 
 def _is_self_executable(python_path: str | Path) -> bool:
@@ -234,6 +264,7 @@ def bootstrap_managed_runtime(
     dry_run: bool = False,
     full_conformance: bool = False,
     timeout: int = 300,
+    runtime_contract=None,
 ) -> dict:
     """Ensure the central managed runtime is ready for substantive work."""
     launcher_path = Path(launcher_python) if launcher_python else None
@@ -250,12 +281,25 @@ def bootstrap_managed_runtime(
         launcher_probe = probe_python(str(launcher_path), modules=required_modules)
 
     requirements = vault_root / REQUIREMENTS_REL
-    result = resolve_or_provision_central_venv(
+    resolver = (runtime_contract.resolve_or_provision_central_venv
+                if runtime_contract is not None else resolve_or_provision_central_venv)
+    conformance_arguments = {"full_conformance": full_conformance}
+    if runtime_contract is not None:
+        parameters = inspect.signature(resolver).parameters
+        if "full_conformance" not in parameters and not any(
+            parameter.kind is inspect.Parameter.VAR_KEYWORD for parameter in parameters.values()
+        ):
+            # Supported pre-0.68.7 Core owns sentinel-based requirement sync,
+            # not the newer export-conformance contract.
+            if "install_requirements" not in parameters:
+                raise RuntimeError("Selected Brain runtime repair contract is unsupported; upgrade that Brain")
+            conformance_arguments = {"install_requirements": True if full_conformance else None}
+    result = resolver(
         vault_root,
         launcher=launcher_path,
         launcher_probe=launcher_probe,
         required_modules=required_modules,
-        full_conformance=full_conformance,
+        **conformance_arguments,
         dry_run=dry_run,
         timeout=timeout,
     )

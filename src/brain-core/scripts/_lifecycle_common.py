@@ -11,7 +11,7 @@ from typing import Callable, TextIO
 
 def make_result_envelope(
     *,
-    vault_root: str | Path,
+    vault_root: str | Path | None,
     managed_python: str,
     steps: list[dict],
     scope: str | None = None,
@@ -27,7 +27,7 @@ def make_result_envelope(
     if status is None:
         status = derive_step_status(steps, dry_run=bool(dry_run))
     result = {
-        "vault_root": str(vault_root),
+        "vault_root": str(vault_root) if vault_root is not None else None,
         "managed_python": managed_python,
         "status": status,
         "steps": steps,
@@ -50,7 +50,7 @@ def derive_step_status(steps: list[dict], *, dry_run: bool = False) -> str:
     statuses = {entry["status"] for entry in steps}
     if "error" in statuses:
         success_like = {"changed", "noop", "planned"}
-        return "partial" if any(entry["status"] in success_like for entry in steps) else "error"
+        return "partial" if any(entry["status"] in success_like or entry.get("committed_effects") for entry in steps) else "error"
     if dry_run and "planned" in statuses:
         return "planned"
     if "changed" in statuses:

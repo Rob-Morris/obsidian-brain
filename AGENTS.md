@@ -23,6 +23,12 @@ ALWAYS READ BEFORE contributing: `docs/contributor/agents.md`
 2. Follow `.canaries/pre-commit.md`
 3. Never force-add gitignored files. They are ignored for a reason.
 
+## After Pushing
+
+Follow the explicit CI check in `docs/standards/agent-workflow.md` for the pushed
+commit. Resolve failures or report a blocker; do not declare CI success or deploy
+while required checks are missing, pending or failing.
+
 ## Local Overrides
 
 If `AGENTS.local.md` exists in the repo root, read it for machine-specific configuration.

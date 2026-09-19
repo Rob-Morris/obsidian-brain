@@ -312,18 +312,93 @@ CLI 3 can identify and recover an installed Brain older than 0.55.0, but it does
 
 `brain.upgrade` v2 performs a complete-registry preflight and coordinates Brain Core 0.55+, the installed CLI, catalogue, manifest and proxy contracts. Known other pre-cutover Brains require `acknowledge_global_cli_cutover: true`. Stale registry IDs require an exact sorted `excluded_stale_brain_ids` list; unknown registry scope cannot be waived.
 
-After provisioning the target managed runtime, upgrade reconciles any existing current-vault Claude, Codex and Grok MCP registrations through the canonical `repair.py mcp` owner; vaults without project registrations remain untouched. Registration or readiness failure is a known partial outcome with explicit recovery guidance, not a false success. Upgrade then starts or joins the selected Brain's canonical runtime warm-up and waits for a recorded `ready` state. It also performs a read-only machine-topology inspection; when unused shared runtimes are proven orphan candidates, it reports `brain runtime remove-orphans --dry-run` and the explicit removal command without deleting machine-global state itself.
+After provisioning the target managed runtime, upgrade invokes the compatible machine CLI's ownership migration and Brain-breadth MCP repair. This covers shared user registration even when the vault has no project registration, and the selected Brain's registered external targets. Registration or readiness failure is a known partial outcome with explicit effects and recovery guidance, not a false success. Upgrade then starts or joins the selected Brain's canonical runtime warm-up and waits for a recorded `ready` state. Its read-only machine inspection recommends explicit runtime removal only when both persisted-registration coverage and live-process inspection permit it.
+
+## MCP registration and repair
+
+`mcp.configure` v3 requires `client`: `claude`, `codex`, `grok`, or `all`.
+Claude supports `project`, `local`, and `user`; Codex and Grok support project
+and user only. `all` with local scope selects Claude and reports the exclusions.
+Configuration never creates a workspace binding or changes the machine default.
+
+```bash
+brain mcp configure --request-json '{"client":"all","scope":"user"}' --json
+brain mcp configure --workspace /path/to/project --request-json '{"client":"claude","scope":"project"}' --json
+brain mcp configure --request-json '{"client":"all","scope":"user","action":"remove"}' --json
+brain mcp repair --request-json '{"scope":"user"}' --json
+brain mcp repair --workspace /path/to/project --json
+brain mcp repair --vault /path/to/brain --request-json '{"breadth":"brain"}' --json
+brain mcp repair --request-json '{"breadth":"machine"}' --json
+```
+
+User configuration/removal/repair needs no selected or healthy Brain. It manages
+the connection, not target readiness. Workspace repair (the default breadth)
+repairs recorded projections against an existing runtime. Brain breadth also
+reconciles that Brain's runtime, vault-self and all registered targets; machine
+breadth composes all registered local Brains. Both include recorded shared user
+projections once. Broad requests omit client/scope filters. `--dry-run` reports
+the same admitted workset without writes. Results separate native scope, repair
+breadth, target paths, runtime steps and known file effects.
+
+Repair restores missing owned files but never installs an unselected client.
+Unowned or modified Brain slots, damaged ledgers, unavailable registered targets
+and missing reverse coverage stop admission. Unrelated native client settings
+are preserved. Shared Claude hooks/bootstrap survive ordinary scope removal
+while an admitted sibling or user route still needs them.
+
+Brain registry unregister and stale-entry removal refuse surviving canonical
+integrations or unowned native Brain slots. Remove those integrations explicitly,
+or use composed Brain uninstall, before dropping their inventory root. CLI
+replacement takes the same machine registration lock as projection mutation, so
+capability checks and cutover cannot race a new shared registration.
+
+### Migration and bootstrap recovery
+
+Install CLI 4 before changing user ownership. Then inspect and migrate:
+
+```bash
+brain mcp migrate --dry-run --json
+brain mcp migrate --json
+brain mcp repair --request-json '{"breadth":"machine"}' --json
+brain doctor --json
+```
+
+Migration admits exact recorded legacy claims, recovers known reverse targets,
+and moves shared user claims into the machine ledger. It preserves custom or
+ambiguous state for explicit resolution. Rerun migration to resume a journalled
+interruption; do not delete its before/after evidence. Retired runtime references
+remain protected until the persisted user command completes a normal MCP read
+with the expected Brain identity. An unavailable Brain can therefore leave a
+committed migration with verification still pending; the receipt reports partial
+effects, not successful connectivity. Older Core direct user writers are not
+supported after cutover, even where serving that Core remains compatible.
+
+User entries launch an absolute installed `brain mcp serve` command. The checked
+distribution records its base Python separately from Brain managed runtimes.
+Stdio startup neither searches PATH nor installs anything. If the recorded base
+Python moves, reinstall from a complete source checkout with an explicit base
+interpreter (outside a virtual environment):
+
+```bash
+/absolute/python3.12 cli/_distribution.py /path/to/source /path/to/prefix/bin/brain --bootstrap-python /absolute/python3.12
+```
+
+Use `brain.cmd` at the Windows destination. Doctor reports bootstrap availability
+separately from registration state. Successful repair does not reload an already
+running MCP host; reconnect/restart that host as required by the runtime-drift
+diagnostic. CLI replacement refuses to remove stdio capability while persisted
+user registrations still depend on it.
 
 ## Installation
 
 The installer writes a versioned distribution under the selected prefix and a small platform bootloader under `bin/`:
 
-- Unix-like user install: `~/.local/bin/brain` and `~/.local/lib/brain-cli/3.3.3/`.
-- Native Windows user install: `%LOCALAPPDATA%\Programs\Brain\bin\brain.cmd` and the adjacent `lib\brain-cli\3.3.3\` distribution.
+- Unix-like user install: `~/.local/bin/brain` and `~/.local/lib/brain-cli/4.0.0/`.
+- Native Windows user install: `%LOCALAPPDATA%\Programs\Brain\bin\brain.cmd` and the adjacent `lib\brain-cli\4.0.0\` distribution.
 
 The distribution contains the launcher application plus the Brain Core payload needed for install, upgrade and selected-Brain execution. Installation and replacement verify a content manifest and executable identity; failed replacement restores the proven old binary/distribution pair or retains recovery material and reports the outcome as unverified. Failed upgrade results carry every known absolute recovery path in the structural error and durable launcher receipt: residual staging material after a verified rollback is a known partial outcome, while unverified rollback remains outcome-unknown. Standalone human output lists the same paths before the failure message. Once the new pair is verified, failure or interruption while removing an old backup is committed post-upgrade recovery work and never rolls Brain Core back to an older version. Both the launcher result and standalone distribution JSON list the surviving `cleanup_recovery_paths`.
 
-The bootloader requires Python 3.12 or newer. `BRAIN_CLI_VERSION` is `3.3.3`; `BRAIN_INSTALL_REF` is `v0.69.1`.
+The bootloader requires Python 3.12 or newer. `BRAIN_CLI_VERSION` is `4.0.0`; `BRAIN_INSTALL_REF` is `v0.70.0`.
 
 JSON command invocations validate the structural stdout envelope, including
 command identity, version and exit category. Incidental child stderr does not

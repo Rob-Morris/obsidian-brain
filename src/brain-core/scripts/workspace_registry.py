@@ -339,8 +339,13 @@ def register_workspace(vault_root, slug, path, *, before_write=None):
 
     path = os.path.abspath(os.path.expanduser(path))
 
-    registry = load_registry(vault_root)
+    registry = load_registry_strict(vault_root)
     was_update = slug in registry
+    if was_update and registry[slug]["path"] != path:
+        from pathlib import Path
+        from _bootstrap.mcp_registration import require_no_registered_integrations
+
+        require_no_registered_integrations(Path(vault_root), Path(registry[slug]["path"]))
     registry[slug] = {"path": path}
     if before_write is not None:
         before_write()
@@ -368,13 +373,17 @@ def unregister_workspace(vault_root, slug, *, before_write=None):
     Raises:
         ValueError: If slug is not in the registry.
     """
-    registry = load_registry(vault_root)
+    registry = load_registry_strict(vault_root)
     if slug not in registry:
         raise ValueError(
             f"Workspace '{slug}' is not registered as a linked workspace. "
             f"Only linked workspaces (in .brain/local/workspaces.json) can be unregistered."
         )
 
+    from pathlib import Path
+    from _bootstrap.mcp_registration import require_no_registered_integrations
+
+    require_no_registered_integrations(Path(vault_root), Path(registry[slug]["path"]))
     del registry[slug]
     if before_write is not None:
         before_write()

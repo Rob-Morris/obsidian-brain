@@ -1016,6 +1016,7 @@ def test_configure_mcp_vault_self_rejects_invalid_combinations(tmp_path, args, c
 
     exit_code = configure.main([
         "mcp",
+        "--client", "all",
         "--vault",
         str(vault),
         "--workspace",
@@ -1037,6 +1038,7 @@ def test_configure_mcp_vault_self_requires_explicit_workspace(tmp_path, capsys):
 
     exit_code = configure.main([
         "mcp",
+        "--client", "all",
         "--vault",
         str(vault),
         "--vault-self",
@@ -1063,6 +1065,7 @@ def test_configure_mcp_user_rejects_local_or_project_scope(tmp_path, args, expec
 
     exit_code = configure.main([
         "mcp",
+        "--client", "all",
         "--vault",
         str(vault),
         *args,
@@ -1089,6 +1092,7 @@ def test_configure_mcp_remove_noop_returns_noop_step(tmp_path, monkeypatch, caps
 
     exit_code = configure.main([
         "mcp",
+        "--client", "all",
         "--vault",
         str(vault),
         "--workspace",
@@ -1111,6 +1115,7 @@ def test_configure_mcp_remove_workspace_resolution_error_uses_remove_action(tmp_
 
     exit_code = configure.main([
         "mcp",
+        "--client", "all",
         "--vault",
         str(vault),
         "--workspace",
@@ -1139,6 +1144,7 @@ def test_configure_mcp_remove_changed_returns_changed_step(tmp_path, monkeypatch
 
     exit_code = configure.main([
         "mcp",
+        "--client", "all",
         "--vault",
         str(vault),
         "--workspace",
@@ -1167,6 +1173,7 @@ def test_configure_mcp_returns_error_when_transport_apply_raises_typed_error(tmp
 
     exit_code = configure.main([
         "mcp",
+        "--client", "all",
         "--vault",
         str(vault),
         "--workspace",

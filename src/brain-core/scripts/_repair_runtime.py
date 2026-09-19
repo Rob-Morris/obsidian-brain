@@ -57,106 +57,38 @@ def _finalise_result(
     )
 
 
-def _record_claude_direct(vault_root: Path, server_config: dict) -> None:
-    config_path = vault_root / mcp_transport.CLAUDE_PROJECT_CONFIG_FILE
-    mcp_transport.write_project_mcp_json(server_config, vault_root)
-    bootstrap_path = mcp_transport.ensure_claude_md(vault_root)
-    hook_python = mcp_transport.session_hook_python(server_config)
-    hook_path = mcp_transport.ensure_session_start_hook(vault_root, vault_root, python_path=hook_python)
-    record = {
-        "client": "claude",
-        "scope": "project",
-        "target_path": str(vault_root),
-        "config_path": str(config_path),
-        "server_name": mcp_transport.BRAIN_SERVER_NAME,
-        "server_config": server_config,
-        "bootstrap_path": str(bootstrap_path),
-        "bootstrap_line": mcp_transport.bootstrap_line_for_target(vault_root),
-        "hook_path": str(hook_path),
-        "hook_command": mcp_transport.build_session_hook_command(
-            vault_root, vault_root, python_path=hook_python
-        ),
-        "method": f"{config_path} (direct repair)",
-    }
-    mcp_transport.record_init_target(vault_root, record)
-
-
-def _repair_claude(vault_root: Path, server_config: dict, claude_state: dict, dry_run: bool) -> dict:
-    if not claude_state["present"]:
-        return _step("claude_project", "noop", "Claude project MCP is not installed for this vault.")
-    if claude_state["healthy"]:
-        return _step("claude_project", "noop", "Claude project MCP state is already healthy.")
-    if dry_run:
-        return _step("claude_project", "planned", "Would repair .mcp.json, CLAUDE.md, session hook, and init-state record.")
-    _record_claude_direct(vault_root, server_config)
-    return _step("claude_project", "changed", "Repaired Claude project MCP config, bootstrap, hook, and init-state record.")
-
-
-def _repair_codex(vault_root: Path, server_config: dict, codex_state: dict, dry_run: bool) -> dict:
-    if not codex_state["present"]:
-        return _step("codex_project", "noop", "Codex project MCP is not installed for this vault.")
-    if codex_state["healthy"]:
-        return _step("codex_project", "noop", "Codex project MCP state is already healthy.")
-    if dry_run:
-        return _step("codex_project", "planned", "Would repair .codex/config.toml and the init-state record.")
-    record = mcp_transport.register_codex(server_config, "project", vault_root)
-    mcp_transport.record_init_target(vault_root, record)
-    return _step("codex_project", "changed", "Repaired Codex project MCP config and init-state record.")
-
-
 def repair_mcp(vault_root: Path, dry_run: bool, bootstrap_steps: list[dict] | None = None) -> dict:
+    """Reconcile vault-self canonical projections without cross-root/machine mutation."""
+    from contextlib import nullcontext
+    from _bootstrap import mcp_registration as registration
+    from _bootstrap.file_transaction import FilePlan, apply_file_changes
+
     steps = list(bootstrap_steps or [])
-    # `repair.py main()` already repaired/bootstraped the managed runtime before
-    # re-exec. Keep this guard for direct library/test callers that bypass the
-    # bootstrap layer entirely.
-    runtime_state = bootstrap_diagnostics.inspect_runtime(vault_root)
-    if not runtime_state["healthy"]:
-        steps.append(_step("runtime", "error", runtime_state["message"]))
+    runtime = bootstrap_diagnostics.inspect_runtime(vault_root)
+    if not runtime["healthy"]:
+        steps.append(_step("runtime", "error", runtime["message"]))
         return _finalise_result("mcp", vault_root, dry_run, steps)
-
-    state = bootstrap_diagnostics.inspect_mcp(vault_root)
-    server_config = state["server_config"]
-
     try:
-        steps.append(_repair_claude(vault_root, server_config, state["claude"], dry_run))
-    except (OSError, ValueError) as exc:
-        steps.append(_step("claude_project", "error", str(exc)))
-    try:
-        steps.append(_repair_codex(vault_root, server_config, state["codex"], dry_run))
-    except (OSError, ValueError) as exc:
-        steps.append(_step("codex_project", "error", str(exc)))
-
-    try:
-        grok = state["grok"]
-        if not grok["present"] or grok["healthy"]:
-            steps.append(
-                _step("grok_project", "noop", "Grok project MCP needs no repair.")
-            )
-        elif dry_run:
-            steps.append(
-                _step(
-                    "grok_project",
-                    "planned",
-                    "Would repair native Grok MCP, startup rule and init-state record.",
-                )
-            )
-        else:
-            record = mcp_transport.register_grok(server_config, "project", vault_root)
-            mcp_transport.record_init_target(vault_root, record)
-            steps.append(
-                _step(
-                    "grok_project",
-                    "changed",
-                    "Repaired native Grok MCP, startup rule and init-state record.",
-                )
-            )
+        with nullcontext() if dry_run else vault_mutation_lock(vault_root):
+            plan = FilePlan()
+            _, records = registration.read_records(plan, vault_root, Path.home(), registration.McpScope.PROJECT)
+            clients = tuple(registration.McpClient(record["client"]) for record in records
+                            if record["scope"] == "project" and record["target_path"] == str(vault_root))
+            server = mcp_transport.build_mcp_config(runtime["python"], vault_root, workspace_dir=vault_root)
+            registration._configure_plan(vault_root, Path.home(), vault_root, registration.McpScope.PROJECT,
+                                         registration._clients(registration.McpClient.ALL, registration.McpScope.PROJECT),
+                                         server, plan=plan, repair=True)
+            changes = plan.changes()
+            if not dry_run:
+                plan.validate()
+                apply_file_changes(changes, before_write=plan.validate_dependencies)
+            steps.append(_step("mcp_registration", "planned" if changes and dry_run else "changed" if changes else "noop",
+                               "Reconciled recorded vault-self MCP projections.",
+                               committed_effects=[] if dry_run else [str(change.path) for change in changes]))
     except (OSError, ValueError, RuntimeError) as exc:
-        steps.append(_step("grok_project", "error", str(exc)))
-
-    notes = mcp_transport.claude_project_followup_notes(vault_root) if state["claude"]["present"] else []
-    if state["grok"]["present"]:
-        notes.extend(mcp_transport.mcp_followup_notes(["grok"], "project", vault_root))
-    return _finalise_result("mcp", vault_root, dry_run, steps, notes=notes)
+        steps.append(_step("mcp_registration", "error", str(exc),
+                           committed_effects=[str(path) for path in getattr(exc, "surviving_paths", ())]))
+    return _finalise_result("mcp", vault_root, dry_run, steps)
 
 
 def verify_runtime_post_bootstrap(vault_root: Path, dry_run: bool, bootstrap_steps: list[dict] | None = None) -> dict:

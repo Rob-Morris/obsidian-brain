@@ -25,7 +25,7 @@ def test_current_repository_version_has_an_exact_compatibility_owner():
     version = (REPO_ROOT / "src" / "brain-core" / "VERSION").read_text().strip()
     adapter = CompatibilityManifest(TOOL_ROOT / "compatibility.json").select(version)
 
-    assert adapter.adapter_id == "brain-0.64"
+    assert adapter.adapter_id == "brain-0.70"
     assert any(gate.gate_id == "session" for gate in adapter.health)
     session = next(gate for gate in adapter.health if gate.gate_id == "session")
     assert session.command[:3] == ("brain", "session", "start")

@@ -53,56 +53,19 @@ FAKE_SERVER_CONFIG = {
 
 
 def _make_apply_result(vault_root, *, vault_self, scope="project", client_arg="all"):
-    """Call apply_mcp_transport_action with mocked runtime/config helpers.
+    """Exercise native writes; isolate only runtime provisioning."""
+    import json
+    from _bootstrap.mcp_state import read_toml_server_config
 
-    build_mcp_config is NOT mocked — it's pure (no filesystem, no network) so we
-    let it run to produce a real server config.  This lets us assert that
-    BRAIN_WORKSPACE_DIR is set to the actual vault path in the config.
-
-    Mocks the direct-write path and the claude-CLI path so tests don't
-    depend on whether the claude CLI is installed on the current machine.
-    """
-    with (
-        patch(
-            "_bootstrap.mcp_transport._resolve_managed_python",
-            return_value=FAKE_PYTHON,
-        ),
-        patch(
-            "_bootstrap.mcp_transport._warn_if_user_scope_exists",
-        ),
-        patch(
-            "_bootstrap.mcp_transport.record_init_target",
-        ),
-        patch(
-            "_bootstrap.mcp_transport.write_project_mcp_json",
-        ) as mock_write_project,
-        patch(
-            "_bootstrap.mcp_transport.write_toml_config",
-        ) as mock_write_codex,
-        patch(
-            "_bootstrap.mcp_transport.ensure_claude_md",
-            return_value=vault_root / "CLAUDE.md",
-        ),
-        patch(
-            "_bootstrap.mcp_transport.ensure_session_start_hook",
-            return_value=vault_root / ".claude" / "settings.local.json",
-        ),
-        patch(
-            "_bootstrap.mcp_transport.ensure_brain_ignore_rules",
-            return_value=None,
-        ),
-        # Disable the claude CLI path so the direct-write path is always taken.
-        patch("_bootstrap.mcp_transport._has_claude_cli", return_value=False),
-    ):
+    with patch("_bootstrap.mcp_transport._resolve_managed_python", return_value=FAKE_PYTHON):
         result = apply_mcp_transport_action(
-            vault_root,
-            client_arg=client_arg,
-            scope=scope,
-            target_dir=vault_root,
-            remove=False,
-            vault_self=vault_self,
+            vault_root, client_arg=client_arg, scope=scope, target_dir=vault_root,
+            remove=False, vault_self=vault_self,
         )
-        return result, mock_write_project, mock_write_codex
+    claude_path = vault_root / ".mcp.json"
+    claude = json.loads(claude_path.read_text())["mcpServers"]["brain"] if claude_path.exists() else None
+    codex = read_toml_server_config(vault_root / ".codex/config.toml")
+    return result, claude, codex
 
 
 # ---------------------------------------------------------------------------
@@ -176,9 +139,9 @@ class TestVaultSelfTransportMode:
             "workspace.yaml should not be written in vault-self mode"
         )
         # MCP config must have been written.
-        mock_write_project.assert_called_once()
+        assert mock_write_project is not None
         # The server config written must include BRAIN_WORKSPACE_DIR=<vault>.
-        written_config = mock_write_project.call_args.args[0]
+        written_config = mock_write_project
         assert written_config["env"]["BRAIN_WORKSPACE_DIR"] == str(vault), (
             f"Expected BRAIN_WORKSPACE_DIR={vault} but got {written_config['env'].get('BRAIN_WORKSPACE_DIR')!r}"
         )
@@ -192,9 +155,9 @@ class TestVaultSelfTransportMode:
         assert not (vault / ".brain" / "local" / "workspace.yaml").exists(), (
             "workspace.yaml should not be written in vault-self mode"
         )
-        mock_write_codex.assert_called_once()
+        assert mock_write_codex is not None
         # The server config written must include BRAIN_WORKSPACE_DIR=<vault>.
-        written_config = mock_write_codex.call_args.args[0]
+        written_config = mock_write_codex
         assert written_config["env"]["BRAIN_WORKSPACE_DIR"] == str(vault), (
             f"Expected BRAIN_WORKSPACE_DIR={vault} but got {written_config['env'].get('BRAIN_WORKSPACE_DIR')!r}"
         )
@@ -206,32 +169,17 @@ class TestVaultSelfTransportMode:
         )
 
         assert not (vault / ".brain" / "local" / "workspace.yaml").exists()
-        mock_write_project.assert_called_once()
-        mock_write_codex.assert_called_once()
+        assert mock_write_project is not None
+        assert mock_write_codex is not None
         # Both configs must carry BRAIN_WORKSPACE_DIR=<vault>.
-        claude_config = mock_write_project.call_args.args[0]
+        claude_config = mock_write_project
         assert claude_config["env"]["BRAIN_WORKSPACE_DIR"] == str(vault)
-        codex_config = mock_write_codex.call_args.args[0]
+        codex_config = mock_write_codex
         assert codex_config["env"]["BRAIN_WORKSPACE_DIR"] == str(vault)
 
-    def test_vault_self_false_would_raise_on_vault_root(self, vault):
-        """Without vault_self=True, applying to a vault root raises (refuse-guard)."""
-        with pytest.raises(InitTransportError):
-            with (
-                patch(
-                    "_bootstrap.mcp_transport._resolve_managed_python",
-                    return_value=FAKE_PYTHON,
-                ),
-                patch(
-                    "_bootstrap.mcp_transport._warn_if_user_scope_exists",
-                ),
-                patch("_bootstrap.mcp_transport._has_claude_cli", return_value=False),
-            ):
-                apply_mcp_transport_action(
-                    vault,
-                    client_arg="all",
-                    scope="project",
-                    target_dir=vault,
-                    remove=False,
-                    vault_self=False,  # explicit False — must raise
-                )
+    def test_explicit_vault_target_never_creates_self_binding(self, vault):
+        result, claude, codex = _make_apply_result(vault, vault_self=False)
+        assert result["status"] == "changed"
+        assert claude["env"]["BRAIN_WORKSPACE_DIR"] == str(vault)
+        assert codex["env"]["BRAIN_WORKSPACE_DIR"] == str(vault)
+        assert not (vault / ".brain/local/workspace.yaml").exists()

@@ -393,6 +393,12 @@ def test_mcp_followup_notes_are_shared_for_user_scope():
 
 
 def test_apply_mcp_transport_action_quotes_remove_command_on_win32(tmp_path, monkeypatch):
+    from contextlib import nullcontext
+    from _bootstrap import mcp_registration
+
+    monkeypatch.setattr(mcp_registration, "registration_lock", lambda *_args: nullcontext())
+    monkeypatch.setattr(mcp_registration, "_validate_target", lambda *_args: None)
+    monkeypatch.setattr(mcp_registration, "plan_reverse_registration", lambda *_args: None)
     bootstrap_vault = tmp_path / "Brain Vault"
     project = tmp_path / "My Project"
     bootstrap_vault.mkdir()

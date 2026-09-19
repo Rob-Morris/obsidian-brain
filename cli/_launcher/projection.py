@@ -25,6 +25,8 @@ def request_schema(request_type: type) -> dict[str, object]:
             continue
         schema = _type_schema(hints.get(field.name, field.type), trail=(request_type,))
         schema["description"] = _description(field.name)
+        if "example" in field.metadata:
+            schema["examples"] = [_wire_value(field.metadata["example"])]
         if field.default is not MISSING:
             schema["default"] = _wire_value(field.default)
         properties[field.name] = schema
@@ -54,6 +56,8 @@ def minimal_request_payload(request_type: type) -> dict[str, object]:
         name: _example_value(schema["properties"][name], field_name=name)
         for name in schema.get("required", ())
     }
+    payload.update({name: value["examples"][0] for name, value in schema["properties"].items()
+                    if "examples" in value})
     resolve_request(request_type, payload)
     return payload
 

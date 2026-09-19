@@ -2502,7 +2502,7 @@ class TestMainEnvCaptureOrder:
             captured["env_at_call"] = os.environ.get("BRAIN_VAULT_ROOT")
             raise _Stop()
 
-        monkeypatch.setattr(proxy_mod, "resolve_and_heal", fake_resolve_and_heal)
+        monkeypatch.setattr(proxy_mod, "resolve_brain_target", fake_resolve_and_heal)
 
         with pytest.raises(_Stop):
             proxy_mod.main()

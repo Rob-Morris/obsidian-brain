@@ -6,6 +6,7 @@ from pathlib import Path
 import subprocess
 import sys
 import textwrap
+import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src", "brain-core", "scripts"))
 from _bootstrap.mcp_state import build_mcp_config, build_session_hook_command
@@ -22,6 +23,15 @@ from brain_test_support import (
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 REAL_PYTHON = sys.executable
+
+
+@pytest.fixture(autouse=True)
+def isolate_installer_machine_state(tmp_path, monkeypatch):
+    home = tmp_path / "installer-home"
+    home.mkdir()
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "machine-state"))
+    monkeypatch.setenv("PATH", str(Path(sys.executable).parent) + os.pathsep + os.environ.get("PATH", ""))
 
 
 def test_install_ignores_machine_local_template_state(tmp_path):
@@ -68,7 +78,7 @@ def test_install_ignores_machine_local_template_state(tmp_path):
     env["HOME"] = str(fake_home)
 
     result = subprocess.run(
-        ["bash", "install.sh", "--non-interactive", str(target)],
+        ["bash", "install.sh", "--non-interactive", "--client", "all", str(target)],
         cwd=source,
         env=env,
         capture_output=True,
@@ -77,7 +87,7 @@ def test_install_ignores_machine_local_template_state(tmp_path):
     )
 
     assert result.returncode == 0, result.stderr
-    assert (target / ".mcp.json").is_file()
+    assert (target / ".mcp.json").is_file(), result.stdout + result.stderr
     assert (target / ".codex" / "config.toml").is_file()
     assert (target / ".grok/config.toml").is_file()
     assert "stale-template-python" not in (target / ".grok/config.toml").read_text()
@@ -148,7 +158,7 @@ def test_install_sh_errors_on_unexpected_install_core_exit(tmp_path):
     env["PATH"] = f"{fake_bin}{os.pathsep}{launcher_discovery_path()}"
 
     result = subprocess.run(
-        ["bash", "install.sh", "--non-interactive", str(target)],
+        ["bash", "install.sh", "--non-interactive", "--client", "all", str(target)],
         cwd=source,
         env=env,
         capture_output=True,
@@ -177,7 +187,7 @@ def test_install_continues_when_mcp_dependency_install_fails(tmp_path):
     env["HOME"] = str(fake_home)
 
     result = subprocess.run(
-        ["bash", "install.sh", "--non-interactive", str(target)],
+        ["bash", "install.sh", "--non-interactive", "--client", "all", str(target)],
         cwd=source,
         env=env,
         capture_output=True,
@@ -494,7 +504,7 @@ def test_uninstall_preserves_user_claude_md_content_and_cleans_vault_local_claud
                             "hooks": [
                                 {
                                     "type": "command",
-                                    "command": build_session_hook_command(target, target),
+                                    "command": build_session_hook_command(target, target, python_path="python"),
                                 }
                             ]
                         }
@@ -513,9 +523,10 @@ def test_uninstall_preserves_user_claude_md_content_and_cleans_vault_local_claud
     init_state.write_text(
         json.dumps(
             {
-                "version": 1,
+                "version": 2,
                 "records": [
                     {
+                        "schema": "brain.mcp-registration/2",
                         "client": "claude",
                         "scope": "local",
                         "target_path": str(target),
@@ -525,7 +536,7 @@ def test_uninstall_preserves_user_claude_md_content_and_cleans_vault_local_claud
                         "bootstrap_path": str(local_bootstrap),
                         "bootstrap_line": CLAUDE_MD_BOOTSTRAP_VAULT,
                         "hook_path": str(settings_path),
-                        "hook_command": build_session_hook_command(target, target),
+                        "hook_command": build_session_hook_command(target, target, python_path="python"),
                         "method": "test",
                     }
                 ],
@@ -545,126 +556,56 @@ def test_uninstall_preserves_user_claude_md_content_and_cleans_vault_local_claud
         timeout=60,
     )
 
-    assert uninstall_result.returncode == 0, uninstall_result.stderr
+    assert uninstall_result.returncode == 0, uninstall_result.stdout + uninstall_result.stderr
     assert target.joinpath("CLAUDE.md").read_text(encoding="utf-8") == "# My Vault\n"
     assert not target.joinpath(".claude", "CLAUDE.local.md").exists()
     assert not target.joinpath(".claude", "settings.local.json").exists()
-    assert not target.joinpath(".claude").exists()
+    assert not list(target.joinpath(".claude").iterdir())
 
 
-def test_uninstall_uses_configure_for_recorded_cleanup_calls(tmp_path):
+def test_uninstall_delegates_to_canonical_owner_and_stops_on_failure(tmp_path):
     source = tmp_path / "source"
     source.mkdir()
     _copy_source_checkout(source)
-
     target = tmp_path / "vault"
-    scripts = target / ".brain-core" / "scripts"
-    scripts.mkdir(parents=True)
-    (target / ".brain-core" / "VERSION").write_text("1.0.0\n", encoding="utf-8")
-    (scripts / "configure.py").write_text(
-        textwrap.dedent(
-            """
-            import json
-            import sys
-            from pathlib import Path
-
-            args = sys.argv[1:]
-            vault = Path(args[args.index("--vault") + 1])
-            with (vault / "configure-invocations.jsonl").open("a", encoding="utf-8") as fh:
-                fh.write(json.dumps(args) + "\\n")
-            """
-        ).lstrip(),
-        encoding="utf-8",
+    (target / ".brain-core").mkdir(parents=True)
+    (target / ".brain-core/VERSION").write_text("0.70.0\n")
+    log = tmp_path / "uninstall-request.json"
+    _write_executable(
+        source / "cli/brain",
+        f"#!{sys.executable}\n"
+        "import json, sys\n"
+        "from pathlib import Path\n"
+        "if sys.argv[1:] == ['--version']:\n"
+        "    print('brain 4.0.0')\n"
+        "else:\n"
+        f"    Path({str(log)!r}).write_text(json.dumps(sys.argv[1:]))\n"
+        "    raise SystemExit(2)\n",
     )
-    fake_bin = tmp_path / "fake-bin"
-    fake_bin.mkdir()
-    write_fake_launcher(fake_bin / "python3.12")
-
-    env = os.environ.copy()
-    env["PATH"] = f"{fake_bin}{os.pathsep}{launcher_discovery_path()}"
-
     result = subprocess.run(
-        ["bash", "install.sh", "--uninstall", "--non-interactive", str(target)],
-        cwd=source,
-        env=env,
-        capture_output=True,
-        text=True,
-        timeout=60,
+        ["bash", str(source / "install.sh"), "--uninstall", "--non-interactive", str(target)],
+        capture_output=True, text=True, timeout=60,
     )
-
-    assert result.returncode == 0, result.stderr
-    invocations = [
-        json.loads(line)
-        for line in (target / "configure-invocations.jsonl").read_text(encoding="utf-8").splitlines()
-    ]
-    assert invocations == [
-        [
-            "mcp",
-            "--vault",
-            str(target),
-            "--workspace",
-            str(target),
-            "--client",
-            "all",
-            "--remove",
-            "--force",
-        ],
-        [
-            "mcp",
-            "--vault",
-            str(target),
-            "--workspace",
-            str(target),
-            "--client",
-            "claude",
-            "--local",
-            "--remove",
-            "--force",
-        ],
-        [
-            "workspace",
-            "bootstrap",
-            "--vault",
-            str(target),
-            "--workspace",
-            str(target),
-            "--surface",
-            "claude",
-            "--remove",
-        ],
-    ]
-    assert f'python3 "{target}/.brain-core/scripts/configure.py" mcp --vault "{target}" --user --client all --remove' in result.stderr
-    assert "init.py" not in result.stderr
+    assert result.returncode != 0
+    assert json.loads(log.read_text()) == ["uninstall", "--vault", str(target), "--request-json", "{}", "--json"]
+    assert (target / ".brain-core/VERSION").exists()
+    assert "Uninstall stopped" in result.stderr
 
 
-def test_uninstall_configure_cleanup_fallback_warning(tmp_path):
+def test_uninstall_stops_if_launcher_cannot_start(tmp_path):
     source = tmp_path / "source"
     source.mkdir()
     _copy_source_checkout(source)
-
     target = tmp_path / "vault"
-    (target / ".brain-core" / "scripts").mkdir(parents=True)
-    (target / ".brain-core" / "VERSION").write_text("1.0.0\n", encoding="utf-8")
-
-    fake_bin = tmp_path / "fake-bin"
-    fake_bin.mkdir()
-    write_fake_launcher(fake_bin / "python3.12")
-
-    env = os.environ.copy()
-    env["PATH"] = f"{fake_bin}{os.pathsep}{launcher_discovery_path()}"
-
+    (target / ".brain-core").mkdir(parents=True)
+    (target / ".brain-core/VERSION").write_text("0.70.0\n")
+    _write_executable(source / "cli/brain", "#!/bin/sh\nexit 4\n")
     result = subprocess.run(
-        ["bash", "install.sh", "--uninstall", "--non-interactive", str(target)],
-        cwd=source,
-        env=env,
-        capture_output=True,
-        text=True,
-        timeout=60,
+        ["bash", str(source / "install.sh"), "--uninstall", "--non-interactive", str(target)],
+        capture_output=True, text=True, timeout=60,
     )
-
-    assert result.returncode == 0, result.stderr
-    assert "Skipping recorded MCP and bootstrap cleanup (Python 3.12+ or configure.py unavailable)." in result.stderr
-    assert "init.py unavailable" not in result.stderr
+    assert result.returncode != 0
+    assert (target / ".brain-core/VERSION").exists()
 
 
 def test_install_rejects_legacy_force_flag(tmp_path):
@@ -850,7 +791,7 @@ def test_upgrade_wrapper_does_not_rerun_mcp_setup(tmp_path):
     env["PATH"] = f"{fake_bin}{os.pathsep}{launcher_discovery_path()}"
 
     result = subprocess.run(
-        ["bash", "install.sh", "--non-interactive", str(target)],
+        ["bash", "install.sh", "--non-interactive", "--client", "all", str(target)],
         cwd=source,
         env=env,
         capture_output=True,

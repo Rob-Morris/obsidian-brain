@@ -10,6 +10,7 @@ import os
 from pathlib import Path
 import shutil
 import stat
+import subprocess
 import sys
 import uuid
 
@@ -82,7 +83,7 @@ def source_versions(source_root: Path) -> SourceVersions:
     )
 
 
-def install_from_source(source_root: Path, cli_binary: Path) -> InstalledDistribution:
+def install_from_source(source_root: Path, cli_binary: Path, *, bootstrap_python: Path | None = None) -> InstalledDistribution:
     source = source_root.resolve()
     try:
         versions = source_versions(source)
@@ -93,6 +94,7 @@ def install_from_source(source_root: Path, cli_binary: Path) -> InstalledDistrib
         cli_binary,
         cli_version=versions.cli_version,
         expected_brain_core_version=versions.brain_core_version,
+        bootstrap_python=bootstrap_python,
     )
 
 
@@ -102,13 +104,38 @@ def install_distribution(
     *,
     cli_version: str,
     expected_brain_core_version: str,
+    bootstrap_python: Path | None = None,
     failpoint=None,
+) -> InstalledDistribution:
+    """Serialize CLI capability replacement with native registration mutations."""
+    from _bootstrap.mcp_registration import registration_lock
+
+    with registration_lock(Path.home()):
+        return _install_distribution(
+            source_root, cli_binary, cli_version=cli_version,
+            expected_brain_core_version=expected_brain_core_version,
+            bootstrap_python=bootstrap_python, failpoint=failpoint,
+        )
+
+
+def _install_distribution(
+    source_root: Path,
+    cli_binary: Path,
+    *,
+    cli_version: str,
+    expected_brain_core_version: str,
+    bootstrap_python: Path | None,
+    failpoint,
 ) -> InstalledDistribution:
     """Stage, validate and atomically replace one CLI binary/distribution pair."""
 
     source = source_root.resolve()
     binary = Path(os.path.abspath(cli_binary.expanduser()))
     _validate_source(source, cli_version, expected_brain_core_version)
+    from _bootstrap.mcp_registration import require_launcher_capability
+
+    require_launcher_capability(binary, supports_stdio=(source / "cli/_mcp_stdio.py").is_file())
+    base_python = validate_bootstrap_python(bootstrap_python)
     if binary.is_symlink():
         raise DistributionInstallError(
             "CLI binary cannot be a symlink", rollback_verified=True
@@ -130,6 +157,7 @@ def install_distribution(
     new_binary_fingerprint = None
     try:
         _copy_distribution(source, stage)
+        (stage / ".bootstrap-python").write_text(str(base_python) + "\n", encoding="utf-8")
         manifest = _write_manifest(
             stage,
             cli_version=cli_version,
@@ -227,6 +255,21 @@ def install_distribution(
         manifest["fingerprint"],
         tuple(cleanup_recovery_paths),
     )
+
+
+def validate_bootstrap_python(python: Path | None = None) -> Path:
+    """Admit an absolute base interpreter independently of rotating Brain environments."""
+    candidate = python or Path(getattr(sys, "_base_executable", sys.executable))
+    if not candidate.is_absolute():
+        raise ValueError("Bootstrap Python must be an absolute path")
+    candidate = candidate.resolve(strict=True)
+    result = subprocess.run(
+        [str(candidate), "-I", "-c", "import sys; print(sys.prefix == sys.base_prefix); raise SystemExit(sys.version_info < (3, 12))"],
+        capture_output=True, text=True, timeout=10, check=False,
+    )
+    if result.returncode or result.stdout.strip() != "True" or "venvs" in candidate.parts and ".brain" in candidate.parts:
+        raise ValueError("Bootstrap Python must be Python 3.12+ outside managed dependency environments")
+    return candidate
 
 
 def verify_distribution(root: Path) -> dict[str, object]:
@@ -555,12 +598,14 @@ def _fire(failpoint, name: str) -> None:
 
 
 def main(argv: list[str] | None = None) -> int:
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src/brain-core/scripts"))
     parser = argparse.ArgumentParser()
     parser.add_argument("source_root", type=Path)
     parser.add_argument("cli_binary", type=Path)
+    parser.add_argument("--bootstrap-python", type=Path, help="Absolute Python 3.12+ base interpreter for non-interactive MCP startup")
     args = parser.parse_args(argv)
     try:
-        result = install_from_source(args.source_root, args.cli_binary)
+        result = install_from_source(args.source_root, args.cli_binary, bootstrap_python=args.bootstrap_python)
     except (DistributionInstallError, OSError, ValueError) as exc:
         print(str(exc), file=sys.stderr)
         return 1

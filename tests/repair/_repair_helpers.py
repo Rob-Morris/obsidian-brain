@@ -35,17 +35,13 @@ def _wiki_router():
 
 
 def _register_project_client(vault: Path, client: str) -> dict:
+    from _bootstrap import mcp_registration as registration
+    from _bootstrap.file_transaction import apply_file_changes
+
     server_config = bootstrap_diagnostics._expected_project_server_config(vault)
-    if client == "claude":
-        has_claude_cli = repair_runtime.mcp_transport._has_claude_cli
-        repair_runtime.mcp_transport._has_claude_cli = lambda: False
-        try:
-            record = repair_runtime.mcp_transport.register_claude(vault, server_config, "project", vault)
-        finally:
-            repair_runtime.mcp_transport._has_claude_cli = has_claude_cli
-    else:
-        record = repair_runtime.mcp_transport.register_codex(server_config, "project", vault)
-    repair_runtime.mcp_transport.record_init_target(vault, record)
+    plan = registration._configure_plan(vault, Path.home(), vault, registration.McpScope.PROJECT,
+                                         (registration.McpClient(client),), server_config)
+    apply_file_changes(plan.changes())
     return server_config
 
 
@@ -123,7 +119,7 @@ def _mock_healthy_runtime(monkeypatch):
         "inspect_runtime",
         lambda _vault: {
             "healthy": True,
-            "python": sys.executable,
+            "python": bootstrap_diagnostics._expected_project_server_config(_vault)["command"],
             "issues": [],
             "missing_modules": [],
             "message": "Central managed runtime is ready for packageful Brain work.",

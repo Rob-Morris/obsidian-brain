@@ -165,7 +165,7 @@ def test_lifecycle_request_grammar_is_closed(tmp_path):
 
 
 def test_install_requires_trusted_complete_distribution(tmp_path):
-    request = BrainInstallRequest((tmp_path / "new").resolve(), "new-brain")
+    request = BrainInstallRequest((tmp_path / "new").resolve(), "new-brain", client=InstallClient.ALL)
 
     result = _invocation(tmp_path, distribution=None).invoke(request)
 
@@ -204,7 +204,7 @@ def test_install_maps_changed_steps_and_preserves_preinstall_mode(tmp_path, monk
     receipts = _Receipts()
 
     result = _invocation(tmp_path, receipts=receipts).invoke(
-        BrainInstallRequest(target, "existing")
+        BrainInstallRequest(target, "existing", client=InstallClient.ALL)
     )
 
     assert result.result.status is LifecycleStatus.CHANGED
@@ -223,7 +223,7 @@ def test_install_retains_known_partial_steps(tmp_path, monkeypatch):
         lambda *_args, **_kwargs: _raw_install(target, error=True),
     )
 
-    result = _invocation(tmp_path).invoke(BrainInstallRequest(target, "partial"))
+    result = _invocation(tmp_path).invoke(BrainInstallRequest(target, "partial", client=InstallClient.ALL))
 
     assert result.status == "partial"
     assert len(result.committed_effects) == 2
@@ -258,9 +258,10 @@ def test_uninstall_removes_only_system_paths_and_preserves_notes(tmp_path, monke
     (vault / ".brain" / "local" / "init-state.json").write_text(
         json.dumps(
             {
-                "version": 1,
+                "version": 2,
                 "records": [
                     {
+                        "schema": "brain.mcp-registration/2",
                         "client": "claude",
                         "scope": "project",
                         "target_path": str(vault),
@@ -308,6 +309,21 @@ def test_uninstall_recursive_failure_is_outcome_unknown(tmp_path, monkeypatch):
     assert result.error.code is ErrorCode.COMMAND_OUTCOME_UNKNOWN
     assert result.effects == "unknown"
     assert result.retryable is False
+    assert result.error.details.recovery_paths
+    assert "partially deleted" in result.error.message
+
+
+def test_uninstall_refuses_unowned_native_transport_before_any_deletion(tmp_path, monkeypatch):
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
+    vault = _vault(tmp_path)
+    config = vault / ".mcp.json"
+    config.write_text(json.dumps({"mcpServers": {"brain": {"command": "/legacy/python"}}}))
+    before = config.read_bytes()
+    result = _invocation(tmp_path, vault=vault).invoke(BrainUninstallRequest())
+    assert result.error.code is ErrorCode.CONFLICT
+    assert result.effects == "none"
+    assert config.read_bytes() == before
+    assert (vault / ".brain-core").is_dir()
 
 
 def test_upgrade_projects_dry_run_and_closed_policies(tmp_path, monkeypatch):

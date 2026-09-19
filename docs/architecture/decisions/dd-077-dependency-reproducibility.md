@@ -2,6 +2,7 @@
 
 **Status:** Implemented (v0.68.7); native release certification is a separate gate
 **Extends:** DD-048, DD-070
+**Extended by:** DD-078
 
 ## Context
 

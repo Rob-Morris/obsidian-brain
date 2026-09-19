@@ -397,8 +397,8 @@ The launcher-owned MCP configuration flow supplies that higher-level fixed-file
 coordination for its own bounded machine-local targets. It rejects symlinks in
 each destination chain, strictly decodes every affected file before writing,
 records its original bytes, checks again for concurrent change, then applies
-sibling-temp atomic replacements. An application failure or process-level
-interruption restores every written file and removes transaction-created empty
+sibling-temp atomic replacements. A caught failure or interruption attempts to
+restore written files and removes transaction-created empty
 directories before the interruption is re-raised. If restoration cannot
 be proven complete, the command returns a known-partial receipt naming each
 surviving path. This transaction does not expand ordinary vault content write
@@ -407,6 +407,22 @@ user-home MCP configuration paths owned by `mcp.configure`/`mcp.repair`.
 Existing fixed-file replacements retain the destination permission mode, so
 self-replacing `brain.upgrade` does not turn the global CLI into a non-executable
 data file.
+
+Canonical registration operations serialize host changes and revalidate target
+directory identity, binding/registry evidence and exact native configuration at
+admission and write boundaries. Higher repair breadth selects registered
+targets; it does not grant arbitrary filesystem access from stored paths.
+User claims live in the machine ledger independently of a selected Brain.
+Modified/unowned entries and incomplete coverage block repair.
+
+Migration persists exact before/after evidence before changing projections.
+This enables conflict-checked resumption, not cross-repository crash-atomicity.
+Treat journals with the same care as native client configuration: they may
+contain credentials. Retired runtime references remain protected until a normal
+MCP read verifies the persisted command. Pruning also requires complete coverage
+and a live-process scan. Stdio startup cannot provision or heal registrations;
+it isolates ambient Python/development overrides while retaining supported
+authenticated owner context.
 
 Application-owned `workspace.setup` declares a selected-Brain plus caller-local
 effect. Its single operation binding observes the canonical hub, path registry

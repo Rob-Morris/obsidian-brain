@@ -273,11 +273,13 @@ def _configure_mcp(vault_root: Path, *, scope: str, client: str) -> tuple[dict, 
                 "mcp_transport",
                 result.get("status", "changed"),
                 f"Configured Brain MCP transport for {client} ({scope}).",
+                committed_effects=result.get("committed_effects", []),
             ),
             notes,
         )
     except mcp_transport.InitTransportError as exc:
-        return _step("mcp_transport", "error", f"Could not configure MCP transport: {exc}"), []
+        return _step("mcp_transport", "error", f"Could not configure MCP transport: {exc}",
+                     committed_effects=getattr(exc, "committed_effects", [])), []
 
 
 def install_vault_action(
@@ -286,7 +288,7 @@ def install_vault_action(
     source_root: str | Path | None = None,
     launcher: str | Path | None = None,
     mcp_scope: str = "project",
-    client: str = "all",
+    client: str | None = None,
     brain_id: str | None = None,
 ) -> dict:
     """Install Brain into a vault path using Python-owned install policy."""
@@ -313,6 +315,8 @@ def install_vault_action(
     if mcp_scope not in SUPPORTED_MCP_SCOPES:
         steps.append(_step("install_args", "error", f"invalid mcp_scope '{mcp_scope}'"))
         return result()
+    if client is None and mcp_scope == "skip":
+        client = "all"
     if client not in {"claude", "codex", "grok", "all"}:
         steps.append(_step("install_args", "error", f"invalid client '{client}'"))
         return result()
@@ -383,7 +387,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--launcher", help="Python launcher used to create the managed runtime.")
     parser.add_argument("--mcp-scope", choices=SUPPORTED_MCP_SCOPES, default="project")
     parser.add_argument(
-        "--client", choices=("claude", "codex", "grok", "all"), default="all"
+        "--client", choices=("claude", "codex", "grok", "all"), help="Explicit client or all supported clients; required unless MCP is skipped"
     )
     parser.add_argument("--id", dest="brain_id", help="Explicit local Brain ID for the machine registry.")
     parser.add_argument("--json", action="store_true", help="Emit machine-readable JSON.")

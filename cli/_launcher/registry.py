@@ -377,13 +377,14 @@ def execute_register(context: LauncherContext, request: BrainRegisterRequest):
     )
 
 
-def execute_unregister(context: LauncherContext, request: BrainUnregisterRequest):
+def execute_unregister(context: LauncherContext, request: BrainUnregisterRequest, *, registration_plan=None):
     import vault_registry
 
     try:
         result = vault_registry.unregister_action(
             request.vault_root,
             dry_run=context.dry_run,
+            **({"registration_plan": registration_plan} if registration_plan is not None else {}),
         )
     except vault_registry.RegistryPartialApplyError as exc:
         return _partial_registry(request, exc)

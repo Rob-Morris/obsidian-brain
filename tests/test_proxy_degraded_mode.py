@@ -124,7 +124,7 @@ def test_main_enters_degraded_mode_on_resolution_oserror(monkeypatch):
     calls = []
 
     monkeypatch.setattr(proxy.sys, "argv", ["proxy.py", "unused-python", "brain_mcp.server"])
-    monkeypatch.setattr(proxy, "resolve_and_heal", lambda **_kwargs: (_ for _ in ()).throw(PermissionError("no search")))
+    monkeypatch.setattr(proxy, "resolve_brain_target", lambda **_kwargs: (_ for _ in ()).throw(PermissionError("no search")))
     monkeypatch.setattr(proxy, "_run_degraded_server", lambda reason, **kwargs: calls.append((reason, kwargs)))
 
     proxy.main()
@@ -143,7 +143,7 @@ def test_main_uses_filesystem_guidance_for_wrapped_binding_filesystem_error(monk
     )
 
     monkeypatch.setattr(proxy.sys, "argv", ["proxy.py", "unused-python", "brain_mcp.server"])
-    monkeypatch.setattr(proxy, "resolve_and_heal", lambda **_kwargs: (_ for _ in ()).throw(error))
+    monkeypatch.setattr(proxy, "resolve_brain_target", lambda **_kwargs: (_ for _ in ()).throw(error))
     monkeypatch.setattr(proxy, "_run_degraded_server", lambda reason, **kwargs: calls.append((reason, kwargs)))
 
     proxy.main()
@@ -162,7 +162,7 @@ def test_main_enters_degraded_mode_on_unwritable_local_state(monkeypatch, tmp_pa
     monkeypatch.setattr(proxy.sys, "argv", ["proxy.py", "unused-python", "brain_mcp.server"])
     monkeypatch.setenv("BRAIN_VAULT_ROOT", "sentinel-vault")
     monkeypatch.setenv("PYTHONPATH", "sentinel-pythonpath")
-    monkeypatch.setattr(proxy, "resolve_and_heal", lambda **_kwargs: target)
+    monkeypatch.setattr(proxy, "resolve_brain_target", lambda **_kwargs: target)
     monkeypatch.setattr(proxy, "_probe_local_state", lambda _vault_root: (_ for _ in ()).throw(PermissionError("read-only")))
     monkeypatch.setattr(proxy, "_run_degraded_server", lambda reason, **kwargs: calls.append((reason, kwargs)))
 
@@ -227,7 +227,7 @@ def test_main_enters_degraded_mode_on_noncanonical_python(monkeypatch, tmp_path)
     target = SimpleNamespace(vault_root=str(tmp_path), workspace_dir=None, source="vault_self")
 
     monkeypatch.setattr(proxy.sys, "argv", ["proxy.py", "/usr/bin/python3.12", "brain_mcp.server"])
-    monkeypatch.setattr(proxy, "resolve_and_heal", lambda **_kwargs: target)
+    monkeypatch.setattr(proxy, "resolve_brain_target", lambda **_kwargs: target)
     monkeypatch.setattr(proxy, "_run_degraded_server", lambda reason, **kwargs: calls.append((reason, kwargs)))
 
     monkeypatch.setattr(proxy, "find_existing_central_venv", lambda _vault: tmp_path / "managed/bin/python")
@@ -247,7 +247,7 @@ def test_main_allows_canonical_python_launch(monkeypatch, tmp_path):
     managed_python = str(tmp_path / ".brain" / "venvs" / "py3.12" / "bin" / "python")
 
     monkeypatch.setattr(proxy.sys, "argv", ["proxy.py", managed_python, "brain_mcp.server"])
-    monkeypatch.setattr(proxy, "resolve_and_heal", lambda **_kwargs: target)
+    monkeypatch.setattr(proxy, "resolve_brain_target", lambda **_kwargs: target)
     monkeypatch.setattr(proxy, "find_existing_central_venv", lambda _vault: Path(managed_python))
     monkeypatch.setattr(proxy, "_run_degraded_server", lambda reason, **kwargs: calls.append(("degraded", reason, kwargs)))
     monkeypatch.setattr(proxy, "_serve_proxy", lambda python, server, vault: calls.append(("serve", python, server, vault)))
@@ -262,7 +262,7 @@ def test_main_degrades_when_runtime_resolution_subprocess_fails(monkeypatch, tmp
     target = SimpleNamespace(vault_root=str(tmp_path), workspace_dir=None, source="vault_self")
 
     monkeypatch.setattr(proxy.sys, "argv", ["proxy.py", "/usr/bin/python3.12", "brain_mcp.server"])
-    monkeypatch.setattr(proxy, "resolve_and_heal", lambda **_kwargs: target)
+    monkeypatch.setattr(proxy, "resolve_brain_target", lambda **_kwargs: target)
     monkeypatch.setattr(
         proxy,
         "find_existing_central_venv",

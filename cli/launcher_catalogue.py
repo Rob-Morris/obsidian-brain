@@ -233,7 +233,7 @@ LAUNCHER_CATALOGUE = LauncherCatalogue(
                     "_launcher.lifecycle:install",
                     "brain",
                     "install",
-                    version=2,
+                    version=3,
                 ),
                 _read("brain.list", "_launcher.registry:list", "brain", "list"),
                 _mutation(
@@ -284,7 +284,7 @@ LAUNCHER_CATALOGUE = LauncherCatalogue(
                     "brain",
                     "mcp",
                     "configure",
-                    version=2,
+                    version=3,
                 ),
                 _mutation(
                     "mcp.repair",
@@ -292,8 +292,9 @@ LAUNCHER_CATALOGUE = LauncherCatalogue(
                     "brain",
                     "mcp",
                     "repair",
-                    version=2,
+                    version=3,
                 ),
+                _mutation("mcp.migrate", "_launcher.mcp:migrate", "brain", "mcp", "migrate"),
                 LauncherEntry(
                     "operator.generate-key",
                     1,

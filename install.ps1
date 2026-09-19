@@ -16,7 +16,7 @@ param(
     [string]$McpScope,
 
     [ValidateSet("claude", "codex", "grok", "all")]
-    [string]$Client = "all",
+    [string]$Client,
 
     [string]$Id,
     [string]$Launcher,
@@ -104,7 +104,35 @@ if ($SkipMcp) {
     }
 }
 
+if (-not $Client) {
+    if ($McpScope -eq "skip") { $Client = "all" }
+    elseif ($NonInteractive) { throw "MCP setup requires -Client claude|codex|grok|all (or -SkipMcp)." }
+    else { $Client = Read-Host "MCP client: claude, codex, grok, or all (All supported clients)" }
+}
+
+if (-not $SkipCli) {
+    $localRoot = if ($env:LOCALAPPDATA) {
+        Join-Path $env:LOCALAPPDATA "Programs\Brain"
+    } else {
+        Join-Path $HOME ".local"
+    }
+    $cliTarget = Join-Path $localRoot "bin\brain.cmd"
+    $distributionInstaller = Join-Path $repoRoot "cli\_distribution.py"
+    & $python $distributionInstaller $repoRoot $cliTarget
+    if ($LASTEXITCODE -ne 0) {
+        Write-Warning "The Brain CLI distribution failed to install; vault installation has not started."
+        exit 1
+    }
+    Write-Host "Installed Brain CLI distribution: $cliTarget"
+    $env:PATH = (Split-Path -Parent $cliTarget) + ";" + $env:PATH
+    $cliDirectory = Split-Path -Parent $cliTarget
+    if (($env:PATH -split ';') -notcontains $cliDirectory) {
+        Write-Warning "$cliDirectory is not on PATH. Add it to your user PATH to run 'brain'."
+    }
+}
+
 $installScript = Join-Path $repoRoot "src\brain-core\scripts\install.py"
+
 $argsList = @(
     $installScript,
     $VaultPath,
@@ -130,23 +158,4 @@ if ($exitCode -ne 0) {
     exit $exitCode
 }
 
-if (-not $SkipCli) {
-    $localRoot = if ($env:LOCALAPPDATA) {
-        Join-Path $env:LOCALAPPDATA "Programs\Brain"
-    } else {
-        Join-Path $HOME ".local"
-    }
-    $cliTarget = Join-Path $localRoot "bin\brain.cmd"
-    $distributionInstaller = Join-Path $repoRoot "cli\_distribution.py"
-    & $python $distributionInstaller $repoRoot $cliTarget
-    if ($LASTEXITCODE -ne 0) {
-        Write-Warning "The Brain vault was installed, but the Brain CLI distribution failed to install."
-        exit 1
-    }
-    Write-Host "Installed Brain CLI distribution: $cliTarget"
-    $cliDirectory = Split-Path -Parent $cliTarget
-    if (($env:PATH -split ';') -notcontains $cliDirectory) {
-        Write-Warning "$cliDirectory is not on PATH. Add it to your user PATH to run 'brain'."
-    }
-}
 exit 0

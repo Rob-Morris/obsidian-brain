@@ -237,8 +237,8 @@ brain mcp configure --vault /path/to/vault --workspace /my/project --request-jso
 # Claude-only local scope (gitignored; Codex and Grok have no local scope)
 brain mcp configure --vault /path/to/vault --workspace /my/project --request-json '{"scope":"local","client":"claude"}'
 
-# Register as your default brain for all projects for all three clients
-brain mcp configure --vault /path/to/vault --request-json '{"scope":"user","client":"all"}'
+# Register all three clients at user scope (uses existing Brain resolution)
+brain mcp configure --request-json '{"scope":"user","client":"all"}'
 
 # Install the active-Brain shaping discovery adapter for all three clients
 brain agent-skill configure --vault /path/to/vault --request-json '{"client":"all"}'

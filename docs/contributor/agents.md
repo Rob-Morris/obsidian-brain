@@ -27,7 +27,7 @@ When touching bootstrap:
 
 - Treat `session.start` as the canonical bootstrap owner. Do not add payload content independently to MCP, `index.md`, or fallback docs.
 - Treat `session-core.md` as the authored source for bootstrap principles and curated core-doc references. When a core doc, standard, or bootstrap principle changes, decide whether `session-core.md` must change too. The current `session.py` implementation parses `## Core Docs` and `## Standards` as required H2 sections (one of each) and `tests/test_session_core.py` guards that shape — this is implementation hygiene for the eager-load path, not a permanent bootstrap contract; expect it to relax when bootstrap moves to lazy-loading.
-- Treat `scripts/_bootstrap/` as the owner for launcher-safe shared bootstrap leaves. Runtime handoff belongs in `runtime.py`; launcher-safe diagnostics belong in `diagnostics.py`; env-aware vault discovery belongs in `vaults.py`; Brain-local ignore-rule scaffold belongs in `workspace_scaffold.py`; shared MCP/config-layout and init-state helpers belong in `mcp_state.py`; shared Claude/Codex/Grok transport writes belong in `mcp_transport.py`; and ownership-safe client discovery installation belongs in `agent_skills.py`, backed by checked-in templates under `client-adapters/`, not wrapper entry points.
+- Treat `scripts/_bootstrap/` as the owner for launcher-safe shared bootstrap leaves. Runtime handoff belongs in `runtime.py`; launcher-safe diagnostics belong in `diagnostics.py`; env-aware vault discovery belongs in `vaults.py`; Brain-local ignore-rule scaffold belongs in `workspace_scaffold.py`; shared MCP/config-layout helpers belong in `mcp_state.py`. Canonical transport intent/projection planning belongs in `mcp_registration.py`, registered worksets in `mcp_inventory.py`, bounded legacy admission in `mcp_migration.py`, and direct-script delegation in `mcp_transport.py`. Ownership-safe client discovery installation belongs in `agent_skills.py`, backed by checked-in templates under `client-adapters/`, not wrapper entry points.
 - Preserve parity between `session.start` JSON and `.brain/local/session.md` for shared bootstrap content.
 - Keep `index.md` thin. It is a bootloader, not a second payload surface.
 - Keep the bootstrap routes explicit: MCP `session.start`, then the `brain session start --json` launcher alternative, then supported direct scripts with their dependency requirements. The generated `.brain/local/session.md` is a projection of the canonical bootstrap. `md-bootstrap.md` is the authored Markdown fallback for agents without usable MCP, CLI, scripts or generated assets; it must work without code execution or compilation.
@@ -100,8 +100,19 @@ isolated in `tests/conftest.py`).
 
 The `Windows user smoke` GitHub Actions workflow is a narrow user-path guard,
 not a contributor-platform promise. It runs `tests/test_windows_user_smoke.py`
-on `windows-latest` to exercise native install, MCP startup, and one
-`vault.read-file` round trip.
+and `tests/application/test_mcp_stable_bootstrap.py` on `windows-latest` to exercise
+native install, persisted user-command startup and ordinary read round trips.
+The smoke's MCP read/upload protocol also runs on macOS and Linux so command
+name and authorisation-contract drift is caught before the native install gate.
+Keep subprocess pipe readers portable in suites included by Windows smoke;
+POSIX `select` cannot establish Windows pipe readiness. Model optional runtime
+dependencies explicitly in unit fixtures, and coordinate concurrency tests with
+events rather than assuming lock fairness under a tight writer loop.
+
+After an authorised push, follow the
+[post-push CI check](../standards/agent-workflow.md#post-push-ci-check).
+Include the tested commit and workflow results in the handoff; local test success
+does not complete this gate.
 
 ## Installing for Users
 
@@ -115,7 +126,7 @@ Do not treat those as all-or-nothing unless the user explicitly requires MCP to 
 Preferred command selection:
 
 - Use `bash install.sh --non-interactive --skip-mcp <path>` in restricted, sandboxed, or otherwise uncertain environments.
-- Use `bash install.sh --non-interactive <path>` only when package index access is expected to work.
+- Use `bash install.sh --non-interactive --client all <path>` only when package index access is expected to work; replace `all` with an explicitly selected client when appropriate.
 - If the user explicitly wants a vault only, use `--skip-mcp` even when network access is available.
 
 Reporting expectations:
@@ -167,10 +178,10 @@ have a reliable canonical representation and verify every affected occurrence.
 
 Brain-core is developed here (`src/brain-core/`) and deployed to vaults by copying the whole directory to `.brain-core/`. When changes span brain-core and a vault:
 
-1. Implement and commit core changes in this repo first
-2. Copy `src/brain-core/` to the vault's `.brain-core/`
-3. If a post-core-commit canary exists locally (`.canaries/post-core-commit.local.md`), follow it — it handles vault-specific propagation steps like updating logs and documentation
-4. Commit in the vault repo
+1. Implement and commit core changes in this repo first.
+2. When pushing is authorised, push and complete the [post-push CI check](../standards/agent-workflow.md#post-push-ci-check) for that exact commit. Do not propagate a CI-unverified candidate.
+3. Follow any local post-core-commit canary (`.canaries/post-core-commit.local.md`) for the separately authorised vault upgrade and documentation steps. Defer propagation while CI is unresolved.
+4. Commit in the vault repo when authorised.
 
 Never deploy to both simultaneously. Core-first, always.
 

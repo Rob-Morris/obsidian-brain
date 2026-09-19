@@ -578,52 +578,22 @@ class TestRepairScopes:
         state = json.loads((repair_vault / ".brain" / "local" / "init-state.json").read_text())
         assert [record["client"] for record in state["records"]] == ["claude"]
 
-    def test_mcp_repair_replaces_legacy_claude_session_hook(self, repair_vault, monkeypatch):
+    def test_normal_mcp_repair_preserves_reintroduced_legacy_hook(self, repair_vault, monkeypatch):
         _mock_healthy_runtime(monkeypatch)
-        monkeypatch.setattr(repair_runtime.mcp_transport, "claude_project_followup_notes", lambda _target: [])
-        server_config = _register_project_client(repair_vault, "claude")
-        legacy_command = _write_legacy_session_hook(repair_vault)
-
-        before = bootstrap_diagnostics.inspect_mcp(repair_vault)
-        assert before["claude"]["hook_ok"] is False
-        assert before["claude"]["hook_state"]["stale_count"] == 1
-
+        _register_project_client(repair_vault, "claude")
+        _write_legacy_session_hook(repair_vault)
+        path = repair_vault / ".claude/settings.local.json"
+        before = path.read_bytes()
         result = repair_runtime.repair_mcp(repair_vault, dry_run=False)
-
-        assert result["status"] == "ok"
-        settings = json.loads((repair_vault / ".claude" / "settings.local.json").read_text())
-        commands = [
-            hook["command"]
-            for entry in settings["hooks"]["SessionStart"]
-            for hook in entry["hooks"]
-        ]
-        expected = repair_runtime.mcp_transport.build_session_hook_command(
-            repair_vault,
-            repair_vault,
-            python_path=server_config["command"],
-        )
-        assert commands == [expected]
-        assert legacy_command not in commands
-        after = bootstrap_diagnostics.inspect_mcp(repair_vault)
-        assert after["claude"]["hook_ok"] is True
+        assert result["status"] == "error"
+        assert "migration" in result["steps"][-1]["message"]
+        assert path.read_bytes() == before
 
     def test_mcp_repair_propagates_programmer_errors(self, repair_vault, monkeypatch):
+        from _bootstrap import mcp_registration
         _mock_healthy_runtime(monkeypatch)
-        monkeypatch.setattr(
-            bootstrap_diagnostics,
-            "inspect_mcp",
-            lambda _vault: {
-                "server_config": {},
-                "claude": {"present": False, "healthy": False},
-                "codex": {"present": True, "healthy": False},
-            },
-        )
-        monkeypatch.setattr(
-            repair_runtime.mcp_transport,
-            "register_codex",
-            lambda *_args, **_kwargs: (_ for _ in ()).throw(TypeError("programmer bug")),
-        )
-
+        monkeypatch.setattr(mcp_registration, "_configure_plan",
+                            lambda *_args, **_kwargs: (_ for _ in ()).throw(TypeError("programmer bug")))
         with pytest.raises(TypeError, match="programmer bug"):
             repair_runtime.repair_mcp(repair_vault, dry_run=False)
 
@@ -863,7 +833,10 @@ class TestRepairScopes:
             "message": "semantic config is unreadable",
         }
 
-    def test_semantic_repair_marks_runtime_when_only_marker_is_missing(self, repair_vault, monkeypatch):
+    @pytest.mark.parametrize("provisioned_modules_available", [True, False])
+    def test_semantic_repair_marks_runtime_when_only_marker_is_missing(
+        self, repair_vault, monkeypatch, provisioned_modules_available,
+    ):
         monkeypatch.setattr(
             semantic_repairs,
             "find_existing_central_venv",
@@ -898,6 +871,15 @@ class TestRepairScopes:
             lambda *_args, **_kwargs: False,
         )
         monkeypatch.setattr(
+            semantic_repairs.semantic_provision,
+            "probe_python",
+            lambda _python_path, *, modules=(): {
+                "compatible": True,
+                "ok": provisioned_modules_available,
+                "missing": [] if provisioned_modules_available else list(modules),
+            },
+        )
+        monkeypatch.setattr(
             semantic_repairs.semantic_provision.semantic_model,
             "provision_semantic_model",
             lambda _vault: _model_outcome(repair_vault, downloaded=False, manifest_changed=False),
@@ -910,7 +892,13 @@ class TestRepairScopes:
 
         result = semantic_repairs.repair_semantic(repair_vault, dry_run=False)
 
-        assert result["status"] == "ok"
+        if not provisioned_modules_available:
+            assert result["status"] == "error", result
+            assert "required modules are still unavailable" in result["steps"][-1]["message"]
+            assert not semantic_config.semantic_engine_installed(repair_vault)
+            return
+
+        assert result["status"] == "ok", result
         assert [step["name"] for step in result["steps"]] == [
             "semantic_runtime",
             "semantic_model",

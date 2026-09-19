@@ -44,6 +44,9 @@ def _make_vault(root: Path, name: str) -> Path:
     (vault / ".brain-core" / "VERSION").write_text("0.99.0\n")
     (vault / ".brain-core" / "brain_mcp" / "requirements.txt").write_text("mcp==1.0.0\n")
     (vault / ".brain-core" / "brain_mcp" / "requirements-semantic.txt").write_text("mcp==1.0.0\n")
+    resolver = vault / ".brain-core/scripts/_common/_venv.py"
+    resolver.parent.mkdir(parents=True)
+    resolver.write_text(Path(_venv.__file__).read_text())
     return vault
 
 
@@ -325,6 +328,47 @@ def test_classify_brain_runtime_preserves_venv_symlink_boundary(monkeypatch, tmp
     assert runtime["status"] == "central_compatible"
     assert runtime["expected_runtime"] == str(expected)
     assert runtime["selected_runtime"] == str(selected)
+
+
+def test_persisted_alias_protects_stopped_runtime_from_pruning(tmp_path, fake_home):
+    vault = _make_vault(tmp_path, "Active Brain")
+    selected = resolve_vault_venv_python(vault, launcher=Path(sys.executable))
+    _install_central_runtime(selected)
+    retired = central_venvs_root() / "py3.12-retired00000000" / "bin" / "python"
+    _install_central_runtime(retired)
+    alias = retired.with_name("python3.12")
+    alias.symlink_to(retired)
+    (Path.home() / ".claude.json").write_text(json.dumps({"mcpServers": {"brain": {"command": str(alias), "args": []}}}))
+    discovery = discover_brains(current_vault=vault)
+    summary = inspect_machine_runtime_state(launcher_python=sys.executable, discovery=discovery,
+                                             machine_registry=sync_machine_registry(discovery["brains"]))
+    row = next(item for item in summary["runtimes"] if item["python"] == str(retired))
+    assert row["persisted_registration_reference"]
+    assert not row["orphan_candidate"]
+
+
+def test_prune_revalidates_a_new_persisted_reference(tmp_path, fake_home):
+    retired = central_venvs_root() / "py3.12-retired00000000" / "bin" / "python"
+    _install_central_runtime(retired)
+    summary = collect_machine_summary(synchronise_registry=False)
+    assert any(row["orphan_candidate"] for row in summary["runtimes"])
+    (Path.home() / ".claude.json").write_text(json.dumps({"mcpServers": {"brain": {"command": str(retired), "args": []}}}))
+    result = prune_orphaned_runtimes(summary, dry_run=False)
+    assert result["status"] == "error"
+    assert "persisted reference" in result["steps"][0]["message"]
+    assert retired.exists()
+
+
+def test_prune_revalidates_processes_started_after_inspection(tmp_path, fake_home, monkeypatch):
+    retired = central_venvs_root() / "py3.12-retired00000000" / "bin" / "python"
+    _install_central_runtime(retired)
+    summary = collect_machine_summary(synchronise_registry=False)
+    assert any(row["orphan_candidate"] for row in summary["runtimes"])
+    monkeypatch.setattr(maintenance, "find_live_brain_runtime_processes",
+                        lambda paths: {"available": True, "processes": {str(retired): [{"pid": 123, "command": "python"}]}})
+    result = prune_orphaned_runtimes(summary, dry_run=False)
+    assert result["status"] in ("error", "partial")
+    assert retired.exists()
 
 
 def test_inspect_machine_runtime_state_marks_orphans_unknown_when_ps_fails(monkeypatch, tmp_path, fake_home):

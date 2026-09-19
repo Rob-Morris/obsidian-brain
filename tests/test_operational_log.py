@@ -1,6 +1,7 @@
 """Contract tests for the operational diagnostics log (`_common._operational_log`)."""
 
 from pathlib import Path
+from contextlib import contextmanager
 import json
 import os
 import queue
@@ -349,31 +350,73 @@ def test_clear_logs_truncates_active_and_deletes_archives(tmp_path):
     assert (directory / "server.log").read_bytes() == b"after\n"
 
 
-def test_clear_logs_races_safely_with_concurrent_appends(tmp_path):
+def test_clear_logs_races_safely_with_concurrent_appends(tmp_path, monkeypatch):
     vault = _vault(tmp_path)
     errors: list[BaseException] = []
-    stop = threading.Event()
+    writing = threading.Event()
+    clear_attempted = threading.Event()
+    release_write = threading.Event()
+    write_all = oplog._write_all
+    file_lock = oplog.exclusive_file_lock
+
+    def _hold_write(descriptor, line):
+        writing.set()
+        assert release_write.wait(timeout=10)
+        write_all(descriptor, line)
+
+    @contextmanager
+    def _observe_clear_attempt(path, **kwargs):
+        if threading.current_thread() is clearer:
+            clear_attempted.set()
+        with file_lock(path, **kwargs):
+            yield
+
+    monkeypatch.setattr(oplog, "_write_all", _hold_write)
+    monkeypatch.setattr(oplog, "exclusive_file_lock", _observe_clear_attempt)
 
     def _appender() -> None:
-        line = b"a" * 4095 + b"\n"
-        while not stop.is_set():
-            try:
-                oplog.append_lines(vault, "command", [line] * 8)
-            except BaseException as error:  # noqa: BLE001 — the test asserts none occur
-                errors.append(error)
-                return
+        try:
+            oplog.append_lines(vault, "command", [b"a" * 4095 + b"\n"] * 8)
+        except BaseException as error:  # noqa: BLE001 — the test asserts none occur
+            errors.append(error)
 
-    thread = threading.Thread(target=_appender)
-    thread.start()
-    deadline = time.monotonic() + 0.5
-    while time.monotonic() < deadline:
-        oplog.clear_logs(vault)
-    stop.set()
-    thread.join(timeout=10)
+    def _clearer() -> None:
+        try:
+            oplog.clear_logs(vault)
+        except BaseException as error:  # noqa: BLE001 — the test asserts none occur
+            errors.append(error)
+
+    appender = threading.Thread(target=_appender)
+    clearer = threading.Thread(target=_clearer)
+    appender.start()
+    try:
+        assert writing.wait(timeout=10)
+        clearer.start()
+        assert clear_attempted.wait(timeout=10)
+    finally:
+        release_write.set()
+        appender.join(timeout=10)
+        if clearer.ident is not None:
+            clearer.join(timeout=10)
+    assert not appender.is_alive()
+    assert not clearer.is_alive()
     assert errors == []
+    assert (oplog.diagnostics_directory(vault) / "command.log").read_bytes() == b""
     oplog.append_lines(vault, "command", [b"post-clear\n"])
     content = (oplog.diagnostics_directory(vault) / "command.log").read_bytes()
-    assert content.endswith(b"post-clear\n")
+    assert content == b"post-clear\n"
+
+
+@pytest.mark.skipif(not POSIX, reason="flock contention semantics")
+def test_clear_logs_reports_busy_family_without_removing_its_records(tmp_path, monkeypatch):
+    vault = _vault(tmp_path)
+    oplog.append_lines(vault, "command", [b"preserved\n"])
+    directory = oplog.diagnostics_directory(vault)
+    monkeypatch.setattr(oplog, "LOCK_TIMEOUT", 0)
+    with exclusive_file_lock(directory / "command.lock"):
+        with pytest.raises(MutationLockError, match="timed out"):
+            oplog.clear_logs(vault)
+    assert (directory / "command.log").read_bytes() == b"preserved\n"
 
 
 @pytest.mark.skipif(not POSIX, reason="flock contention semantics")

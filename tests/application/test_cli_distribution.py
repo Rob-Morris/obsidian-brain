@@ -51,6 +51,23 @@ def test_installed_pair_is_versioned_manifested_and_runnable(tmp_path):
     assert not any(installed.distribution_root.rglob("__pycache__"))
 
 
+def test_cli_capability_check_and_cutover_hold_registration_lock(tmp_path, monkeypatch):
+    from _bootstrap import mcp_registration
+    from _bootstrap.file_lock import exclusive_file_lock, MutationLockError
+
+    checked = []
+    def assert_locked(stage):
+        path = mcp_registration.user_ledger_path(Path.home()).with_suffix(".lock")
+        with pytest.raises(MutationLockError):
+            with exclusive_file_lock(path, timeout=0, follow_symlinks=False):
+                pytest.fail("registration lock was released during CLI replacement")
+        checked.append(stage)
+
+    monkeypatch.setattr(mcp_registration, "require_launcher_capability", lambda *args, **kwargs: assert_locked("capability"))
+    _install(tmp_path, failpoint=lambda stage: assert_locked(stage) if stage == "after_cli_replace" else None)
+    assert checked == ["capability", "after_cli_replace"]
+
+
 def test_installed_cli_discovers_real_selected_brain_catalogue(
     tmp_path,
     command_vault_baseline,
@@ -99,7 +116,9 @@ def test_windows_target_selects_the_cmd_bootloader(tmp_path):
 def test_windows_cmd_bootloader_does_not_require_posix_execute_bits(
     tmp_path, monkeypatch
 ):
-    monkeypatch.setattr(_distribution.sys, "platform", "win32")
+    from types import SimpleNamespace
+
+    monkeypatch.setattr(_distribution, "sys", SimpleNamespace(**{**vars(sys), "platform": "win32"}))
     monkeypatch.setattr(
         _distribution.os,
         "chmod",
@@ -405,7 +424,7 @@ def test_standalone_projection_includes_cleanup_recovery_paths(
         "sha256:abc",
         (recovery,),
     )
-    monkeypatch.setattr(_distribution, "install_from_source", lambda *_args: installed)
+    monkeypatch.setattr(_distribution, "install_from_source", lambda *_args, **_kwargs: installed)
 
     assert _distribution.main([str(REPO_ROOT), str(installed.cli_binary)]) == 0
 

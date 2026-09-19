@@ -87,13 +87,160 @@ def _invocation(vault, *, caller=None, home=None, dry_run=False, receipts=None):
 
 
 def _healthy_runtime(monkeypatch, vault):
+    from _bootstrap import runtime
+    monkeypatch.setattr(mcp_owner, "_verify_stable_launcher", lambda _context: None)
     python = str((vault.parent / "runtime" / "bin" / "python").resolve())
     monkeypatch.setattr(
         diagnostics,
         "inspect_runtime",
         lambda _vault: {"healthy": True, "python": python, "message": "ready"},
     )
+    monkeypatch.setattr(runtime, "target_managed_python", lambda *_args, **_kwargs: Path(python))
     return python
+
+
+@pytest.mark.parametrize("dry_run", [False, True])
+def test_brain_repair_includes_runtime_without_creating_client_intent(tmp_path, monkeypatch, dry_run):
+    from _bootstrap import runtime
+
+    vault = _vault(tmp_path)
+    python = _healthy_runtime(monkeypatch, vault)
+    calls = []
+    monkeypatch.setattr(runtime, "target_runtime_contract", lambda root: object())
+
+    def repair(root, **kwargs):
+        calls.append((root, kwargs["dry_run"] if "dry_run" in kwargs else False))
+        preview = kwargs.get("dry_run", False)
+        return {"status": "planned" if preview else "ready", "managed_python": python,
+                "runtime_dir": str(Path(python).parent.parent), "effect_outcome": "none" if preview else "committed"}
+
+    monkeypatch.setattr(runtime, "bootstrap_managed_runtime", repair)
+    result = _invocation(vault, dry_run=dry_run).invoke(McpRepairRequest(breadth=mcp_owner.RepairBreadth.BRAIN))
+    assert result.status == "ok", result
+    assert result.result.breadth is mcp_owner.RepairBreadth.BRAIN
+    assert len(result.result.runtimes) == 1
+    assert result.result.clients == ()
+    assert not (vault / ".mcp.json").exists()
+    assert result.result.status is (McpMutationStatus.PLANNED if dry_run else McpMutationStatus.CHANGED)
+    assert len(result.committed_effects) == (0 if dry_run else 1)
+    assert len(calls) == (1 if dry_run else 2)
+
+
+def test_composed_repair_preserves_unknown_runtime_effects(tmp_path, monkeypatch):
+    from _bootstrap import runtime
+
+    vault = _vault(tmp_path)
+    python = _healthy_runtime(monkeypatch, vault)
+    monkeypatch.setattr(runtime, "target_runtime_contract", lambda root: object())
+    def repair(root, **kwargs):
+        preview = kwargs.get("dry_run", False)
+        return {"status": "planned" if preview else "error", "managed_python": python,
+                "runtime_dir": str(Path(python).parent.parent), "effect_outcome": "none" if preview else "unknown",
+                "message": "pip interrupted"}
+    monkeypatch.setattr(runtime, "bootstrap_managed_runtime", repair)
+    result = _invocation(vault).invoke(McpRepairRequest(breadth=mcp_owner.RepairBreadth.BRAIN))
+    assert result.error.code is ErrorCode.COMMAND_OUTCOME_UNKNOWN
+    assert result.effects == "unknown"
+    assert str(Path(python).parent.parent) in result.error.details.recovery_paths
+    assert not (vault / ".mcp.json").exists()
+
+
+def test_machine_repair_composes_two_brains_and_deduplicates_shared_work(tmp_path, monkeypatch):
+    import vault_registry
+    from _bootstrap import runtime, mcp_registration as registration
+    from _bootstrap.mcp_state import build_mcp_config
+
+    first, second = _vault(tmp_path / "one"), _vault(tmp_path / "two")
+    home = tmp_path / "home"
+    python = _healthy_runtime(monkeypatch, first)
+    for identity, vault, client in (("one", first, McpClient.CODEX), ("two", second, McpClient.GROK)):
+        vault_registry.register(vault, identity)
+        plan = registration._configure_plan(vault, home, vault, McpScope.PROJECT, (client,),
+                                             build_mcp_config("/old/python", vault, workspace_dir=vault))
+        file_transaction.apply_file_changes(plan.changes())
+    shared = registration._configure_plan(None, home, None, McpScope.USER, (McpClient.CLAUDE,),
+                                           registration.stable_server_config(tmp_path / "old/bin/brain"))
+    file_transaction.apply_file_changes(shared.changes())
+    calls = []
+    monkeypatch.setattr(runtime, "target_runtime_contract", lambda root: object())
+    def repair(root, **kwargs):
+        preview = kwargs.get("dry_run", False)
+        calls.append((root, preview))
+        return {"status": "planned" if preview else "ready", "managed_python": python,
+                "runtime_dir": str(Path(python).parent.parent), "effect_outcome": "none" if preview else "committed"}
+    monkeypatch.setattr(runtime, "bootstrap_managed_runtime", repair)
+    result = _invocation(first, home=home).invoke(McpRepairRequest(breadth=mcp_owner.RepairBreadth.MACHINE))
+    assert result.status == "ok", result
+    assert result.result.targets == tuple(sorted((str(first), str(second))))
+    assert len([call for call in calls if not call[1]]) == 1
+    assert len(result.result.runtimes) == 1
+    assert sum(effect.subject == f"file:{home / '.claude.json'}" for effect in result.committed_effects) == 1
+    assert not (first / ".mcp.json").exists()
+    assert not (second / ".mcp.json").exists()
+
+
+def test_brain_repair_admits_projections_before_runtime_effects(tmp_path, monkeypatch):
+    from _bootstrap import runtime
+
+    vault = _vault(tmp_path)
+    python = _healthy_runtime(monkeypatch, vault)
+    (vault / ".mcp.json").write_text('{"mcpServers":{"brain":{"command":"custom"}}}')
+    calls = []
+    monkeypatch.setattr(runtime, "target_runtime_contract", lambda root: object())
+
+    def repair(root, **kwargs):
+        calls.append(kwargs.get("dry_run", False))
+        return {"status": "planned", "managed_python": python,
+                "runtime_dir": str(Path(python).parent.parent), "effect_outcome": "none"}
+
+    monkeypatch.setattr(runtime, "bootstrap_managed_runtime", repair)
+    result = _invocation(vault).invoke(McpRepairRequest(breadth=mcp_owner.RepairBreadth.BRAIN))
+    assert result.status == "error"
+    assert "Unowned" in result.error.message
+    assert calls == [True]
+    assert result.effects == "none"
+
+
+def test_modified_owned_hook_options_are_not_overwritten(tmp_path, monkeypatch):
+    vault = _vault(tmp_path)
+    _healthy_runtime(monkeypatch, vault)
+    invocation = _invocation(vault)
+    assert invocation.invoke(McpConfigureRequest(client=McpClient.CLAUDE)).status == "ok"
+    path = vault / ".claude/settings.local.json"
+    content = json.loads(path.read_text())
+    content["hooks"]["SessionStart"][0]["hooks"][0]["timeout"] = 123
+    path.write_text(json.dumps(content))
+    before = path.read_bytes()
+    result = invocation.invoke(McpRepairRequest(client=McpClient.CLAUDE))
+    assert result.status == "error"
+    assert "Modified owned" in result.error.message
+    assert path.read_bytes() == before
+
+
+def test_shared_route_retains_repairable_bootstrap_without_reinstalling_transport(tmp_path, monkeypatch):
+    from _bootstrap import runtime
+
+    vault = _vault(tmp_path)
+    _healthy_runtime(monkeypatch, vault)
+    invocation = _invocation(vault)
+    assert invocation.invoke(McpConfigureRequest(client=McpClient.CLAUDE)).status == "ok"
+    assert invocation.invoke(McpConfigureRequest(client=McpClient.CLAUDE, scope=McpScope.USER)).status == "ok"
+    assert invocation.invoke(McpConfigureRequest(client=McpClient.CLAUDE, action=McpConfigureAction.REMOVE)).status == "ok"
+    assert not (vault / ".mcp.json").exists()
+    ledger = vault / ".brain/local/init-state.json"
+    assert json.loads(ledger.read_text())["records"][0]["transport_enabled"] is False
+    next_python = str(tmp_path / "new-runtime/bin/python")
+    monkeypatch.setattr(runtime, "target_managed_python", lambda *args, **kwargs: Path(next_python))
+    result = invocation.invoke(McpRepairRequest(client=McpClient.CLAUDE))
+    assert result.status == "ok", result
+    assert not (vault / ".mcp.json").exists()
+    assert next_python in (vault / ".claude/settings.local.json").read_text()
+    assert invocation.invoke(McpConfigureRequest(client=McpClient.CLAUDE, scope=McpScope.USER,
+                                               action=McpConfigureAction.REMOVE)).status == "ok"
+    assert invocation.invoke(McpRepairRequest(client=McpClient.CLAUDE)).status == "ok"
+    assert not ledger.exists()
+    assert not (vault / ".claude/settings.local.json").exists()
+    assert not (vault / ".mcp.json").exists()
 
 
 def test_mcp_owners_match_launcher_contract():
@@ -106,7 +253,7 @@ def test_mcp_owners_match_launcher_contract():
         if item.command_id.startswith("mcp.")
     }
 
-    assert tuple(entries) == ("mcp.configure", "mcp.repair")
+    assert tuple(entries) == ("mcp.configure", "mcp.migrate", "mcp.repair")
     assert entries["mcp.configure"].owner_ref == owners["mcp.configure"].owner_ref == "_launcher.mcp:configure"
     assert entries["mcp.repair"].owner_ref == owners["mcp.repair"].owner_ref == "_launcher.mcp:repair"
     assert all(item.required_providers == ("caller_filesystem",) for item in entries.values())
@@ -122,7 +269,7 @@ def test_mcp_request_grammar_is_closed():
     ):
         try:
             McpConfigureRequest(**kwargs)
-        except ValueError:
+        except (ValueError, TypeError):
             pass
         else:
             raise AssertionError(f"request unexpectedly accepted {kwargs}")
@@ -133,7 +280,7 @@ def test_configure_project_commits_all_files_transactionally(tmp_path, monkeypat
     python = _healthy_runtime(monkeypatch, vault)
     receipts = _Receipts()
 
-    result = _invocation(vault, receipts=receipts).invoke(McpConfigureRequest())
+    result = _invocation(vault, receipts=receipts).invoke(McpConfigureRequest(client=McpClient.ALL))
 
     assert result.result.status is McpMutationStatus.CHANGED
     assert tuple(client.value for client in result.result.clients) == (
@@ -184,7 +331,7 @@ def test_configure_requires_runtime_without_provisioning(tmp_path, monkeypatch):
         lambda _vault: {"healthy": False, "python": "missing", "message": "runtime missing"},
     )
 
-    result = _invocation(vault).invoke(McpConfigureRequest())
+    result = _invocation(vault).invoke(McpConfigureRequest(client=McpClient.ALL))
 
     assert result.error.code is ErrorCode.CAPABILITY_UNAVAILABLE
     assert "runtime repair" in result.error.next_action.instruction
@@ -199,7 +346,7 @@ def test_malformed_second_client_preflights_before_any_write(tmp_path, monkeypat
     codex.parent.mkdir()
     codex.write_text("invalid = [\n")
 
-    result = _invocation(vault).invoke(McpConfigureRequest())
+    result = _invocation(vault).invoke(McpConfigureRequest(client=McpClient.ALL))
 
     assert result.error.code is ErrorCode.CONFLICT
     assert result.effects == "none"
@@ -390,6 +537,8 @@ def test_remove_remains_available_when_workspace_binding_is_broken(tmp_path, mon
     workspace = (tmp_path / "workspace").resolve()
     workspace.mkdir()
     monkeypatch.setattr(mcp_owner, "_validate_target", lambda *_args: None)
+    monkeypatch.setattr(mcp_owner.registration, "_validate_target", lambda *_args: None)
+    monkeypatch.setattr(mcp_owner.registration, "plan_reverse_registration", lambda *_args: None)
     invocation = _invocation(vault, caller=workspace)
     assert invocation.invoke(
         McpConfigureRequest(client=McpClient.CLAUDE)
@@ -439,12 +588,11 @@ def test_remove_does_not_trust_recorded_markdown_or_hook_selectors(tmp_path, mon
         )
     )
 
-    assert result.result.status is McpMutationStatus.CHANGED
+    assert result.status == "error"
+    assert result.effects == "none"
     assert "KEEP THIS LINE" in claude_md.read_text()
     remaining = json.loads(settings_path.read_text())
-    assert remaining["hooks"]["SessionStart"] == [
-        {"hooks": [{"type": "command", "command": "echo keep-this-hook"}]}
-    ]
+    assert {"hooks": [{"type": "command", "command": "echo keep-this-hook"}]} in remaining["hooks"]["SessionStart"]
 
 
 def test_user_scope_uses_trusted_home_and_local_all_degrades_explicitly(tmp_path, monkeypatch):
@@ -456,7 +604,7 @@ def test_user_scope_uses_trusted_home_and_local_all_degrades_explicitly(tmp_path
         McpConfigureRequest(client=McpClient.CLAUDE, scope=McpScope.USER)
     )
     local = _invocation(vault, home=home).invoke(
-        McpConfigureRequest(scope=McpScope.LOCAL)
+        McpConfigureRequest(client=McpClient.ALL, scope=McpScope.LOCAL)
     )
 
     assert user.result.target_dir is None
@@ -465,20 +613,17 @@ def test_user_scope_uses_trusted_home_and_local_all_degrades_explicitly(tmp_path
     assert local.warnings[0].code is WarningCode.DEGRADED_CAPABILITY
 
 
-def test_repair_only_converges_present_project_clients(tmp_path, monkeypatch):
+def test_repair_refuses_unrecorded_project_client(tmp_path, monkeypatch):
     vault = _vault(tmp_path)
-    python = _healthy_runtime(monkeypatch, vault)
-    (vault / ".mcp.json").write_text(
-        json.dumps({"mcpServers": {"brain": {"command": "/stale", "args": [], "env": {}}}})
-    )
-
+    _healthy_runtime(monkeypatch, vault)
+    path = vault / ".mcp.json"
+    path.write_text(json.dumps({"mcpServers": {"brain": {"command": "/stale", "args": [], "env": {}}}}))
+    before = path.read_bytes()
     result = _invocation(vault).invoke(McpRepairRequest())
-
-    repaired = json.loads((vault / ".mcp.json").read_text())["mcpServers"]["brain"]
-    assert result.result.status is McpMutationStatus.CHANGED
-    assert tuple(client.value for client in result.result.clients) == ("claude",)
-    assert repaired["command"] == python
-    assert not (vault / ".codex" / "config.toml").exists()
+    assert result.status == "error"
+    assert "migration" in result.error.message
+    assert path.read_bytes() == before
+    assert not (vault / ".codex/config.toml").exists()
 
 
 def test_repair_is_noop_when_no_project_client_is_present(tmp_path, monkeypatch):

@@ -144,6 +144,20 @@ Portable `vault.check` inspects semantic metadata locally and verifies model loa
 
 ## Grok in setup and maintenance
 
+New MCP installation/configuration requires an explicit client. Use
+`install.sh --non-interactive --client all /path/to/brain` (Windows: `-Client all`),
+or choose one client. Scaffold-only installation needs no client selection.
+`configure.py mcp --client ... --user` delegates to the compatible installed
+machine CLI without resolving a Brain; project/local operations share the
+canonical registration planner. `repair.py mcp` remains vault-local and repairs
+only recorded vault-self project projections. Cross-root and user repair belongs
+to the [launcher breadth selectors](cli.md#mcp-registration-and-repair).
+
+Upgrade runs machine ownership migration and Brain-breadth reconciliation after
+the coordinated CLI/Core/runtime cutover. The shell uninstaller delegates to
+the canonical launcher uninstall owner and stops on incomplete cleanup. Legacy
+records require explicit `brain mcp migrate`, not adoption by normal repair.
+
 The supported `install.py --client`, `configure.py mcp --client`,
 `configure.py agent-skills --client` and interactive `setup.py` selections
 include `grok`; `all` includes all three clients. Grok supports user and project

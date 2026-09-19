@@ -35,7 +35,7 @@ from _bootstrap.mcp_state import (
     session_hook_python,
     write_toml_config,
 )
-from _bootstrap.runtime import ensure_managed_runtime, find_launcher_python, required_modules_for_scope
+from _bootstrap.runtime import target_managed_python
 from _bootstrap.workspace_binding import (
     WorkspaceBindingError,
     converge_workspace_binding,
@@ -69,29 +69,10 @@ def fatal(msg: str):
 
 
 def _resolve_managed_python(vault_root: Path) -> str:
-    launcher = find_launcher_python()
-    if not launcher:
-        raise InitTransportError(
-            "No compatible Python 3.12+ launcher found.\n"
-            "Install Python 3.12+ with your preferred package manager and rerun MCP configuration."
-        )
-
     try:
-        summary = ensure_managed_runtime(
-            vault_root,
-            required_modules=required_modules_for_scope("mcp"),
-            dependency_owner="the MCP transport configuration flow",
-            launcher_python=launcher,
-        )
+        return str(target_managed_python(vault_root))
     except RuntimeError as exc:
         raise InitTransportError(str(exc)) from exc
-
-    if not summary["managed_runtime_ready"] or not summary["managed_python"]:
-        raise InitTransportError(
-            "Could not provision the canonical managed runtime for MCP registration.\n"
-            f"Run: {launcher} {vault_root / '.brain-core' / 'scripts' / 'repair.py'} runtime --vault {vault_root}"
-        )
-    return summary["managed_python"]
 
 
 def _resolve_clients_or_error(client_arg: str, scope: str) -> Tuple[List[str], List[str]]:
@@ -791,6 +772,50 @@ def _scope_label(scope: str, target_dir: Optional[Path]) -> str:
     return f"{scope} ({target_dir})"
 
 
+def delegate_machine_command(
+    command: str, request: dict, *, vault_root: Path | None = None,
+    target_dir: Path | None = None, dry_run: bool = False,
+) -> dict:
+    """Use the installed compatible machine writer; never fall back to legacy writes."""
+    import os
+
+    binary = shutil.which("brain")
+    if binary is None:
+        candidate = Path.home() / ".local/bin" / ("brain.cmd" if sys.platform == "win32" else "brain")
+        if candidate.is_file():
+            binary = str(candidate)
+    if binary is None:
+        raise InitTransportError("Install the parity-capable Brain CLI before MCP registration changes.")
+    environment = dict(os.environ)
+    for key in ("BRAIN_CLI_BUNDLE", "BRAIN_CLI_DISTRIBUTION_ROOT", "PYTHONPATH", "PYTHONHOME", "BRAIN_VAULT_ROOT", "BRAIN_WORKSPACE_DIR"):
+        environment.pop(key, None)
+    probe = subprocess.run([binary, "command", "describe", f"mcp.{command}", "--json"],
+                           capture_output=True, text=True, env=environment, timeout=30)
+    try:
+        description = json.loads(probe.stdout)
+        version = description.get("command_version", description.get("payload", {}).get("command_version", 0))
+    except (ValueError, AttributeError) as exc:
+        raise InitTransportError("Installed CLI cannot describe the MCP writer; upgrade/reinstall it.") from exc
+    if probe.returncode or version < (1 if command == "migrate" else 3):
+        raise InitTransportError("Installed CLI predates MCP lifecycle parity; upgrade/reinstall it before writing registrations.")
+    argv = [binary, "mcp", command, "--request-json", json.dumps(request), "--json"]
+    if vault_root is not None:
+        argv.extend(("--vault", str(vault_root)))
+    if dry_run:
+        argv.append("--dry-run")
+    completed = subprocess.run(argv, cwd=target_dir, capture_output=True, text=True,
+                               env=environment, timeout=300)
+    try:
+        result = json.loads(completed.stdout)
+    except ValueError as exc:
+        raise InitTransportError(f"MCP writer returned no valid receipt: {completed.stderr}") from exc
+    if completed.returncode or result.get("status") != "ok":
+        error = InitTransportError(f"MCP {command} incomplete: {json.dumps(result)}")
+        error.committed_effects = result.get("committed_effects", [])
+        raise error
+    return result
+
+
 def apply_mcp_transport_action(
     vault_root: Path,
     *,
@@ -800,131 +825,50 @@ def apply_mcp_transport_action(
     remove: bool,
     vault_self: bool = False,
 ) -> Dict[str, Any]:
+    """Project explicit transport intent through the canonical registration owner."""
+    from _bootstrap import mcp_registration as registration
+    from _bootstrap.file_transaction import apply_file_changes
+
     clients, warnings = _resolve_clients_or_error(client_arg, scope)
-    scope_label = _scope_label(scope, target_dir)
-
-    if remove:
-        matching = matching_records(vault_root, clients, scope, target_dir)
-        if not matching:
-            return {
-                "action": "remove",
-                "status": "noop",
-                "scope": scope,
-                "scope_label": scope_label,
-                "target_dir": target_dir,
-                "clients": clients,
-                "warnings": warnings,
-                "matching_count": 0,
-                "removed_count": 0,
-                "retained_count": 0,
-                "removed_records": [],
-            }
-
-        removed_records: List[Dict[str, Any]] = []
-        for record in matching:
-            info(f"Removing {record['client']} from {record['config_path']}")
-            if _remove_record(vault_root, record):
-                removed_records.append(record)
-
-        _remove_init_records(vault_root, removed_records)
+    if scope == "user":
+        envelope = delegate_machine_command("configure", {
+            "client": client_arg, "scope": scope, "action": "remove" if remove else "configure",
+        })
         return {
-            "action": "remove",
-            "status": "changed",
-            "scope": scope,
-            "scope_label": scope_label,
-            "target_dir": target_dir,
-            "clients": clients,
-            "warnings": warnings,
-            "matching_count": len(matching),
-            "removed_count": len(removed_records),
-            "retained_count": len(matching) - len(removed_records),
-            "removed_records": removed_records,
+            "action": "remove" if remove else "configure", "status": envelope["result"]["status"],
+            "scope": scope, "scope_label": _scope_label(scope, target_dir),
+            "target_dir": target_dir, "clients": clients, "warnings": warnings,
+            "committed_effects": envelope.get("committed_effects", []),
+            "verification_notes": mcp_followup_notes(clients, scope, target_dir),
         }
-
+    native_scope = registration.McpScope(scope)
+    native_clients = tuple(registration.McpClient(client) for client in clients)
+    target = target_dir.resolve() if target_dir is not None else vault_root.resolve()
     try:
-        python_path = _resolve_managed_python(vault_root)
-        server_config = build_mcp_config(python_path, vault_root, workspace_dir=target_dir)
-
-        for client in clients:
-            _warn_if_user_scope_exists(client, scope, server_config)
-
-        # Converge the workspace binding BEFORE writing any MCP registration,
-        # so a valid binding always exists before any client config is written.
-        # In vault-self mode the target_dir IS the vault root — skip convergence
-        # (refuse-guard would raise), but still write ignore rules if applicable.
-        if target_dir and not vault_self:
-            header("Workspace manifest")
-            binding = _converge_workspace_manifest(target_dir, vault_root=vault_root)
-            info(binding.message)
-        if target_dir:
-            header("Git ignore rules")
-            ignore_message = ensure_brain_ignore_rules(target_dir, scope, clients, skip_mcp=False)
-            if ignore_message:
-                info(ignore_message)
-
-        results: List[Dict[str, Any]] = []
-        for client in clients:
-            header(f"Registering {client} MCP server")
-            if client == "claude":
-                record = register_claude(vault_root, server_config, scope, target_dir)
-            elif client == "grok":
-                record = register_grok(server_config, scope, target_dir)
+        with registration.registration_lock(Path.home()):
+            if remove:
+                plan = registration._remove_plan(vault_root, Path.home(), target, native_scope, native_clients)
             else:
-                record = register_codex(server_config, scope, target_dir)
-            record_init_target(vault_root, record)
-            results.append(record)
-
-    except (
-        WorkspaceBindingError,
-        GitInspectionError,
-        OSError,
-        ValueError,
-        RuntimeError,
-    ) as exc:
-        surviving = getattr(exc, "surviving_paths", ())
-        detail = (
-            f"; surviving files: {', '.join(map(str, surviving))}" if surviving else ""
-        )
-        raise InitTransportError(str(exc) + detail) from exc
-
-    has_claude = any(result["client"] == "claude" for result in results)
-    project_scope = _is_project_scope(scope, target_dir)
-
-    claude_notes: List[str] = []
-    if project_scope and has_claude:
-        claude_notes = claude_project_followup_notes(target_dir)
-
-    verification_notes = mcp_followup_notes(
-        [result["client"] for result in results],
-        scope,
-        target_dir,
-    )
-
-    remove_args = [
-        "python3",
-        str(vault_root / '.brain-core' / 'scripts' / 'configure.py'),
-        "mcp",
-        "--vault",
-        str(vault_root),
-        "--client",
-        client_arg,
-        *_scope_configure_flags(scope, target_dir),
-        "--remove",
-    ]
-
+                registration._validate_target(vault_root, target)
+                python = _resolve_managed_python(vault_root)
+                server = build_mcp_config(python, vault_root, workspace_dir=target)
+                plan = registration._configure_plan(vault_root, Path.home(), target, native_scope, native_clients, server)
+            plan.validate()
+            changes = plan.changes()
+            apply_file_changes(changes, before_write=plan.validate_dependencies)
+    except (OSError, ValueError, RuntimeError) as exc:
+        error = InitTransportError(str(exc))
+        error.surviving_paths = getattr(exc, "surviving_paths", ())
+        error.committed_effects = [{"kind": "mcp.configure", "subject": f"file:{path}"} for path in error.surviving_paths]
+        raise error from exc
     return {
-        "action": "configure",
-        "status": "changed",
-        "scope": scope,
-        "scope_label": scope_label,
-        "target_dir": target_dir,
-        "clients": clients,
-        "warnings": warnings,
-        "python_path": python_path,
-        "results": results,
-        "claude_project_notes": claude_notes,
-        "verification_notes": verification_notes,
-        "remove_command": join_argv(remove_args),
+        "action": "remove" if remove else "configure", "status": "changed" if changes else "noop",
+        "scope": scope, "scope_label": _scope_label(scope, target), "target_dir": target,
+        "clients": clients, "warnings": warnings,
+        "committed_effects": [{"kind": "mcp.configure", "subject": f"file:{change.path}"} for change in changes],
+        "verification_notes": mcp_followup_notes(clients, scope, target),
+        "remove_command": join_argv(["brain", "mcp", "configure", "--vault", str(vault_root),
+            "--workspace", str(target), "--request-json", json.dumps({"client": client_arg, "scope": scope, "action": "remove"})]),
     }
 
 

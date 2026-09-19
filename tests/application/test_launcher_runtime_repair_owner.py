@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from pathlib import Path
+import shutil
 import sys
 
 
@@ -57,6 +58,8 @@ def _vault(tmp_path):
     (core / "brain_mcp").mkdir()
     (core / "brain_mcp" / "requirements.txt").write_text("mcp==2.0.0\n")
     (core / "brain_mcp" / "requirements-semantic.txt").write_text("mcp==2.0.0\n")
+    (core / "scripts/_common").mkdir(parents=True)
+    shutil.copyfile(REPO_ROOT / "src/brain-core/scripts/_common/_venv.py", core / "scripts/_common/_venv.py")
     return vault
 
 

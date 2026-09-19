@@ -20,6 +20,7 @@ class CutoverBrain:
     brain_core_version: str
     selected: bool
     requires_recovery_cli: bool
+    direct_user_writer_supported: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -122,6 +123,7 @@ def preflight(
                 version_text,
                 resolved == selected,
                 parsed < CUTOVER_VERSION,
+                parsed >= (0, 70, 0),
             )
         )
     exclusions = tuple(sorted(set(excluded_stale_brain_ids)))
@@ -177,6 +179,7 @@ def preflight(
             "Restart every MCP client using the upgraded Brain.",
             "Re-discover tools before the next MCP call.",
             "Use brain upgrade for each acknowledged pre-cutover Brain.",
+            "Use the installed machine CLI for user MCP changes; pre-0.70 direct user-registration writers are unsupported after migration.",
         ),
     )
 

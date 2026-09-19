@@ -1,11 +1,12 @@
 @echo off
 setlocal
-set "BRAIN_CLI_VERSION=3.3.3"
-set "BRAIN_INSTALL_REF=v0.69.1"
+set "BRAIN_CLI_VERSION=4.0.0"
+set "BRAIN_INSTALL_REF=v0.70.0"
 
 set "SELF_DIR=%~dp0"
 set "SELF_PATH=%~f0"
 set "DISTRIBUTION_ROOT=%SELF_DIR%..\lib\brain-cli\%BRAIN_CLI_VERSION%"
+if "%~1"=="mcp" if "%~2"=="serve" goto mcp_serve
 if defined BRAIN_CLI_BUNDLE (
     set "DISTRIBUTION_ROOT=%BRAIN_CLI_BUNDLE%"
 ) else if exist "%SELF_DIR%_local_cli\main.py" (
@@ -38,5 +39,18 @@ if defined PYTHONPATH (
 ) else (
     set "PYTHONPATH=%DISTRIBUTION_ROOT%\cli;%DISTRIBUTION_ROOT%\src\brain-core\scripts"
 )
-%PYTHON_COMMAND% -m _local_cli.main %*
+%PYTHON_COMMAND% -B -m _local_cli.main %*
+exit /b %ERRORLEVEL%
+
+:mcp_serve
+if not exist "%DISTRIBUTION_ROOT%\.bootstrap-python" (
+    >&2 echo brain: installed MCP bootstrap is missing; reinstall the CLI with --bootstrap-python
+    exit /b 4
+)
+set /p BOOTSTRAP_PYTHON=<"%DISTRIBUTION_ROOT%\.bootstrap-python"
+if not exist "%BOOTSTRAP_PYTHON%" (
+    >&2 echo brain: recorded bootstrap Python is unavailable; reinstall the CLI with --bootstrap-python
+    exit /b 4
+)
+"%BOOTSTRAP_PYTHON%" -I -B "%DISTRIBUTION_ROOT%\cli\_mcp_stdio.py" %*
 exit /b %ERRORLEVEL%

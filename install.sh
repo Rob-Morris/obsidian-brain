@@ -92,10 +92,17 @@ parse_flags() {
     ACKNOWLEDGE_GLOBAL_CLI_CUTOVER=false
     STALE_BRAIN_EXCLUSIONS=()
     BRAIN_ID=""
+    MCP_CLIENT=""
     VAULT_PATH=""
     local expect_id=false
+    local expect_client=false
     local expect_stale_exclusion=false
     for arg in "$@"; do
+        if [ "$expect_client" = true ]; then
+            MCP_CLIENT="$arg"
+            expect_client=false
+            continue
+        fi
         if [ "$expect_id" = true ]; then
             BRAIN_ID="$arg"
             expect_id=false
@@ -107,6 +114,9 @@ parse_flags() {
             continue
         fi
         case "$arg" in
+            --client)
+                expect_client=true
+                ;;
             --non-interactive)
                 NON_INTERACTIVE=true
                 ;;
@@ -392,7 +402,7 @@ if [ "${1:-}" = "--uninstall" ]; then
     info "The brain CLI binary (e.g. ~/.local/bin/brain) is kept — other vaults may rely on it."
     printf '\n'
     info "User-scope Claude/Codex/Grok cleanup is explicit and is not run automatically."
-    info "If this vault owns a user-scope registration, remove it before uninstalling:"
+    info "User-scope registrations are shared and retained. To remove them explicitly:"
     info "  python3 \"$VAULT_PATH/.brain-core/scripts/configure.py\" mcp --vault \"$VAULT_PATH\" --user --client all --remove"
 
     if [ "$NON_INTERACTIVE" = false ]; then
@@ -407,67 +417,23 @@ if [ "${1:-}" = "--uninstall" ]; then
             exit 0
         fi
     fi
-
-    printf '\n' >&2
-    find_python_312 || true
-    MCP_CLEANUP_PYTHON="$_PY312_PATH"
-    if [ -n "$MCP_CLEANUP_PYTHON" ] && [ -f "$VAULT_PATH/.brain-core/scripts/configure.py" ]; then
-        if ! spin "Removing recorded project MCP entries" "$MCP_CLEANUP_PYTHON" "$VAULT_PATH/.brain-core/scripts/configure.py" mcp --vault "$VAULT_PATH" --workspace "$VAULT_PATH" --client all --remove --force; then
-            warn "Could not remove recorded project MCP entries automatically."
-            info "Retry later with:"
-            info "  \"$MCP_CLEANUP_PYTHON\" \"$VAULT_PATH/.brain-core/scripts/configure.py\" mcp --vault \"$VAULT_PATH\" --workspace \"$VAULT_PATH\" --client all --remove"
-        fi
-        if ! spin "Removing recorded Claude local MCP entries" "$MCP_CLEANUP_PYTHON" "$VAULT_PATH/.brain-core/scripts/configure.py" mcp --vault "$VAULT_PATH" --workspace "$VAULT_PATH" --client claude --local --remove --force; then
-            warn "Could not remove recorded Claude local MCP entries automatically."
-            info "Retry later with:"
-            info "  \"$MCP_CLEANUP_PYTHON\" \"$VAULT_PATH/.brain-core/scripts/configure.py\" mcp --vault \"$VAULT_PATH\" --workspace \"$VAULT_PATH\" --client claude --local --remove"
-        fi
-        if ! spin "Cleaning CLAUDE.md bootstrap" "$MCP_CLEANUP_PYTHON" "$VAULT_PATH/.brain-core/scripts/configure.py" workspace bootstrap --vault "$VAULT_PATH" --workspace "$VAULT_PATH" --surface claude --remove; then
-            warn "Could not clean the Brain bootstrap line from CLAUDE.md automatically."
-            info "Retry later with:"
-            info "  \"$MCP_CLEANUP_PYTHON\" \"$VAULT_PATH/.brain-core/scripts/configure.py\" workspace bootstrap --vault \"$VAULT_PATH\" --workspace \"$VAULT_PATH\" --surface claude --remove"
-        fi
-        printf '\n' >&2
-    else
-        warn "Skipping recorded MCP and bootstrap cleanup (Python 3.12+ or configure.py unavailable)."
+    MCP_CLEANUP_CLI="$(command -v brain || true)"
+    installer_directory="$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
+    if [ -f "$installer_directory/cli/_local_cli/main.py" ]; then
+        MCP_CLEANUP_CLI="$installer_directory/cli/brain"
     fi
-
-    registry_update --unregister "$VAULT_PATH" "$VAULT_PATH/.brain-core/scripts/vault_registry.py"
-
-    spin "Removing brain system files" bash -c '
-        rm -rf "$1/.brain-core"
-        rm -rf "$1/.brain"
-        rm -rf "$1/.venv"
-    ' _ "$VAULT_PATH"
-
-    # If no other vaults remain registered, hint at manual CLI cleanup.
-    if [ -z "$(registry_single_valid_vault)" ]; then
-        config_home="${XDG_CONFIG_HOME:-$HOME/.config}"
-        registry_file="$config_home/brain/vaults"
-        remaining=0
-        if [ -f "$registry_file" ]; then
-            while IFS=$'\t' read -r alias path; do
-                case "$alias" in ''|\#*) continue ;; esac
-                path="${path%$'\r'}"
-                [ -z "$path" ] && continue
-                if [ -d "$path" ] && { [ -f "$path/.brain-core/VERSION" ] || [ -f "$path/AGENTS.md" ] || [ -f "$path/Agents.md" ]; }; then
-                    remaining=$((remaining + 1))
-                fi
-            done < "$registry_file"
-        fi
-        if [ "$remaining" -eq 0 ]; then
-            printf '\n' >&2
-            info "This was the last registered brain vault."
-            info "If no other machines or projects use it, you may also remove:"
-            info "  rm -rf ~/.brain/venvs/    # central managed runtimes"
-            for cli_path in "$HOME/.local/bin/brain" "/usr/local/bin/brain"; do
-                if [ -f "$cli_path" ]; then
-                    info "  rm \"$cli_path\"           # brain CLI"
-                fi
-            done
-        fi
+    [ -n "$MCP_CLEANUP_CLI" ] || err "Install Brain CLI 4+ before uninstalling; registration cleanup must be verified."
+    cleanup_version="$("$MCP_CLEANUP_CLI" --version)"
+    case "$cleanup_version" in
+        "brain 0."*|"brain 1."*|"brain 2."*|"brain 3."*)
+            err "Upgrade the Brain CLI before uninstalling; this CLI cannot clean canonical registrations."
+            ;;
+    esac
+    if ! "$MCP_CLEANUP_CLI" uninstall --vault "$VAULT_PATH" --request-json '{}' --json; then
+        err "Uninstall stopped. Resolve the reported registration/migration conflict and rerun; no further deletion was attempted."
     fi
-
+    info "Shared user MCP registrations, the CLI and managed runtimes are retained."
+    info "Use brain doctor and brain runtime remove-orphans for reference-aware runtime maintenance."
     if [ "$NON_INTERACTIVE" = false ]; then
         printf '\n' >&2
         printf '  Also delete the Obsidian vault and all data at \033[1m%s\033[0m? [y/N]: ' "$VAULT_PATH" >&2
@@ -675,6 +641,8 @@ if [ -n "$EXISTING_VERSION" ]; then
 fi
 
 printf '\n' >&2
+
+
 if [ "$UPGRADE_MODE" = true ]; then
     if [ "$SKIP_CLI" = true ]; then
         err "--skip-cli cannot be used for the coordinated Brain Core 0.55 / CLI 2 cutover."
@@ -754,6 +722,51 @@ else
         esac
     fi
 
+    if [ "$MCP_SCOPE_CHOICE" != "skip" ] && [ -z "$MCP_CLIENT" ]; then
+        if [ "$NON_INTERACTIVE" = true ]; then
+            err "MCP setup requires --client claude|codex|grok|all (or --skip-mcp)."
+        fi
+        printf '  MCP clients: claude, codex, grok, or all (All supported clients): ' >&2
+        read -r MCP_CLIENT
+    fi
+    case "${MCP_CLIENT:-all}" in
+        claude|codex|grok|all) ;;
+        *) err "Unknown MCP client: $MCP_CLIENT" ;;
+    esac
+    # ---------------------------------------------------------------------------
+    # brain CLI distribution install (~/.local, or /usr/local with --system)
+    # ---------------------------------------------------------------------------
+
+    if [ "$UPGRADE_MODE" != true ] && [ "$SKIP_CLI" != true ]; then
+        if [ "$INSTALL_SYSTEM" = true ]; then
+            CLI_TARGET_DIR="/usr/local/bin"
+        else
+            CLI_TARGET_DIR="$HOME/.local/bin"
+        fi
+        CLI_TARGET="$CLI_TARGET_DIR/brain"
+        if [ -n "$PYTHON" ] && "$PYTHON" "$REPO_DIR/cli/_distribution.py" "$REPO_DIR" "$CLI_TARGET" >/dev/null; then
+            printf '\n' >&2
+            info "Installed Brain CLI distribution: $CLI_TARGET"
+            export PATH="$CLI_TARGET_DIR:$PATH"
+            case ":${PATH}:" in
+                *":${CLI_TARGET_DIR}:"*) ;;
+                *)
+                    warn "$CLI_TARGET_DIR is not on your PATH."
+                    info "Add this to your shell profile (~/.zshrc, ~/.bashrc):"
+                    info "  export PATH=\"$CLI_TARGET_DIR:\$PATH\""
+                    ;;
+            esac
+        else
+            printf '\n' >&2
+            warn "Could not install the Brain CLI distribution to $CLI_TARGET."
+            info "Retry CLI installation with Python 3.12+:"
+            info "  python3.12 \"$REPO_DIR/cli/_distribution.py\" \"$REPO_DIR\" \"$CLI_TARGET\""
+        fi
+    elif [ "$UPGRADE_MODE" != true ] && [ "$SKIP_CLI" = true ]; then
+        info "brain CLI install skipped (--skip-cli)."
+    fi
+
+
     install_cmd=(
         "$PYTHON"
         "$REPO_DIR/src/brain-core/scripts/install.py"
@@ -761,7 +774,7 @@ else
         --source-root "$REPO_DIR"
         --launcher "$PYTHON"
         --mcp-scope "$MCP_SCOPE_CHOICE"
-        --client all
+        --client "${MCP_CLIENT:-all}"
     )
     if [ -n "$BRAIN_ID" ]; then
         install_cmd+=(--id "$BRAIN_ID")
@@ -813,38 +826,6 @@ if [ -n "$PYTHON" ] && { [ "${CONFIGURE_SEMANTIC:-}" = "y" ] || [ "${CONFIGURE_S
         info "Retry later with:"
         print_semantic_retry_hint "$VAULT_PATH" "$PYTHON"
     fi
-fi
-
-# ---------------------------------------------------------------------------
-# brain CLI distribution install (~/.local, or /usr/local with --system)
-# ---------------------------------------------------------------------------
-
-if [ "$UPGRADE_MODE" != true ] && [ "$SKIP_CLI" != true ]; then
-    if [ "$INSTALL_SYSTEM" = true ]; then
-        CLI_TARGET_DIR="/usr/local/bin"
-    else
-        CLI_TARGET_DIR="$HOME/.local/bin"
-    fi
-    CLI_TARGET="$CLI_TARGET_DIR/brain"
-    if [ -n "$PYTHON" ] && "$PYTHON" "$REPO_DIR/cli/_distribution.py" "$REPO_DIR" "$CLI_TARGET" >/dev/null; then
-        printf '\n' >&2
-        info "Installed Brain CLI distribution: $CLI_TARGET"
-        case ":${PATH}:" in
-            *":${CLI_TARGET_DIR}:"*) ;;
-            *)
-                warn "$CLI_TARGET_DIR is not on your PATH."
-                info "Add this to your shell profile (~/.zshrc, ~/.bashrc):"
-                info "  export PATH=\"$CLI_TARGET_DIR:\$PATH\""
-                ;;
-        esac
-    else
-        printf '\n' >&2
-        warn "Could not install the Brain CLI distribution to $CLI_TARGET."
-        info "The vault is installed; retry CLI installation with Python 3.12+:"
-        info "  python3.12 \"$REPO_DIR/cli/_distribution.py\" \"$REPO_DIR\" \"$CLI_TARGET\""
-    fi
-elif [ "$UPGRADE_MODE" != true ] && [ "$SKIP_CLI" = true ]; then
-    info "brain CLI install skipped (--skip-cli)."
 fi
 
 # ---------------------------------------------------------------------------
