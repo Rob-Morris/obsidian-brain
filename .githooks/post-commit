@@ -1,12 +1,16 @@
 #!/usr/bin/env bash
 #
-# Post-commit dispatcher: core.hooksPath points here, so local hooks
-# in .git/hooks/ won't run automatically.  Forward to the local hook
-# if one exists.
+# Offline reminder only: external CI must never hold up a local commit.
 
-REPO_ROOT="$(git rev-parse --show-toplevel)"
-LOCAL_HOOK="$REPO_ROOT/.git/hooks/post-commit"
+COMMIT=$(git rev-parse HEAD)
+printf '\npost-commit: committed %s; CI has not been verified by this hook.\n' "$COMMIT" >&2
+printf '%s\n' 'After an authorised push, run src/scripts/check_ci.py for that exact SHA, repository and branch.' >&2
+printf '%s\n' 'See docs/standards/agent-workflow.md. Do not propagate until required CI passes.' >&2
 
-if [[ -x "$LOCAL_HOOK" ]]; then
-  exec "$LOCAL_HOOK" "$@"
+# Resolve the extension through Git so linked worktrees use the correct git-dir.
+LOCAL_HOOK="$(git rev-parse --git-common-dir)/hooks/post-commit"
+
+if [[ -x "$LOCAL_HOOK" && ! "$LOCAL_HOOK" -ef "$0" ]]; then
+  "$LOCAL_HOOK" "$@" || printf '%s\n' 'post-commit: local extension failed; the commit already exists.' >&2
 fi
+exit 0

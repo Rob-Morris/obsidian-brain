@@ -18,6 +18,14 @@ The hook source is tracked at `.githooks/pre-commit`. To activate:
 make hooks      # sets git to use .githooks/ directory
 ```
 
+The committed post-commit hook also prints a fast offline CI reminder. It never
+contacts GitHub or waits on external CI, so offline commits remain available.
+After an authorised push, use `src/scripts/check_ci.py` as described in the
+[post-push CI check](standards/agent-workflow.md#post-push-ci-check).
+The optional `.git/hooks/post-commit` extension is for machine-specific actions;
+its failure is reported separately from the already-created commit. Local vault
+propagation canaries remain agent-followed policy, not automated hook execution.
+
 The hook is read-only with respect to tracked files and the Git index. It
 reports deterministic drift but never rewrites or stages a correction. Use
 `python src/scripts/release.py prepare ...` for explicit dry-run-first release

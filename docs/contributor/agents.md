@@ -112,7 +112,9 @@ events rather than assuming lock fairness under a tight writer loop.
 After an authorised push, follow the
 [post-push CI check](../standards/agent-workflow.md#post-push-ci-check).
 Include the tested commit and workflow results in the handoff; local test success
-does not complete this gate.
+does not complete this gate. Use `src/scripts/check_ci.py` for exact-commit
+push/manual-dispatch evidence; the committed post-commit hook only reminds and
+never runs the remote check automatically.
 
 ## Installing for Users
 

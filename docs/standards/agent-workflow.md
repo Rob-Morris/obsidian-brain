@@ -57,22 +57,44 @@ This is an explicit contributor check, not automated branch protection.
    to release/vault propagation. A local-only commit may be handed off as
    unpushed and CI-unverified, without implying permission to push or deploy.
 
-For a push run, capture the SHA at push time and inspect it with GitHub CLI:
+The committed `.githooks/post-commit` prints an offline reminder and the new
+commit SHA. Activate it with `make hooks`. It does not contact GitHub, wait for
+CI, push, deploy or certify anything. An optional local hook remains a separate
+machine extension; the shared reminder is not dependent on that extension.
+
+For push runs, capture the SHA at push time and use the read-only checker
+(Python 3.12 and authenticated GitHub CLI required):
 
 ```bash
 ci_sha="$(git rev-parse HEAD)"
-gh run list --commit "$ci_sha" --limit 100 \
-  --json databaseId,workflowName,headSha,headBranch,event,status,conclusion,attempt,url
-gh run view RUN_ID --json headSha,status,conclusion,attempt,jobs,url
+.venv/bin/python src/scripts/check_ci.py \
+  --repo Rob-Morris/obsidian-brain --commit "$ci_sha" --branch main --json
+# Optional bounded wait; the default is a single observation.
+.venv/bin/python src/scripts/check_ci.py \
+  --repo Rob-Morris/obsidian-brain --commit "$ci_sha" --branch main --wait --timeout 300
 gh run view RUN_ID --log-failed
 ```
 
-Replace `RUN_ID` with each applicable run ID. Check the expected workflow set,
-not just whichever runs the listing returns. Inspect more results if the listing
-is truncated; use `gh pr checks PR_NUMBER` for PR-associated checks. Poll pending
-runs at a reasonable interval while keeping the user informed. A zero exit from
-`gh run view --exit-status` alone is insufficient: a pending run can also return
-zero. Inspect both status and conclusion explicitly.
+Use the actual repository and branch (including for forks); `--commit` requires
+a full SHA. The checker owns the required workflow-path set, paginates the run
+inventory and selects the newest matching run and its current attempt for each
+workflow. Only completed/success is passing. Exit codes: **0** passed, **1** failed
+(including cancelled/skipped conclusions), **2** pending or missing, **3** evidence
+unavailable (including missing `gh`, authentication/network errors, timeouts or
+incomplete/malformed responses). Invalid arguments also exit 2 before querying.
+Results include the exact identity, per-workflow states, run IDs, attempts and
+links. A bounded wait expiry is still unverified; check again later. Each GitHub
+query is capped at 30 seconds, and availability errors are reported without
+automatic retries. The checker never starts or reruns workflows.
+
+The default event is `push`. After a separately authorised manual dispatch,
+use `--event workflow_dispatch` and the dispatched branch/SHA. PR verification
+is deliberately not inferred from push evidence: use `gh pr checks PR_NUMBER`
+and inspect its associated tested head/merge SHA. Replace `RUN_ID` above with a
+reported failing run ID to diagnose it. A zero exit from
+`gh run view --exit-status` alone is insufficient: a pending run can return zero.
+Recheck immediately before propagation; an earlier result is not a durable CI
+certificate and cannot certify a different commit or a later rerun.
 
 Direct pushes to `main` can make `main` temporarily red. This workflow requires
 following those failures through to resolution; it does not prevent them from

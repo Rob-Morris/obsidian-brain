@@ -11,6 +11,9 @@ Remote CI is checked after an authorised push, following the
 [post-push CI check](agent-workflow.md#post-push-ci-check), not certified by a
 pre-commit receipt. Propagation canaries must defer deployment while that check
 is unresolved; a completed local checklist is not evidence of green native CI.
+The committed post-commit hook is an offline reminder, not a remote gate or
+canary interpreter. The explicit `src/scripts/check_ci.py` command supplies
+current CI evidence; local propagation instructions consume that result.
 
 ## How to use a canary brief
 
