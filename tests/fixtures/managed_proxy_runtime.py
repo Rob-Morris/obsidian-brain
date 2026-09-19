@@ -20,7 +20,12 @@ def prepare_runtime(vault: Path) -> Path:
         venv.EnvBuilder(with_pip=False, symlinks=os.name == "posix").create(root)
         packages = root / ("Lib/site-packages" if os.name == "nt" else
                            f"lib/python{sys.version_info.major}.{sys.version_info.minor}/site-packages")
-        (packages / "brain-test-packages.pth").write_text("\n".join(site.getsitepackages()) + "\n")
+        # Dependencies such as pywin32 need their own .pth paths/bootstrap code,
+        # which a plain parent-directory path entry does not process.
+        (packages / "brain-test-packages.pth").write_text(
+            "".join(f"import site; site.addsitedir({path!r})\n" for path in site.getsitepackages()),
+            encoding="utf-8",
+        )
     return python
 
 

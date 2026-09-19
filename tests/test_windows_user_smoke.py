@@ -86,6 +86,33 @@ def test_environment_parser_requires_complete_structural_facts():
         _parse_environment(envelope)
 
 
+def test_managed_runtime_fixture_processes_reused_package_pth(command_vault_clone):
+    vault = command_vault_clone.vault_root
+    runner_packages = vault.parent / "runner packages"
+    nested = runner_packages / "nested"
+    nested.mkdir(parents=True)
+    (nested / "brain_test_nested.py").write_text("READY = True\n", encoding="utf-8")
+    (runner_packages / "dependency.pth").write_text(
+        "nested\nimport builtins; builtins.BRAIN_TEST_PTH_READY = True\n", encoding="utf-8",
+    )
+    fixture = REPO_ROOT / "tests/fixtures/managed_proxy_runtime.py"
+    runtime = subprocess.run(
+        [sys.executable, "-c",
+         "import runpy, site, sys; from pathlib import Path; "
+         "site.getsitepackages = lambda: [sys.argv[2]]; "
+         "fixture = runpy.run_path(sys.argv[1]); "
+         "print(fixture['prepare_runtime'](Path(sys.argv[3])))",
+         str(fixture), str(runner_packages), str(vault)],
+        check=True, capture_output=True, text=True, timeout=30,
+    ).stdout.strip()
+    result = subprocess.run(
+        [runtime, "-I", "-c", "import brain_test_nested, builtins; "
+         "assert brain_test_nested.READY; assert builtins.BRAIN_TEST_PTH_READY"],
+        capture_output=True, text=True, timeout=30,
+    )
+    assert result.returncode == 0, result.stderr
+
+
 async def _call_installed_environment_read(
     vault_root: Path, env: dict[str, str], *, timeout_seconds: float = 90,
 ) -> dict:
