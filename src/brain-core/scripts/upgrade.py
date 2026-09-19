@@ -2595,6 +2595,9 @@ def upgrade(
     result["runtime_orphans"] = _inspect_runtime_orphans(Path(vault_root))
 
     result["message"] = f"Upgraded {old_version or '(none)'} → {new_version}"
+    if result["mcp_registration_repair"].get("outcome") in {"error", "partial", "unknown"}:
+        result["status"] = "partial"
+        result["message"] += "; MCP registration reconciliation requires recovery"
     _write_upgrade_log(vault_root, result)
     return result
 
@@ -2738,6 +2741,8 @@ def main() -> None:
 
     if args.json_output:
         print(json.dumps(result, indent=2))
+        if result["status"] == "partial":
+            sys.exit(1)
         return
 
     # Human-readable output
@@ -2872,6 +2877,11 @@ def main() -> None:
             print(file=sys.stderr)
 
         mcp_registration_repair = result.get("mcp_registration_repair")
+        if isinstance(mcp_registration_repair, dict) and mcp_registration_repair.get("outcome") in {"error", "partial", "unknown"}:
+            info(f"MCP registration reconciliation failed: {mcp_registration_repair['message']}")
+            info("  Inspect: brain mcp migrate --dry-run --json")
+            info("  After resolving conflicts: brain mcp migrate --json")
+            info(f"  Then: brain mcp repair --vault {shlex.quote(str(vault_root))} --request-json '{{\"breadth\":\"brain\"}}' --json")
         if (
             isinstance(mcp_registration_repair, dict)
             and mcp_registration_repair.get("outcome") == "deferred"
@@ -2959,6 +2969,10 @@ def main() -> None:
                 info("Definition sync errors (definitions left unchanged — investigate):")
                 for item in sr["errors"]:
                     info(f"  {_format_sync_error(item)}")
+
+
+    if result["status"] == "partial":
+        sys.exit(1)
 
 
 if __name__ == "__main__":

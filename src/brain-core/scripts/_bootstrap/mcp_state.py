@@ -6,6 +6,7 @@ from __future__ import annotations
 import json
 import os
 import shlex
+import re
 import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -391,7 +392,11 @@ def _upsert_toml_section(
 def _toml_body_lines(mapping: Dict[str, Any]) -> List[str]:
     body: List[str] = []
     for key, value in mapping.items():
-        if isinstance(value, str):
+        key = key if re.fullmatch(r"[A-Za-z0-9_-]+", key) else json.dumps(key)
+        if isinstance(value, dict):
+            fields = [line.rstrip() for line in _toml_body_lines(value)]
+            body.append(f"{key} = {{ {', '.join(fields)} }}\n")
+        elif isinstance(value, str):
             body.append(f'{key} = {json.dumps(value)}\n')
         elif isinstance(value, bool):
             body.append(f"{key} = {'true' if value else 'false'}\n")
@@ -474,13 +479,21 @@ def write_toml_config(server_config: Dict[str, Any], config_path: Path) -> None:
 
 
 def render_toml_config(content: str, server_config: Dict[str, Any]) -> str:
-    """Render a client TOML config with the canonical Brain server entry."""
+    """Update transport while preserving client-owned policy in the same table."""
+    import tomllib
+    from copy import deepcopy
+
+    original = tomllib.loads(content)
     preamble, sections = _parse_toml_sections(content)
+    main_index = _find_section_index(sections, "mcp_servers.brain")
+    main = tomllib.loads("".join(sections[main_index]["body"])) if main_index is not None else {}
+    main.pop("env", None)
     _upsert_toml_section(
         sections,
         "mcp_servers.brain",
         _toml_body_lines(
             {
+                **main,
                 "command": server_config["command"],
                 "args": server_config["args"],
             }
@@ -491,7 +504,12 @@ def render_toml_config(content: str, server_config: Dict[str, Any]) -> str:
         "mcp_servers.brain.env",
         _toml_body_lines(server_config["env"]),
     )
-    return _render_toml(preamble, sections)
+    rendered = _render_toml(preamble, sections)
+    expected = deepcopy(original)
+    expected.setdefault("mcp_servers", {}).setdefault("brain", {}).update(server_config)
+    if tomllib.loads(rendered) != expected:
+        raise ValueError("Brain TOML transport cannot be updated without changing client settings")
+    return rendered
 
 
 def render_toml_without_server(

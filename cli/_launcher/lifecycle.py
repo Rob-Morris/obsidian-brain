@@ -868,13 +868,13 @@ def execute_upgrade(context: LauncherContext, request: BrainUpgradeRequest):
             ErrorCode.CONFLICT,
             result.get("message") or "Brain upgrade was rolled back.",
         )
-    if status not in {"ok", "skipped"}:
+    if status not in {"ok", "partial", "skipped"}:
         raise RuntimeError(f"Brain upgrader returned an unknown status: {status!r}")
     if result.get("new_version") != preflight.source_brain_core_version:
         raise RuntimeError(
             "Brain upgrader returned a version that does not match cutover preflight"
         )
-    if not context.dry_run and status == "ok" and installed_distribution is None:
+    if not context.dry_run and status in {"ok", "partial"} and installed_distribution is None:
         raise RuntimeError(
             "Brain upgrader did not execute the coordinated CLI commit callback"
         )

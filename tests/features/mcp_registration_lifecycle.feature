@@ -49,6 +49,19 @@ Feature: Registration-driven MCP lifecycle
     When the Brain is uninstalled
     Then uninstall is refused before deleting its Core
 
+  Scenario: Client approvals are not transport ownership conflicts
+    Given recorded transport and native client-owned approval policy
+    When migration, configuration or repair updates the owned transport
+    Then all approval settings remain unchanged
+    And diagnostics compare ownership without claiming client approval policy
+    And changed transport fields still stop admission before writes
+
+  Scenario: A committed upgrade reports incomplete MCP reconciliation
+    Given a Core and CLI cutover that has committed
+    When MCP migration refuses a conflicting transport
+    Then the direct upgrader reports a partial outcome and exits nonzero
+    And the upgraded Core remains installed with recovery evidence
+
   Scenario: Persisted launch survives a hostile noninteractive environment
     Given a persisted user command with an absolute checked bootstrap
     And empty PATH with foreign Python and development overrides

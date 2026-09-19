@@ -373,6 +373,15 @@ committed migration with verification still pending; the receipt reports partial
 effects, not successful connectivity. Older Core direct user writers are not
 supported after cutover, even where serving that Core remains compatible.
 
+Brain preserves native client approval policy during migration,
+configuration and repair. Codex's `default_tools_approval_mode`, tool allow/deny
+lists and per-tool `approval_mode` are not transport ownership conflicts.
+Claude permission/approval settings and Grok's sibling permission/UI tables
+remain client-owned and unchanged. Changed commands, environment, routing and
+unrecognised server options still require explicit resolution. Explicit server
+removal removes its nested Codex policy along with that server; it does not
+change sibling/global client permission settings.
+
 User entries launch an absolute installed `brain mcp serve` command. The checked
 distribution records its base Python separately from Brain managed runtimes.
 Stdio startup neither searches PATH nor installs anything. If the recorded base
@@ -393,12 +402,12 @@ user registrations still depend on it.
 
 The installer writes a versioned distribution under the selected prefix and a small platform bootloader under `bin/`:
 
-- Unix-like user install: `~/.local/bin/brain` and `~/.local/lib/brain-cli/4.0.0/`.
-- Native Windows user install: `%LOCALAPPDATA%\Programs\Brain\bin\brain.cmd` and the adjacent `lib\brain-cli\4.0.0\` distribution.
+- Unix-like user install: `~/.local/bin/brain` and `~/.local/lib/brain-cli/4.0.1/`.
+- Native Windows user install: `%LOCALAPPDATA%\Programs\Brain\bin\brain.cmd` and the adjacent `lib\brain-cli\4.0.1\` distribution.
 
 The distribution contains the launcher application plus the Brain Core payload needed for install, upgrade and selected-Brain execution. Installation and replacement verify a content manifest and executable identity; failed replacement restores the proven old binary/distribution pair or retains recovery material and reports the outcome as unverified. Failed upgrade results carry every known absolute recovery path in the structural error and durable launcher receipt: residual staging material after a verified rollback is a known partial outcome, while unverified rollback remains outcome-unknown. Standalone human output lists the same paths before the failure message. Once the new pair is verified, failure or interruption while removing an old backup is committed post-upgrade recovery work and never rolls Brain Core back to an older version. Both the launcher result and standalone distribution JSON list the surviving `cleanup_recovery_paths`.
 
-The bootloader requires Python 3.12 or newer. `BRAIN_CLI_VERSION` is `4.0.0`; `BRAIN_INSTALL_REF` is `v0.70.0`.
+The bootloader requires Python 3.12 or newer. `BRAIN_CLI_VERSION` is `4.0.1`; `BRAIN_INSTALL_REF` is `v0.70.1`.
 
 JSON command invocations validate the structural stdout envelope, including
 command identity, version and exit category. Incidental child stderr does not

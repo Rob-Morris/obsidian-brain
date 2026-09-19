@@ -19,6 +19,9 @@ _REAL_SCRIPTS = Path(__file__).resolve().parents[1] / "src" / "brain-core" / "sc
 
 @pytest.fixture(autouse=True)
 def _close_post_upgrade_runtime_state(monkeypatch):
+    from _bootstrap import mcp_transport
+
+    monkeypatch.setattr(mcp_transport, "delegate_machine_command", lambda *args, **kwargs: {"status": "ok", "committed_effects": []})
     monkeypatch.setattr(
         upgrade,
         "_complete_runtime_readiness",

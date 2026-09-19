@@ -457,6 +457,12 @@ an ownership record while an edited rule remains, even if the config was
 already removed. An inherited Claude registration can become visible again
 when the native Grok entry is removed.
 
+MCP migration/configuration/repair preserve Grok's
+sibling `[permission]` rules and `[ui]` permission mode, just as Claude's
+separate permissions and Codex's tool approval settings remain client-owned.
+Brain does not interpret or grant these approvals. Transport changes and
+unrecognised server options remain subject to exact ownership checks.
+
 `brain agent-skill configure --request-json '{"client":"grok"}'` installs the
 active-Brain shaping adapter. `skill.expose` and `skill.unexpose` accept Grok
 for global or project scope and use the existing ownership marker, dry-run and

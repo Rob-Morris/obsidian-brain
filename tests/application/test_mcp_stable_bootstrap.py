@@ -7,6 +7,7 @@ from pathlib import Path
 import subprocess
 import shutil
 import sys
+import tomllib
 
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
@@ -83,9 +84,19 @@ def test_installed_user_lifecycle_needs_no_selected_or_default_brain(tmp_path, m
         return payload
 
     invoke("configure")
+    codex = home / ".codex/config.toml"
+    codex.write_text(codex.read_text() + '\n[mcp_servers.brain.tools.write]\napproval_mode = "approve"\n')
+    claude_settings = home / ".claude/settings.json"
+    claude_settings.parent.mkdir(exist_ok=True)
+    claude_settings.write_text('{"permissions":{"ask":["mcp__brain__write"]}}\n')
+    grok = home / ".grok/config.toml"
+    grok.write_text(grok.read_text() + '\n[permission]\nrules = [{ action = "ask", tool = "MCPTool" }]\n')
     (home / ".claude.json").unlink()
     invoke("repair")
     assert (home / ".claude.json").exists()
+    assert tomllib.loads(codex.read_text())["mcp_servers"]["brain"]["tools"]["write"]["approval_mode"] == "approve"
+    assert json.loads(claude_settings.read_text())["permissions"] == {"ask": ["mcp__brain__write"]}
+    assert tomllib.loads(grok.read_text())["permission"]["rules"] == [{"action": "ask", "tool": "MCPTool"}]
     invoke("configure", action="remove")
     assert not mcp_registration.user_ledger_path(home).exists()
     assert not (home / ".config/brain/default").exists()

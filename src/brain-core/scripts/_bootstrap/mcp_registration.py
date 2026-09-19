@@ -500,7 +500,7 @@ def _configure_plan(
                 _remove_hook(plan, target / mcp_state.CLAUDE_LOCAL_SETTINGS_FILE, vault, target, owned.get("hook_command"))
                 records = [item for item in records if item is not owned]
             continue
-        if current is not None and (owned is None or current != owned["server_config"]):
+        if current is not None and (owned is None or not server_matches(client, current, owned["server_config"])):
             raise ValueError(f"MCP entry is unowned or modified; preserved: {config_path}")
         previous = owned
         if client is McpClient.CLAUDE and target is not None and previous is None:
@@ -550,6 +550,30 @@ def observed_server(plan, client: McpClient, path: Path) -> dict | None:
     return server
 
 
+def server_matches(client: McpClient, observed: dict | None, owned: dict) -> bool:
+    """Match owned transport without claiming the client's tool approval policy."""
+    if observed is None:
+        return False
+    current = dict(observed)
+    if client is McpClient.CODEX:
+        for key in ("default_tools_approval_mode", "enabled_tools", "disabled_tools"):
+            current.pop(key, None)
+        tools = current.get("tools")
+        if isinstance(tools, dict):
+            remaining = {}
+            for name, policy in tools.items():
+                if isinstance(policy, dict) and "approval_mode" in policy:
+                    policy = {key: value for key, value in policy.items() if key != "approval_mode"}
+                    if not policy:
+                        continue
+                remaining[name] = policy
+            if remaining:
+                current["tools"] = remaining
+            else:
+                current.pop("tools")
+    return current == owned
+
+
 def _remaining_claude_route(plan, records, removed, target: Path, home: Path) -> bool:
     for item in records:
         if (item is not removed and item["client"] == "claude" and item["target_path"] == str(target)
@@ -578,7 +602,7 @@ def _remove_plan(vault: Path, home: Path, target: Path | None, scope: McpScope, 
         owned = next((record for record in records if record.get("client") == client.value
                       and record.get("scope") == scope.value
                       and record.get("target_path") == (str(target) if target is not None else None)), None)
-        if current is not None and (owned is None or current != owned["server_config"]):
+        if current is not None and (owned is None or not server_matches(client, current, owned["server_config"])):
             raise ValueError(f"MCP removal refused: unowned or modified entry preserved: {expected_paths[client.value]}")
     retained: list[dict] = []
     for record in records:

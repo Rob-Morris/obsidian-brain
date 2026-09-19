@@ -307,9 +307,15 @@ To upgrade brain-core to a new version:
 
 The checked upgrade runs every pending versioned migration in order, completes
 the selected Brain's runtime warm-up before returning success, and records the
-result in `.brain/local/last-upgrade.json`. If readiness cannot complete it
-returns a known partial outcome with `brain runtime warmup` and `brain runtime
-status` recovery guidance. It never silently deletes shared machine runtimes;
+result in `.brain/local/last-upgrade.json`. If readiness cannot complete, the
+launcher returns a known partial outcome with `brain runtime warmup` and
+`brain runtime status` recovery guidance. A failed MCP ownership migration likewise
+leaves the committed Core/CLI upgrade in place and reports recovery work;
+direct `upgrade.py` reports `status: partial` and exits 1. Preserve client
+approval settings when resolving registration conflicts; they are client policy,
+not permission for Brain to replace transport ownership.
+
+Upgrade never silently deletes shared machine runtimes;
 when read-only topology inspection proves orphan candidates, it reports `brain
 runtime remove-orphans --dry-run` and the explicit removal command. When the Claude/Codex/Grok shaping discovery
 adapter is first introduced or its template changes, it recommends

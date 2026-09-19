@@ -1,6 +1,7 @@
 """Canonical ownership, migration and composable MCP repair behaviour."""
 
 import json
+import tomllib
 from pathlib import Path
 
 import pytest
@@ -100,6 +101,107 @@ def test_migration_modified_entry_leaves_all_claims_untouched(tmp_path, monkeypa
         mcp_migration.migration_plan(home, tmp_path / "bin/brain")
     assert state.read_bytes() == before
     assert not owner.user_ledger_path(home).exists()
+
+
+@pytest.mark.parametrize("inline", [False, True])
+def test_codex_approval_policy_survives_migration_repair_and_configuration(tmp_path, monkeypatch, inline):
+    home, vault, state, _ = legacy_fixture(tmp_path, monkeypatch)
+    evidence = json.loads(state.read_text())
+    record = evidence["records"][0]
+    destination = home / ".codex/config.toml"
+    destination.parent.mkdir()
+    record.update(client="codex", config_path=str(destination))
+    state.write_text(json.dumps(evidence))
+    policy = ('default_tools_approval_mode = "prompt"\n'
+              'enabled_tools = ["read", "write"]\n'
+              'disabled_tools = ["delete"]\n')
+    tools = ('tools = { write = { approval_mode = "approve" } }\n' if inline else
+             '[mcp_servers.brain.tools.write]\napproval_mode = "approve"\n')
+    destination.write_text('[mcp_servers.brain]\ncommand = "/old/python"\n'
+                           'args = ["-m", "brain_mcp.proxy"]\n' + policy + tools)
+    original_policy = {key: value for key, value in tomllib.loads(destination.read_text())["mcp_servers"]["brain"].items()
+                       if key not in {"command", "args", "env"}}
+    binary = tmp_path / "bin/brain"
+    mcp_migration.apply_migration(mcp_migration.migration_plan(home, binary), home)
+    for repair in (True, False):
+        server = owner.stable_server_config(binary)
+        apply(owner._configure_plan(None, home, None, owner.McpScope.USER,
+                                    (owner.McpClient.CODEX,), server, repair=repair))
+        observed = owner.observed_server(FilePlan(), owner.McpClient.CODEX, destination)
+        assert {key: observed[key] for key in original_policy} == original_policy
+        assert observed["command"] == str(binary)
+        _, records = owner.read_records(FilePlan(), None, home, owner.McpScope.USER)
+        assert records[0]["server_config"] == server
+    assert not mcp_migration.migration_plan(home, binary).changes()
+    inventory = mcp_inventory.inspect_registrations(home, (vault,), binary)
+    assert next(item for item in inventory["registrations"] if item.get("client") == "codex" and item.get("scope") == "user")["state"] == "current"
+    apply(owner._remove_plan(None, home, None, owner.McpScope.USER, (owner.McpClient.CODEX,)))
+    assert owner.observed_server(FilePlan(), owner.McpClient.CODEX, destination) is None
+
+
+@pytest.mark.parametrize("extra", [{"url": "https://example.invalid"}, {"cwd": "/elsewhere"},
+                                    {"env_vars": ["SECRET"]}, {"unknown": True},
+                                    {"tools": {"write": {}}},
+                                    {"tools": {"write": {"approval_mode": "approve", "unknown": True}}}])
+def test_approval_policy_does_not_hide_transport_conflicts(tmp_path, extra):
+    server = owner.stable_server_config(tmp_path / "brain")
+    observed = {**server, "tools": {"write": {"approval_mode": "approve"}}, **extra}
+    assert not owner.server_matches(owner.McpClient.CODEX, observed, server)
+
+
+@pytest.mark.parametrize("scope", [owner.McpScope.PROJECT, owner.McpScope.USER])
+def test_changed_approval_policy_survives_transport_repair(tmp_path, monkeypatch, scope):
+    home, vault, state, _ = legacy_fixture(tmp_path, monkeypatch)
+    state.unlink()
+    target = vault if scope is owner.McpScope.PROJECT else None
+    server = owner.stable_server_config(tmp_path / "old/brain")
+    clients = (owner.McpClient.CODEX,)
+    apply(owner._configure_plan(vault, home, target, scope, clients, server))
+    path = owner._config_path(owner.McpClient.CODEX, scope, target, home)
+    policy = '\n[mcp_servers.brain.tools."write.special"]\napproval_mode = "prompt"\n'
+    path.write_text(path.read_text() + policy)
+    replacement = owner.stable_server_config(tmp_path / "new/brain")
+    apply(owner._configure_plan(vault, home, target, scope, clients, replacement, repair=True))
+    current = owner.observed_server(FilePlan(), owner.McpClient.CODEX, path)
+    assert current["command"] == replacement["command"]
+    assert current["tools"]["write.special"]["approval_mode"] == "prompt"
+    assert not owner._configure_plan(vault, home, target, scope, clients, replacement, repair=True).changes()
+
+
+@pytest.mark.parametrize("client", [owner.McpClient.CLAUDE, owner.McpClient.GROK])
+def test_sibling_client_approval_policy_survives_lifecycle(tmp_path, monkeypatch, client):
+    from _bootstrap import mcp_state
+
+    home, vault, state, destination = legacy_fixture(tmp_path, monkeypatch)
+    evidence = json.loads(state.read_text())
+    record = evidence["records"][0]
+    if client is owner.McpClient.GROK:
+        destination = home / ".grok/config.toml"
+        destination.parent.mkdir()
+        content = ('[permission]\nrules = [{ action = "allow", tool = "MCPTool" }]\n'
+                   '[ui]\npermission_mode = "ask"\n')
+        destination.write_text(mcp_state.render_toml_config(content, record["server_config"]))
+    else:
+        data = json.loads(destination.read_text())
+        data["projects"] = {str(vault): {"enabledMcpjsonServers": ["brain"], "disabledMcpjsonServers": ["other"]}}
+        destination.write_text(json.dumps(data))
+        settings = home / ".claude/settings.json"
+        settings.parent.mkdir()
+        settings.write_text(json.dumps({"permissions": {"allow": ["mcp__brain__read"], "ask": ["mcp__brain__write"], "deny": ["mcp__brain__delete"]}}))
+        settings_before = settings.read_bytes()
+    record.update(client=client.value, config_path=str(destination))
+    state.write_text(json.dumps(evidence))
+    parse = json.loads if client is owner.McpClient.CLAUDE else tomllib.loads
+    before = parse(destination.read_text())
+    binary = tmp_path / "bin/brain"
+    mcp_migration.apply_migration(mcp_migration.migration_plan(home, binary), home)
+    for repair in (True, False):
+        apply(owner._configure_plan(None, home, None, owner.McpScope.USER, (client,), owner.stable_server_config(binary), repair=repair))
+        after = parse(destination.read_text())
+        container = "mcpServers" if client is owner.McpClient.CLAUDE else "mcp_servers"
+        assert {key: value for key, value in after.items() if key != container} == {key: value for key, value in before.items() if key != container}
+        if client is owner.McpClient.CLAUDE:
+            assert settings.read_bytes() == settings_before
 
 
 def test_interrupted_migration_resumes_from_durable_evidence(tmp_path, monkeypatch):

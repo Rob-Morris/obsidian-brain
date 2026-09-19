@@ -59,7 +59,7 @@ def migration_plan(home: Path, cli_binary: Path, selected: Path | None = None) -
             observed = registration.observed_server(plan, client, destination)
             expected = {**raw["server_config"], "env": raw["server_config"].get("env", {})}
             registration.validate_server(expected, path)
-            if observed is not None and observed != expected:
+            if observed is not None and not registration.server_matches(client, observed, expected):
                 raise ValueError(f"Modified/conflicting MCP projection requires explicit resolution: {destination}")
             record = {**raw, "schema": registration.REGISTRATION_SCHEMA, "server_config": expected}
             if client is registration.McpClient.CLAUDE and target is not None:

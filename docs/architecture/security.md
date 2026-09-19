@@ -414,6 +414,12 @@ admission and write boundaries. Higher repair breadth selects registered
 targets; it does not grant arbitrary filesystem access from stored paths.
 User claims live in the machine ledger independently of a selected Brain.
 Modified/unowned entries and incomplete coverage block repair.
+Client-owned approval policy is not transport ownership: Codex's documented
+tool approval overrides and tool allow/deny lists are preserved separately;
+Claude permissions and Grok permission/UI tables remain untouched. Only these
+recognised policy fields are excluded from transport comparison. Changed
+commands, arguments, environment, routing and unrecognised server fields still
+block admission; Brain never grants or rewrites client approval policy.
 
 Migration persists exact before/after evidence before changing projections.
 This enables conflict-checked resumption, not cross-repository crash-atomicity.

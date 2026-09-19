@@ -133,6 +133,9 @@ def test_upgrade_orphan_guidance_uses_only_the_canonical_launcher_commands():
 @pytest.fixture(autouse=True)
 def _isolate_global_cli_targets(tmp_path, monkeypatch):
     """Never let upgrade unit tests inspect or replace the developer's CLI."""
+    from _bootstrap import mcp_transport
+
+    monkeypatch.setattr(mcp_transport, "delegate_machine_command", lambda *args, **kwargs: {"status": "ok", "committed_effects": []})
 
     monkeypatch.setattr(
         upgrade,
@@ -2262,6 +2265,29 @@ def test_upgrade_reports_migration_effects_when_projection_repair_fails(source_a
     assert result["committed_effects"] == effects
 
 
+@pytest.mark.parametrize("outcome", ["error", "partial"])
+@pytest.mark.parametrize("json_output", [False, True])
+def test_direct_upgrade_reports_committed_mcp_failure(source_and_vault, monkeypatch, capsys, outcome, json_output):
+    source, vault = source_and_vault
+    monkeypatch.setattr(upgrade, "_repair_mcp_registration_after_upgrade", lambda _vault: {
+        "outcome": outcome, "message": "approval ownership conflict", "committed_effects": []})
+    monkeypatch.setattr(upgrade, "_prepare_cli_cutover", lambda *args, **kwargs: None)
+    monkeypatch.setattr(sys, "argv", ["upgrade.py", "--source", str(source), "--vault", str(vault), *(["--json"] if json_output else [])])
+    with pytest.raises(SystemExit) as error:
+        upgrade.main()
+    assert error.value.code == 1
+    captured = capsys.readouterr()
+    if json_output:
+        assert json.loads(captured.out)["status"] == "partial"
+    else:
+        assert "approval ownership conflict" in captured.err
+        assert "brain mcp migrate --dry-run --json" in captured.err
+    receipt = json.loads((vault / ".brain/local/last-upgrade.json").read_text())
+    assert receipt["status"] == "partial"
+    assert receipt["mcp_registration_repair"]["outcome"] == outcome
+    assert (vault / ".brain-core/VERSION").read_text() == (source / "VERSION").read_text()
+
+
 class TestUpgradeProgressLogging:
     def test_upgrade_records_retrieval_asset_repair_stage_before_follow_up(self, source_and_vault, monkeypatch):
         source, vault = source_and_vault
@@ -2624,7 +2650,9 @@ class TestUpgradeCliCentralRuntime:
             },
         )
 
-        assert result.returncode == 0, result.stderr
+        # This runtime-only fixture deliberately has no installed MCP writer.
+        assert result.returncode == 1, result.stderr
+        assert "MCP registration reconciliation failed:" in result.stderr
         venvs_root = fake_home / ".brain" / "venvs"
         assert venvs_root.is_dir()
         venv_dirs = list(venvs_root.iterdir())
@@ -2739,7 +2767,8 @@ class TestUpgradeCliCentralRuntime:
             [sys.executable, str(script), "--source", str(source), "--vault", str(vault), "--sync-deps"],
             capture_output=True, text=True, timeout=60, env=env,
         )
-        assert first.returncode == 0, first.stderr
+        assert first.returncode == 1, first.stderr
+        assert "MCP registration reconciliation failed:" in first.stderr
         assert "Created central runtime" in first.stderr
 
         # Second run: same requirements → reused, not recreated
@@ -2747,7 +2776,8 @@ class TestUpgradeCliCentralRuntime:
             [sys.executable, str(script), "--source", str(source), "--vault", str(vault), "--sync-deps", "--force"],
             capture_output=True, text=True, timeout=60, env=env,
         )
-        assert second.returncode == 0, second.stderr
+        assert second.returncode == 1, second.stderr
+        assert "MCP registration reconciliation failed:" in second.stderr
         assert "Reused central runtime" in second.stderr
 
 

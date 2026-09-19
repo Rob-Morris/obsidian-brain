@@ -24,6 +24,14 @@ selection, including `all`. Repair restores missing admitted projections but
 never interprets a workspace registration or a discovered client file as new
 installation intent.
 
+Ownership is not ownership of client policy: Codex server-default/tool approval
+settings and tool allow/deny lists are preserved independently of its transport
+claim. Claude's permission/approval settings and Grok's sibling permission/UI
+tables remain client-owned. Migration, configure, repair and inspection use the
+same transport comparison without accepting changed routing, environment or
+unknown server options. Explicit removal of a server also removes its nested
+policy, but never sibling/global client permission settings.
+
 User registration belongs to one OS user, in the trusted Brain config-home
 ledger. Project/local registration remains in the owning Brain's local ledger.
 Native scopes remain client-specific. Configuration destinations are derived

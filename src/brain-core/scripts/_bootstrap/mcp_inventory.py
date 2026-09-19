@@ -171,7 +171,7 @@ def inspect_registrations(home: Path, vaults: tuple[Path, ...], cli_binary: Path
                 state = "unowned" if current is not None else "absent"
             elif current is None and record.get("transport_enabled", True):
                 state = "missing"
-            elif current is not None and (not record.get("transport_enabled", True) or current != record["server_config"]):
+            elif current is not None and (not record.get("transport_enabled", True) or not registration.server_matches(client, current, record["server_config"])):
                 state = "modified"
             else:
                 if scope is registration.McpScope.USER:
