@@ -22,7 +22,7 @@ Env:
 
 from contextlib import nullcontext
 from datetime import datetime, timezone
-from dataclasses import asdict
+from dataclasses import asdict, dataclass
 import base64
 import hashlib
 import itertools
@@ -76,15 +76,25 @@ from ._proxy_controls import (
 )
 
 from ._proxy_handoff import (
-    HANDOFF_TIMEOUT, HANDOFF_VERSION, RawLineReader, public_session,
+    HANDOFF_TIMEOUT, HANDOFF_VERSION, READ_CHUNK, RawLineReader, public_session,
     read_state, state_descriptor,
 )
+from ._proxy_session import (
+    Subscriptions, SubscriptionEvent, SUBSCRIPTION_ID, EVENT_FILTERS, discovery,
+)
+
+
+@dataclass(frozen=True)
+class StartupFailure:
+    phase: str
+    code: str
+    detail: str
 
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
 
-PROXY_VERSION = "0.10.4"
+PROXY_VERSION = "0.10.5"
 _CHILD_PROTOCOL_VERSION = "2026-07-28"
 
 
@@ -297,6 +307,8 @@ def _read_proxy_version_from_disk(proxy_script: str) -> str | None:
 
 def _read_brain_version_from_disk(vault_root: str) -> str | None:
     """Read .brain-core/VERSION from vault root."""
+    if vault_root is None:
+        return None
     version_path = os.path.join(vault_root, ".brain-core", "VERSION")
     try:
         with open(version_path, "r", encoding="utf-8") as f:
@@ -725,6 +737,8 @@ class ChildProcess:
         self._proc: subprocess.Popen | None = None
         self._stderr_thread: threading.Thread | None = None
         self._stdout_reader: RawLineReader | None = None
+        self.subscription_id: str | None = None
+        self._send_lock = threading.Lock()
 
     def start(self, *, owner: ConsentOwner | None = None, owner_unavailable_code: str | None = None,
               transport_identity: ProcessIdentity | None = None, owner_initialisation_allowed: bool = False) -> None:
@@ -777,7 +791,51 @@ class ChildProcess:
     def send(self, obj: dict) -> None:
         """Send a JSON object to the child's stdin."""
         assert self._proc is not None and self._proc.stdin is not None
-        _write_line(self._proc.stdin, obj)
+        with self._send_lock:
+            _write_line(self._proc.stdin, obj)
+
+    def send_control(self, obj: dict, *, timeout: float = HANDOFF_TIMEOUT) -> None:
+        """Bound bridge writes without another thread or interleaving frames.
+
+        A partial frame cannot be withdrawn. On failure retire this child and
+        let the existing recovery owner resolve any admitted work normally.
+        Python 3.12 supports nonblocking pipe descriptors on Windows too.
+        """
+        assert self._proc is not None and self._proc.stdin is not None
+        deadline = time.monotonic() + timeout
+        if not self._send_lock.acquire(timeout=timeout):
+            self.kill()
+            raise TimeoutError("child control write lock timed out")
+        fd = self._proc.stdin.fileno()
+        blocking = None
+        try:
+            blocking = os.get_blocking(fd)
+            os.set_blocking(fd, False)
+            pending = memoryview((json.dumps(obj) + "\n").encode())
+            while pending:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise TimeoutError("child control write timed out")
+                try:
+                    count = os.write(fd, pending[:READ_CHUNK])
+                    if count == 0:
+                        raise BrokenPipeError("child control pipe closed")
+                    pending = pending[count:]
+                except BlockingIOError:
+                    if sys.platform == "win32":
+                        # Windows select cannot wait for anonymous pipe writes.
+                        time.sleep(min(.01, remaining))
+                    else:
+                        select.select([], [fd], [], remaining)
+        except OSError:
+            self.kill()
+            raise
+        finally:
+            try:
+                if blocking is not None:
+                    os.set_blocking(fd, blocking)
+            finally:
+                self._send_lock.release()
 
     def readline(self) -> bytes | None:
         """Read one line from child stdout. Returns None on EOF."""
@@ -790,8 +848,15 @@ class ChildProcess:
         return self._stdout_reader is not None and self._stdout_reader.line_ready
 
     def output_pending(self) -> bool:
-        return bool(self._stdout_reader and self._stdout_reader.remainder) or bool(
-            self.stdout_fd is not None and select.select([self.stdout_fd], [], [], 0)[0])
+        """Probe under the publication gate without treating EOF as pending data."""
+        if self._stdout_reader and self._stdout_reader.remainder:
+            return True
+        if self.stdout_fd is None or not select.select([self.stdout_fd], [], [], 0)[0]:
+            return False
+        if self._stdout_reader is None:
+            return True
+        self._stdout_reader.remainder = os.read(self.stdout_fd, READ_CHUNK)
+        return bool(self._stdout_reader.remainder)
 
     def wait(self) -> int | None:
         """Wait for child to exit. Returns exit code."""
@@ -839,13 +904,24 @@ class Proxy:
     Spawns ChildProcess, forwards messages, handles restarts with backoff.
     """
 
-    def __init__(self, python_path: str, server_target: str, vault_root: str, *, owner: ConsentOwner | None = None,
-                 owner_unavailable_code: str | None = None):
+    def __init__(self, python_path: str, server_target: str, vault_root: str | None, *, owner: ConsentOwner | None = None,
+                 owner_unavailable_code: str | None = None, startup_failure: StartupFailure | None = None,
+                 resolution_inputs: dict | None = None):
         self.python_path = python_path
         self.server_target = server_target
         self.vault_root = vault_root
         self._owner = owner
         self._owner_unavailable_code = owner_unavailable_code
+        self._startup_failure = startup_failure
+        self._resolution_inputs = resolution_inputs
+        self._workspace = os.environ.get("BRAIN_WORKSPACE_DIR") or None
+        self._subscriptions = Subscriptions()
+        self._subscriptions_changed = threading.Event()
+        self._pending_lifecycle = None
+        self._preparing_child = None
+        self._lifecycle_completion = queue.Queue(maxsize=1)
+        self._wake_read = self._wake_write = None
+        self._output_stream = None
         self._transport_identity = ProcessIdentity("mcp-instance", owner.identity.context_id if owner is not None else f"mcp-{uuid.uuid4()}")
         self._launch_lock = threading.Lock()
         self._child_has_launched = False
@@ -863,6 +939,7 @@ class Proxy:
         self._interface_lock = threading.Lock()
         self._client_protocol: str | None = None
         self._initial_protocol_selected = threading.Event()
+        self._initial_protocol_lock = threading.Lock()
         self._public_session: dict | None = None
         self._publication_gate = threading.Lock()
         self._server_requests: dict[str, tuple[ChildProcess, int | str]] = {}
@@ -912,9 +989,6 @@ class Proxy:
         self._recovery_exit_code: int | None = None
         self._version_reset_requested = False
         self._last_version_check: float = 0.0  # monotonic timestamp for cooldown
-        self._refresh_requested = False
-        self._refresh_done = threading.Event()
-        self._refresh_code: str | None = None
         self._refresh_blocked_version: str | None = None
         self._refresh_diagnostic: str | None = None
         self._refresh_header_rejected = False
@@ -984,10 +1058,11 @@ class Proxy:
         Validate the child interface before publishing it to the relay.
         Returns True on success, False on failure (timeout or crash).
         """
-        if self._runtime_error() is not None:
+        if self._assess_startup() is not None or self._runtime_error() is not None:
             return False
         installed_version = _read_brain_version_from_disk(self.vault_root)
         child = ChildProcess(self.python_path, self.server_target)
+        self._preparing_child = child
         try:
             with self._launch_lock:
                 try:
@@ -1040,27 +1115,43 @@ class Proxy:
         self._resolve_pending_unexpected(child)
 
         if (installed_version != _read_brain_version_from_disk(self.vault_root)
-                or self._runtime_error() is not None):
+                or self._runtime_error() is not None or self._assess_startup() is not None):
+            child.kill()
+            return False
+        try:
+            self._sync_subscription_child(child, negotiated=True)
+        except OSError:
             child.kill()
             return False
         if not self._publication_gate.acquire(timeout=HANDOFF_TIMEOUT):
             child.kill()
             return False
         try:
-            with self._child_lock:
-                previous = self._child
-                with self._inflight_lock:
-                    if any(entry[0] is previous for entry in self._server_requests.values()):
-                        child.kill()
-                        return False
-                    self._child = child
+            if self._shutdown or (self._pending_lifecycle is not None and self._pending_lifecycle["cancelled"]):
+                child.kill()
+                return False
+            with self._restart_lock:
+                pending = self._pending_lifecycle
+                if self._shutdown or pending is not None and (pending["cancelled"] or pending["generation"] != self._catalogue_generation):
+                    child.kill()
+                    return False
+                with self._child_lock:
+                    previous = self._child
+                    with self._inflight_lock:
+                        if any(entry[0] is previous for entry in self._server_requests.values()):
+                            child.kill()
+                            return False
+                        self._child = child
+                        self._preparing_child = None
+                        if pending is not None:
+                            pending["activated"] = True
             self._child_start_time = time.monotonic()
             self._last_launched_version = installed_version
             self._catalogue_generation += 1
             if previous is not None:
                 previous.kill()
-            if self._init_response is not None:
-                self._send_to_client({"jsonrpc": "2.0", "method": "notifications/tools/list_changed"})
+            if self._init_response is not None or self._client_protocol == "modern":
+                self._publish_catalogue_change()
             self._child_ready.set()
             return True
         finally:
@@ -1085,15 +1176,74 @@ class Proxy:
 
     def _establish_initial_protocol(self, child: ChildProcess) -> bool:
         """Negotiate modern discovery before releasing the sole child reader."""
-        ready = self._client_protocol != "modern" or self._discover_child(child)
-        self._initial_protocol_selected.set()
-        if not ready:
-            self._signal_recovery(1, child=child)
-        return ready
+        with self._initial_protocol_lock:
+            if self._initial_protocol_selected.is_set():
+                return child.poll() is None and (self._client_protocol != "modern" or self._interface_header is not None)
+            ready = self._client_protocol != "modern" or self._discover_child(child)
+            if ready:
+                try:
+                    self._sync_subscription_child(child, negotiated=True)
+                except OSError:
+                    ready = False
+            self._initial_protocol_selected.set()
+            if not ready:
+                self._signal_recovery(1, child=child)
+            return ready
 
     def _send_to_client(self, obj: dict) -> None:
         """Enqueue a message for the client. Thread-safe. Never raises."""
         self._outbound.put(obj)
+
+    def _publish_catalogue_change(self) -> None:
+        event = {"jsonrpc": "2.0", "method": "notifications/tools/list_changed"}
+        if self._client_protocol == "modern":
+            self._subscriptions.emit(event, self._send_to_client)
+        else:
+            self._send_to_client(event)
+
+    def _sync_subscription_child(self, child, *, negotiated: bool = False) -> None:
+        if self._client_protocol != "modern" or self.server_target != "brain_mcp.server":
+            return
+        if child is None or child.poll() is not None:
+            return
+        if not negotiated and not self._initial_protocol_selected.is_set():
+            return
+        filters = {}
+        for stream in self._subscriptions.snapshot():
+            for key, value in stream["notifications"].items():
+                if key == "resourceSubscriptions":
+                    filters[key] = list(dict.fromkeys([*filters.get(key, []), *value]))
+                else:
+                    filters[key] = value
+        previous = child.subscription_id
+        child.subscription_id = f"brain-proxy-subscription-{uuid.uuid4()}" if filters else None
+        if previous:
+            child.send_control({"jsonrpc": "2.0", "method": "notifications/cancelled", "params": {"requestId": previous}})
+        if child.subscription_id:
+            child.send_control(_internal_request("subscriptions/listen", child.subscription_id,
+                                         {"notifications": filters}, modern=True))
+
+    def _request_subscription_sync(self) -> None:
+        """Let the existing worker own potentially blocking child pipe writes."""
+        self._subscriptions_changed.set()
+        self._recovery_trigger.set()
+
+    def _assess_startup(self) -> str | None:
+        if self.vault_root is None:
+            return "target_unavailable"
+        if self._resolution_inputs is None:
+            return self._startup_failure.code if self._startup_failure else None
+        try:
+            target = resolve_brain_target(**self._resolution_inputs)
+            if (target.vault_root, target.workspace_dir) != (self.vault_root, self._workspace):
+                self._startup_failure = StartupFailure("target", "target_changed", "Selected Brain/workspace changed; reconnect MCP after explicit configuration.")
+                return self._startup_failure.code
+            _probe_local_state(self.vault_root)
+        except (WorkspaceBindingError, OSError) as exc:
+            self._startup_failure = StartupFailure("assessment", "startup_unavailable", str(exc)[:240])
+            return self._startup_failure.code
+        self._startup_failure = None
+        return None
 
     def _recover_owed_client(
         self,
@@ -1125,7 +1275,12 @@ class Proxy:
 
     def _initiate_shutdown(self) -> None:
         """Begin proxy shutdown and wake any sleeping background threads."""
-        self._shutdown = True
+        with self._restart_lock:
+            self._shutdown = True
+        self._wake_input()
+        self._subscriptions.clear()
+        if self._preparing_child is not None:
+            self._preparing_child.kill()
         self._child_ready.set()
         self._recovery_trigger.set()
         if self._owner is not None:
@@ -1135,6 +1290,13 @@ class Proxy:
                 if self._owner_close_timeout is None:
                     raise
                 _log().error("owner ended; private directory cleanup pending: %s", self._owner.private_directory)
+
+    def _wake_input(self) -> None:
+        if self._wake_write is not None:
+            try:
+                os.write(self._wake_write, b"1")
+            except (BlockingIOError, OSError):
+                pass
 
     def _writer_thread(self) -> None:
         """
@@ -1149,16 +1311,24 @@ class Proxy:
             if isinstance(obj, threading.Event):
                 obj.set()
                 continue
+            event = obj if isinstance(obj, SubscriptionEvent) else None
+            if event:
+                if not self._subscriptions.current(event.key):
+                    self._subscriptions.delivered(event.key)
+                    continue
+                obj = event.frame
             if self._proxy_drift and self._proxy_version_on_disk:
                 obj = _decorate_with_drift_note(obj, PROXY_VERSION, self._proxy_version_on_disk)
             if not _safe_write_line(
-                sys.stdout.buffer,
+                self._output_stream if self._output_stream is not None else sys.stdout.buffer,
                 obj,
                 broken_pipe_message="client disconnected (broken pipe on stdout)",
                 error_message="error writing to client stdout",
             ):
                 self._initiate_shutdown()
                 return
+            if event:
+                self._subscriptions.delivered(event.key)
 
     def _read_with_timeout(self, child: ChildProcess, timeout: int) -> dict | None:
         """
@@ -1421,6 +1591,10 @@ class Proxy:
             if response.get("method"):
                 if "id" in response:
                     raise ValueError("candidate requested host input during private negotiation")
+                if response["method"] in EVENT_FILTERS:
+                    # Catalogue activation is published after validation;
+                    # private negotiation is not a host subscription stream.
+                    continue
                 self._send_to_client(response)
                 continue
             raise ValueError("internal request received a contradictory response identifier")
@@ -1524,6 +1698,9 @@ class Proxy:
     def _runtime_status(self) -> dict:
         """Keep the proxy and child in the same installed dependency environment."""
         loaded = sys.executable
+        if self.vault_root is None:
+            return {"loaded": loaded, "child": self.python_path, "required": None,
+                    "state": "installation_unavailable", "restart_required": True}
         if self.server_target != "brain_mcp.server":
             return {"loaded": loaded, "child": self.python_path, "required": None,
                     "state": "unmanaged", "restart_required": False}
@@ -1566,7 +1743,7 @@ class Proxy:
             state = "available"
         else:
             state = "current"
-        return {
+        status = {
             "proxy": {"loaded": PROXY_VERSION,
                       "installed": self._installed_proxy_version,
                       "restart_required": self._proxy_drift or runtime["restart_required"]},
@@ -1595,6 +1772,14 @@ class Proxy:
                             REFRESH_TOOL if state in {"available", "unavailable", "blocked"} else
                             STATUS_TOOL if state == "refreshing" else None),
         }
+        if self._startup_failure:
+            status["diagnostic"] = self._startup_failure.detail
+            status["next_action"] = "restart_mcp" if self.vault_root is None or self._startup_failure.code == "target_changed" else RESTART_TOOL
+        status["lifecycle"] = {"phase": "stopping" if self._shutdown else
+                               "recovering" if self._pending_lifecycle or self._restart_in_progress else
+                               "ready" if alive and header else "blocked",
+                               "failure": self._startup_failure.code if self._startup_failure else None}
+        return status
 
     def _transport_state(self, request_id, stdin: RawLineReader) -> dict:
         return {
@@ -1606,6 +1791,9 @@ class Proxy:
             "tools": {name: asdict(tool) for name, tool in (self._advertised_tools or {}).items()},
             "generation": self._catalogue_generation, "request_id": request_id,
             "remainder": base64.b64encode(stdin.remainder).decode("ascii"),
+            "subscriptions": self._subscriptions.snapshot(),
+            "resolution": ({**self._resolution_inputs, "start_dir": str(self._resolution_inputs["start_dir"])}
+                           if self._resolution_inputs is not None else None),
         }
 
     def _restore_transport(self, state: dict) -> None:
@@ -1615,6 +1803,10 @@ class Proxy:
         self._public_session = state["public_session"]
         self._advertised_tools = {name: InterfaceTool(**tool) for name, tool in state["tools"].items()}
         self._catalogue_generation = state["generation"]
+        self._subscriptions = Subscriptions.restore(state.get("subscriptions", []))
+        self._resolution_inputs = state.get("resolution")
+        if self._resolution_inputs is not None:
+            self._resolution_inputs = {**self._resolution_inputs, "start_dir": Path(self._resolution_inputs["start_dir"])}
 
     def _handoff_environment(self) -> dict:
         env = without_owner_environment()
@@ -1642,41 +1834,6 @@ class Proxy:
                 pass
             process.wait(timeout=HANDOFF_TIMEOUT)
 
-    def _request_handoff(self, request_id, stdin) -> str | None:
-        if os.name != "posix" or not isinstance(stdin, RawLineReader):
-            return "proxy_handoff_unsupported"
-        self._check_proxy_drift()
-        if self._compute_proxy_hash() is None:
-            return "installation_unavailable"
-        runtime = self._runtime_status()
-        if runtime["state"] == "installation_unavailable":
-            return "runtime_installation_unavailable"
-        if not self._proxy_drift and not runtime["restart_required"]:
-            return None
-        if self._public_session is None or self.server_target != "brain_mcp.server":
-            return "proxy_restart_required"
-        with self._inflight_lock:
-            if self._inflight_requests or self._server_requests:
-                return "server_busy"
-        if self._restart_in_progress or self._recovery_thread_failed:
-            return "refresh_in_progress"
-        state = self._transport_state(request_id, stdin)
-        state["python"] = runtime["required"]
-        image_hash = self._compute_proxy_hash()
-        try:
-            with state_descriptor(state) as fd:
-                if not self._preflight_handoff(fd, state["python"]):
-                    return "proxy_handoff_preflight_failed"
-                if (self._compute_proxy_hash() != image_hash
-                        or not same_executable_path(state["python"], self._required_runtime_python())):
-                    return "installation_changed"
-                return self._replace_idle_image(fd, state, image_hash=image_hash)
-        except (OSError, ValueError, subprocess.SubprocessError) as exc:
-            if self._shutdown:
-                raise RuntimeError("proxy handoff failed after retirement; transport closed") from exc
-            _log().warning("proxy handoff refused: %s", type(exc).__name__)
-            return "proxy_handoff_preflight_failed"
-
     def _replace_idle_image(self, fd: int, state: dict, *, image_hash: str | None = None) -> str | None:
         # The reader owns each complete publication, including the gap between
         # removing an in-flight request and queuing its response.
@@ -1692,23 +1849,22 @@ class Proxy:
                     if self._inflight_requests or self._server_requests:
                         return "server_busy"
                 child = self._get_child()
-                if child is None or child.poll() is not None:
-                    return "server_unavailable"
-                os.kill(child.pid, signal.SIGSTOP)
-                frozen = True
-                deadline = time.monotonic() + HANDOFF_TIMEOUT
-                while True:
-                    pid, status = os.waitpid(child.pid, os.WUNTRACED | os.WNOHANG)
-                    if pid:
-                        if not os.WIFSTOPPED(status):
-                            return "server_unavailable"
-                        break
-                    if time.monotonic() >= deadline:
-                        return "server_busy"
-                    time.sleep(0.005)
+                if child is not None and child.poll() is None:
+                    os.kill(child.pid, signal.SIGSTOP)
+                    frozen = True
+                    deadline = time.monotonic() + HANDOFF_TIMEOUT
+                    while True:
+                        pid, status = os.waitpid(child.pid, os.WUNTRACED | os.WNOHANG)
+                        if pid:
+                            if not os.WIFSTOPPED(status):
+                                return "server_unavailable"
+                            break
+                        if time.monotonic() >= deadline:
+                            return "server_busy"
+                        time.sleep(0.005)
                 # No producer can now publish after the barrier. Even an
                 # incomplete pending frame causes refusal, never truncation.
-                if child.output_pending():
+                if child is not None and child.output_pending():
                     return "server_busy"
                 barrier = threading.Event()
                 self._outbound.put(barrier)
@@ -1721,7 +1877,8 @@ class Proxy:
                 self._shutdown = True
                 self._child_ready.set()
                 self._recovery_trigger.set()
-                child.kill()
+                if child is not None:
+                    child.kill()
                 frozen = False
         finally:
             if frozen:
@@ -1731,7 +1888,8 @@ class Proxy:
                     pass
             self._publication_gate.release()
 
-        child.reap(HANDOFF_TIMEOUT)
+        if child is not None:
+            child.reap(HANDOFF_TIMEOUT)
 
         # Readers cannot enqueue after shutdown; the acknowledged barrier means
         # the writer is no longer blocked on host output.
@@ -1776,49 +1934,137 @@ class Proxy:
             self._handoff_state = state
             return "proxy_exec_failed"
 
-    def _request_refresh(self, *, explicit: bool) -> str | None:
-        """Request an idle handover from the existing recovery owner.
-
-        Never wait for in-flight work on the stdin thread: a child may need a
-        host response to finish that work. Returning busy leaves that path open.
-        """
-        runtime_error = self._runtime_error()
-        if runtime_error is not None:
-            return runtime_error
-        installed = _read_brain_version_from_disk(self.vault_root)
-        if installed is None:
-            return "installation_unavailable"
-        if self._client_protocol is None or (self._client_protocol == "legacy" and self._init_response is None):
-            return "not_initialised"
+    def _admit_lifecycle(self, request: dict, stdin, *, resume: bool = False) -> str | None:
         with self._restart_lock:
-            if self._restart_in_progress:
+            if self._pending_lifecycle is not None or self._restart_in_progress:
                 return "refresh_in_progress"
-            if self._recovery_thread_failed or self._recovery_thread_is_dead():
-                return "proxy_restart_required"
             with self._inflight_lock:
                 if self._inflight_requests or self._server_requests:
                     return "server_busy"
-            if not explicit and self._refresh_blocked_version == installed:
-                return "server_refresh_blocked"
-            child = self._get_child()
-            if child is not None and child.poll() is None and installed == self._last_launched_version and self._interface_header is not None:
-                return None
-            self._refresh_done.clear()
-            self._refresh_code = None
-            self._refresh_requested = True
+            if self._recovery_thread_failed or self._recovery_thread_is_dead():
+                return "proxy_restart_required"
+            if self._client_protocol == "legacy" and self._init_response is None:
+                return "not_initialised"
+            state = self._transport_state(request["id"], stdin) if isinstance(stdin, RawLineReader) else None
+            self._pending_lifecycle = {"request": request, "resume": resume, "state": state,
+                                       "generation": self._catalogue_generation, "cancelled": False}
             self._restart_in_progress = True
         self._recovery_trigger.set()
-        if not self._refresh_done.wait(timeout=_get_init_timeout() + 2):
-            return "refresh_in_progress"
-        return self._refresh_code
+        return None
 
-    def _refresh_child(self) -> None:
+    def _complete_lifecycle(self, pending, code, *, prepared=None):
+        if self._shutdown:
+            return
+        if pending["cancelled"]:
+            code, prepared = "request_cancelled", None
+        if prepared is not None:
+            pending["prepared"] = True
+            self._lifecycle_completion.put((pending, prepared))
+            self._wake_input()
+            return
+        request = pending["request"]
+        if pending["resume"] and code is None:
+            try:
+                with self._publication_gate:
+                    if self._shutdown:
+                        return
+                    forwarded, accepted = self._prepare_interface_call(request)
+                    self._forward_to_child(forwarded, self._get_child(), accepted)
+            except (ValueError, TypeError) as exc:
+                self._refuse_interface_replay(request["id"], "accepted_call_invalid", detail=str(exc))
+        with self._restart_lock:
+            self._restart_in_progress = False
+            if self._pending_lifecycle is pending:
+                self._pending_lifecycle = None
+        if not pending["resume"] or code is not None:
+            self._send_to_client(control_response(request["id"], request["params"]["name"], self._proxy_status(), code=code))
+        if self._subscriptions_changed.is_set():
+            self._recovery_trigger.set()
+
+    def _prepare_lifecycle(self):
+        pending = self._pending_lifecycle
+        request = pending["request"]
+        tool = request["params"]["name"]
+        code = self._assess_startup()
+        prepared = None
+        try:
+            if code is None:
+                self._check_proxy_drift()
+                runtime = self._runtime_status()
+                replacement = tool == RESTART_TOOL and (self._proxy_drift or runtime["restart_required"])
+                if replacement:
+                    state = pending["state"]
+                    if runtime["required"] is None:
+                        code = "runtime_installation_unavailable"
+                    elif state is None or self._wake_write is None or os.name != "posix":
+                        code = "proxy_handoff_unsupported"
+                    elif self._public_session is None:
+                        code = "not_initialised"
+                    else:
+                        state["python"] = runtime["required"]
+                        image_hash = self._compute_proxy_hash()
+                        with state_descriptor(state) as fd:
+                            if self._preflight_handoff(fd, state["python"]):
+                                prepared = {"state": state, "image_hash": image_hash}
+                            else:
+                                code = "proxy_handoff_preflight_failed"
+                elif runtime["restart_required"]:
+                    code = self._runtime_error()
+                else:
+                    child = self._get_child()
+                    if self._client_protocol == "modern" and not self._initial_protocol_selected.is_set() and child is not None:
+                        if not self._establish_initial_protocol(child):
+                            code = "server_refresh_blocked"
+                    if code is None:
+                        child = self._get_child()
+                        if (child is None or child.poll() is not None or self._interface_header is None
+                                or self._last_launched_version != _read_brain_version_from_disk(self.vault_root)):
+                            code = self._refresh_child()
+                        if self._interface_header is not None:
+                            self._initial_protocol_selected.set()
+        except (OSError, ValueError, subprocess.SubprocessError) as exc:
+            _log().warning("lifecycle preparation refused: %s", type(exc).__name__)
+            code = "server_refresh_blocked"
+        self._complete_lifecycle(pending, code, prepared=prepared)
+
+    def _finish_prepared_handoff(self, stdin):
+        try:
+            pending, prepared = self._lifecycle_completion.get_nowait()
+        except queue.Empty:
+            return
+        state = prepared["state"]
+        code = self._assess_startup()
+        if pending["cancelled"]:
+            code = "request_cancelled"
+        current = self._transport_state(pending["request"]["id"], stdin)
+        if any(current[key] != state[key] for key in ("vault", "workspace", "protocol", "public_session", "generation", "subscriptions", "tools")):
+            code = "session_changed"
+        try:
+            if (self._compute_proxy_hash() != prepared["image_hash"] or
+                    not same_executable_path(state["python"], self._required_runtime_python())):
+                code = "installation_changed"
+            if code is None:
+                state["remainder"] = current["remainder"]
+                with state_descriptor(state) as fd:
+                    read_state(fd, expected_pid=os.getpid())
+                    with self._restart_lock:
+                        self._restart_in_progress = False
+                        self._pending_lifecycle = None
+                    code = self._replace_idle_image(fd, state, image_hash=prepared["image_hash"])
+        except (OSError, ValueError, subprocess.SubprocessError):
+            if self._shutdown:
+                raise
+            code = "proxy_handoff_preflight_failed"
+        if self._handoff_state is None and not self._shutdown:
+            self._complete_lifecycle(pending, code)
+
+    def _refresh_child(self) -> str | None:
         """Validate a candidate before retiring the idle previous child."""
         with self._interface_lock:
             previous_header = self._interface_header
             previous_error = self._interface_header_error
         installed = _read_brain_version_from_disk(self.vault_root)
-        self._refresh_code = "server_refresh_blocked"
+        code = "server_refresh_blocked"
         try:
             if self._start_child():
                 self._gave_up = False
@@ -1826,7 +2072,7 @@ class Proxy:
                 self._refresh_blocked_version = None
                 self._refresh_diagnostic = None
                 self._refresh_header_rejected = False
-                self._refresh_code = None
+                code = None
             else:
                 with self._interface_lock:
                     self._refresh_header_rejected = self._interface_header_error is not None
@@ -1834,13 +2080,10 @@ class Proxy:
                     self._interface_header = previous_header
                     self._interface_header_error = previous_error
                 self._refresh_blocked_version = installed
-                self._refresh_code = "server_refresh_blocked"
-            _op_event("child.refresh", outcome=self._refresh_code or "ok")
+            _op_event("child.refresh", outcome=code or "ok")
+            return code
         finally:
-            with self._restart_lock:
-                self._refresh_requested = False
-                self._restart_in_progress = False
-            self._refresh_done.set()
+            self._preparing_child = None
 
     def _maybe_begin_version_reset(self) -> bool:
         """
@@ -1959,6 +2202,11 @@ class Proxy:
             self._recovery_exit_code = None
             self._version_reset_requested = False
         self._recovery_thread_failed = True
+        if self._preparing_child is not None:
+            self._preparing_child.kill()
+            self._preparing_child = None
+        if self._pending_lifecycle is not None:
+            self._complete_lifecycle(self._pending_lifecycle, "proxy_restart_required")
 
     def _run_recovery_thread(self) -> None:
         """Thread entrypoint wrapper so recovery crashes stay observable."""
@@ -1979,13 +2227,29 @@ class Proxy:
             if self._shutdown:
                 return
 
-            if self._refresh_requested:
-                self._refresh_child()
+            if self._pending_lifecycle is not None:
+                if not self._pending_lifecycle.get("prepared"):
+                    self._prepare_lifecycle()
                 continue
+
+            if self._subscriptions_changed.is_set():
+                self._subscriptions_changed.clear()
+                # This worker owns replacement. Do not hold the publication
+                # gate across pipe writes: the reader must drain child stdout.
+                child = self._get_child()
+                try:
+                    if child is not None and child.poll() is None and not self._initial_protocol_selected.is_set():
+                        self._establish_initial_protocol(child)
+                    else:
+                        self._sync_subscription_child(child)
+                except OSError:
+                    self._signal_recovery(child.poll(), child=child)
 
             self._maybe_begin_version_reset()
 
             with self._restart_lock:
+                if self._pending_lifecycle is not None:
+                    continue
                 if not self._restart_in_progress:
                     continue
                 exit_code = self._recovery_exit_code if self._recovery_exit_code is not None else 1
@@ -2203,6 +2467,29 @@ class Proxy:
                         _log().debug("failed to parse child output: %s", e)
                         continue
 
+                    subscription = child.subscription_id
+                    metadata = obj.get("params", {}).get("_meta", {})
+                    stream_id = metadata.get(SUBSCRIPTION_ID)
+                    if obj.get("method") == "notifications/subscriptions/acknowledged" and subscription is not None and stream_id == subscription:
+                        # Listen registration, not pipe-send completion, is the
+                        # coverage barrier. Level-trigger a refetch to cover
+                        # changes during asynchronous bridge reconfiguration.
+                        self._subscriptions.invalidate(self._send_to_client)
+                        continue
+                    ended_stream = (obj.get("id") == subscription and not obj.get("method") or
+                                    obj.get("method") == "notifications/cancelled" and obj.get("params", {}).get("requestId") == subscription)
+                    if subscription is not None and ended_stream:
+                        child.subscription_id = None
+                        self._subscriptions.end("child subscription ended; re-listen and refetch", self._send_to_client)
+                        continue
+                    if obj.get("method") in EVENT_FILTERS and self._client_protocol == "modern":
+                        if subscription is not None and stream_id == subscription:
+                            self._subscriptions.emit(obj, self._send_to_client)
+                        continue
+                    if obj.get("method") == "notifications/subscriptions/acknowledged" or (
+                            isinstance(obj.get("id"), str) and obj["id"].startswith("brain-proxy-subscription-")):
+                        continue
+
                     if obj.get("method") == "notifications/cancelled":
                         obj = self._translate_child_cancellation(child, obj)
                         if obj is None:
@@ -2358,18 +2645,85 @@ class Proxy:
         )
         return forwarded, record
 
-    def run(self, *, remainder: bytes = b"") -> tuple[dict, str] | None:
-        """Main proxy loop. Reads from stdin, forwards to child."""
-        self._ensure_background_threads()
+    def _serve_transport_request(self, obj: dict) -> bool:
+        method, params = obj.get("method"), obj.get("params", {})
+        if not isinstance(params, dict):
+            self._send_to_client(_make_error_response(obj.get("id"), -32602, "params must be an object"))
+            return True
+        modern = _uses_modern_protocol(obj)
+        if modern:
+            negotiated = discovery(obj)
+            if self._client_protocol == "legacy":
+                raise ValueError("MCP protocol era cannot change within a session")
+        elif method == "initialize" and self._client_protocol == "modern":
+            raise ValueError("MCP protocol era cannot change within a session")
+        if modern and self._client_protocol is None:
+            self._client_protocol = "modern"
+            self._public_session = public_session(negotiated)
+        if method == "notifications/cancelled":
+            with self._restart_lock:
+                pending = self._pending_lifecycle
+                if pending is not None and params.get("requestId") == pending["request"]["id"]:
+                    if not pending.get("activated"):
+                        pending["cancelled"] = True
+                        if self._preparing_child is not None:
+                            self._preparing_child.kill()
+                    return True
+            if self._subscriptions.cancel(params.get("requestId")):
+                self._request_subscription_sync()
+                return True
+        if method == "subscriptions/listen" and modern:
+            self._subscriptions.open(obj.get("id"), params.get("notifications"), self._send_to_client)
+            self._request_subscription_sync()
+            return True
+        if method == "ping":
+            if "id" in obj:
+                self._send_to_client({"jsonrpc": "2.0", "id": obj["id"], "result": {}})
+            return True
+        if self._get_child() is not None:
+            return False
+        if method in ("initialize", "server/discover"):
+            response = discovery(obj)
+            self._client_protocol = "modern" if modern else "legacy"
+            if not modern:
+                self._init_request, self._init_response = obj, response
+            self._public_session = public_session(response)
+            self._advertised_tools = {}
+            if self._startup_failure:
+                response["result"]["instructions"] = self._startup_failure.detail
+            self._send_to_client(response)
+            return True
+        if method in ("resources/list", "resources/templates/list", "prompts/list"):
+            key = {"resources/list": "resources", "resources/templates/list": "resourceTemplates", "prompts/list": "prompts"}[method]
+            self._send_to_client({"jsonrpc": "2.0", "id": obj.get("id"), "result": {key: []}})
+            return True
+        return False
 
+    def run(self, *, remainder: bytes = b"", stdin_stream=None, stdout_stream=None) -> tuple[dict, str] | None:
+        """Main proxy loop. Reads from stdin, forwards to child."""
+        self._output_stream = stdout_stream
+        source = stdin_stream if stdin_stream is not None else sys.stdin.buffer
         try:
-            stdin = RawLineReader(sys.stdin.fileno(), remainder) if sys.platform != "win32" else sys.stdin.buffer
+            stdin = RawLineReader(source.fileno(), remainder) if sys.platform != "win32" else source
         except (AttributeError, OSError):
-            stdin = sys.stdin.buffer
+            stdin = source
+        if isinstance(stdin, RawLineReader):
+            self._wake_read, self._wake_write = os.pipe()
+            os.set_blocking(self._wake_write, False)
+        self._ensure_background_threads()
 
         while not self._shutdown:
             try:
-                line = stdin.readline()
+                line = stdin.readline_interruptible(self._wake_read) if self._wake_read is not None else stdin.readline()
+                if line is None:
+                    if not self._shutdown:
+                        self._finish_prepared_handoff(stdin)
+                    if self._handoff_state is not None:
+                        for fd in (self._wake_read, self._wake_write):
+                            os.close(fd)
+                        self._wake_read = self._wake_write = None
+                        return self._handoff_state, self._handoff_error
+                    continue
             except Exception as e:
                 _log().error("error reading from stdin: %s", e)
                 self._initiate_shutdown()
@@ -2412,6 +2766,15 @@ class Proxy:
                 _log().warning("rejected tools/call notification without a request id")
                 continue
 
+            if self.server_target == "brain_mcp.server":
+                try:
+                    if self._serve_transport_request(obj):
+                        continue
+                except (ValueError, TypeError) as exc:
+                    if is_request:
+                        self._send_to_client(_make_error_response(msg_id, -32602, str(exc)))
+                    continue
+
             params = obj.get("params")
             tool_name = params.get("name") if isinstance(params, dict) else None
             if method == "tools/call" and tool_name in CONTROL_TOOLS:
@@ -2421,23 +2784,22 @@ class Proxy:
                 code = None
                 if not isinstance(arguments, dict) or arguments:
                     code = "invalid_arguments"
-                elif tool_name == RESTART_TOOL:
-                    code = self._request_handoff(msg_id, stdin)
-                    if self._handoff_state is not None:
-                        return self._handoff_state, self._handoff_error
-                elif tool_name == REFRESH_TOOL:
-                    initial_child = self._get_child()
-                    if (self._client_protocol == "modern" and not self._initial_protocol_selected.is_set()
-                            and initial_child is not None and not self._establish_initial_protocol(initial_child)):
-                        code = "server_refresh_blocked"
-                    else:
-                        code = self._request_refresh(explicit=True)
-                    if self._interface_header is not None:
-                        self._initial_protocol_selected.set()
+                elif tool_name in (RESTART_TOOL, REFRESH_TOOL):
+                    code = self._admit_lifecycle(obj, stdin)
+                    if code is None:
+                        continue
                 self._send_to_client(control_response(msg_id, tool_name, self._proxy_status(), code=code))
                 continue
 
+            if self._pending_lifecycle is not None:
+                if is_request:
+                    self._send_to_client(_make_error_response(msg_id, -32001, "Brain lifecycle recovery in progress; retry after completion"))
+                continue
+
             if method == "tools/call":
+                if self._startup_failure is not None and self._get_child() is None:
+                    self._send_to_client(_make_error_response(msg_id, -32001, self._startup_failure.detail))
+                    continue
                 runtime_error = self._runtime_error()
                 if runtime_error is not None:
                     self._send_to_client(control_response(msg_id, tool_name, self._proxy_status(), code=runtime_error))
@@ -2473,10 +2835,11 @@ class Proxy:
                 if self._gave_up and method == "tools/call" and not recovery_thread_dead:
                     self._signal_version_reset()
                 if is_request and method == "tools/list":
-                    self._send_to_client({"jsonrpc": "2.0", "id": msg_id,
-                                          "result": {"tools": tool_definitions()}})
+                    tools = tool_definitions()
+                    self._send_to_client({"jsonrpc": "2.0", "id": msg_id, "result": {"tools": tools}})
                 elif is_request:
-                    self._send_to_client(self._error_response_for_dead_child(msg_id))
+                    self._send_to_client(_make_error_response(msg_id, -32001, self._startup_failure.detail)
+                                         if self._startup_failure else self._error_response_for_dead_child(msg_id))
                 elif is_notification:
                     _log().debug("dropping notification (child dead): method=%s", method)
                 continue
@@ -2497,14 +2860,11 @@ class Proxy:
             if method == "tools/call":
                 installed = _read_brain_version_from_disk(self.vault_root)
                 if installed != self._last_launched_version:
-                    code = self._request_refresh(explicit=False)
+                    code = ("server_refresh_blocked" if self._refresh_blocked_version == installed
+                            else self._admit_lifecycle(obj, stdin, resume=True))
                     if code is not None:
                         self._send_to_client(control_response(msg_id, REFRESH_TOOL, self._proxy_status(), code=code))
-                        continue
-                    child = self._get_child()
-                    if child is None:
-                        self._send_to_client(self._error_response_for_dead_child(msg_id))
-                        continue
+                    continue
                 try:
                     runtime_error = self._runtime_error()
                     if runtime_error is not None:
@@ -2519,45 +2879,7 @@ class Proxy:
                     )
                     continue
 
-            # Forward to child
-            frame_seq: int | None = None
-            if is_request:
-                with self._inflight_lock:
-                    self._inflight_requests[msg_id] = (obj, time.monotonic())
-                    if accepted_call is not None:
-                        self._accepted_calls[msg_id] = accepted_call
-                    frame_seq = next(self._frame_counter)
-                    self._frame_seqs[msg_id] = frame_seq
-            try:
-                child.send(obj)
-            except BrokenPipeError:
-                _log().warning("child stdin broken pipe — child likely died")
-                # poll() can return None if reaping hasn't completed; wait()
-                # gives the real exit code so a drift exit (10) isn't
-                # misclassified as a crash and silently loses replay.
-                exit_code = child.poll()
-                if exit_code is None:
-                    try:
-                        exit_code = child.wait()
-                    except Exception:
-                        exit_code = 1
-                self._recover_owed_client(msg_id, child, exit_code, is_request)
-                continue
-            except Exception as e:
-                _log().error("error sending to child (%s): %s", type(e).__name__, e)
-                exit_code = child.poll()
-                if exit_code is None:
-                    exit_code = 1
-                self._recover_owed_client(msg_id, child, exit_code, is_request)
-                continue
-
-            if frame_seq is not None:
-                _op_event(
-                    "frame.forwarded",
-                    family="proxy-rpc",
-                    frame_seq=frame_seq,
-                    method=_operational_log.normalise_rpc_method(method),
-                )
+            self._forward_to_child(obj, child, accepted_call)
 
         # Shutdown — kill child if still running
         self._initiate_shutdown()
@@ -2565,25 +2887,69 @@ class Proxy:
         if child:
             _log().info("proxy shutting down — killing child pid=%s", child.pid)
             child.kill()
-
-        reader = self._reader_thread_handle
-        if reader is not None and reader.is_alive():
-            reader.join(timeout=5.0)
-
-        recovery = self._recovery_thread_handle
-        if recovery is not None and recovery.is_alive():
-            recovery.join(timeout=5.0)
-
-        # Signal writer thread to drain remaining messages and stop
+        for thread in (self._reader_thread_handle, self._recovery_thread_handle):
+            if thread is not None and thread.is_alive():
+                thread.join(timeout=5.0)
         self._outbound.put(None)
         writer = self._writer_thread_handle
         if writer is not None and writer.is_alive():
             writer.join(timeout=5.0)
-
+        for fd in (self._wake_read, self._wake_write):
+            if fd is not None:
+                os.close(fd)
+        self._wake_read = self._wake_write = None
         logger = _operational_log.current_logger()
         if logger is not None:
             logger.close(exit_code=0)
         _log().info("proxy exited")
+
+    def _forward_to_child(self, obj, child, accepted_call):
+        """Admit a request exactly once, including a held pre-dispatch refresh."""
+        msg_id, method = obj.get("id"), obj.get("method")
+        is_request = "id" in obj and bool(method)
+        if child is None:
+            if is_request:
+                self._send_to_client(self._error_response_for_dead_child(msg_id))
+            return
+        frame_seq: int | None = None
+        if is_request:
+            with self._inflight_lock:
+                self._inflight_requests[msg_id] = (obj, time.monotonic())
+                if accepted_call is not None:
+                    self._accepted_calls[msg_id] = accepted_call
+                frame_seq = next(self._frame_counter)
+                self._frame_seqs[msg_id] = frame_seq
+        try:
+            child.send(obj)
+        except BrokenPipeError:
+            _log().warning("child stdin broken pipe — child likely died")
+            # poll() can return None if reaping hasn't completed; wait()
+            # gives the real exit code so a drift exit (10) isn't
+            # misclassified as a crash and silently loses replay.
+            exit_code = child.poll()
+            if exit_code is None:
+                try:
+                    exit_code = child.wait()
+                except Exception:
+                    exit_code = 1
+            self._recover_owed_client(msg_id, child, exit_code, is_request)
+            return
+        except Exception as e:
+            _log().error("error sending to child (%s): %s", type(e).__name__, e)
+            exit_code = child.poll()
+            if exit_code is None:
+                exit_code = 1
+            self._recover_owed_client(msg_id, child, exit_code, is_request)
+            return
+
+        if frame_seq is not None:
+            _op_event(
+                "frame.forwarded",
+                family="proxy-rpc",
+                frame_seq=frame_seq,
+                method=_operational_log.normalise_rpc_method(method),
+            )
+
 
 
 # ---------------------------------------------------------------------------
@@ -2597,6 +2963,9 @@ def _run_degraded_server(
     stdout=None,
     guidance: str = _GUIDANCE_BINDING,
     lead: str = "Brain MCP could not resolve a target vault.",
+    vault_root: str | None = None,
+    python_path: str | None = None,
+    resolution_inputs: dict | None = None,
 ) -> None:
     """Serve a minimal MCP session that reports a startup-degraded Brain error.
 
@@ -2608,85 +2977,16 @@ def _run_degraded_server(
     stderr. So we complete the MCP handshake and surface the startup error to
     the agent via ``brain_unavailable`` and every ``tools/call`` response.
     """
-    stdin = stdin if stdin is not None else sys.stdin.buffer
-    stdout = stdout if stdout is not None else sys.stdout.buffer
-
     detail = f"{lead} {reason} {guidance}"
     _log().error("entering degraded mode: %s", reason)
-
-    def send(obj: dict) -> bool:
-        return _safe_write_line(
-            stdout,
-            obj,
-            broken_pipe_message="client disconnected (broken pipe on degraded stdout)",
-            error_message="error writing degraded response to client stdout",
-        )
-
-    while True:
-        try:
-            line = stdin.readline()
-        except OSError:
-            break
-        if not line:
-            break  # client closed stdin
-        line = line.strip()
-        if not line:
-            continue
-        # Degraded startup may not have a working log yet; silently ignore bad frames.
-        obj = _parse_jsonrpc_line(line, log_warning=False)
-        if obj is None:
-            continue
-
-        msg_id = obj.get("id")
-        method = obj.get("method", "")
-        if msg_id is None:
-            continue  # notification — no response owed
-
-        if method == "initialize":
-            protocol = "2025-06-18"
-            params = obj.get("params")
-            if isinstance(params, dict) and params.get("protocolVersion"):
-                protocol = params["protocolVersion"]
-            if not send({
-                "jsonrpc": "2.0",
-                "id": msg_id,
-                "result": {
-                    "protocolVersion": protocol,
-                    "capabilities": {"tools": {"listChanged": False}},
-                    "serverInfo": {"name": "brain (unavailable)", "version": PROXY_VERSION},
-                    "instructions": detail,
-                },
-            }):
-                break
-        elif method == "tools/list":
-            if not send({
-                "jsonrpc": "2.0",
-                "id": msg_id,
-                "result": {"tools": [{
-                    "name": "brain_unavailable",
-                    "description": detail,
-                    "inputSchema": {"type": "object", "properties": {}},
-                }]},
-            }):
-                break
-        elif method == "resources/list":
-            if not send({"jsonrpc": "2.0", "id": msg_id, "result": {"resources": []}}):
-                break
-        elif method == "prompts/list":
-            if not send({"jsonrpc": "2.0", "id": msg_id, "result": {"prompts": []}}):
-                break
-        elif method == "ping":
-            if not send({"jsonrpc": "2.0", "id": msg_id, "result": {}}):
-                break
-        elif method == "tools/call":
-            if not send(_make_error_response(msg_id, -32001, detail)):
-                break
-        else:
-            if not send(_make_error_response(
-                msg_id, -32601,
-                f"method '{method}' is unavailable while Brain MCP is in degraded startup mode. {detail}",
-            )):
-                break
+    failure = StartupFailure("startup", "startup_unavailable" if vault_root else "target_unavailable", detail)
+    if stdin is not None or stdout is not None:
+        relay = Proxy(python_path or sys.executable, "brain_mcp.server", vault_root,
+                      startup_failure=failure, resolution_inputs=resolution_inputs)
+        relay.run(stdin_stream=stdin, stdout_stream=stdout)
+    else:
+        _serve_proxy(python_path or sys.executable, "brain_mcp.server", vault_root,
+                     startup_failure=failure, resolution_inputs=resolution_inputs)
 
 
 # ---------------------------------------------------------------------------
@@ -2704,12 +3004,14 @@ def _create_process_owner(vault_root: str, *, lock_timeout: float | None = None)
         return None, "storage"
 
 
-def _serve_proxy(python_path: str, server_target: str, vault_root: str, *, state: dict | None = None) -> None:
+def _serve_proxy(python_path: str, server_target: str, vault_root: str | None, *, state: dict | None = None,
+                 startup_failure: StartupFailure | None = None, resolution_inputs: dict | None = None) -> None:
     failure = None
     loaded_hash = None
     while True:
-        owner, unavailable = _create_process_owner(vault_root, lock_timeout=HANDOFF_TIMEOUT if state else None)
-        proxy = Proxy(python_path, server_target, vault_root, owner=owner, owner_unavailable_code=unavailable)
+        owner, unavailable = _create_process_owner(vault_root, lock_timeout=HANDOFF_TIMEOUT if state else None) if vault_root else (None, "storage")
+        proxy = Proxy(python_path, server_target, vault_root, owner=owner, owner_unavailable_code=unavailable,
+                      startup_failure=startup_failure, resolution_inputs=resolution_inputs)
         if loaded_hash is None:
             loaded_hash = proxy._proxy_file_hash
         else:
@@ -2717,15 +3019,16 @@ def _serve_proxy(python_path: str, server_target: str, vault_root: str, *, state
         try:
             if state is not None:
                 proxy._restore_transport(state)
+                startup_failure = None
             proxy._ensure_background_threads()
-            ready = proxy._start_child()
+            ready = proxy._start_child() if startup_failure is None else False
             if state is not None:
                 proxy._initial_protocol_selected.set()
                 status = proxy._proxy_status()
                 status["handoff"] = {"consent": "fresh" if owner else "unavailable", "state": "failed" if failure or not ready else "completed"}
                 proxy._send_to_client(control_response(state["request_id"], RESTART_TOOL, status,
                                                        code=failure or (None if ready else "proxy_server_start_failed"), effects="consent_ended"))
-            if not ready:
+            if not ready and startup_failure is None:
                 proxy._signal_recovery(exit_code=1)
             next_state = proxy.run(remainder=base64.b64decode(state["remainder"]) if state else b"")
         finally:
@@ -2787,6 +3090,7 @@ def main() -> None:
     # Startup resolves only. Legacy writes belong to admitted migration.
     workspace_env = os.environ.get("BRAIN_WORKSPACE_DIR")
     vault_root_env = os.environ.get("BRAIN_VAULT_ROOT")
+    resolution_inputs = {"workspace_env": workspace_env, "vault_root_env": vault_root_env, "start_dir": Path.cwd()}
 
     try:
         target = resolve_brain_target(
@@ -2821,6 +3125,8 @@ def main() -> None:
     os.environ["PYTHONPATH"] = str(Path(vault_root) / ".brain-core")
     if workspace_dir is not None:
         os.environ["BRAIN_WORKSPACE_DIR"] = workspace_dir
+    else:
+        os.environ.pop("BRAIN_WORKSPACE_DIR", None)
 
     global _logger
     try:
@@ -2834,6 +3140,7 @@ def main() -> None:
             f"filesystem access failed while preparing vault-local state for {vault_root}: {exc}",
             guidance=_GUIDANCE_VAULT_FILESYSTEM,
             lead="Brain MCP resolved the target vault but could not start.",
+            vault_root=vault_root, python_path=python_path, resolution_inputs=resolution_inputs,
         )
         return
     _logger = _setup_logging(vault_root)
@@ -2854,6 +3161,7 @@ def main() -> None:
                 str(exc),
                 guidance=f"Run `{build_repair_command(vault_root, 'runtime')}` from a shell, then restart MCP.",
                 lead="Brain MCP could not select an installed managed runtime.",
+                vault_root=vault_root, python_path=python_path, resolution_inputs=resolution_inputs,
             )
             return
         _log().warning("could not resolve canonical managed Python for launch validation: %s", exc)
@@ -2868,13 +3176,14 @@ def main() -> None:
                 message,
                 guidance=f"Run `{build_repair_command(vault_root, 'mcp')}` from a shell, then restart MCP.",
                 lead="Brain MCP resolved the target vault but found stale MCP registration state.",
+                vault_root=vault_root, python_path=python_path, resolution_inputs=resolution_inputs,
             )
             return
 
     _log().info("proxy starting: version=%s source=%s", PROXY_VERSION, target.source)
     if op_logger is not None:
         op_logger.record("process.started", bodies_enabled=_LOG_BODIES or None, resolution_source=target.source)
-    _serve_proxy(python_path, server_target, vault_root)
+    _serve_proxy(python_path, server_target, vault_root, resolution_inputs=resolution_inputs)
 
 
 if __name__ == "__main__":

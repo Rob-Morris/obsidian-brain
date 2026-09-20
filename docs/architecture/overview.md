@@ -139,6 +139,15 @@ Profile authority is derived from the application catalogue. Built-ins project e
 
 The MCP proxy and replacement server exchange a strict command-interface header in legacy initialisation and modern discovery. Modern clients may omit discovery; the proxy performs it before forwarding their first request. Proxy-owned status and refresh controls remain available when the child is unavailable. Idle Core drift starts a candidate through the existing recovery worker; the previous child is retired only after negotiation succeeds. In-flight work makes refresh busy. No dispatched semantic call is replayed, including observations; uncertain outcomes use owned receipts. The separate `brain_proxy_restart` control preflights and replaces the installed proxy on POSIX while preserving stdio; it quiesces output, carries bounded unread input and starts fresh exceptional consent. Host replies are correlated to their originating child. See [DD-074](decisions/dd-074-proxy-owned-server-refresh.md) and [DD-075](decisions/dd-075-bounded-proxy-stdio-handoff.md).
 
+Blocked startup uses that same transport and recovery worker. A launcher-safe
+session leaf owns stable negotiation and bounded modern subscriptions before a
+child exists. Explicit recovery rechecks the pinned target after external repair;
+it cannot retarget an unresolved or changed binding. Preparation is asynchronous;
+only the input owner performs final image handoff. Standing subscriptions survive
+verified child/image replacement without becoming semantic in-flight work.
+See [DD-079](decisions/dd-079-unified-proxy-lifecycle.md) for ownership, bounds and
+host-rediscovery limitations.
+
 Seamless Core refresh requires an unchanged managed runtime. The proxy checks
 both its own and the child's interpreter against the canonical dependency
 resolver before new application admission and child launches. Runtime drift

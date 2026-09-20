@@ -92,9 +92,12 @@ def test_runtime_upgrade_drains_then_handoffs_both_processes(command_vault_clone
         assert drift["server"]["loaded"] == before["server"]["loaded"]
         assert drift["server"]["refresh"] == "runtime_restart_required"
         assert drift["interface"]["generation"] == before["interface"]["generation"]
-        assert call("brain_proxy_refresh")["structuredContent"]["error"]["code"] == drift_code
-        assert call("brain_proxy_restart")["structuredContent"]["error"]["code"] == (
-            "runtime_installation_unavailable" if failure == "missing-runtime" else "server_busy")
+        # Unified lifecycle admission refuses outstanding work before preparing
+        # a candidate. Runtime drift remains visible in the accompanying status.
+        busy_refresh = call("brain_proxy_refresh")["structuredContent"]
+        assert busy_refresh["error"]["code"] == "server_busy"
+        assert busy_refresh["result"]["runtime"]["restart_required"] is True
+        assert call("brain_proxy_restart")["structuredContent"]["error"]["code"] == "server_busy"
         gate.touch()
         assert receive(pending)["isError"] is False
 

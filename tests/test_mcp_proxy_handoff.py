@@ -17,6 +17,7 @@ from brain_mcp._proxy_handoff import (HANDOFF_VERSION, MAX_STATE_BYTES, READ_CHU
 from _bootstrap.consent_owner import ConsentOwner, OwnerConnectionError
 from _bootstrap.file_lock import exclusive_file_lock, MutationLockError
 from test_mcp_proxy import _FakeChild, _write_vault
+from test_mcp_proxy_refresh import lifecycle_request
 
 
 @pytest.fixture(autouse=True)
@@ -31,7 +32,7 @@ def state():
             "workspace": None, "python": sys.executable, "server": "brain_mcp.server",
             "protocol": "modern", "initialise_request": None, "initialise_response": None,
             "public_session": {"supportedVersions": ["2026-07-28"], "capabilities": {}},
-            "tools": {}, "generation": 1, "request_id": "restart", "remainder": ""}
+            "tools": {}, "generation": 1, "request_id": "restart", "remainder": "", "subscriptions": [], "resolution": None}
 
 
 def test_private_state_validates_process_and_bounds():
@@ -59,6 +60,42 @@ def test_named_descriptor_is_not_a_handoff(tmp_path):
             read_state(stream.fileno(), expected_pid=os.getpid())
 
 
+def test_previous_descriptor_version_has_no_subscriptions():
+    value = state()
+    value["version"] = 1
+    del value["subscriptions"]
+    del value["resolution"]
+    with state_descriptor(value) as fd:
+        restored = read_state(fd, expected_pid=os.getpid())
+    assert restored == value
+    relay = proxy.Proxy(sys.executable, "brain_mcp.server", value["vault"])
+    relay._restore_transport(restored)
+    assert relay._subscriptions.snapshot() == []
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX pipe wakeup")
+def test_interruptible_reader_preserves_partial_input_and_prioritises_eof():
+    incoming, sender = os.pipe()
+    wake, notifier = os.pipe()
+    try:
+        reader = RawLineReader(incoming)
+        os.write(sender, b'{"par')
+        os.write(notifier, b"1")
+        assert reader.readline_interruptible(wake) is None
+        assert reader.remainder == b'{"par'
+        os.write(sender, b'tial":1}\n')
+        assert reader.readline_interruptible(wake) == b'{"partial":1}\n'
+        os.write(notifier, b"1")
+        os.close(sender)
+        sender = None
+        assert reader.readline_interruptible(wake) == b""
+        assert reader.eof
+    finally:
+        for fd in (incoming, sender, wake, notifier):
+            if fd is not None:
+                os.close(fd)
+
+
 def test_raw_reader_preserves_read_ahead_without_limiting_ordinary_frames(tmp_path):
     large = b"x" * (MAX_STATE_BYTES + 1) + b"\n"
     target = tmp_path / "frames"
@@ -70,6 +107,23 @@ def test_raw_reader_preserves_read_ahead_without_limiting_ordinary_frames(tmp_pa
         assert transferred.readline() == b'{"id":2}\n'
         assert transferred.readline() == b'{"par'
         assert transferred.readline() == b""
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX pipe wakeup")
+def test_interruptible_reader_drains_pipelined_frames_before_more_reads(tmp_path):
+    target = tmp_path / "many-frames"
+    target.write_bytes(b"{}\n" * READ_CHUNK)
+    wake, notifier = os.pipe()
+    try:
+        with target.open("rb", buffering=0) as stream:
+            reader = RawLineReader(stream.fileno())
+            for _ in range(READ_CHUNK):
+                assert reader.readline_interruptible(wake) == b"{}\n"
+                assert len(reader.remainder) <= READ_CHUNK
+            assert reader.readline_interruptible(wake) == b""
+    finally:
+        os.close(wake)
+        os.close(notifier)
 
 
 def test_public_contract_excludes_catalogue_but_keeps_modern_versions():
@@ -127,12 +181,53 @@ def test_handoff_busy_never_touches_child_or_consent(tmp_path, monkeypatch):
     monkeypatch.setattr(relay, "_check_proxy_drift", lambda: None)
     relay._proxy_drift = True
     relay._inflight_requests[1] = ({"id": 1}, 0)
-    assert relay._request_handoff(2, RawLineReader(0)) == "server_busy"
+    assert relay._admit_lifecycle(lifecycle_request("brain_proxy_restart", 2), RawLineReader(0)) == "server_busy"
     assert not relay._child.killed
     relay._inflight_requests.clear()
     relay._correlate_child_request(relay._child, {"id": 1})
-    assert relay._request_handoff(2, RawLineReader(0)) == "server_busy"
+    assert relay._admit_lifecycle(lifecycle_request("brain_proxy_restart", 2), RawLineReader(0)) == "server_busy"
     assert not relay._child.killed
+
+
+@pytest.mark.parametrize("size", [READ_CHUNK, READ_CHUNK + 1])
+def test_final_handoff_revalidates_input_grown_after_preflight(tmp_path, monkeypatch, size):
+    _write_vault(tmp_path)
+    owner = ConsentOwner(tmp_path)
+    relay = proxy.Proxy(sys.executable, "brain_mcp.server", str(tmp_path), owner=owner)
+    relay._client_protocol = "modern"
+    relay._public_session = {}
+    relay._child = child = _FakeChild()
+    reader = RawLineReader(0, b'{"partial":"')
+    monkeypatch.setattr(relay, "_check_proxy_drift", lambda: None)
+    relay._proxy_drift = True
+    replaced = []
+    monkeypatch.setattr(relay, "_replace_idle_image", lambda *args, **kwargs: replaced.append(args[1]))
+    monkeypatch.setattr(relay, "_preflight_handoff", lambda fd, python: bool(read_state(fd, expected_pid=os.getpid())))
+    incoming, outgoing = os.pipe()
+    relay._wake_write = outgoing
+    try:
+        assert relay._admit_lifecycle(lifecycle_request("brain_proxy_restart"), reader) is None
+        relay._prepare_lifecycle()
+        reader.remainder += b"x" * (size - len(reader.remainder))
+        retained = reader.remainder
+        relay._finish_prepared_handoff(reader)
+        response = relay._outbound.get_nowait()["result"]
+        assert response["isError"] is (size > READ_CHUNK)
+        assert len(replaced) == (0 if size > READ_CHUNK else 1)
+        if replaced:
+            assert base64.b64decode(replaced[0]["remainder"]) == retained
+        else:
+            assert response["structuredContent"]["error"]["effects"] == "none"
+        assert reader.remainder == retained
+        assert not owner._closed and not child.killed and not relay._shutdown
+        assert relay._pending_lifecycle is None and not relay._restart_in_progress
+        assert relay._serve_transport_request({"method": "ping", "id": 2})
+        assert relay._outbound.get_nowait()["result"] == {}
+    finally:
+        relay._wake_write = None
+        os.close(incoming)
+        os.close(outgoing)
+        owner.close()
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="POSIX child quiescence")
@@ -208,6 +303,22 @@ def test_modern_discovery_rejects_changed_supported_versions(tmp_path, monkeypat
     assert not relay._discover_child(child)
     assert child.killed
     assert "public MCP" in relay._interface_header_error
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="POSIX child output probe")
+@pytest.mark.parametrize("payload", [b"", b"partial", b"{}\n"])
+def test_dead_child_pending_output_distinguishes_eof_without_discarding_bytes(payload):
+    child = proxy.ChildProcess(sys.executable, "unused")
+    child._proc = subprocess.Popen([sys.executable, "-c", f"import os; os.write(1, {payload!r})"], stdout=subprocess.PIPE)
+    child._stdout_reader = RawLineReader(child.stdout_fd)
+    try:
+        child.reap(5)
+        assert child.output_pending() is bool(payload)
+        assert child._stdout_reader.remainder == payload
+        assert child.readline() == (payload or None)
+    finally:
+        child.kill()
+        child.reap(5)
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="POSIX quiescence")

@@ -296,10 +296,21 @@ before the next command. Use `brain_proxy_status` to inspect loaded/installed
 versions or `brain_proxy_refresh` to request that refresh explicitly. Both take
 `{}` and work even when the child is unavailable. Busy work is left running;
 finish it before refreshing. For proxy code changes, `brain_proxy_restart({})`
-loads the installed proxy while preserving POSIX stdio. It ends exceptional
-consent; unchanged proxy code is a no-op. Unsupported platforms or failed
+loads the installed proxy/runtime while preserving POSIX stdio. Image replacement
+ends exceptional consent; unchanged code/runtime is a no-op only with a usable
+child. A missing child instead uses same-runtime activation. Unsupported platforms or failed
 preflight may require restarting MCP through the host. These are MCP transport tools; `runtime_status`
 reports application warm-up instead.
+
+Reachable startup failures expose these same three controls. Repair prerequisites
+externally, then request recovery for the pinned Brain. Unknown or changed target
+bindings require configuration and host reconnect; failures before the proxy
+starts cannot be recovered by its controls. Preparation leaves status/ping usable
+and refuses new application work. Modern subscriptions survive recovery, but a
+host may retain its old tool cache: rediscover and verify a normal Brain call,
+or reconnect if it still exposes only controls. Windows supports same-runtime
+activation; image/runtime replacement needs host reconnect. Recovery never edits
+client approval settings or MCP registrations.
 
 Brain's MCP processes keep an always-on, content-free operational log under `.brain/local/diagnostics/` (bounded NDJSON: lifecycle, tool spans, command failures). On a development machine, set `BRAIN_LOG_BODIES=1` (or `true`) before starting MCP to additionally capture raw request/response bodies to `diagnostics/debug-bodies.log`.
 

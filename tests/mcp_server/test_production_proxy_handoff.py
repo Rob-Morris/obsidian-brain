@@ -29,6 +29,7 @@ def test_real_proxy_handoff_preserves_pipelined_and_split_input(command_vault_cl
                                env={**os.environ, **command_vault_clone.environment, "BRAIN_CAPTURE_VAULT": str(vault), "BRAIN_CAPTURE_EXEC_FAILURE": "1" if exec_failure else "0"},
                                stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     sequence = 0
+    received = {}
 
     def frame(method, params):
         nonlocal sequence
@@ -38,10 +39,14 @@ def test_real_proxy_handoff_preserves_pipelined_and_split_input(command_vault_cl
         return sequence, (json.dumps({"jsonrpc": "2.0", "id": sequence, "method": method, "params": params}) + "\n").encode()
 
     def receive(request_id):
-        messages = _read_until_id(process, request_id, timeout=25)
-        matches = [message for message in messages if message.get("id") == request_id]
-        assert len(matches) == 1, (messages, process.poll())
-        return matches[0]
+        if request_id not in received:
+            messages = _read_until_id(process, request_id, timeout=25)
+            for message in messages:
+                if "id" in message:
+                    assert message["id"] not in received, message
+                    received[message["id"]] = message
+        assert request_id in received, (received, process.poll())
+        return received.pop(request_id)
 
     def request(method, params):
         request_id, data = frame(method, params)
@@ -81,12 +86,13 @@ def test_real_proxy_handoff_preserves_pipelined_and_split_input(command_vault_cl
             restart_id, restart = frame("tools/call", {"name": "brain_proxy_restart", "arguments": {}})
             read_id, read = frame("tools/call", {"name": "artefact_read", "arguments": {"reference": "Projects/Command Fixture.md"}})
             split_id, split = frame("tools/call", {"name": "brain_proxy_status", "arguments": {}})
-            # Both a complete unread frame and half the following frame cross exec.
+            # Recovery refuses new semantic work while preparation runs. The
+            # partial frame remains owned by the raw reader and crosses exec.
             cut = len(split) // 2
             process.stdin.write(restart + read + split[:cut])
             process.stdin.flush()
             result = receive(restart_id)["result"]
-            assert result["isError"] is (failure is not None), result
+            assert result["isError"] is (failure is not None), result["structuredContent"].get("error")
             if exec_failure:
                 assert result["structuredContent"]["error"] == {"code": "proxy_exec_failed", "effects": "consent_ended"}
             if refused:
@@ -95,8 +101,8 @@ def test_real_proxy_handoff_preserves_pipelined_and_split_input(command_vault_cl
             else:
                 assert result["structuredContent"]["result"]["handoff"] == {"consent": "fresh", "state": "failed" if exec_failure else "completed"}
             assert process.poll() is None
-            payload = receive(read_id)["result"]
-            assert payload["isError"] is False, payload
+            payload = receive(read_id)
+            assert "recovery in progress" in payload["error"]["message"], payload
             process.stdin.write(split[cut:])
             process.stdin.flush()
             after = receive(split_id)["result"]["structuredContent"]["result"]

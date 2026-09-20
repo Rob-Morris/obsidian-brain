@@ -420,6 +420,7 @@ class _FakeChild:
         self.killed = False
         self.pid = 12345
         self.stdout_fd = None
+        self.subscription_id = None
 
     def start(self, **_options) -> None:
         self.started = True
@@ -428,6 +429,9 @@ class _FakeChild:
         if self._send_exception is not None:
             raise self._send_exception()
         self.sent.append(obj)
+
+    def send_control(self, obj: dict, **kwargs) -> None:
+        self.send(obj)
 
     def poll(self) -> int | None:
         if self._poll_index < len(self._poll_values):

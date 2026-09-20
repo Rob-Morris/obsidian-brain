@@ -49,7 +49,7 @@ def test_initialize_succeeds_and_carries_the_reason():
     assert len(resps) == 1
     result = resps[0]["result"]
     assert result["protocolVersion"] == "2025-06-18"
-    assert result["serverInfo"]["name"] == "brain (unavailable)"
+    assert result["serverInfo"]["name"] == "brain"
     assert REASON in result["instructions"]
 
 
@@ -60,14 +60,12 @@ def test_notifications_get_no_response():
     assert resps == []
 
 
-def test_tools_list_advertises_the_unavailable_tool_with_the_reason():
+def test_tools_list_advertises_the_same_three_recovery_controls():
     resps = _drive([
         {"jsonrpc": "2.0", "id": 2, "method": "tools/list"},
     ])
     tools = resps[0]["result"]["tools"]
-    assert len(tools) == 1
-    assert tools[0]["name"] == "brain_unavailable"
-    assert REASON in tools[0]["description"]
+    assert {tool["name"] for tool in tools} == set(proxy.CONTROL_TOOLS)
 
 
 def test_tools_call_returns_the_actionable_error():
@@ -96,9 +94,8 @@ def test_custom_degraded_lead_and_guidance_are_visible_on_the_wire():
 
     expected = f"{lead} {reason} {guidance}"
     assert resps[0]["result"]["instructions"] == expected
-    assert resps[1]["result"]["tools"][0]["description"] == expected
+    assert {tool["name"] for tool in resps[1]["result"]["tools"]} == set(proxy.CONTROL_TOOLS)
     assert resps[2]["error"]["message"] == expected
-    assert "degraded startup mode" in resps[3]["error"]["message"]
     assert expected in resps[3]["error"]["message"]
 
 
@@ -250,11 +247,32 @@ def test_main_allows_canonical_python_launch(monkeypatch, tmp_path):
     monkeypatch.setattr(proxy, "resolve_brain_target", lambda **_kwargs: target)
     monkeypatch.setattr(proxy, "find_existing_central_venv", lambda _vault: Path(managed_python))
     monkeypatch.setattr(proxy, "_run_degraded_server", lambda reason, **kwargs: calls.append(("degraded", reason, kwargs)))
-    monkeypatch.setattr(proxy, "_serve_proxy", lambda python, server, vault: calls.append(("serve", python, server, vault)))
+    monkeypatch.setattr(proxy, "_serve_proxy", lambda python, server, vault, **kwargs: calls.append(("serve", python, server, vault)))
 
     proxy.main()
 
     assert calls == [("serve", managed_python, "brain_mcp.server", str(tmp_path))]
+
+
+@pytest.mark.parametrize("workspace", [None, "project"])
+def test_main_pins_resolved_scope_but_retains_original_selection(monkeypatch, tmp_path, workspace):
+    original = str(tmp_path / "anchor")
+    resolved = str(tmp_path / workspace) if workspace else None
+    target = SimpleNamespace(vault_root=str(tmp_path), workspace_dir=resolved, source="workspace_env")
+    managed_python = str(tmp_path / "managed" / "python")
+    monkeypatch.setenv("BRAIN_WORKSPACE_DIR", original)
+    monkeypatch.setattr(proxy.sys, "argv", ["proxy.py", managed_python, "brain_mcp.server"])
+    monkeypatch.setattr(proxy, "resolve_brain_target", lambda **_kwargs: target)
+    monkeypatch.setattr(proxy, "find_existing_central_venv", lambda _vault: Path(managed_python))
+    observed = []
+
+    def observe_scope(python, server, vault, **kwargs):
+        instance = proxy.Proxy(python, server, vault, resolution_inputs=kwargs["resolution_inputs"])
+        observed.append((instance._workspace, instance._resolution_inputs["workspace_env"], instance._assess_startup()))
+
+    monkeypatch.setattr(proxy, "_serve_proxy", observe_scope)
+    proxy.main()
+    assert observed == [(resolved, original, None)]
 
 
 def test_main_degrades_when_runtime_resolution_subprocess_fails(monkeypatch, tmp_path):
@@ -306,7 +324,7 @@ def test_proxy_main_enters_degraded_mode_on_resolution_failure(tmp_path):
     lines = [json.loads(line) for line in out.decode("utf-8").splitlines() if line.strip()]
     by_id = {m.get("id"): m for m in lines}
     # initialize completed (the client connects rather than seeing -32000)
-    assert "result" in by_id[1] and by_id[1]["result"]["serverInfo"]["name"] == "brain (unavailable)"
+    assert "result" in by_id[1] and by_id[1]["result"]["serverInfo"]["name"] == "brain"
     # the tools/call carries the actionable, specific cause
     assert "error" in by_id[2]
     assert "could not resolve" in by_id[2]["error"]["message"]

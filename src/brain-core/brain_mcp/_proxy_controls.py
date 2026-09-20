@@ -25,7 +25,7 @@ def tool_definitions() -> list[dict]:
         }
         for name, description in (
             (STATUS_TOOL, "Inspect loaded/installed Core, proxy and runtime, refresh state and required recovery, even without a server."),
-            (RESTART_TOOL, "Restart idle MCP in this Brain's installed managed runtime, preserving stdio. Ends exceptional consent. POSIX only; does not install releases."),
+            (RESTART_TOOL, "Recover this Brain after external repair. Activates idle Core; image/runtime replacement preserves stdio on POSIX and ends exceptional consent. Never installs."),
             (REFRESH_TOOL, "Refresh idle Core only within the same managed runtime. Runtime changes require MCP restart. Does not install releases; busy work keeps running."),
         )
     ]

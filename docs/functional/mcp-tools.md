@@ -261,12 +261,37 @@ Three transport-owned tools supplement the application catalogue:
 |---|---|
 | `brain_proxy_status` | No arguments. Reports loaded/installed Core and proxy versions, loaded proxy/child and required managed Python paths, runtime restart requirement, child availability, refresh state, interface fingerprint/generation and next action. Works without a healthy child. |
 | `brain_proxy_refresh` | No arguments. Loads a compatible server from the selected Brain's already-installed files at an idle boundary. Does not fetch/install code, change permissions or replace the proxy. |
-| `brain_proxy_restart` | No arguments. Explicit POSIX handoff to the selected Brain's installed proxy and required managed Python, preserving stdio and ending exceptional consent. Busy/pending output is refused. A no-op only when both proxy code and runtime are current. |
+| `brain_proxy_restart` | No arguments. Recover the pinned Brain after external repair. Activate a missing child in the current runtime, or replace the installed proxy/runtime on POSIX while preserving stdio and ending exceptional consent. A no-op requires current code/runtime and a usable validated child. |
 
 These controls appear in MCP `tools/list`, not application `command.list` or the
 CLI. Their compact `brain.proxy-result/1` envelope appears in both
 `structuredContent` and first-block JSON. They have no application invocation
 receipt. `runtime.status` remains the application warm-up observation.
+
+Reachable startup failures use this same transport, not a second degraded server.
+Status includes lifecycle phase (`blocked`, `recovering`, `ready`, `stopping`) and
+the current startup diagnostic. An unresolved target cannot recover by silently
+selecting a new Brain; changed trusted bindings require configuration and host
+reconnect. A known target is rechecked before activation/handoff. Repair runtime
+or filesystem prerequisites externally, then explicitly request recovery.
+Neither recovery nor startup changes registrations, client approvals or installed
+dependencies. Failures before proxy entry (including stable CLI/bootstrap or
+Python import failure) still require external repair and host reconnect.
+Initial trusted target/prerequisite assessment and process setup precede the
+input loop; controls are not promised during stalled initial filesystem I/O.
+Healthy first discovery retains the complete application catalogue.
+
+One pending lifecycle request is prepared by the existing recovery worker. Ping,
+status and required host replies remain serviceable; new semantic work is refused
+while preparation runs. The one original call that detected idle version drift
+has not been admitted yet: it is held and dispatched once after validation, not
+replayed. Cancellation before publication or stdin EOF prevents later activation.
+Final POSIX quiescence/drain/retirement is a bounded input-service pause, not a
+promise of ping responsiveness during exec.
+
+Idle admission is shared by refresh and restart: outstanding work returns
+`server_busy` before recovery assessment, even when status also reports runtime
+drift or an unavailable installation. Finish that work, then retry the control.
 
 Before accepting a semantic call, the proxy checks the managed runtime identity
 using the same installed-runtime selection as installation and the CLI: reuse
@@ -327,14 +352,28 @@ proxy drift adds a bounded `follow_up_required` warning to the model-visible
 command envelope as well as the human line, preserving JSON validity. Ordinary
 results without proxy drift have no added payload.
 
-Legacy replacements publish `notifications/tools/list_changed`; modern callers
-can inspect the catalogue generation and rediscover with their negotiated
-protocol. Neither mechanism guarantees the harness refreshed model-visible tools.
-Existing proxies need one restart after deployment to acquire the runtime guard.
+Legacy replacements publish `notifications/tools/list_changed`. Modern
+`subscriptions/listen` streams belong to the proxy, not to semantic in-flight
+work: acknowledgement precedes filtered, subscription-ID-tagged tool/prompt/
+resource events. Limits are 128 streams, 64 KiB of subscription state and 1,024
+coalesced pending events. Backlog overflow or unexpected internal stream end
+explicitly cancels affected streams: re-listen and refetch. Streams survive child
+replacement and versioned private POSIX handoff; retired child/stream events do
+not reach newly registered streams. Client cancellation and EOF end ownership.
+After each confirmed child subscription acknowledgement, level-triggered
+refetch notifications cover changes during asynchronous bridge reconfiguration.
+Child pipe writes do not hold the output-publication gate.
+
+Catalogue notification/generation does not guarantee model-visible host cache
+refresh. Rediscover and verify a normal Brain call; reconnect the host if it still
+exposes only recovery controls. Existing degraded proxies need a first host
+reconnect after deployment to acquire this lifecycle. Windows supports controls
+and same-runtime activation; image/runtime replacement requires host reconnect.
 The CLI resolves the managed runtime on each invocation and needs no persistent
 MCP restart; an already-running CLI invocation remains in its original process.
 See [DD-074](../architecture/decisions/dd-074-proxy-owned-server-refresh.md) and
-[DD-075](../architecture/decisions/dd-075-bounded-proxy-stdio-handoff.md).
+[DD-075](../architecture/decisions/dd-075-bounded-proxy-stdio-handoff.md) and
+[DD-079](../architecture/decisions/dd-079-unified-proxy-lifecycle.md).
 
 The long-lived child retains authenticated identity and parsed router/index
 snapshots between calls. Baseline and explicitly refreshed `command.list`

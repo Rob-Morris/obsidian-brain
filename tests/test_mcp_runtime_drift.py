@@ -10,6 +10,7 @@ from brain_mcp import proxy
 from brain_mcp._proxy_controls import control_response
 from brain_mcp._proxy_handoff import RawLineReader, read_state
 from test_mcp_proxy import _FakeChild, _make_inprocess_proxy, _write_vault
+from test_mcp_proxy_refresh import drive_lifecycle
 
 
 def test_runtime_drift_blocks_calls_even_with_current_core_and_live_work(tmp_path, monkeypatch):
@@ -22,7 +23,7 @@ def test_runtime_drift_blocks_calls_even_with_current_core_and_live_work(tmp_pat
     relay._inflight_requests[1] = ({"id": 1, "method": "tools/call"}, 0)
     required = str(tmp_path / "py3.12-new/bin/python")
     monkeypatch.setattr(relay, "_required_runtime_python", lambda: required)
-    monkeypatch.setattr(relay, "_request_refresh", lambda **kwargs: pytest.fail("stale child refreshed"))
+    monkeypatch.setattr(relay, "_admit_lifecycle", lambda *args, **kwargs: pytest.fail("stale child refreshed"))
     def publish(response):
         assert not child.killed
         assert set(relay._inflight_requests) == {1}
@@ -51,7 +52,7 @@ def test_drift_prevents_refresh_and_crash_recovery_launch(tmp_path, monkeypatch,
     relay._child = child = _FakeChild() if child_alive else None
     monkeypatch.setattr(relay, "_required_runtime_python", lambda: str(tmp_path / "other/python"))
     monkeypatch.setattr(proxy, "ChildProcess", lambda *args: pytest.fail("stale runtime launched Core"))
-    assert relay._request_refresh(explicit=True) == "runtime_restart_required"
+    assert drive_lifecycle(relay) == "runtime_restart_required"
     assert relay._start_child() is False
     assert relay._child is child
     if child:
@@ -61,7 +62,7 @@ def test_drift_prevents_refresh_and_crash_recovery_launch(tmp_path, monkeypatch,
 def test_missing_dependency_contract_fails_closed(tmp_path):
     _write_vault(tmp_path)
     relay = proxy.Proxy(sys.executable, "brain_mcp.server", str(tmp_path))
-    assert relay._request_refresh(explicit=True) == "runtime_installation_unavailable"
+    assert drive_lifecycle(relay) == "runtime_installation_unavailable"
     status = relay._proxy_status()
     assert status["runtime"]["state"] == "installation_unavailable"
     assert status["runtime"]["required"] is None
@@ -93,7 +94,7 @@ def test_runtime_only_handoff_pins_new_interpreter_before_retirement(tmp_path, m
         return "verified"
     monkeypatch.setattr(relay, "_preflight_handoff", preflight)
     monkeypatch.setattr(relay, "_replace_idle_image", replace)
-    assert relay._request_handoff(1, RawLineReader(0)) == "verified"
+    assert drive_lifecycle(relay, "brain_proxy_restart") == "verified"
     assert observed == [(required, required), required]
     assert relay.python_path == sys.executable
 
@@ -113,7 +114,7 @@ def test_runtime_change_during_preflight_keeps_existing_instance(tmp_path, monke
         return True
     monkeypatch.setattr(relay, "_preflight_handoff", preflight)
     monkeypatch.setattr(relay, "_replace_idle_image", lambda *args, **kwargs: pytest.fail("retired on changed installation"))
-    assert relay._request_handoff(1, RawLineReader(0)) == "installation_changed"
+    assert drive_lifecycle(relay, "brain_proxy_restart") == "installation_changed"
     assert not relay._shutdown and not child.killed
 
 
@@ -154,7 +155,7 @@ def test_new_hash_uses_installed_compatible_minor_for_status_and_handoff(tmp_pat
         return True
     monkeypatch.setattr(relay, "_preflight_handoff", preflight)
     monkeypatch.setattr(relay, "_replace_idle_image", lambda *args, **kwargs: "selected")
-    assert relay._request_handoff(1, RawLineReader(0)) == "selected"
+    assert drive_lifecycle(relay, "brain_proxy_restart") == "selected"
     assert observed == [(str(installed), str(installed))]
     assert not _venv.resolve_vault_venv_python(tmp_path).exists()
 

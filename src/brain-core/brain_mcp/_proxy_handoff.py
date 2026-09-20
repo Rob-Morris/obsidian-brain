@@ -4,11 +4,12 @@ import base64
 from contextlib import contextmanager
 import json
 import os
+import select
 import stat
 import tempfile
 
 
-HANDOFF_VERSION = 1
+HANDOFF_VERSION = 2
 READ_CHUNK = 64 * 1024
 MAX_STATE_BYTES = 1024 * 1024
 HANDOFF_TIMEOUT = 5.0
@@ -20,6 +21,7 @@ class RawLineReader:
     def __init__(self, fd: int, remainder: bytes = b""):
         self.fd = fd
         self.remainder = remainder
+        self.eof = False
 
     @property
     def line_ready(self) -> bool:
@@ -36,6 +38,31 @@ class RawLineReader:
             self.remainder = os.read(self.fd, READ_CHUNK)
             if not self.remainder:
                 return b"".join(chunks)
+
+    def readline_interruptible(self, wake_fd: int) -> bytes | None:
+        """Keep partial input owned while lifecycle completion wakes the reader."""
+        while True:
+            if self.line_ready:
+                head, _, self.remainder = self.remainder.partition(b"\n")
+                return head + b"\n"
+            if self.eof:
+                tail, self.remainder = self.remainder, b""
+                return tail
+            ready = select.select([self.fd, wake_fd], [], [])[0]
+            # Observe disconnection before handing ownership to a new image.
+            # Any bytes read here remain owned by this reader across wakeup.
+            if self.fd in ready:
+                data = os.read(self.fd, READ_CHUNK)
+                if not data:
+                    self.eof = True
+                    continue
+                self.remainder += data
+            if self.line_ready:
+                head, _, self.remainder = self.remainder.partition(b"\n")
+                return head + b"\n"
+            if wake_fd in ready:
+                os.read(wake_fd, READ_CHUNK)
+                return None
 
 
 def public_session(response: dict) -> dict:
@@ -76,9 +103,17 @@ def read_state(fd: int, *, expected_pid: int) -> dict:
     required = {"version", "pid", "vault", "workspace", "python", "server", "protocol",
                 "initialise_request", "initialise_response", "public_session", "tools",
                 "generation", "request_id", "remainder"}
+    if isinstance(state, dict) and state.get("version") == HANDOFF_VERSION:
+        required.update(("subscriptions", "resolution"))
     if not isinstance(state, dict) or set(state) != required:
         raise ValueError("invalid handoff state fields")
-    if state["version"] != HANDOFF_VERSION or state["pid"] != expected_pid:
+    resolution = state.get("resolution")
+    if resolution is not None:
+        if (not isinstance(resolution, dict) or set(resolution) != {"workspace_env", "vault_root_env", "start_dir"}
+                or not isinstance(resolution["start_dir"], str) or not os.path.isabs(resolution["start_dir"])
+                or any(value is not None and not isinstance(value, str) for value in resolution.values())):
+            raise ValueError("invalid handoff resolution inputs")
+    if state["version"] not in (1, HANDOFF_VERSION) or state["pid"] != expected_pid:
         raise ValueError("handoff version or process identity mismatch")
     if state["protocol"] not in {"legacy", "modern"}:
         raise ValueError("handoff requires an established public protocol")
@@ -100,4 +135,6 @@ def read_state(fd: int, *, expected_pid: int) -> dict:
     remainder = base64.b64decode(state["remainder"], validate=True)
     if len(remainder) > READ_CHUNK:
         raise ValueError("handoff read-ahead exceeds one chunk")
+    from ._proxy_session import Subscriptions
+    Subscriptions.restore(state.get("subscriptions", []))
     return state

@@ -296,6 +296,15 @@ and explicitly reports pending private-directory cleanup. Proxy replacement and
 release installation remain separate operations. A transport
 refresh response never claims an application receipt or authorises replay.
 
+These same boundaries apply to reachable blocked startup. An unresolved target
+cannot become a different Brain through retry; known target selection is
+revalidated before publication and handoff. Candidate cancellation/EOF prevents
+late publication. Modern subscriptions are bounded transport state, not semantic
+requests or grants; only events from the current child/private stream are routed
+to active host stream generations. Their private handoff state contains filters
+and request identifiers, never exceptional consent. No recovery path edits
+registration or client approval policy. See [DD-079](decisions/dd-079-unified-proxy-lifecycle.md).
+
 The MCP proxy/server protocol marker is a local compatibility assertion, not an
 authentication credential. The long-lived proxy sets it only in the child
 environment; a replacement server with a missing, malformed or incompatible

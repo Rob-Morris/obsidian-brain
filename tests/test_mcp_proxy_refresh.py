@@ -1,6 +1,7 @@
 """Idle lifecycle handover, transport discovery and model-visible drift."""
 
 import json
+import os
 import threading
 from dataclasses import replace
 
@@ -11,6 +12,33 @@ from brain_mcp._proxy_controls import add_control_discovery, control_response, t
 from brain_mcp._command_adapter import application_interface_header
 from _application.registry import current_application_catalogue
 from test_mcp_proxy import _FakeChild, _make_inprocess_proxy, _write_vault
+from brain_mcp._proxy_handoff import RawLineReader
+
+
+def lifecycle_request(name="brain_proxy_refresh", request_id=1):
+    return {"jsonrpc": "2.0", "id": request_id, "method": "tools/call",
+            "params": {"name": name, "arguments": {}}}
+
+
+def drive_lifecycle(relay, name="brain_proxy_refresh"):
+    """Drive the wired admission/preparation/completion path deterministically."""
+    if relay._client_protocol is None:
+        relay._client_protocol = "modern"
+    reader = RawLineReader(0)
+    incoming, outgoing = os.pipe()
+    relay._wake_write = outgoing
+    try:
+        code = relay._admit_lifecycle(lifecycle_request(name), reader)
+        if code:
+            return code
+        relay._prepare_lifecycle()
+        relay._finish_prepared_handoff(reader)
+        response = relay._outbound.get_nowait()["result"]["structuredContent"]
+        return response.get("error", {}).get("code")
+    finally:
+        relay._wake_write = None
+        os.close(incoming)
+        os.close(outgoing)
 
 
 def test_refresh_leaves_inflight_work_running(tmp_path):
@@ -20,7 +48,7 @@ def test_refresh_leaves_inflight_work_running(tmp_path):
     relay._child = child
     relay._client_protocol = "modern"
     relay._inflight_requests[1] = ({"method": "tools/call", "id": 1}, 0)
-    assert relay._request_refresh(explicit=True) == "server_busy"
+    assert relay._admit_lifecycle(lifecycle_request(), None) == "server_busy"
     assert relay._child is child and not child.killed
     assert relay._inflight_requests.keys() == {1}
     assert not relay._recovery_trigger.is_set()
@@ -41,11 +69,10 @@ def test_failed_candidate_keeps_old_child_and_header(tmp_path, monkeypatch):
         return False
 
     monkeypatch.setattr(relay, "_start_child", reject)
-    relay._refresh_child()
+    code = relay._refresh_child()
     assert relay._child is child and not child.killed
     assert relay._interface_header is sentinel
-    assert relay._refresh_code == "server_refresh_blocked"
-    assert relay._refresh_done.is_set() and not relay._restart_in_progress
+    assert code == "server_refresh_blocked"
 
 
 def test_refresh_uses_existing_recovery_owner(tmp_path, monkeypatch):
@@ -56,11 +83,59 @@ def test_refresh_uses_existing_recovery_owner(tmp_path, monkeypatch):
     monkeypatch.setattr(relay, "_start_child", lambda: calls.append(threading.current_thread().name) or True)
     relay._start_recovery_loop()
     try:
-        assert relay._request_refresh(explicit=True) is None
+        assert relay._admit_lifecycle(lifecycle_request(), None) is None
+        result = relay._outbound.get(timeout=3)["result"]
+        assert result["isError"] is False
         assert calls == ["child-recovery"]
     finally:
         relay._initiate_shutdown()
         relay._recovery_thread_handle.join(timeout=2)
+
+
+@pytest.mark.parametrize("tool", ["brain_proxy_refresh", "brain_proxy_restart"])
+@pytest.mark.parametrize("invalid", ["missing", "incompatible"])
+def test_same_version_invalid_legacy_interface_is_retried_after_repair(tmp_path, monkeypatch, tool, invalid):
+    from brain_mcp._interface_protocol import command_interface_wire
+    from brain_mcp._proxy_handoff import public_session
+    import sys
+
+    _write_vault(tmp_path)
+    relay = proxy.Proxy(sys.executable, "fake-server", str(tmp_path))
+    relay._client_protocol = "legacy"
+    relay._initial_protocol_selected.set()
+    relay._child = original = _FakeChild()
+    relay._last_launched_version = proxy._read_brain_version_from_disk(str(tmp_path))
+    header = application_interface_header(current_application_catalogue())
+    valid = {"result": {"protocolVersion": "2025-06-18", "capabilities": {
+        "experimental": {"brainCommandInterface": command_interface_wire(header)}}}}
+    bad = {"result": {"protocolVersion": "2025-06-18", "capabilities": {}}} if invalid == "missing" else {
+        "result": {"protocolVersion": "2025-06-18", "capabilities": {"experimental": {
+            "brainCommandInterface": command_interface_wire(replace(header, interface_epoch=99))}}}}
+    relay._init_request = {"id": 1, "method": "initialize"}
+    relay._init_response = add_control_discovery(bad, relay._init_request)
+    relay._public_session = public_session(relay._init_response)
+    assert not relay._capture_interface_header(bad)
+    candidates = []
+
+    def candidate(*args):
+        child = _FakeChild()
+        candidates.append(child)
+        return child
+
+    monkeypatch.setattr(proxy, "ChildProcess", candidate)
+    monkeypatch.setattr(relay, "_read_with_timeout", lambda *_args: bad)
+    assert drive_lifecycle(relay, tool) == "server_refresh_blocked"
+    assert relay._child is original and not original.killed
+    assert candidates[0].killed
+    monkeypatch.setattr(relay, "_read_with_timeout", lambda *_args: valid)
+    assert relay._admit_lifecycle(lifecycle_request(tool), None) is None
+    relay._prepare_lifecycle()
+    assert relay._outbound.get_nowait()["method"] == "notifications/tools/list_changed"
+    assert relay._outbound.get_nowait()["result"]["isError"] is False
+    assert len(candidates) == 2 and relay._child is candidates[-1]
+    assert original.killed and relay._interface_header == header
+    assert relay._proxy_status()["lifecycle"]["phase"] == "ready"
+    assert relay._last_launched_version == proxy._read_brain_version_from_disk(str(tmp_path))
 
 
 def test_controls_are_not_duplicated_on_child_pagination():

@@ -8,6 +8,7 @@ Never edit past changelog entries. Only add new entries at the top.
 
 | Version | Date | Summary |
 |---|---|---|
+| [v0.70.2](changelog/v0.70.2.md) | 2026-09-19 | Unify blocked MCP startup and recovery under one proxy lifecycle |
 | [v0.70.1](changelog/v0.70.1.md) | 2026-09-19 | Preserve client approval policy during MCP lifecycle changes |
 | [v0.70.0](changelog/v0.70.0.md) | 2026-09-18 | BREAKING — Require explicit MCP clients and migrate registration |
 | [v0.69.1](changelog/v0.69.1.md) | 2026-09-17 | Preserve workspace identity and revalidate setup scaffold targets |

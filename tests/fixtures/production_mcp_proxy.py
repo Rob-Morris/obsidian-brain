@@ -36,7 +36,17 @@ def main():
                 (Path(vault) / ".brain-core/brain_mcp/requirements.txt").write_bytes(b"invalid\rcontract")
             return original(self)
         proxy.Proxy._required_runtime_python = fail_after_retirement
-    proxy._serve_proxy(sys.executable, "brain_mcp.server", vault)
+    if os.environ.get("BRAIN_CAPTURE_BLOCKED") == "1":
+        original_probe = proxy._probe_local_state
+        def probe(root):
+            if not (Path(vault) / "repaired").exists():
+                raise PermissionError("test local state unavailable until repaired")
+            original_probe(root)
+        proxy._probe_local_state = probe
+        sys.argv = [__file__, sys.executable, "brain_mcp.server"]
+        proxy.main()
+    else:
+        proxy._serve_proxy(sys.executable, "brain_mcp.server", vault)
 
 
 if __name__ == "__main__":
