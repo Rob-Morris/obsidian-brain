@@ -8,6 +8,10 @@ runtime identity unless their resolution changes a shipped export.
 
 ## System overview
 
+[Managed client approvals](decisions/dd-080-managed-client-approvals.md) compose
+canonical contract facts, native adapters and exact-value ownership under the
+machine registration lifecycle. Host policy remains distinct from Brain authority.
+
 Obsidian Brain is a filesystem-first knowledge system with one typed command application shared by agents, CLI users, direct automation and Python callers. Markdown and YAML remain the durable source of truth; generated state is disposable and rebuildable.
 
 The command architecture separates two authorities:

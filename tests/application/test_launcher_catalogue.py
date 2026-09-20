@@ -34,14 +34,14 @@ def _expected_launcher_commands():
     }
     # The closed v1 audit remains evidence of its original surface. Epoch 3
     # replaces external approval with explicit CLI-only permission administration.
-    return sorted((historical - {"access.approve"}) | {"permission.set-profile", "mcp.migrate"})
+    return sorted((historical - {"access.approve"}) | {"permission.set-profile", "mcp.migrate", "approvals.configure", "approvals.inspect"})
 
 
 def test_launcher_catalogue_is_complete_against_the_closed_disposition_evidence():
     catalogue = _module().LAUNCHER_CATALOGUE
 
     assert [entry.command_id for entry in catalogue.entries] == _expected_launcher_commands()
-    assert len(catalogue.entries) == 25
+    assert len(catalogue.entries) == 27
     from _application.requests import (
         CommandDescribeRequest,
         CommandListRequest,

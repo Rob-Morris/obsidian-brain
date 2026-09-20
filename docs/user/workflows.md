@@ -2,6 +2,10 @@
 
 Day-to-day usage patterns for working with the Brain.
 
+For optional standing approvals of normal Brain reads/writes, use
+[managed client approvals](../functional/approvals.md). Select MCP, CLI or both
+explicitly; inspect drift before repair and verify activation in the client.
+
 ---
 
 ## Workspace-aware changes

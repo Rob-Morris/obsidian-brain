@@ -3,6 +3,7 @@
 **Status:** Implemented (v0.68.0)
 **Supersedes:** DD-062 (v0.68.0 coordinated runtime cutover)
 **Extends:** DD-033, DD-061, DD-064, DD-067
+**Extended by:** DD-080
 
 ## Context
 

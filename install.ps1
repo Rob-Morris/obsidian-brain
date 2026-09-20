@@ -18,6 +18,13 @@ param(
     [ValidateSet("claude", "codex", "grok", "all")]
     [string]$Client,
 
+    [ValidateSet("codex", "claude", "all")]
+    [string]$ApprovalClient,
+    [ValidateSet("user", "project", "local")]
+    [string]$ApprovalScope,
+    [ValidateSet("mcp", "cli", "both")]
+    [string]$Approvals,
+
     [string]$Id,
     [string]$Launcher,
     [switch]$SkipMcp,
@@ -28,6 +35,11 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 $PSNativeCommandUseErrorActionPreference = $false
+
+if (($ApprovalClient -or $ApprovalScope -or $Approvals) -and
+    -not ($ApprovalClient -and $ApprovalScope -and $Approvals)) {
+    throw "Approval opt-in requires -ApprovalClient, -ApprovalScope and -Approvals."
+}
 
 function Find-CompatiblePython {
     param([string]$ExplicitLauncher)
@@ -143,6 +155,9 @@ $argsList = @(
 )
 if ($Id) {
     $argsList += @("--id", $Id)
+}
+if ($ApprovalClient -or $ApprovalScope -or $Approvals) {
+    $argsList += @("--approval-client", $ApprovalClient, "--approval-scope", $ApprovalScope, "--approvals", $Approvals)
 }
 
 & $python @argsList

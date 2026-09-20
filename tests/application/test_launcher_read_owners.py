@@ -99,6 +99,7 @@ def test_launcher_read_owners_match_their_authoritative_catalogue_entries():
     ]
 
     assert [owner.command_id for owner in read_owners] == [
+        "approvals.inspect",
         "brain.doctor",
         "brain.get-default",
         "brain.list",
@@ -168,7 +169,7 @@ def test_launcher_version_returns_static_manifest_identity(tmp_path):
     assert result.result.cli_version == "1.2.0"
     assert result.result.launcher_catalogue_schema == "brain.launcher-catalogue/1"
     assert result.result.launcher_catalogue_fingerprint == LAUNCHER_CATALOGUE.fingerprint
-    assert result.result.launcher_command_count == 25
+    assert result.result.launcher_command_count == 27
 
 
 def test_runtime_inspect_reports_expected_and_selected_runtime_semantics(

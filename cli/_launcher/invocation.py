@@ -66,7 +66,11 @@ class LauncherInvocation:
                 return self._internal_error(owner.command_id, owner.command_version)
             return preflight
         try:
-            result = owner.executor(self._context, request)
+            if entry.approval_transition is not None:
+                from .approval_lifecycle import invoke
+                result = invoke(self._context, request, entry.approval_transition, owner.executor)
+            else:
+                result = owner.executor(self._context, request)
             self._validate_result(entry, owner, result)
         except Exception as exc:
             self._report(entry.command_id, "execute", exc)

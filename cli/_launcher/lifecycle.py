@@ -12,6 +12,7 @@ import shutil
 from typing import ClassVar
 
 from .context import LauncherContext
+from .approvals import ApprovalClient, ApprovalScope, ApprovalSurface
 from .cutover import CutoverPreflight, CutoverPreflightError, preflight as cutover_preflight
 from .contracts import (
     CapabilityUnavailableDetails,
@@ -153,13 +154,16 @@ class BrainUpgradePayload:
 @dataclass(frozen=True, slots=True)
 class BrainInstallRequest:
     COMMAND_ID: ClassVar[str] = "brain.install"
-    COMMAND_VERSION: ClassVar[int] = 3
+    COMMAND_VERSION: ClassVar[int] = 4
     RESULT_TYPE: ClassVar[type] = BrainInstallPayload
 
     vault_root: Path
     brain_id: str
     mcp_scope: InstallMcpScope = InstallMcpScope.PROJECT
     client: InstallClient | None = field(default=None, metadata={"example": InstallClient.CLAUDE})
+    approval_client: ApprovalClient | None = None
+    approval_scope: ApprovalScope | None = None
+    approval_surfaces: tuple[ApprovalSurface, ...] = ()
 
     def __post_init__(self) -> None:
         _absolute_request_path(self.vault_root, "vault_root")
@@ -170,6 +174,9 @@ class BrainInstallRequest:
             raise ValueError("Select an explicit MCP client or all supported clients")
         if self.client is not None and not isinstance(self.client, InstallClient):
             raise ValueError("install client must be closed and typed")
+        if self.approval_client is not None or self.approval_scope is not None or self.approval_surfaces:
+            from .approvals import _validate
+            _validate(self.approval_client, self.approval_scope, self.approval_surfaces)
 
 
 @dataclass(frozen=True, slots=True)

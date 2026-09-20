@@ -9,6 +9,13 @@ Each layer is independent; all must pass for a write to succeed.
 
 ## Path Boundary Model
 
+[Managed host approvals](../functional/approvals.md) do not grant Brain credentials
+or consent. Their machine-local receipts authorise exact policy edits only;
+derived layout, symlink refusal, dependency checks and three-way comparison protect
+unrelated settings. Tightening precedes target exposure and expansion follows
+commit. Native overrides and workspace trust are never removed to make a projection
+appear effective. Interrupted multi-file writes retain explicit recovery evidence.
+
 Every write path is resolved through `resolve_and_check_bounds(path, bounds)` before
 any I/O begins.
 

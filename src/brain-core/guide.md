@@ -6,6 +6,11 @@ This guide covers what you need to know day-to-day. For the full reference, see 
 
 ## Your Vault at a Glance
 
+For optional host approvals of normal reads/writes, inspect
+`brain approvals inspect --json` on your own machine. Configuration needs explicit
+client, scope and MCP/CLI selections. It does not change Brain permissions; proxy
+restart does not reload the host's approval policy.
+
 ```
 Daily Notes/              ← living artefacts (root folders)
 Designs/

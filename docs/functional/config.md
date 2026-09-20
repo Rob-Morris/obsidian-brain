@@ -8,6 +8,10 @@ Reference for the brain-core configuration system, operator profiles, core skill
 
 ## Configuration System
 
+Machine-level [managed client approvals](approvals.md) are a separate opt-in
+concern. They do not belong in the synced vault configuration and never alter
+Brain credential ceilings or exceptional consent.
+
 The MCP server loads vault configuration via a three-layer merge on startup:
 
 1. **Template defaults** — `defaults/config.yaml` shipped with brain-core. Provides all valid keys and fallback values.

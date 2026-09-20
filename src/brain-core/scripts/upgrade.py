@@ -2694,6 +2694,20 @@ def main() -> None:
         fatal(str(e))
 
     source = str(Path(args.source).resolve())
+    from _bootstrap import machine_cli
+    if machine_cli.approvals_present():
+        try:
+            receipt = machine_cli.invoke("brain.upgrade", {
+                "force": args.force,
+                "definition_sync": "auto" if args.sync is None else "enable" if args.sync else "disable",
+                "dependency_sync": "auto" if args.sync_deps is None else "enable" if args.sync_deps else "disable",
+                "acknowledge_global_cli_cutover": args.acknowledge_global_cli_cutover,
+                "excluded_stale_brain_ids": sorted(set(args.exclude_stale_brain)),
+            }, source_root=Path(source).parent.parent, vault=Path(vault_root), dry_run=args.dry_run)
+        except (OSError, ValueError, RuntimeError) as exc:
+            fatal(str(exc))
+        print(json.dumps(receipt, indent=2))
+        raise SystemExit(0 if receipt["status"] == "ok" else 1)
     try:
         cutover = _prepare_cli_cutover(
             Path(vault_root),

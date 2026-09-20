@@ -1,0 +1,317 @@
+{
+  "schema": "brain.approval-contract/1",
+  "entries": [
+    {
+      "command_id": "agent-skill.configure",
+      "version": 2,
+      "owner": "launcher",
+      "classification": "machine_mutation",
+      "mcp": null,
+      "cli": [
+        "agent-skill",
+        "configure"
+      ],
+      "authority": "operator"
+    },
+    {
+      "command_id": "approvals.configure",
+      "version": 1,
+      "owner": "launcher",
+      "classification": "machine_mutation",
+      "mcp": null,
+      "cli": [
+        "approvals",
+        "configure"
+      ],
+      "authority": "operator"
+    },
+    {
+      "command_id": "approvals.inspect",
+      "version": 1,
+      "owner": "launcher",
+      "classification": "none",
+      "mcp": null,
+      "cli": [
+        "approvals",
+        "inspect"
+      ],
+      "authority": "reader"
+    },
+    {
+      "command_id": "brain.clear-default",
+      "version": 1,
+      "owner": "launcher",
+      "classification": "machine_mutation",
+      "mcp": null,
+      "cli": [
+        "clear-default"
+      ],
+      "authority": "operator"
+    },
+    {
+      "command_id": "brain.doctor",
+      "version": 2,
+      "owner": "launcher",
+      "classification": "none",
+      "mcp": null,
+      "cli": [
+        "doctor"
+      ],
+      "authority": "reader"
+    },
+    {
+      "command_id": "brain.get-default",
+      "version": 1,
+      "owner": "launcher",
+      "classification": "none",
+      "mcp": null,
+      "cli": [
+        "get-default"
+      ],
+      "authority": "reader"
+    },
+    {
+      "command_id": "brain.install",
+      "version": 4,
+      "owner": "launcher",
+      "classification": "machine_mutation",
+      "mcp": null,
+      "cli": [
+        "install"
+      ],
+      "authority": "operator"
+    },
+    {
+      "command_id": "brain.list",
+      "version": 1,
+      "owner": "launcher",
+      "classification": "none",
+      "mcp": null,
+      "cli": [
+        "list"
+      ],
+      "authority": "reader"
+    },
+    {
+      "command_id": "brain.migrate-legacy-installations",
+      "version": 1,
+      "owner": "launcher",
+      "classification": "machine_mutation",
+      "mcp": null,
+      "cli": [
+        "migrate-legacy-installations"
+      ],
+      "authority": "operator"
+    },
+    {
+      "command_id": "brain.register",
+      "version": 1,
+      "owner": "launcher",
+      "classification": "machine_mutation",
+      "mcp": null,
+      "cli": [
+        "register"
+      ],
+      "authority": "operator"
+    },
+    {
+      "command_id": "brain.resolve",
+      "version": 1,
+      "owner": "launcher",
+      "classification": "none",
+      "mcp": null,
+      "cli": [
+        "resolve"
+      ],
+      "authority": "reader"
+    },
+    {
+      "command_id": "brain.set-default",
+      "version": 1,
+      "owner": "launcher",
+      "classification": "machine_mutation",
+      "mcp": null,
+      "cli": [
+        "set-default"
+      ],
+      "authority": "operator"
+    },
+    {
+      "command_id": "brain.uninstall",
+      "version": 2,
+      "owner": "launcher",
+      "classification": "machine_mutation",
+      "mcp": null,
+      "cli": [
+        "uninstall"
+      ],
+      "authority": "operator"
+    },
+    {
+      "command_id": "brain.unregister",
+      "version": 1,
+      "owner": "launcher",
+      "classification": "machine_mutation",
+      "mcp": null,
+      "cli": [
+        "unregister"
+      ],
+      "authority": "operator"
+    },
+    {
+      "command_id": "brain.upgrade",
+      "version": 2,
+      "owner": "launcher",
+      "classification": "machine_mutation",
+      "mcp": null,
+      "cli": [
+        "upgrade"
+      ],
+      "authority": "operator"
+    },
+    {
+      "command_id": "brain.version",
+      "version": 1,
+      "owner": "launcher",
+      "classification": "none",
+      "mcp": null,
+      "cli": [
+        "version"
+      ],
+      "authority": "reader"
+    },
+    {
+      "command_id": "mcp.configure",
+      "version": 3,
+      "owner": "launcher",
+      "classification": "machine_mutation",
+      "mcp": null,
+      "cli": [
+        "mcp",
+        "configure"
+      ],
+      "authority": "operator"
+    },
+    {
+      "command_id": "mcp.migrate",
+      "version": 1,
+      "owner": "launcher",
+      "classification": "machine_mutation",
+      "mcp": null,
+      "cli": [
+        "mcp",
+        "migrate"
+      ],
+      "authority": "operator"
+    },
+    {
+      "command_id": "mcp.repair",
+      "version": 3,
+      "owner": "launcher",
+      "classification": "machine_mutation",
+      "mcp": null,
+      "cli": [
+        "mcp",
+        "repair"
+      ],
+      "authority": "operator"
+    },
+    {
+      "command_id": "operator.generate-key",
+      "version": 1,
+      "owner": "launcher",
+      "classification": "none",
+      "mcp": null,
+      "cli": [
+        "operator",
+        "generate-key"
+      ],
+      "authority": "operator"
+    },
+    {
+      "command_id": "permission.set-profile",
+      "version": 1,
+      "owner": "launcher",
+      "classification": "machine_mutation",
+      "mcp": null,
+      "cli": [
+        "permission",
+        "set-profile"
+      ],
+      "authority": "operator"
+    },
+    {
+      "command_id": "registry.remove-stale",
+      "version": 1,
+      "owner": "launcher",
+      "classification": "machine_mutation",
+      "mcp": null,
+      "cli": [
+        "registry",
+        "remove-stale"
+      ],
+      "authority": "operator"
+    },
+    {
+      "command_id": "runtime.inspect",
+      "version": 1,
+      "owner": "launcher",
+      "classification": "none",
+      "mcp": null,
+      "cli": [
+        "runtime",
+        "inspect"
+      ],
+      "authority": "reader"
+    },
+    {
+      "command_id": "runtime.remove-orphans",
+      "version": 1,
+      "owner": "launcher",
+      "classification": "machine_mutation",
+      "mcp": null,
+      "cli": [
+        "runtime",
+        "remove-orphans"
+      ],
+      "authority": "operator"
+    },
+    {
+      "command_id": "runtime.repair",
+      "version": 1,
+      "owner": "launcher",
+      "classification": "machine_mutation",
+      "mcp": null,
+      "cli": [
+        "runtime",
+        "repair"
+      ],
+      "authority": "operator"
+    },
+    {
+      "command_id": "skill.expose",
+      "version": 2,
+      "owner": "launcher",
+      "classification": "machine_mutation",
+      "mcp": null,
+      "cli": [
+        "skill",
+        "expose"
+      ],
+      "authority": "operator"
+    },
+    {
+      "command_id": "skill.unexpose",
+      "version": 2,
+      "owner": "launcher",
+      "classification": "machine_mutation",
+      "mcp": null,
+      "cli": [
+        "skill",
+        "unexpose"
+      ],
+      "authority": "operator"
+    }
+  ],
+  "fingerprint": "sha256:832a245fc4724c5bd1bb06c45c1e34b9f7ed860ae25349d0590941805a204e37"
+}

@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import shutil
 import subprocess
@@ -391,6 +392,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument("--id", dest="brain_id", help="Explicit local Brain ID for the machine registry.")
     parser.add_argument("--json", action="store_true", help="Emit machine-readable JSON.")
+    parser.add_argument("--approval-client", choices=("codex", "claude", "all"))
+    parser.add_argument("--approval-scope", choices=("user", "project", "local"))
+    parser.add_argument("--approvals", choices=("mcp", "cli", "both"))
     return parser.parse_args(argv)
 
 
@@ -399,6 +403,19 @@ def main(argv: list[str] | None = None) -> int:
     # Canonical launcher contract: 0 success, 1 partial/follow-up, 2 hard error.
     # install.sh and install.ps1 mirror this mapping for native launcher UX.
     try:
+        from _bootstrap import machine_cli
+        if args.approvals or args.approval_client or args.approval_scope or machine_cli.approvals_present():
+            if any((args.approvals, args.approval_client, args.approval_scope)) and not all((args.approvals, args.approval_client, args.approval_scope)):
+                raise ValueError("Approval opt-in requires --approval-client, --approval-scope and --approvals")
+            vault = _resolve_vault_root(args.vault)
+            request = {"vault_root": str(vault), "brain_id": vault_registry.preview_register_action(vault, args.brain_id).brain_id,
+                       "mcp_scope": args.mcp_scope, "client": args.client}
+            if args.approvals:
+                request.update(approval_client=args.approval_client, approval_scope=args.approval_scope,
+                               approval_surfaces=["mcp", "cli"] if args.approvals == "both" else [args.approvals])
+            receipt = machine_cli.invoke("brain.install", request, source_root=Path(args.source_root).resolve() if args.source_root else _default_source_root())
+            print(json.dumps(receipt, indent=2))
+            return {"ok": 0, "partial": 1, "error": 2}[receipt["status"]]
         result = install_vault_action(
             args.vault,
             source_root=args.source_root,

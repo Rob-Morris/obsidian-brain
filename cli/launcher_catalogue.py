@@ -53,6 +53,7 @@ class LauncherEntry:
     owner: str = "launcher"
     dependency_tier: str = "bootstrap"
     locality: str = "machine_local"
+    approval_transition: str | None = None
 
     def __post_init__(self) -> None:
         if not _COMMAND_ID.fullmatch(self.command_id):
@@ -61,6 +62,8 @@ class LauncherEntry:
             raise ValueError("launcher command version must be positive")
         if self.owner != "launcher":
             raise ValueError("launcher entry owner must be launcher")
+        if self.approval_transition not in {None, "add", "remove", "install", "version", "transport", "inventory", "prune"}:
+            raise ValueError("unknown approval target transition")
         if self.dependency_tier != "bootstrap" or self.locality != "machine_local":
             raise ValueError("launcher entries must remain bootstrap-tier and machine-local")
         if not self.owner_ref.strip() or not self.entry_point:
@@ -119,6 +122,7 @@ class LauncherCatalogue:
                 "required_providers": entry.required_providers,
                 "authority": entry.authority,
                 "effect_class": entry.effect_class,
+                "approval_transition": entry.approval_transition,
                 "retry_class": entry.retry_class,
                 "summary": entry.summary,
                 "projections": tuple(
@@ -132,12 +136,12 @@ class LauncherCatalogue:
         return "sha256:" + hashlib.sha256(encoded).hexdigest()
 
 
-def _read(command_id: str, owner_ref: str, *entry_point: str) -> LauncherEntry:
-    return LauncherEntry(command_id, 1, owner_ref, entry_point, "reader", "none", "safe")
+def _read(command_id: str, owner_ref: str, *entry_point: str, version: int = 1) -> LauncherEntry:
+    return LauncherEntry(command_id, version, owner_ref, entry_point, "reader", "none", "safe")
 
 
 def _mutation(
-    command_id: str, owner_ref: str, *entry_point: str, version: int = 1
+    command_id: str, owner_ref: str, *entry_point: str, version: int = 1, approval_transition: str | None = None
 ) -> LauncherEntry:
     return LauncherEntry(
         command_id,
@@ -148,6 +152,7 @@ def _mutation(
         "machine_mutation",
         "receipt_required",
         required_providers=("caller_filesystem",),
+        approval_transition=approval_transition,
     )
 
 
@@ -184,6 +189,8 @@ LAUNCHER_CATALOGUE = LauncherCatalogue(
     tuple(
         sorted(
             (
+                _mutation("approvals.configure", "_launcher.approvals:configure", "brain", "approvals", "configure"),
+                _read("approvals.inspect", "_launcher.approvals:inspect", "brain", "approvals", "inspect"),
                 _mutation(
                     "permission.set-profile",
                     "_launcher.permission:set-profile",
@@ -221,7 +228,7 @@ LAUNCHER_CATALOGUE = LauncherCatalogue(
                     "brain",
                     "clear-default",
                 ),
-                _read("brain.doctor", "_launcher.doctor:doctor", "brain", "doctor"),
+                _read("brain.doctor", "_launcher.doctor:doctor", "brain", "doctor", version=2),
                 _read(
                     "brain.get-default",
                     "_launcher.registry:get_default",
@@ -233,7 +240,8 @@ LAUNCHER_CATALOGUE = LauncherCatalogue(
                     "_launcher.lifecycle:install",
                     "brain",
                     "install",
-                    version=3,
+                    version=4,
+                    approval_transition="install",
                 ),
                 _read("brain.list", "_launcher.registry:list", "brain", "list"),
                 _mutation(
@@ -241,9 +249,10 @@ LAUNCHER_CATALOGUE = LauncherCatalogue(
                     "_launcher.machine:migrate_legacy_installations",
                     "brain",
                     "migrate-legacy-installations",
+                    approval_transition="inventory",
                 ),
                 _mutation(
-                    "brain.register", "_launcher.registry:register", "brain", "register"
+                    "brain.register", "_launcher.registry:register", "brain", "register", approval_transition="add"
                 ),
                 _read(
                     "brain.resolve", "_launcher.registry:resolve", "brain", "resolve"
@@ -253,6 +262,7 @@ LAUNCHER_CATALOGUE = LauncherCatalogue(
                     "_launcher.registry:set_default",
                     "brain",
                     "set-default",
+                    approval_transition="transport",
                 ),
                 _mutation(
                     "brain.uninstall",
@@ -260,12 +270,14 @@ LAUNCHER_CATALOGUE = LauncherCatalogue(
                     "brain",
                     "uninstall",
                     version=2,
+                    approval_transition="remove",
                 ),
                 _mutation(
                     "brain.unregister",
                     "_launcher.registry:unregister",
                     "brain",
                     "unregister",
+                    approval_transition="remove",
                 ),
                 LauncherEntry(
                     "brain.upgrade",
@@ -276,6 +288,7 @@ LAUNCHER_CATALOGUE = LauncherCatalogue(
                     "machine_mutation",
                     "receipt_required",
                     required_providers=("caller_filesystem",),
+                    approval_transition="version",
                 ),
                 _read("brain.version", "_launcher.version:version", "brain", "version"),
                 _mutation(
@@ -285,6 +298,7 @@ LAUNCHER_CATALOGUE = LauncherCatalogue(
                     "mcp",
                     "configure",
                     version=3,
+                    approval_transition="transport",
                 ),
                 _mutation(
                     "mcp.repair",
@@ -293,8 +307,9 @@ LAUNCHER_CATALOGUE = LauncherCatalogue(
                     "mcp",
                     "repair",
                     version=3,
+                    approval_transition="transport",
                 ),
-                _mutation("mcp.migrate", "_launcher.mcp:migrate", "brain", "mcp", "migrate"),
+                _mutation("mcp.migrate", "_launcher.mcp:migrate", "brain", "mcp", "migrate", approval_transition="transport"),
                 LauncherEntry(
                     "operator.generate-key",
                     1,
@@ -331,6 +346,7 @@ LAUNCHER_CATALOGUE = LauncherCatalogue(
                     "brain",
                     "registry",
                     "remove-stale",
+                    approval_transition="prune",
                 ),
             ),
             key=lambda entry: entry.command_id,

@@ -380,6 +380,8 @@ def test_apply_failure_rolls_back_files_and_created_directories(tmp_path, monkey
 
     def fail_second(path, content):
         nonlocal calls
+        if not path.is_relative_to(vault):
+            return original_apply(path, content)
         calls += 1
         if calls == 2:
             raise OSError("disk full")
@@ -407,6 +409,8 @@ def test_keyboard_interrupt_rolls_back_files_and_created_directories(
 
     def interrupt_second(path, content):
         nonlocal calls
+        if not path.is_relative_to(vault):
+            return original_apply(path, content)
         calls += 1
         if calls == 2:
             raise KeyboardInterrupt()
@@ -431,6 +435,8 @@ def test_after_effect_interrupt_rolls_back_files_and_created_directories(
 
     def interrupt_after_second_effect(path, content):
         nonlocal calls
+        if not path.is_relative_to(vault):
+            return original_apply(path, content)
         calls += 1
         original_apply(path, content)
         if calls == 2:
@@ -453,6 +459,8 @@ def test_after_rollback_effect_interrupt_is_reconciled(tmp_path, monkeypatch):
 
     def fail_write_then_interrupt_after_restore(path, content):
         nonlocal calls
+        if not path.is_relative_to(vault):
+            return original_apply(path, content)
         calls += 1
         if calls == 2:
             raise OSError("disk full")
@@ -484,6 +492,8 @@ def test_failed_rollback_reports_known_partial_files(tmp_path, monkeypatch):
 
     def fail_write_and_rollback(path, content):
         nonlocal calls
+        if not path.is_relative_to(vault):
+            return original_apply(path, content)
         calls += 1
         if calls in {2, 3}:
             raise OSError("storage failure")

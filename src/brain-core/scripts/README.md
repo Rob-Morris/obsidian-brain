@@ -2,6 +2,13 @@
 
 `scripts/` contains the selected-Brain application and its lower-level implementation packages. It is not a collection of independent public command-line programs.
 
+`_bootstrap/approval_policy.py` owns the pure host-trust mapping;
+`approval_clients.py`, `approval_ownership.py` and `approval_migration.py` own native
+syntax and exact-value reconciliation. `approval_contract.py` exports canonical
+facts for bootstrap-safe inspection. Host orchestration stays in the machine CLI;
+`_bootstrap/machine_cli.py` admits direct-script calls to that owner. These helpers
+never add MCP access to the connecting agent's configuration files.
+
 ## Public selected-Brain entry point
 
 The supported direct projection is:

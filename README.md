@@ -1,6 +1,6 @@
 # Obsidian Brain
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE) ![Version](https://img.shields.io/badge/version-0.70.2-blue) ![Platform](https://img.shields.io/badge/platform-Obsidian-7C3AED) ![Python](https://img.shields.io/badge/python-≥3.12-3776AB?logo=python&logoColor=white) ![MCP](https://img.shields.io/badge/MCP-server-green)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE) ![Version](https://img.shields.io/badge/version-0.70.3-blue) ![Platform](https://img.shields.io/badge/platform-Obsidian-7C3AED) ![Python](https://img.shields.io/badge/python-≥3.12-3776AB?logo=python&logoColor=white) ![MCP](https://img.shields.io/badge/MCP-server-green)
 
 A self-evolving knowledge base for agents and humans working together on what matters.
 
@@ -44,6 +44,14 @@ bash <(curl -fsSL https://raw.githubusercontent.com/rob-morris/obsidian-brain/ma
 ```
 
 This downloads the repo, creates the vault in the current directory, and then asks which MCP clients to configure (Claude Code, Codex, Grok, or All supported clients). Pass a path to install elsewhere. If you want the vault scaffold without the managed runtime / MCP setup, pass `--skip-mcp` (or add `--non-interactive` for non-interactive agent installs). From a local clone, use `bash install.sh` instead.
+
+Optionally let Brain maintain normal read/write approvals for explicitly selected
+Codex or Claude clients: add `--approval-client all --approval-scope user --approvals both`,
+or use `brain approvals inspect` / `brain approvals configure` later. Client,
+scope and MCP/CLI surfaces are separate choices; transport setup never opts you
+in implicitly. See [managed approvals](docs/functional/approvals.md) for native
+compatibility, ownership preservation and recovery. Brain permissions and
+exceptional consent still apply.
 
 On native Windows, use the PowerShell launcher from a local clone:
 

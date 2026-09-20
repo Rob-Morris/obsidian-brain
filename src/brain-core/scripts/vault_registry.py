@@ -605,6 +605,24 @@ def main():
     args = parser.parse_args()
 
     try:
+        from _bootstrap import machine_cli
+        if machine_cli.approvals_present() and any((args.register, args.backfill, args.unregister, args.prune, args.set_default, args.clear_default)):
+            if args.register or args.backfill:
+                command, request = "brain.register", {
+                    "vault_root": _absolute(args.register or args.backfill),
+                    "brain_id": args.id if args.register else None,
+                }
+            elif args.unregister:
+                command, request = "brain.unregister", {"vault_root": _absolute(args.unregister)}
+            elif args.prune:
+                command, request = "registry.remove-stale", {}
+            elif args.set_default:
+                command, request = "brain.set-default", {"brain_id": args.set_default}
+            else:
+                command, request = "brain.clear-default", {}
+            result = machine_cli.invoke(command, request)
+            print(json.dumps(result, indent=2))
+            raise SystemExit(0 if result["status"] == "ok" else 1)
         if args.register:
             print(register(args.register, brain_id=args.id))
         elif args.backfill:

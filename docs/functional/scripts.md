@@ -1,5 +1,11 @@
 # Direct Script and Python Command Interfaces
 
+`configure.py approvals` delegates to the [managed approvals](approvals.md) machine
+owner. Native install accepts separate `--approval-client`, `--approval-scope` and
+`--approvals` selections. With existing opt-ins, direct install, upgrade and
+registry mutations use the same compatible machine owners; a missing writer is an
+error before mutation, not a fallback to legacy writes.
+
 ## Managed dependency lifecycle
 
 The shared stdlib runtime owner consumes `.brain-core/brain_mcp/requirements.txt`

@@ -1,0 +1,1029 @@
+{
+  "schema": "brain.approval-contract/1",
+  "entries": [
+    {
+      "command_id": "access.prepare",
+      "version": 1,
+      "owner": "application",
+      "classification": "control",
+      "mcp": "access_prepare",
+      "cli": [
+        "access",
+        "prepare"
+      ],
+      "authority": "reader"
+    },
+    {
+      "command_id": "access.reduce",
+      "version": 2,
+      "owner": "application",
+      "classification": "control",
+      "mcp": "access_reduce",
+      "cli": [
+        "access",
+        "reduce"
+      ],
+      "authority": "reader"
+    },
+    {
+      "command_id": "access.request",
+      "version": 2,
+      "owner": "application",
+      "classification": "control",
+      "mcp": "access_request",
+      "cli": [
+        "access",
+        "request"
+      ],
+      "authority": "reader"
+    },
+    {
+      "command_id": "access.status",
+      "version": 3,
+      "owner": "application",
+      "classification": "control",
+      "mcp": "access_status",
+      "cli": [
+        "access",
+        "status"
+      ],
+      "authority": "reader"
+    },
+    {
+      "command_id": "artefact.archive",
+      "version": 3,
+      "owner": "application",
+      "classification": "content",
+      "mcp": "artefact_archive",
+      "cli": [
+        "artefact",
+        "archive"
+      ],
+      "authority": "contributor"
+    },
+    {
+      "command_id": "artefact.convert",
+      "version": 3,
+      "owner": "application",
+      "classification": "content",
+      "mcp": "artefact_convert",
+      "cli": [
+        "artefact",
+        "convert"
+      ],
+      "authority": "contributor"
+    },
+    {
+      "command_id": "artefact.create",
+      "version": 4,
+      "owner": "application",
+      "classification": "content",
+      "mcp": "artefact_create",
+      "cli": [
+        "artefact",
+        "create"
+      ],
+      "authority": "contributor"
+    },
+    {
+      "command_id": "artefact.delete",
+      "version": 3,
+      "owner": "application",
+      "classification": "exceptional",
+      "mcp": "artefact_delete",
+      "cli": [
+        "artefact",
+        "delete"
+      ],
+      "authority": "administrator"
+    },
+    {
+      "command_id": "artefact.list",
+      "version": 2,
+      "owner": "application",
+      "classification": "observation",
+      "mcp": "artefact_list",
+      "cli": [
+        "artefact",
+        "list"
+      ],
+      "authority": "reader"
+    },
+    {
+      "command_id": "artefact.migrate-naming",
+      "version": 1,
+      "owner": "application",
+      "classification": "content",
+      "mcp": null,
+      "cli": [
+        "artefact",
+        "migrate-naming"
+      ],
+      "authority": "contributor"
+    },
+    {
+      "command_id": "artefact.outline",
+      "version": 1,
+      "owner": "application",
+      "classification": "observation",
+      "mcp": "artefact_outline",
+      "cli": [
+        "artefact",
+        "outline"
+      ],
+      "authority": "reader"
+    },
+    {
+      "command_id": "artefact.read",
+      "version": 4,
+      "owner": "application",
+      "classification": "observation",
+      "mcp": "artefact_read",
+      "cli": [
+        "artefact",
+        "read"
+      ],
+      "authority": "reader"
+    },
+    {
+      "command_id": "artefact.rename",
+      "version": 2,
+      "owner": "application",
+      "classification": "content",
+      "mcp": "artefact_rename",
+      "cli": [
+        "artefact",
+        "rename"
+      ],
+      "authority": "contributor"
+    },
+    {
+      "command_id": "artefact.repair",
+      "version": 1,
+      "owner": "application",
+      "classification": "content",
+      "mcp": "artefact_repair",
+      "cli": [
+        "artefact",
+        "repair"
+      ],
+      "authority": "contributor"
+    },
+    {
+      "command_id": "artefact.reparent",
+      "version": 2,
+      "owner": "application",
+      "classification": "content",
+      "mcp": "artefact_reparent",
+      "cli": [
+        "artefact",
+        "reparent"
+      ],
+      "authority": "contributor"
+    },
+    {
+      "command_id": "artefact.reparent-children",
+      "version": 2,
+      "owner": "application",
+      "classification": "content",
+      "mcp": "artefact_reparent-children",
+      "cli": [
+        "artefact",
+        "reparent-children"
+      ],
+      "authority": "contributor"
+    },
+    {
+      "command_id": "artefact.search",
+      "version": 2,
+      "owner": "application",
+      "classification": "observation",
+      "mcp": "artefact_search",
+      "cli": [
+        "artefact",
+        "search"
+      ],
+      "authority": "reader"
+    },
+    {
+      "command_id": "artefact.set-key",
+      "version": 2,
+      "owner": "application",
+      "classification": "content",
+      "mcp": "artefact_set-key",
+      "cli": [
+        "artefact",
+        "set-key"
+      ],
+      "authority": "contributor"
+    },
+    {
+      "command_id": "artefact.set-naming-field",
+      "version": 2,
+      "owner": "application",
+      "classification": "content",
+      "mcp": "artefact_set-naming-field",
+      "cli": [
+        "artefact",
+        "set-naming-field"
+      ],
+      "authority": "contributor"
+    },
+    {
+      "command_id": "artefact.set-status",
+      "version": 2,
+      "owner": "application",
+      "classification": "content",
+      "mcp": "artefact_set-status",
+      "cli": [
+        "artefact",
+        "set-status"
+      ],
+      "authority": "contributor"
+    },
+    {
+      "command_id": "artefact.set-workspace",
+      "version": 1,
+      "owner": "application",
+      "classification": "content",
+      "mcp": "artefact_set-workspace",
+      "cli": [
+        "artefact",
+        "set-workspace"
+      ],
+      "authority": "contributor"
+    },
+    {
+      "command_id": "artefact.unarchive",
+      "version": 3,
+      "owner": "application",
+      "classification": "content",
+      "mcp": "artefact_unarchive",
+      "cli": [
+        "artefact",
+        "unarchive"
+      ],
+      "authority": "contributor"
+    },
+    {
+      "command_id": "attachment.upload",
+      "version": 1,
+      "owner": "application",
+      "classification": "content",
+      "mcp": "attachment_upload",
+      "cli": [
+        "attachment",
+        "upload"
+      ],
+      "authority": "contributor"
+    },
+    {
+      "command_id": "command.describe",
+      "version": 4,
+      "owner": "application",
+      "classification": "control",
+      "mcp": "command_describe",
+      "cli": [
+        "command",
+        "describe"
+      ],
+      "authority": "reader"
+    },
+    {
+      "command_id": "command.list",
+      "version": 4,
+      "owner": "application",
+      "classification": "control",
+      "mcp": "command_list",
+      "cli": [
+        "command",
+        "list"
+      ],
+      "authority": "reader"
+    },
+    {
+      "command_id": "content.classify",
+      "version": 2,
+      "owner": "application",
+      "classification": "observation",
+      "mcp": "content_classify",
+      "cli": [
+        "content",
+        "classify"
+      ],
+      "authority": "reader"
+    },
+    {
+      "command_id": "content.ingest",
+      "version": 2,
+      "owner": "application",
+      "classification": "content",
+      "mcp": "content_ingest",
+      "cli": [
+        "content",
+        "ingest"
+      ],
+      "authority": "contributor"
+    },
+    {
+      "command_id": "content.resolve",
+      "version": 1,
+      "owner": "application",
+      "classification": "observation",
+      "mcp": "content_resolve",
+      "cli": [
+        "content",
+        "resolve"
+      ],
+      "authority": "reader"
+    },
+    {
+      "command_id": "document.replace-text",
+      "version": 2,
+      "owner": "application",
+      "classification": "content",
+      "mcp": "document_replace-text",
+      "cli": [
+        "document",
+        "replace-text"
+      ],
+      "authority": "contributor"
+    },
+    {
+      "command_id": "document.structured-edit",
+      "version": 3,
+      "owner": "application",
+      "classification": "content",
+      "mcp": "document_structured-edit",
+      "cli": [
+        "document",
+        "structured-edit"
+      ],
+      "authority": "contributor"
+    },
+    {
+      "command_id": "document.update-frontmatter",
+      "version": 4,
+      "owner": "application",
+      "classification": "content",
+      "mcp": "document_update-frontmatter",
+      "cli": [
+        "document",
+        "update-frontmatter"
+      ],
+      "authority": "contributor"
+    },
+    {
+      "command_id": "document.write-body",
+      "version": 2,
+      "owner": "application",
+      "classification": "content",
+      "mcp": "document_write-body",
+      "cli": [
+        "document",
+        "write-body"
+      ],
+      "authority": "contributor"
+    },
+    {
+      "command_id": "invocation.read",
+      "version": 3,
+      "owner": "application",
+      "classification": "control",
+      "mcp": "invocation_read",
+      "cli": [
+        "invocation",
+        "read"
+      ],
+      "authority": "reader"
+    },
+    {
+      "command_id": "links.check",
+      "version": 2,
+      "owner": "application",
+      "classification": "observation",
+      "mcp": "links_check",
+      "cli": [
+        "links",
+        "check"
+      ],
+      "authority": "reader"
+    },
+    {
+      "command_id": "links.fix",
+      "version": 1,
+      "owner": "application",
+      "classification": "content",
+      "mcp": "links_fix",
+      "cli": [
+        "links",
+        "fix"
+      ],
+      "authority": "contributor"
+    },
+    {
+      "command_id": "plugin.create",
+      "version": 1,
+      "owner": "application",
+      "classification": "content",
+      "mcp": "plugin_create",
+      "cli": [
+        "plugin",
+        "create"
+      ],
+      "authority": "maintainer"
+    },
+    {
+      "command_id": "plugin.replace",
+      "version": 1,
+      "owner": "application",
+      "classification": "content",
+      "mcp": "plugin_replace",
+      "cli": [
+        "plugin",
+        "replace"
+      ],
+      "authority": "maintainer"
+    },
+    {
+      "command_id": "resource.create",
+      "version": 2,
+      "owner": "application",
+      "classification": "content",
+      "mcp": "resource_create",
+      "cli": [
+        "resource",
+        "create"
+      ],
+      "authority": "contributor"
+    },
+    {
+      "command_id": "resource.list",
+      "version": 1,
+      "owner": "application",
+      "classification": "observation",
+      "mcp": "resource_list",
+      "cli": [
+        "resource",
+        "list"
+      ],
+      "authority": "reader"
+    },
+    {
+      "command_id": "resource.read",
+      "version": 3,
+      "owner": "application",
+      "classification": "observation",
+      "mcp": "resource_read",
+      "cli": [
+        "resource",
+        "read"
+      ],
+      "authority": "reader"
+    },
+    {
+      "command_id": "resource.search",
+      "version": 1,
+      "owner": "application",
+      "classification": "observation",
+      "mcp": "resource_search",
+      "cli": [
+        "resource",
+        "search"
+      ],
+      "authority": "reader"
+    },
+    {
+      "command_id": "retrieval.construct-benchmark",
+      "version": 1,
+      "owner": "application",
+      "classification": "exceptional",
+      "mcp": null,
+      "cli": [
+        "retrieval",
+        "construct-benchmark"
+      ],
+      "authority": "maintainer"
+    },
+    {
+      "command_id": "retrieval.enable",
+      "version": 1,
+      "owner": "application",
+      "classification": "exceptional",
+      "mcp": null,
+      "cli": [
+        "retrieval",
+        "enable"
+      ],
+      "authority": "operator"
+    },
+    {
+      "command_id": "retrieval.evaluate",
+      "version": 1,
+      "owner": "application",
+      "classification": "exceptional",
+      "mcp": null,
+      "cli": [
+        "retrieval",
+        "evaluate"
+      ],
+      "authority": "maintainer"
+    },
+    {
+      "command_id": "retrieval.rebuild-semantic",
+      "version": 1,
+      "owner": "application",
+      "classification": "exceptional",
+      "mcp": "retrieval_rebuild-semantic",
+      "cli": [
+        "retrieval",
+        "rebuild-semantic"
+      ],
+      "authority": "maintainer"
+    },
+    {
+      "command_id": "retrieval.refresh-lexical",
+      "version": 1,
+      "owner": "application",
+      "classification": "observation",
+      "mcp": "retrieval_refresh-lexical",
+      "cli": [
+        "retrieval",
+        "refresh-lexical"
+      ],
+      "authority": "maintainer"
+    },
+    {
+      "command_id": "retrieval.repair-semantic",
+      "version": 1,
+      "owner": "application",
+      "classification": "exceptional",
+      "mcp": "retrieval_repair-semantic",
+      "cli": [
+        "retrieval",
+        "repair-semantic"
+      ],
+      "authority": "operator"
+    },
+    {
+      "command_id": "runtime.read-environment",
+      "version": 1,
+      "owner": "application",
+      "classification": "observation",
+      "mcp": "runtime_read-environment",
+      "cli": [
+        "runtime",
+        "read-environment"
+      ],
+      "authority": "reader"
+    },
+    {
+      "command_id": "runtime.refresh-router",
+      "version": 1,
+      "owner": "application",
+      "classification": "observation",
+      "mcp": "runtime_refresh-router",
+      "cli": [
+        "runtime",
+        "refresh-router"
+      ],
+      "authority": "maintainer"
+    },
+    {
+      "command_id": "runtime.status",
+      "version": 1,
+      "owner": "application",
+      "classification": "observation",
+      "mcp": "runtime_status",
+      "cli": [
+        "runtime",
+        "status"
+      ],
+      "authority": "reader"
+    },
+    {
+      "command_id": "runtime.warmup",
+      "version": 2,
+      "owner": "application",
+      "classification": "observation",
+      "mcp": "runtime_warmup",
+      "cli": [
+        "runtime",
+        "warmup"
+      ],
+      "authority": "reader"
+    },
+    {
+      "command_id": "session.start",
+      "version": 8,
+      "owner": "application",
+      "classification": "control",
+      "mcp": "session_start",
+      "cli": [
+        "session",
+        "start"
+      ],
+      "authority": "reader"
+    },
+    {
+      "command_id": "shaping.render",
+      "version": 1,
+      "owner": "application",
+      "classification": "content",
+      "mcp": "shaping_render",
+      "cli": [
+        "shaping",
+        "render"
+      ],
+      "authority": "contributor"
+    },
+    {
+      "command_id": "shaping.start",
+      "version": 2,
+      "owner": "application",
+      "classification": "content",
+      "mcp": "shaping_start",
+      "cli": [
+        "shaping",
+        "start"
+      ],
+      "authority": "contributor"
+    },
+    {
+      "command_id": "skill.add-git",
+      "version": 1,
+      "owner": "application",
+      "classification": "exceptional",
+      "mcp": "skill_add-git",
+      "cli": [
+        "skill",
+        "add-git"
+      ],
+      "authority": "contributor"
+    },
+    {
+      "command_id": "skill.detach",
+      "version": 1,
+      "owner": "application",
+      "classification": "content",
+      "mcp": "skill_detach",
+      "cli": [
+        "skill",
+        "detach"
+      ],
+      "authority": "contributor"
+    },
+    {
+      "command_id": "skill.list",
+      "version": 1,
+      "owner": "application",
+      "classification": "observation",
+      "mcp": "skill_list",
+      "cli": [
+        "skill",
+        "list"
+      ],
+      "authority": "reader"
+    },
+    {
+      "command_id": "skill.status",
+      "version": 1,
+      "owner": "application",
+      "classification": "observation",
+      "mcp": "skill_status",
+      "cli": [
+        "skill",
+        "status"
+      ],
+      "authority": "contributor"
+    },
+    {
+      "command_id": "skill.update",
+      "version": 1,
+      "owner": "application",
+      "classification": "exceptional",
+      "mcp": "skill_update",
+      "cli": [
+        "skill",
+        "update"
+      ],
+      "authority": "contributor"
+    },
+    {
+      "command_id": "stage.create",
+      "version": 1,
+      "owner": "application",
+      "classification": "content",
+      "mcp": "stage_create",
+      "cli": [
+        "stage",
+        "create"
+      ],
+      "authority": "contributor"
+    },
+    {
+      "command_id": "stage.discard",
+      "version": 1,
+      "owner": "application",
+      "classification": "content",
+      "mcp": "stage_discard",
+      "cli": [
+        "stage",
+        "discard"
+      ],
+      "authority": "contributor"
+    },
+    {
+      "command_id": "trigger.create",
+      "version": 1,
+      "owner": "application",
+      "classification": "content",
+      "mcp": "trigger_create",
+      "cli": [
+        "trigger",
+        "create"
+      ],
+      "authority": "maintainer"
+    },
+    {
+      "command_id": "trigger.delete",
+      "version": 1,
+      "owner": "application",
+      "classification": "content",
+      "mcp": "trigger_delete",
+      "cli": [
+        "trigger",
+        "delete"
+      ],
+      "authority": "maintainer"
+    },
+    {
+      "command_id": "trigger.replace",
+      "version": 1,
+      "owner": "application",
+      "classification": "content",
+      "mcp": "trigger_replace",
+      "cli": [
+        "trigger",
+        "replace"
+      ],
+      "authority": "maintainer"
+    },
+    {
+      "command_id": "type.create",
+      "version": 1,
+      "owner": "application",
+      "classification": "content",
+      "mcp": "type_create",
+      "cli": [
+        "type",
+        "create"
+      ],
+      "authority": "maintainer"
+    },
+    {
+      "command_id": "type.replace",
+      "version": 1,
+      "owner": "application",
+      "classification": "content",
+      "mcp": "type_replace",
+      "cli": [
+        "type",
+        "replace"
+      ],
+      "authority": "maintainer"
+    },
+    {
+      "command_id": "type.status",
+      "version": 2,
+      "owner": "application",
+      "classification": "observation",
+      "mcp": "type_status",
+      "cli": [
+        "type",
+        "status"
+      ],
+      "authority": "reader"
+    },
+    {
+      "command_id": "type.sync",
+      "version": 2,
+      "owner": "application",
+      "classification": "exceptional",
+      "mcp": "type_sync",
+      "cli": [
+        "type",
+        "sync"
+      ],
+      "authority": "maintainer"
+    },
+    {
+      "command_id": "vault.check",
+      "version": 3,
+      "owner": "application",
+      "classification": "observation",
+      "mcp": "vault_check",
+      "cli": [
+        "vault",
+        "check"
+      ],
+      "authority": "reader"
+    },
+    {
+      "command_id": "vault.read-config",
+      "version": 2,
+      "owner": "application",
+      "classification": "observation",
+      "mcp": "vault_read-config",
+      "cli": [
+        "vault",
+        "read-config"
+      ],
+      "authority": "reader"
+    },
+    {
+      "command_id": "vault.read-file",
+      "version": 2,
+      "owner": "application",
+      "classification": "observation",
+      "mcp": "vault_read-file",
+      "cli": [
+        "vault",
+        "read-file"
+      ],
+      "authority": "reader"
+    },
+    {
+      "command_id": "vault.read-router",
+      "version": 1,
+      "owner": "application",
+      "classification": "observation",
+      "mcp": "vault_read-router",
+      "cli": [
+        "vault",
+        "read-router"
+      ],
+      "authority": "reader"
+    },
+    {
+      "command_id": "workspace.bind",
+      "version": 1,
+      "owner": "application",
+      "classification": "exceptional",
+      "mcp": null,
+      "cli": [
+        "workspace",
+        "bind"
+      ],
+      "authority": "operator"
+    },
+    {
+      "command_id": "workspace.configure-bootstrap",
+      "version": 2,
+      "owner": "application",
+      "classification": "exceptional",
+      "mcp": null,
+      "cli": [
+        "workspace",
+        "configure-bootstrap"
+      ],
+      "authority": "operator"
+    },
+    {
+      "command_id": "workspace.ensure-registration",
+      "version": 1,
+      "owner": "application",
+      "classification": "content",
+      "mcp": "workspace_ensure-registration",
+      "cli": [
+        "workspace",
+        "ensure-registration"
+      ],
+      "authority": "contributor"
+    },
+    {
+      "command_id": "workspace.list",
+      "version": 1,
+      "owner": "application",
+      "classification": "observation",
+      "mcp": "workspace_list",
+      "cli": [
+        "workspace",
+        "list"
+      ],
+      "authority": "reader"
+    },
+    {
+      "command_id": "workspace.read",
+      "version": 2,
+      "owner": "application",
+      "classification": "observation",
+      "mcp": "workspace_read",
+      "cli": [
+        "workspace",
+        "read"
+      ],
+      "authority": "reader"
+    },
+    {
+      "command_id": "workspace.register",
+      "version": 1,
+      "owner": "application",
+      "classification": "exceptional",
+      "mcp": null,
+      "cli": [
+        "workspace",
+        "register"
+      ],
+      "authority": "operator"
+    },
+    {
+      "command_id": "workspace.repair-registry",
+      "version": 1,
+      "owner": "application",
+      "classification": "exceptional",
+      "mcp": null,
+      "cli": [
+        "workspace",
+        "repair-registry"
+      ],
+      "authority": "operator"
+    },
+    {
+      "command_id": "workspace.setup",
+      "version": 2,
+      "owner": "application",
+      "classification": "exceptional",
+      "mcp": null,
+      "cli": [
+        "workspace",
+        "setup"
+      ],
+      "authority": "operator"
+    },
+    {
+      "command_id": "workspace.unregister",
+      "version": 1,
+      "owner": "application",
+      "classification": "exceptional",
+      "mcp": null,
+      "cli": [
+        "workspace",
+        "unregister"
+      ],
+      "authority": "operator"
+    },
+    {
+      "command_id": "workspace.update-metadata",
+      "version": 2,
+      "owner": "application",
+      "classification": "exceptional",
+      "mcp": null,
+      "cli": [
+        "workspace",
+        "update-metadata"
+      ],
+      "authority": "operator"
+    },
+    {
+      "command_id": "workspace.update-policy",
+      "version": 1,
+      "owner": "application",
+      "classification": "content",
+      "mcp": "workspace_update-policy",
+      "cli": [
+        "workspace",
+        "update-policy"
+      ],
+      "authority": "contributor"
+    },
+    {
+      "command_id": "brain_proxy_refresh",
+      "version": 1,
+      "owner": "proxy",
+      "classification": "refresh",
+      "mcp": "brain_proxy_refresh",
+      "cli": [],
+      "authority": "reader"
+    },
+    {
+      "command_id": "brain_proxy_restart",
+      "version": 1,
+      "owner": "proxy",
+      "classification": "restart",
+      "mcp": "brain_proxy_restart",
+      "cli": [],
+      "authority": "reader"
+    },
+    {
+      "command_id": "brain_proxy_status",
+      "version": 1,
+      "owner": "proxy",
+      "classification": "status",
+      "mcp": "brain_proxy_status",
+      "cli": [],
+      "authority": "reader"
+    }
+  ],
+  "fingerprint": "sha256:6f961c42eb8b81c6dd70b3fe4c393a1f9c0a18f028643303d9b0f8723133c965"
+}

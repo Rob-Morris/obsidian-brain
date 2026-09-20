@@ -285,29 +285,30 @@ def _migration_has_unknown_outcome(raw_targets: list[dict]) -> bool:
     )
 
 
-def execute_migrate_legacy_installations(
-    context: LauncherContext,
-    request: BrainMigrateLegacyInstallationsRequest,
-):
-    import vault_registry
+def prepare_legacy_migration(context: LauncherContext):
+    """Freeze discovery once for both approval admission and migration execution."""
     from _machine import maintenance
 
+    return maintenance.collect_machine_summary(
+        current_vault=str(context.current_vault) if context.current_vault is not None else None,
+        launcher_python=str(context.launcher_python) if context.launcher_python is not None else None,
+        synchronise_registry=False,
+    )
+
+
+def execute_migrate_legacy_installations(context: LauncherContext, request: BrainMigrateLegacyInstallationsRequest):
+    import vault_registry
+
     try:
-        summary = maintenance.collect_machine_summary(
-            current_vault=(
-                str(context.current_vault)
-                if context.current_vault is not None
-                else None
-            ),
-            launcher_python=(
-                str(context.launcher_python)
-                if context.launcher_python is not None
-                else None
-            ),
-            synchronise_registry=False,
-        )
+        summary = prepare_legacy_migration(context)
     except (vault_registry.RegistryReadError, OSError, ValueError) as exc:
         return no_effect_error(type(request), ErrorCode.CONFLICT, str(exc))
+
+    return execute_prepared_legacy_migration(context, request, summary)
+
+
+def execute_prepared_legacy_migration(context, request, summary):
+    from _machine import maintenance
 
     raw = maintenance.migrate_legacy_brains(
         summary,

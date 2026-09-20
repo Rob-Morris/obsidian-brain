@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 from pathlib import Path
 import sys
 
@@ -431,6 +432,15 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     bootstrap_sub.add_argument("--json", action="store_true", help="Emit machine-readable JSON.")
     bootstrap_sub.add_argument("--remove", action="store_true", help="Remove managed bootstrap instructions.")
 
+    approvals = subparsers.add_parser("approvals", help="Delegate explicit client approval policy to the machine CLI.")
+    approvals.add_argument("--client", required=True, choices=("codex", "claude", "all"))
+    approvals.add_argument("--scope", required=True, choices=("user", "project", "local"))
+    approvals.add_argument("--surfaces", nargs="+", required=True, choices=("mcp", "cli"))
+    approvals.add_argument("--action", default="configure", choices=("configure", "repair", "detach", "remove", "recover"))
+    approvals.add_argument("--inspect", action="store_true")
+    approvals.add_argument("--workspace")
+    approvals.add_argument("--dry-run", action="store_true")
+
     mcp = subparsers.add_parser(
         "mcp",
         help="Configure MCP transport policy explicitly.",
@@ -570,6 +580,20 @@ def configure_mcp_action(
 
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
+
+    if args.command == "approvals":
+        from _bootstrap.machine_cli import invoke
+        request = {"client": args.client, "scope": args.scope, "surfaces": args.surfaces}
+        if not args.inspect:
+            request["action"] = args.action
+        try:
+            result = invoke("approvals.inspect" if args.inspect else "approvals.configure", request,
+                            target=Path(args.workspace).resolve() if args.workspace else None, dry_run=args.dry_run)
+        except (OSError, ValueError, RuntimeError) as exc:
+            print(str(exc), file=sys.stderr)
+            return 2
+        print(json.dumps(result, indent=2))
+        return 0 if result["status"] == "ok" and result["result"]["complete"] else 1
 
     if args.command == "semantic":
         vault_root = find_vault_root(getattr(args, "vault", None))

@@ -135,8 +135,10 @@ def test_codex_approval_policy_survives_migration_repair_and_configuration(tmp_p
     assert not mcp_migration.migration_plan(home, binary).changes()
     inventory = mcp_inventory.inspect_registrations(home, (vault,), binary)
     assert next(item for item in inventory["registrations"] if item.get("client") == "codex" and item.get("scope") == "user")["state"] == "current"
-    apply(owner._remove_plan(None, home, None, owner.McpScope.USER, (owner.McpClient.CODEX,)))
-    assert owner.observed_server(FilePlan(), owner.McpClient.CODEX, destination) is None
+    before = destination.read_bytes()
+    with pytest.raises(ValueError, match="client-owned policy"):
+        owner._remove_plan(None, home, None, owner.McpScope.USER, (owner.McpClient.CODEX,))
+    assert destination.read_bytes() == before
 
 
 @pytest.mark.parametrize("extra", [{"url": "https://example.invalid"}, {"cwd": "/elsewhere"},

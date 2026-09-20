@@ -93,11 +93,26 @@ parse_flags() {
     STALE_BRAIN_EXCLUSIONS=()
     BRAIN_ID=""
     MCP_CLIENT=""
+    APPROVAL_CLIENT=""
+    APPROVAL_SCOPE=""
+    APPROVAL_SURFACES=""
+    APPROVAL_ARGS=()
+    local expect_approval=""
+    local has_approval=false
     VAULT_PATH=""
     local expect_id=false
     local expect_client=false
     local expect_stale_exclusion=false
     for arg in "$@"; do
+        if [ -n "$expect_approval" ]; then
+            case "$expect_approval" in
+                --approval-client) APPROVAL_CLIENT="$arg" ;;
+                --approval-scope) APPROVAL_SCOPE="$arg" ;;
+                --approvals) APPROVAL_SURFACES="$arg" ;;
+            esac
+            expect_approval=""
+            continue
+        fi
         if [ "$expect_client" = true ]; then
             MCP_CLIENT="$arg"
             expect_client=false
@@ -114,6 +129,10 @@ parse_flags() {
             continue
         fi
         case "$arg" in
+            --approvals|--approval-client|--approval-scope)
+                has_approval=true
+                expect_approval="$arg"
+                ;;
             --client)
                 expect_client=true
                 ;;
@@ -151,6 +170,34 @@ parse_flags() {
         esac
     done
     [ "$expect_stale_exclusion" = false ] || err "--exclude-stale-brain requires a Brain ID."
+    [ -z "$expect_approval" ] || err "$expect_approval requires a value."
+    if [ "$has_approval" = true ]; then
+        [ -n "$APPROVAL_CLIENT" ] && [ -n "$APPROVAL_SCOPE" ] && [ -n "$APPROVAL_SURFACES" ] ||
+            err "Approval opt-in requires --approval-client, --approval-scope and --approvals."
+        case "$APPROVAL_CLIENT" in
+            codex|claude|all) ;; *) err "Unknown approval client: $APPROVAL_CLIENT" ;;
+        esac
+        case "$APPROVAL_SCOPE" in
+            user|project|local) ;; *) err "Unknown approval scope: $APPROVAL_SCOPE" ;;
+        esac
+        case "$APPROVAL_SURFACES" in
+            mcp|cli|both) ;; *) err "Unknown approval surfaces: $APPROVAL_SURFACES" ;;
+        esac
+        APPROVAL_ARGS=(--approval-client "$APPROVAL_CLIENT" --approval-scope "$APPROVAL_SCOPE" --approvals "$APPROVAL_SURFACES")
+    fi
+}
+
+configure_existing_approvals() {
+    [ -n "$APPROVAL_SURFACES" ] || return 0
+    [ -n "$PYTHON" ] || err "Python 3.12+ is required to configure approvals."
+    local surfaces=("$APPROVAL_SURFACES")
+    if [ "$APPROVAL_SURFACES" = "both" ]; then
+        surfaces=(mcp cli)
+    fi
+    step "Configuring requested client approvals"
+    "$PYTHON" "$REPO_DIR/src/brain-core/scripts/configure.py" approvals \
+        --client "$APPROVAL_CLIENT" --scope "$APPROVAL_SCOPE" \
+        --workspace "$VAULT_PATH" --surfaces "${surfaces[@]}"
 }
 
 # Expand ~ and resolve to absolute path
@@ -331,7 +378,11 @@ registry_update() {
             info "  \"$py\" \"$script\" --register \"$path\" --id \"$BRAIN_ID\""
         fi
     else
-        "$py" "$script" "$action" "$path" >/dev/null 2>&1 || true
+        local registry_output
+        if ! registry_output=$("$py" "$script" "$action" "$path" 2>&1); then
+            warn "Brain registry update did not complete."
+            info "$registry_output"
+        fi
     fi
 }
 
@@ -608,7 +659,8 @@ if [ -n "$EXISTING_VERSION" ]; then
         fi
         if [ "$version_cmp" -eq 0 ]; then
             printf '\n' >&2
-            info "Brain is already at v$SOURCE_VERSION. No changes made."
+            info "Brain is already at v$SOURCE_VERSION. No core upgrade needed."
+            configure_existing_approvals
             exit 0
         fi
         if [ "$version_cmp" -eq 1 ]; then
@@ -617,6 +669,7 @@ if [ -n "$EXISTING_VERSION" ]; then
             info "install.sh does not perform downgrades."
             info "If you really want to downgrade or re-apply, run:"
             info "  \"${PYTHON:-python3.12}\" \"$REPO_DIR/src/brain-core/scripts/upgrade.py\" --source \"$REPO_DIR/src/brain-core\" --vault \"$VAULT_PATH\" --force"
+            configure_existing_approvals
             exit 0
         fi
     fi
@@ -633,8 +686,9 @@ if [ -n "$EXISTING_VERSION" ]; then
             UPGRADE_MODE=true
         else
             printf '\n\033[1;32m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\033[0m\n\n' >&2
-            printf '  \033[1;32m✓ Upgrade skipped. No changes made.\033[0m\n' >&2
+            printf '  \033[1;32m✓ Upgrade skipped.\033[0m\n' >&2
             printf '\n\033[1;32m━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\033[0m\n\n' >&2
+            configure_existing_approvals
             exit 0
         fi
     fi
@@ -672,6 +726,7 @@ if [ "$UPGRADE_MODE" = true ]; then
         upgrade_cmd+=(--exclude-stale-brain "$stale_brain_id")
     done
     "${upgrade_cmd[@]}"
+    configure_existing_approvals
     NEW_VERSION=$(cat "$VAULT_PATH/.brain-core/VERSION" 2>/dev/null || echo "unknown")
     printf '    \033[1mUpgraded to:\033[0m v%s\n' "$NEW_VERSION" >&2
 else
@@ -781,6 +836,9 @@ else
     fi
 
     step "Installing brain vault"
+    if [ "${#APPROVAL_ARGS[@]}" -gt 0 ]; then
+        install_cmd+=("${APPROVAL_ARGS[@]}")
+    fi
     set +e
     "${install_cmd[@]}" >&2
     install_exit=$?

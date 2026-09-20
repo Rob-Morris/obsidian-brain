@@ -1,8 +1,13 @@
-# Brain CLI 3
+# Brain CLI
 
 The `brain` CLI is the machine-local projection of the Brain command architecture. CLI 3 keeps canonical command IDs in predictable noun/verb form while giving launcher-owned machine operations concise, domain-explicit entry points. It removes machine-implementation names and duplicate commands rather than carrying compatibility aliases.
 
 ## Command grammar
+
+The launcher exposes `approvals inspect` and `approvals configure` for
+[managed client policy](approvals.md), with explicit client/scope/surface selection.
+These are host-local operations, not MCP tools. Doctor reports approval drift and
+recovery; install offers a separate optional approval opt-in.
 
 ```text
 brain [selection] <launcher-entry-point> [--request-json JSON|-] [--json] [--dry-run]
@@ -402,12 +407,12 @@ user registrations still depend on it.
 
 The installer writes a versioned distribution under the selected prefix and a small platform bootloader under `bin/`:
 
-- Unix-like user install: `~/.local/bin/brain` and `~/.local/lib/brain-cli/4.0.1/`.
-- Native Windows user install: `%LOCALAPPDATA%\Programs\Brain\bin\brain.cmd` and the adjacent `lib\brain-cli\4.0.1\` distribution.
+- Unix-like user install: `~/.local/bin/brain` and `~/.local/lib/brain-cli/4.0.2/`.
+- Native Windows user install: `%LOCALAPPDATA%\Programs\Brain\bin\brain.cmd` and the adjacent `lib\brain-cli\4.0.2\` distribution.
 
 The distribution contains the launcher application plus the Brain Core payload needed for install, upgrade and selected-Brain execution. Installation and replacement verify a content manifest and executable identity; failed replacement restores the proven old binary/distribution pair or retains recovery material and reports the outcome as unverified. Failed upgrade results carry every known absolute recovery path in the structural error and durable launcher receipt: residual staging material after a verified rollback is a known partial outcome, while unverified rollback remains outcome-unknown. Standalone human output lists the same paths before the failure message. Once the new pair is verified, failure or interruption while removing an old backup is committed post-upgrade recovery work and never rolls Brain Core back to an older version. Both the launcher result and standalone distribution JSON list the surviving `cleanup_recovery_paths`.
 
-The bootloader requires Python 3.12 or newer. `BRAIN_CLI_VERSION` is `4.0.1`; `BRAIN_INSTALL_REF` is `v0.70.2`.
+The bootloader requires Python 3.12 or newer. `BRAIN_CLI_VERSION` is `4.0.2`; `BRAIN_INSTALL_REF` is `v0.70.3`.
 
 JSON command invocations validate the structural stdout envelope, including
 command identity, version and exit category. Incidental child stderr does not

@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import ClassVar
 
 from .context import LauncherContext
+from .approvals import ApprovalTargetStatus
 from .contracts import Ok, validate_command_id
 
 
@@ -332,6 +333,7 @@ class BrainDoctorPayload:
     cli: DoctorCliStatus
     machine: DoctorMachineStatus
     vault: DoctorVaultStatus
+    approvals: tuple[ApprovalTargetStatus, ...] = ()
 
     def __post_init__(self) -> None:
         if not isinstance(self.healthy, bool) or self.exit_code < 0:
@@ -348,7 +350,7 @@ class BrainDoctorPayload:
 @dataclass(frozen=True, slots=True)
 class BrainDoctorRequest:
     COMMAND_ID: ClassVar[str] = "brain.doctor"
-    COMMAND_VERSION: ClassVar[int] = 1
+    COMMAND_VERSION: ClassVar[int] = 2
     RESULT_TYPE: ClassVar[type] = BrainDoctorPayload
 
     current_vault: Path | None = None
@@ -548,6 +550,10 @@ def execute_doctor(context: LauncherContext, request: BrainDoctorRequest):
         severity=request.severity.value if request.severity is not None else None,
     )
     exit_code = doctor.overall_exit_code(cli=cli, machine=machine, vault=vault)
+    from .approval_management import inspect_registered
+    approvals = inspect_registered(context)
+    if any(item.state not in {"current", "not_managed"} for item in approvals):
+        exit_code = max(exit_code, 1)
     if not bootstrap_available and any(
         item.get("scope") == "user" and item.get("state") != "absent"
         for item in machine.get("mcp_registrations", {}).get("registrations", [])
@@ -573,6 +579,7 @@ def execute_doctor(context: LauncherContext, request: BrainDoctorRequest):
             ),
             _machine_status(machine),
             _vault_status(vault),
+            approvals,
         ),
     )
 

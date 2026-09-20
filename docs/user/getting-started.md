@@ -14,6 +14,10 @@ The vault gets more useful over time, not less. You spend less time organising a
 
 ## Installation
 
+Optional [managed Brain approvals](../functional/approvals.md) are selected
+separately from MCP installation. Choose clients, scope and MCP/CLI surfaces
+explicitly; omission leaves your approval policy unmanaged.
+
 The quickest way to create a new Brain vault:
 
 ```bash

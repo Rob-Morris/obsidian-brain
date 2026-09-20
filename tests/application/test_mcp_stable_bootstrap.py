@@ -97,6 +97,13 @@ def test_installed_user_lifecycle_needs_no_selected_or_default_brain(tmp_path, m
     assert tomllib.loads(codex.read_text())["mcp_servers"]["brain"]["tools"]["write"]["approval_mode"] == "approve"
     assert json.loads(claude_settings.read_text())["permissions"] == {"ask": ["mcp__brain__write"]}
     assert tomllib.loads(grok.read_text())["permission"]["rules"] == [{"action": "ask", "tool": "MCPTool"}]
+    refused = subprocess.run([str(installed.cli_binary), "mcp", "configure", "--request-json",
+                              json.dumps({"client": "all", "scope": "user", "action": "remove"}), "--json"],
+                             cwd=home, capture_output=True, text=True, timeout=30)
+    assert refused.returncode == 2 and "client-owned policy" in refused.stdout
+    assert tomllib.loads(codex.read_text())["mcp_servers"]["brain"]["tools"]["write"]["approval_mode"] == "approve"
+    # Deliberate user removal of the co-located policy permits transport removal.
+    codex.write_text(codex.read_text().split("[mcp_servers.brain.tools.write]")[0])
     invoke("configure", action="remove")
     assert not mcp_registration.user_ledger_path(home).exists()
     assert not (home / ".config/brain/default").exists()

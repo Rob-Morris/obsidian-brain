@@ -119,6 +119,7 @@ Each DD captures the reasoning behind an architectural decision at the time it w
 | DD-077 | One resolved dependency contract for contributors and managed runtimes | Implemented (v0.68.7) | [dd-077](dd-077-dependency-reproducibility.md) |
 | DD-078 | Registration-driven MCP lifecycle and a stable user bootstrap | Accepted | [dd-078](dd-078-registration-driven-mcp-lifecycle.md) |
 | DD-079 | One proxy transport owns blocked startup and recovery | Accepted | [dd-079](dd-079-unified-proxy-lifecycle.md) |
+| DD-080 | Registration-driven managed client approvals | Accepted | [dd-080](dd-080-managed-client-approvals.md) |
 
 ---
 
@@ -130,6 +131,7 @@ Related decisions grouped by domain. Arrows show supersede/extend chains.
 - **Config & install:** DD-003 → DD-049 → DD-054, DD-049 → DD-055 → DD-058 → DD-068, DD-015, DD-023 → DD-039 → DD-043 → DD-048 → DD-049 → DD-054, DD-048 → DD-070, DD-023 → DD-055, DD-023/DD-039 → DD-051 → DD-055, DD-032, DD-033
 - **Router & bootstrap:** DD-008, DD-009 → DD-071, DD-009 → DD-072, DD-012, DD-013, DD-014, DD-017, DD-019, DD-038 → DD-065 → DD-076, DD-042, DD-054
 - **MCP lifecycle:** DD-043/DD-051/DD-052/DD-077 → DD-078; DD-073/DD-074/DD-075/DD-078 → DD-079
+- **Host approvals:** DD-073/DD-078 → DD-080
 - **Security & integrity:** DD-031 → DD-059, DD-033 → DD-062 → DD-073, DD-036, DD-043, DD-067
 - **Plugins & platforms:** DD-004, DD-005, DD-006, DD-007, DD-021, DD-022
 - **Agent methodology:** DD-024 → DD-057 → DD-058 → DD-068 → DD-069, DD-057 → DD-063, DD-035

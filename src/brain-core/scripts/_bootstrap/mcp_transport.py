@@ -830,10 +830,22 @@ def apply_mcp_transport_action(
     from _bootstrap.file_transaction import apply_file_changes
 
     clients, warnings = _resolve_clients_or_error(client_arg, scope)
-    if scope == "user":
-        envelope = delegate_machine_command("configure", {
-            "client": client_arg, "scope": scope, "action": "remove" if remove else "configure",
-        })
+    from _bootstrap import machine_cli
+    managed_approvals = machine_cli.approvals_present()
+    if scope == "user" or managed_approvals:
+        request = {"client": client_arg, "scope": scope, "action": "remove" if remove else "configure"}
+        if managed_approvals:
+            try:
+                envelope = machine_cli.invoke("mcp.configure", request, vault=vault_root if scope != "user" else None, target=target_dir)
+            except (OSError, ValueError, RuntimeError) as exc:
+                raise InitTransportError(str(exc)) from exc
+            if envelope["status"] != "ok":
+                error = InitTransportError("MCP/approval configuration incomplete: " + json.dumps(envelope))
+                error.committed_effects = envelope.get("committed_effects", [])
+                raise error
+        else:
+            envelope = delegate_machine_command("configure", request,
+                                                 vault_root=vault_root if scope != "user" else None, target_dir=target_dir)
         return {
             "action": "remove" if remove else "configure", "status": envelope["result"]["status"],
             "scope": scope, "scope_label": _scope_label(scope, target_dir),

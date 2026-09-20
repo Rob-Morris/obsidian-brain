@@ -17,7 +17,7 @@ class RegisteredTarget:
     clients: tuple[registration.McpClient, ...]
 
 
-def local_brains(plan: FilePlan, selected: Path | None = None) -> tuple[Path, ...]:
+def local_brains(plan: FilePlan, selected: Path | None = None, *, allow_missing: bool = False) -> tuple[Path, ...]:
     """Read authoritative identities strictly; remote entries confer no local authority."""
     import vault_registry
 
@@ -39,7 +39,7 @@ def local_brains(plan: FilePlan, selected: Path | None = None) -> tuple[Path, ..
         root = Path(entry.value)
         if not root.is_absolute() or root.is_symlink():
             raise ValueError(f"Unsafe registered Brain path: {root}")
-        if plan.read_text(root / ".brain-core" / "VERSION") is None:
+        if plan.read_text(root / ".brain-core" / "VERSION") is None and not allow_missing:
             raise ValueError(f"Incomplete inventory: registered Brain is unavailable: {root}")
         root = root.resolve()
         if root in roots:

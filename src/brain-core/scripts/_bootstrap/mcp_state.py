@@ -443,16 +443,11 @@ def read_toml_server_config(config_path: Path) -> Optional[Dict[str, Any]]:
     except OSError:
         return None
 
-    _, sections = _parse_toml_sections(content)
-    main_index = _find_section_index(sections, "mcp_servers.brain")
-    if main_index is None:
+    import tomllib
+    try:
+        main = tomllib.loads(content).get("mcp_servers", {}).get("brain", {})
+    except (tomllib.TOMLDecodeError, AttributeError):
         return None
-
-    main = _parse_toml_mapping(sections[main_index]["body"])
-    env: Dict[str, Any] = {}
-    env_index = _find_section_index(sections, "mcp_servers.brain.env")
-    if env_index is not None:
-        env = _parse_toml_mapping(sections[env_index]["body"])
 
     if "command" not in main or "args" not in main:
         return None
@@ -460,7 +455,7 @@ def read_toml_server_config(config_path: Path) -> Optional[Dict[str, Any]]:
     return {
         "command": main["command"],
         "args": main["args"],
-        "env": env,
+        "env": main.get("env", {}),
     }
 
 
@@ -516,14 +511,21 @@ def render_toml_without_server(
     content: str, server_config: Dict[str, Any]
 ) -> str | None:
     """Render removal of an exactly matching Brain entry, or return unchanged intent."""
+    import tomllib
+
+    observed = tomllib.loads(content).get("mcp_servers", {}).get("brain", {})
+    transport = {"command": observed.get("command"), "args": observed.get("args"), "env": observed.get("env", {})}
+    if transport != server_config:
+        return None
+    client_policy = set(observed) - {"command", "args", "env"}
+    if client_policy:
+        raise ValueError(
+            "Codex Brain transport has client-owned policy/settings; remove managed approvals "
+            "and explicitly relocate or remove remaining client settings before removing transport"
+        )
     preamble, sections = _parse_toml_sections(content)
     main_index = _find_section_index(sections, "mcp_servers.brain")
     if main_index is None:
-        return None
-    main = _parse_toml_mapping(sections[main_index]["body"])
-    env_index = _find_section_index(sections, "mcp_servers.brain.env")
-    env = _parse_toml_mapping(sections[env_index]["body"]) if env_index is not None else {}
-    if {"command": main.get("command"), "args": main.get("args"), "env": env} != server_config:
         return None
     kept_sections = [
         section
