@@ -57,6 +57,45 @@ def test_install_update_idempotence_and_ownership(configured):
     assert not manager.read_records(manager.FilePlan(), home)
 
 
+def test_approval_configuration_leaves_transport_diagnostics_and_repair_current(configured):
+    from _bootstrap import mcp_inventory, mcp_registration as registration
+    from _bootstrap.file_transaction import FilePlan, apply_file_changes
+
+    invocation, home, _ = configured
+    binary = invocation._context.cli_binary
+    path = home / ".codex/config.toml"
+    path.write_text("")
+    server = registration.stable_server_config(binary)
+    clients = (registration.McpClient.CODEX,)
+    scope = registration.McpScope.USER
+    plan = registration._configure_plan(None, home, None, scope, clients, server)
+    plan.validate()
+    apply_file_changes(plan.changes())
+
+    result = invocation.invoke(ApprovalsConfigureRequest(
+        ApprovalClient.CODEX, ApprovalScope.USER, (ApprovalSurface.MCP,)))
+    assert result.status == "ok" and result.committed_effects, result
+    before = path.read_bytes()
+    inventory = mcp_inventory.inspect_registrations(home, (), binary)
+    assert inventory["healthy"], inventory
+    assert next(item for item in inventory["registrations"]
+                if item["client"] == "codex")["state"] == "current"
+    assert not registration._configure_plan(None, home, None, scope, clients, server, repair=True).changes()
+    assert path.read_bytes() == before
+
+    replacement = registration.stable_server_config(binary.parent / "new-brain")
+    stale = mcp_inventory.inspect_registrations(home, (), binary.parent / "new-brain")
+    assert next(item for item in stale["registrations"]
+                if item["client"] == "codex")["state"] == "stale"
+    plan = registration._configure_plan(None, home, None, scope, clients, replacement, repair=True)
+    plan.validate()
+    apply_file_changes(plan.changes())
+    current = registration.observed_server(FilePlan(), registration.McpClient.CODEX, path)
+    assert current["command"] == replacement["command"]
+    assert current["tools"]["artefact_read"]["approval_mode"] == "approve"
+    assert mcp_inventory.inspect_registrations(home, (), binary.parent / "new-brain")["healthy"]
+
+
 def test_inspect_is_read_only_and_repair_does_not_opt_in(configured):
     invocation, home, _ = configured
     inspected = invocation.invoke(ApprovalsInspectRequest())

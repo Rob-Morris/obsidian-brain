@@ -56,6 +56,13 @@ Feature: Registration-driven MCP lifecycle
     And diagnostics compare ownership without claiming client approval policy
     And changed transport fields still stop admission before writes
 
+  Scenario: Approval setup does not create transport formatting drift
+    Given an owned Codex transport with unchanged command, arguments and environment
+    When managed approval configuration uses an equivalent TOML representation
+    Then registration diagnostics remain current
+    And transport repair leaves the native configuration byte-for-byte unchanged
+    And a genuinely changed transport still requires repair
+
   Scenario: A committed upgrade reports incomplete MCP reconciliation
     Given a Core and CLI cutover that has committed
     When MCP migration refuses a conflicting transport

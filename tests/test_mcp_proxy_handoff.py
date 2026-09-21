@@ -2,6 +2,7 @@
 
 import base64
 import json
+import logging
 import os
 from pathlib import Path
 import subprocess
@@ -12,7 +13,7 @@ import time
 import pytest
 
 from brain_mcp import proxy
-from brain_mcp._proxy_handoff import (HANDOFF_VERSION, MAX_STATE_BYTES, READ_CHUNK,
+from brain_mcp._proxy_handoff import (HANDOFF_TIMEOUT, HANDOFF_VERSION, MAX_STATE_BYTES, READ_CHUNK,
                                       RawLineReader, public_session, read_state, state_descriptor)
 from _bootstrap.consent_owner import ConsentOwner, OwnerConnectionError
 from _bootstrap.file_lock import exclusive_file_lock, MutationLockError
@@ -33,6 +34,108 @@ def state():
             "protocol": "modern", "initialise_request": None, "initialise_response": None,
             "public_session": {"supportedVersions": ["2026-07-28"], "capabilities": {}},
             "tools": {}, "generation": 1, "request_id": "restart", "remainder": "", "subscriptions": [], "resolution": None}
+
+
+@pytest.mark.skipif(os.name != "posix", reason="POSIX preflight child ownership")
+@pytest.mark.parametrize("accepted", [True, False])
+def test_preflight_entry_reaps_accepted_and_unpublished_children(tmp_path, monkeypatch, accepted):
+    for name in ("BRAIN_VAULT_ROOT", "PYTHONPATH", "BRAIN_WORKSPACE_DIR"):
+        monkeypatch.setenv(name, os.environ.get(name, ""))
+    child = proxy.ChildProcess(sys.executable, "unused")
+    child._proc = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(30)"])
+    class Candidate:
+        _preparing_child = None if accepted else child
+        def _restore_transport(self, value):
+            pass
+        def _start_child(self):
+            return accepted
+        def _get_child(self):
+            return child if accepted else None
+    monkeypatch.setattr(proxy, "Proxy", lambda *args: Candidate())
+    monkeypatch.setattr(proxy, "__file__", str(tmp_path / ".brain-core/brain_mcp/proxy.py"))
+    monkeypatch.setattr(proxy, "read_state", lambda *args, **kwargs: {**state(), "vault": str(tmp_path)})
+    try:
+        if accepted:
+            proxy._handoff_entry("--check-handoff", 123)
+        else:
+            with pytest.raises(ValueError, match="replacement cannot preserve"):
+                proxy._handoff_entry("--check-handoff", 123)
+        assert child._proc.returncode is not None
+        with pytest.raises(ChildProcessError):
+            os.waitpid(child.pid, os.WNOHANG)
+    finally:
+        child.kill()
+        child.reap(5)
+
+
+def test_preflight_entry_refuses_unreaped_child(tmp_path, monkeypatch):
+    for name in ("BRAIN_VAULT_ROOT", "PYTHONPATH", "BRAIN_WORKSPACE_DIR"):
+        monkeypatch.setenv(name, os.environ.get(name, ""))
+    events = []
+    class Child:
+        def kill(self):
+            events.append("kill")
+        def reap(self, timeout):
+            events.append(("reap", timeout))
+            raise subprocess.TimeoutExpired("probe child", timeout)
+    child = Child()
+    class Candidate:
+        def _restore_transport(self, value):
+            pass
+        def _start_child(self):
+            return True
+        def _get_child(self):
+            return child
+    monkeypatch.setattr(proxy, "Proxy", lambda *args: Candidate())
+    monkeypatch.setattr(proxy, "__file__", str(tmp_path / ".brain-core/brain_mcp/proxy.py"))
+    monkeypatch.setattr(proxy, "read_state", lambda *args, **kwargs: {**state(), "vault": str(tmp_path)})
+    with pytest.raises(subprocess.TimeoutExpired):
+        proxy._handoff_entry("--check-handoff", 123)
+    assert events == ["kill", ("reap", HANDOFF_TIMEOUT)]
+
+
+@pytest.mark.skipif(os.name != "posix", reason="POSIX process group cleanup")
+@pytest.mark.parametrize("timed_out", [False, True])
+@pytest.mark.parametrize("denied", [False, True])
+def test_preflight_group_cleanup_retains_timeout_and_permission_failures(tmp_path, monkeypatch, timed_out, denied):
+    events = []
+    class Process:
+        pid = 123
+        def wait(self, timeout):
+            events.append(("wait", timeout))
+            if timed_out and len(events) == 1:
+                raise subprocess.TimeoutExpired("probe", timeout)
+            return 0
+    monkeypatch.setattr(proxy.subprocess, "Popen", lambda *args, **kwargs: Process())
+    def kill_group(pid, sig):
+        events.append(("killpg", pid, sig))
+        if denied:
+            raise PermissionError(1, "private detail")
+    monkeypatch.setattr(proxy.os, "killpg", kill_group)
+    relay = proxy.Proxy(sys.executable, "brain_mcp.server", str(tmp_path))
+    if denied:
+        with pytest.raises(PermissionError):
+            relay._preflight_handoff(123, sys.executable)
+    else:
+        assert relay._preflight_handoff(123, sys.executable) is (not timed_out)
+        assert events[-1] == ("wait", HANDOFF_TIMEOUT)
+    assert events[:2] == [("wait", HANDOFF_TIMEOUT), ("killpg", 123, proxy.signal.SIGKILL)]
+
+
+def test_preparation_diagnostic_keeps_location_and_errno_without_private_text(tmp_path, monkeypatch, caplog):
+    relay = proxy.Proxy(sys.executable, "brain_mcp.server", str(tmp_path))
+    relay._pending_lifecycle = {"request": lifecycle_request("brain_proxy_restart")}
+    monkeypatch.setattr(relay, "_assess_startup", lambda: None)
+    def denied():
+        raise PermissionError(13, "private secret", "/private/user-data")
+    monkeypatch.setattr(relay, "_check_proxy_drift", denied)
+    outcomes = []
+    monkeypatch.setattr(relay, "_complete_lifecycle", lambda pending, code, **kwargs: outcomes.append(code))
+    with caplog.at_level(logging.WARNING, logger="brain-proxy"):
+        relay._prepare_lifecycle()
+    assert outcomes == ["server_refresh_blocked"]
+    assert "errno=13" in caplog.text and "proxy_line=" in caplog.text
+    assert "private secret" not in caplog.text and "/private/user-data" not in caplog.text
 
 
 def test_private_state_validates_process_and_bounds():

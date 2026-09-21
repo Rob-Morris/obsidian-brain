@@ -90,6 +90,29 @@ def test_config_targets_vault_rejects_missing_or_invalid_roots(bootstrap_vault):
     assert not config_targets_vault({"env": {"BRAIN_VAULT_ROOT": ""}}, bootstrap_vault)
 
 
+@pytest.mark.parametrize("header", ['[mcp_servers.brain]', '["mcp_servers"."brain"]'])
+@pytest.mark.parametrize("environment", ["", "env = {}\n", "[mcp_servers.brain.env]\n",
+                                         'env = { KEY = "value" }\n'])
+def test_unchanged_toml_transport_preserves_native_text(environment, header):
+    content = ('# user formatting\n' + header + '\n'
+               'command="brain" # executable\nargs=["mcp", "serve"]\n' + environment
+               + '[mcp_servers.brain.tools.read]\napproval_mode="approve"\n')
+    server = {"command": "brain", "args": ["mcp", "serve"],
+              "env": {"KEY": "value"} if "KEY" in environment else {}}
+    assert mcp_state.render_toml_config(content, server) == content
+
+
+@pytest.mark.parametrize("changed", [{"command": "new-brain"}, {"args": ["mcp", "serve", "--new"]},
+                                    {"env": {"KEY": "new"}}])
+def test_changed_toml_transport_preserves_policy(changed):
+    content = ('[mcp_servers.brain]\ncommand="brain"\nargs=["mcp", "serve"]\nenv={}\n'
+               '[mcp_servers.brain.tools.read]\napproval_mode="prompt"\n')
+    server = {"command": "brain", "args": ["mcp", "serve"], "env": {}, **changed}
+    rendered = mcp_state.render_toml_config(content, server)
+    assert tomllib.loads(rendered)["mcp_servers"]["brain"] == {
+        **server, "tools": {"read": {"approval_mode": "prompt"}}}
+
+
 def test_write_toml_config_preserves_other_sections_and_brain_tools(
     bootstrap_vault, project
 ):

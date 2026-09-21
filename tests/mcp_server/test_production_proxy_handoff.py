@@ -18,6 +18,61 @@ META = {"io.modelcontextprotocol/protocolVersion": "2026-07-28",
         "io.modelcontextprotocol/clientCapabilities": {}}
 
 
+@pytest.mark.skipif(os.name != "posix", reason="POSIX exec handoff")
+def test_preparation_diagnostic_survives_actual_proxy_replacement(command_vault_clone):
+    vault = command_vault_clone.vault_root
+    process = subprocess.Popen([sys.executable, str(SERVER)], cwd=vault,
+                               env={**os.environ, **command_vault_clone.environment, "BRAIN_CAPTURE_VAULT": str(vault)},
+                               stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    sequence = 0
+
+    def request(method, params):
+        nonlocal sequence
+        sequence += 1
+        process.stdin.write((json.dumps({"jsonrpc": "2.0", "id": sequence, "method": method,
+                                        "params": {**params, "_meta": META}}) + "\n").encode())
+        process.stdin.flush()
+        responses = _read_until_id(process, sequence, timeout=25)
+        return next(message for message in responses if message.get("id") == sequence)["result"]
+
+    def call(name):
+        return request("tools/call", {"name": name, "arguments": {}})
+
+    try:
+        request("server/discover", {})
+        request("tools/list", {})
+        assert call("brain_proxy_restart")["isError"] is False
+        proxy_file = vault / ".brain-core/brain_mcp/proxy.py"
+        original = proxy_file.read_text()
+        signature = "    def _preflight_handoff(self, fd: int, python: str) -> bool:\n"
+        assert original.count(signature) == 1
+        injected = original.replace(signature, signature + '        raise PermissionError(13, "private secret", "/private/user-data")\n')
+        failure_line = injected[:injected.index('        raise PermissionError(13, "private secret"')].count("\n") + 1
+        proxy_file.write_text(injected)
+        # The old image performs this preflight; exec loads the injected image.
+        first = call("brain_proxy_restart")
+        assert first["isError"] is False, first
+        assert first["structuredContent"]["result"]["handoff"]["state"] == "completed"
+        proxy_file.write_text(injected + "\n# trigger another replacement\n")
+        refused = call("brain_proxy_restart")
+        assert refused["structuredContent"]["error"] == {"code": "server_refresh_blocked", "effects": "none"}
+        assert call("brain_proxy_status")["isError"] is False
+        assert request("ping", {}) == {}
+    finally:
+        process.stdin.close()
+        try:
+            process.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            process.wait(timeout=5)
+        os.set_blocking(process.stderr.fileno(), False)
+        stderr = (process.stderr.read() or b"").decode(errors="replace")
+        if stderr:
+            print(stderr[-5000:])
+    assert "PermissionError errno=13" in stderr and f"proxy_line={failure_line}" in stderr
+    assert "private secret" not in stderr and "/private/user-data" not in stderr
+
+
 @pytest.mark.skipif(sys.platform == "win32", reason="POSIX exec handoff")
 @pytest.mark.parametrize("modern", [False, True])
 @pytest.mark.parametrize("failure", [None, "exec", "preflight", "public-contract"])

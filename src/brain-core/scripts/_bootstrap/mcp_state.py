@@ -479,6 +479,11 @@ def render_toml_config(content: str, server_config: Dict[str, Any]) -> str:
     from copy import deepcopy
 
     original = tomllib.loads(content)
+    observed = original.get("mcp_servers", {}).get("brain", {})
+    transport = {"command": observed.get("command"), "args": observed.get("args"),
+                 "env": observed.get("env", {})}
+    if transport == server_config:
+        return content
     preamble, sections = _parse_toml_sections(content)
     main_index = _find_section_index(sections, "mcp_servers.brain")
     main = tomllib.loads("".join(sections[main_index]["body"])) if main_index is not None else {}

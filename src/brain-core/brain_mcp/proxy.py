@@ -94,7 +94,7 @@ class StartupFailure:
 # Constants
 # ---------------------------------------------------------------------------
 
-PROXY_VERSION = "0.10.5"
+PROXY_VERSION = "0.10.6"
 _CHILD_PROTOCOL_VERSION = "2026-07-28"
 
 
@@ -2023,7 +2023,15 @@ class Proxy:
                         if self._interface_header is not None:
                             self._initial_protocol_selected.set()
         except (OSError, ValueError, subprocess.SubprocessError) as exc:
-            _log().warning("lifecycle preparation refused: %s", type(exc).__name__)
+            # Keep attribution across exec without logging private exception payloads.
+            frame = exc.__traceback__
+            proxy_line = None
+            while frame is not None:
+                if frame.tb_frame.f_code.co_filename == __file__:
+                    proxy_line = frame.tb_lineno
+                frame = frame.tb_next
+            _log().warning("lifecycle preparation refused: %s errno=%s proxy_version=%s proxy_line=%s",
+                           type(exc).__name__, getattr(exc, "errno", None), PROXY_VERSION, proxy_line)
             code = "server_refresh_blocked"
         self._complete_lifecycle(pending, code, prepared=prepared)
 
@@ -3060,9 +3068,12 @@ def _handoff_entry(mode: str, fd: int) -> None:
             if not candidate._start_child():
                 raise ValueError("replacement cannot preserve the public MCP session")
         finally:
-            child = candidate._get_child()
+            child = candidate._get_child() or candidate._preparing_child
             if child is not None:
                 child.kill()
+                # A zombie-only process group can make macOS killpg return EPERM.
+                # Reap our child before the parent cleans up the preflight group.
+                child.reap(HANDOFF_TIMEOUT)
         return
     global _logger
     _logger = _setup_logging(vault)

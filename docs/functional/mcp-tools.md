@@ -338,6 +338,12 @@ success after its child is ready; the same PID does not mean the same consent
 context. Unsupported platforms require host restart. Killing a proxy does not
 portably make the host reconnect.
 
+Preflight terminates and reaps its temporary child, including a child rejected
+before publication, with a bounded wait before the parent cleans up the process
+group. Preparation failures log the exception class, errno, proxy version and
+proxy source line without exception messages or private paths; these diagnostics
+remain available after in-place replacement. Permission errors are not ignored.
+
 Preflight, busy or output-drain refusal leaves the old instance intact. Known
 exec failure resumes the retained image with a fresh owner and an error. If its
 runtime is stale, application calls and child launches remain blocked; use a

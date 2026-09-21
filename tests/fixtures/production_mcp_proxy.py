@@ -4,19 +4,9 @@ Machine registration is covered by launcher tests. This fixture keeps every
 command, invocation, authority and recovery boundary of the production relay.
 """
 
-import logging
 import os
 from pathlib import Path
 import sys
-
-
-class LifecycleDiagnostics(logging.Filter):
-    """Expose the fixture's caught preparation exception in captured stderr."""
-
-    def filter(self, record):
-        if record.msg == "lifecycle preparation refused: %s":
-            record.exc_info = sys.exc_info()
-        return True
 
 
 def main():
@@ -30,7 +20,6 @@ def main():
     os.environ["BRAIN_VAULT_ROOT"] = vault
     os.environ["PYTHONPATH"] = str(Path(vault) / ".brain-core")
     proxy._logger = proxy._setup_logging(vault)
-    proxy._logger.addFilter(LifecycleDiagnostics())
     if os.environ.get("BRAIN_CAPTURE_PROTOCOL_FOUR") == "1":
         # Deployed v4 uses this same capture/refresh/admission path. Freeze its
         # process marker rather than copying the historical 2,800-line relay;

@@ -417,6 +417,12 @@ needed by another admitted route without expressing intent to reinstall the
 removed transport. Brain/workspace repair maintains that bootstrap or removes
 it once no surviving route needs it.
 
+TOML transport repair compares parsed command, arguments and environment values.
+Equivalent formatting (including an omitted or inline empty environment table)
+does not cause a rewrite or a stale-registration diagnosis after approval setup.
+Unchanged transport preserves the native text; ownership conflicts still fail
+before writes.
+
 The migration journal is adjacent to the machine ledger as `mcp-migration.json`.
 It contains exact before/after configuration evidence and must be treated with
 the same care as the client configuration itself. Normal repair does not parse
