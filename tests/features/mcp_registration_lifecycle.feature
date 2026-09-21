@@ -69,6 +69,14 @@ Feature: Registration-driven MCP lifecycle
     Then the direct upgrader reports a partial outcome and exits nonzero
     And the upgraded Core remains installed with recovery evidence
 
+  Scenario: CLI replacement composes with managed approval transitions
+    Given existing managed Codex MCP and Claude MCP and CLI approvals
+    When a checked CLI distribution is replaced directly or within a Brain upgrade
+    Then creation of its own recovery journal does not invalidate the cutover
+    And each completed transition retires only its own marker
+    And unchanged native approval policy is preserved
+    And pre-existing recovery journals and concurrent native edits still stop replacement
+
   Scenario: Persisted launch survives a hostile noninteractive environment
     Given a persisted user command with an absolute checked bootstrap
     And empty PATH with foreign Python and development overrides

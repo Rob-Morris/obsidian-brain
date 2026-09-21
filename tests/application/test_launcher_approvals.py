@@ -580,6 +580,107 @@ def test_unchanged_transition_has_no_policy_effects(configured):
     assert not result.committed_effects
 
 
+@pytest.fixture
+def managed_distribution(configured, monkeypatch):
+    from _distribution import install_from_source
+    from _launcher.invocation import LauncherInvocation
+
+    invocation, home, vault = configured
+    monkeypatch.setattr(Path, "home", lambda: home)
+    installed = install_from_source(ROOT, invocation._context.cli_binary)
+    context = replace(invocation._context, distribution_root=ROOT)
+    invocation = LauncherInvocation(context, invocation._catalogue, invocation._owners)
+    assert invocation.invoke(request()).result.complete
+    assert invocation.invoke(ApprovalsConfigureRequest(
+        ApprovalClient.CLAUDE, ApprovalScope.USER, (ApprovalSurface.CLI,))).result.complete
+    return invocation, home, installed
+
+
+@pytest.mark.parametrize("nested", [False, True])
+def test_distribution_replacement_with_managed_approvals(managed_distribution, nested):
+    from _distribution import install_distribution, verify_distribution
+    from _launcher.approval_lifecycle import active_transitions, invoke, transition_path
+    from _launcher.lifecycle import BrainUpgradeRequest
+    from _launcher.contracts import Ok
+
+    invocation, home, previous = managed_distribution
+    paths = (home / ".codex/config.toml", home / ".claude/settings.json")
+    before = {path: path.read_bytes() for path in paths}
+    stages = []
+
+    def observe(stage):
+        if stage != "after_cli_replace":
+            return
+        active = active_transitions(manager.FilePlan(), home)
+        assert len(active) == (2 if nested else 1)
+        assert any(identity.startswith("distribution-") for identity in active)
+        assert not manager.journal_path(home).exists()
+        stages.append(stage)
+
+    def install():
+        installed = install_distribution(
+            ROOT, previous.cli_binary, cli_version=previous.cli_version,
+            expected_brain_core_version=previous.brain_core_version, failpoint=observe)
+        assert verify_distribution(installed.distribution_root)["fingerprint"] == installed.manifest_fingerprint
+        assert installed.cli_binary.read_bytes() == (ROOT / "cli/brain").read_bytes()
+        active = active_transitions(manager.FilePlan(), home)
+        assert set(active) == ({invocation._context.invocation_id} if nested else set())
+        return installed
+
+    if nested:
+        req = BrainUpgradeRequest()
+        result = invoke(invocation._context, req, "version", lambda *_: Ok(
+            req.COMMAND_ID, req.COMMAND_VERSION, install()))
+        assert result.status == "ok", result
+    else:
+        install()
+    assert stages == ["after_cli_replace"]
+    assert not manager.journal_path(home).exists()
+    assert not transition_path(home).exists()
+    assert {path: path.read_bytes() for path in paths} == before
+    assert {target.state for target in manager.inspect_registered(invocation._context)} == {"current"}
+
+
+def test_distribution_replacement_preserves_pending_journal(managed_distribution):
+    from _distribution import install_from_source
+    from _launcher.approval_lifecycle import transition_path
+
+    _, home, previous = managed_distribution
+    journal = manager.journal_path(home)
+    journal.write_text("pending recovery evidence\n")
+    before = previous.cli_binary.read_bytes()
+    with pytest.raises(ValueError, match="Recover pending approval writes"):
+        install_from_source(ROOT, previous.cli_binary)
+    assert journal.read_text() == "pending recovery evidence\n"
+    assert previous.cli_binary.read_bytes() == before
+    assert not transition_path(home).exists()
+
+
+def test_distribution_replacement_still_checks_external_dependencies(managed_distribution, monkeypatch):
+    from _distribution import DistributionInstallError, install_from_source
+    from _launcher.approval_lifecycle import transition_path
+
+    _, home, previous = managed_distribution
+    native = home / ".codex/config.toml"
+    before = previous.cli_binary.read_bytes()
+    real = manager.apply_file_changes
+
+    def edit_after_journal(changes, **kwargs):
+        result = real(changes, **kwargs)
+        if any(change.path == manager.journal_path(home) for change in changes):
+            native.write_text(native.read_text() + "# concurrent user edit\n")
+        return result
+
+    monkeypatch.setattr(manager, "apply_file_changes", edit_after_journal)
+    with pytest.raises(DistributionInstallError, match="admission evidence changed") as failure:
+        install_from_source(ROOT, previous.cli_binary)
+    assert str(native) in str(failure.value)
+    assert "# concurrent user edit" in native.read_text()
+    assert previous.cli_binary.read_bytes() == before
+    assert manager.journal_path(home).exists()
+    assert not transition_path(home).exists()
+
+
 def test_new_allowance_follows_committed_contract_and_failed_transition_does_not_widen(configured, tmp_path):
     from _launcher.approval_lifecycle import invoke
     from _launcher.lifecycle import BrainUpgradeRequest

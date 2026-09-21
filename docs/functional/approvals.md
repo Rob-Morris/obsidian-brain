@@ -180,8 +180,11 @@ turning an incomplete inventory into an empty set.
 
 Writes reuse the host registration lock and dependency-checked `FilePlan`. A
 bounded `client-approvals.pending.json` journal and transition-owner locks preserve
-recovery evidence. Individual atomic writes do not make the whole transaction
-crash-atomic. Recover with all affected client/scope/surface selections; recovery
+recovery evidence. Journal creation belongs to the approval transaction, not its
+immutable policy inputs; direct and nested CLI replacements still reject pending
+recovery journals and intervening native edits. Individual atomic writes do not
+make the whole transaction crash-atomic. Recover with all affected
+client/scope/surface selections; recovery
 refuses intervening user edits and arbitrary destinations. Keep recovery evidence
 until the operation is resolved. It may contain private native configuration;
 new journal files are owner-readable/writable only. Recovery spanning multiple

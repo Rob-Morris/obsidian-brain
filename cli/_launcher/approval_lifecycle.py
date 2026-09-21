@@ -260,7 +260,8 @@ def distribution_cutover(source, binary, execute):
     effects = []
     with exclusive_file_lock(lock, timeout=0, follow_symlinks=False):
         try:
-            if plan.read_bytes(manager.journal_path(home)) is not None:
+            # commit owns journal creation; its absence is not an immutable policy dependency.
+            if FilePlan().read_bytes(manager.journal_path(home)) is not None:
                 raise ValueError("Recover pending approval writes before replacing the CLI")
             active = active_transitions(plan, home)
             active[identity] = os.getpid()

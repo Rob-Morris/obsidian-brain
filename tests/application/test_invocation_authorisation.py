@@ -218,27 +218,36 @@ def test_foreign_selected_brain_rejected_before_planning(system):
         preparation.prepare(foreign, request, request_id="prepare-one")
 
 
-def test_concurrent_preparation_retries_keep_winner_pins(system):
+def test_concurrent_preparation_retries_keep_winner_pins(system, monkeypatch):
     from concurrent.futures import ThreadPoolExecutor
     from threading import Barrier
-    from _application.preparation import OperationPreparation
-    root, context, catalogue, service, _, receipts, content_for, request = system
+    root, context, _, service, coordinator, _, _, request = system
     handle = stage_body(str(root), "Concurrent retained input.")["handle"]
     request = replace(request, content=StagedContent(handle))
-    entry = catalogue.resolve(request)
     barrier = Barrier(2)
-    def planner(context, request, *, frozen_inputs=None):
-        binding = entry.preparation.prepare(context, request, frozen_inputs=frozen_inputs)
-        barrier.wait(timeout=10)
-        return binding
-    coordinated_entry = replace(entry, preparation=OperationPreparation(planner))
-    coordinated_catalogue = replace(catalogue, entries=tuple(
-        coordinated_entry if item.command_id == entry.command_id else item for item in catalogue.entries))
-    coordinator = PreparationCoordinator(service, coordinated_catalogue, content_for)
+    snapshot = service.store.snapshot
+    def concurrent_snapshot(keys):
+        observed = snapshot(keys)
+        if (len(keys) == 1 and keys[0].startswith("consent/preparation-request/")
+                and observed.values.get(keys[0]) is None):
+            # Both attempts must observe absence before either can commit a descriptor.
+            barrier.wait(timeout=10)
+        return observed
+    monkeypatch.setattr(service.store, "snapshot", concurrent_snapshot)
     with ThreadPoolExecutor(max_workers=2) as workers:
-        results = list(workers.map(lambda _: coordinator.prepare(context, request, request_id="same-prepare"), range(2)))
-    assert results[0] == results[1]
+        futures = [workers.submit(coordinator.prepare, context, request, request_id="same-prepare")
+                   for _ in range(2)]
+        results, conflicts = [], []
+        for future in futures:
+            try:
+                results.append(future.result())
+            except ConsentError as exc:
+                conflicts.append(exc)
+    assert len(results) == len(conflicts) == 1
+    assert conflicts[0].reason == "conflict"
+    assert str(conflicts[0]) == "Preparation changed concurrently; retry the preparation request."
     descriptor = results[0]
+    assert coordinator.prepare(context, request, request_id="same-prepare") == descriptor
     sweep_staged_bodies(str(root), now=time.time() + STAGING_TTL_SECONDS + 10)
     grant(service, descriptor)
     entry, execution, admission = invocation(system, descriptor, request=request)
