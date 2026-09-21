@@ -15,6 +15,10 @@ derived layout, symlink refusal, dependency checks and three-way comparison prot
 unrelated settings. Tightening precedes target exposure and expansion follows
 commit. Native overrides and workspace trust are never removed to make a projection
 appear effective. Interrupted multi-file writes retain explicit recovery evidence.
+Codex CLI approval management is blocked because native executable quoting can
+bypass review matching even for space-free paths. MCP support is independent;
+existing shell policy is preserved for explicit ownership-safe cleanup, not
+silently declared safe. See the managed-approval support and recovery contract.
 
 Every write path is resolved through `resolve_and_check_bounds(path, bounds)` before
 any I/O begins.

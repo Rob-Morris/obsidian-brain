@@ -989,6 +989,40 @@ class TestAgentSkillUpgradeFollowup:
         )
         assert logged["followups"] == result["followups"]
 
+    @pytest.mark.parametrize("dry_run", [False, True])
+    def test_managed_approvals_introduction_is_guidance_only(self, source_and_vault, dry_run):
+        source, vault = source_and_vault
+        (source / "VERSION").write_text("0.70.3\n")
+        (vault / ".brain-core" / "VERSION").write_text("0.70.2\n")
+
+        result = upgrade.upgrade(
+            str(vault), str(source), sync=False, sync_deps=False, dry_run=dry_run,
+        )
+
+        assert result["status"] == "ok"
+        followup = next(item for item in result["followups"] if item["id"] == "configure_managed_approvals")
+        assert followup["command"] == ["brain", "approvals", "inspect", "--json"]
+        assert "Optional:" in followup["message"]
+        assert "brain approvals configure" in followup["message"]
+        assert "Codex CLI approvals are currently unsupported" in followup["message"]
+        if not dry_run:
+            logged = json.loads((vault / ".brain/local/last-upgrade.json").read_text())
+            assert followup in logged["followups"]
+            repeated = upgrade.upgrade(str(vault), str(source), force=True, sync=False, sync_deps=False)
+            assert "configure_managed_approvals" not in {item["id"] for item in repeated.get("followups", [])}
+
+    @pytest.mark.parametrize("old,new,expected", [
+        ("0.70.2", "0.70.3", True),
+        ("0.69.0", "0.71.0", True),
+        ("0.70.2", "0.70.2", False),
+        ("0.70.3", "0.70.3", False),
+        ("0.70.3", "0.71.0", False),
+        ("0.71.0", "0.70.3", False),
+        (None, "0.70.3", False),
+    ])
+    def test_managed_approvals_notice_only_crosses_introduction(self, old, new, expected):
+        assert bool(upgrade._managed_approval_followups(old, new)) is expected
+
     def test_adapter_content_update_adds_update_followup(self, tmp_path):
         vault = tmp_path / "vault"
         diff = {

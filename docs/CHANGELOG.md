@@ -8,6 +8,7 @@ Never edit past changelog entries. Only add new entries at the top.
 
 | Version | Date | Summary |
 |---|---|---|
+| [v0.70.4](changelog/v0.70.4.md) | 2026-09-20 | Make approval previews read-only and gate unsupported Codex CLI |
 | [v0.70.3](changelog/v0.70.3.md) | 2026-09-20 | Manage Brain client approvals through registration lifecycle |
 | [v0.70.2](changelog/v0.70.2.md) | 2026-09-19 | Unify blocked MCP startup and recovery under one proxy lifecycle |
 | [v0.70.1](changelog/v0.70.1.md) | 2026-09-19 | Preserve client approval policy during MCP lifecycle changes |

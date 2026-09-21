@@ -330,6 +330,12 @@ def test_upgrade_projects_dry_run_and_closed_policies(tmp_path, monkeypatch):
     vault = _vault(tmp_path)
     _register(monkeypatch, tmp_path, vault)
     calls = []
+    followup = {
+        "id": "configure_managed_approvals",
+        "reason": "managed_approvals_available",
+        "message": "Optional: inspect managed approvals before choosing configuration.",
+        "command": ["brain", "approvals", "inspect", "--json"],
+    }
 
     def fake_upgrade(*args, **kwargs):
         calls.append((args, kwargs))
@@ -346,6 +352,7 @@ def test_upgrade_projects_dry_run_and_closed_policies(tmp_path, monkeypatch):
             "migrations_preview": [
                 {"version": "0.55.0", "target": "post_compile"}
             ],
+            "followups": [followup],
         }
 
     monkeypatch.setattr(
@@ -370,6 +377,10 @@ def test_upgrade_projects_dry_run_and_closed_policies(tmp_path, monkeypatch):
     assert calls[0][1]["sync"] is False
     assert calls[0][1]["sync_deps"] is True
     assert calls[0][1]["dry_run"] is True
+    projection = project_launcher_result(result)
+    assert projection.structured_content["result"]["followups"] == [followup]
+    assert followup["message"] in projection.concise_text
+    assert "Run: brain approvals inspect --json" in projection.concise_text
 
 
 def test_upgrade_success_receipts_core_and_error_is_unknown(tmp_path, monkeypatch):

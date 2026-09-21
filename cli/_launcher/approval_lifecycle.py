@@ -222,7 +222,17 @@ def recover_transitions(context):
                 locks.enter_context(exclusive_file_lock(path, timeout=0, follow_symlinks=False))
         records = manager.read_records(plan, home)
         actual = replace(context, current_vault=None)
-        results = reconcile_records(plan, actual, records, manager.inventory(plan, actual)) if records else []
+        try:
+            results = reconcile_records(plan, actual, records, manager.inventory(plan, actual)) if records else []
+        except manager.UnsupportedApprovalSurface as exc:
+            # No owner is live under these locks. Release abandoned transition intent
+            # so explicit cleanup is possible, but discard every staged policy edit.
+            plan = FilePlan()
+            results = [manager.ApprovalTargetStatus(
+                "machine", "user", "all", str(manager.ledger_path(home)), "blocked", (),
+                f"Abandoned transition recovery leaves policy unchanged and incomplete: {exc} "
+                "After explicit cleanup, run approvals repair for remaining opt-ins.",
+            )]
         if any(item.state == "conflicted" for item in results):
             raise ValueError("Preserved user conflicts still prevent approval transition recovery")
         _save_active(plan, home, {})

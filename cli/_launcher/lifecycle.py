@@ -118,6 +118,20 @@ class BrainUninstallPayload:
 
 
 @dataclass(frozen=True, slots=True)
+class UpgradeFollowup:
+    id: str
+    reason: str
+    message: str
+    command: tuple[str, ...]
+
+    def __post_init__(self) -> None:
+        if not all(isinstance(value, str) and value.strip() for value in (
+            self.id, self.reason, self.message, *self.command,
+        )) or not self.command:
+            raise ValueError("upgrade follow-ups require identity, guidance and command")
+
+
+@dataclass(frozen=True, slots=True)
 class BrainUpgradePayload:
     status: LifecycleStatus
     vault_root: str
@@ -130,6 +144,7 @@ class BrainUpgradePayload:
     preflight: CutoverPreflight
     cli_distribution_fingerprint: str | None
     post_commit_reconciliation: tuple[LifecycleStep, ...]
+    followups: tuple[UpgradeFollowup, ...] = ()
 
     def __post_init__(self) -> None:
         _absolute_result_path(self.vault_root, "upgrade vault_root")
@@ -908,6 +923,10 @@ def execute_upgrade(context: LauncherContext, request: BrainUpgradeRequest):
             else None
         ),
         _reconciliation_steps(result),
+        tuple(
+            UpgradeFollowup(item["id"], item["reason"], item["message"], tuple(item["command"]))
+            for item in result.get("followups", [])
+        ),
     )
     if context.dry_run or status == "skipped":
         effects = ()

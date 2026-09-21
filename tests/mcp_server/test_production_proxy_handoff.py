@@ -92,9 +92,9 @@ def test_real_proxy_handoff_preserves_pipelined_and_split_input(command_vault_cl
             process.stdin.write(restart + read + split[:cut])
             process.stdin.flush()
             result = receive(restart_id)["result"]
-            assert result["isError"] is (failure is not None), result["structuredContent"].get("error")
+            assert result["isError"] is (failure is not None), result
             if exec_failure:
-                assert result["structuredContent"]["error"] == {"code": "proxy_exec_failed", "effects": "consent_ended"}
+                assert result["structuredContent"]["error"] == {"code": "proxy_exec_failed", "effects": "consent_ended"}, result
             if refused:
                 assert result["structuredContent"]["error"] == {"code": "proxy_handoff_preflight_failed", "effects": "none"}
                 assert "handoff" not in result["structuredContent"]["result"]
@@ -121,5 +121,7 @@ def test_real_proxy_handoff_preserves_pipelined_and_split_input(command_vault_cl
         except subprocess.TimeoutExpired:
             process.kill()
             process.wait(timeout=5)
-        if process.returncode:
-            print(process.stderr.read().decode(errors="replace")[-5000:])
+        os.set_blocking(process.stderr.fileno(), False)
+        stderr = (process.stderr.read() or b"").decode(errors="replace")[-5000:]
+        if stderr:
+            print(stderr)

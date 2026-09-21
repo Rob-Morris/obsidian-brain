@@ -37,9 +37,9 @@ def configured(tmp_path, monkeypatch):
     return invocation, home, vault
 
 
-def request(**kwargs):
+def request(*, surfaces=(ApprovalSurface.MCP,), **kwargs):
     return ApprovalsConfigureRequest(ApprovalClient.ALL, ApprovalScope.USER,
-                                     (ApprovalSurface.MCP, ApprovalSurface.CLI), **kwargs)
+                                     surfaces, **kwargs)
 
 
 def test_install_update_idempotence_and_ownership(configured):
@@ -67,6 +67,67 @@ def test_inspect_is_read_only_and_repair_does_not_opt_in(configured):
     repaired = invocation.invoke(request(action=ApprovalAction.REPAIR))
     assert repaired.status == "ok", repaired
     assert not repaired.committed_effects
+
+
+@pytest.mark.parametrize("deny_storage", [False, True])
+def test_dry_run_needs_no_receipt_storage_or_policy_writes(configured, tmp_path, monkeypatch, deny_storage):
+    from _launcher.invocation import LauncherInvocation
+    from _local_cli.runtime import LauncherReceiptStore
+
+    invocation, home, _ = configured
+    storage = tmp_path / "outcomes"
+    mkdir = Path.mkdir
+    attempts = []
+    def checked_mkdir(path, *args, **kwargs):
+        if path == storage or storage in path.parents:
+            attempts.append(path)
+            if deny_storage:
+                raise PermissionError("machine state is outside the sandbox")
+        return mkdir(path, *args, **kwargs)
+    monkeypatch.setattr(Path, "mkdir", checked_mkdir)
+    context = replace(invocation._context, dry_run=True, receipt_writer=LauncherReceiptStore(storage))
+    preview = LauncherInvocation(context, invocation._catalogue, invocation._owners).invoke(request())
+    assert preview.status == "ok" and preview.result.complete
+    assert preview.result.changed_paths and not preview.committed_effects
+    assert attempts == [] and not storage.exists()
+    assert not manager.ledger_path(home).exists()
+    assert not (home / ".claude").exists()
+
+
+@pytest.mark.parametrize("dry_run", [False, True])
+@pytest.mark.parametrize("outcome", ["committed", "known_partial", "unknown"])
+def test_actual_or_uncertain_effects_keep_durable_receipts(configured, tmp_path, dry_run, outcome):
+    from _launcher.approvals import ApprovalsPayload
+    from _launcher.contracts import Ok, Partial, Error, CommandError, ErrorCode, CommittedEffect, OutcomeReference, OutcomeUnknownDetails
+    from _launcher.invocation import LauncherInvocation
+    from _launcher.owners import LauncherOwners
+    from _local_cli.runtime import LauncherReceiptStore
+
+    invocation, _, _ = configured
+    req = request()
+    effects = (CommittedEffect(req.COMMAND_ID, "fixture-policy"),)
+    error = CommandError(ErrorCode.CONFLICT, "fixture outcome")
+    if outcome == "committed":
+        result = Ok(req.COMMAND_ID, req.COMMAND_VERSION, ApprovalsPayload(manager.POLICY, (), ()), effects)
+    elif outcome == "known_partial":
+        result = Partial(req.COMMAND_ID, req.COMMAND_VERSION, error, effects)
+    else:
+        reference = OutcomeReference("fixture-unknown")
+        error = CommandError(ErrorCode.COMMAND_OUTCOME_UNKNOWN, "fixture outcome", OutcomeUnknownDetails(reference))
+        result = Error(req.COMMAND_ID, req.COMMAND_VERSION, error, effects="unknown", outcome_reference=reference)
+    owners = LauncherOwners(tuple(replace(o, executor=lambda *_: result) if o.command_id == req.COMMAND_ID else o
+                                  for o in invocation._owners.entries))
+    storage = tmp_path / "outcomes"
+    context = replace(invocation._context, dry_run=dry_run, receipt_writer=LauncherReceiptStore(storage))
+    tested = LauncherInvocation(context, invocation._catalogue, owners)
+    assert tested.invoke(req) == result
+    receipt = json.loads(next(storage.glob("*.json")).read_text())
+    assert receipt["state"] == outcome
+    unavailable = tmp_path / "not-a-directory"
+    unavailable.write_text("receipt storage unavailable")
+    failed = LauncherInvocation(replace(context, receipt_writer=LauncherReceiptStore(unavailable)), invocation._catalogue, owners).invoke(req)
+    assert failed.status == "error" and failed.effects == "unknown"
+    assert failed.error.code is ErrorCode.COMMAND_OUTCOME_UNKNOWN
 
 
 def test_unselected_surface_and_unrelated_settings_untouched(configured):
@@ -99,7 +160,7 @@ def test_pending_journal_blocks_writes_and_explicit_recovery_preserves_edits(con
     assert manager.journal_path(home).exists()
     monkeypatch.setattr(manager, "apply_file_changes", real)
     assert invocation.invoke(request()).status == "error"
-    recovered = invocation.invoke(request(action=ApprovalAction.RECOVER))
+    recovered = invocation.invoke(request(action=ApprovalAction.RECOVER, surfaces=(ApprovalSurface.MCP, ApprovalSurface.CLI)))
     assert recovered.status == "ok", recovered
     assert not manager.journal_path(home).exists()
 
@@ -205,13 +266,21 @@ def test_remove_does_not_require_registered_brains_to_be_available(configured):
     assert manager.read_records(manager.FilePlan(), home) == {}
 
 
-def test_codex_quoted_executable_is_reported_unsupported(configured):
+@pytest.mark.parametrize("executable", ["bin/brain", "Brain CLI/brain"])
+def test_codex_cli_is_blocked_independently_of_path_and_other_surfaces(configured, executable):
     invocation, home, _ = configured
-    context = replace(invocation._context, cli_binary=home / "Brain CLI/brain")
-    result = manager.manage(context, request())
-    assert any(t.client == "codex" and t.surface == "cli" and t.state == "blocked" for t in result.targets)
+    context = replace(invocation._context, cli_binary=home / executable)
+    result = manager.manage(context, request(surfaces=(ApprovalSurface.MCP, ApprovalSurface.CLI)))
+    assert not result.complete
+    blocked = [t for t in result.targets if t.state == "blocked"]
+    assert [(t.client, t.surface) for t in blocked] == [("codex", "cli")]
+    assert "even a space-free" in blocked[0].activation
     assert not (home / ".codex/rules/brain.rules").exists()
     assert any(t.client == "claude" and t.surface == "cli" and t.state == "changed" for t in result.targets)
+    records = manager.read_records(manager.FilePlan(), home)
+    assert {(r["client"], r["surface"]) for r in records.values()} == {
+        ("claude", "cli"), ("claude", "mcp"), ("codex", "mcp"),
+    }
 
 
 def test_stale_root_prune_removes_project_rules_using_recorded_owner(configured):
@@ -332,23 +401,87 @@ def test_unknown_unopted_transition_is_recoverable_with_missing_root(configured)
     assert not transition_path(home).exists()
 
 
-def test_legacy_migration_uses_same_transaction_and_restores_on_remove(configured):
+@pytest.fixture
+def legacy_codex_cli(configured):
+    from _bootstrap.approval_clients import Selection, desired_items
+    from _bootstrap.approval_migration import legacy_identity
+
     invocation, home, _ = configured
-    req = ApprovalsConfigureRequest(ApprovalClient.CODEX, ApprovalScope.USER, (ApprovalSurface.CLI,))
-    assert invocation.invoke(req).result.complete
+    selection = Selection("codex", "user", "cli", home / ".codex", invocation._context.cli_binary)
+    rule = next(iter(desired_items(selection, {json.dumps(("artefact", "read")): "allow"})))
     generated = home / ".codex/rules/brain.rules"
-    rule = next(line for line in generated.read_text().splitlines() if '"artefact", "read"' in line)
-    assert invocation.invoke(replace(req, action=ApprovalAction.REMOVE)).result.complete
+    generated.parent.mkdir()
+    generated.write_text(rule + "\n# unrelated generated-file comment\n")
     legacy = generated.with_name("default.rules")
     original = rule + "\n# unrelated\n" + rule + "\n"
-    legacy.write_text(original)
+    legacy.write_text("# unrelated\n")
+    record = {**manager._new_record(selection, None),
+              "owned": {rule: {"before": None, "last": 1}},
+              "legacy": {legacy_identity(selection, rule): {"line": rule, "positions": [0, 2]}}}
+    plan = manager.FilePlan()
+    manager._save_records(plan, home, {selection.identity: record})
+    manager.commit(plan, home)
+    return invocation, home, generated, legacy, original
+
+
+@pytest.mark.parametrize("action", [ApprovalAction.REMOVE, ApprovalAction.DETACH])
+def test_unsupported_codex_cli_retains_explicit_ownership_cleanup(legacy_codex_cli, action):
+    invocation, home, generated, legacy, original = legacy_codex_cli
+    before = generated.read_text(), legacy.read_text()
+    req = ApprovalsConfigureRequest(ApprovalClient.CODEX, ApprovalScope.USER, (ApprovalSurface.CLI,), action=action)
+    assert invocation.invoke(req).result.complete
+    assert manager.read_records(manager.FilePlan(), home) == {}
+    if action is ApprovalAction.REMOVE:
+        assert generated.read_text() == "# unrelated generated-file comment\n"
+        assert legacy.read_text() == original
+    else:
+        assert (generated.read_text(), legacy.read_text()) == before
+
+
+@pytest.mark.parametrize("action", [ApprovalAction.CONFIGURE, ApprovalAction.ADOPT, ApprovalAction.REPAIR])
+def test_existing_codex_cli_is_preserved_and_diagnosed(legacy_codex_cli, action):
+    invocation, home, generated, legacy, _ = legacy_codex_cli
+    paths = (generated, legacy, manager.ledger_path(home))
+    before = [p.read_bytes() for p in paths]
     inspected = invocation.invoke(ApprovalsInspectRequest(ApprovalClient.CODEX, ApprovalScope.USER, (ApprovalSurface.CLI,)))
-    key = next(i.identity for t in inspected.result.targets for i in t.items if i.state == "legacy_matching")
-    adopted = invocation.invoke(replace(req, action=ApprovalAction.ADOPT, adopt_items=(key,)))
-    assert adopted.result.complete
-    assert legacy.read_text() == "# unrelated\n"
+    assert inspected.result.targets[0].state == "blocked"
+    configured = invocation.invoke(ApprovalsConfigureRequest(ApprovalClient.CODEX, ApprovalScope.USER, (ApprovalSurface.CLI,), action=action))
+    assert not configured.result.complete
+    assert configured.result.targets[0].state == "blocked"
+    assert manager.inspect_registered(invocation._context)[0].state == "blocked"
+    assert [p.read_bytes() for p in paths] == before
+
+
+def test_existing_unsupported_codex_cli_blocks_transition_before_owner(legacy_codex_cli):
+    from _launcher.approval_lifecycle import invoke, transition_path
+    from _launcher.registry import BrainRegisterRequest
+
+    invocation, home, generated, _, _ = legacy_codex_cli
+    before = generated.read_bytes()
+    def never_execute(*args):
+        pytest.fail("owner must not execute with unsupported managed CLI policy")
+    result = invoke(invocation._context, BrainRegisterRequest(invocation._context.current_vault, "vault"), "add", never_execute)
+    assert result.status == "error" and "Codex CLI approvals are unsupported" in result.error.message
+    assert generated.read_bytes() == before
+    assert not transition_path(home).exists()
+
+
+def test_unsupported_codex_cli_does_not_trap_abandoned_transition_cleanup(legacy_codex_cli):
+    from _launcher.approval_lifecycle import transition_path
+
+    invocation, home, generated, legacy, _ = legacy_codex_cli
+    marker = transition_path(home)
+    marker.write_text(json.dumps({"schema": "brain.approval-transitions/1", "active": {"abandoned": 12345}}))
+    paths = (generated, legacy, manager.ledger_path(home))
+    before = [p.read_bytes() for p in paths]
+    req = ApprovalsConfigureRequest(ApprovalClient.CODEX, ApprovalScope.USER, (ApprovalSurface.CLI,))
+    assert invocation.invoke(replace(req, action=ApprovalAction.REMOVE)).status == "error"
+    recovered = invocation.invoke(replace(req, action=ApprovalAction.RECOVER))
+    assert recovered.status == "ok" and not recovered.result.complete
+    assert recovered.result.targets[0].state == "blocked"
+    assert not marker.exists()
+    assert [p.read_bytes() for p in paths] == before
     assert invocation.invoke(replace(req, action=ApprovalAction.REMOVE)).result.complete
-    assert legacy.read_text() == original
 
 
 def test_deleted_rule_is_not_restored_without_explicit_selection(configured):

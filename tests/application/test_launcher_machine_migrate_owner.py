@@ -262,7 +262,7 @@ def test_migrate_legacy_installations_dry_run_returns_typed_plan_without_effects
         LegacyMigrationOperation.LEGACY_RUNTIME,
     )
     assert result.committed_effects == ()
-    assert receipts.values[-1].state is ReceiptState.COMMITTED
+    assert receipts.values[-1].state is ReceiptState.NONE
 
 
 def test_migrate_legacy_installations_success_reports_each_committed_effect(

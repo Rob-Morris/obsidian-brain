@@ -137,5 +137,7 @@ def test_runtime_upgrade_drains_then_handoffs_both_processes(command_vault_clone
         except subprocess.TimeoutExpired:
             process.kill()
             process.wait(timeout=5)
-        if process.returncode:
-            print(process.stderr.read()[-5000:])
+        os.set_blocking(process.stderr.fileno(), False)
+        stderr = (process.stderr.buffer.read() or b"").decode(errors="replace")[-5000:]
+        if stderr:
+            print(stderr)

@@ -35,7 +35,7 @@ class CodexShellModel(_CaptureServer):
         return self._codex_wire(item, payload)
 
 
-def codex_shell_probe(verb):
+def codex_shell_probe(verb, *, quoted_executable=False):
     sys.path.insert(0, str(ROOT / "src/brain-core/scripts"))
     from _bootstrap.approval_clients import Selection, desired_items, render_items
     with tempfile.TemporaryDirectory(prefix="brain-approval-codex-shell-") as directory:
@@ -49,7 +49,10 @@ def codex_shell_probe(verb):
         selection = Selection("codex", "user", "cli", config, executable)
         policy = {json.dumps(("artefact", "read")): "allow", json.dumps(("artefact", "delete")): "prompt"}
         selection.path.write_text(render_items(selection, "", desired_items(selection, policy)))
-        call = {"cmd": shlex.join((str(executable), "artefact", verb))}
+        command = shlex.join((str(executable), "artefact", verb))
+        if quoted_executable:
+            command = "'" + str(executable) + "' artefact " + verb
+        call = {"cmd": command}
         with CodexShellModel("codex-cli", (("shell.execute", call),)) as model:
             process = subprocess.run(["codex", "exec", "--skip-git-repo-check", "--approve-for-me", "--disable", "plugins",
                                       "-m", "gpt-5.4", "-c", 'model_provider="capture"', "-c",
@@ -57,7 +60,8 @@ def codex_shell_probe(verb):
                                       "Run the harmless temporary shell fixture requested by the model."],
                                      cwd=root, env={**os.environ, "CODEX_HOME": str(config), "CAPTURE_KEY": "local-fixture"},
                                      stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=60)
-            return {"client": "codex-cli", "shell": verb, "called": "APPROVAL_SHELL_CALLED" in json.dumps(model.requests),
+            return {"client": "codex-cli", "shell": verb, "quoted_executable": quoted_executable,
+                    "called": "APPROVAL_SHELL_CALLED" in json.dumps(model.requests),
                     "reviews": len(model.review_requests), "exit_code": process.returncode,
                     "stderr": process.stderr[-1200:] if process.returncode else None}
 
@@ -174,6 +178,13 @@ def codex_rules_probe():
 
 
 if __name__ == "__main__":
+    if "--codex-quoting" in sys.argv:
+        for quoted in (False, True):
+            result = codex_shell_probe("delete", quoted_executable=quoted)
+            print(json.dumps(result), flush=True)
+            assert result["called"] and result["exit_code"] == 0, result
+        # Record the upstream limitation, not a passing support certification.
+        raise SystemExit(0)
     if "--codex-shell" in sys.argv:
         for verb in ("read", "delete"):
             result = codex_shell_probe(verb)

@@ -179,6 +179,27 @@ def _parse_version(v: str) -> tuple:
     return tuple(parts)
 
 
+def _managed_approval_followups(old_version: str | None, new_version: str) -> list[dict]:
+    """Offer optional setup when an existing Brain gains managed approvals."""
+    if old_version is None or not (
+        _parse_version(old_version) < (0, 70, 3) <= _parse_version(new_version)
+    ):
+        return []
+    return [{
+        "id": "configure_managed_approvals",
+        "reason": "managed_approvals_available",
+        "message": (
+            "Optional: Brain can now manage approvals for normal read/write commands: "
+            "Codex MCP, and Claude MCP/CLI on supported hosts. Codex CLI approvals "
+            "are currently unsupported. Inspect the proposed policy first (read-only), "
+            "then use brain approvals configure with an explicit client, scope "
+            "and surfaces if you want to opt in. This notice changes no approvals; "
+            "manual rules are not automatically adopted or removed."
+        ),
+        "command": ["brain", "approvals", "inspect", "--json"],
+    }]
+
+
 def _agent_skill_adapter_followups(vault_root: str, diff: dict) -> list[dict]:
     """Return post-upgrade guidance only when the discovery adapter changed."""
     if AGENT_SKILL_ADAPTER_REL in diff.get("files_added", []):
@@ -2104,6 +2125,7 @@ def upgrade(
         "dry_run": dry_run,
     }
     followups = _agent_skill_adapter_followups(vault_root, diff)
+    followups.extend(_managed_approval_followups(old_version, new_version))
     if followups:
         result["followups"] = followups
 

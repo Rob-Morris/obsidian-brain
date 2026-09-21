@@ -168,7 +168,7 @@ def test_runtime_remove_orphans_dry_run_is_real_and_does_not_remove(tmp_path, mo
     assert result.result.targets[0].status is RuntimeRemovalStatus.PLANNED
     assert result.committed_effects == ()
     assert runtime_dir.is_dir()
-    assert receipts.values[-1].state is ReceiptState.COMMITTED
+    assert receipts.values[-1].state is ReceiptState.NONE
 
 
 def test_runtime_remove_orphans_removes_and_receipts_each_orphan(tmp_path, monkeypatch):

@@ -25,6 +25,10 @@ JOURNAL_SCHEMA = "brain.client-approval-transaction/1"
 MIN_CLIENT_VERSION = {"codex": (0, 155, 1), "claude": (2, 1, 278)}
 
 
+class UnsupportedApprovalSurface(ValueError):
+    """Native enforcement is uncertified; existing ownership still permits cleanup."""
+
+
 def ledger_path(home: Path) -> Path:
     return mcp_registration.user_ledger_path(home).with_name("client-approvals.json")
 
@@ -160,10 +164,14 @@ def _selected(context, request):
 
 def _stage_target(plan, selection, target, roots, record, *, action, adopt=(), restore=(), overrides=None, tighten=False, launcher_root=None):
     if sys.platform == "win32" and selection.surface == "cli" and action not in {"remove", "detach"}:
-        raise ValueError("Native Windows shell approvals are not yet certified; MCP approvals remain separately selectable")
-    if (selection.client == "codex" and selection.surface == "cli" and action not in {"remove", "detach"}
-            and re.fullmatch(r"[A-Za-z0-9_./-]+", str(selection.executable)) is None):
-        raise ValueError("Codex shell rules do not reliably match quoted executable paths; use an unquoted-safe Brain launcher path or MCP approvals")
+        raise UnsupportedApprovalSurface("Native Windows shell approvals are not yet certified; MCP approvals remain separately selectable")
+    if selection.client == "codex" and selection.surface == "cli" and action not in {"remove", "detach"}:
+        raise UnsupportedApprovalSurface(
+            "Codex CLI approvals are unsupported: native review matching can be bypassed "
+            "by quoting even a space-free executable path. Use Codex MCP approvals instead. "
+            "Existing rules are preserved; explicitly remove managed rules or detach their "
+            "ownership before retrying a blocked lifecycle operation."
+        )
     original = plan.read_text(selection.path)
     if original is None and record["owned"] and not restore and action not in {"detach", "remove"}:
         raise ValueError(f"Client policy file was removed; explicit restoration is required: {selection.path}")

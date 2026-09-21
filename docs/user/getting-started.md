@@ -319,6 +319,11 @@ direct `upgrade.py` reports `status: partial` and exits 1. Preserve client
 approval settings when resolving registration conflicts; they are client policy,
 not permission for Brain to replace transport ownership.
 
+When upgrading from before 0.70.3, an optional [managed approvals](../functional/approvals.md)
+follow-up points to `brain approvals inspect --json`. Review it, then explicitly
+choose client, scope and surfaces with `brain approvals configure` if wanted.
+The notice neither enables approvals nor removes manually created rules.
+
 Upgrade never silently deletes shared machine runtimes;
 when read-only topology inspection proves orphan candidates, it reports `brain
 runtime remove-orphans --dry-run` and the explicit removal command. When the Claude/Codex/Grok shaping discovery

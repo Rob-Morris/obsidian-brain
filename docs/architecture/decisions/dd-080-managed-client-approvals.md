@@ -51,3 +51,10 @@ Brains even in project scope because trailing arguments can select another vault
 Native rules cannot confine unregistered explicit paths or out-of-band executable
 replacement. Client trust, reload, version support and Windows shell certification
 remain explicit capabilities verified independently of JSON/TOML validity.
+
+Codex CLI management is blocked until native shell review matching is certified:
+quoting even a space-free executable bypassed prompt rules in the tested client.
+Checking installation-path characters cannot establish this capability. Keep MCP
+independent, preserve existing policy, and retain explicit ownership-safe removal,
+detachment and interrupted-transaction recovery rather than pretending a file
+projection establishes effective review.

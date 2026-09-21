@@ -1,6 +1,6 @@
 # Obsidian Brain
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE) ![Version](https://img.shields.io/badge/version-0.70.3-blue) ![Platform](https://img.shields.io/badge/platform-Obsidian-7C3AED) ![Python](https://img.shields.io/badge/python-≥3.12-3776AB?logo=python&logoColor=white) ![MCP](https://img.shields.io/badge/MCP-server-green)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE) ![Version](https://img.shields.io/badge/version-0.70.4-blue) ![Platform](https://img.shields.io/badge/platform-Obsidian-7C3AED) ![Python](https://img.shields.io/badge/python-≥3.12-3776AB?logo=python&logoColor=white) ![MCP](https://img.shields.io/badge/MCP-server-green)
 
 A self-evolving knowledge base for agents and humans working together on what matters.
 
@@ -46,7 +46,7 @@ bash <(curl -fsSL https://raw.githubusercontent.com/rob-morris/obsidian-brain/ma
 This downloads the repo, creates the vault in the current directory, and then asks which MCP clients to configure (Claude Code, Codex, Grok, or All supported clients). Pass a path to install elsewhere. If you want the vault scaffold without the managed runtime / MCP setup, pass `--skip-mcp` (or add `--non-interactive` for non-interactive agent installs). From a local clone, use `bash install.sh` instead.
 
 Optionally let Brain maintain normal read/write approvals for explicitly selected
-Codex or Claude clients: add `--approval-client all --approval-scope user --approvals both`,
+Codex or Claude clients: add `--approval-client all --approval-scope user --approvals mcp`,
 or use `brain approvals inspect` / `brain approvals configure` later. Client,
 scope and MCP/CLI surfaces are separate choices; transport setup never opts you
 in implicitly. See [managed approvals](docs/functional/approvals.md) for native
@@ -93,6 +93,10 @@ bash install.sh /path/to/brain --acknowledge-global-cli-cutover
 ```
 
 The cutover preflights the complete local Brain registry, requires an exact acknowledgement when other local Brains depend on the global CLI, and commits Brain Core plus the versioned CLI distribution as one checked transaction. Incomplete registries, unacknowledged affected Brains, stale entries without explicit exclusions, unsafe paths, and version mismatches fail before mutation. A failed commit restores the proven old set or retains explicit recovery material rather than claiming rollback without evidence. See [CLI](docs/functional/cli.md) for the complete request contract.
+
+Upgrading from before 0.70.3 also offers optional [managed approvals](docs/functional/approvals.md)
+setup: inspect first, then explicitly configure if wanted. No approvals are enabled
+or manually created rules removed by that notice.
 
 #### Repair
 

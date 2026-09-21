@@ -249,7 +249,7 @@ def test_registry_dry_run_is_explicit_and_does_not_mutate(vault, tmp_path):
     assert result.result.brain_id == "planned-brain"
     assert result.committed_effects == ()
     assert vault_registry.resolve("planned-brain") is None
-    assert receipts.values[-1].state is ReceiptState.COMMITTED
+    assert receipts.values[-1].state is ReceiptState.NONE
 
 
 def test_registry_dry_run_uses_real_resolution_without_writing(vault, tmp_path):

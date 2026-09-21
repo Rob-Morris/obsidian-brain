@@ -177,7 +177,7 @@ def test_agent_skill_dry_run_uses_real_plan_without_writing(tmp_path):
         for step in result.result.steps
     )
     assert result.committed_effects == ()
-    assert receipts.values[-1].state is ReceiptState.COMMITTED
+    assert receipts.values[-1].state is ReceiptState.NONE
     assert not (tmp_path / ".claude").exists()
     assert not (tmp_path / ".codex").exists()
 

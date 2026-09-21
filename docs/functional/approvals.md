@@ -6,18 +6,29 @@ exceptional-operation consent. Opus is a Claude model, not another client adapte
 
 ## Opt in
 
+Upgrades from before 0.70.3 to 0.70.3 or later include an optional setup
+follow-up, also previewed by upgrade dry-run. It points to `brain approvals
+inspect --json`, which inspects all supported clients and both surfaces in user
+scope without changing policy. The notice does not opt in, adopt manual rules,
+remove legacy rules, or block unattended upgrades. Later upgrades and same-version
+re-applies do not repeat it. Choose the configuration selections explicitly below.
+
 Preview before writing:
 
 ```bash
-brain approvals inspect --request-json '{"client":"all","scope":"user","surfaces":["mcp","cli"]}' --json
-brain approvals configure --request-json '{"client":"all","scope":"user","surfaces":["mcp","cli"]}' --json
+brain approvals inspect --request-json '{"client":"all","scope":"user","surfaces":["mcp"]}' --json
+brain approvals configure --request-json '{"client":"all","scope":"user","surfaces":["mcp"]}' --json
+# Separately opt into Claude CLI approvals on supported POSIX hosts:
+brain approvals configure --request-json '{"client":"claude","scope":"user","surfaces":["cli"]}' --json
 ```
 
 `client`, `scope` and `surfaces` are required for configuration. Choose `codex`,
 `claude` or `all` supported approval clients; `user`, `project` or Claude-only
 `local`; and `mcp`, `cli` or both. Project/local commands use the explicit
 `--workspace` directory or the caller directory. Grok approvals are not supported.
-Inspection and `--dry-run` never write policy. A per-target `blocked` result does
+Inspection and `--dry-run` never write policy. Successful no-effect launcher
+dry-runs also need no durable outcome receipt storage; actual or uncertain effects
+still retain their recovery evidence. A per-target `blocked` result does
 not prevent independent supported selections from completing. Check
 `result.complete` and every target's state, not just the command envelope:
 inspection/configuration can successfully produce an incomplete assessment.
@@ -26,7 +37,7 @@ Install can opt in separately from its transport choices:
 
 ```bash
 bash install.sh --non-interactive --client all \
-  --approval-client all --approval-scope user --approvals both /path/to/new-brain
+  --approval-client all --approval-scope user --approvals mcp /path/to/new-brain
 ```
 
 PowerShell uses `-ApprovalClient`, `-ApprovalScope` and `-Approvals` with the same
@@ -71,7 +82,7 @@ ceilings and instance-owned exceptional consent are unchanged.
 
 | Client | MCP policy | CLI policy |
 |---|---|---|
-| Codex | `config.toml`, exact `mcp_servers.brain.tools.<tool>.approval_mode` fields | `rules/brain.rules`, literal `prefix_rule` entries |
+| Codex | `config.toml`, exact `mcp_servers.brain.tools.<tool>.approval_mode` fields | Currently blocked; existing `rules/brain.rules` ownership can be removed/detached |
 | Claude Code | Exact `mcp__brain__<tool>` rules in `permissions.allow`/`ask` | Exact absolute-command prefixes in `permissions.allow`/`ask` |
 
 Codex user files live under `CODEX_HOME` or `~/.codex`; Claude user files under
@@ -84,11 +95,28 @@ Root overrides must be absolute. A changed root/executable is diagnosed rather
 than followed as authority to edit a new destination. Native Windows shell
 projection is not certified and returns blocked; MCP remains separately selectable.
 Minimum tested versions are Codex 0.155.1 and Claude Code 2.1.278.
-Codex CLI projection additionally requires an unquoted-safe launcher path
-(`A–Z`, `a–z`, digits, `_`, `.`, `/`, `-`). Native session probes found that
-quoted executable paths, including spaces, did not honour the generated prompt
-rule despite passing the standalone rule parser. Those paths return `blocked`;
-Claude CLI and either client's MCP surface remain independently selectable.
+Codex CLI approval management is currently unsupported for **all executable
+paths**. Native probes with Codex 0.155.1 found that quoting even a space-free
+executable could bypass prompt matching, despite passing the standalone rule
+parser. A space-free path or a symlink is not a reliable workaround: Brain cannot
+control how a host spells a shell invocation. Inspect/configure/adopt/repair
+report this surface as `blocked`; `all` plus `cli` therefore reports incomplete
+coverage while independent supported surfaces can complete. Newer clients do not
+automatically lift this restriction without native recertification.
+
+Existing Codex CLI files are preserved, not silently disabled or declared safe.
+Explicit `remove` restores unchanged Brain-owned entries to their prior values;
+`detach` leaves their rules in place and drops management ownership. A registered
+unsupported CLI opt-in blocks lifecycle changes that require reconciliation;
+remove or detach it explicitly before retrying. Neither operation removes
+unowned manual rules, and restoring a pre-existing allow is not security hardening.
+If an abandoned transition is pending, `recover` first proves its owners are no
+longer running and releases the transition marker. When an unsupported surface
+prevents reconciliation, it leaves policy unchanged and reports incomplete recovery;
+then explicitly remove/detach that surface and repair the remaining opt-ins.
+Codex MCP and Claude approvals remain independently selectable. Contributor probe
+`tests/capture_approval_policy.py --codex-quoting` records native behaviour; a
+successful probe process alone is not support certification.
 
 Codex MCP transport must already exist. Configure or migrate transport separately.
 Brain preserves other server fields, output limits, availability controls, manual
@@ -134,12 +162,13 @@ whole policy file is not recreated by routine repair. Removing a missing file's
 receipt does not recreate the file. Conflicting edits remain in place and need
 explicit user resolution or detachment.
 
-Codex inspection also previews literal current-policy rules in `rules/default.rules`.
-Selecting their `legacy:default.rules:` identities moves only those exact entries
-to managed policy, retaining a receipt for their original position/count. Removal
-restores them only while their source absence is still owned. Other lines are
-untouched. Grouped alternatives, raw scripts and other unproven forms are reported
-for manual review, not silently adopted. A generated-looking comment is not consent.
+Previously recorded Codex CLI migration receipts retain exact entries' original
+position/count in `rules/default.rules`. Removal restores them only while their
+source absence is still owned. Other lines are untouched. New CLI inspection and
+adoption are blocked by the native limitation above; retained parser and migration
+machinery is not a supported bypass. Grouped alternatives, raw scripts and other
+unproven forms require manual review, never silent adoption. A generated-looking
+comment is not consent.
 
 Supported install/register/remove/version and MCP configuration transitions share
 the policy reconciler. Owned tightening is written before exposure of the changed

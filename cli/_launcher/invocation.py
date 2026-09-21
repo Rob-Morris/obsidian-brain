@@ -169,7 +169,10 @@ class LauncherInvocation:
         elif isinstance(result, Error) and result.effects == "unknown":
             state = ReceiptState.UNKNOWN
             effects = ()
-        elif isinstance(result, Ok) and entry.effect_class != "none":
+        elif isinstance(result, Ok) and (
+            result.committed_effects
+            or (entry.effect_class != "none" and not self._context.dry_run)
+        ):
             state = ReceiptState.COMMITTED
             effects = result.committed_effects
         else:

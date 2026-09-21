@@ -1,6 +1,6 @@
 # Brain Reference
 
-This page is the stable user-facing reference for Brain Core 0.70.3 and CLI 4.0.2. Exact command schemas, examples and availability come from the installed Brain rather than a duplicated hand-maintained inventory.
+This page is the stable user-facing reference for Brain Core 0.70.4 and CLI 4.0.3. Exact command schemas, examples and availability come from the installed Brain rather than a duplicated hand-maintained inventory.
 
 Optional [managed approvals](../functional/approvals.md) cover normal reads/writes
 in selected clients and surfaces. They preserve user overrides and do not change

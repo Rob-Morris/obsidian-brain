@@ -164,6 +164,12 @@ the coordinated CLI/Core/runtime cutover. The shell uninstaller delegates to
 the canonical launcher uninstall owner and stops on incomplete cleanup. Legacy
 records require explicit `brain mcp migrate`, not adoption by normal repair.
 
+Upgrade follow-ups are retained in the direct-script JSON and upgrade log, and
+in the launcher's typed `result.followups`; human output includes their commands.
+Crossing 0.70.3 offers optional managed-approval discovery via read-only
+`brain approvals inspect --json`, without opting in or modifying manual rules.
+The version-crossing notice is also included in upgrade dry-run previews.
+
 The supported `install.py --client`, `configure.py mcp --client`,
 `configure.py agent-skills --client` and interactive `setup.py` selections
 include `grok`; `all` includes all three clients. Grok supports user and project
