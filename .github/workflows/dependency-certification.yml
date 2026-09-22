@@ -3,12 +3,20 @@ name: Dependency certification
 on:
   pull_request:
   push:
-    branches: [main]
+    branches:
+      - main
+      - "promotion/**"
     tags: ["v*"]
   workflow_dispatch:
 
 jobs:
+  candidate-evidence:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && github.event.deleted != true
+    uses: ./.github/workflows/candidate-evidence.yml
+
   native:
+    needs: candidate-evidence
+    if: always() && github.event.deleted != true && (needs.candidate-evidence.result == 'skipped' || needs.candidate-evidence.outputs.reuse != 'true')
     strategy:
       fail-fast: false
       matrix:
@@ -33,11 +41,16 @@ jobs:
         run: python src/scripts/dependency_certification.py --platform ${{ matrix.platform }} --machine ${{ matrix.machine }}
 
   certified:
-    if: always()
-    needs: native
+    if: always() && github.event.deleted != true
+    needs: [native, candidate-evidence]
     runs-on: ubuntu-24.04
     steps:
       - name: Require every native matrix leg
         env:
           NATIVE_RESULT: ${{ needs.native.result }}
-        run: test "$NATIVE_RESULT" = success
+          REUSE: ${{ needs.candidate-evidence.outputs.reuse }}
+        run: |
+          if [ "$REUSE" = "true" ]; then
+            exit 0
+          fi
+          test "$NATIVE_RESULT" = success

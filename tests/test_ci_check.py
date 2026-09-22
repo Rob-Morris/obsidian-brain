@@ -70,6 +70,22 @@ def test_missing_workflow_is_not_empty_success():
     assert result["workflows"][-1] == {"workflow": check_ci.REQUIRED_WORKFLOWS[-1], "state": "missing"}
 
 
+def test_branch_deletion_and_a_later_skip_do_not_displace_a_green_run():
+    items = runs()
+    success = items[0]
+    deletion = {
+        **success,
+        "id": 10,
+        "status": "queued",
+        "conclusion": None,
+        "head_commit": None,
+    }
+    skipped = {**success, "id": 11, "conclusion": "skipped", "head_commit": {"id": SHA}}
+    assert evaluate([*items, deletion, skipped])["state"] == "passed"
+    only_skipped = [{**run, "conclusion": "skipped"} for run in items]
+    assert evaluate(only_skipped)["state"] == "failed"
+
+
 def test_newer_failed_run_and_current_rerun_attempt_replace_old_success():
     items = runs()
     newer = {**items[0], "id": 10, "conclusion": "failure"}

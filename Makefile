@@ -3,7 +3,7 @@ PYTHON := $(VENV)/bin/python
 PIP := $(VENV)/bin/pip
 PYTEST := $(VENV)/bin/pytest
 
-.PHONY: venv install install-semantic dependencies-check dependencies-update test test-parallel test-brain-lab test-brain-lab-docker test-brain-lab-docker-configuration test-brain-lab-current-docker test-brain-lab-upgrade-docker lint lint-docstrings lint-command-docs clean hooks sync-template sync-template-check dev-link precommit-check release-status
+.PHONY: venv install install-semantic dependencies-check dependencies-update test test-parallel test-brain-lab test-brain-lab-docker test-brain-lab-docker-configuration test-brain-lab-current-docker test-brain-lab-upgrade-docker lint lint-docstrings lint-command-docs clean hooks sync-template sync-template-check dev-link precommit-check release-status promotion-status promotion-prepare promotion-finish promotion-discard
 
 BRAIN_LAB_STATE_DIR ?= $(CURDIR)/.brain-lab
 
@@ -62,11 +62,23 @@ hooks:
 	git config core.hooksPath .githooks
 
 precommit-check:
-	$(PYTHON) src/scripts/check_repository_contracts.py --staged
+	$(PYTHON) src/scripts/check_repository_contracts.py --staged --policy "$$(.githooks/pre-commit --print-policy)"
 	$(PYTHON) src/scripts/release.py status --check index
 
 release-status:
 	$(PYTHON) src/scripts/release.py status
+
+promotion-status:
+	$(PYTHON) src/scripts/promotion.py status
+
+promotion-prepare:
+	$(PYTHON) src/scripts/promotion.py prepare --input $(INPUT)
+
+promotion-finish:
+	$(PYTHON) src/scripts/promotion.py finish $(BRANCH)
+
+promotion-discard:
+	$(PYTHON) src/scripts/promotion.py discard $(BRANCH)
 
 sync-template: dev-link
 	PYTHON_BIN=$(abspath $(PYTHON)) bash src/scripts/sync-template-vault.sh --apply

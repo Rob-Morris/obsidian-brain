@@ -29,6 +29,7 @@ if str(CLI_ROOT) not in sys.path:
 from _version_contract import (  # noqa: E402
     SEMVER_PATTERN,
     parse_version_contract,
+    release_summary_problems,
 )
 from _common import CANONICAL_KEY_PATTERN  # noqa: E402
 from _repository_contracts.markdown import section as _markdown_section  # noqa: E402
@@ -222,10 +223,8 @@ def validate_release_contract(view: RepositoryView) -> list[str]:
             f"docs/CHANGELOG.md: first version row is {first}, expected VERSION {version}"
         )
 
-    if summary.endswith("."):
-        errors.append(f"{entry_path}: Summary must not end with a period")
-    if re.search(r"\s+(?:as\s+)?\(?v\d+\.\d+\.\d+\)?$", summary, re.I):
-        errors.append(f"{entry_path}: Summary must not carry a version suffix")
+    for problem in release_summary_problems(summary):
+        errors.append(f"{entry_path}: {problem}")
     if re.match(r"^BREAKING\b", summary) and not summary.startswith("BREAKING — "):
         errors.append(f"{entry_path}: use the exact 'BREAKING —' prefix")
     return errors
@@ -637,6 +636,20 @@ def validate_staged_decision_history(
     return errors
 
 
+def staged_predicate_errors(
+    root: Path,
+    view: GitIndexView,
+    changes: list[GitChange] | None,
+    policy: str,
+) -> list[str]:
+    """Apply staged predicates for an explicit policy. Development omits the version bump."""
+    errors: list[str] = []
+    if policy != "development":
+        errors.extend(validate_staged_version_bump(root, view, changes))
+    errors.extend(validate_staged_decision_history(root, changes))
+    return errors
+
+
 def validate_repository(view: RepositoryView) -> list[str]:
     validators = (
         validate_release_contract,
@@ -662,12 +675,18 @@ def main(argv: list[str] | None = None) -> int:
         type=Path,
         help=argparse.SUPPRESS,
     )
+    parser.add_argument(
+        "--policy",
+        choices=("release", "development", "promotion"),
+        default="release",
+        help="release and promotion require a staged version bump; development does not",
+    )
     args = parser.parse_args(argv)
 
     if args.staged and args.materialized_index_of is None:
         from _staged_contract_runner import run_staged_checker
 
-        return run_staged_checker(REPO_ROOT, sys.executable)
+        return run_staged_checker(REPO_ROOT, sys.executable, args.policy)
     if args.materialized_index_of is not None and not args.staged:
         parser.error("--materialized-index-of requires --staged")
 
@@ -677,8 +696,7 @@ def main(argv: list[str] | None = None) -> int:
         staged_view = GitIndexView(staged_root)
         view = WorkingTreeView(REPO_ROOT)
         changes = _staged_changes(staged_root)
-        errors = validate_staged_version_bump(staged_root, staged_view, changes)
-        errors.extend(validate_staged_decision_history(staged_root, changes))
+        errors = staged_predicate_errors(staged_root, staged_view, changes, args.policy)
     else:
         view = WorkingTreeView(REPO_ROOT)
         errors = []

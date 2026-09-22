@@ -20,7 +20,7 @@ ALWAYS READ BEFORE contributing: `docs/contributor/agents.md`
 ## Before Committing
 
 1. Run `make test` (uses `.venv` with Python 3.12; run `make install` first if the venv doesn't exist)
-2. Follow `.canaries/pre-commit.md`
+2. Follow `.canaries/pre-commit-development.md` on `dev` (`.canaries/pre-promotion.md` before `promotion.py prepare`)
 3. Never force-add gitignored files. They are ignored for a reason.
 
 ## After Pushing

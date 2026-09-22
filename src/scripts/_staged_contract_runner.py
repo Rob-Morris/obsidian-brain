@@ -14,7 +14,7 @@ import tempfile
 CHECKER_PATH = Path("src/scripts/check_repository_contracts.py")
 
 
-def run_staged_checker(repo_root: Path, python_executable: str) -> int:
+def run_staged_checker(repo_root: Path, python_executable: str, policy: str = "release") -> int:
     """Materialise the index and execute its checker with its own imports."""
     root = repo_root.resolve()
     with tempfile.TemporaryDirectory(prefix="brain-staged-contracts-") as temp_dir:
@@ -44,6 +44,8 @@ def run_staged_checker(repo_root: Path, python_executable: str) -> int:
                 "--staged",
                 "--materialized-index-of",
                 str(root),
+                "--policy",
+                policy,
             ],
             cwd=snapshot,
         )

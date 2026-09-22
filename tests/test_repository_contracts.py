@@ -523,6 +523,7 @@ def test_portable_manifest_paths_reject_windows_invalid_segments(path):
 
 def test_pre_commit_uses_project_python_when_path_python3_is_incompatible(tmp_path):
     _initialise_git_repo(tmp_path)
+    _git(tmp_path, "checkout", "-b", "dev")
     hook = tmp_path / ".githooks/pre-commit"
     hook.parent.mkdir(parents=True)
     hook.write_text(
@@ -554,6 +555,73 @@ def test_pre_commit_uses_project_python_when_path_python3_is_incompatible(tmp_pa
 
     assert result.returncode == 0, result.stderr
     assert (tmp_path / "checker-ran").read_text(encoding="utf-8") == "yes"
+
+
+def test_pre_commit_rejects_main_and_accepts_a_rebase_of_dev(tmp_path):
+    _initialise_git_repo(tmp_path)
+    hook = tmp_path / ".githooks/pre-commit"
+    hook.parent.mkdir(parents=True)
+    hook.write_text(
+        (contracts.REPO_ROOT / ".githooks/pre-commit").read_text(encoding="utf-8"),
+        encoding="utf-8",
+    )
+    hook.chmod(0o755)
+    project_python = tmp_path / ".venv/bin/python"
+    project_python.parent.mkdir(parents=True)
+    project_python.symlink_to(sys.executable)
+    checker = tmp_path / "src/scripts/check_repository_contracts.py"
+    checker.parent.mkdir(parents=True)
+    checker.write_text(
+        "import sys\nfrom pathlib import Path\n"
+        "Path('checker-argv').write_text('\\n'.join(sys.argv), encoding='utf-8')\n"
+        "Path('checker-ran').write_text('yes', encoding='utf-8')\n",
+        encoding="utf-8",
+    )
+
+    printed = subprocess.run(
+        [str(hook), "--print-policy"], cwd=tmp_path, capture_output=True, text=True
+    )
+    assert printed.returncode == 1
+    assert "ordinary commits on main are rejected" in printed.stdout + printed.stderr
+
+    rejected = subprocess.run([str(hook)], cwd=tmp_path, capture_output=True, text=True)
+    assert rejected.returncode == 1
+    assert "ordinary commits on main are rejected" in rejected.stdout + rejected.stderr
+    assert not (tmp_path / "checker-ran").exists()
+
+    _git(tmp_path, "checkout", "-b", "dev")
+    _git(tmp_path, "commit", "--allow-empty", "-m", "WIP: base")
+    _git(tmp_path, "checkout", "--detach")
+    git_dir = Path(_git_output(tmp_path, "rev-parse", "--absolute-git-dir").strip())
+    rebase = git_dir / "rebase-merge"
+    rebase.mkdir()
+    (rebase / "head-name").write_text("refs/heads/dev\n", encoding="utf-8")
+    accepted = subprocess.run([str(hook)], cwd=tmp_path, capture_output=True, text=True)
+    assert accepted.returncode == 0, accepted.stderr
+    assert (tmp_path / "checker-ran").read_text(encoding="utf-8") == "yes"
+    dev_argv = (tmp_path / "checker-argv").read_text(encoding="utf-8").splitlines()
+    assert dev_argv[dev_argv.index("--policy") + 1] == "development"
+
+    development = subprocess.run(
+        [str(hook), "--print-policy"], cwd=tmp_path, capture_output=True, text=True
+    )
+    assert development.returncode == 0, development.stderr
+    assert development.stdout.strip() == "development"
+
+    for child in rebase.iterdir():
+        child.unlink()
+    rebase.rmdir()
+    _git(tmp_path, "checkout", "-b", "promotion/v1.2.3")
+    promotion_policy = subprocess.run(
+        [str(hook), "--print-policy"], cwd=tmp_path, capture_output=True, text=True
+    )
+    assert promotion_policy.returncode == 0, promotion_policy.stderr
+    assert promotion_policy.stdout.strip() == "promotion"
+    (tmp_path / "checker-ran").unlink()
+    promoted = subprocess.run([str(hook)], cwd=tmp_path, capture_output=True, text=True)
+    assert promoted.returncode == 0, promoted.stderr
+    promotion_argv = (tmp_path / "checker-argv").read_text(encoding="utf-8").splitlines()
+    assert promotion_argv[promotion_argv.index("--policy") + 1] == "promotion"
 
 
 def test_pre_commit_bootstrap_guard_includes_repository_policy_modules():
@@ -595,6 +663,7 @@ def test_pre_commit_does_not_stage_newer_worktree_release_metadata(tmp_path):
     readme.write_text("![Version](version-1.1.0-blue)\n", encoding="utf-8")
     before = _git_output(tmp_path, "diff", "--cached", "--binary")
 
+    _git(tmp_path, "checkout", "-b", "dev")
     result = subprocess.run([str(hook)], cwd=tmp_path, capture_output=True, text=True)
 
     assert result.returncode == 0, result.stderr
@@ -766,6 +835,26 @@ def test_staged_brain_core_change_requires_staged_version_bump(tmp_path):
         )
         == []
     )
+
+
+def test_development_policy_omits_the_staged_version_bump(tmp_path):
+    _initialise_git_repo(tmp_path)
+    version = tmp_path / contracts.VERSION_PATH
+    core_file = tmp_path / "src/brain-core/core.md"
+    version.parent.mkdir(parents=True)
+    version.write_text("1.0.0\n", encoding="utf-8")
+    core_file.write_text("old\n", encoding="utf-8")
+    _git(tmp_path, "add", ".")
+    _git(tmp_path, "commit", "-m", "initial")
+    core_file.write_text("new\n", encoding="utf-8")
+    _git(tmp_path, "add", "src/brain-core/core.md")
+    view = contracts.GitIndexView(tmp_path)
+
+    assert contracts.staged_predicate_errors(tmp_path, view, None, "development") == []
+    assert contracts.staged_predicate_errors(tmp_path, view, None, "promotion") == [
+        "src/brain-core/VERSION: must increase when src/brain-core content changes "
+        "(src/brain-core/core.md)"
+    ]
 
 
 def test_staged_brain_core_deletion_requires_version_bump(tmp_path):

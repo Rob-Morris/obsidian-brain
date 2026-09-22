@@ -134,6 +134,16 @@ def test_status_distinguishes_head_index_and_worktree_release_facts(tmp_path):
     assert release.release_facts(root, "worktree").coherent is True
 
 
+def test_release_facts_treat_a_missing_path_as_absent_and_a_bad_object_as_an_error(tmp_path):
+    root = _release_repo(tmp_path)
+    assert release._read_view(root, "HEAD", "missing.txt") is None
+    (root / "only-worktree.txt").write_text("local\n", encoding="utf-8")
+    assert release._read_view(root, "HEAD", "only-worktree.txt") is None
+    assert release._read_view(root, "worktree", "missing.txt") is None
+    with pytest.raises(release.ReleaseError, match="invalid object"):
+        release._read_view(root, "deadbeef", release.VERSION_PATH)
+
+
 def test_prepare_is_dry_run_first_and_applies_explicit_release_intent(
     tmp_path, capsys, monkeypatch
 ):

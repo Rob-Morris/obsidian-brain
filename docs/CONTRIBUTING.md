@@ -1,16 +1,19 @@
 # Contributing to Obsidian Brain
 
-Guide for anyone working on brain-core. For the pre-commit checklist, see [pre-commit canary](../.canaries/pre-commit.md).
+Guide for anyone working on brain-core. For a `dev` commit, see [development canary](../.canaries/pre-commit-development.md). The [pre-commit canary](../.canaries/pre-commit.md) remains the full release checklist.
 
 **Agent contributors:** also read [contributor/agents.md](contributor/agents.md) and [standards/agent-workflow.md](standards/agent-workflow.md) for contributor-only workflow guidance.
 
 ## Canary Hook
 
 A git pre-commit hook first runs deterministic repository-contract checks against
-the exact staged snapshot, then verifies the subjective
-[pre-commit canary](../.canaries/pre-commit.md) was followed. It checks that
-`.canary--pre-commit` exists and covers all remaining numbered items. The hook
-deletes the file after a successful commit so it can't go stale.
+the exact staged snapshot, then verifies the subjective canary for the current
+branch. On `dev` that is [pre-commit-development.md](../.canaries/pre-commit-development.md)
+and `.canary--pre-commit`. A promotion branch uses
+[pre-promotion.md](../.canaries/pre-promotion.md) and `.canary--pre-promotion`.
+The hook checks that the receipt exists and covers the numbered tasks, then
+deletes it after a successful commit so it can't go stale. Ordinary commits on
+`main` are rejected.
 
 The hook source is tracked at `.githooks/pre-commit`. To activate:
 
@@ -30,7 +33,8 @@ The hook is read-only with respect to tracked files and the Git index. It
 reports deterministic drift but never rewrites or stages a correction. Use
 `python src/scripts/release.py prepare ...` for explicit dry-run-first release
 mechanics, and run `make precommit-check` after staging to validate the exact
-snapshot before attempting a commit.
+snapshot before attempting a commit. The target passes the current branch's
+commit policy: `development` on `dev`, and `promotion` on `promotion/*`.
 
 `.venv/bin/python src/scripts/check_repository_contracts.py` runs the same
 deterministic checks against the working tree; `--staged` materialises the Git
@@ -107,7 +111,7 @@ Link policy for shipped docs:
 
 ## Versioning
 
-Bump `src/brain-core/VERSION` for any change to files under `src/brain-core/`, including doc-only edits. If it ships in `.brain-core/`, it gets a version bump — no exceptions. Also bump it for end-user install or upgrade contract changes (`install.sh`, installer docs, upgrade entry-point guidance) even when those files live outside `src/brain-core/`, because they change the released product surface. This repo uses a pre-1.0 [semver](https://semver.org/) policy:
+A change under `src/brain-core/`, including a doc-only edit, is versioned when it is promoted to `main`. Development commits on `dev` do not bump `src/brain-core/VERSION`. If it ships in `.brain-core/`, the promotion that includes it gets a version bump — no exceptions. Also bump it for end-user install or upgrade contract changes (`install.sh`, installer docs, upgrade entry-point guidance) even when those files live outside `src/brain-core/`, because they change the released product surface. This repo uses a pre-1.0 [semver](https://semver.org/) policy:
 
 | Bump | When |
 |---|---|
@@ -152,6 +156,36 @@ precommit-check`. A correction made before integration/publication amends that
 unreleased release without another bump; a correction to a released version
 requires a new patch release.
 
+## Dev branch
+
+Ordinary work happens on `dev`, or on a short-lived feature branch that is
+merged into `dev` before promotion. Development commits use `WIP:`, `docs:`,
+`test:`, or `chore:` and do not bump `src/brain-core/VERSION`. The pre-commit
+hook on `dev` omits that staged version-bump check. It still runs the other
+repository contracts. Ordinary commits on `main` are rejected.
+
+`main` receives one version at a time through `src/scripts/promotion.py`:
+
+```bash
+python src/scripts/promotion.py status
+python src/scripts/promotion.py prepare --input request.json
+python src/scripts/promotion.py finish promotion/vX.Y.Z
+python src/scripts/promotion.py discard promotion/vX.Y.Z
+```
+
+`status` lists the first-parent cuts on `dev`. `prepare` builds one candidate
+from the chosen cut, or from the `dev` tip when the request omits `cut`, and
+pushes `promotion/vX.Y.Z`. It does not move `main` or `dev`. `finish` waits
+until that exact commit's CI has passed, then fast-forwards `main` to the
+candidate and `dev` to the same tree plus any unpromoted tail. A tail must be
+a linear run of ordinary commits. Feature merges belong at or before the cut.
+
+The request JSON names `core_version`, `summary`, `release_type`, `changes`,
+`date`, `body`, and optionally `cli_version`, `proxy_version`, and `cut`.
+`release.py` still owns the version-file edits. Write `.canary--pre-promotion`
+from `.canaries/pre-promotion.md` before prepare. Prepare removes that receipt
+only after the candidate push succeeds, and leaves the checklist in place.
+
 ## Changelog
 
 The live changelog is tiered:
@@ -188,7 +222,7 @@ tree only, so working-tree and index changes cannot leak into an upgrade source.
 
 ## Commit Messages
 
-Every commit in this repo should have a scannable subject and a body that explains *why* the change exists, not just what the diff already shows. See [standards/commit-messages.md](standards/commit-messages.md) for the subject-line template, body structure, worked example, and drafting rules. For release commits, the subject is `<Summary> (vX.Y.Z)` where `<Summary>` is the canonical Summary text — the per-version file's top-line Summary, also filled into the matching `docs/CHANGELOG.md` index row — verbatim, parenthesised version suffix, never `as vX.Y.Z`. Release commits stay prefix-free. Non-versioned support commits must use exactly one of the prefixes `docs:`, `test:`, or `chore:`. Read `git diff` and `git diff --stat`, the matching index row, the corresponding `docs/changelog/vX.Y.Z.md` entry (if any), and recent `git log --oneline` output before drafting. Use only public-safe references in the message body — anything a stranger can verify using only `git log` and the public web.
+Every commit in this repo should have a scannable subject and a body that explains *why* the change exists, not just what the diff already shows. See [standards/commit-messages.md](standards/commit-messages.md) for the subject-line template, body structure, worked example, and drafting rules. For release commits, the subject is `<Summary> (vX.Y.Z)` where `<Summary>` is the canonical Summary text — the per-version file's top-line Summary, also filled into the matching `docs/CHANGELOG.md` index row — verbatim, parenthesised version suffix, never `as vX.Y.Z`. Release commits stay prefix-free. Non-versioned support commits must use exactly one of the prefixes `WIP:`, `docs:`, `test:`, or `chore:`. Read `git diff` and `git diff --stat`, the matching index row, the corresponding `docs/changelog/vX.Y.Z.md` entry (if any), and recent `git log --oneline` output before drafting. Use only public-safe references in the message body — anything a stranger can verify using only `git log` and the public web.
 
 ## Testing
 

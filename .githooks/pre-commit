@@ -1,14 +1,44 @@
 #!/usr/bin/env bash
 #
-# Pre-commit hook: verifies .canary--pre-commit covers all bracket IDs
-# defined in .canaries/pre-commit.md.
-#
-# The canary brief is the source of truth — adding a new [id] there
-# automatically enforces it here.
+# Pre-commit hook. Rejects main and a detached HEAD outside rebase, then
+# checks the staged snapshot under an explicit policy and the matching canary
+# receipt. Development uses .canaries/pre-commit-development.md and
+# .canary--pre-commit. promotion/* uses .canaries/pre-promotion.md and
+# .canary--pre-promotion. The receipt grammar lives in canary_receipt.py.
 
 set -euo pipefail
 
 REPO_ROOT="$(git rev-parse --show-toplevel)"
+
+branch="$(git symbolic-ref --quiet --short HEAD || true)"
+if [[ -z "$branch" ]]; then
+  # git commit during an interactive rebase runs with a detached HEAD.
+  head_name="$(git rev-parse --git-path rebase-merge/head-name 2>/dev/null || true)"
+  if [[ ! -f "$head_name" ]]; then
+    head_name="$(git rev-parse --git-path rebase-apply/head-name 2>/dev/null || true)"
+  fi
+  if [[ -f "$head_name" ]]; then
+    branch="$(sed 's|^refs/heads/||' "$head_name")"
+  fi
+fi
+if [[ -z "$branch" ]]; then
+  echo "pre-commit: detached HEAD is not a development branch"
+  exit 1
+fi
+if [[ "$branch" == "main" ]]; then
+  echo "pre-commit: ordinary commits on main are rejected; promote a candidate from dev"
+  exit 1
+fi
+policy="development"
+canary_name="pre-commit-development.md"
+if [[ "$branch" == promotion/* ]]; then
+  policy="promotion"
+  canary_name="pre-promotion.md"
+fi
+if [[ "${1:-}" == "--print-policy" ]]; then
+  printf '%s\n' "$policy"
+  exit 0
+fi
 
 # Validate facts against the exact snapshot about to be committed. These
 # predicates do not belong in the self-reported canary log. The hook never
@@ -27,79 +57,21 @@ if ! git diff --quiet -- \
   echo "Stage the hook and staged-contract runner together before committing."
   exit 1
 fi
-"$PROJECT_PYTHON" "$REPO_ROOT/src/scripts/check_repository_contracts.py" --staged
+"$PROJECT_PYTHON" "$REPO_ROOT/src/scripts/check_repository_contracts.py" --staged --policy "$policy"
 
-CANARY_DEF="$REPO_ROOT/.canaries/pre-commit.md"
+CANARY_DEF="$REPO_ROOT/.canaries/$canary_name"
 CANARY_LOG="$REPO_ROOT/.canary--pre-commit"
-
+if [[ "$policy" == "promotion" ]]; then
+  CANARY_LOG="$REPO_ROOT/.canary--pre-promotion"
+fi
 if [[ ! -f "$CANARY_DEF" ]]; then
-  echo "pre-commit: .canaries/pre-commit.md not found — skipping canary check"
+  echo "pre-commit: $CANARY_DEF not found — skipping canary check"
   exit 0
 fi
-
-# Extract all [id] patterns from the Tasks section (between ## Tasks and ## Log)
-tasks_section=$(sed -n '/^## Tasks$/,/^## Log$/p' "$CANARY_DEF")
-expected_ids=($(echo "$tasks_section" | grep -oE '\[[0-9]+[a-z]?\]' | sort -u))
-
-if [[ ${#expected_ids[@]} -eq 0 ]]; then
-  echo "pre-commit: no bracket IDs found in .canaries/pre-commit.md — skipping"
-  exit 0
-fi
-
-# Check canary log exists
-if [[ ! -f "$CANARY_LOG" ]]; then
-  echo ""
-  echo "pre-commit: .canary--pre-commit not found."
-  echo ""
-  echo "Read .canaries/pre-commit.md and write .canary--pre-commit"
-  echo "confirming you've followed each task. Format:"
-  echo ""
-  echo "  [2] Label: done"
-  echo "  [4] Label: skip, reason"
-  echo ""
-  exit 1
-fi
-
-# Check each expected ID is present in the log
-missing=()
-for id in "${expected_ids[@]}"; do
-  if ! grep -qF "$id" "$CANARY_LOG" 2>/dev/null; then
-    missing+=("$id")
-  fi
-done
-
-if [[ ${#missing[@]} -gt 0 ]]; then
-  echo ""
-  echo "pre-commit: .canary--pre-commit is missing these tasks:"
-  for task in "${missing[@]}"; do
-    echo "  $task"
-  done
-  echo ""
-  echo "Mark each as '[id] Label: done' or '[id] Label: skip, reason'."
-  exit 1
-fi
-
-# Validate format: each bracketed line must have a label and status
-bad=()
-while IFS= read -r line; do
-  trimmed="${line#"${line%%[![:space:]]*}"}"
-  if [[ "$trimmed" =~ ^\[[0-9]+[a-z]?\] ]]; then
-    if ! echo "$trimmed" | grep -qE '^\[[0-9]+[a-z]?\] .+: (done([, ] ?.+)?|skip, ?.+)$'; then
-      bad+=("$line")
-    fi
-  fi
-done < "$CANARY_LOG"
-
-if [[ ${#bad[@]} -gt 0 ]]; then
-  echo ""
-  echo "pre-commit: these lines have invalid format:"
-  for line in "${bad[@]}"; do
-    echo "  $line"
-  done
-  echo ""
-  echo "Expected: [id] Label: done  or  [id] Label: skip, reason"
-  exit 1
-fi
+"$PROJECT_PYTHON" "$REPO_ROOT/src/scripts/canary_receipt.py" \
+  --brief "$CANARY_DEF" \
+  --receipt "$CANARY_LOG" \
+  --on-empty skip
 
 # Clean up — remove canary log so it can't go stale
 rm -f "$CANARY_LOG"
