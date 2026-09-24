@@ -17,6 +17,7 @@ REQUIRED_WORKFLOWS = (
     ".github/workflows/dependency-certification.yml",
 )
 EXIT_CODES = {"passed": 0, "failed": 1, "pending": 2, "missing": 2, "unavailable": 3}
+DELETION_RUN_TITLE = "Brain branch deletion (no CI)"
 
 
 def read_runs(repo: str, commit: str, branch: str, event: str, timeout: float) -> list[dict]:
@@ -50,9 +51,30 @@ def read_runs(repo: str, commit: str, branch: str, event: str, timeout: float) -
     return runs
 
 
+def _is_branch_deletion(run: dict) -> bool:
+    """Only the workflow's explicit push-deletion marker proves this is not an attempt."""
+    return run.get("event") == "push" and run.get("display_title") == DELETION_RUN_TITLE
+
+
+def _workflow_record(path: str, run: dict, state: str) -> dict:
+    return {
+        "workflow": path,
+        "state": state,
+        "run_id": run["id"],
+        "attempt": run["run_attempt"],
+        "status": run["status"],
+        "conclusion": run.get("conclusion"),
+        "url": run["html_url"],
+    }
+
+
 def evaluate_runs(runs: list[dict], commit: str, branch: str, event: str) -> dict:
-    """Require the newest matching run's current attempt for each required workflow."""
-    selected = {}
+    """Require the newest real attempt of each required workflow.
+
+    A positively identified branch-deletion run is not an attempt. Every other
+    newer run, including a skipped run, supersedes earlier evidence.
+    """
+    grouped: dict[str, list[dict]] = {path: [] for path in REQUIRED_WORKFLOWS}
     for run in runs:
         if (run.get("head_sha"), run.get("head_branch"), run.get("event")) != (commit, branch, event):
             raise ValueError("GitHub returned a run outside the requested commit/branch/event")
@@ -70,21 +92,20 @@ def evaluate_runs(runs: list[dict], commit: str, branch: str, event: str) -> dic
             raise ValueError("Unrecognised GitHub run status")
         if run["status"] == "completed" and not isinstance(run.get("conclusion"), str):
             raise ValueError("Completed GitHub run has no conclusion")
-        previous = selected.get(path)
-        if previous is None or (run["id"], run["run_attempt"]) > (previous["id"], previous["run_attempt"]):
-            selected[path] = run
+        if _is_branch_deletion(run):
+            continue
+        grouped[path].append(run)
     workflows = []
     for path in REQUIRED_WORKFLOWS:
-        run = selected.get(path)
-        if run is None:
+        choices = sorted(grouped[path], key=lambda item: (item["id"], item["run_attempt"]), reverse=True)
+        if not choices:
             workflows.append({"workflow": path, "state": "missing"})
             continue
+        run = choices[0]
         state = "pending" if run["status"] != "completed" else (
             "passed" if run["conclusion"] == "success" else "failed"
         )
-        workflows.append({"workflow": path, "state": state, "run_id": run["id"],
-                          "attempt": run["run_attempt"], "status": run["status"],
-                          "conclusion": run.get("conclusion"), "url": run["html_url"]})
+        workflows.append(_workflow_record(path, run, state))
     states = {item["state"] for item in workflows}
     state = next(item for item in ("failed", "missing", "pending", "passed") if item in states)
     return {"state": state, "workflows": workflows}

@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import argparse
 from collections.abc import Iterable
-from dataclasses import asdict
+from dataclasses import asdict, dataclass
 from datetime import date
 import difflib
 import io
@@ -31,6 +31,7 @@ from _version_contract import (  # noqa: E402
     SEMVER_RE,
     VersionContract,
     parse_version_contract,
+    release_summary_problems,
 )
 VERSION_PATH = "src/brain-core/VERSION"
 README_PATH = "README.md"
@@ -77,14 +78,33 @@ def _git(root: Path, *args: str, text: bool = True):
     ).stdout
 
 
+def _path_is_absent(detail: str, path: str) -> bool:
+    return (
+        f"path '{path}' exists on disk, but not in" in detail
+        or f"path '{path}' does not exist" in detail
+    )
+
+
 def _read_view(root: Path, view: str, path: str) -> str | None:
+    """Return the file text, None when that view has no such path, or raise."""
     try:
         if view == "worktree":
             return (root / path).read_text(encoding="utf-8")
-        spec = f":{path}" if view == "index" else f"HEAD:{path}"
+        if view == "index":
+            spec = f":{path}"
+        else:
+            revision = "HEAD" if view == "head" else view
+            spec = f"{revision}:{path}"
         return _git(root, "show", spec)
-    except (OSError, UnicodeError, subprocess.CalledProcessError):
+    except FileNotFoundError:
         return None
+    except (OSError, UnicodeError) as exc:
+        raise ReleaseError(f"could not read {path} from {view}: {exc}") from exc
+    except subprocess.CalledProcessError as exc:
+        detail = (exc.stderr or exc.stdout or "").strip() or "no output"
+        if _path_is_absent(detail, path):
+            return None
+        raise ReleaseError(f"could not read {path} from {view}: {detail}") from exc
 
 
 def release_facts(root: Path, view: str) -> VersionContract:
@@ -142,7 +162,8 @@ def _replace_one(
     return updated
 
 
-def _summary(entry: str, version: str) -> str | None:
+def release_summary(entry: str, version: str) -> str | None:
+    """Read a version entry's canonical Summary."""
     match = re.search(
         rf"^# v{re.escape(version)}\s*$.*?^\*\*Summary:\*\*\s*(.+?)\s*$",
         entry,
@@ -210,7 +231,22 @@ print(json.dumps({
     return json.dumps(route, indent=2) + "\n"
 
 
-def _prepare_changes(args: argparse.Namespace) -> dict[str, str]:
+@dataclass(frozen=True)
+class ReleaseRequest:
+    """Explicit release intent, independent of CLI parsing."""
+
+    repo: Path
+    core_version: str
+    cli_version: str | None
+    proxy_version: str | None
+    summary: str
+    date: str
+    release_type: str | None
+    change: tuple[str, ...]
+    amend: bool
+
+
+def _prepare_changes(args: ReleaseRequest) -> dict[str, str]:
     for name, value in (
         ("core version", args.core_version),
         ("CLI version", args.cli_version),
@@ -218,7 +254,8 @@ def _prepare_changes(args: argparse.Namespace) -> dict[str, str]:
     ):
         if value is not None and not SEMVER_RE.fullmatch(value):
             raise ReleaseError(f"invalid {name}: {value!r}")
-    if args.summary.endswith(".") or re.search(rf"\s+\(?v{SEMVER}\)?$", args.summary):
+    problems = release_summary_problems(args.summary)
+    if problems:
         raise ReleaseError("release Summary must omit periods and version suffixes")
 
     root = args.repo
@@ -304,7 +341,7 @@ def _prepare_changes(args: argparse.Namespace) -> dict[str, str]:
         if not args.amend:
             raise ReleaseError(f"{entry_path}: already exists; pass --amend deliberately")
         entry = entry_file.read_text(encoding="utf-8")
-        if _summary(entry, args.core_version) != args.summary:
+        if release_summary(entry, args.core_version) != args.summary:
             raise ReleaseError(f"{entry_path}: existing Summary differs")
     else:
         if args.amend:
@@ -436,8 +473,51 @@ def _remove_staged_files(paths: Iterable[Path]) -> tuple[Path, ...]:
     return tuple(failures)
 
 
+def prepare_release(
+    root: Path,
+    *,
+    core_version: str,
+    summary: str,
+    release_date: str,
+    release_type: str | None,
+    changes: list[str],
+    cli_version: str | None = None,
+    proxy_version: str | None = None,
+    amend: bool = False,
+) -> dict[str, str]:
+    """Return the release-file edits for one explicit request. This does not write."""
+    request = ReleaseRequest(
+        repo=root,
+        core_version=core_version,
+        cli_version=cli_version,
+        proxy_version=proxy_version,
+        summary=summary,
+        date=release_date,
+        release_type=release_type,
+        change=tuple(changes),
+        amend=amend,
+    )
+    return _prepare_changes(request)
+
+
+def apply_release(root: Path, changes: dict[str, str]) -> None:
+    """Write a release change set prepared by :func:`prepare_release`."""
+    if changes:
+        _write_transaction(root, changes)
+
+
 def _prepare(args: argparse.Namespace) -> int:
-    changes = _prepare_changes(args)
+    changes = prepare_release(
+        args.repo,
+        core_version=args.core_version,
+        summary=args.summary,
+        release_date=args.date,
+        release_type=args.release_type,
+        changes=list(args.change),
+        cli_version=args.cli_version,
+        proxy_version=args.proxy_version,
+        amend=args.amend,
+    )
     print(_diff(args.repo, changes), end="")
     if not changes:
         print("release preparation: no changes")
@@ -445,7 +525,7 @@ def _prepare(args: argparse.Namespace) -> int:
     if not args.apply:
         print("release preparation: dry run; pass --apply to write")
         return 0
-    _write_transaction(args.repo, changes)
+    apply_release(args.repo, changes)
     print(f"release preparation: updated {len(changes)} files")
     return 0
 

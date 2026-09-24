@@ -15,6 +15,13 @@ When making or planning changes, choose the smallest workflow tier that safely f
 | `medium` | Multi-file changes within one or two contexts, or work with meaningful edge-case risk | Research -> plan -> implement -> verify -> review | Explicit execution + verification plan, relevant tests, and a docs/canary sweep before hand-off |
 | `large` | Architectural changes, new context boundaries, migrations, bootstrap/security changes, or staged rollouts | Research -> design -> approval -> plan -> implement -> verify -> multi-review -> final review | Full-suite proof, explicit rollout/rollback thinking, and separate review passes for design and implementation |
 
+The tier's verification bar names change-specific evidence. Every development
+commit also follows the serial `make test` routine correctness gate and staged
+repository contracts in the [verification mapping](../CONTRIBUTING.md#testing).
+Focused tests and `make test-fast` are iteration feedback, including for WIP;
+the release's native and dependency certification runs on the exact promotion
+candidate.
+
 ## Tier Notes
 
 - `trivial` should stay local. If the change starts affecting behaviour, tests, or multiple files, it is no longer trivial.
@@ -26,20 +33,38 @@ When making or planning changes, choose the smallest workflow tier that safely f
 
 After every authorised push, check CI for the exact pushed commit before
 reporting the pushed change complete. Local tests remain the pre-commit gate;
-they do not replace native CI. Keep the existing branch and workflow triggers.
-This is an explicit contributor check, not automated branch protection.
+they do not replace native CI. Pushes to `promotion/**` and `main` run the
+three workflows below. A push to `dev` does not: `dev` is where work
+accumulates, and it is not a CI gate. A promotion candidate's CI, on
+`promotion/vX.Y.Z`, is the gate before `main`. When that same commit later
+reaches `main`, the workflows reuse the candidate evidence instead of running
+the expensive jobs again. Deleting the promotion branch does not run those
+jobs and does not replace the candidate's green runs. Other branches still
+need a pull request or a manual dispatch. This is an explicit contributor
+check, not automated branch protection.
 
-1. Record the pushed commit SHA and branch. Identify its runs for
+Deletion runs are identified by the explicit workflow run name
+`Brain branch deletion (no CI)` on a push event. A null head commit alone is
+not deletion evidence. Every other newest attempt, including a skipped run,
+supersedes an older success. The reusable evidence job and each caller grant
+read-only Actions access explicitly; uncertainty selects the full main checks.
+
+1. Record the pushed commit SHA and branch. On `dev`, these three workflows
+   are not created; local tests are the gate until a candidate is prepared.
+   On `promotion/**` and `main`, identify the runs for
    [Linux tests](../../.github/workflows/linux-test.yml),
    [Windows smoke](../../.github/workflows/windows-smoke.yml) and
    [dependency certification](../../.github/workflows/dependency-certification.yml).
    All three must finish successfully, including the native dependency matrix.
 2. Monitor queued/running checks until terminal. A missing run, pending result,
-   cancellation, skip or unavailable GitHub access is not a pass. Allow for run
-   creation delay, then inspect triggers if a workflow never appears. A non-main branch
-   without a PR does not automatically run these checks on push; use an
-   authorised manual dispatch or report verification blocked. Do not silently
-   change triggers, open a PR or publish more code to obtain a green result.
+   cancellation, skip or unavailable GitHub access is not a pass, except on
+   `dev`: record that these three workflows were not required, and stop. Do
+   not treat that absence as a failure or as a reason to dispatch them. Allow
+   for run creation delay on `promotion/**` and `main`, then inspect triggers
+   if a workflow never appears. Any other branch, without a PR, does not
+   automatically run these checks on push; use an authorised manual dispatch or
+   report verification blocked. Do not silently change triggers, open a PR or
+   publish more code to obtain a green result.
 3. For failures, read the failed job logs and diagnose the cause. Fix relevant
    code/test defects, rerun local verification, then push the correction within
    the task's authority and monitor all checks for the new SHA. Rerun unchanged

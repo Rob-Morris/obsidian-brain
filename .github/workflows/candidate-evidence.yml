@@ -1,0 +1,39 @@
+name: Candidate evidence
+
+on:
+  workflow_call:
+    outputs:
+      reuse:
+        description: true when this main SHA already passed on its promotion branch
+        value: ${{ jobs.evidence.outputs.reuse }}
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  evidence:
+    runs-on: ubuntu-latest
+    outputs:
+      reuse: ${{ steps.check.outputs.reuse }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version="$(tr -d '[:space:]' < src/brain-core/VERSION)"
+          set +e
+          python src/scripts/check_ci.py \
+            --repo "${{ github.repository }}" \
+            --commit "${{ github.sha }}" \
+            --branch "promotion/v${version}" \
+            --event push \
+            --json
+          code=$?
+          set -e
+          if [ "$code" -eq 0 ]; then
+            echo "reuse=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "reuse=false" >> "$GITHUB_OUTPUT"
+          fi

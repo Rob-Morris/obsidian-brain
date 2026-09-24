@@ -13,13 +13,13 @@ Before drafting, read four things:
 3. **The body of the corresponding `docs/changelog/vX.Y.Z.md` entry**, if one exists. Per-version file bodies are written as prose; paraphrase the commit-message body from there instead of reinventing the narrative.
 4. **`git log --oneline -15`** — match the local subject-line style.
 
-Skip steps 2 and 3 only for non-versioned support commits that do not ship a version, for example `docs:`, `test:`, or `chore:` work.
+Skip steps 2 and 3 only for non-versioned support commits that do not ship a version, for example `WIP:`, `docs:`, `test:`, or `chore:` work.
 
 ## Subject Line
 
 Versioned template: `<Summary> (vX.Y.Z)`
 
-Non-versioned template: `<prefix> <specific subject>`, where `<prefix>` is `docs:`, `test:`, or `chore:`
+Non-versioned template: `<prefix> <specific subject>`, where `<prefix>` is `WIP:`, `docs:`, `test:`, or `chore:`
 
 - **Short** — under about 70 characters.
 - **Specific** — name the new thing by its identifier, not by category. `safe_write_via kernel` beats `shared atomic write kernel`; the former is greppable, the latter is not.
@@ -31,11 +31,12 @@ For release commits the subject is `<Summary> (vX.Y.Z)`, where `<Summary>` is th
 
 For non-versioned support commits, prefixes are required and narrow by design:
 
+- `WIP:` — development work on `dev` that is not yet a version
 - `docs:` — documentation-only work
 - `test:` — test-only work
 - `chore:` — repo-only maintenance that does not ship a version
 
-Do not use prefixes on versioned commits. In this repo, shipped code, fixes, features, and any change that bumps `src/brain-core/VERSION` already carry stronger release structure via semver, changelog entries, and the canonical Summary subject. Keep the prefix set small; add new prefixes only if a real recurring non-versioned category appears. Until then, every non-versioned commit should use exactly one of the prefixes above, and the subject after the prefix should still be short, specific, and imperative.
+Do not use prefixes on versioned commits. In this repo, shipped code, fixes, features, and any change that bumps `src/brain-core/VERSION` already carry stronger release structure via semver, changelog entries, and the canonical Summary subject. Keep the prefix set small. On `dev`, ordinary work uses `WIP:`; `docs:`, `test:`, and `chore:` remain available when that is the whole change. Version commits are created by `src/scripts/promotion.py`, not by hand. The subject after the prefix should still be short, specific, and imperative.
 
 Good:
 

@@ -81,9 +81,14 @@ When in doubt, check `docs/README.md` — if a doc file is listed there, it's a 
 
 ## Testing Workflow
 
-Use serial `make test` for the pre-commit gate. `make test-parallel` is a fast
-pytest-xdist feedback path while iterating, but it does not replace the serial
-run because serial ordering still catches cross-file pollution.
+Use serial `make test` for the pre-commit routine correctness gate. The
+[verification mapping](../CONTRIBUTING.md#testing) names each suite's purpose
+and execution owner. `make test-parallel` runs the same suite faster while
+iterating, but does not establish serial ordering; `make test-fast` omits
+`slow` proxy and repair regressions and is also iteration feedback only. Keep
+those ordinary correctness tests in the commit gate even when a WIP change is
+incomplete. Candidate preparation and hosted CI check the exact candidate;
+native release certification belongs there rather than on each dev push.
 
 `make lint` is an umbrella for two different documentation contracts. The
 legacy/reusable scripts retain a percentage docstring ratchet; internal
@@ -147,8 +152,27 @@ Why this matters:
 
 ## Deterministic repository contracts
 
+Work on `dev`. Development commits use `WIP:`, `docs:`, `test:`, or `chore:`
+and do not bump `src/brain-core/VERSION`. The pre-commit hook passes
+`--policy development` on `dev`, so the staged version-bump predicate is
+omitted there, and it reads `.canaries/pre-commit-development.md`. Ordinary
+commits on `main` are rejected. A version is cut with
+`src/scripts/promotion.py`: `status`, `prepare --input request.json`,
+`finish promotion/vX.Y.Z`, `publish <sha>`, `adopt [promotion/vX.Y.Z]`, and `discard`. Prepare
+reads `.canaries/pre-promotion.md` and removes the receipt
+`.canary--pre-promotion` only after the candidate push succeeds. The checklist
+stays. Finish records the candidate on `unreleased` after that SHA's CI has
+passed, and does not push `main`. `publish` is the later fast-forward of
+`main`.
+
+Exceptional direct-main divergence uses the explicit
+[promotion recovery workflow](promotion-recovery.md). Review and stage a sealed
+plan, require fresh CI for each replacement, then apply its atomic ledger/dev
+transition. It never pushes main. Do not substitute a manual force-push for the
+manifest-bound recovery path.
+
 The pre-commit hook runs
-`.venv/bin/python src/scripts/check_repository_contracts.py --staged` before
+`.venv/bin/python src/scripts/check_repository_contracts.py --staged --policy <policy>` before
 reading the canary receipt. The checker materialises the Git index and executes
 that snapshot's checker and parser imports, so neither staged data nor staged
 semantics can be validated by unstaged code. The runner composes purpose-owned
@@ -159,13 +183,16 @@ artefact-library metadata/catalogue/count consistency, and documentation
 reachability. `make test` exercises the same predicates against the checkout
 plus focused failure cases.
 
-Keep subjective review in `.canaries/pre-commit.md`. When a checklist statement
+Keep subjective review in `.canaries/pre-commit-development.md` for `dev`
+commits and `.canaries/pre-promotion.md` for a promotion. The older
+`.canaries/pre-commit.md` remains the full release checklist. When a checklist statement
 can be expressed as an equality, set comparison, graph reachability rule, or
 Git predicate, add it to the checker/tests instead of requiring self-attestation.
 
 Before committing, use `python src/scripts/release.py status` to distinguish
 the release facts in `HEAD`, the index and the working tree, then run `make
-precommit-check` after staging. The hook never fixes or stages files. For a new
+precommit-check` after staging. That target passes the same branch policy as
+the pre-commit hook. The hook never fixes or stages files. For a new
 release, provide the chosen Core/CLI/proxy versions and authored changelog facts
 to `release.py prepare`; review its dry-run diff before passing `--apply`.
 

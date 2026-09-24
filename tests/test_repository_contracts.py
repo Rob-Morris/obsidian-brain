@@ -521,8 +521,24 @@ def test_portable_manifest_paths_reject_windows_invalid_segments(path):
         validate_portable_relative_path(path)
 
 
+def _install_test_canary(root: Path, *, promotion: bool = False) -> None:
+    scripts = root / "src/scripts"
+    scripts.mkdir(parents=True, exist_ok=True)
+    (scripts / "canary_receipt.py").write_text(
+        (contracts.REPO_ROOT / "src/scripts/canary_receipt.py").read_text(encoding="utf-8"), encoding="utf-8"
+    )
+    brief = root / ".canaries" / ("pre-promotion.md" if promotion else "pre-commit-development.md")
+    brief.parent.mkdir(exist_ok=True)
+    brief.write_text("## Tasks\n[1] Review the change\n## Log\n", encoding="utf-8")
+    receipt = root / (".canary--pre-promotion" if promotion else ".canary--pre-commit")
+    receipt.write_text("[1] Review: done\n", encoding="utf-8")
+    _git(root, "add", ".githooks/pre-commit", "src/scripts/check_repository_contracts.py",
+         "src/scripts/canary_receipt.py", str(brief.relative_to(root)))
+
+
 def test_pre_commit_uses_project_python_when_path_python3_is_incompatible(tmp_path):
     _initialise_git_repo(tmp_path)
+    _git(tmp_path, "checkout", "-b", "dev")
     hook = tmp_path / ".githooks/pre-commit"
     hook.parent.mkdir(parents=True)
     hook.write_text(
@@ -540,6 +556,7 @@ def test_pre_commit_uses_project_python_when_path_python3_is_incompatible(tmp_pa
         "from pathlib import Path\nPath('checker-ran').write_text('yes')\n",
         encoding="utf-8",
     )
+    _install_test_canary(tmp_path)
     fake_bin = tmp_path / "fake-bin"
     fake_bin.mkdir()
     incompatible_python = fake_bin / "python3"
@@ -556,12 +573,121 @@ def test_pre_commit_uses_project_python_when_path_python3_is_incompatible(tmp_pa
     assert (tmp_path / "checker-ran").read_text(encoding="utf-8") == "yes"
 
 
+@pytest.mark.parametrize("git_default_branch", ("main", "master"))
+def test_pre_commit_rejects_main_and_accepts_a_rebase_of_dev(
+    tmp_path, monkeypatch, git_default_branch
+):
+    monkeypatch.setenv("GIT_CONFIG_COUNT", "1")
+    monkeypatch.setenv("GIT_CONFIG_KEY_0", "init.defaultBranch")
+    monkeypatch.setenv("GIT_CONFIG_VALUE_0", git_default_branch)
+    _initialise_git_repo(tmp_path)
+    hook = tmp_path / ".githooks/pre-commit"
+    hook.parent.mkdir(parents=True)
+    hook.write_text(
+        (contracts.REPO_ROOT / ".githooks/pre-commit").read_text(encoding="utf-8"),
+        encoding="utf-8",
+    )
+    hook.chmod(0o755)
+    project_python = tmp_path / ".venv/bin/python"
+    project_python.parent.mkdir(parents=True)
+    project_python.symlink_to(sys.executable)
+    checker = tmp_path / "src/scripts/check_repository_contracts.py"
+    checker.parent.mkdir(parents=True)
+    checker.write_text(
+        "import sys\nfrom pathlib import Path\n"
+        "Path('checker-argv').write_text('\\n'.join(sys.argv), encoding='utf-8')\n"
+        "Path('checker-ran').write_text('yes', encoding='utf-8')\n",
+        encoding="utf-8",
+    )
+
+    printed = subprocess.run(
+        [str(hook), "--print-policy"], cwd=tmp_path, capture_output=True, text=True
+    )
+    assert printed.returncode == 1
+    assert "ordinary commits on main are rejected" in printed.stdout + printed.stderr
+
+    rejected = subprocess.run([str(hook)], cwd=tmp_path, capture_output=True, text=True)
+    assert rejected.returncode == 1
+    assert "ordinary commits on main are rejected" in rejected.stdout + rejected.stderr
+    assert not (tmp_path / "checker-ran").exists()
+
+    _git(tmp_path, "checkout", "-b", "dev")
+    _git(tmp_path, "commit", "--allow-empty", "-m", "WIP: base")
+    _git(tmp_path, "checkout", "--detach")
+    git_dir = Path(_git_output(tmp_path, "rev-parse", "--absolute-git-dir").strip())
+    rebase = git_dir / "rebase-merge"
+    rebase.mkdir()
+    (rebase / "head-name").write_text("refs/heads/dev\n", encoding="utf-8")
+    _install_test_canary(tmp_path)
+    accepted = subprocess.run([str(hook)], cwd=tmp_path, capture_output=True, text=True)
+    assert accepted.returncode == 0, accepted.stderr
+    assert (tmp_path / "checker-ran").read_text(encoding="utf-8") == "yes"
+    dev_argv = (tmp_path / "checker-argv").read_text(encoding="utf-8").splitlines()
+    assert dev_argv[dev_argv.index("--policy") + 1] == "development"
+
+    development = subprocess.run(
+        [str(hook), "--print-policy"], cwd=tmp_path, capture_output=True, text=True
+    )
+    assert development.returncode == 0, development.stderr
+    assert development.stdout.strip() == "development"
+
+    for child in rebase.iterdir():
+        child.unlink()
+    rebase.rmdir()
+    _git(tmp_path, "checkout", "-b", "promotion/v1.2.3")
+    promotion_policy = subprocess.run(
+        [str(hook), "--print-policy"], cwd=tmp_path, capture_output=True, text=True
+    )
+    assert promotion_policy.returncode == 0, promotion_policy.stderr
+    assert promotion_policy.stdout.strip() == "promotion"
+    (tmp_path / "checker-ran").unlink()
+    _install_test_canary(tmp_path, promotion=True)
+    promoted = subprocess.run([str(hook)], cwd=tmp_path, capture_output=True, text=True)
+    assert promoted.returncode == 0, promoted.stderr
+    promotion_argv = (tmp_path / "checker-argv").read_text(encoding="utf-8").splitlines()
+    assert promotion_argv[promotion_argv.index("--policy") + 1] == "promotion"
+
+
 def test_pre_commit_bootstrap_guard_includes_repository_policy_modules():
     hook = (contracts.REPO_ROOT / ".githooks/pre-commit").read_text(
         encoding="utf-8"
     )
 
     assert "src/scripts/_repository_contracts" in hook
+    assert "src/scripts/canary_receipt.py" in hook
+    assert '".canaries/$canary_name"' in hook
+
+
+@pytest.mark.parametrize("path", ["src/scripts/canary_receipt.py", ".canaries/pre-commit-development.md"])
+@pytest.mark.parametrize("damage", ["unstaged", "staged-deletion", "taskless"])
+def test_pre_commit_requires_the_staged_canary_closure(tmp_path, path, damage):
+    _initialise_git_repo(tmp_path)
+    _git(tmp_path, "checkout", "-b", "dev")
+    hook = tmp_path / ".githooks/pre-commit"
+    hook.parent.mkdir()
+    hook.write_text((contracts.REPO_ROOT / ".githooks/pre-commit").read_text())
+    hook.chmod(0o755)
+    python = tmp_path / ".venv/bin/python"
+    python.parent.mkdir(parents=True)
+    python.symlink_to(sys.executable)
+    checker = tmp_path / "src/scripts/check_repository_contracts.py"
+    checker.parent.mkdir(parents=True)
+    checker.write_text("raise SystemExit(0)\n")
+    _install_test_canary(tmp_path)
+    _git(tmp_path, "commit", "-m", "test: staged bootstrap")
+    if damage == "staged-deletion":
+        _git(tmp_path, "rm", "--cached", path)
+    elif damage == "unstaged":
+        (tmp_path / path).write_text("# replacement\n")
+    else:
+        (tmp_path / ".canaries/pre-commit-development.md").write_text("## Tasks\n## Log\n")
+        _git(tmp_path, "add", ".canaries/pre-commit-development.md")
+    receipt = tmp_path / ".canary--pre-commit"
+    before = _git_output(tmp_path, "diff", "--cached", "--binary")
+    result = subprocess.run([str(hook)], cwd=tmp_path, capture_output=True, text=True)
+    assert result.returncode != 0
+    assert receipt.exists()
+    assert _git_output(tmp_path, "diff", "--cached", "--binary") == before
 
 
 def test_pre_commit_does_not_stage_newer_worktree_release_metadata(tmp_path):
@@ -579,6 +705,7 @@ def test_pre_commit_does_not_stage_newer_worktree_release_metadata(tmp_path):
     checker = tmp_path / "src/scripts/check_repository_contracts.py"
     checker.parent.mkdir(parents=True)
     checker.write_text("raise SystemExit(0)\n", encoding="utf-8")
+    _install_test_canary(tmp_path)
     version = tmp_path / contracts.VERSION_PATH
     version.parent.mkdir(parents=True, exist_ok=True)
     version.write_text("1.0.0\n", encoding="utf-8")
@@ -595,6 +722,7 @@ def test_pre_commit_does_not_stage_newer_worktree_release_metadata(tmp_path):
     readme.write_text("![Version](version-1.1.0-blue)\n", encoding="utf-8")
     before = _git_output(tmp_path, "diff", "--cached", "--binary")
 
+    _git(tmp_path, "checkout", "-b", "dev")
     result = subprocess.run([str(hook)], cwd=tmp_path, capture_output=True, text=True)
 
     assert result.returncode == 0, result.stderr
@@ -766,6 +894,26 @@ def test_staged_brain_core_change_requires_staged_version_bump(tmp_path):
         )
         == []
     )
+
+
+def test_development_policy_omits_the_staged_version_bump(tmp_path):
+    _initialise_git_repo(tmp_path)
+    version = tmp_path / contracts.VERSION_PATH
+    core_file = tmp_path / "src/brain-core/core.md"
+    version.parent.mkdir(parents=True)
+    version.write_text("1.0.0\n", encoding="utf-8")
+    core_file.write_text("old\n", encoding="utf-8")
+    _git(tmp_path, "add", ".")
+    _git(tmp_path, "commit", "-m", "initial")
+    core_file.write_text("new\n", encoding="utf-8")
+    _git(tmp_path, "add", "src/brain-core/core.md")
+    view = contracts.GitIndexView(tmp_path)
+
+    assert contracts.staged_predicate_errors(tmp_path, view, None, "development") == []
+    assert contracts.staged_predicate_errors(tmp_path, view, None, "promotion") == [
+        "src/brain-core/VERSION: must increase when src/brain-core content changes "
+        "(src/brain-core/core.md)"
+    ]
 
 
 def test_staged_brain_core_deletion_requires_version_bump(tmp_path):
@@ -947,7 +1095,7 @@ def _minimal_type_library() -> MemoryView:
 
 
 def _initialise_git_repo(root: Path) -> None:
-    _git(root, "init")
+    _git(root, "init", "--initial-branch=main")
     _git(root, "config", "user.name", "Repository Contract Tests")
     _git(root, "config", "user.email", "contracts@example.invalid")
 

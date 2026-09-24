@@ -1,14 +1,25 @@
 name: Windows user smoke
+run-name: ${{ github.event_name == 'push' && github.event.deleted == true && 'Brain branch deletion (no CI)' || format('{0} ({1})', github.workflow, github.event_name) }}
 
 on:
   pull_request:
   push:
     branches:
       - main
+      - "promotion/**"
   workflow_dispatch:
 
 jobs:
+  candidate-evidence:
+    permissions:
+      contents: read
+      actions: read
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && github.event.deleted != true
+    uses: ./.github/workflows/candidate-evidence.yml
+
   windows-user-smoke:
+    needs: candidate-evidence
+    if: always() && github.event.deleted != true && (needs.candidate-evidence.result == 'skipped' || needs.candidate-evidence.outputs.reuse != 'true')
     runs-on: windows-latest
 
     steps:

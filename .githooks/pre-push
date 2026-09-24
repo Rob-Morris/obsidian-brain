@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+# Allow fast-forwards of dev and feature branches, exact promotion-branch
+# creation, an unreleased/dev finish pair, a main publish along unreleased,
+# and the exact manifest-bound recovery transactions.
+
+set -euo pipefail
+
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+PROJECT_PYTHON="$REPO_ROOT/.venv/bin/python"
+if [[ ! -x "$PROJECT_PYTHON" ]]; then
+  echo "pre-push: $PROJECT_PYTHON not found — run 'make install' first"
+  exit 1
+fi
+
+exec "$PROJECT_PYTHON" "$REPO_ROOT/src/scripts/promotion.py" pre-push

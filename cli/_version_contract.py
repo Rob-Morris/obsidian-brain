@@ -8,6 +8,20 @@ from dataclasses import dataclass
 
 SEMVER_PATTERN = r"(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)"
 SEMVER_RE = re.compile(rf"^{SEMVER_PATTERN}$")
+_SUMMARY_VERSION_SUFFIX = re.compile(
+    rf"\s+(?:as\s+)?\(?v{SEMVER_PATTERN}\)?$",
+    re.IGNORECASE,
+)
+
+
+def release_summary_problems(summary: str) -> tuple[str, ...]:
+    """Return the canonical Summary rules shared by release preparation and contracts."""
+    problems: list[str] = []
+    if summary.endswith("."):
+        problems.append("Summary must not end with a period")
+    if _SUMMARY_VERSION_SUFFIX.search(summary):
+        problems.append("Summary must not carry a version suffix")
+    return tuple(problems)
 
 
 @dataclass(frozen=True, slots=True)
