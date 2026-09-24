@@ -15,6 +15,13 @@ When making or planning changes, choose the smallest workflow tier that safely f
 | `medium` | Multi-file changes within one or two contexts, or work with meaningful edge-case risk | Research -> plan -> implement -> verify -> review | Explicit execution + verification plan, relevant tests, and a docs/canary sweep before hand-off |
 | `large` | Architectural changes, new context boundaries, migrations, bootstrap/security changes, or staged rollouts | Research -> design -> approval -> plan -> implement -> verify -> multi-review -> final review | Full-suite proof, explicit rollout/rollback thinking, and separate review passes for design and implementation |
 
+The tier's verification bar names change-specific evidence. Every development
+commit also follows the serial `make test` routine correctness gate and staged
+repository contracts in the [verification mapping](../CONTRIBUTING.md#testing).
+Focused tests and `make test-fast` are iteration feedback, including for WIP;
+the release's native and dependency certification runs on the exact promotion
+candidate.
+
 ## Tier Notes
 
 - `trivial` should stay local. If the change starts affecting behaviour, tests, or multiple files, it is no longer trivial.
@@ -35,6 +42,12 @@ the expensive jobs again. Deleting the promotion branch does not run those
 jobs and does not replace the candidate's green runs. Other branches still
 need a pull request or a manual dispatch. This is an explicit contributor
 check, not automated branch protection.
+
+Deletion runs are identified by the explicit workflow run name
+`Brain branch deletion (no CI)` on a push event. A null head commit alone is
+not deletion evidence. Every other newest attempt, including a skipped run,
+supersedes an older success. The reusable evidence job and each caller grant
+read-only Actions access explicitly; uncertainty selects the full main checks.
 
 1. Record the pushed commit SHA and branch. On `dev`, these three workflows
    are not created; local tests are the gate until a candidate is prepared.

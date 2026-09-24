@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Receipt grammar for a canary brief. Callers decide what a missing brief means."""
+"""Receipt grammar for required contributor canaries."""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ import sys
 
 
 TASK_ID = re.compile(r"\[[0-9]+[a-z]?\]")
-RECEIPT_LINE = re.compile(r"^\[[0-9]+[a-z]?\] .+: (done([, ] ?.+)?|skip, ?.+)$")
+RECEIPT_LINE = re.compile(r"^(?P<id>\[[0-9]+[a-z]?\]) .+: (done([, ] ?.+)?|skip, ?\S.*)$")
 
 
 class CanaryError(RuntimeError):
@@ -38,7 +38,12 @@ def receipt_problems(brief: str, receipt: str) -> tuple[str, ...]:
     if not expected:
         return ("brief has no task ids under ## Tasks",)
     problems: list[str] = []
-    missing = [item for item in expected if item not in receipt]
+    covered = {
+        match.group("id")
+        for line in receipt.splitlines()
+        if (match := RECEIPT_LINE.fullmatch(line.strip()))
+    }
+    missing = [item for item in expected if item not in covered]
     if missing:
         problems.append("missing " + ", ".join(missing))
     bad = [
@@ -60,7 +65,7 @@ def check_files(brief: Path, receipt: Path) -> None:
     if not task_ids(brief.read_text(encoding="utf-8")):
         raise CanaryError(f"{brief} has no task ids under ## Tasks")
     if not receipt.is_file():
-        raise CanaryError(f"write {receipt.name} before preparing a candidate")
+        raise CanaryError(f"write {receipt.name} from {brief} before continuing")
     problems = receipt_problems(
         brief.read_text(encoding="utf-8"),
         receipt.read_text(encoding="utf-8"),
@@ -73,20 +78,11 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--brief", type=Path, required=True)
     parser.add_argument("--receipt", type=Path, required=True)
-    parser.add_argument(
-        "--on-empty",
-        choices=("error", "skip"),
-        default="error",
-        help="the pre-commit hook skips a brief with no task ids; promotion refuses it",
-    )
     args = parser.parse_args(argv)
     if not args.brief.is_file():
-        print(f"pre-commit: {args.brief} not found — skipping canary check")
-        return 0 if args.on_empty == "skip" else 2
+        print(f"canary: required brief {args.brief} not found", file=sys.stderr)
+        return 2
     if not task_ids(args.brief.read_text(encoding="utf-8")):
-        if args.on_empty == "skip":
-            print(f"pre-commit: no bracket IDs found in {args.brief} — skipping")
-            return 0
         print(f"canary: {args.brief} has no task ids under ## Tasks", file=sys.stderr)
         return 2
     if not args.receipt.is_file():

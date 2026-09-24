@@ -48,10 +48,18 @@ if [[ ! -x "$PROJECT_PYTHON" ]]; then
   echo "pre-commit: $PROJECT_PYTHON not found — run 'make install' first"
   exit 1
 fi
+if ! git ls-files --error-unmatch \
+  .githooks/pre-commit src/scripts/check_repository_contracts.py \
+  src/scripts/canary_receipt.py ".canaries/$canary_name" >/dev/null 2>&1; then
+  echo "pre-commit: required validator and canary files must exist in the index"
+  exit 1
+fi
 if ! git diff --quiet -- \
   .githooks/pre-commit \
   src/scripts/_repository_contracts \
   src/scripts/_staged_contract_runner.py \
+  src/scripts/canary_receipt.py \
+  ".canaries/$canary_name" \
   src/scripts/check_repository_contracts.py; then
   echo "pre-commit: staged-validator bootstrap differs from the working tree"
   echo "Stage the hook and staged-contract runner together before committing."
@@ -64,14 +72,9 @@ CANARY_LOG="$REPO_ROOT/.canary--pre-commit"
 if [[ "$policy" == "promotion" ]]; then
   CANARY_LOG="$REPO_ROOT/.canary--pre-promotion"
 fi
-if [[ ! -f "$CANARY_DEF" ]]; then
-  echo "pre-commit: $CANARY_DEF not found — skipping canary check"
-  exit 0
-fi
 "$PROJECT_PYTHON" "$REPO_ROOT/src/scripts/canary_receipt.py" \
   --brief "$CANARY_DEF" \
-  --receipt "$CANARY_LOG" \
-  --on-empty skip
+  --receipt "$CANARY_LOG"
 
 # Clean up — remove canary log so it can't go stale
 rm -f "$CANARY_LOG"

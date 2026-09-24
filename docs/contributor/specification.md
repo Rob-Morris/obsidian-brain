@@ -85,10 +85,13 @@ Cross-type child folders use `{scope}/` (for example `Releases/project~brain/`),
 - `docs/CHANGELOG.md` — live changelog index, with per-version files under `docs/changelog/` and milestone release files under `docs/changelog/releases/`
 - `.githooks/pre-commit` + `src/scripts/check_repository_contracts.py` + `src/scripts/_repository_contracts/` — read-only staged deterministic contracts for version/changelog/platform-CLI coupling, decisions, artefact-library metadata/counts, and documentation reachability
 - `src/scripts/release.py` — dry-run-first release preparation, HEAD/index/worktree status, and immutable committed-source export
-- `src/scripts/promotion.py` — contributor-only `dev` cut promotion onto `main`, with a linear tail replayed back onto `dev`
+- `src/scripts/promotion.py` — contributor-only `dev` cut onto `unreleased`, with a linear tail replayed onto `dev`. `publish` later fast-forwards `main`
+- `src/scripts/_promotion/` — request values and outcome classification in `model.py`, concrete Git/worktree operations in `git.py`, candidate identity and replay/topology rules in `candidates.py`, and command orchestration in `workflow.py`. The CLI delegates to these owners; release rendering and exact CI evidence retain their existing owners
+- `src/scripts/_promotion/recovery_model.py`, `recovery_plan.py`, and `recovery_workflow.py` — immutable recovery values, local queue reconstruction/validation, and exact remote recovery transactions respectively. The [recovery workflow](promotion-recovery.md) preserves published main and does not weaken ordinary promotion guards
 - `src/scripts/vendor_shaping_skill.py` — materialises the exact pinned portable shaping workflow from a verified clean Git checkout, applies Core's shared stdlib-only portable-path grammar, refuses unmapped upstream membership, removes only stale provenance-owned vendor files, and retains Brain-owned composition files
 - `.canaries/pre-commit-development.md` — subjective receipt for a `dev` commit: scope, documentation noticed so far, and focused verification
 - `.canaries/pre-promotion.md` — promotion checklist. `promotion.py prepare` reads it and removes `.canary--pre-promotion` only after the candidate push succeeds
+- `.canaries/pre-recovery.md` — whole-queue recovery review, bound to the sealed plan SHA; `recover stage` consumes the receipt only after staging is observed committed
 - `.canaries/pre-commit.md` — full release checklist retained beside the development and promotion receipts
 - `docs/CONTRIBUTING.md` — contributor guide: doc architecture, drift prevention, testing, pitfalls
 - `docs/contributor/agents.md` — contributor workflow guidance for agents

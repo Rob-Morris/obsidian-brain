@@ -70,7 +70,7 @@ def test_missing_workflow_is_not_empty_success():
     assert result["workflows"][-1] == {"workflow": check_ci.REQUIRED_WORKFLOWS[-1], "state": "missing"}
 
 
-def test_branch_deletion_and_a_later_skip_do_not_displace_a_green_run():
+def test_only_identified_branch_deletion_does_not_displace_a_green_run():
     items = runs()
     success = items[0]
     deletion = {
@@ -79,11 +79,20 @@ def test_branch_deletion_and_a_later_skip_do_not_displace_a_green_run():
         "status": "queued",
         "conclusion": None,
         "head_commit": None,
+        "display_title": check_ci.DELETION_RUN_TITLE,
     }
     skipped = {**success, "id": 11, "conclusion": "skipped", "head_commit": {"id": SHA}}
-    assert evaluate([*items, deletion, skipped])["state"] == "passed"
+    assert evaluate([*items, deletion])["state"] == "passed"
+    assert evaluate([*items, {**deletion, "display_title": "Unidentified run"}])["state"] == "pending"
+    assert evaluate([*items, deletion, skipped])["state"] == "failed"
     only_skipped = [{**run, "conclusion": "skipped"} for run in items]
     assert evaluate(only_skipped)["state"] == "failed"
+
+
+def test_deletion_marker_does_not_exempt_a_manual_dispatch():
+    items = [{**item, "event": "workflow_dispatch", "head_commit": None,
+              "display_title": check_ci.DELETION_RUN_TITLE, "conclusion": "skipped"} for item in runs()]
+    assert check_ci.evaluate_runs(items, SHA, "main", "workflow_dispatch")["state"] == "failed"
 
 
 def test_newer_failed_run_and_current_rerun_attempt_replace_old_success():

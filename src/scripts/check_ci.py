@@ -17,6 +17,7 @@ REQUIRED_WORKFLOWS = (
     ".github/workflows/dependency-certification.yml",
 )
 EXIT_CODES = {"passed": 0, "failed": 1, "pending": 2, "missing": 2, "unavailable": 3}
+DELETION_RUN_TITLE = "Brain branch deletion (no CI)"
 
 
 def read_runs(repo: str, commit: str, branch: str, event: str, timeout: float) -> list[dict]:
@@ -51,8 +52,8 @@ def read_runs(repo: str, commit: str, branch: str, event: str, timeout: float) -
 
 
 def _is_branch_deletion(run: dict) -> bool:
-    """A push that deletes the ref has no head commit. It is not a CI attempt."""
-    return "head_commit" in run and run["head_commit"] is None
+    """Only the workflow's explicit push-deletion marker proves this is not an attempt."""
+    return run.get("event") == "push" and run.get("display_title") == DELETION_RUN_TITLE
 
 
 def _workflow_record(path: str, run: dict, state: str) -> dict:
@@ -70,9 +71,8 @@ def _workflow_record(path: str, run: dict, state: str) -> dict:
 def evaluate_runs(runs: list[dict], commit: str, branch: str, event: str) -> dict:
     """Require the newest real attempt of each required workflow.
 
-    A branch-deletion run is ignored, including while it is still queued. A
-    completed skip does not displace an older real attempt; a skip with no
-    real attempt is a failure.
+    A positively identified branch-deletion run is not an attempt. Every other
+    newer run, including a skipped run, supersedes earlier evidence.
     """
     grouped: dict[str, list[dict]] = {path: [] for path in REQUIRED_WORKFLOWS}
     for run in runs:
@@ -98,19 +98,10 @@ def evaluate_runs(runs: list[dict], commit: str, branch: str, event: str) -> dic
     workflows = []
     for path in REQUIRED_WORKFLOWS:
         choices = sorted(grouped[path], key=lambda item: (item["id"], item["run_attempt"]), reverse=True)
-        run = next(
-            (
-                item for item in choices
-                if not (item["status"] == "completed" and item.get("conclusion") == "skipped")
-            ),
-            None,
-        )
-        if run is None:
-            if not choices:
-                workflows.append({"workflow": path, "state": "missing"})
-            else:
-                workflows.append(_workflow_record(path, choices[0], "failed"))
+        if not choices:
+            workflows.append({"workflow": path, "state": "missing"})
             continue
+        run = choices[0]
         state = "pending" if run["status"] != "completed" else (
             "passed" if run["conclusion"] == "success" else "failed"
         )

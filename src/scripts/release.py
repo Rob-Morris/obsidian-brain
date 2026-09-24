@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import argparse
 from collections.abc import Iterable
-from dataclasses import asdict
+from dataclasses import asdict, dataclass
 from datetime import date
 import difflib
 import io
@@ -162,7 +162,8 @@ def _replace_one(
     return updated
 
 
-def _summary(entry: str, version: str) -> str | None:
+def release_summary(entry: str, version: str) -> str | None:
+    """Read a version entry's canonical Summary."""
     match = re.search(
         rf"^# v{re.escape(version)}\s*$.*?^\*\*Summary:\*\*\s*(.+?)\s*$",
         entry,
@@ -230,7 +231,22 @@ print(json.dumps({
     return json.dumps(route, indent=2) + "\n"
 
 
-def _prepare_changes(args: argparse.Namespace) -> dict[str, str]:
+@dataclass(frozen=True)
+class ReleaseRequest:
+    """Explicit release intent, independent of CLI parsing."""
+
+    repo: Path
+    core_version: str
+    cli_version: str | None
+    proxy_version: str | None
+    summary: str
+    date: str
+    release_type: str | None
+    change: tuple[str, ...]
+    amend: bool
+
+
+def _prepare_changes(args: ReleaseRequest) -> dict[str, str]:
     for name, value in (
         ("core version", args.core_version),
         ("CLI version", args.cli_version),
@@ -325,7 +341,7 @@ def _prepare_changes(args: argparse.Namespace) -> dict[str, str]:
         if not args.amend:
             raise ReleaseError(f"{entry_path}: already exists; pass --amend deliberately")
         entry = entry_file.read_text(encoding="utf-8")
-        if _summary(entry, args.core_version) != args.summary:
+        if release_summary(entry, args.core_version) != args.summary:
             raise ReleaseError(f"{entry_path}: existing Summary differs")
     else:
         if args.amend:
@@ -470,7 +486,7 @@ def prepare_release(
     amend: bool = False,
 ) -> dict[str, str]:
     """Return the release-file edits for one explicit request. This does not write."""
-    request = argparse.Namespace(
+    request = ReleaseRequest(
         repo=root,
         core_version=core_version,
         cli_version=cli_version,
@@ -478,7 +494,7 @@ def prepare_release(
         summary=summary,
         date=release_date,
         release_type=release_type,
-        change=changes,
+        change=tuple(changes),
         amend=amend,
     )
     return _prepare_changes(request)

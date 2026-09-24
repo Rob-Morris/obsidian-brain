@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# Reject ordinary main updates. Allow fast-forwards of dev and feature branches,
-# exact promotion-branch creation, and one atomic candidate/reconciliation push.
+# Allow fast-forwards of dev and feature branches, exact promotion-branch
+# creation, an unreleased/dev finish pair, a main publish along unreleased,
+# and the exact manifest-bound recovery transactions.
 
 set -euo pipefail
 

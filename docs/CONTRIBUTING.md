@@ -158,6 +158,10 @@ requires a new patch release.
 
 ## Dev branch
 
+The lightweight development canary does not waive the current serial `make test`
+requirement before committing. Full hosted CI is deferred to the promotion
+candidate; local pre-commit verification remains a separate policy.
+
 Ordinary work happens on `dev`, or on a short-lived feature branch that is
 merged into `dev` before promotion. Development commits use `WIP:`, `docs:`,
 `test:`, or `chore:` and do not bump `src/brain-core/VERSION`. The pre-commit
@@ -170,15 +174,61 @@ repository contracts. Ordinary commits on `main` are rejected.
 python src/scripts/promotion.py status
 python src/scripts/promotion.py prepare --input request.json
 python src/scripts/promotion.py finish promotion/vX.Y.Z
+python src/scripts/promotion.py publish <sha>
+python src/scripts/promotion.py adopt [promotion/vX.Y.Z]
 python src/scripts/promotion.py discard promotion/vX.Y.Z
 ```
 
-`status` lists the first-parent cuts on `dev`. `prepare` builds one candidate
-from the chosen cut, or from the `dev` tip when the request omits `cut`, and
-pushes `promotion/vX.Y.Z`. It does not move `main` or `dev`. `finish` waits
-until that exact commit's CI has passed, then fast-forwards `main` to the
-candidate and `dev` to the same tree plus any unpromoted tail. A tail must be
-a linear run of ordinary commits. Feature merges belong at or before the cut.
+`status` lists the first-parent cuts after the shared ledger tip
+(`origin/unreleased`, or `origin/main` when that ref does not exist yet).
+`prepare` builds one candidate from the chosen cut, or from the `dev` tip
+when the request omits `cut`, and pushes `promotion/vX.Y.Z`. It does not move
+`main`, `unreleased`, or `dev`. `finish` requires that exact commit's CI to
+have passed, then fast-forwards `unreleased` to the candidate and `dev` to the
+replayed tail. It does not push `main`. `publish` fast-forwards `main` to a
+commit already on `unreleased` whose candidate CI passed. `adopt` aligns a
+loser with that ledger and replays only their extra `dev` commits. A tail
+must be a linear run of ordinary commits. Feature merges belong at or before
+the cut.
+
+Finish observes CI once and refuses pending or missing results. Use the bounded
+`check_ci.py --wait` command in the post-push standard when monitoring is wanted.
+
+Run `adopt` from a clean `dev` checkout. It preserves local commits already
+based on `origin/dev`; after a competing finish it replays only the local-only
+suffix, including when the shared old tip is reachable through a provenance
+parent. Replay conflicts leave the checkout and candidate unchanged. Pass the
+stale local promotion branch explicitly to clean it up after alignment. A
+candidate that can still finish is refused; use `discard` deliberately to
+abandon one still waiting for CI. Remote cleanup deletes only the expected SHA,
+so a same-name replacement is preserved. Adoption leaves the replay local and
+reports the remaining ledger-to-dev range; push `dev` before preparing again.
+
+Prepare runs the selected cut's `release.py` and imports in an isolated process,
+then checks the actual candidate checkout with the primary Python environment.
+The candidate name, Core version, canonical subject, source and tip trailers,
+and release-only tree changes are validated together. Content replay preserves
+source author/committer metadata; synthetic provenance commits use the
+candidate's identity and date so retries reproduce the same SHAs.
+
+Finish uses one atomic push with expected old SHAs for both `unreleased` and
+`dev`. If the push outcome is uncertain, retry only after observing whether
+both refs stayed unchanged or both reached the intended result. A settled
+finish can recover via its retained remote candidate ref. Existing candidate
+worktree edits are preserved during retry and cleanup.
+
+Publish requires `main` to be checked out in no worktree before moving its
+remote or local ref. Local `main` is optional; when it matches the old remote
+tip it advances too. A repeated publish at the same remote SHA does not push
+`main` or repeat CI, but retries candidate-ref cleanup. Cleanup failure is
+reported after publication and does not roll it back.
+
+Direct pushes that bypass the local hook still receive full main CI unless
+that exact SHA has passing candidate evidence. If such a push leaves `main`
+outside the unpublished ledger, promotion stops with a reconciliation
+diagnostic. Use the explicit [promotion recovery workflow](contributor/promotion-recovery.md)
+to plan, review, stage and CI-verify a rebuilt queue before atomically aligning
+unreleased and dev. Do not force either shared branch to hide the divergence.
 
 The request JSON names `core_version`, `summary`, `release_type`, `changes`,
 `date`, `body`, and optionally `cli_version`, `proxy_version`, and `cut`.
@@ -230,17 +280,28 @@ Dependency intent and generator policy live under `dependencies/`; see the
 [dependency workflow](contributor/dependencies.md) for intentional updates,
 offline staged freshness checks and required native release certification.
 
-Run `make test` before committing, after your final edit. Uses `.venv` with Python 3.12. A green run that precedes a later edit — a VERSION bump, a `make sync-template` — says nothing about what you are committing; re-run it.
+Run `make test` before committing, after your final edit. Uses `.venv` with Python 3.12. A green run that precedes a later edit — a VERSION bump, a `make sync-template` — says nothing about what you are committing; re-run it. A WIP commit should normally leave this routine correctness suite green for the next contributor.
 
 ```bash
 make install   # first time — creates venv, installs dependencies
 make test      # runs pytest
 ```
 
-For fast feedback while iterating, `make test-parallel` runs the same suite
-with pytest-xdist (`-n auto --dist loadscope`). The serial `make test` run
-remains the canonical pre-commit gate because it preserves ordering-sensitive
-pollution checks.
+Verification is assigned by purpose and execution owner:
+
+| Purpose | Execution owner and command | Coverage and boundary |
+|---|---|---|
+| Iteration feedback | Contributor: targeted `.venv/bin/python -m pytest ...`, `make test-parallel`, or `make test-fast` | `test-parallel` runs the same suite with pytest-xdist; `test-fast` deselects `slow` tests. Neither result replaces the serial commit gate. |
+| Routine correctness and regression | Contributor before a dev/feature commit: `make test`; promotion prepare: serial `python -m pytest -q` in the exact candidate checkout; Linux CI: `make test` on the candidate SHA | Collects `tests/` and doctests, including proxy forwarding/restart and bare repair subprocess regressions marked `slow`. The serial run also catches ordering-sensitive pollution. Semantic-marked tests run when their optional stack is present and otherwise skip. The native Docker acceptance module has a separate opt-in environment guard. |
+| Staged repository integrity | Pre-commit hook, or contributor after staging: `make precommit-check` | Checks the staged snapshot and branch policy. Development omits only the per-commit version-bump predicate; the other contracts still apply. |
+| Changed API and command documentation | Contributor when changing those surfaces: `make lint` | Checks the reusable-script docstring ratchet and supported command schema/façade documentation. |
+| Release certification | Hosted CI for each exact `promotion/vX.Y.Z` candidate: Linux test suite, Windows user smoke, Dependency certification | Linux repeats the routine suite on a clean runner. Windows exercises native install and persisted MCP startup/read/upload. The native dependency matrix checks clean base and semantic/model behaviour on macOS, Linux and Windows. All required workflows must pass before finish; dev pushes do not run them. |
+| Docker environment acceptance | Contributor when changing Docker-backed Brain Lab behaviour: `make test-brain-lab-docker` | Explicit local opt-in requiring a usable Docker environment. It is not a blanket dev-commit or promotion gate. |
+
+The `slow` marker describes subprocess cost, not release-only ownership. In
+particular, `make test-fast` omits ordinary proxy and repair correctness tests;
+use it only for feedback during a change. `make test-parallel` preserves suite
+membership but cannot establish the serial ordering check.
 
 Run `make lint` when changing Python APIs or command contracts. It composes a
 docstring ratchet for reusable scripts with explicit schema and behavioural
@@ -248,7 +309,8 @@ documentation checks for the supported `brain_application` façade; internal
 command-owner hook counts are deliberately not treated as API quality.
 
 The `Linux test suite` GitHub Actions workflow runs the full `make test` on
-`ubuntu-latest` for every push to `main` and every pull request, so the suite
+`ubuntu-latest` for promotion candidates, pull requests, manual dispatch and
+main pushes without passing candidate evidence. Dev pushes do not run it. The suite
 must stay host-independent — `tests/conftest.py` pins the timezone and isolates
 launcher Python discovery so it passes regardless of what the runner ships.
 

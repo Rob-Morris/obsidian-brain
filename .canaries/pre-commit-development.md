@@ -9,7 +9,12 @@ that release metadata is final. Promotion has its own canary.
 
 [2] **Documentation noticed so far.** Name the docs this change will eventually need, or state that none are apparent yet. Do not block a WIP commit on a full docs sweep.
 
-[3] **Focused verification.** State the local check you ran for this change, or why no check was warranted.
+[3] **Focused verification.** State the change-specific check you ran while
+iterating, or why none was warranted.
+
+This records iteration feedback. The separate serial `make test` correctness
+gate still applies after the final edit, including to WIP. `make test-fast`
+excludes ordinary `slow` proxy and repair regressions and is not that gate.
 
 ## Log
 

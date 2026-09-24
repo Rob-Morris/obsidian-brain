@@ -521,6 +521,21 @@ def test_portable_manifest_paths_reject_windows_invalid_segments(path):
         validate_portable_relative_path(path)
 
 
+def _install_test_canary(root: Path, *, promotion: bool = False) -> None:
+    scripts = root / "src/scripts"
+    scripts.mkdir(parents=True, exist_ok=True)
+    (scripts / "canary_receipt.py").write_text(
+        (contracts.REPO_ROOT / "src/scripts/canary_receipt.py").read_text(encoding="utf-8"), encoding="utf-8"
+    )
+    brief = root / ".canaries" / ("pre-promotion.md" if promotion else "pre-commit-development.md")
+    brief.parent.mkdir(exist_ok=True)
+    brief.write_text("## Tasks\n[1] Review the change\n## Log\n", encoding="utf-8")
+    receipt = root / (".canary--pre-promotion" if promotion else ".canary--pre-commit")
+    receipt.write_text("[1] Review: done\n", encoding="utf-8")
+    _git(root, "add", ".githooks/pre-commit", "src/scripts/check_repository_contracts.py",
+         "src/scripts/canary_receipt.py", str(brief.relative_to(root)))
+
+
 def test_pre_commit_uses_project_python_when_path_python3_is_incompatible(tmp_path):
     _initialise_git_repo(tmp_path)
     _git(tmp_path, "checkout", "-b", "dev")
@@ -541,6 +556,7 @@ def test_pre_commit_uses_project_python_when_path_python3_is_incompatible(tmp_pa
         "from pathlib import Path\nPath('checker-ran').write_text('yes')\n",
         encoding="utf-8",
     )
+    _install_test_canary(tmp_path)
     fake_bin = tmp_path / "fake-bin"
     fake_bin.mkdir()
     incompatible_python = fake_bin / "python3"
@@ -596,6 +612,7 @@ def test_pre_commit_rejects_main_and_accepts_a_rebase_of_dev(tmp_path):
     rebase = git_dir / "rebase-merge"
     rebase.mkdir()
     (rebase / "head-name").write_text("refs/heads/dev\n", encoding="utf-8")
+    _install_test_canary(tmp_path)
     accepted = subprocess.run([str(hook)], cwd=tmp_path, capture_output=True, text=True)
     assert accepted.returncode == 0, accepted.stderr
     assert (tmp_path / "checker-ran").read_text(encoding="utf-8") == "yes"
@@ -618,6 +635,7 @@ def test_pre_commit_rejects_main_and_accepts_a_rebase_of_dev(tmp_path):
     assert promotion_policy.returncode == 0, promotion_policy.stderr
     assert promotion_policy.stdout.strip() == "promotion"
     (tmp_path / "checker-ran").unlink()
+    _install_test_canary(tmp_path, promotion=True)
     promoted = subprocess.run([str(hook)], cwd=tmp_path, capture_output=True, text=True)
     assert promoted.returncode == 0, promoted.stderr
     promotion_argv = (tmp_path / "checker-argv").read_text(encoding="utf-8").splitlines()
@@ -630,6 +648,40 @@ def test_pre_commit_bootstrap_guard_includes_repository_policy_modules():
     )
 
     assert "src/scripts/_repository_contracts" in hook
+    assert "src/scripts/canary_receipt.py" in hook
+    assert '".canaries/$canary_name"' in hook
+
+
+@pytest.mark.parametrize("path", ["src/scripts/canary_receipt.py", ".canaries/pre-commit-development.md"])
+@pytest.mark.parametrize("damage", ["unstaged", "staged-deletion", "taskless"])
+def test_pre_commit_requires_the_staged_canary_closure(tmp_path, path, damage):
+    _initialise_git_repo(tmp_path)
+    _git(tmp_path, "checkout", "-b", "dev")
+    hook = tmp_path / ".githooks/pre-commit"
+    hook.parent.mkdir()
+    hook.write_text((contracts.REPO_ROOT / ".githooks/pre-commit").read_text())
+    hook.chmod(0o755)
+    python = tmp_path / ".venv/bin/python"
+    python.parent.mkdir(parents=True)
+    python.symlink_to(sys.executable)
+    checker = tmp_path / "src/scripts/check_repository_contracts.py"
+    checker.parent.mkdir(parents=True)
+    checker.write_text("raise SystemExit(0)\n")
+    _install_test_canary(tmp_path)
+    _git(tmp_path, "commit", "-m", "test: staged bootstrap")
+    if damage == "staged-deletion":
+        _git(tmp_path, "rm", "--cached", path)
+    elif damage == "unstaged":
+        (tmp_path / path).write_text("# replacement\n")
+    else:
+        (tmp_path / ".canaries/pre-commit-development.md").write_text("## Tasks\n## Log\n")
+        _git(tmp_path, "add", ".canaries/pre-commit-development.md")
+    receipt = tmp_path / ".canary--pre-commit"
+    before = _git_output(tmp_path, "diff", "--cached", "--binary")
+    result = subprocess.run([str(hook)], cwd=tmp_path, capture_output=True, text=True)
+    assert result.returncode != 0
+    assert receipt.exists()
+    assert _git_output(tmp_path, "diff", "--cached", "--binary") == before
 
 
 def test_pre_commit_does_not_stage_newer_worktree_release_metadata(tmp_path):
@@ -647,6 +699,7 @@ def test_pre_commit_does_not_stage_newer_worktree_release_metadata(tmp_path):
     checker = tmp_path / "src/scripts/check_repository_contracts.py"
     checker.parent.mkdir(parents=True)
     checker.write_text("raise SystemExit(0)\n", encoding="utf-8")
+    _install_test_canary(tmp_path)
     version = tmp_path / contracts.VERSION_PATH
     version.parent.mkdir(parents=True, exist_ok=True)
     version.write_text("1.0.0\n", encoding="utf-8")

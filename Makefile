@@ -3,7 +3,8 @@ PYTHON := $(VENV)/bin/python
 PIP := $(VENV)/bin/pip
 PYTEST := $(VENV)/bin/pytest
 
-.PHONY: venv install install-semantic dependencies-check dependencies-update test test-parallel test-brain-lab test-brain-lab-docker test-brain-lab-docker-configuration test-brain-lab-current-docker test-brain-lab-upgrade-docker lint lint-docstrings lint-command-docs clean hooks sync-template sync-template-check dev-link precommit-check release-status promotion-status promotion-prepare promotion-finish promotion-discard
+.PHONY: venv install install-semantic dependencies-check dependencies-update test test-parallel test-brain-lab test-brain-lab-docker test-brain-lab-docker-configuration test-brain-lab-current-docker test-brain-lab-upgrade-docker lint lint-docstrings lint-command-docs clean hooks sync-template sync-template-check dev-link precommit-check release-status promotion-status promotion-prepare promotion-finish promotion-publish promotion-adopt promotion-discard
+.PHONY: promotion-recover-plan promotion-recover-stage promotion-recover-status promotion-recover-apply promotion-recover-abort
 
 BRAIN_LAB_STATE_DIR ?= $(CURDIR)/.brain-lab
 
@@ -77,8 +78,29 @@ promotion-prepare:
 promotion-finish:
 	$(PYTHON) src/scripts/promotion.py finish $(BRANCH)
 
+promotion-publish:
+	$(PYTHON) src/scripts/promotion.py publish $(SHA)
+
+promotion-adopt:
+	$(PYTHON) src/scripts/promotion.py adopt $(BRANCH)
+
 promotion-discard:
 	$(PYTHON) src/scripts/promotion.py discard $(BRANCH)
+
+promotion-recover-plan:
+	$(PYTHON) src/scripts/promotion.py recover plan $(if $(INPUT),--input "$(INPUT)")
+
+promotion-recover-stage:
+	$(PYTHON) src/scripts/promotion.py recover stage "$(PLAN)"
+
+promotion-recover-status:
+	$(PYTHON) src/scripts/promotion.py recover status "$(PLAN)"
+
+promotion-recover-apply:
+	$(PYTHON) src/scripts/promotion.py recover apply "$(PLAN)"
+
+promotion-recover-abort:
+	$(PYTHON) src/scripts/promotion.py recover abort "$(PLAN)"
 
 sync-template: dev-link
 	PYTHON_BIN=$(abspath $(PYTHON)) bash src/scripts/sync-template-vault.sh --apply
