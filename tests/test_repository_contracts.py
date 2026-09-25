@@ -573,7 +573,13 @@ def test_pre_commit_uses_project_python_when_path_python3_is_incompatible(tmp_pa
     assert (tmp_path / "checker-ran").read_text(encoding="utf-8") == "yes"
 
 
-def test_pre_commit_rejects_main_and_accepts_a_rebase_of_dev(tmp_path):
+@pytest.mark.parametrize("git_default_branch", ("main", "master"))
+def test_pre_commit_rejects_main_and_accepts_a_rebase_of_dev(
+    tmp_path, monkeypatch, git_default_branch
+):
+    monkeypatch.setenv("GIT_CONFIG_COUNT", "1")
+    monkeypatch.setenv("GIT_CONFIG_KEY_0", "init.defaultBranch")
+    monkeypatch.setenv("GIT_CONFIG_VALUE_0", git_default_branch)
     _initialise_git_repo(tmp_path)
     hook = tmp_path / ".githooks/pre-commit"
     hook.parent.mkdir(parents=True)
@@ -1089,7 +1095,7 @@ def _minimal_type_library() -> MemoryView:
 
 
 def _initialise_git_repo(root: Path) -> None:
-    _git(root, "init")
+    _git(root, "init", "--initial-branch=main")
     _git(root, "config", "user.name", "Repository Contract Tests")
     _git(root, "config", "user.email", "contracts@example.invalid")
 
