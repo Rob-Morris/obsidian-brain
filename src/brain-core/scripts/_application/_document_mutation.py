@@ -19,6 +19,7 @@ from .preparation import (
     prepare_content,
 )
 from .receipts import CommittedEffect
+from .preparation_transition import transition_binding, transition_time
 from .results import (
     CommandArgument,
     CommandError,
@@ -214,9 +215,16 @@ def execute_document_mutation(
             file_index = None
             if _may_contain_wikilinks(opened, intent, body):
                 file_index = fix_links.file_index_for_mutation(vault_root)
-            plan, effective = plan_semantic_document(context, request, router, opened, intent, body)
+            effective_at, _frozen = transition_time(context, context.admission.frozen_inputs)
+            try:
+                plan, effective = plan_semantic_document(
+                    context, request, router, opened, intent, body, effective_at=effective_at
+                )
+            except FileExistsError as exc:
+                return no_effect_error(type(request), ErrorCode.CONFLICT, str(exc), "document")
             admit_owner(context, request, document_binding, intent=intent,
-                        opened=opened, body=body, file_index=file_index, effective=effective)
+                        opened=opened, body=body, file_index=file_index, effective=effective,
+                        plan=plan, router=router)
             if intent.resource == "skill" and ":" not in intent.reference:
                 from _skill_library import materialise_core_skill_for_edit
 
@@ -400,7 +408,7 @@ def _plan_arguments(intent):
             if name != "fix_links"}
 
 
-def document_binding(context, request, *, intent, opened, body,
+def document_binding(context, request, *, intent, opened, body, plan, router,
                      file_index=None, frozen_inputs=None, effective=None):
     observations = [ObservedResource("document", opened.path, opened.revision)]
     if effective is not None:
@@ -424,12 +432,22 @@ def document_binding(context, request, *, intent, opened, body,
         observations.append(ObservedResource("skill-substrate", intent.reference,
                                              "user" if user_root.exists() else "core"))
     observations.append(ObservedResource("body", opened.path, content_digest(body)))
+    lifecycle_review = {}
+    if plan.artefact_transition is not None:
+        lifecycle = transition_binding(
+            context, request, plan=plan.artefact_transition, router=router
+        )
+        observations.extend(lifecycle.observations)
+        lifecycle_review = {"lifecycle": {
+            key: lifecycle.review[key] for key in ("moves", "writes", "delete")
+        }}
     return bind_operation(request, observations=observations,
                           frozen_inputs=frozen_inputs,
                           review={"document": opened.path, "revision": opened.revision,
                                   "body_sha256": content_digest(body),
                                   "operation": getattr(intent, "result_operation", "frontmatter"),
                                   **({"mutation_context": effective.review()} if effective is not None else {}),
+                                  **lifecycle_review,
                                   "fix_links": getattr(intent, "fix_links", False)})
 
 
@@ -449,13 +467,22 @@ def prepare_document_mutation(context, request, intent, *, frozen_inputs=None):
         if opened.revision != intent.expected_revision:
             raise DocumentRevisionConflict("document changed; re-read it before preparing the operation")
         body, frozen = prepare_content(context, getattr(intent, "content", None), frozen)
-        _plan, effective = plan_semantic_document(context, request, router, opened, intent, body)
+        effective_at, frozen = transition_time(context, frozen)
+        try:
+            plan, effective = plan_semantic_document(
+                context, request, router, opened, intent, body, effective_at=effective_at
+            )
+        except FileExistsError as exc:
+            from .consent import ConsentError
+
+            raise ConsentError("conflict", str(exc)) from exc
         index = fix_links.file_index_for_mutation(root) if _may_contain_wikilinks(opened, intent, body) else None
         return document_binding(context, request, intent=intent, opened=opened,
-                                body=body, file_index=index, frozen_inputs=frozen, effective=effective)
+                                body=body, plan=plan, router=router, file_index=index,
+                                frozen_inputs=frozen, effective=effective)
 
 
-def plan_semantic_document(context, request, router, opened, intent, body):
+def plan_semantic_document(context, request, router, opened, intent, body, *, effective_at=None):
     """Only the selected artefact is semantic; downstream link rewrites remain maintenance."""
     import edit
     from _common import canonical_living_artefact_key
@@ -474,7 +501,11 @@ def plan_semantic_document(context, request, router, opened, intent, body):
         ((opened.path, reference, reference, opened.fields, fields),))
     from _common._workspace import normalise_tags
     effective = replace(effective, tags=normalise_tags(fields.get("tags", [])), sources=effective.sources + guards)
-    return replace(plan, fields=fields), effective
+    plan = edit.plan_document_lifecycle(
+        str(context.selected_brain.vault_root), router, replace(plan, fields=fields),
+        effective_at=effective_at,
+    )
+    return plan, effective
 
 
 def _may_contain_wikilinks(opened, intent: DocumentMutationIntent, body: str) -> bool:

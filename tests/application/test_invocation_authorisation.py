@@ -86,6 +86,73 @@ def test_preparation_retry_does_not_reread_changed_document(system):
     assert preparation.prepare(context, request, request_id="prepare-one") == descriptor
 
 
+def _renaming_log_request(root):
+    path = root / "_Temporal/Logs/20260924-log.md"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        "---\ntype: temporal/log\ndate: 2026-09-23\ntags: [log]\n"
+        "created: 2026-09-24T16:00:00+00:00\nmodified: 2026-09-24T16:00:00+00:00\n"
+        "---\n# Log\n\nOriginal.\n"
+    )
+    return DocumentWriteBodyRequest(
+        DocumentLocator(DocumentResource.ARTEFACT, path.relative_to(root).as_posix()),
+        document_revision_at(path), DocumentWriteBodyOperation.APPEND,
+        InlineContent("\nAppended.\n"),
+    )
+
+
+@pytest.mark.parametrize("change", ["add", "remove", "edit"])
+def test_prepared_document_binds_backlink_scope_and_content(system, change):
+    root, context, _, service, preparation, receipts, _, _ = system
+    request = _renaming_log_request(root)
+    backlink = root / TARGET
+    if change != "add":
+        backlink.write_text(backlink.read_text() + "\n[[20260924-log]]\n")
+    descriptor = preparation.prepare(context, request, request_id="prepare-log")
+    review = json.loads(descriptor["review"])
+    assert review["lifecycle"]["moves"] == [{
+        "source": "_Temporal/Logs/20260924-log.md", "dest": "_Temporal/Logs/20260923-log.md",
+    }]
+    grant(service, descriptor)
+    if change == "add":
+        backlink.write_text(backlink.read_text() + "\n[[20260924-log]]\n")
+    elif change == "remove":
+        backlink.write_text(backlink.read_text().replace("[[20260924-log]]", "No link now."))
+    else:
+        backlink.write_text(backlink.read_text() + "\nChanged outside the link.\n")
+    before = (root / request.document.reference).read_bytes(), backlink.read_bytes()
+    entry, execution, admission = invocation(system, descriptor, request=request)
+    with pytest.raises(ConsentError, match="changed"):
+        entry.executor(execution, request)
+    assert not admission.entered
+    assert receipts.read(OutcomeReference(context.invocation_id)).intent is None
+    assert ((root / request.document.reference).read_bytes(), backlink.read_bytes()) == before
+
+
+def test_prepared_document_reuses_lifecycle_time_but_ignores_unrelated_content(system):
+    from datetime import timedelta
+
+    root, context, _, service, preparation, _, _, _ = system
+    request = _renaming_log_request(root)
+    descriptor = preparation.prepare(context, request, request_id="prepare-log")
+    grant(service, descriptor)
+    unrelated = root / TARGET
+    unrelated.write_text(unrelated.read_text() + "\nUnrelated content without a backlink.\n")
+
+    class LaterClock:
+        def now(self):
+            return context.clock.now() + timedelta(days=1)
+
+    entry, execution, admission = invocation(
+        system, descriptor, request=request, context=replace(context, clock=LaterClock())
+    )
+    result = entry.executor(execution, request)
+    assert result.status == "ok"
+    admission.finalise(result)
+    assert result.result.path == "_Temporal/Logs/20260923-log.md"
+    assert "Appended." in (root / result.result.path).read_text()
+
+
 def test_dry_run_review_cannot_authorise_real_execution(system):
     root, context, _, service, preparation, _, _, request = system
     descriptor = preparation.prepare(replace(context, dry_run=True), request, request_id="prepare-one")

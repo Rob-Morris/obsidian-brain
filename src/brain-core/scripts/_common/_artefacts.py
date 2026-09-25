@@ -3,7 +3,7 @@
 import json
 import os
 import re
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 
 from ._document_revision import decode_persisted_document
 from ._frontmatter import parse_frontmatter
@@ -918,26 +918,27 @@ def pattern_has_date_tokens(pattern):
     return any(tok in outside_placeholders for tok in _DATE_TOKENS)
 
 
-def parse_date_value(value):
-    """Parse a frontmatter date value into a timezone-aware datetime, or None.
+def parse_date_value(value) -> date | datetime | None:
+    """Parse a calendar date or localised timestamp without conflating the two.
 
     Accepts ISO-8601 strings, ``YYYY-MM-DD``, ``YYYYMMDD``, or datetime/date
-    objects. Missing tzinfo is assumed UTC then converted to local.
+    objects. Calendar dates remain dates, with no timezone or invented instant.
+    Timestamps without tzinfo are assumed UTC, then converted to local.
     """
     if value is None or value == "":
         return None
     if isinstance(value, datetime):
         dt = value if value.tzinfo else value.replace(tzinfo=timezone.utc)
         return dt.astimezone()
+    if isinstance(value, date):
+        return value
     s = str(value).strip()
     if not s:
         return None
-    for fmt in ("%Y%m%d", "%Y-%m-%d"):
-        try:
-            dt = datetime.strptime(s, fmt)
-            return dt.replace(tzinfo=timezone.utc).astimezone()
-        except ValueError:
-            continue
+    try:
+        return date.fromisoformat(s)
+    except ValueError:
+        pass
     try:
         dt = datetime.fromisoformat(s)
         if dt.tzinfo is None:

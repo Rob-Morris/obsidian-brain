@@ -16,6 +16,19 @@ from _staging import read_staged_body, stage_body
 from command_application import application_for
 
 
+def test_log_creation_uses_subject_calendar_date(command_vault_clone, calendar_timezone):
+    result = application_for(command_vault_clone.vault_root).invoke(ArtefactCreateRequest(
+        type="temporal/log", title="Backfilled log",
+        content=InlineContent("# Log\n\nBackfilled entry.\n"),
+        frontmatter=(FrontmatterField("date", "2026-09-24"),),
+    ))
+    assert result.status == "ok"
+    assert result.result.path == "_Temporal/Logs/20260924-log.md"
+    fields, body = parse_frontmatter((command_vault_clone.vault_root / result.result.path).read_text())
+    assert fields["date"] == "2026-09-24"
+    assert "Backfilled entry." in body
+
+
 def test_artefact_create_uses_type_placement_and_typed_parent_context(
     command_vault_clone,
 ):

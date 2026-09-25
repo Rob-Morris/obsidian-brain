@@ -81,6 +81,14 @@ Every naming rule that uses a date token (`yyyymmdd`, `yyyy-mm-dd`, etc.) binds 
 
 Temporal artefacts file flat under their type folder (or owner chain) — there is no date subfolder — and their chronological ordering comes from the dated filename, which follows the selected rule's `date_source`. A backfilled log for 2026-03-31 created on 2026-04-01 is therefore still named `20260331-log.md`, not `20260401-log.md`.
 
+Date-only values (`YYYY-MM-DD`, `YYYYMMDD`, or a typed calendar date) preserve
+their calendar day in every host timezone. They are not midnight UTC instants.
+Actual timestamps are converted to local time before rendering date tokens;
+timestamps without an offset retain the UTC assumption. When a filename date
+supplies a missing `created` value, reconciliation preserves it as a date-only
+value rather than inventing a timestamp. This also preserves historical dates
+that a local timezone skipped entirely.
+
 **The `{status}_at` convention.** When a status transition is observed, the runtime sets `{status}_at = now()` unless the type declares an `on_status_change` override. Example: `writing` transitioning to `published` runs `on_status_change: { published: { set: { publisheddate: now } } }` because its date field is `publisheddate`, not `published_at`. Types whose status-date field follows the `{status}_at` convention need no override.
 
 **Reconciliation cascade.** When the runtime (edit, migration) needs a timestamp and frontmatter is incomplete, it applies this cascade, in order:

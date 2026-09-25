@@ -22,7 +22,7 @@ def _index_date(value):
     try:
         return date.fromisoformat(value[:10]).isoformat()
     except ValueError:
-        return parsed.date().isoformat()
+        return parsed.strftime("%Y-%m-%d")
 
 
 def _validate_iso_date(value, field):
