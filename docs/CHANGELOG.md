@@ -8,6 +8,7 @@ Never edit past changelog entries. Only add new entries at the top.
 
 | Version | Date | Summary |
 |---|---|---|
+| [v0.70.8](changelog/v0.70.8.md) | 2026-09-25 | Preserve calendar dates and preflight document writes |
 | [v0.70.7](changelog/v0.70.7.md) | 2026-09-24 | Stage dev versions on unreleased with CI-gated promotion and recovery |
 | [v0.70.6](changelog/v0.70.6.md) | 2026-09-21 | Keep approval journal ownership separate during CLI cutover |
 | [v0.70.5](changelog/v0.70.5.md) | 2026-09-21 | Preserve equivalent TOML transport and reap proxy preflight children |

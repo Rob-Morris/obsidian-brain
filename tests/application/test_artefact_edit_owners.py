@@ -360,7 +360,7 @@ def test_crlf_read_revision_can_be_used_for_an_immediate_mutation(
     assert mutation.result.revision == document_revision_at(path)
 
 
-@pytest.mark.parametrize("failure_type", (OSError, ValueError, FileNotFoundError))
+@pytest.mark.parametrize("failure_type", (OSError, ValueError, FileNotFoundError, FileExistsError))
 def test_document_mutation_post_commit_failure_is_honestly_unknown(
     command_vault_clone,
     monkeypatch,
@@ -386,6 +386,102 @@ def test_document_mutation_post_commit_failure_is_honestly_unknown(
     assert result.error.code is ErrorCode.COMMAND_OUTCOME_UNKNOWN
     assert result.effects == "unknown"
     assert "Uncertain edit." in (command_vault_clone.vault_root / PATH).read_text()
+
+
+def _daily_log(root, filename, subject_date):
+    path = root / "_Temporal/Logs" / filename
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        "---\ntype: temporal/log\ntags: [log]\n"
+        f"date: {subject_date}\n"
+        "created: 2026-09-24T16:53:30+00:00\n"
+        "modified: 2026-09-24T16:53:30+00:00\n---\n# Log\n\nOriginal entry.\n"
+    )
+    return path
+
+
+def test_daily_log_append_keeps_its_calendar_filename(command_vault_clone, calendar_timezone):
+    root = command_vault_clone.vault_root
+    path = _daily_log(root, "20260924-log.md", "2026-09-24")
+    previous = _daily_log(root, "20260923-log.md", "2026-09-23")
+    previous_bytes = previous.read_bytes()
+    result = application_for(root).invoke(DocumentWriteBodyRequest(
+        DocumentLocator(DocumentResource.ARTEFACT, path.relative_to(root).as_posix()),
+        document_revision_at(path), DocumentWriteBodyOperation.APPEND,
+        InlineContent("\nAppended entry.\n"),
+    ))
+    assert result.status == "ok"
+    assert result.result.path == "_Temporal/Logs/20260924-log.md"
+    assert path.read_text().count("Appended entry.") == 1
+    assert previous.read_bytes() == previous_bytes
+
+
+def test_document_naming_collision_is_a_pre_admission_conflict(command_vault_clone):
+    root = command_vault_clone.vault_root
+    path = _daily_log(root, "20260924-log.md", "2026-09-23")
+    destination = _daily_log(root, "20260923-log.md", "2026-09-23")
+    before = path.read_bytes(), destination.read_bytes()
+    handle = stage_body(str(root), "\nMust not commit.\n")["handle"]
+    application = application_for(root)
+    result = application.invoke(DocumentWriteBodyRequest(
+        DocumentLocator(DocumentResource.ARTEFACT, path.relative_to(root).as_posix()),
+        document_revision_at(path), DocumentWriteBodyOperation.APPEND,
+        StagedContent(handle),
+    ))
+    assert result.error.code is ErrorCode.CONFLICT
+    assert result.effects == "none"
+    assert "20260923-log.md" in result.error.message
+    assert (path.read_bytes(), destination.read_bytes()) == before
+    assert not application._context.authorisation.receipts.intents
+    assert read_staged_body(str(root), handle) == "\nMust not commit.\n"
+
+
+def test_document_preparation_reports_lifecycle_collision(command_vault_clone):
+    from _application.access.prepare import AccessPrepareRequest, PrepareCommand
+
+    root = command_vault_clone.vault_root
+    path = _daily_log(root, "20260924-log.md", "2026-09-23")
+    destination = _daily_log(root, "20260923-log.md", "2026-09-23")
+    before = path.read_bytes(), destination.read_bytes()
+    result = application_for(root).invoke(AccessPrepareRequest(PrepareCommand(
+        "document.write-body", {
+            "document": {"resource": "artefact", "reference": path.relative_to(root).as_posix()},
+            "expected_revision": document_revision_at(path),
+            "operation": "append",
+            "content": {"source": "inline", "content": "\nMust not commit.\n"},
+        },
+    )))
+    assert result.error.code is ErrorCode.CONFLICT
+    assert result.effects == "none"
+    assert "20260923-log.md" in result.error.message
+    assert (path.read_bytes(), destination.read_bytes()) == before
+
+
+def test_document_edit_applies_preflighted_rename_and_backlinks(command_vault_clone, monkeypatch):
+    root = command_vault_clone.vault_root
+    path = _daily_log(root, "20260924-log.md", "2026-09-23")
+    referring = root / PATH
+    referring.write_text(referring.read_text() + "\n[[20260924-log]]\n")
+    real_planner = edit.plan_finish_artefact
+    calls = 0
+
+    def plan_once(*args, **kwargs):
+        nonlocal calls
+        calls += 1
+        return real_planner(*args, **kwargs)
+
+    monkeypatch.setattr(edit, "plan_finish_artefact", plan_once)
+    result = application_for(root).invoke(DocumentWriteBodyRequest(
+        DocumentLocator(DocumentResource.ARTEFACT, path.relative_to(root).as_posix()),
+        document_revision_at(path), DocumentWriteBodyOperation.APPEND,
+        InlineContent("\nAppended entry.\n"),
+    ))
+    assert result.status == "ok"
+    assert calls == 1
+    assert result.result.path == "_Temporal/Logs/20260923-log.md"
+    assert not path.exists()
+    assert "Appended entry." in (root / result.result.path).read_text()
+    assert "[[20260923-log]]" in referring.read_text()
 
 
 def test_post_failure_revision_classification_occurs_under_mutation_lock(

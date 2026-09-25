@@ -971,6 +971,7 @@ class DocumentEditPlan:
     frontmatter_changes: dict | None
     match_count: int | None = None
     replacement_count: int | None = None
+    artefact_transition: "ArtefactTransitionPlan | None" = None
 
 
 def plan_document_edit(opened, *, operation="edit", body="", frontmatter_changes=None,
@@ -1014,17 +1015,28 @@ def plan_document_edit(opened, *, operation="edit", body="", frontmatter_changes
                             result_scope, frontmatter_changes)
 
 
-def apply_document_edit(vault_root, router, plan, *, fix_links=False, file_index=None):
-    """Persist a validated transform without executing its selection a second time."""
+def plan_document_lifecycle(vault_root, router, plan, *, effective_at=None):
+    """Preflight artefact paths and backlinks without persisting the body transform."""
     from copy import deepcopy
 
     opened = plan.opened
+    if opened.resource != "artefact" or plan.artefact_transition is not None:
+        return plan
+    transition = plan_finish_artefact(
+        vault_root, router, opened.abs_path, deepcopy(plan.fields), opened.body,
+        plan.new_body, opened.path, opened.artefact, plan.frontmatter_changes,
+        plan.operation, old_fields=deepcopy(opened.fields),
+        resolved=plan.resolved, scope=plan.scope, effective_at=effective_at,
+    )
+    return replace(plan, artefact_transition=transition)
+
+
+def apply_document_edit(vault_root, router, plan, *, fix_links=False, file_index=None):
+    """Persist a validated transform without executing its selection a second time."""
+    opened = plan.opened
     if opened.resource == "artefact":
-        result = _finish_artefact(vault_root, router, opened.abs_path,
-                                  deepcopy(plan.fields), opened.body, plan.new_body,
-                                  opened.path, opened.artefact, plan.frontmatter_changes,
-                                  plan.operation, old_fields=deepcopy(opened.fields),
-                                  resolved=plan.resolved, scope=plan.scope)
+        plan = plan_document_lifecycle(vault_root, router, plan)
+        result = apply_artefact_transition(vault_root, plan.artefact_transition)
         _fix_links.attach_wikilink_warnings(vault_root, result, apply_fixes=fix_links,
                                             file_index=file_index)
         result["revision"] = document_revision_at(os.path.join(vault_root, result["path"]))

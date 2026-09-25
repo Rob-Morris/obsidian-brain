@@ -91,6 +91,16 @@ JSON or silently drops the tail. Metadata-only resource variants remain intact.
 
 ## Permissions and instance authorisation
 
+Document mutations preflight artefact lifecycle consequences, including derived
+filename moves and destination collisions, under the mutation lock before
+admission. A known pre-write collision returns `conflict` with no effects and
+does not consume staged content. The validated lifecycle plan is reused for
+execution. Prepared document authorisation binds the derived destinations and
+backlink source/effect set, and its review lists those moves and writes. Changes
+to that set require fresh preparation; unrelated content does not. Lifecycle
+time is frozen across preparation and execution. Failures after possible effects still report partial or unknown
+outcomes; a `FileExistsError` after a write is not treated as a safe refusal.
+
 Credentials determine the maximum command permissions. Normal content operations
 and observations begin authorised within those permissions. Configuration can
 select a read-only initial set or exact initial commands. Permission and

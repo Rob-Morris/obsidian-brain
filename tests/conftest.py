@@ -19,8 +19,8 @@ collect_ignore_glob = ["conftest.py", "*/conftest.py"]
 # ---------------------------------------------------------------------------
 # Deterministic timezone
 #
-# Brain computes artefact dates in *local* time (parse_date_value normalises to
-# the host zone via .astimezone()), so many create/edit/reconcile/migrate tests
+# Brain renders timestamp-derived artefact dates in *local* time, so many
+# create/edit/reconcile/migrate tests
 # assert ISO values and date folders that are only correct under the author's
 # zone. Pin the suite's timezone here — before any test imports datetime helpers
 # or spawns a subprocess via os.environ.copy() — so the suite is reproducible on
@@ -30,11 +30,30 @@ collect_ignore_glob = ["conftest.py", "*/conftest.py"]
 # Windows would not take effect — the CRT cannot parse it — and would leak a
 # misleading value into every os.environ.copy() subprocess, including the
 # Windows smoke's MCP server.
+# Calendar-date regressions use calendar_timezone below to cover both sides of UTC.
 # ---------------------------------------------------------------------------
 
 if hasattr(time, "tzset"):
     os.environ["TZ"] = "Australia/Sydney"
     time.tzset()
+
+
+@pytest.fixture(params=["America/New_York", "UTC", "Australia/Sydney"])
+def calendar_timezone(request):
+    """Exercise date boundaries without leaking process timezone to other tests."""
+    if not hasattr(time, "tzset"):
+        pytest.skip("Process timezone switching requires time.tzset")
+    previous = os.environ.get("TZ")
+    os.environ["TZ"] = request.param
+    time.tzset()
+    try:
+        yield request.param
+    finally:
+        if previous is None:
+            os.environ.pop("TZ", None)
+        else:
+            os.environ["TZ"] = previous
+        time.tzset()
 
 
 # ---------------------------------------------------------------------------

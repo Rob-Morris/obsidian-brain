@@ -19,19 +19,13 @@ _FILENAME_DATE_RE = re.compile(r"^(\d{8}|\d{4}-\d{2}-\d{2})")
 
 
 def _parse_filename_date(filename):
-    """Return a timezone-aware datetime parsed from a leading date prefix, or None."""
+    """Return the calendar date in a leading filename prefix, or None."""
     if not filename:
         return None
     m = _FILENAME_DATE_RE.match(os.path.basename(filename))
     if not m:
         return None
-    raw = m.group(1)
-    fmt = "%Y%m%d" if len(raw) == 8 else "%Y-%m-%d"
-    try:
-        dt = datetime.strptime(raw, fmt)
-    except ValueError:
-        return None
-    return dt.replace(tzinfo=timezone.utc)
+    return parse_date_value(m.group(1))
 
 
 def _file_mtime(abs_path):
@@ -50,7 +44,9 @@ def _now():
 
 
 def _to_iso(dt):
-    """Serialise a datetime to ISO-8601 in the local timezone."""
+    """Preserve calendar dates; serialise actual timestamps in the local timezone."""
+    if not isinstance(dt, datetime):
+        return dt.isoformat()
     if dt.tzinfo is None:
         dt = dt.replace(tzinfo=timezone.utc)
     return dt.astimezone().isoformat()
@@ -113,7 +109,7 @@ def reconcile_date_source(fields, abs_path, filename, naming, selected_rule):
             f"no date prefix in filename, no 'created' fallback."
         )
 
-    fields[source] = dt.date().isoformat()
+    fields[source] = dt.strftime("%Y-%m-%d")
     return fields
 
 
