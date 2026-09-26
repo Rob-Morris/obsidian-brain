@@ -158,7 +158,10 @@ and do not bump `src/brain-core/VERSION`. The pre-commit hook passes
 omitted there, and it reads `.canaries/pre-commit-development.md`. Ordinary
 commits on `main` are rejected. A version is cut with
 `src/scripts/promotion.py`: `status`, `prepare --input request.json`,
-`finish promotion/vX.Y.Z`, `publish <sha>`, `adopt [promotion/vX.Y.Z]`, and `discard`. Prepare
+`finish promotion/vX.Y.Z`, `publish <sha>`, `adopt [promotion/vX.Y.Z]`, `discard`,
+and preview-by-default `cleanup [--apply]`. Remote-only discard requires
+`--expected-sha <full-sha>`; cleanup preserves unfinished/unknown candidates,
+dirty or foreign worktrees and recovery records. Prepare
 reads `.canaries/pre-promotion.md` and removes the receipt
 `.canary--pre-promotion` only after the candidate push succeeds. The checklist
 stays. Finish records the candidate on `unreleased` after that SHA's CI has
