@@ -9,7 +9,7 @@ import subprocess
 import sys
 
 from _promotion import workflow
-from _promotion import recovery_workflow
+from _promotion import recovery_workflow, cleanup
 from _promotion.model import PromotionError, load_request
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -30,6 +30,10 @@ def _parser() -> argparse.ArgumentParser:
     adopt_parser.add_argument("branch", nargs="?", help="explicit stale local candidate to discard after alignment")
     discard_parser = sub.add_parser("discard", help="delete one unpromoted candidate")
     discard_parser.add_argument("branch")
+    discard_parser.add_argument("--expected-sha", help="required ownership SHA for a remote-only candidate")
+    cleanup_parser = sub.add_parser("cleanup", help="preview disposable promotion refs and worktrees")
+    cleanup_parser.add_argument("--apply", action="store_true", help="remove verified disposable state")
+    cleanup_parser.add_argument("--json", action="store_true")
     sub.add_parser("pre-push", help="validate ref updates on stdin")
     recover = sub.add_parser("recover", help="rebuild an unpublished queue after a direct-main change")
     recovery_commands = recover.add_subparsers(dest="recovery_command", required=True)
@@ -62,7 +66,10 @@ def main(argv: list[str] | None = None) -> int:
         elif args.command == "adopt":
             workflow.adopt(root, args.branch)
         elif args.command == "discard":
-            workflow.discard(root, args.branch)
+            workflow.discard(root, args.branch, expected_sha=args.expected_sha)
+        elif args.command == "cleanup":
+            result = cleanup.run(root, apply=args.apply, as_json=args.json)
+            return 2 if result["errors"] else 0
         elif args.command == "pre-push":
             workflow.pre_push(root, sys.stdin.read().splitlines())
         elif args.command == "recover":

@@ -5,6 +5,7 @@ PYTEST := $(VENV)/bin/pytest
 
 .PHONY: venv install install-semantic dependencies-check dependencies-update test test-parallel test-brain-lab test-brain-lab-docker test-brain-lab-docker-configuration test-brain-lab-current-docker test-brain-lab-upgrade-docker lint lint-docstrings lint-command-docs clean hooks sync-template sync-template-check dev-link precommit-check release-status promotion-status promotion-prepare promotion-finish promotion-publish promotion-adopt promotion-discard
 .PHONY: promotion-recover-plan promotion-recover-stage promotion-recover-status promotion-recover-apply promotion-recover-abort
+.PHONY: promotion-cleanup
 
 BRAIN_LAB_STATE_DIR ?= $(CURDIR)/.brain-lab
 
@@ -85,7 +86,10 @@ promotion-adopt:
 	$(PYTHON) src/scripts/promotion.py adopt $(BRANCH)
 
 promotion-discard:
-	$(PYTHON) src/scripts/promotion.py discard $(BRANCH)
+	$(PYTHON) src/scripts/promotion.py discard $(BRANCH) $(if $(SHA),--expected-sha "$(SHA)")
+
+promotion-cleanup:
+	$(PYTHON) src/scripts/promotion.py cleanup $(if $(filter 1,$(APPLY)),--apply)
 
 promotion-recover-plan:
 	$(PYTHON) src/scripts/promotion.py recover plan $(if $(INPUT),--input "$(INPUT)")

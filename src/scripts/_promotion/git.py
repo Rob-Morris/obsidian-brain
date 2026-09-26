@@ -270,24 +270,72 @@ def remote_branch(root: Path, branch: str) -> str | None:
     return None
 
 
-def cleanup_local(root: Path, branch: str) -> None:
-    """Keep the recovery ref until its worktree has been removed successfully."""
+def local_cleanup_problem(root: Path, branch: str, candidate: str) -> str | None:
+    """Explain why a candidate's local state cannot safely be removed."""
     worktree = worktree_dir(root, branch)
+    registered = {Path(path): ref for path, ref in worktrees(root)}
+    for path, ref in registered.items():
+        if ref == f"refs/heads/{branch}" and path != worktree:
+            return f"candidate is checked out outside its owned worktree: {path}"
+    if worktree.is_symlink():
+        return f"candidate worktree is a symlink: {worktree}"
+    if worktree.exists():
+        if worktree not in registered:
+            return f"candidate worktree is not registered: {worktree}"
+        if registered[worktree] not in {None, f"refs/heads/{branch}"}:
+            return f"candidate worktree has a foreign branch: {worktree}"
+        if rev(worktree, "HEAD") != candidate:
+            return f"candidate worktree HEAD differs from {candidate}: {worktree}"
+        if run(worktree, "status", "--porcelain", "--untracked-files=all").stdout.strip():
+            return f"candidate worktree is dirty: {worktree}"
+    elif worktree in registered:
+        return f"candidate worktree is missing; inspect its registration: {worktree}"
+    ref = f"refs/heads/{branch}"
+    if rev_exists(root, ref) and rev(root, ref) != candidate:
+        return f"local {branch} no longer identifies {candidate}"
+    return None
+
+
+def cleanup_local(root: Path, branch: str, candidate: str | None = None) -> None:
+    """Remove only the expected clean checkout/ref; retain recovery state on failure."""
+    worktree = worktree_dir(root, branch)
+    ref = f"refs/heads/{branch}"
+    if candidate is None:
+        if rev_exists(root, ref):
+            candidate = rev(root, ref)
+        elif worktree.exists():
+            raise PromotionError(f"candidate worktree has no ownership ref: {worktree}")
+        else:
+            return
+    problem = local_cleanup_problem(root, branch, candidate)
+    if problem:
+        raise PromotionError(problem)
     if worktree.exists():
         run(root, "worktree", "remove", str(worktree))
-    if rev_exists(root, f"refs/heads/{branch}"):
-        run(root, "branch", "-D", branch)
+    problem = local_cleanup_problem(root, branch, candidate)
+    if problem:
+        raise PromotionError(problem)
+    if rev_exists(root, ref):
+        run(root, "update-ref", "-d", ref, candidate)
 
 
-def discard_owned(root: Path, branch: str, candidate: str) -> None:
+def discard_owned(root: Path, branch: str, candidate: str) -> str | None:
     """A same-name remote replacement belongs to someone else; never delete it."""
+    problem = local_cleanup_problem(root, branch, candidate)
+    if problem:
+        raise PromotionError(problem)
     remote = remote_branch(root, branch)
     if remote == candidate:
         result = run(root, "push", f"--force-with-lease=refs/heads/{branch}:{candidate}",
                       "origin", f":refs/heads/{branch}", check=False)
-        if result.returncode and remote_branch(root, branch) == candidate:
+        remote = remote_branch(root, branch)
+        if remote == candidate:
             raise PromotionError(f"could not delete {branch}: {result.stderr.strip()}")
-    cleanup_local(root, branch)
+    cleanup_local(root, branch, candidate)
+    tracking = f"refs/remotes/origin/{branch}"
+    if remote is None and rev_exists(root, tracking) and rev(root, tracking) == candidate:
+        run(root, "update-ref", "-d", tracking, candidate)
+    return remote
 
 
 def promotion_refs(root: Path) -> list[tuple[str, str]]:
@@ -301,3 +349,16 @@ def promotion_refs(root: Path) -> list[tuple[str, str]]:
         if ref.startswith("refs/heads/promotion/"):
             found.append((sha, ref))
     return found
+
+
+def delete_remote_refs(root: Path, refs: Mapping[str, str]) -> None:
+    """Delete one observed batch atomically, and verify absence after any transport result."""
+    if not refs:
+        return
+    deleted = run(root, "push", "--atomic",
+                  *(f"--force-with-lease={ref}:{sha}" for ref, sha in refs.items()),
+                  "origin", *(f":{ref}" for ref in refs), check=False)
+    remaining = {ref: sha for sha, ref in promotion_refs(root) if ref in refs}
+    if remaining:
+        detail = deleted.stderr.strip() or deleted.stdout.strip() or "no output"
+        raise PromotionError(f"promotion cleanup not settled; retained refs {remaining}: {detail}")

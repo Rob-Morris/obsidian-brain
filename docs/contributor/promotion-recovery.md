@@ -148,5 +148,13 @@ database or automatic pruning. Superseded canonical names left by explicit
 version mappings are reported and can be deliberately discarded by exact owner;
 never delete all promotion refs by prefix.
 
+After alignment, `promotion.py cleanup` previews disposable finished/published
+local candidates, stale tracking refs and published remote candidates;
+`--apply` removes only those verified owners. Superseded candidates outside
+the current ledger are preserved for deliberate abandonment. If such a ref
+exists only remotely, use `discard promotion/vX.Y.Z --expected-sha <old-sha>`.
+The expected SHA is taken from the retained recovery plan, not inferred from age.
+Cleanup does not prune the plan/result records or retained recovery scratch worktrees.
+
 Make wrappers mirror the CLI: `promotion-recover-plan [INPUT=...]` and
 `promotion-recover-stage`, `-status`, `-apply`, `-abort` with `PLAN=<full-sha>`.

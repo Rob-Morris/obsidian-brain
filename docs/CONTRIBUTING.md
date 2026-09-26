@@ -177,6 +177,8 @@ python src/scripts/promotion.py finish promotion/vX.Y.Z
 python src/scripts/promotion.py publish <sha>
 python src/scripts/promotion.py adopt [promotion/vX.Y.Z]
 python src/scripts/promotion.py discard promotion/vX.Y.Z
+python src/scripts/promotion.py discard promotion/vX.Y.Z --expected-sha <full-sha>
+python src/scripts/promotion.py cleanup [--apply] [--json]
 ```
 
 `status` lists the first-parent cuts after the shared ledger tip
@@ -222,6 +224,48 @@ remote or local ref. Local `main` is optional; when it matches the old remote
 tip it advances too. A repeated publish at the same remote SHA does not push
 `main` or repeat CI, but retries candidate-ref cleanup. Cleanup failure is
 reported after publication and does not roll it back.
+
+### Promotion housekeeping
+
+`cleanup` inventories promotion branches, origin tracking refs and canonical
+candidate worktrees. It refreshes shared refs but previews removals by default;
+`--apply` performs a fresh classification under the promotion lock. `--json`
+reports each observed SHA, state, action and reason, plus any errors.
+
+| Observed state | Cleanup action |
+|---|---|
+| Validated candidate on main's first-parent line | Remove its matching remote ref and clean local candidate state |
+| Validated candidate on unreleased, not yet published | Remove clean local state; retain the remote ref for publication/retry |
+| Finished/published tracking ref with no remote branch | Remove that exact stale tracking ref |
+| Unfinished or unrecognised candidate | Preserve; abandonment requires explicit `discard` |
+| Dirty, foreign, missing or externally checked-out candidate worktree | Preserve and report the reason |
+
+This also handles local candidates left behind by another clone's finish or
+publication, even after later versions have advanced the ledger. Local refs
+are deleted under an expected-SHA comparison; remote batches use atomic
+expected-SHA leases and are observed again after the push. A transport error
+with observed absence is a settled deletion. Partial failures are reported
+without undoing successful work; retry the same command after resolving the
+reported obstruction. Neither command moves main, dev or unreleased, and
+cleanup never prunes recovery plan/result records or guesses from candidate age.
+
+For an unfinished remote-only candidate, `discard` requires `--expected-sha`;
+it fetches and validates that identity before deleting it. An existing local
+candidate branch supplies the ownership SHA when the option is omitted. A
+same-name replacement is preserved and reported. Dirty candidate worktrees
+are refused before remote abandonment, so their recovery ref remains available.
+An already finished candidate belongs to `cleanup` locally and `publish` remotely,
+not `discard`. Preview-preserved items are not errors; failed attempted removals
+produce a non-zero exit with their partial results.
+
+The common promotion lock coordinates these commands in one clone. Worktree
+ownership is rechecked before local ref deletion, but arbitrary concurrent
+Git commands do not take that lock: avoid checking out or editing candidate
+worktrees during cleanup. Ref leases/CAS protect changed SHAs; they are not a
+filesystem transaction or a lock on other clones.
+
+Make wrappers: `make promotion-cleanup` previews; `APPLY=1` applies.
+`make promotion-discard BRANCH=promotion/vX.Y.Z SHA=<full-sha>` supplies explicit ownership.
 
 Direct pushes that bypass the local hook still receive full main CI unless
 that exact SHA has passing candidate evidence. If such a push leaves `main`

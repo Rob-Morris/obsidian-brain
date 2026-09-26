@@ -338,7 +338,7 @@ def finish(
                 f"is now {ref_label(observed_main)} outside the ledger; reconciliation is required"
             )
         try:
-            git.cleanup_local(root, branch)
+            git.cleanup_local(root, branch, candidate.sha)
         except PromotionError as exc:
             raise PromotionError(
                 f"recorded {branch} on unreleased {candidate.sha}; dev {new_dev}; {exc}"
@@ -349,21 +349,41 @@ def finish(
         lock.close()
 
 
-def discard(root: Path, branch: str) -> None:
+def discard(root: Path, branch: str, *, expected_sha: str | None = None) -> None:
     """Delete one unpromoted candidate. Do not move main or dev."""
     if not PROMOTION_BRANCH_RE.fullmatch(branch):
         raise PromotionError(f"{branch} is not a promotion branch")
+    if expected_sha is not None and not SHA_RE.fullmatch(expected_sha):
+        raise PromotionError("expected SHA must be a full commit SHA")
     lock = git.lock(root)
     try:
-        if git.rev_exists(root, f"refs/heads/{branch}"):
-            local_sha = git.rev(root, f"refs/heads/{branch}")
-            git.fetch_refs(root)
-            if git.is_ancestor(root, local_sha, candidates.ledger_tip(root)):
-                raise PromotionError("candidate is already on the ledger; publish owns its remote cleanup")
-            git.discard_owned(root, branch, local_sha)
-        else:
-            git.cleanup_local(root, branch)
-        print(f"discarded {branch}")
+        ref = f"refs/heads/{branch}"
+        local = git.rev(root, ref) if git.rev_exists(root, ref) else None
+        remote = git.remote_branch(root, branch)
+        if expected_sha is not None and local not in {None, expected_sha}:
+            raise PromotionError(f"local {branch} differs from expected {expected_sha}; preserved")
+        candidate = expected_sha or local
+        if candidate is None:
+            if remote is not None or git.worktree_dir(root, branch).exists():
+                raise PromotionError(f"no local ownership ref; use discard {branch} --expected-sha <full-sha>")
+            print(f"already absent {branch}; no local branch, worktree or remote branch")
+            return
+        if local is None and remote not in {None, candidate}:
+            raise PromotionError(f"origin {branch} differs from expected {candidate}; preserved")
+        git.fetch_refs(root)
+        if remote == candidate and not git.rev_exists(root, f"{candidate}^{{commit}}"):
+            git.run(root, "fetch", "--no-write-fetch-head", "--refmap=", "origin", ref)
+        if not git.rev_exists(root, f"{candidate}^{{commit}}"):
+            if local is None and remote is None and not git.worktree_dir(root, branch).exists():
+                print(f"already absent {branch} at {candidate}")
+                return
+            raise PromotionError(f"cannot inspect candidate {candidate}; preserved")
+        candidates.validate_candidate(root, git.read_commit(root, candidate), branch)
+        if git.is_ancestor(root, candidate, candidates.ledger_tip(root)):
+            raise PromotionError("candidate is already on the ledger; use cleanup for local state and publish for remote state")
+        replacement = git.discard_owned(root, branch, candidate)
+        suffix = f"; preserved remote replacement {replacement}" if replacement is not None else ""
+        print(f"discarded {branch} at {candidate}{suffix}")
     finally:
         lock.close()
 
@@ -408,26 +428,7 @@ def delete_published_candidates(root: Path, main_sha: str) -> None:
     # Membership needs only main's reachable objects, not foreign sibling candidates.
     published = set(git.out(root, "rev-list", main_sha).splitlines())
     owned = [(sha, ref) for sha, ref in listed if sha in published]
-    refs = [ref for _sha, ref in owned]
-    if not refs:
-        return
-    deleted = git.run(
-        root,
-        "push",
-        "--atomic",
-        *(f"--force-with-lease={ref}:{sha}" for sha, ref in owned),
-        "origin",
-        *(f":{ref}" for ref in refs),
-        check=False,
-    )
-    if deleted.returncode != 0:
-        detail = deleted.stderr.strip() or deleted.stdout.strip() or "no output"
-        names = ", ".join(ref.removeprefix("refs/heads/") for ref in refs)
-        raise PromotionError(f"could not delete published promotion refs {names}: {detail}")
-    still = [ref for _sha, ref in git.promotion_refs(root) if ref in set(refs)]
-    if still:
-        names = ", ".join(ref.removeprefix("refs/heads/") for ref in still)
-        raise PromotionError(f"promotion refs still present: {names}")
+    git.delete_remote_refs(root, {ref: sha for sha, ref in owned})
 
 
 def adopt(root: Path, branch: str | None = None) -> str:

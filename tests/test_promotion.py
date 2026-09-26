@@ -631,7 +631,10 @@ def test_discard_does_not_delete_a_remote_candidate_it_does_not_own(tmp_path):
     promotion.finish(root, "promotion/v1.1.0", ci=_passed)
     assert candidate in _git(root, "ls-remote", "origin", "refs/heads/promotion/v1.1.0").stdout
 
-    promotion.discard(root, "promotion/v1.1.0")
+    with pytest.raises(model.PromotionError, match="no local ownership ref"):
+        promotion.discard(root, "promotion/v1.1.0")
+    with pytest.raises(model.PromotionError, match="already on the ledger"):
+        promotion.discard(root, "promotion/v1.1.0", expected_sha=candidate)
 
     assert candidate in _git(root, "ls-remote", "origin", "refs/heads/promotion/v1.1.0").stdout
 
