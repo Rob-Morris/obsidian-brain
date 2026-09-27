@@ -296,6 +296,16 @@ If your vault has the Brain MCP server running, every command within the authent
 
 Common families include `artefact.*`, `document.*`, `resource.*` (skills, memories, styles and templates all resolve through this family), `plugin.*`, `trigger.*`, `type.*`, `content.*`, `retrieval.*`, `links.*`, `shaping.*`, `workspace.*`, `vault.*`, `runtime.*`, `stage.*`, `access.*` and `attachment.upload`. Profiles authorise exact leaves rather than aggregate buckets.
 
+Before treating a tool as missing, try filtered discovery such as
+`command_list({"domain":"document"})`. Use its exact `mcp_tool` or `cli_argv`
+(arguments after `brain`); null means that transport is unsupported. Search
+accepts canonical IDs and supported MCP/CLI spellings. `availability` describes
+runtime dependencies, separately from `access`. For `authorisation_required`,
+inspect `access_status`, choose the intended consent scope, and follow its
+reviewed request contract explicitly. For `denied`, inspect the boundary instead
+of automatically requesting consent or switching transports. These names and
+instructions do not themselves authorise work beyond the user's task.
+
 After an installed Core upgrade, an idle MCP proxy refreshes its child server
 before the next command. Use `brain_proxy_status` to inspect loaded/installed
 versions or `brain_proxy_refresh` to request that refresh explicitly. Both take

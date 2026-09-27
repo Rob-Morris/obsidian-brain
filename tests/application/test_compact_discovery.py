@@ -9,7 +9,8 @@ from _application.application import CommandApplication
 from _application.foundation import build_application_catalogue
 from _application.projection import canonical_result_envelope
 from _application.registry import current_application_catalogue
-from _application.requests import CommandAccess, CommandListRequest, CommandListView
+from _application.requests import CommandAccess, CommandDescribeRequest, CommandListRequest, CommandListView
+from _application.types import Projection
 from test_foundation_commands import _context
 
 
@@ -63,6 +64,49 @@ def test_task_words_find_relevant_commands(tmp_path, query, expected):
     assert expected in result.result.command_ids
 
 
+@pytest.mark.parametrize("query", [
+    "document.structured-edit", "document_structured-edit",
+    "document structured-edit", "brain document structured-edit", "DOCUMENT_STRUCTURED-EDIT",
+])
+def test_discovery_searches_exact_transport_spellings(tmp_path, query):
+    app = CommandApplication(_context(tmp_path), current_application_catalogue())
+    result = app.invoke(CommandListRequest(query=query))
+    assert result.result.command_ids == ("document.structured-edit",)
+
+
+@pytest.mark.parametrize("view", list(CommandListView))
+def test_discovery_names_match_supported_projections_and_description(tmp_path, view):
+    from _application.projection import project_identity
+    catalogue = current_application_catalogue()
+    app = CommandApplication(_context(tmp_path), catalogue)
+    cursor = None
+    found = []
+    while True:
+        result = app.invoke(CommandListRequest(view=view, page_size=500, cursor=cursor))
+        for row in result.result.entries:
+            entry = next(item for item in catalogue.entries if item.command_id == row.command_id)
+            identity = project_identity(row.command_id)
+            expected_mcp = identity.mcp_tool if Projection.MCP in entry.eligible_projections else None
+            expected_cli = identity.cli_argv if Projection.CLI in entry.eligible_projections else None
+            described = app.invoke(CommandDescribeRequest(row.command_id)).result
+            assert (row.mcp_tool, row.cli_argv) == (expected_mcp, expected_cli)
+            assert (described.mcp_tool, described.cli_argv) == (expected_mcp, expected_cli)
+            assert (described.examples[0].mcp_tool, described.examples[0].cli_argv) == (expected_mcp, expected_cli)
+            found.append(row.command_id)
+        cursor = result.result.next_cursor
+        if cursor is None:
+            break
+    assert found == [entry.command_id for entry in catalogue.entries]
+
+
+def test_discovery_does_not_invent_mcp_names_for_cli_only_commands(tmp_path):
+    app = CommandApplication(_context(tmp_path), current_application_catalogue())
+    assert app.invoke(CommandListRequest(query="retrieval_construct-benchmark")).result.entries == ()
+    result = app.invoke(CommandListRequest(query="brain retrieval construct-benchmark"))
+    assert result.result.command_ids == ("retrieval.construct-benchmark",)
+    assert result.result.entries[0].mcp_tool is None
+
+
 def test_generated_discovery_schemas_require_access():
     from _application.projection import result_payload_schema
     from _application.requests import CommandDescribeRequest
@@ -114,6 +158,8 @@ def test_above_maximum_discovery_uses_no_dynamic_provider_facts(tmp_path):
         assert row.availability is Availability.UNKNOWN
         assert row.static_disclosure
         assert "permission.set-profile" in row.permission_management
+        assert row.mcp_tool == "skill_add-git"
+        assert row.cli_argv == ("skill", "add-git")
         if view is CommandListView.DETAILED:
             assert row.availability_freshness is SnapshotFreshness.UNKNOWN
             assert row.missing_optional_providers == ()

@@ -226,6 +226,8 @@ class CommandBrief:
     initial_class: InitialAuthorisationClass
     static_disclosure: bool
     permission_management: str | None
+    mcp_tool: str | None
+    cli_argv: tuple[str, str] | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -251,6 +253,8 @@ class CommandSummary:
     initial_class: InitialAuthorisationClass
     static_disclosure: bool
     permission_management: str | None
+    mcp_tool: str | None
+    cli_argv: tuple[str, str] | None
 
     def __post_init__(self) -> None:
         validate_command_id(self.command_id)
@@ -296,14 +300,16 @@ class CommandListPayload:
 @dataclass(frozen=True, slots=True)
 class CommandExample:
     label: str
-    mcp_tool: str
-    cli_argv: tuple[str, str]
+    mcp_tool: str | None
+    cli_argv: tuple[str, str] | None
     request_json: str
 
     def __post_init__(self) -> None:
         if not self.label.strip():
             raise ValueError("command example requires a label and MCP tool")
-        if self.mcp_tool != "_".join(self.cli_argv):
+        if self.cli_argv is None:
+            return
+        if self.mcp_tool is not None and self.mcp_tool != "_".join(self.cli_argv):
             raise ValueError(
                 "command example requires the projected MCP noun_verb name"
             )
@@ -353,6 +359,8 @@ class CommandDescriptionPayload:
     initial_class: InitialAuthorisationClass
     static_disclosure: bool
     permission_management: str | None
+    mcp_tool: str | None
+    cli_argv: tuple[str, str] | None
 
     def __post_init__(self) -> None:
         if not self.catalogue_schema.startswith("brain.command-catalogue/"):
@@ -386,8 +394,11 @@ class InvocationReadPayload:
 @dataclass(frozen=True, slots=True)
 class CommandListRequest:
     COMMAND_ID: ClassVar[str] = "command.list"
-    COMMAND_VERSION: ClassVar[int] = 4
+    COMMAND_VERSION: ClassVar[int] = 5
     RESULT_TYPE: ClassVar[type] = CommandListPayload
+    FIELD_DESCRIPTIONS: ClassVar[dict[str, str]] = {
+        "query": "Case-insensitive substring of command ID, summary, supported MCP name or CLI spelling (with or without brain).",
+    }
 
     query: str | None = None
     domain: str | None = None
@@ -447,7 +458,7 @@ class CommandListRequest:
 @dataclass(frozen=True, slots=True)
 class CommandDescribeRequest:
     COMMAND_ID: ClassVar[str] = "command.describe"
-    COMMAND_VERSION: ClassVar[int] = 4
+    COMMAND_VERSION: ClassVar[int] = 5
     RESULT_TYPE: ClassVar[type] = CommandDescriptionPayload
     MINIMAL_EXAMPLE: ClassVar[dict[str, str]] = {
         "target_command_id": "command.list"

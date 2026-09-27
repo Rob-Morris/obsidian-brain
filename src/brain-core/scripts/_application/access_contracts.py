@@ -7,7 +7,7 @@ from typing import Literal, Mapping, Protocol
 
 from ._response_budget import ContentRange, TextCursor
 from .consent import ConsentScope
-from .results import CommandNextAction
+from .results import CommandNextAction, NextAction
 
 
 class CommandAuthorisationState(str, Enum):
@@ -75,7 +75,7 @@ class CommandAuthorisation:
     boundary: str
     requestable: bool
     command_review: str | None = None
-    next_action: CommandNextAction | None = None
+    next_action: NextAction | None = None
 
 
 @dataclass(frozen=True, slots=True)

@@ -69,6 +69,8 @@ def test_every_launcher_entry_has_authoritative_summary_and_discovery_contract()
         assert 1 <= len(entry.summary.removesuffix(".").split()) <= 12
         assert summary.owner == "launcher"
         assert summary.owner_ref == entry.owner_ref
+        assert summary.mcp_tool is None
+        assert summary.cli_argv == entry.entry_point[1:]
         assert summary.availability == (
             "unavailable" if entry.required_providers else "available"
         )
@@ -158,6 +160,8 @@ def test_every_launcher_description_derives_from_owning_request_and_result_types
         assert type(resolve_request(owner.request_type, example)) is owner.request_type
         assert example == minimal_request_payload(owner.request_type)
         assert description.owner_ref == entry.owner_ref
+        assert description.mcp_tool is None
+        assert description.cli_argv == entry.entry_point[1:]
         assert description.result_type.endswith(owner.result_type.__qualname__)
         assert description.result_variants[0][0] == "ok"
         assert "invalid_request" in description.error_codes
@@ -165,6 +169,11 @@ def test_every_launcher_description_derives_from_owning_request_and_result_types
 
     with pytest.raises(KeyError, match="not installed"):
         describe_command("unknown.command")
+
+
+@pytest.mark.parametrize("query", ["permission.set-profile", "permission set-profile", "brain permission set-profile"])
+def test_launcher_discovery_searches_cli_spelling(query):
+    assert [entry.command_id for entry in list_commands(query=query).entries] == ["permission.set-profile"]
 
 
 def test_launcher_dynamic_resolver_rejects_unknown_and_wrong_typed_fields():

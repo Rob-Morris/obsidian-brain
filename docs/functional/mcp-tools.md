@@ -27,7 +27,7 @@ The application catalogue owns the installed command inventory and marks each pr
 
 Start an MCP session with `session_start`. On a cold Brain it starts or joins background warm-up and returns the shared `brain.runtime-status/1` snapshot with guidance to poll `runtime.status`; retry `session.start` when ready. `runtime.status` is a cheap read-only observation, while `runtime.warmup` explicitly starts, joins or retries warm-up. The snapshot is labelled `observation: recorded-warmup`: ready means the recorded warm-up finished, not that caches remain current. `runtime.status` supplies `router_check` (`vault.check` with `check: router`) for blocked writes. Discover commands with `command.list`, and inspect one exact request/result contract with `command.describe`. Default discovery uses static catalogue facts and does not probe optional providers; request an explicit refresh only when current provider availability matters.
 
-`command.list` v4 returns a brief view by default: command ID/version,
+`command.list` v5 returns a brief view by default: command ID/version,
 summary, required authority, effect class, transport eligibility, initial class and
 current `access` (`authorised`, `authorisation_required` or `denied`). Availability
 is a provider observation, separate from authorisation. One batched access
@@ -36,6 +36,20 @@ remain discoverable as `static_disclosure: true`: installed metadata and an
 administrative route only, with dynamic availability unknown and no provider
 probes. They are not callable or requestable through the current credential.
 
+Brief and detailed entries expose `mcp_tool` (the exact raw MCP name) and
+`cli_argv` (the noun/action arguments after `brain`). A null mapping means the
+transport is unsupported; a non-null mapping is not an access grant. The same
+fields appear on `command.describe` and its examples. Mappings derive from the
+catalogue projection, retaining hyphens: `document.structured-edit` maps to
+`document_structured-edit` and `["document", "structured-edit"]`. Above-ceiling
+entries retain these static facts without becoming callable.
+
+`query` matches a case-insensitive substring of the canonical ID, summary,
+supported MCP name or supported CLI spelling, with or without the `brain`
+prefix. For example, `command_list({"domain":"document"})` discovers the edit
+family, while `query:"document_structured-edit"` finds that exact command.
+Pass the canonical `command_id` to `command_describe` and consent commands.
+
 The default page has at most 25 entries. Both `brief` and `detailed` views
 stop before the canonical JSON envelope exceeds 16,000 UTF-8 bytes, leaving
 headroom below the observed 20,000-byte client text limit. This is Brain's
@@ -43,7 +57,7 @@ compatibility budget, not an MCP protocol limit. Pass `next_cursor` as `cursor`
 with the same filters to continue; a page may contain fewer than `page_size`
 entries. Shared catalogue identity and availability freshness occur once per
 page. Use `view: "detailed"` for provider/projection/retry/lifecycle metadata;
-`command.describe` v4 retains full schemas and examples and includes access.
+`command.describe` v5 retains full schemas and examples and includes access.
 The byte budget applies to list pages, not arbitrary command descriptions.
 
 Related named resources share the strict `resource.create`, `resource.list`, `resource.read` and `resource.search` tools. Each has a shallow resource or target discriminator and a closed resource-specific result union. Presentation and printable output similarly share `shaping.render` with a strict `output.kind` branch. These commands replace target-only leaves without introducing a generic invocation gateway.
@@ -118,10 +132,16 @@ know whether a human clicked an approval button.
 - `access.prepare` validates an exact target request and returns its canonical
   review, operation ID and digest. Preparation does not enter the target or
   grant consent. Its inspect variant pages context-owned descriptor details.
-- `access.status(target_command_id=...)` returns canonical `command_review` for consent
+- `access.status` v4 with `target_command_id` returns canonical `command_review` for consent
   to that exact command throughout this Brain and current context. Its grants,
   operations and initial views are paged; operation rows recover preparations
   whose response was lost.
+  When consent is required, `next_action` is a non-executing instruction to
+  choose operation-specific or command-wide scope, not another status call or
+  an automatic request. Ordinary blocked invocations still route to status.
+  Denied commands do not receive this consent instruction: inspect their
+  permission, policy or context boundary instead. Consent never raises the
+  credential ceiling.
 - `access.request` echoes the returned review for either one prepared operation
   or one command. Specific consent requires the returned operation selector on
   the target call (`brain_operation` in MCP); successful observation also spends

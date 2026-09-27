@@ -200,12 +200,15 @@ class _FoundationOwners:
     ) -> bool:
         if request.owner is not None and request.owner is not CommandOwner.APPLICATION:
             return False
-        if (
-            request.query is not None
-            and request.query.casefold()
-            not in f"{entry.command_id} {entry.summary}".casefold()
-        ):
-            return False
+        if request.query is not None:
+            names = _invocation_names(entry)
+            spellings = [entry.command_id, entry.summary]
+            if names["mcp_tool"] is not None:
+                spellings.append(names["mcp_tool"])
+            if names["cli_argv"] is not None:
+                spellings.append("brain " + " ".join(names["cli_argv"]))
+            if not any(request.query.casefold() in value.casefold() for value in spellings):
+                return False
         if (
             request.domain is not None
             and entry.command_id.split(".", 1)[0] != request.domain
@@ -300,6 +303,7 @@ class _FoundationOwners:
             access[entry.command_id].state, entry.initial_class,
             _static_disclosure(access[entry.command_id]),
             _permission_management(access[entry.command_id]),
+            **_invocation_names(entry),
         )
 
     @staticmethod
@@ -333,12 +337,13 @@ class _FoundationOwners:
             entry.lifecycle,
             entry.replacement_command_id,
             observation.state, entry.initial_class, static, _permission_management(observation),
+            **_invocation_names(entry),
         )
 
     def _description(self, entry: ApplicationEntry, context: InvocationContext):
         observation = context.access.command_access(entry.command_id)
         static = _static_disclosure(observation)
-        identity = project_identity(entry.command_id)
+        names = _invocation_names(entry)
         result_variants = [
             ResultVariantContract("ok", "The command completed with a typed result."),
             ResultVariantContract("error", "The command completed without a typed result."),
@@ -379,15 +384,24 @@ class _FoundationOwners:
             (
                 CommandExample(
                     "minimal",
-                    identity.mcp_tool,
-                    identity.cli_argv,
+                    names["mcp_tool"],
+                    names["cli_argv"],
                     json.dumps(example_payload, separators=(",", ":")),
                 ),
             ),
             entry.lifecycle,
             entry.replacement_command_id,
             observation.state, entry.initial_class, static, _permission_management(observation),
+            **names,
         )
+
+
+def _invocation_names(entry: ApplicationEntry):
+    identity = project_identity(entry.command_id)
+    return {
+        "mcp_tool": identity.mcp_tool if Projection.MCP in entry.eligible_projections else None,
+        "cli_argv": identity.cli_argv if Projection.CLI in entry.eligible_projections else None,
+    }
 
 
 def _permission_management(observation):

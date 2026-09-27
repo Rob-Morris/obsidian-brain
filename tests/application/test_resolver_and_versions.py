@@ -80,7 +80,7 @@ def test_status_target_is_semantic_input_without_overriding_the_sealed_route():
     from _application.registry import current_request_resolver
 
     resolver = current_request_resolver()
-    request = resolver.resolve("access.status", {"target_command_id": "artefact.delete"}, expected_version=3)
+    request = resolver.resolve("access.status", {"target_command_id": "artefact.delete"}, expected_version=4)
     assert type(request) is AccessStatusRequest
     assert request.COMMAND_ID == "access.status"
     assert request.target_command_id == "artefact.delete"

@@ -47,6 +47,8 @@ class LauncherCommandSummary:
     availability: str
     availability_freshness: str
     missing_providers: tuple[str, ...]
+    mcp_tool: None
+    cli_argv: tuple[str, ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -82,6 +84,8 @@ class LauncherCommandDescription:
     retry_class: str
     projections: tuple[LauncherProjection, ...]
     example_json: str
+    mcp_tool: None
+    cli_argv: tuple[str, ...]
 
 
 def list_commands(
@@ -216,6 +220,8 @@ def describe_command(
             separators=(",", ":"),
             sort_keys=True,
         ),
+        mcp_tool=None,
+        cli_argv=entry.entry_point[1:],
     )
 
 
@@ -223,7 +229,7 @@ def _matches(entry: LauncherEntry, providers: ProviderBindings, **filters) -> bo
     availability = "unavailable" if _missing_providers(entry, providers) else "available"
     query = filters["query"]
     if query is not None and query.casefold() not in (
-        f"{entry.command_id} {entry.summary}".casefold()
+        f"{entry.command_id} {entry.summary} {' '.join(entry.entry_point)}".casefold()
     ):
         return False
     if filters["domain"] is not None and entry.command_id.split(".", 1)[0] != filters["domain"]:
@@ -295,6 +301,8 @@ def _summary(entry: LauncherEntry, providers: ProviderBindings) -> LauncherComma
         "unavailable" if missing else "available",
         "fresh",
         missing,
+        None,
+        entry.entry_point[1:],
     )
 
 

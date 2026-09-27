@@ -68,7 +68,7 @@ def test_request_type_owns_identity_version_and_result_type():
     ]
 
     for request, command_id, result_type in cases:
-        expected_version = 4 if command_id.startswith("command.") else 3
+        expected_version = 5 if command_id.startswith("command.") else 3
         assert command_identity(request) == (command_id, expected_version, result_type)
         assert "command_id" not in request.__dataclass_fields__
 

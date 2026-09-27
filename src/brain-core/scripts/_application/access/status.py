@@ -1,10 +1,10 @@
 """Bounded owner-local authorisation inventory and canonical command review."""
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import ClassVar
 
-from ..access_contracts import AccessPageCursor, AccessStatusPayload, AccessStatusView
+from ..access_contracts import AccessPageCursor, AccessStatusPayload, AccessStatusView, CommandAuthorisationState
 from .._response_budget import encoded_result_size, MODEL_TEXT_BUDGET
-from ..results import Ok
+from ..results import InstructionNextAction, Ok
 from ..types import validate_command_id
 from ._support import control_entry, object_fields, nonempty
 
@@ -12,7 +12,7 @@ from ._support import control_entry, object_fields, nonempty
 @dataclass(frozen=True, slots=True)
 class AccessStatusRequest:
     COMMAND_ID: ClassVar[str] = "access.status"
-    COMMAND_VERSION: ClassVar[int] = 3
+    COMMAND_VERSION: ClassVar[int] = 4
     RESULT_TYPE: ClassVar[type] = AccessStatusPayload
     FIELD_DESCRIPTIONS: ClassVar[dict[str, str]] = {"target_command_id": "Optional exact command; returns canonical command_review for explicit blanket consent.", "view": "List grants, prepared operations, or initial command authorisation.", "cursor": "Repeat the same view and command filter with the returned continuation.", "page_size": "Maximum rows, 1–64; the byte budget can return fewer."}
     MINIMAL_EXAMPLE: ClassVar[dict[str, object]] = {"target_command_id": "artefact.delete"}
@@ -38,6 +38,17 @@ def execute(context, request):
     while True:
         payload = context.access.status(view=request.view, command_id=request.target_command_id,
             cursor=request.cursor, page_size=size)
+        if payload.command is not None and payload.command.state is CommandAuthorisationState.REQUIRED:
+            payload = replace(payload, command=replace(payload.command, next_action=InstructionNextAction(
+                "Choose the consent scope explicitly; do not request automatically. "
+                "For one operation, call access.prepare with a preparation object containing "
+                "kind=operation, command_id and arguments. Then call access.request with a consent "
+                "object containing scope=operation and the returned operation_id, digest and review. "
+                "After consent, select the operation on the target call using MCP brain_operation "
+                "or CLI --operation. Only when command-wide consent is intended, call access.request "
+                "with a consent object containing scope=command, this command_id, and review set "
+                "to the exact command_review from this status. Use command.describe for full schemas. "
+                "Consent cannot raise credential permissions.")))
         result = Ok(request.COMMAND_ID, request.COMMAND_VERSION, payload)
         if encoded_result_size(result) < MODEL_TEXT_BUDGET:
             return result

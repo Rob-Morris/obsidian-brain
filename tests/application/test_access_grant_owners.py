@@ -168,9 +168,57 @@ def test_status_remedy_resolves_through_sealed_dynamic_boundary(tmp_path):
     typed = current_request_resolver().resolve(next_action.command_id, arguments)
     result = status.execute(context, typed)
     assert result.command_id == "access.status"
-    assert result.command_version == 3
+    assert result.command_version == 4
     assert result.result.command.command_id == "artefact.delete"
     assert result.result.command.command_review
+    from _application.results import InstructionNextAction
+    assert isinstance(result.result.command.next_action, InstructionNextAction)
+    instruction = result.result.command.next_action.instruction
+    assert "do not request automatically" in instruction
+    assert "access.prepare" in instruction
+    assert "scope=operation" in instruction
+    assert "scope=command" in instruction
+    assert "brain_operation" in instruction
+    assert "CLI --operation" in instruction
+    assert "preparation object" in instruction
+    assert "consent object" in instruction
+    assert context.access.command_access("artefact.delete").state is CommandAuthorisationState.REQUIRED
+    assert result.committed_effects == ()
+
+
+def test_status_command_review_handoff_resolves_and_authorises_only_when_requested(tmp_path):
+    from command_application import context_for
+    from _application.application import CommandApplication
+    context = context_for(tmp_path, initial_commands=())
+    app = CommandApplication(context, current_application_catalogue())
+    resolver = current_request_resolver()
+    observed = app.invoke(resolver.resolve("access.status", {"target_command_id": "artefact.delete"}))
+    command = observed.result.command
+    assert command.state is CommandAuthorisationState.REQUIRED
+    assert context.access.command_access(command.command_id).state is CommandAuthorisationState.REQUIRED
+    consent = resolver.resolve("access.request", {"consent": {
+        "scope": "command", "command_id": command.command_id, "review": command.command_review,
+    }})
+    granted = app.invoke(consent)
+    assert granted.status == "ok"
+    assert granted.result.state is CommandAuthorisationState.AUTHORISED
+    assert context.access.command_access(command.command_id).state is CommandAuthorisationState.AUTHORISED
+
+
+@pytest.mark.parametrize("allowed,initial,expected", [
+    (True, True, CommandAuthorisationState.AUTHORISED),
+    (False, False, CommandAuthorisationState.DENIED),
+])
+def test_status_does_not_offer_consent_for_authorised_or_above_ceiling_command(tmp_path, allowed, initial, expected):
+    from command_application import context_for
+    commands = {entry.command_id for entry in current_application_catalogue().entries}
+    permitted = commands if allowed else commands - {"artefact.delete"}
+    context = context_for(tmp_path, allowed_commands=permitted,
+                          initial_commands=permitted if initial else ())
+    result = status.execute(context, status.AccessStatusRequest(target_command_id="artefact.delete"))
+    assert result.result.command.state is expected
+    assert result.result.command.next_action is None
+    assert result.committed_effects == ()
 
 
 @pytest.mark.parametrize("available,policy", [(True, "allowed"), (False, "allowed"), (True, "denied"), (True, "migration_required")])
@@ -195,12 +243,18 @@ def test_specific_read_preparation_request_and_success_spend_in_real_application
     target = VaultReadFileRequest(".brain-core/guide.md")
     denied = app.invoke(target)
     assert denied.error.code is ErrorCode.AUTHORISATION_REQUIRED
-    prepared = app.invoke(prepare.AccessPrepareRequest(prepare.PrepareCommand(target.COMMAND_ID, {"path": target.path})))
+    resolver = current_request_resolver()
+    prepared = app.invoke(resolver.resolve("access.prepare", {"preparation": {
+        "kind": "operation", "command_id": target.COMMAND_ID, "arguments": {"path": target.path},
+    }}))
     assert prepared.status == "ok", prepared
     operation = prepared.result
     listed = app.invoke(status.AccessStatusRequest(view=status.AccessStatusView.OPERATIONS))
     assert listed.result.entries[0].operation_id == operation.operation_id
-    granted = app.invoke(request.AccessRequestRequest(request.OperationConsent(operation.operation_id, operation.digest, operation.review)))
+    granted = app.invoke(resolver.resolve("access.request", {"consent": {
+        "scope": "operation", "operation_id": operation.operation_id,
+        "digest": operation.digest, "review": operation.review,
+    }}))
     assert granted.status == "ok", granted
     app._context = replace(app._context, operation_id=operation.operation_id)
     read = app.invoke(target)

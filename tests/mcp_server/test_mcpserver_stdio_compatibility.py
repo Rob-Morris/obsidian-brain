@@ -176,16 +176,15 @@ def test_stdio_status_filter_and_returned_remedy_enable_explicit_blanket_consent
                 assert not status.is_error, status
                 envelope = status.structured_content
                 assert envelope["command"] == "access.status"
-                assert envelope["command_version"] == 3
+                assert envelope["command_version"] == 4
                 command = envelope["result"]["command"]
                 assert command["command_id"] == "artefact.delete"
                 assert command["state"] == "authorisation_required"
                 remedy = command["next_action"]
-                assert remedy["command_id"] == "access.status"
-                repeated = await session.call_tool("access_status", {
-                    item["name"]: item["value"] for item in remedy["arguments"]})
-                assert not repeated.is_error
-                assert repeated.structured_content["result"]["command"]["command_review"] == command["command_review"]
+                assert "command_id" not in remedy
+                assert "consent object" in remedy["instruction"]
+                assert "do not request automatically" in remedy["instruction"]
+                assert "CLI --operation" in remedy["instruction"]
 
                 granted = await session.call_tool("access_request", {"consent": {
                     "scope": "command", "command_id": command["command_id"], "review": command["command_review"]}})
