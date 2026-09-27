@@ -168,6 +168,78 @@ def _install_type(vault, type_key="temporal/cookies"):
     sync.save_tracking(str(vault), tracking)
 
 
+@pytest.mark.parametrize("identifiers", [
+    ["temporal/cookies"], ["temporal/cookie"], ["temporal/cookies", "temporal/cookie"],
+])
+def test_type_lookup_uses_existing_frontmatter_mapping(vault, identifiers):
+    taxonomy = vault / ".brain-core/artefact-library/temporal/cookies/taxonomy.md"
+    taxonomy.write_text("# Cookies\n\n## Frontmatter\n\n```yaml\n---\ntype: temporal/cookie\n---\n```\n")
+    status = sync.status_definitions(str(vault), types=identifiers)
+    assert [row["type"] for row in status["types"]["uninstalled"]] == ["temporal/cookies"]
+    plan = sync.plan_sync_definitions(str(vault), types=identifiers)
+    assert plan.type_keys == ("temporal/cookies",)
+    assert len(plan.copies) == 2
+    sync.apply_definition_sync(str(vault), plan)
+    assert list(sync.load_tracking(str(vault))["installed"]) == ["temporal/cookies"]
+
+
+def test_type_lookup_prefers_the_installed_taxonomy_mapping(vault):
+    source = vault / ".brain-core/artefact-library/temporal/cookies/taxonomy.md"
+    source.write_text("# Cookies\n\n## Frontmatter\n\n```yaml\n---\ntype: temporal/cookie\n---\n```\n")
+    _install_type(vault)
+    installed = vault / "_Config/Taxonomy/Temporal/cookies.md"
+    installed.write_text(source.read_text().replace("temporal/cookie", "temporal/local-cookie"))
+    result = sync.status_definitions(str(vault), types=["temporal/local-cookie"])
+    assert result["types"]["locally_customised"][0]["type"] == "temporal/cookies"
+    with pytest.raises(sync.UnknownLibraryType):
+        sync.status_definitions(str(vault), types=["temporal/cookie"])
+
+
+@pytest.mark.parametrize("selector", ["temporal/cookies", "temporal/shared"])
+def test_type_lookup_rejects_key_alias_and_alias_alias_collisions(vault_two_types, selector):
+    for key in ["temporal/cookies", "living/wiki"]:
+        taxonomy = vault_two_types / ".brain-core/artefact-library" / key / "taxonomy.md"
+        taxonomy.write_text(f"# Type\n\n## Frontmatter\n\n```yaml\n---\ntype: {selector}\n---\n```\n")
+    with pytest.raises(ValueError, match="Ambiguous.*living/wiki.*temporal/cookies"):
+        sync.status_definitions(str(vault_two_types), types=[selector])
+    with pytest.raises(ValueError, match="Ambiguous"):
+        sync.plan_sync_definitions(str(vault_two_types), types=[selector])
+
+
+@pytest.mark.parametrize("preference", ["ask", "skip"])
+def test_unknown_selector_does_not_partially_sync_known_types(vault, preference):
+    (vault / ".brain/preferences.json").write_text(json.dumps({"artefact_sync": preference}))
+    before = (vault / ".brain/tracking.json").read_bytes()
+    with pytest.raises(sync.UnknownLibraryType, match="temporal/missing"):
+        sync.sync_definitions(str(vault), types=["temporal/cookies", "temporal/missing"])
+    assert (vault / ".brain/tracking.json").read_bytes() == before
+    assert not (vault / "_Config/Taxonomy/Temporal/cookies.md").exists()
+
+
+@pytest.mark.parametrize("selector", ["temporal/missing", "temporal/shared"])
+def test_direct_sync_validates_explicit_selection_when_sync_disabled(vault_two_types, monkeypatch, capsys, selector):
+    (vault_two_types / ".brain/preferences.json").write_text('{"artefact_sync":"skip"}')
+    for key in ["temporal/cookies", "living/wiki"]:
+        taxonomy = vault_two_types / ".brain-core/artefact-library" / key / "taxonomy.md"
+        taxonomy.write_text("# Type\n\n## Frontmatter\n\n```yaml\n---\ntype: temporal/shared\n---\n```\n")
+    monkeypatch.setattr(sync, "handoff_current_script_to_managed_runtime", lambda *args, **kwargs: None)
+    monkeypatch.setattr("sys.argv", ["sync_definitions.py", "--vault", str(vault_two_types), "--types", selector])
+    with pytest.raises(SystemExit) as caught:
+        sync.main()
+    assert caught.value.code == 2
+    assert ("Unknown" if selector.endswith("missing") else "Ambiguous") in capsys.readouterr().err
+    assert not (vault_two_types / "_Config/Taxonomy/Temporal/cookies.md").exists()
+
+
+def test_sync_disabled_still_skips_a_valid_explicit_synonym(vault):
+    (vault / ".brain/preferences.json").write_text('{"artefact_sync":"skip"}')
+    source = vault / ".brain-core/artefact-library/temporal/cookies/taxonomy.md"
+    source.write_text("# Cookies\n\n## Frontmatter\n\n```yaml\n---\ntype: temporal/cookie\n---\n```\n")
+    result = sync.sync_definitions(str(vault), types=["temporal/cookie"])
+    assert result["status"] == "skipped"
+    assert not (vault / "_Config/Taxonomy/Temporal/cookies.md").exists()
+
+
 # ---------------------------------------------------------------------------
 # parse_manifest
 # ---------------------------------------------------------------------------

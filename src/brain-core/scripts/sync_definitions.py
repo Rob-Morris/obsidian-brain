@@ -294,12 +294,27 @@ def load_exclude_set(prefs: dict) -> set:
     return set(raw) if isinstance(raw, list) else set()
 
 
-def _filter_types(library_types: list, types: Optional[list[str]]) -> list:
-    """Filter discovered library types to the requested subset, if any."""
+class UnknownLibraryType(ValueError):
+    """A requested identifier has no matching artefact-library entry."""
+
+
+def _filter_types(vault_root: str, library_types: list, types: Optional[list[str]]) -> list:
+    """Select entries by library key or existing frontmatter type, without guessing."""
     if types is None:
         return library_types
-    type_set = set(types)
-    return [t for t in library_types if t["type_key"] in type_set]
+    lookup = {}
+    for info in library_types:
+        for identifier in {info["type_key"], definition_artefact_type(vault_root, info)} - {None}:
+            lookup.setdefault(identifier, set()).add(info["type_key"])
+    selected = set()
+    for identifier in types:
+        matches = lookup.get(identifier, set())
+        if not matches:
+            raise UnknownLibraryType(f"Unknown artefact-library type: {identifier}")
+        if len(matches) > 1:
+            raise ValueError(f"Ambiguous artefact-library type {identifier!r}: {', '.join(sorted(matches))}")
+        selected.update(matches)
+    return [info for info in library_types if info["type_key"] in selected]
 
 
 def _make_tracking_entry(upstream_hash: str, target: str) -> dict:
@@ -447,7 +462,7 @@ def status_definitions(
     """
     brain_core_version = read_version(vault_root) or "unknown"
     tracking = load_tracking(vault_root)
-    library_types = _filter_types(discover_library_types(vault_root), types)
+    library_types = _filter_types(vault_root, discover_library_types(vault_root), types)
 
     groups = {
         "uninstalled": [],
@@ -730,6 +745,10 @@ def plan_sync_definitions(
     prefs = load_preferences(vault_root)
     preference = preference if preference is not None else prefs.get("artefact_sync", "ask")
     brain_core_version = read_version(vault_root) or "unknown"
+    library_types = (
+        _filter_types(vault_root, discover_library_types(vault_root), types)
+        if types is not None else None
+    )
 
     if preference == "skip":
         return DefinitionSyncPlan({
@@ -744,7 +763,8 @@ def plan_sync_definitions(
             "message": "Sync disabled (artefact_sync: skip).",
         }, (), (), None, (), (), ())
     tracking = load_tracking(vault_root)
-    library_types = _filter_types(discover_library_types(vault_root), types)
+    if library_types is None:
+        library_types = discover_library_types(vault_root)
     exclude_set = load_exclude_set(prefs)
 
     updated = []
@@ -951,7 +971,7 @@ def main() -> None:
     parser.add_argument("--vault", help="Path to vault root (default: auto-detect)")
     parser.add_argument("--dry-run", action="store_true", help="Preview without modifying")
     parser.add_argument("--force", action="store_true", help="Overwrite despite conflicts")
-    parser.add_argument("--types", help="Comma-separated type keys to sync")
+    parser.add_argument("--types", help="Comma-separated library keys or mapped frontmatter types to sync")
     parser.add_argument("--status", action="store_true",
                         help="Read-only: classify every library type by its vault state")
     parser.add_argument("--json", action="store_true", dest="json_output", help="JSON output")
@@ -977,17 +997,18 @@ def main() -> None:
 
     type_list = args.types.split(",") if args.types else None
 
+    try:
+        result = (status_definitions(vault_root, types=type_list) if args.status else
+                  sync_definitions(vault_root, dry_run=args.dry_run, force=args.force, types=type_list))
+    except ValueError as exc:
+        parser.error(str(exc))
+
     if args.status:
-        result = status_definitions(vault_root, types=type_list)
         if args.json_output:
             print(json.dumps(result, indent=2))
         else:
             _print_status_human(result)
         return
-
-    result = sync_definitions(
-        vault_root, dry_run=args.dry_run, force=args.force, types=type_list,
-    )
 
     if args.json_output:
         print(json.dumps(result, indent=2))

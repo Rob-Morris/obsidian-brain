@@ -8,6 +8,24 @@ explicitly; inspect drift before repair and verify activation in the client.
 
 ---
 
+## Discovering a command and its access
+
+Start with `session_start`, then use filtered discovery such as
+`command_list({"domain":"document"})`. Entries give exact `mcp_tool` and
+`cli_argv` spellings; null means that transport is unsupported. Search accepts
+those spellings as well as canonical IDs. Follow pagination before concluding
+that a command is absent, and use `command_describe` with its `command_id` for
+the full request shape. See the [MCP contract](../functional/mcp-tools.md) and
+[CLI discovery](../functional/cli.md) for details.
+
+Transport support, runtime `availability` and current `access` answer different
+questions. For `authorisation_required`, inspect `access_status` and explicitly
+choose operation-specific preparation or command-wide consent. Echo the exact
+returned review to `access_request` only for the intended scope. For `denied`,
+inspect the reported boundary instead: consent cannot raise permissions, and
+switching transports is not a remedy for denial. A granted command still needs
+to be within the user's task.
+
 ## Workspace-aware changes
 
 When a local workspace is bound, creation and semantic edits use its shared and

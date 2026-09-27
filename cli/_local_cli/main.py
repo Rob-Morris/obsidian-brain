@@ -481,7 +481,8 @@ def _run_discovery(command_argv, *, common, selected, cli_binary, distribution_r
                 "schema": launcher.schema, "fingerprint": launcher.catalogue_fingerprint,
             }
         brief_fields = ("command_id", "command_version", "summary", "authority",
-                        "effect_class", "availability", "access", "entry_point")
+                        "effect_class", "availability", "access", "entry_point",
+                        "mcp_tool", "cli_argv")
         entries = []
         for item in composed.entries:
             fields = (dict(item.payload) if arguments.view == "detailed" or item.owner == "application" else

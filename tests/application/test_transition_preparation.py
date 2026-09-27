@@ -1,6 +1,7 @@
 """Exact transition consent follows matching worksets rather than unrelated content."""
 
 from dataclasses import replace
+import pytest
 
 from _application.artefact.rename import ArtefactRenameRequest, catalogue_entry, execute
 from command_application import application_for
@@ -118,6 +119,44 @@ def test_type_sync_preserves_unrelated_tracking_after_preparation(command_vault_
     assert result.status == "ok"
     assert len(admission.calls) == 1
     assert sync_definitions.load_tracking(str(root))["installed"]["living/unrelated"]["sentinel"] == "preserved"
+
+
+@pytest.mark.parametrize("identifier", ["living/journals", "living/journal"])
+def test_type_sync_preparation_resolves_the_canonical_target(command_vault_clone, identifier):
+    from _application.type.sync import TypeSyncRequest, catalogue_entry, execute
+
+    root = command_vault_clone.vault_root
+    context = application_for(root)._context
+    request = TypeSyncRequest(identifier)
+    binding = catalogue_entry().preparation.prepare(context, request)
+    assert binding.review["type"] == "living/journals"
+    assert binding.review["tracking"] == ["living/journals"]
+    admission = Admission(binding)
+    result = execute(replace(context, admission=admission), request)
+    assert result.status == "ok"
+    assert result.result.type_key == "living/journals"
+    assert len(admission.calls) == 1
+
+
+def test_type_sync_retargeted_synonym_cannot_reuse_prepared_consent(command_vault_clone):
+    from _application.type.sync import TypeSyncRequest, catalogue_entry, execute
+
+    root = command_vault_clone.vault_root
+    context = application_for(root)._context
+    request = TypeSyncRequest("living/journal", force=True)
+    binding = catalogue_entry().preparation.prepare(context, request)
+    library = root / ".brain-core/artefact-library/living"
+    journals = library / "journals/taxonomy.md"
+    journals.write_text(journals.read_text().replace("type: living/journal", "type: living/renamed"))
+    notes = root / "_Config/Taxonomy/Living/notes.md"
+    notes.write_text(notes.read_text().replace("type: living/note", "type: living/journal"))
+    before = {path: path.read_bytes() for path in (root / "_Config").rglob("*.md")}
+    admission = Admission(binding)
+    with pytest.raises(ValueError, match="prepared operation changed"):
+        execute(replace(context, admission=admission), request)
+    assert admission.calls == []
+    assert before == {path: path.read_bytes() for path in (root / "_Config").rglob("*.md")}
+    assert not (root / "_Config/Taxonomy/Living/journals.md").exists()
 
 
 def test_empty_folder_growth_rejects_prepared_removal(command_vault_clone):

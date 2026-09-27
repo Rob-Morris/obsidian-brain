@@ -39,7 +39,7 @@
     },
     {
       "command_id": "access.status",
-      "version": 3,
+      "version": 4,
       "owner": "application",
       "classification": "control",
       "mcp": "access_status",
@@ -279,7 +279,7 @@
     },
     {
       "command_id": "command.describe",
-      "version": 4,
+      "version": 5,
       "owner": "application",
       "classification": "control",
       "mcp": "command_describe",
@@ -291,7 +291,7 @@
     },
     {
       "command_id": "command.list",
-      "version": 4,
+      "version": 5,
       "owner": "application",
       "classification": "control",
       "mcp": "command_list",
@@ -795,7 +795,7 @@
     },
     {
       "command_id": "type.status",
-      "version": 2,
+      "version": 3,
       "owner": "application",
       "classification": "observation",
       "mcp": "type_status",
@@ -807,7 +807,7 @@
     },
     {
       "command_id": "type.sync",
-      "version": 2,
+      "version": 3,
       "owner": "application",
       "classification": "exceptional",
       "mcp": "type_sync",
@@ -1025,5 +1025,5 @@
       "authority": "reader"
     }
   ],
-  "fingerprint": "sha256:6f961c42eb8b81c6dd70b3fe4c393a1f9c0a18f028643303d9b0f8723133c965"
+  "fingerprint": "sha256:3ac82ac3163d3398f62d570e5124adca4b0cb6635aa715c6382b37c9ea8e8e2f"
 }

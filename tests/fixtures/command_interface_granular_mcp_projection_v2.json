@@ -7,13 +7,13 @@
   "client_projector_observed_at": "2026-09-13T10:59:32+10:00",
   "clients": {
     "claude-code": {
-      "catalogue_hash": "sha256:865d0d2569918b901dbe938575f940ec372a41538f45753d34e3174487a33d84",
+      "catalogue_hash": "sha256:f0500e74f8e1808a114a5d4b2b79771ec33e6de4d7b506f65375ad1fc2f80e8d",
       "client_version": "2.1.270",
       "maximum_tool_tokens": 2381,
       "projector": "claude-code-model-tool-declaration/2.1.270",
       "projector_source": "captured model request plus deterministic replay",
-      "raw_bytes": 70603,
-      "tokens": 15420,
+      "raw_bytes": 70915,
+      "tokens": 15487,
       "tool_count": 72,
       "tools": {
         "access_prepare": {
@@ -155,10 +155,10 @@
           "tokens": 66
         },
         "command_list": {
-          "projected_declaration_hash": "sha256:f1f22718078e583441b70035da3b0b4f8b90d604aed49e13c6979cc5b5ceb985",
-          "raw_bytes": 2120,
-          "source_schema_hash": "sha256:29328e4d1de029e6722eef1832e118bce1b0fd113c852e148e2ce61099a8f0dc",
-          "tokens": 465
+          "projected_declaration_hash": "sha256:6737f019e8d03b2467463a2c9c669697705d0b9f4df20ea4ee45a63c83adad3a",
+          "raw_bytes": 2225,
+          "source_schema_hash": "sha256:fb6a4268ed44192c7a4351e2d1a39c1d1deca96fc7daf83cef005a15246bf40b",
+          "tokens": 486
         },
         "content_classify": {
           "projected_declaration_hash": "sha256:4f88a7fef69ea87e270c48aa8fd7e2b8c61a88cfb991af4f646e15c91acbe256",
@@ -389,16 +389,16 @@
           "tokens": 361
         },
         "type_status": {
-          "projected_declaration_hash": "sha256:4a23191989b9ceb531483b6bce247f01b9c2dc0a827183d82b01b3bae1fa7d52",
-          "raw_bytes": 448,
-          "source_schema_hash": "sha256:02289500699c5c1b078cd5a104670371b238bac90a1888151ff3f1909f4ed3f6",
-          "tokens": 98
+          "projected_declaration_hash": "sha256:59cb51f1941c91b37573febe882e4bf80a6df234f72f8352db3d395ce72e3cf1",
+          "raw_bytes": 563,
+          "source_schema_hash": "sha256:da433d90c052a8fb0427d2389e27d7890389cf802ad8962f2a6c7e3b1afac331",
+          "tokens": 124
         },
         "type_sync": {
-          "projected_declaration_hash": "sha256:2ffda9337dde2e6cb337ddbfed9e4c9aa04ba70b4070e16cf8701fd02b90dff3",
-          "raw_bytes": 493,
-          "source_schema_hash": "sha256:a9c971d8a5343a1b94a0613871c1514a4a35bda96c9926fb5eaa2788808581fe",
-          "tokens": 109
+          "projected_declaration_hash": "sha256:fe289aa7a5ad8239a5dd99a2c1186219a882f4de1cc46715fef430cb8d667167",
+          "raw_bytes": 585,
+          "source_schema_hash": "sha256:561305ef1d47116935a33887e08a19ebc660475c4622f60ecdc61fce953858c1",
+          "tokens": 129
         },
         "vault_check": {
           "projected_declaration_hash": "sha256:37a7fe70384c96207f5111ab1222b0a41c976fc970c4305ccd39827cc1c7dc1c",
@@ -452,13 +452,13 @@
       "version_command": "claude --version"
     },
     "codex-cli": {
-      "catalogue_hash": "sha256:4d66bf97d00043e6fb508fd1ad7d63da06abb1427ea0d83b8ea403d27cc4429c",
+      "catalogue_hash": "sha256:8eb50e8ae420b0baa2f60c0af73e52c1a8771299fe1f2a4ca608f7d9379befad",
       "client_version": "0.154.0",
       "maximum_tool_tokens": 2381,
       "projector": "codex-cli-responses-function-declaration/0.154.0",
       "projector_source": "captured model request plus deterministic replay",
-      "raw_bytes": 71827,
-      "tokens": 15556,
+      "raw_bytes": 72139,
+      "tokens": 15623,
       "tool_count": 72,
       "tools": {
         "access_prepare": {
@@ -600,10 +600,10 @@
           "tokens": 74
         },
         "command_list": {
-          "projected_declaration_hash": "sha256:68c07d3c4b1577adfb1b9e71738f1cd794460864b6a03be931f250415dbeaaff",
-          "raw_bytes": 1948,
-          "source_schema_hash": "sha256:29328e4d1de029e6722eef1832e118bce1b0fd113c852e148e2ce61099a8f0dc",
-          "tokens": 417
+          "projected_declaration_hash": "sha256:dfd0bafee1889c9f3040726a576acaa01a691fa91cec0148593f5a7a46fc53dd",
+          "raw_bytes": 2053,
+          "source_schema_hash": "sha256:fb6a4268ed44192c7a4351e2d1a39c1d1deca96fc7daf83cef005a15246bf40b",
+          "tokens": 438
         },
         "content_classify": {
           "projected_declaration_hash": "sha256:dc68b9366768ae7643bccce455c909427c49059d6c54948f39c28d66033c10ea",
@@ -834,16 +834,16 @@
           "tokens": 369
         },
         "type_status": {
-          "projected_declaration_hash": "sha256:6d6b881792631aa5d4a239d712f2f447e62c59a3eb544408d414b39c3777268d",
-          "raw_bytes": 475,
-          "source_schema_hash": "sha256:02289500699c5c1b078cd5a104670371b238bac90a1888151ff3f1909f4ed3f6",
-          "tokens": 103
+          "projected_declaration_hash": "sha256:1aeca512f465ae2380040610973ef2a8f28b6aaddcab17949e68ac9522b7990d",
+          "raw_bytes": 590,
+          "source_schema_hash": "sha256:da433d90c052a8fb0427d2389e27d7890389cf802ad8962f2a6c7e3b1afac331",
+          "tokens": 129
         },
         "type_sync": {
-          "projected_declaration_hash": "sha256:70b0aa97e4702b62e9bf0c1618b8818ca7ed42a9e5a8d1fa49b87e656a64061c",
-          "raw_bytes": 517,
-          "source_schema_hash": "sha256:a9c971d8a5343a1b94a0613871c1514a4a35bda96c9926fb5eaa2788808581fe",
-          "tokens": 113
+          "projected_declaration_hash": "sha256:6821b11f791689c93c792a74ddc63c1760e91514add9cc8a2720d93bee1788df",
+          "raw_bytes": 609,
+          "source_schema_hash": "sha256:561305ef1d47116935a33887e08a19ebc660475c4622f60ecdc61fce953858c1",
+          "tokens": 133
         },
         "vault_check": {
           "projected_declaration_hash": "sha256:65693643a405d602fe7b546fca3b6f933811b4382971cf8527036a1721202905",
@@ -900,9 +900,9 @@
   "interface_epoch": 3,
   "mcp_sdk_version": "2.0.0",
   "raw_fastmcp": {
-    "catalogue_hash": "sha256:1a1d0d621c68a585188b652b6b17b5c23188606b81b580c035f6b3064f8dfba9",
-    "raw_bytes": 69739,
-    "tokens": 15060,
+    "catalogue_hash": "sha256:e8e205fcb63f11c80032a6233d12d2263f3c7b852c2e810cccd52492c8ddc819",
+    "raw_bytes": 70051,
+    "tokens": 15127,
     "tool_count": 72
   },
   "schema": "brain.command-interface-granular-mcp-projection/1",

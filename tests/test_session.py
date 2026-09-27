@@ -87,9 +87,9 @@ class TestBuildSessionModel:
         assert route == {
             **expected_route,
             "brain_core_version": "0.25.0",
-            "list": "Use command.list for filtered, paginated commands.",
+            "list": "Use command.list (MCP command_list) for filtered, paginated discovery.",
             "describe": (
-                "Use command.describe for one complete command contract."
+                "Use command.describe (MCP command_describe) for one complete contract."
             ),
         }
         assert len(json.dumps(route, separators=(",", ":")).encode("utf-8")) <= 512

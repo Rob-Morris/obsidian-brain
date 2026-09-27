@@ -113,6 +113,21 @@ def _registered(tmp_path, allowed_tools):
     return mcp, catalogue, resolver, names
 
 
+def test_mcp_discovery_returns_the_registered_edit_name(tmp_path):
+    mcp, _catalogue, _resolver, names = _registered(tmp_path, ("command.list", "command.describe"))
+    listed = asyncio.run(mcp.call_tool("command_list", {"query": "document_structured-edit"}))
+    assert not listed.is_error
+    rows = listed.structured_content["result"]["entries"]
+    assert len(rows) == 1
+    row = rows[0]
+    assert row["mcp_tool"] == "document_structured-edit"
+    assert row["mcp_tool"] in names
+    assert row["cli_argv"] == ["document", "structured-edit"]
+    described = asyncio.run(mcp.call_tool("command_describe", {"target_command_id": row["command_id"]}))
+    assert described.structured_content["result"]["mcp_tool"] == row["mcp_tool"]
+    assert described.structured_content["result"]["examples"][0]["mcp_tool"] == row["mcp_tool"]
+
+
 def test_every_mcp_eligible_command_registers_one_flat_canonical_schema(tmp_path):
     mcp, catalogue, _resolver, names = _registered(tmp_path, ())
     eligible = tuple(

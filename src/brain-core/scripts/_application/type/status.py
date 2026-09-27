@@ -49,8 +49,11 @@ class TypeStatusPayload:
 @dataclass(frozen=True, slots=True)
 class TypeStatusRequest:
     COMMAND_ID: ClassVar[str] = "type.status"
-    COMMAND_VERSION: ClassVar[int] = 2
+    COMMAND_VERSION: ClassVar[int] = 3
     RESULT_TYPE: ClassVar[type] = TypeStatusPayload
+    FIELD_DESCRIPTIONS: ClassVar[dict[str, str]] = {
+        "type_keys": "Library keys (living/notes) or mapped frontmatter types (living/note). Omit to list all; results use canonical library keys."
+    }
 
     type_keys: tuple[str, ...] = ()
 
@@ -71,6 +74,8 @@ def execute(context: InvocationContext, request: TypeStatusRequest):
             context.selected_brain.vault_root,
             types=list(request.type_keys) if request.type_keys else None,
         )
+    except sync_definitions.UnknownLibraryType as exc:
+        return command_error(TypeStatusRequest, ErrorCode.NOT_FOUND, str(exc), "type_keys")
     except (OSError, ValueError) as exc:
         return command_error(TypeStatusRequest, ErrorCode.CONFLICT, str(exc), None)
 
@@ -94,15 +99,6 @@ def execute(context: InvocationContext, request: TypeStatusRequest):
                 (),
                 entry["reason"],
             )
-        )
-    found = {item.type_key for item in items}
-    missing = sorted(set(request.type_keys) - found)
-    if missing:
-        return command_error(
-            TypeStatusRequest,
-            ErrorCode.NOT_FOUND,
-            f"Unknown artefact-library type(s): {', '.join(missing)}",
-            "type_keys",
         )
     ordered = tuple(sorted(items, key=lambda item: item.type_key.casefold()))
     return Ok(

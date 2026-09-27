@@ -194,8 +194,8 @@ def _load_command_catalogue_route(vault_root, brain_core_version):
     return {
         **value,
         "brain_core_version": brain_core_version,
-        "list": "Use command.list for filtered, paginated commands.",
-        "describe": "Use command.describe for one complete command contract.",
+        "list": "Use command.list (MCP command_list) for filtered, paginated discovery.",
+        "describe": "Use command.describe (MCP command_describe) for one complete contract.",
     }
 
 

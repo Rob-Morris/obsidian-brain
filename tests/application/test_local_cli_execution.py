@@ -817,3 +817,13 @@ def test_cli_discovery_json_input_and_flat_page_preserve_continuation(tmp_path, 
     assert [item["command_id"] for item in second["entries"]] == ["invocation.read"]
     assert second["application_next_cursor"] is None
     assert seen[0]["page_size"] == 2
+    assert second["entries"][0]["mcp_tool"] == "invocation_read"
+    assert second["entries"][0]["cli_argv"] == ["invocation", "read"]
+
+    from _launcher.context import ProviderBindings
+    monkeypatch.setattr(main, "compose_launcher_context",
+                        lambda **_kwargs: SimpleNamespace(providers=ProviderBindings()))
+    launcher = page({"owner": "launcher", "query": "brain permission set-profile"})
+    assert len(launcher["entries"]) == 1
+    assert launcher["entries"][0]["mcp_tool"] is None
+    assert launcher["entries"][0]["cli_argv"] == ["permission", "set-profile"]

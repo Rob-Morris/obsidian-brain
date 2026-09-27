@@ -140,6 +140,15 @@ Returns a read-only classification of every library type: `uninstalled`,
 `not_installable` bucket for library-side errors. Use `brain command describe
 type.status --json` for the exact result contract.
 
+For `type.status` filters and `type.sync`, the library key (`living/notes`)
+and its mapped frontmatter type (`living/note`) are lookup synonyms. Results,
+sync tracking and consent reviews use the canonical library key. The mapping
+comes from the installed taxonomy when present, otherwise the library taxonomy;
+it is not inferred by singularising names. Unknown or ambiguous identifiers
+are rejected. A status filter containing both synonyms returns the type once.
+For operation-specific consent, repeat the same request arguments used during
+preparation; a changed mapping cannot redirect an already approved operation.
+
 **Sync already-installed types to their latest library versions:**
 
 ```bash
