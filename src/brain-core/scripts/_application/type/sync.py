@@ -19,8 +19,11 @@ from ..context import InvocationContext
 @dataclass(frozen=True, slots=True)
 class TypeSyncRequest:
     COMMAND_ID: ClassVar[str] = "type.sync"
-    COMMAND_VERSION: ClassVar[int] = 2
+    COMMAND_VERSION: ClassVar[int] = 3
     RESULT_TYPE: ClassVar[type] = TypeDefinitionSyncPayload
+    FIELD_DESCRIPTIONS: ClassVar[dict[str, str]] = {
+        "type_key": "Library key (living/notes) or mapped frontmatter type (living/note); discover both with type.status."
+    }
 
     type_key: str
     force: bool = False

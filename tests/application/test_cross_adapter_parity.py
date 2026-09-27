@@ -10,6 +10,7 @@ from pathlib import Path
 import shutil
 import subprocess
 import sys
+import pytest
 
 from mcp.server import MCPServer
 
@@ -34,6 +35,36 @@ from _local_cli.execution import ApplicationProcessInvoker, SelectedBrainProcess
 
 
 NOW = datetime.fromisoformat("2026-08-10T10:00:00+10:00")
+
+
+@pytest.mark.parametrize("adapter", ["mcp", "script"])
+@pytest.mark.parametrize("identifier", ["living/journals", "living/journal"])
+@pytest.mark.parametrize("verb", ["status", "sync"])
+def test_type_lookup_synonyms_cross_transport_boundary(command_vault_clone, adapter, identifier, verb):
+    root = command_vault_clone.vault_root
+    payload = {"type_keys": [identifier]} if verb == "status" else {"type_key": identifier}
+
+    def factory(**_metadata):
+        return context_for(root)
+
+    if adapter == "mcp":
+        server = MCPServer("type-synonym-parity")
+        register_application_tools(
+            server, catalogue=current_application_catalogue(), resolver=current_request_resolver(),
+            context_factory=factory, invocation_guard=lambda: None,
+        )
+        envelope = asyncio.run(server.call_tool("type_" + verb, payload)).structured_content
+    else:
+        stdout, stderr = StringIO(), StringIO()
+        code = run_direct_script(
+            ["type", verb, "--request-json", json.dumps(payload), "--vault", str(root), "--json"],
+            stdout=stdout, stderr=stderr, context_factory=factory,
+        )
+        assert code == 0, stderr.getvalue() or stdout.getvalue()
+        envelope = json.loads(stdout.getvalue())
+    assert envelope["status"] == "ok", envelope
+    result = envelope["result"]
+    assert (result["items"][0]["type_key"] if verb == "status" else result["type_key"]) == "living/journals"
 
 
 class _Clock:

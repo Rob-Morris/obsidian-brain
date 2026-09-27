@@ -82,16 +82,11 @@ def execute_definition_sync(
                 status = sync_definitions.status_definitions(
                     root, types=[request.type_key]
                 )
-                state, reason = _resolve_state(status, request.type_key)
+                type_key, state, reason = _selected_type_state(status)
+            except sync_definitions.UnknownLibraryType as exc:
+                return no_effect_error(type(request), ErrorCode.NOT_FOUND, str(exc), "type_key")
             except (OSError, ValueError) as exc:
                 return no_effect_error(type(request), ErrorCode.CONFLICT, str(exc))
-            if state is None:
-                return no_effect_error(
-                    type(request),
-                    ErrorCode.NOT_FOUND,
-                    f"Unknown artefact-library type: {request.type_key}",
-                    "type_key",
-                )
             if state is TypeDefinitionState.NOT_INSTALLABLE:
                 return no_effect_error(type(request), ErrorCode.CONFLICT, reason)
             from .preparation import admit_owner
@@ -112,12 +107,12 @@ def execute_definition_sync(
             retryable=True,
         )
 
-    payload = _payload(request.type_key, force, result)
+    payload = _payload(type_key, force, result)
     changed = bool(payload.updated) or any(
         item.reason == "baseline_established" for item in payload.skipped
     )
     effects = (
-        (CommittedEffect(request.COMMAND_ID, request.type_key),)
+        (CommittedEffect(request.COMMAND_ID, type_key),)
         if changed and not context.dry_run
         else ()
     )
@@ -158,14 +153,16 @@ def execute_definition_sync(
     )
 
 
-def _resolve_state(status: dict, type_key: str):
-    for state_name, entries in status["types"].items():
-        if any(entry["type"] == type_key for entry in entries):
-            return TypeDefinitionState(state_name), None
-    for entry in status["not_installable"]:
-        if entry["type"] == type_key:
-            return TypeDefinitionState.NOT_INSTALLABLE, entry["reason"]
-    return None, None
+def _selected_type_state(status: dict):
+    states = [
+        (entry["type"], TypeDefinitionState(state_name), None)
+        for state_name, entries in status["types"].items() for entry in entries
+    ] + [
+        (entry["type"], TypeDefinitionState.NOT_INSTALLABLE, entry["reason"])
+        for entry in status["not_installable"]
+    ]
+    selected, = states
+    return selected
 
 
 def _payload(type_key: str, force: bool, result: dict) -> TypeDefinitionSyncPayload:
@@ -255,7 +252,7 @@ def sync_binding(context, request, *, plan, frozen_inputs=None):
     observed.append(ObservedResource("sync-plan", request.type_key,
                                      content_digest(canonical_json(rendered))))
     return bind_operation(request, observations=observed, frozen_inputs=frozen_inputs,
-                          review={"type": request.type_key, "writes": sorted(rendered["copies"]),
+                          review={"type": plan.type_keys[0], "writes": sorted(rendered["copies"]),
                                   "folders": list(plan.folders), "tracking": list(plan.type_keys)})
 
 
@@ -266,8 +263,8 @@ def prepare_sync(context, request, *, frozen_inputs=None):
     root = str(context.selected_brain.vault_root)
     with vault_mutation_lock(root):
         status = sync_definitions.status_definitions(root, types=[request.type_key])
-        state, reason = _resolve_state(status, request.type_key)
-        if state is None or state is TypeDefinitionState.NOT_INSTALLABLE:
-            raise ValueError(reason or f"Unknown artefact-library type: {request.type_key}")
+        _type_key, state, reason = _selected_type_state(status)
+        if state is TypeDefinitionState.NOT_INSTALLABLE:
+            raise ValueError(reason)
         plan, frozen = plan_sync_request(context, request, frozen_inputs=frozen_inputs)
         return sync_binding(context, request, plan=plan, frozen_inputs=frozen)

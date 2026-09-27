@@ -795,7 +795,7 @@
     },
     {
       "command_id": "type.status",
-      "version": 2,
+      "version": 3,
       "owner": "application",
       "classification": "observation",
       "mcp": "type_status",
@@ -807,7 +807,7 @@
     },
     {
       "command_id": "type.sync",
-      "version": 2,
+      "version": 3,
       "owner": "application",
       "classification": "exceptional",
       "mcp": "type_sync",
@@ -1025,5 +1025,5 @@
       "authority": "reader"
     }
   ],
-  "fingerprint": "sha256:b25182c2a4fa55d28f2c550567d411af81273124b5924d402e51b7e13a258de6"
+  "fingerprint": "sha256:3ac82ac3163d3398f62d570e5124adca4b0cb6635aa715c6382b37c9ea8e8e2f"
 }

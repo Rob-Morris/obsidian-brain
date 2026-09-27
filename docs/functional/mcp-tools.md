@@ -11,6 +11,14 @@ the dependency admission and runtime policy are recorded in
 
 ## Tool grammar and discovery
 
+`type_status` v3 accepts library keys or their mapped frontmatter types in
+`type_keys`; `type_sync` v3 accepts either in `type_key`. For example,
+`living/notes` and `living/note` select the same library entry. This lookup is
+shared with CLI/script/Python, uses existing taxonomy metadata and rejects
+ambiguous or unknown identifiers. Results retain canonical library keys.
+See [library type lookup](../../src/brain-core/artefact-library/README.md#installing-a-type)
+for mapping precedence and operation-consent behaviour.
+
 An MCP-eligible command projects its canonical `<noun>.<verb>` ID to the raw
 MCP name `<noun>_<verb>`. Only the single dot changes; hyphens are preserved.
 For example, `session.start` becomes `session_start` and

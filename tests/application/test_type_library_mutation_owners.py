@@ -8,6 +8,7 @@ import pytest
 from _application.registry import current_application_catalogue, current_request_resolver
 from _application.results import ErrorCode
 from _application.type.sync import TypeSyncRequest
+from _application.type.status import TypeStatusRequest
 from _application.types import Authority, EffectClass, RetryClass
 from command_application import application_for
 
@@ -17,9 +18,10 @@ TAXONOMY_PATH = "_Config/Taxonomy/Living/journals.md"
 TEMPLATE_PATH = "_Config/Templates/Living/Journals.md"
 
 
-def test_type_sync_installs_when_absent_and_is_structural(command_vault_clone):
+@pytest.mark.parametrize("identifier", [TYPE_KEY, "living/journal"])
+def test_type_sync_installs_when_absent_and_is_structural(command_vault_clone, identifier):
     root = command_vault_clone.vault_root
-    result = application_for(root).invoke(TypeSyncRequest(TYPE_KEY))
+    result = application_for(root).invoke(TypeSyncRequest(identifier))
 
     assert result.status == "ok"
     assert result.result.type_key == TYPE_KEY
@@ -39,6 +41,36 @@ def test_type_sync_installs_when_absent_and_is_structural(command_vault_clone):
     assert duplicate.status == "ok"
     assert duplicate.result.updated == ()
     assert duplicate.committed_effects == ()
+
+
+@pytest.mark.parametrize("identifiers", [
+    ("living/notes",), ("living/note",), ("living/notes", "living/note"),
+])
+def test_type_status_resolves_synonyms_once(command_vault_clone, identifiers):
+    result = application_for(command_vault_clone.vault_root).invoke(TypeStatusRequest(identifiers))
+    assert result.status == "ok"
+    assert result.result.total == 1
+    assert result.result.items[0].type_key == "living/notes"
+    assert result.result.items[0].artefact_type == "living/note"
+
+
+def test_type_status_rejects_unknown_selection(command_vault_clone):
+    result = application_for(command_vault_clone.vault_root).invoke(
+        TypeStatusRequest(("living/note", "living/not-a-type")))
+    assert result.error.code is ErrorCode.NOT_FOUND
+
+
+@pytest.mark.parametrize("command_request", [TypeStatusRequest(("living/note",)), TypeSyncRequest("living/note")])
+def test_type_lookup_rejects_ambiguous_frontmatter_type(command_vault_clone, command_request):
+    root = command_vault_clone.vault_root
+    other = root / "_Config/Taxonomy/Living/projects.md"
+    other.write_text(other.read_text().replace("type: living/project", "type: living/note"))
+    before = {path: path.read_bytes() for path in (root / "_Config").rglob("*.md")}
+    result = application_for(root).invoke(command_request)
+    assert result.error.code is ErrorCode.CONFLICT
+    assert "Ambiguous" in result.error.message
+    assert "living/notes" in result.error.message and "living/projects" in result.error.message
+    assert before == {path: path.read_bytes() for path in (root / "_Config").rglob("*.md")}
 
 
 def test_type_sync_install_dry_run_reports_without_writing(command_vault_clone):
