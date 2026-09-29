@@ -162,7 +162,9 @@ def find_live_brain_runtime_processes(
 
     try:
         result = subprocess.run(
-            ["ps", "-Ao", "pid=,command="],
+            # Unlimited width: procps cuts piped output at 80 columns, which
+            # would hide live runtimes from prune decisions.
+            ["ps", "-A", "-ww", "-o", "pid=,command="],
             capture_output=True,
             text=True,
             timeout=5,

@@ -426,6 +426,21 @@ def test_find_live_brain_runtime_processes_matches_spaced_python_family_symlinks
     ]
 
 
+def test_find_live_brain_runtime_processes_sees_a_real_long_command_line(tmp_path):
+    runtime_python = tmp_path / ("deep-" * 20) / "bin" / "python"
+    runtime_python.parent.mkdir(parents=True)
+    runtime_python.symlink_to(sys.executable)
+    process = subprocess.Popen([str(runtime_python), "-c", "import sys; sys.stdin.read()", "x" * 200],
+                               stdin=subprocess.PIPE)
+    try:
+        live = find_live_brain_runtime_processes([runtime_python])
+    finally:
+        process.communicate(timeout=10)
+
+    assert live["available"] is True
+    assert process.pid in {entry["pid"] for entry in live["processes"][str(runtime_python)]}
+
+
 def test_find_live_brain_runtime_processes_matches_python_family_names(monkeypatch, tmp_path):
     runtime_root = tmp_path / "runtime"
     runtime_python = runtime_root / "bin" / "python"
