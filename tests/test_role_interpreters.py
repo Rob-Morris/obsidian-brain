@@ -471,6 +471,30 @@ def test_proxy_names_its_server_child_and_handoff_probe_under_the_mcp_role(centr
     ]
 
 
+@pytest.mark.filterwarnings("ignore:.*found in sys.modules:RuntimeWarning")
+def test_proxy_continues_unnamed_when_its_self_exec_fails(central_root, monkeypatch):
+    import runpy
+
+    python = _managed_shape(central_root)
+    role_file = _usable_role_file(python, "mcp")
+    monkeypatch.setattr(sys, "executable", str(python))
+    monkeypatch.setattr(sys, "orig_argv", [str(python), "-m", "brain_mcp.proxy"])
+    monkeypatch.setattr(sys, "argv", ["proxy.py"])
+    attempts = []
+
+    def failing_execve(*args):
+        attempts.append(args[0])
+        raise OSError("exec refused")
+
+    monkeypatch.setattr(os, "execve", failing_execve)
+
+    with pytest.raises(SystemExit) as exited:
+        runpy.run_module("brain_mcp.proxy", run_name="__main__")
+
+    assert attempts == [str(role_file)]
+    assert exited.value.code == 1  # reached main()'s usage exit, unnamed
+
+
 def test_mcp_serve_arrives_named_through_exec(central_root, tmp_path, monkeypatch):
     monkeypatch.setattr(sys, "path", [str(REPO_ROOT / "cli"), *sys.path])  # serve() extends it too
     import _mcp_stdio
