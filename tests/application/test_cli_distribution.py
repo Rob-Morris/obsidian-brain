@@ -8,6 +8,7 @@ import subprocess
 import sys
 
 import pytest
+from brain_test_support import process_diagnostics
 
 
 CLI_ROOT = Path(__file__).resolve().parents[2] / "cli"
@@ -543,13 +544,17 @@ def test_installed_cli_packages_and_uses_private_owner_transport(tmp_path, comma
     monkeypatch.setattr(owner, 'serve_connection', record)
     try:
         env = dict(os.environ, PYTHONPATH='')
-        completed = subprocess.run(
-            [str(installed.cli_binary), '--vault', str(command_vault_baseline.vault_root),
-             '--json', 'command', 'list', '--owner', 'application'],
-            cwd=tmp_path, **attachment.forwarded_process(env),
-            capture_output=True, text=True, timeout=20,
-        )
-        assert completed.returncode == 0, completed.stderr
+        try:
+            completed = subprocess.run(
+                [str(installed.cli_binary), '--vault', str(command_vault_baseline.vault_root),
+                 '--json', 'command', 'list', '--owner', 'application'],
+                cwd=tmp_path, **attachment.forwarded_process(env),
+                capture_output=True, text=True, timeout=20,
+            )
+        except subprocess.TimeoutExpired as exc:
+            exc.add_note(f"Owner connections accepted: {len(connections)}\n{process_diagnostics(exc)}")
+            raise
+        assert completed.returncode == 0, process_diagnostics(completed)
         assert json.loads(completed.stdout)['schema'] == 'brain.local-command-list/2'
         assert connections, 'installed launcher did not attach its discovery child to the job owner'
     finally:

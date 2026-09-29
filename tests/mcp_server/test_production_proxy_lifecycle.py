@@ -10,7 +10,7 @@ import pytest
 
 from brain_mcp._proxy_handoff import public_session
 from brain_mcp._proxy_session import SUBSCRIPTION_ID
-from test_mcp_proxy import _read_until_id, _read_json_messages
+from proxy_test_support import _read_until_id, _read_json_messages
 from mcp_server.test_production_proxy_protocols import MODERN_META, SERVER
 
 

@@ -39,7 +39,7 @@
     {"id": "effect-delete-partial", "class": "effect-boundary", "behaviour": "preserve", "surface": "python", "test_file": "tests/edit/test_edit_lifecycle.py", "test_name": "test_delete_recursive_remove_failure_reports_partial_state"},
     {"id": "effect-archive-write-failure", "class": "effect-boundary", "behaviour": "preserve", "surface": "python", "test_file": "tests/edit/test_edit_lifecycle.py", "test_name": "test_archive_write_failure_reports_written_context"},
     {"id": "effect-upgrade-rollback", "class": "effect-boundary", "behaviour": "preserve", "surface": "launcher", "test_file": "tests/test_upgrade.py", "test_name": "test_rollback_restores_precompile_taxonomy_edits"},
-    {"id": "effect-proxy-drift-replay", "class": "effect-boundary", "behaviour": "preserve", "surface": "proxy", "test_file": "tests/test_mcp_proxy.py", "test_name": "test_drift_triggering_request_gets_success"},
+    {"id": "effect-proxy-drift-replay", "class": "effect-boundary", "behaviour": "preserve", "surface": "proxy", "test_file": "tests/test_mcp_proxy_replay.py", "test_name": "test_drift_triggering_request_gets_success"},
     {"id": "effect-unknown-outcome-overlay", "class": "effect-boundary", "behaviour": "preserve", "surface": "test-substrate", "test_file": "tests/test_command_vault_overlays.py", "test_name": "test_effect_overlays_write_queryable_outcome_fixtures"}
   ]
 }

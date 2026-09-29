@@ -17,8 +17,8 @@ from brain_mcp._proxy_handoff import (HANDOFF_TIMEOUT, HANDOFF_VERSION, MAX_STAT
                                       RawLineReader, public_session, read_state, state_descriptor)
 from _bootstrap.consent_owner import ConsentOwner, OwnerConnectionError
 from _bootstrap.file_lock import exclusive_file_lock, MutationLockError
-from test_mcp_proxy import _FakeChild, _write_vault
-from test_mcp_proxy_refresh import lifecycle_request
+from proxy_test_support import _FakeChild, _write_vault
+from proxy_test_support import lifecycle_request
 
 
 @pytest.fixture(autouse=True)

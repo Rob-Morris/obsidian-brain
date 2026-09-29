@@ -21,6 +21,24 @@ import tempfile
 TEMPLATE_VAULT_COPY_IGNORE = (".venv", ".pytest_cache", "local")
 
 
+def process_diagnostics(completed):
+    """Bounded captured-output context for controlled test subprocesses.
+
+    Accepts CompletedProcess or TimeoutExpired. Do not use for processes whose
+    output can contain real credentials; intentionally excludes argv/env.
+    """
+    def excerpt(value):
+        if value is None:
+            return "<empty>"
+        if isinstance(value, bytes):
+            value = value.decode("utf-8", errors="replace")
+        return value[-4096:] + ("\n<tail only>" if len(value) > 4096 else "")
+
+    return (f"returncode={getattr(completed, 'returncode', None)} "
+            f"timeout={getattr(completed, 'timeout', None)}\n"
+            f"stdout:\n{excerpt(completed.stdout)}\nstderr:\n{excerpt(completed.stderr)}")
+
+
 def write_md(path, frontmatter_fields=None, body=""):
     """Write a markdown file with optional frontmatter.
 

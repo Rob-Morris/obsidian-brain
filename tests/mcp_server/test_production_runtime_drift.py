@@ -9,7 +9,7 @@ import time
 
 import pytest
 
-from test_mcp_proxy import _read_until_id
+from proxy_test_support import _read_until_id
 from test_production_proxy_protocols import MODERN_META
 
 

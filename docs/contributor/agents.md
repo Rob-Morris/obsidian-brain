@@ -81,6 +81,12 @@ When in doubt, check `docs/README.md` — if a doc file is listed there, it's a 
 
 ## Testing Workflow
 
+Before writing tests, follow [Writing reliable tests](../CONTRIBUTING.md#writing-reliable-tests):
+choose the boundary being proved, isolate fake executables, preserve bounded
+failure evidence and retain real integration coverage. Prefer in-process
+decision matrices with representative boundary tests over repeated full-stack
+setup; do not suppress failures with retries or timing slack.
+
 Use serial `make test` for the pre-commit routine correctness gate. The
 [verification mapping](../CONTRIBUTING.md#testing) names each suite's purpose
 and execution owner. `make test-parallel` runs the same suite faster while

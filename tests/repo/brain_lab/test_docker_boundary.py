@@ -2,15 +2,43 @@ from __future__ import annotations
 
 import json
 import os
+import hashlib
+import shutil
+import sys
+from contextlib import nullcontext
 from pathlib import Path
+from unittest.mock import Mock
 
 import pytest
 
 from brain_lab.docker import DockerClient, DockerError, MAX_COMMANDS_PER_OPERATION
 from brain_lab.docker_configuration import DockerEndpointError
 from brain_lab.manifests import manifest_tree
-from brain_lab.process import CommandRunner
+from brain_lab.process import CommandRunner, ProcessExecution, StreamReceipt
 from conftest import write_fake_docker
+
+
+pytestmark = pytest.mark.usefixtures("isolate_fake_docker_environment")
+
+
+def test_fake_docker_uses_test_python_without_ambient_endpoint():
+    assert Path(shutil.which("python3")).resolve() == Path(sys.executable).resolve()
+    assert not any(key.startswith(("DOCKER_", "BUILDX_", "BUILDKIT_")) for key in os.environ)
+
+
+@pytest.fixture
+def argument_client(tmp_path, monkeypatch):
+    """Only argument construction is under test; wire contracts have real-process tests below."""
+    client = DockerClient(CommandRunner(), executable="docker-test")
+    monkeypatch.setattr(client.configuration, "environment", lambda *args, **kwargs: nullcontext({}))
+    output = b"container-created\n"
+    stdout = tmp_path / "stdout.log"
+    stdout.write_bytes(output)
+    receipt = StreamReceipt(str(stdout), len(output), len(output), hashlib.sha256(output).hexdigest(), False)
+    empty = StreamReceipt(str(tmp_path / "stderr.log"), 0, 0, hashlib.sha256(b"").hexdigest(), False)
+    execute = Mock(return_value=ProcessExecution(("docker-test",), 0, False, False, 0, receipt, empty))
+    monkeypatch.setattr(client.runner, "run", execute)
+    return client, execute
 
 
 def _fake_docker(tmp_path: Path) -> tuple[Path, Path]:
@@ -21,8 +49,13 @@ log = Path(os.environ['FAKE_DOCKER_LOG'])
 with log.open('a') as handle:
     handle.write(json.dumps(sys.argv[1:]) + '\\n')
 if sys.argv[1] == 'import':
-    while sys.stdin.buffer.read(65536):
-        pass
+    import tarfile
+    files = {}
+    with tarfile.open(fileobj=sys.stdin.buffer, mode='r|') as archive:
+        for member in archive:
+            if member.isfile():
+                files[member.name] = archive.extractfile(member).read().decode('utf-8')
+    (log.parent / 'imported.json').write_text(json.dumps(files))
     if os.environ.get('FAKE_DOCKER_IMPORT_FAIL'):
         sys.exit(9)
     print('sha256:imported')
@@ -62,12 +95,11 @@ def test_docker_import_streams_manifest_and_uses_explicit_platform_and_labels(tm
     assert argv[:3] == ["import", "--platform", "linux/arm64"]
     assert "LABEL io.github.rob-morris.brain-lab.id=source-1" in argv
     assert argv[-2:] == ["-", "brain-lab-source:source-1"]
+    assert json.loads((tmp_path / "imported.json").read_text()) == {"bundle/source/file.txt": "content"}
 
 
-def test_docker_build_can_force_registry_resolution(tmp_path: Path, monkeypatch):
-    executable, log = _fake_docker(tmp_path)
-    monkeypatch.setenv("FAKE_DOCKER_LOG", str(log))
-    client = DockerClient(CommandRunner(), executable=str(executable))
+def test_docker_build_can_force_registry_resolution(tmp_path: Path, argument_client):
+    client, execute = argument_client
 
     client.build(
         "FROM private.example/base:1\n",
@@ -79,7 +111,8 @@ def test_docker_build_can_force_registry_resolution(tmp_path: Path, monkeypatch)
         pull=True,
     )
 
-    argv = json.loads(log.read_text().splitlines()[0])
+    execute.assert_called_once()
+    argv = execute.call_args.args[0][1:]
     assert argv[:8] == [
         "build",
         "--platform",
@@ -168,10 +201,8 @@ def test_container_names_do_not_repeat_the_resource_kind(
     assert DockerClient.deterministic_container_name(kind, resource_id) == expected
 
 
-def test_container_start_passes_the_explicit_platform(tmp_path: Path, monkeypatch):
-    executable, log = _fake_docker(tmp_path)
-    monkeypatch.setenv("FAKE_DOCKER_LOG", str(log))
-    client = DockerClient(CommandRunner(), executable=str(executable))
+def test_container_start_passes_the_explicit_platform(tmp_path: Path, argument_client):
+    client, execute = argument_client
 
     client.start_container(
         "sha256:image",
@@ -182,7 +213,8 @@ def test_container_start_passes_the_explicit_platform(tmp_path: Path, monkeypatc
         evidence_directory=tmp_path / "evidence",
     )
 
-    argv = json.loads(log.read_text().splitlines()[0])
+    execute.assert_called_once()
+    argv = execute.call_args.args[0][1:]
     assert argv[:8] == [
         "run",
         "--detach",
@@ -195,10 +227,8 @@ def test_container_start_passes_the_explicit_platform(tmp_path: Path, monkeypatc
     ]
 
 
-def test_stopped_container_creation_passes_platform_and_labels(tmp_path: Path, monkeypatch):
-    executable, log = _fake_docker(tmp_path)
-    monkeypatch.setenv("FAKE_DOCKER_LOG", str(log))
-    client = DockerClient(CommandRunner(), executable=str(executable))
+def test_stopped_container_creation_passes_platform_and_labels(tmp_path: Path, argument_client):
+    client, execute = argument_client
 
     container_id, _ = client.create_container(
         "sha256:source",
@@ -209,7 +239,8 @@ def test_stopped_container_creation_passes_platform_and_labels(tmp_path: Path, m
     )
 
     assert container_id == "container-created"
-    argv = json.loads(log.read_text().splitlines()[0])
+    execute.assert_called_once()
+    argv = execute.call_args.args[0][1:]
     assert argv[:7] == [
         "container",
         "create",
@@ -223,10 +254,8 @@ def test_stopped_container_creation_passes_platform_and_labels(tmp_path: Path, m
     assert argv[-2:] == ["sha256:source", "/bin/true"]
 
 
-def test_container_exec_can_select_root_for_scoped_ownership_repair(tmp_path: Path, monkeypatch):
-    executable, log = _fake_docker(tmp_path)
-    monkeypatch.setenv("FAKE_DOCKER_LOG", str(log))
-    client = DockerClient(CommandRunner(), executable=str(executable))
+def test_container_exec_can_select_root_for_scoped_ownership_repair(tmp_path: Path, argument_client):
+    client, execute = argument_client
 
     client.exec(
         "container-1",
@@ -235,7 +264,8 @@ def test_container_exec_can_select_root_for_scoped_ownership_repair(tmp_path: Pa
         evidence_directory=tmp_path / "evidence",
     )
 
-    argv = json.loads(log.read_text().splitlines()[0])
+    execute.assert_called_once()
+    argv = execute.call_args.args[0][1:]
     assert argv == [
         "exec",
         "--user",

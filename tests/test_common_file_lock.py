@@ -3,6 +3,7 @@ import os
 import subprocess
 import sys
 import types
+import select
 
 import pytest
 
@@ -82,6 +83,7 @@ def test_exclusive_file_lock_blocks_by_default(tmp_path):
     code = (
         "from _common._file_lock import exclusive_file_lock; "
         f"p={str(lock_path)!r}; "
+        "print('attempting lock', flush=True); "
         "\nwith exclusive_file_lock(p): pass"
     )
     env = dict(os.environ, PYTHONPATH=scripts_dir)
@@ -95,6 +97,8 @@ def test_exclusive_file_lock_blocks_by_default(tmp_path):
             text=True,
         )
         try:
+            assert select.select([process.stdout], [], [], 5)[0], "child did not reach lock acquisition"
+            assert process.stdout.readline() == "attempting lock\n"
             with pytest.raises(subprocess.TimeoutExpired):
                 process.communicate(timeout=0.1)
         except BaseException:
@@ -102,8 +106,13 @@ def test_exclusive_file_lock_blocks_by_default(tmp_path):
             process.wait()
             raise
 
-    stdout, stderr = process.communicate(timeout=2)
-    assert process.returncode == 0, (stdout, stderr)
+    try:
+        stdout, stderr = process.communicate(timeout=2)
+        assert process.returncode == 0, (stdout, stderr)
+    finally:
+        if process.poll() is None:
+            process.kill()
+        process.wait(timeout=5)
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="POSIX subprocess contention contract")
