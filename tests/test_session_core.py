@@ -16,6 +16,16 @@ SESSION_CORE_PATH = Path(__file__).resolve().parents[1] / "src" / "brain-core" /
 REQUIRED_SECTIONS = ("Core Docs", "Standards")
 
 
+def test_recovery_route_is_small_and_actionable():
+    import tiktoken
+
+    body = SESSION_CORE_PATH.read_text(encoding="utf-8")
+    route = body.split("For `interface_changed`", 1)[1].split("\n\n", 1)[0]
+    assert "brain_proxy_status({})" in route
+    assert "tools/list" in route and "reconnect" in route
+    assert len(tiktoken.get_encoding("o200k_base").encode("For `interface_changed`" + route)) <= 80
+
+
 @pytest.fixture(scope="module")
 def session_core_body():
     with open(SESSION_CORE_PATH, encoding="utf-8") as f:

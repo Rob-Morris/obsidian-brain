@@ -56,6 +56,16 @@ the existing command warning vocabulary and is serialised back into first-block
 JSON, leaving ordinary no-drift responses unchanged. Legacy tool-list changes
 are notified; negotiated host cache behaviour is not assumed.
 
+Tool-contract rediscovery is observed separately from Core/runtime readiness.
+The proxy compares its existing connection baseline/discovered mappings with the
+active header, reporting pending names and a host-owned `tools/list` recovery
+action. Changed application discovery tools receive the same refusal as other
+changed commands; the independent status control explains recovery. No new
+executor or contract bypass is introduced. Host listing responses acknowledge
+their returned mappings; a terminal page also retires removed mappings. Status
+does not claim the host has updated its model-visible cache, and higher-priority
+runtime/server recovery remains the next action until resolved.
+
 ## Consequences and verification
 
 Two small declarations supplement MCP discovery without adding schemas to

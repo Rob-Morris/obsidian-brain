@@ -339,6 +339,14 @@ agent can use `brain_proxy_restart` when idle on supported POSIX systems; if tha
 fails or is unsupported, restart MCP in the host. CLI commands resolve the
 current runtime on each invocation and do not need that session restart.
 
+Changed tool contracts can still require **host tool rediscovery** after a
+successful Core refresh. `brain_proxy_status({})` reports pending tools and the
+host-owned MCP `tools/list` operation separately from runtime readiness. Use the
+host's tool-refresh action, or reconnect Brain MCP if it offers none. Brain
+`command_list`/`command_describe` and `brain_proxy_refresh` do not refresh the
+host catalogue. Follow every discovery page, then verify an affected call with
+its new contract; do not retry an `interface_changed` call unchanged.
+
 ---
 
 ## Checking and Repairing
