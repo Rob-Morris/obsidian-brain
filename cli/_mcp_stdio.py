@@ -24,6 +24,7 @@ def serve() -> int:
         from _distribution import verify_distribution
         from _bootstrap.workspace_binding import resolve_brain_target
         from _bootstrap.runtime import target_managed_python
+        from _common._venv import ROLE_MCP, managed_command
 
         verify_distribution(distribution)
         # Workspace context is the only persisted project routing input. A stale
@@ -46,9 +47,10 @@ def serve() -> int:
         if target.workspace_dir:
             environment["BRAIN_WORKSPACE_DIR"] = target.workspace_dir
         argv = [str(python), "-s", "-P", "-m", "brain_mcp.proxy", str(python), "brain_mcp.server"]
+        command = managed_command(argv, role=ROLE_MCP, env=environment)
         if os.name == "nt":
-            return subprocess.call(argv, env=environment)
-        os.execve(str(python), argv, environment)
+            return command.run().returncode
+        command.exec()
     except (OSError, RuntimeError, ValueError, ImportError, subprocess.SubprocessError) as exc:
         print(f"brain: MCP startup failed: {exc}", file=sys.stderr)
         return 4

@@ -10,7 +10,6 @@ import os
 from pathlib import Path
 import shutil
 import stat
-import subprocess
 import sys
 import uuid
 
@@ -264,7 +263,8 @@ def validate_bootstrap_python(python: Path | None = None) -> Path:
     if not candidate.is_absolute():
         raise ValueError("Bootstrap Python must be an absolute path")
     candidate = candidate.resolve(strict=True)
-    result = subprocess.run(
+    from _common._venv import run_managed
+    result = run_managed(
         [str(candidate), "-I", "-c", "import sys; print(sys.prefix == sys.base_prefix); raise SystemExit(sys.version_info < (3, 12))"],
         capture_output=True, text=True, timeout=10, check=False,
     )

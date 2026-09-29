@@ -13,6 +13,7 @@ from typing import Any
 from _bootstrap import diagnostics as bootstrap_diagnostics
 from _bootstrap.runtime import step as _step
 from _common import central_venvs_root, join_argv
+from _common._venv import run_managed
 from _lifecycle_common import derive_step_status
 from _repair_common import build_repair_argv
 
@@ -245,7 +246,7 @@ def _run_repair_scope(
     command = join_argv(argv)
 
     try:
-        result = subprocess.run(
+        result = run_managed(
             argv,
             capture_output=True,
             text=True,
