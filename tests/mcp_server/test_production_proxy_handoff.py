@@ -8,7 +8,7 @@ import sys
 
 import pytest
 
-from test_mcp_proxy import _read_until_id
+from proxy_test_support import _read_until_id
 from brain_mcp._proxy_handoff import public_session
 
 

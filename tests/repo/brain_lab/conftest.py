@@ -11,6 +11,22 @@ if str(TOOL_ROOT) not in sys.path:
     sys.path.insert(0, str(TOOL_ROOT))
 
 
+@pytest.fixture(scope="session")
+def fake_docker_python_bin(tmp_path_factory):
+    directory = tmp_path_factory.mktemp("fake-docker-python")
+    (directory / "python3").symlink_to(sys.executable)
+    return directory
+
+
+@pytest.fixture
+def isolate_fake_docker_environment(fake_docker_python_bin, monkeypatch):
+    # The fake is Python code, not a test of the host's interpreter discovery.
+    monkeypatch.setenv("PATH", str(fake_docker_python_bin) + os.pathsep + os.environ.get("PATH", ""))
+    for key in tuple(os.environ):
+        if key.startswith(("DOCKER_", "BUILDX_", "BUILDKIT_")):
+            monkeypatch.delenv(key)
+
+
 def write_fake_docker(tmp_path: Path, commands: str) -> Path:
     executable = tmp_path / "docker"
     executable.write_text('''#!/usr/bin/env python3
@@ -37,7 +53,7 @@ if args[0] == 'version':
 
 
 @pytest.fixture
-def docker(tmp_path, monkeypatch):
+def docker(tmp_path, monkeypatch, isolate_fake_docker_environment):
     executable = write_fake_docker(tmp_path, '''
 config = json.loads((Path(os.environ['DOCKER_CONFIG']) / 'config.json').read_text())
 Path(os.environ['CALL_LOG']).write_text(json.dumps({'config': config, 'environment': dict(os.environ)}))
@@ -45,7 +61,4 @@ print(os.environ.get('OUTPUT', 'ok'))
 print(os.environ.get('OUTPUT', ''), file=sys.stderr)
 ''')
     monkeypatch.setenv("CALL_LOG", str(tmp_path / "call.json"))
-    for key in tuple(os.environ):
-        if key.startswith(("DOCKER_", "BUILDX_", "BUILDKIT_")):
-            monkeypatch.delenv(key)
     return executable

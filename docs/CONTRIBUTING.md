@@ -320,6 +320,49 @@ Every commit in this repo should have a scannable subject and a body that explai
 
 ## Testing
 
+### Writing reliable tests
+
+- Name the behaviour and choose its boundary. Exercise argument construction,
+  validation and decisions in-process; use a real subprocess when installation,
+  descriptor inheritance, streaming, process cleanup or protocol behaviour is
+  the claim. Keep representative real-boundary tests when splitting a matrix.
+- Inject at an existing dependency seam, not the method whose behaviour is
+  being asserted. A fake should reject unexpected operations and return the
+  real boundary's result shape. Assert the delivered effect, not only that a
+  call succeeded (for example, inspect the streamed archive's paths and bytes).
+- Pin fake executable interpreters to the test Python and isolate relevant
+  ambient configuration. Do not alter the environment of native acceptance
+  tests that deliberately exercise the real host. Do not invoke real services
+  accidentally through a fallback executable or inherited credentials.
+- Bound external work and clean up owned children on every exit path. Use
+  readiness/events for ordering; a sleep or a tight elapsed-time assertion is
+  not evidence that a child reached the state under test. A deadline is a hang
+  guard, not a performance benchmark.
+- Preserve failure evidence: exit status, timeout/cancellation, both captured
+  streams and relevant progress markers. `brain_test_support.process_diagnostics`
+  bounds output for controlled test processes; do not use it for real secret-
+  bearing output. Production diagnostics must retain safe status facts without
+  leaking credentials or pointing to already-deleted temporary evidence.
+- Reuse immutable fixture assembly where it removes measured/repeated cost;
+  give each mutation test its own clone. Do not share writable session state.
+- Keep shared proxy harness code in `tests/proxy_test_support.py`, not in a
+  collected test module. Keep scenario-specific servers beside their tests.
+  Proxy forwarding, recovery, drift, replay and timeout tests have separate
+  modules; a move must preserve test cases, parameter IDs, markers and fixture
+  scope, and update live characterisation references.
+- Patch a component's dependency binding rather than mutating a shared stdlib
+  module. In-process proxy helpers use test-owned logging and fake-thread
+  bindings; tests of real threads/processes still own shutdown and joining.
+  Check suspect tests together and in reversed order before prescribing process
+  isolation. Use a separate process when the state cannot safely be restored,
+  not to hide a leak that the harness should fix.
+- Diagnose a flake with its failure output, isolation/ordering comparisons and
+  subprocess evidence. Do not hide it with retries, larger timeouts, skips or
+  by mocking away the boundary under test. An isolated pass is not a full-suite
+  pass. Record process-count or duration evidence for performance claims.
+
+### Running verification
+
 Dependency intent and generator policy live under `dependencies/`; see the
 [dependency workflow](contributor/dependencies.md) for intentional updates,
 offline staged freshness checks and required native release certification.
