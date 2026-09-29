@@ -135,10 +135,9 @@ def _spawn_worker(root: Path, run_id: str, *, expected_sources=None) -> None:
     argv = [sys.executable, str(Path(__file__).resolve()), "--worker", str(root), run_id]
     if expected_sources is not None:
         argv.append(json.dumps(expected_sources, separators=(",", ":")))
-    subprocess.Popen(
-        argv,
-        **kwargs,
-    )
+    from _common._venv import managed_command
+
+    managed_command(argv).popen(**kwargs)
 
 
 def _run_worker(root: Path, run_id: str, expected_sources=None) -> None:

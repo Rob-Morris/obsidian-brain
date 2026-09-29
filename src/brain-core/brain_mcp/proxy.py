@@ -44,6 +44,20 @@ _SCRIPT_ROOT = Path(__file__).resolve().parents[1] / "scripts"
 if str(_SCRIPT_ROOT) not in sys.path:
     sys.path.insert(0, str(_SCRIPT_ROOT))
 
+if __name__ == "__main__" and sys.argv[1:2] not in (["--check-handoff"], ["--handoff-fd"]):
+    # Project-scope client configs launch the canonical `bin/python -m
+    # brain_mcp.proxy`, so the proxy names itself before loading Core. The
+    # launcher of a handoff entry already chose through the owner. The role
+    # variable is the loop guard: after the exec it is set, so this is a no-op.
+    from _common._venv import ROLE_MCP, RUNTIME_ROLE_ENV, managed_command
+    if os.environ.get(RUNTIME_ROLE_ENV) != ROLE_MCP:
+        _named_launch = managed_command([sys.executable, *sys.orig_argv[1:]], role=ROLE_MCP)
+        if _named_launch.executable != _named_launch.argv[0]:
+            try:
+                _named_launch.exec()
+            except OSError:
+                pass
+
 from _bootstrap.runtime import same_executable_path
 from _bootstrap.consent_owner import ConsentOwner
 from _bootstrap.file_lock import MutationLockError
@@ -59,6 +73,7 @@ from _bootstrap.workspace_binding import (
 )
 from _common import find_existing_central_venv
 from _common import _operational_log
+from _common._venv import ROLE_MCP, managed_command
 from _repair_common import build_repair_command
 from ._interface_protocol import (
     PROXY_PROTOCOL,
@@ -95,7 +110,7 @@ class StartupFailure:
 # Constants
 # ---------------------------------------------------------------------------
 
-PROXY_VERSION = "0.10.6"
+PROXY_VERSION = "0.10.7"
 _CHILD_PROTOCOL_VERSION = "2026-07-28"
 
 
@@ -760,8 +775,9 @@ class ChildProcess:
             if transport_identity is not None:
                 options["env"][PROCESS_CONTEXT_ENV] = transport_identity.launch_value(
                     initialise_owner=owner_initialisation_allowed)
-            self._proc = subprocess.Popen(
-                cmd,
+            # An explicit role names the child even after a handoff from a Core
+            # that predates role files, and overrides an inherited CLI role.
+            self._proc = managed_command(cmd, role=ROLE_MCP, env=options.pop("env")).popen(
                 stdin=subprocess.PIPE,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
@@ -1853,9 +1869,10 @@ class Proxy:
     def _preflight_handoff(self, fd: int, python: str) -> bool:
         env = self._handoff_environment()
         env.pop("BRAIN_OPERATOR_KEY", None)
-        process = subprocess.Popen(
-            [python, "-m", "brain_mcp.proxy", "--check-handoff", str(fd)],
-            env=env, pass_fds=(fd,), stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+        process = managed_command(
+            [python, "-m", "brain_mcp.proxy", "--check-handoff", str(fd)], role=ROLE_MCP, env=env,
+        ).popen(
+            pass_fds=(fd,), stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL, start_new_session=True,
         )
         try:
@@ -1961,9 +1978,8 @@ class Proxy:
             self._handoff_error = "installation_changed"
             return self._handoff_error
         try:
-            os.execve(state["python"],
-                      [state["python"], "-m", "brain_mcp.proxy", "--handoff-fd", str(fd)],
-                      self._handoff_environment())
+            managed_command([state["python"], "-m", "brain_mcp.proxy", "--handoff-fd", str(fd)],
+                            role=ROLE_MCP, env=self._handoff_environment()).exec()
         except OSError:
             # The composition root creates a new owner and serves the retained
             # stdio in this image. The old consent context is never revived.

@@ -9,6 +9,7 @@ import subprocess
 from typing import Callable, Mapping, Protocol
 from _bootstrap.owner_attachment import OwnerAttachment
 from _common._operational_log import matching_command_failure
+from _common._venv import ROLE_CLI, run_managed
 
 from _launcher.adapter import LauncherAdapter
 from _launcher.context import LauncherContext
@@ -88,7 +89,7 @@ ProcessRunner = Callable[..., subprocess.CompletedProcess[str]]
 @dataclass(frozen=True, slots=True)
 class ApplicationProcessInvoker:
     target: SelectedBrainProcess
-    runner: ProcessRunner = subprocess.run
+    runner: ProcessRunner = run_managed
     owner_attachment: OwnerAttachment | None = None
     operation_id: str | None = None
     owner: str = field(default="application", init=False)
@@ -129,6 +130,7 @@ class ApplicationProcessInvoker:
         options = self.owner_attachment.forwarded_process() if self.owner_attachment is not None else {}
         completed = self.runner(
             argv,
+            role=ROLE_CLI,
             capture_output=True,
             text=True,
             check=False,

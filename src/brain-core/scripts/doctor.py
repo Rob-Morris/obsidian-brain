@@ -7,12 +7,12 @@ import argparse
 import json
 import os
 from pathlib import Path
-import subprocess
 import sys
 
 import check as vault_check
 import doctor_machine
 from _common import find_runnable_python
+from _common._venv import run_managed
 from _repair_common import build_repair_command
 
 
@@ -32,7 +32,7 @@ def collect_cli_diagnosis(*, binary_path: str, cli_version: str, launcher_python
     launcher_version = None
     launcher_probe_failed = False
     if launcher_python:
-        completed = subprocess.run(
+        completed = run_managed(
             [launcher_python, "--version"],
             capture_output=True,
             text=True,
@@ -122,7 +122,7 @@ def collect_vault_diagnosis(
     if severity:
         argv.extend(["--severity", severity])
 
-    completed = subprocess.run(
+    completed = run_managed(
         argv,
         capture_output=True,
         text=True,

@@ -79,6 +79,21 @@ When a change touches the machine-global helpers around brain-core, check their 
 
 When in doubt, check `docs/README.md` — if a doc file is listed there, it's a canonical reference that may need updating.
 
+## Launching managed interpreters
+
+Every launch of a managed-runtime interpreter, in `src/brain-core` and in
+`cli/`, goes through `_common._venv.managed_command` (or `run_managed` where a
+`subprocess.run`-shaped runner is injected). The owner decides once whether the
+kernel executes a role-named link (`brain-mcp-python`, `brain-cli-python`) and
+keeps argv canonical; `env` enters only through `managed_command`, and the
+`run`, `popen` and `exec` methods pass argv and environment together, adding
+the executable only when a role file is chosen. Entry points set `BRAIN_RUNTIME_ROLE` explicitly; everything else
+inherits it. `tests/test_managed_launch_contract.py` fails on any
+`subprocess`/`os.exec*`/`asyncio.create_subprocess_*` reference outside the
+owner that is not allowlisted there with a reason, so external tools (git, `ps`,
+client binaries) go on the allowlist and Python launches go through the owner.
+See [DD-081](../architecture/decisions/dd-081-named-runtime-interpreters.md).
+
 ## Testing Workflow
 
 Before writing tests, follow [Writing reliable tests](../CONTRIBUTING.md#writing-reliable-tests):

@@ -32,7 +32,7 @@ def test_fallback_matches_native_installer(tmp_path, monkeypatch, platform, loca
         calls.append(argv)
         return SimpleNamespace(returncode=0, stdout=json.dumps(receipt), stderr="")
 
-    monkeypatch.setattr(machine_cli.subprocess, "run", run)
+    monkeypatch.setattr("_common._venv.subprocess.run", run)
     assert machine_cli.invoke("brain.register", {"vault_root": str(tmp_path / "vault")}) == receipt
     assert calls[0][:5] == [str(binary), "command", "describe", "approvals.configure", "--json"]
     assert calls[1][:2] == [str(binary), "register"]

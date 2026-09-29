@@ -632,7 +632,7 @@ def test_migrate_legacy_brains_dry_run_plans_runtime_and_venv_changes(monkeypatc
         machine_registry=machine_registry,
     )
 
-    def _fake_run(argv, capture_output, text, timeout, check):
+    def _fake_run(argv, *, env, capture_output, text, timeout, check):
         payload = {"scope": argv[2], "status": "planned", "steps": []}
         return subprocess.CompletedProcess(argv, 0, json.dumps(payload), "")
 
@@ -669,7 +669,7 @@ def test_migrate_legacy_brains_delegates_repairs_and_removes_legacy_venv(monkeyp
 
     selected_runtime = resolve_vault_venv_python(vault, launcher=Path(sys.executable))
 
-    def _fake_run(argv, capture_output, text, timeout, check):
+    def _fake_run(argv, *, env, capture_output, text, timeout, check):
         scope = argv[2]
         if scope == "runtime":
             _install_central_runtime(selected_runtime)
@@ -732,7 +732,7 @@ def test_migrate_legacy_brains_keeps_legacy_venv_on_partial_delegated_repair(mon
         machine_registry=machine_registry,
     )
 
-    def _fake_run(argv, capture_output, text, timeout, check):
+    def _fake_run(argv, *, env, capture_output, text, timeout, check):
         scope = argv[2]
         status = "partial" if scope == "mcp" else "ok"
         payload = {"scope": scope, "status": status, "steps": []}
@@ -767,7 +767,7 @@ def test_migrate_legacy_brains_keeps_legacy_venv_when_live_process_detected(monk
     )
     selected_runtime = resolve_vault_venv_python(vault, launcher=Path(sys.executable))
 
-    def _fake_repair_run(argv, capture_output, text, timeout, check):
+    def _fake_repair_run(argv, *, env, capture_output, text, timeout, check):
         if argv[2] == "runtime":
             _install_central_runtime(selected_runtime)
         payload = {"scope": argv[2], "status": "ok", "steps": []}
@@ -806,7 +806,7 @@ def test_migrate_legacy_brains_keeps_legacy_venv_when_live_scan_unavailable(monk
     )
     selected_runtime = resolve_vault_venv_python(vault, launcher=Path(sys.executable))
 
-    def _fake_repair_run(argv, capture_output, text, timeout, check):
+    def _fake_repair_run(argv, *, env, capture_output, text, timeout, check):
         if argv[2] == "runtime":
             _install_central_runtime(selected_runtime)
         payload = {"scope": argv[2], "status": "ok", "steps": []}
@@ -836,11 +836,11 @@ def test_migrate_legacy_brains_keeps_legacy_venv_when_live_scan_unavailable(monk
             "Could not run target Brain repair scope runtime",
         ),
         (
-            lambda: (lambda argv, capture_output, text, timeout, check: subprocess.CompletedProcess(argv, 0, "not-json", "")),
+            lambda: (lambda argv, *, env, capture_output, text, timeout, check: subprocess.CompletedProcess(argv, 0, "not-json", "")),
             "did not produce valid JSON",
         ),
         (
-            lambda: (lambda argv, capture_output, text, timeout, check: subprocess.CompletedProcess(argv, 0, json.dumps({"scope": argv[2], "status": "mystery"}), "")),
+            lambda: (lambda argv, *, env, capture_output, text, timeout, check: subprocess.CompletedProcess(argv, 0, json.dumps({"scope": argv[2], "status": "mystery"}), "")),
             "returned unknown status 'mystery'",
         ),
     ],
@@ -895,7 +895,7 @@ def test_migrate_legacy_brains_dry_run_reports_live_scan_uncertainty(monkeypatch
         machine_registry=machine_registry,
     )
 
-    def _fake_run(argv, capture_output, text, timeout, check):
+    def _fake_run(argv, *, env, capture_output, text, timeout, check):
         payload = {"scope": argv[2], "status": "planned", "steps": []}
         return subprocess.CompletedProcess(argv, 0, json.dumps(payload), "")
 
@@ -1044,7 +1044,7 @@ def test_machine_main_renders_migrate_json(monkeypatch, tmp_path, capsys, fake_h
     legacy_python = vault / ".venv" / "bin" / "python"
     _install_central_runtime(legacy_python)
 
-    def _fake_run(argv, capture_output, text, timeout, check):
+    def _fake_run(argv, *, env, capture_output, text, timeout, check):
         payload = {"scope": argv[2], "status": "planned", "steps": []}
         return subprocess.CompletedProcess(argv, 0, json.dumps(payload), "")
 

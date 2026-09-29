@@ -8,12 +8,12 @@ import getpass
 import json
 import os
 from pathlib import Path
-import subprocess
 import sys
 from typing import Mapping
 from types import SimpleNamespace
 from _bootstrap.owner_attachment import OwnerAttachment, ProcessIdentity, PROCESS_CONTEXT_ENV
 from _bootstrap.consent_owner import OwnerConnectionError, OwnerTransportUnavailable
+from _common._venv import ROLE_CLI, managed_command
 
 from launcher_catalogue import LAUNCHER_CATALOGUE
 from _launcher.adapter import LauncherAdapter
@@ -374,7 +374,8 @@ def _initialise_selected_job(selected, owner, common) -> None:
             argv.extend(("--operator-key", common.operator_key))
         if selected.workspace is not None:
             argv.extend(("--workspace", str(selected.workspace)))
-        result = subprocess.run(argv, **options, capture_output=True, text=True, timeout=30)
+        result = managed_command(argv, role=ROLE_CLI, env=options.pop("env")).run(
+            **options, capture_output=True, text=True, timeout=30)
         if result.returncode != 0:
             raise CliError("selected Brain could not initialise the job: " + result.stderr.strip())
         expected = {"schema": "brain.owner-initialised/1", "context_id": owner.identity.context_id}
@@ -415,7 +416,8 @@ def _invoke_application(
         argv.extend(("--operator-key", common.operator_key))
     attachment = getattr(common, "owner_attachment", None)
     options = attachment.forwarded_process() if attachment is not None else {}
-    completed = subprocess.run(argv, capture_output=True, text=True, check=False, **options)
+    completed = managed_command(argv, role=ROLE_CLI, env=options.pop("env", None)).run(
+        capture_output=True, text=True, check=False, **options)
     if completed.returncode not in range(5):
         raise CliError("selected Brain discovery failed its structural process contract")
     try:

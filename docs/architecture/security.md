@@ -231,7 +231,12 @@ The new `repair.py` bootstrap path is deliberately narrower: it repairs or
 creates the central managed runtime at `~/.brain/venvs/py<X.Y>-<sha16>/` and
 then hands off into that runtime for packageful work. Brain installs its
 dependencies into that shared local runtime, never into the user's wider
-Python environment. Current-vault repair scopes such as `registry` are scoped
+Python environment. The role-named interpreter links that name Brain processes
+(`bin/brain-mcp-python`, `bin/brain-cli-python`) also live only inside that
+managed venv: they link to its base interpreter, are published only by
+lifecycle commands after a probe confirms canonical identity, and are never
+written into a vault or the user's Python installation. Current-vault repair
+scopes such as `registry` are scoped
 to machine-local files under the vault (`.brain/local/...`) and do not
 broaden into user-home config or cross-vault registries by default. See
 [DD-048: Central managed runtime](decisions/dd-048-central-managed-runtime.md).

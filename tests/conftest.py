@@ -107,6 +107,12 @@ def _isolate_config_home(tmp_path, monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _isolate_runtime_role(monkeypatch):
+    """Launch-owner decisions must not inherit a role from whatever started pytest."""
+    monkeypatch.delenv("BRAIN_RUNTIME_ROLE", raising=False)
+
+
+@pytest.fixture(autouse=True)
 def _isolate_resolution_runtime(tmp_path, monkeypatch):
     """Keep machine-level resolver runtime writes out of the real home dir."""
     runtime = tmp_path / ".brain" / "resolution-runtime"
