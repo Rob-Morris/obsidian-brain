@@ -6,11 +6,11 @@ import json
 import os
 from pathlib import Path
 import shutil
-import subprocess
 import sys
 
 from _bootstrap.file_transaction import FilePlan
 from _bootstrap.mcp_registration import user_ledger_path
+from _common._venv import run_managed
 
 
 def approvals_present(home: Path | None = None) -> bool:
@@ -45,8 +45,8 @@ def invoke(command: str, request: dict, *, source_root: Path | None = None,
         environment["BRAIN_CLI_DISTRIBUTION_ROOT"] = str(source_root)
         environment["PYTHONPATH"] = os.pathsep.join((str(source_root / "cli"), str(source_root / "src/brain-core/scripts")))
         prefix = [sys.executable, "-B", "-m", "_local_cli.main"]
-    probe = subprocess.run([*prefix, "command", "describe", "approvals.configure", "--json"],
-                           env=environment, capture_output=True, text=True, timeout=30)
+    probe = run_managed([*prefix, "command", "describe", "approvals.configure", "--json"],
+                        env=environment, capture_output=True, text=True, timeout=30)
     if probe.returncode:
         raise ValueError("The selected Brain CLI predates managed approvals; upgrade/reinstall it first.")
     words = command.split(".")
@@ -57,7 +57,7 @@ def invoke(command: str, request: dict, *, source_root: Path | None = None,
         argv += ["--vault", str(vault)]
     if dry_run:
         argv.append("--dry-run")
-    process = subprocess.run(argv, cwd=target, env=environment, capture_output=True, text=True, timeout=1800)
+    process = run_managed(argv, cwd=target, env=environment, capture_output=True, text=True, timeout=1800)
     try:
         result = json.loads(process.stdout)
     except ValueError as exc:

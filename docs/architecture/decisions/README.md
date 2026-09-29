@@ -120,6 +120,7 @@ Each DD captures the reasoning behind an architectural decision at the time it w
 | DD-078 | Registration-driven MCP lifecycle and a stable user bootstrap | Accepted | [dd-078](dd-078-registration-driven-mcp-lifecycle.md) |
 | DD-079 | One proxy transport owns blocked startup and recovery | Accepted | [dd-079](dd-079-unified-proxy-lifecycle.md) |
 | DD-080 | Registration-driven managed client approvals | Accepted | [dd-080](dd-080-managed-client-approvals.md) |
+| DD-081 | Named runtime interpreters through one launch owner | Accepted | [dd-081](dd-081-named-runtime-interpreters.md) |
 
 ---
 
@@ -128,7 +129,7 @@ Each DD captures the reasoning behind an architectural decision at the time it w
 Related decisions grouped by domain. Arrows show supersede/extend chains.
 
 - **MCP tool surface:** DD-010 → DD-044 → DD-060 → DD-061 → DD-062, DD-010 → DD-045 → DD-046 → DD-047, DD-045 → DD-057, DD-045 → DD-059, DD-011 → DD-020 → DD-025 → DD-045 → DD-061, DD-026, DD-027, DD-028, DD-073 → DD-074 → DD-075
-- **Config & install:** DD-003 → DD-049 → DD-054, DD-049 → DD-055 → DD-058 → DD-068, DD-015, DD-023 → DD-039 → DD-043 → DD-048 → DD-049 → DD-054, DD-048 → DD-070, DD-023 → DD-055, DD-023/DD-039 → DD-051 → DD-055, DD-032, DD-033
+- **Config & install:** DD-003 → DD-049 → DD-054, DD-049 → DD-055 → DD-058 → DD-068, DD-015, DD-023 → DD-039 → DD-043 → DD-048 → DD-049 → DD-054, DD-048 → DD-070, DD-048/DD-077 → DD-081, DD-023 → DD-055, DD-023/DD-039 → DD-051 → DD-055, DD-032, DD-033
 - **Router & bootstrap:** DD-008, DD-009 → DD-071, DD-009 → DD-072, DD-012, DD-013, DD-014, DD-017, DD-019, DD-038 → DD-065 → DD-076, DD-042, DD-054
 - **MCP lifecycle:** DD-043/DD-051/DD-052/DD-077 → DD-078; DD-073/DD-074/DD-075/DD-078 → DD-079
 - **Host approvals:** DD-073/DD-078 → DD-080

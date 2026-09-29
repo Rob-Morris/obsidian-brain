@@ -4,11 +4,11 @@ from __future__ import annotations
 
 import os
 import signal
-import subprocess
 from threading import current_thread, main_thread
 
 from _bootstrap.consent_owner import ConsentOwner, OwnerTransportUnavailable
 from _bootstrap.owner_attachment import OwnerAttachment, without_owner_environment
+from _common._venv import ROLE_CLI, managed_command
 
 
 def run_owned_job(selected, argv, *, initialise_owner) -> int:
@@ -45,7 +45,8 @@ def run_owned_job(selected, argv, *, initialise_owner) -> int:
         env.pop("BRAIN_WORKSPACE_DIR", None)
         if selected.workspace is not None:
             env["BRAIN_WORKSPACE_DIR"] = str(selected.workspace)
-        child = subprocess.Popen(list(argv), **attachment.forwarded_process(env))
+        options = attachment.forwarded_process(env)
+        child = managed_command(argv, role=ROLE_CLI, env=options.pop("env")).popen(**options)
         code = child.wait()
         return code if code >= 0 else 128 - code
     finally:

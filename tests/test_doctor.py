@@ -152,9 +152,8 @@ def test_collect_vault_diagnosis_rejects_unsupported_check_json(monkeypatch, tmp
 
     monkeypatch.setattr(doctor, "find_runnable_python", lambda *_args, **_kwargs: Path(sys.executable))
     monkeypatch.setattr(
-        doctor.subprocess,
-        "run",
-        lambda argv, capture_output, text, timeout, check: subprocess.CompletedProcess(
+        "_common._venv.subprocess.run",
+        lambda argv, *, env, capture_output, text, timeout, check: subprocess.CompletedProcess(
             argv,
             0,
             json.dumps({"summary": {"errors": 1}, "findings": [{"message": "missing fields"}]}),

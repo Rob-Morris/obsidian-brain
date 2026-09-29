@@ -33,6 +33,7 @@ import hashlib
 import json
 import ntpath
 import os
+import secrets
 import shutil
 import subprocess
 import sys
@@ -158,10 +159,10 @@ for line in open(sys.argv[1], encoding="utf-8"):
 if errors:
     raise SystemExit("Runtime dependency conformance failed:\\n" + "\\n".join(errors))
 '''
-    subprocess.run([str(python), "-c", code, str(requirements)], check=True,
-                   capture_output=True, text=True, timeout=timeout)
-    subprocess.run([str(python), "-m", "pip", "check"], check=True,
-                   capture_output=True, text=True, timeout=timeout)
+    run_managed([str(python), "-c", code, str(requirements)], check=True,
+                capture_output=True, text=True, timeout=timeout)
+    run_managed([str(python), "-m", "pip", "check"], check=True,
+                capture_output=True, text=True, timeout=timeout)
 
 
 def conform_runtime(python: str | Path, requirements: Path, *, tag: str | None = None,
@@ -191,14 +192,15 @@ def conform_runtime(python: str | Path, requirements: Path, *, tag: str | None =
         except subprocess.CalledProcessError:
             changed = True
     if changed:
-        subprocess.run([str(python), "-m", "pip", "install", "--quiet", "--no-deps",
-                        "--only-binary=:all:", "-r", str(selected)], check=True,
-                       capture_output=True, text=True, timeout=timeout)
+        run_managed([str(python), "-m", "pip", "install", "--quiet", "--no-deps",
+                     "--only-binary=:all:", "-r", str(selected)], check=True,
+                    capture_output=True, text=True, timeout=timeout)
         verify_runtime_versions(python, selected, timeout=timeout)
     if tag is None:
         tag = python_tag(python)
     verified = _readiness(python, requirements, tag, semantic)
     sentinel.write_text(json.dumps(verified), encoding="utf-8")
+    ensure_role_interpreters(python.parent.parent)
     return changed or recorded != verified
 
 
@@ -258,6 +260,199 @@ def resolve_vault_venv_dir(vault_root: Path, *, launcher: Optional[Path] = None)
 
 def resolve_vault_venv_python(vault_root: Path, *, launcher: Optional[Path] = None) -> Path:
     return venv_python(resolve_vault_venv_dir(vault_root, launcher=launcher))
+
+
+# ---------------------------------------------------------------------------
+# Named role interpreters
+#
+# A conformed managed venv publishes two role-named links to its base
+# interpreter. Launching the link with argv[0] still the canonical `bin/python`
+# makes the kernel show `brain-mcp-python` / `brain-cli-python` in Activity
+# Monitor and `top` while `sys.executable`, `sys.prefix` and every persisted
+# path stay canonical. The name is presentation only: a missing, stale or
+# unsupported role file means the launch runs `bin/python` exactly as before.
+# ---------------------------------------------------------------------------
+
+RUNTIME_ROLE_ENV = "BRAIN_RUNTIME_ROLE"
+ROLE_MCP = "mcp"
+ROLE_CLI = "cli"
+ROLE_INTERPRETER_NAMES = {ROLE_MCP: "brain-mcp-python", ROLE_CLI: "brain-cli-python"}
+# Kernel short names: macOS `p_comm` holds 16 characters, Linux `comm` 15.
+_KERNEL_NAME_LIMITS = {"darwin": 16, "linux": 15}
+_ROLE_PROBE_TIMEOUT = 10
+_ROLE_PROBE = """
+import sys
+if sys.platform == "darwin":
+    import ctypes, os
+    buffer = ctypes.create_string_buffer(64)
+    ctypes.CDLL("libproc.dylib").proc_name(os.getpid(), buffer, len(buffer))
+    observed = buffer.value.decode()
+else:
+    observed = open("/proc/self/comm").read().strip()
+raise SystemExit(0 if [sys.executable, sys.prefix, observed] == sys.argv[1:4] else 1)
+"""
+
+
+def is_managed_venv(venv_dir: Path) -> bool:
+    """Role files exist only where the launch owner would use them."""
+    venv_dir = Path(venv_dir)
+    return venv_dir.parent == central_venvs_root() and (venv_dir / "pyvenv.cfg").is_file()
+
+
+def role_interpreter(python: Path, role: str) -> Path:
+    return Path(python).parent / ROLE_INTERPRETER_NAMES[role]
+
+
+def role_interpreter_usable(role_file: Path, python: Path) -> bool:
+    """One rule for both link types: the role file must still be the base interpreter.
+
+    `samefile` follows the venv symlink, so a base interpreter replaced in place
+    (asdf, pyenv, distribution patches) makes a hard link stale at once.
+    """
+    try:
+        return os.path.samefile(role_file, python)
+    except OSError:
+        return False
+
+
+def ensure_role_interpreters(venv_dir: Path) -> None:
+    """Publish usable role files for a managed venv. Presentation only; never raises.
+
+    Each role stages a per-process candidate, probes it once and publishes it
+    with an atomic replace, so concurrent lifecycle runs cannot collide and a
+    failed probe or crash leaves nothing behind for launches to pick up.
+    """
+    # Any failure leaves the role unpublished, which is the complete recovery:
+    # launches fall back to bin/python and the lifecycle result is unaffected.
+    try:
+        venv_dir = Path(os.path.abspath(venv_dir))
+        if sys.platform not in _KERNEL_NAME_LIMITS or not is_managed_venv(venv_dir):
+            return
+        python = venv_python(venv_dir)
+    except Exception:
+        return
+    for role in ROLE_INTERPRETER_NAMES:
+        try:
+            role_file = role_interpreter(python, role)
+            if not role_interpreter_usable(role_file, python):
+                _publish_role_interpreter(python, role_file)
+        except Exception:
+            continue
+
+
+def _publish_role_interpreter(python: Path, role_file: Path) -> None:
+    _remove_dead_staging(role_file)
+    # The kernel names a process after the file it executes, so the candidate
+    # keeps the role name inside a directory unique to this process.
+    staging = role_file.with_name(f".{role_file.name}.{os.getpid()}.{secrets.token_hex(4)}")
+    staging.mkdir()
+    staged = staging / role_file.name
+    try:
+        base = os.path.realpath(python)
+        if sys.platform == "darwin":
+            # macOS names a process after the file it resolves to, so only a
+            # hard link carries the role name.
+            os.link(base, staged)
+        else:
+            # Linux names a process after the execve path itself and refuses
+            # hard links to ordinary users; a symlink also cannot go stale.
+            os.symlink(base, staged)
+        if _role_probe_passes(python, staged, role_file.name):
+            os.replace(staged, role_file)
+    finally:
+        shutil.rmtree(staging, ignore_errors=True)
+
+
+def _remove_dead_staging(role_file: Path) -> None:
+    for candidate in role_file.parent.glob(f".{role_file.name}.*"):
+        owner = candidate.name.split(".")[2]
+        if owner.isdigit() and not _process_alive(int(owner)):
+            shutil.rmtree(candidate, ignore_errors=True)
+
+
+def _process_alive(pid: int) -> bool:
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
+
+
+def _role_probe_passes(python: Path, staged: Path, name: str) -> bool:
+    """Reject identity drift (framework builds) and builds that cannot start from a link.
+
+    `site` is what sets a venv's `sys.prefix`, so the probe runs without `-S`;
+    `-I` keeps the caller's `PYTHON*` variables out of the answer.
+    """
+    expected = [str(python), str(python.parent.parent), name[:_KERNEL_NAME_LIMITS[sys.platform]]]
+    try:
+        completed = subprocess.run([str(python), "-I", "-c", _ROLE_PROBE, *expected],
+                                   executable=str(staged), capture_output=True,
+                                   timeout=_ROLE_PROBE_TIMEOUT)
+    except subprocess.TimeoutExpired:
+        return False
+    return completed.returncode == 0
+
+
+class ManagedCommand:
+    """One launch decision: the file the kernel executes, argv and environment.
+
+    `executable` is the role file only when `argv[0]` is the canonical
+    interpreter of a managed venv and the role's file is usable; otherwise it is
+    `argv[0]` and the launch is the same `subprocess` call as before, apart
+    from the explicit environment.
+
+    A plain class, not a dataclass: lifecycle callers execute a selected Core's
+    copy of this module outside `sys.modules`, where dataclasses cannot resolve
+    the module's string annotations.
+    """
+
+    __slots__ = ("executable", "argv", "env")
+
+    def __init__(self, executable: str, argv: list[str], env: dict[str, str]):
+        self.executable = executable
+        self.argv = argv
+        self.env = env
+
+    def _named(self) -> dict[str, str]:
+        return {"executable": self.executable} if self.executable != self.argv[0] else {}
+
+    def run(self, **options) -> subprocess.CompletedProcess:
+        return subprocess.run(self.argv, env=self.env, **self._named(), **options)
+
+    def popen(self, **options) -> subprocess.Popen:
+        return subprocess.Popen(self.argv, env=self.env, **self._named(), **options)
+
+    def exec(self) -> None:
+        os.execve(self.executable, self.argv, self.env)
+
+
+def managed_command(argv, *, role: str | None = None, env=None) -> ManagedCommand:
+    """The one owner of launching a managed interpreter, in Core and in the CLI.
+
+    `role` defaults to the inherited `BRAIN_RUNTIME_ROLE`; an explicit role is
+    set on the copied environment so children inherit it. `env` enters only here.
+    """
+    argv = [os.fspath(part) for part in argv]
+    environment = dict(os.environ if env is None else env)
+    if role is not None:
+        environment[RUNTIME_ROLE_ENV] = role
+    role = environment.get(RUNTIME_ROLE_ENV)
+    python = Path(argv[0])
+    executable = argv[0]
+    if (role in ROLE_INTERPRETER_NAMES and python.is_absolute()
+            and is_managed_venv(python.parent.parent) and python == venv_python(python.parent.parent)):
+        role_file = role_interpreter(python, role)
+        if role_interpreter_usable(role_file, python):
+            executable = str(role_file)
+    return ManagedCommand(executable, argv, environment)
+
+
+def run_managed(argv, *, role: str | None = None, env=None, **options) -> subprocess.CompletedProcess:
+    """`subprocess.run` through the launch owner, for injected runners."""
+    return managed_command(argv, role=role, env=env).run(**options)
 
 
 _MIN_SUPPORTED_VERSION = (3, 12)
@@ -548,7 +743,7 @@ def _probe_runtime(python_path: str, *, modules: tuple[str, ...] = ()) -> dict:
         "print(json.dumps(payload))"
     )
     try:
-        result = subprocess.run(
+        result = run_managed(
             [python_path, "-c", code],
             capture_output=True, text=True, timeout=15,
         )
