@@ -66,13 +66,14 @@ from ._interface_protocol import (
     AcceptedCallRecord,
     CommandInterfaceHeader,
     InterfaceTool,
+    InvalidToolCall,
     accept_call,
     interface_header_from_response,
 )
 from ._result_content import result_text_wire
 from ._proxy_controls import (
     CONTROL_TOOLS, REFRESH_TOOL, RESTART_TOOL, STATUS_TOOL,
-    add_control_discovery, control_response, tool_definitions,
+    add_control_discovery, control_response, rediscovery_action, tool_definitions,
 )
 
 from ._proxy_handoff import (
@@ -325,6 +326,10 @@ def _make_error_response(msg_id: int | str | None, code: int, message: str) -> d
     }
 
 
+class _InterfaceUnavailable(Exception):
+    """The child has no validated command interface; recovery is Core-side."""
+
+
 def _interface_changed_response(
     msg_id: int | str | None,
     reason: str,
@@ -332,8 +337,8 @@ def _interface_changed_response(
     detail: str | None = None,
 ) -> dict:
     message = (
-        "The Brain command interface changed while this call was in flight; "
-        "re-discover tools and reformulate the request."
+        "This attempt was refused against the current Brain command interface. "
+        "Host MCP tool rediscovery is required before reformulating the call."
     )
     payload = {
         "schema": "brain.proxy-replay-result/1",
@@ -344,10 +349,7 @@ def _interface_changed_response(
             "effects": "none",
             "retryable": False,
             "details": {"reason": reason, "diagnostic": detail},
-            "next_action": {
-                "instruction": "rediscover_tools",
-                "description": message,
-            },
+            "next_action": rediscovery_action(),
         },
     }
     return {
@@ -1729,6 +1731,19 @@ class Proxy:
         alive = child is not None and child.poll() is None
         with self._interface_lock:
             header = self._interface_header
+            if header is None or self._advertised_tools is None:
+                tool_discovery = {"state": "unknown", "pending_tools": []}
+            else:
+                current = dict(header.tools)
+                pending = sorted(
+                    name for name in current.keys() | self._advertised_tools.keys()
+                    if current.get(name) != self._advertised_tools.get(name)
+                )
+                tool_discovery = {
+                    "state": "required" if pending else "current", "pending_tools": pending,
+                }
+                if pending:
+                    tool_discovery["recovery"] = rediscovery_action()
         if runtime["restart_required"]:
             state = "runtime_restart_required"
         elif self._restart_in_progress:
@@ -1741,8 +1756,19 @@ class Proxy:
             state = "installation_unavailable"
         elif installed != self._last_launched_version:
             state = "available"
+        elif header is None:
+            state = "interface_unavailable"
         else:
             state = "current"
+        # Each diagnostic below names the action it recommends, so it keys off
+        # the chosen action rather than restating this precedence.
+        next_action = ("restart_mcp" if runtime["state"] == "installation_unavailable" or (runtime["restart_required"] and not alive) else
+                       RESTART_TOOL if (self._proxy_drift or runtime["restart_required"]) and os.name == "posix" else
+                       "restart_mcp" if runtime["restart_required"] else
+                       "restart_mcp" if self._proxy_drift or (state == "blocked" and self._refresh_header_rejected) else
+                       "repair_installation" if state == "installation_unavailable" else
+                       REFRESH_TOOL if state in {"available", "unavailable", "blocked", "interface_unavailable"} else
+                       STATUS_TOOL if state == "refreshing" else None)
         status = {
             "proxy": {"loaded": PROXY_VERSION,
                       "installed": self._installed_proxy_version,
@@ -1751,6 +1777,7 @@ class Proxy:
             "server": {"loaded": self._last_launched_version, "installed": installed,
                        "available": alive, "refresh": state},
             "interface": {"proxy_protocol": PROXY_PROTOCOL,
+                          "tool_discovery": tool_discovery,
                           "epoch": header.interface_epoch if header else None,
                           "catalogue_fingerprint": header.catalogue_fingerprint if header else None,
                           "generation": self._catalogue_generation,
@@ -1763,18 +1790,27 @@ class Proxy:
                 "Use brain_proxy_restart when idle, or restart MCP in the host. "
                 "If the installed runtime is unavailable, repair it before restarting."
                 if runtime["restart_required"] else
+                "Installed Core version is unreadable. Repair the Brain installation externally, "
+                "then call brain_proxy_refresh({}) and inspect brain_proxy_status({}). "
+                "Host tool rediscovery alone cannot repair the installation."
+                if next_action == "repair_installation" else
+                f"Core interface unavailable: {self._interface_header_error or 'no validated header'}. "
+                "Repair the installation if needed, then call brain_proxy_refresh({}) and inspect status. "
+                "Host tool rediscovery cannot repair this."
+                if state == "interface_unavailable" and next_action == REFRESH_TOOL else
                 self._refresh_diagnostic if state == "blocked" else None),
             "consent": "same-proxy; new proxy requires fresh exceptional consent",
-            "next_action": ("restart_mcp" if runtime["state"] == "installation_unavailable" or (runtime["restart_required"] and not alive) else
-                            RESTART_TOOL if (self._proxy_drift or runtime["restart_required"]) and os.name == "posix" else
-                            "restart_mcp" if runtime["restart_required"] else
-                            "restart_mcp" if self._proxy_drift or (state == "blocked" and self._refresh_header_rejected) else
-                            REFRESH_TOOL if state in {"available", "unavailable", "blocked"} else
-                            STATUS_TOOL if state == "refreshing" else None),
+            "next_action": next_action,
         }
         if self._startup_failure:
             status["diagnostic"] = self._startup_failure.detail
             status["next_action"] = "restart_mcp" if self.vault_root is None or self._startup_failure.code == "target_changed" else RESTART_TOOL
+        if state == "current" and status["next_action"] is None and tool_discovery["state"] == "required":
+            status["next_action"] = "rediscover_tools"
+            status["diagnostic"] = (
+                "Core is current, but the host has stale tool contracts. "
+                "Follow interface.tool_discovery.recovery; refreshing Core again does not complete host discovery."
+            )
         status["lifecycle"] = {"phase": "stopping" if self._shutdown else
                                "recovering" if self._pending_lifecycle or self._restart_in_progress else
                                "ready" if alive and header else "blocked",
@@ -1970,6 +2006,10 @@ class Proxy:
                         return
                     forwarded, accepted = self._prepare_interface_call(request)
                     self._forward_to_child(forwarded, self._get_child(), accepted)
+            except _InterfaceUnavailable:
+                self._send_interface_unavailable(request["id"])
+            except InvalidToolCall as exc:
+                self._send_to_client(_make_error_response(request["id"], exc.code, str(exc)))
             except (ValueError, TypeError) as exc:
                 self._refuse_interface_replay(request["id"], "accepted_call_invalid", detail=str(exc))
         with self._restart_lock:
@@ -2295,6 +2335,10 @@ class Proxy:
             _log().warning("orphaned in-flight request id=%s — sending error to client", req_id)
             self._send_to_client(_make_error_response(req_id, -32603, message))
 
+    def _send_interface_unavailable(self, request_id: int | str | None) -> None:
+        self._send_to_client(control_response(
+            request_id, STATUS_TOOL, self._proxy_status(), code="server_interface_unavailable"))
+
     def _refuse_interface_replay(
         self,
         request_id: int | str | None,
@@ -2341,11 +2385,17 @@ class Proxy:
             self._replay_depth = 0
             return
 
+        with self._interface_lock:
+            interface_unavailable = self._interface_header is None
         replayed_any = False
         for req in requests:
             req_id = req.get("id")
             accepted = accepted_calls.get(req_id)
-            if accepted is None and req.get("method") == "tools/call":
+            unaccepted = accepted is None and req.get("method") == "tools/call"
+            if (unaccepted or accepted is not None and not isinstance(accepted, AcceptedCallRecord)) and interface_unavailable:
+                self._send_interface_unavailable(req_id)
+                continue
+            if unaccepted:
                 self._refuse_interface_replay(req_id, "accepted_call_missing")
                 continue
             if accepted is not None and not isinstance(accepted, AcceptedCallRecord):
@@ -2599,14 +2649,25 @@ class Proxy:
         """Record exposed contracts while in-flight ownership still bars refresh."""
         if request.get("method") != "tools/list" or not isinstance(response.get("result"), dict):
             return
+        tools = response["result"].get("tools")
+        if not isinstance(tools, list):
+            return
         with self._interface_lock:
             if self._interface_header is None or self._advertised_tools is None:
                 return
-            for tool in response["result"].get("tools", []):
+            for tool in tools:
                 name = tool.get("name") if isinstance(tool, dict) else None
                 mapping = self._interface_header.tool(name)
                 if mapping is not None:
                     self._advertised_tools[name] = mapping
+            if not response["result"].get("nextCursor"):
+                # Removed tools cannot appear on a discovery page. Retire their
+                # old contracts at the end of the listing, not on an early page.
+                current = dict(self._interface_header.tools)
+                self._advertised_tools = {
+                    name: mapping for name, mapping in self._advertised_tools.items()
+                    if name in current
+                }
 
     # ------------------------------------------------------------------
     # Main loop (proxy stdin → child stdin)
@@ -2632,11 +2693,13 @@ class Proxy:
         with self._interface_lock:
             header = self._interface_header
         if header is None:
-            raise ValueError("the child has no validated Brain command interface")
+            raise _InterfaceUnavailable("the child has no validated Brain command interface")
         params = request.get("params")
         tool_name = params.get("name") if isinstance(params, dict) else None
         if not isinstance(tool_name, str):
-            raise ValueError("tools/call requires a string tool name")
+            raise InvalidToolCall("tools/call requires a string tool name")
+        if header.tool(tool_name) is None and self._advertised_tools is not None and tool_name not in self._advertised_tools:
+            raise InvalidToolCall(f"unknown tool {tool_name!r}: it is not advertised by this Brain command interface")
         if header.tool(tool_name) is None:
             raise ValueError(
                 "tool is not advertised by the active Brain command interface; "
@@ -2861,7 +2924,7 @@ class Proxy:
                 ready = self._establish_initial_protocol(child)
                 if not ready:
                     if is_request:
-                        self._send_to_client(_interface_changed_response(msg_id, "child_header_invalid", detail=self._interface_header_error))
+                        self._send_interface_unavailable(msg_id)
                     continue
 
             accepted_call = None
@@ -2879,6 +2942,12 @@ class Proxy:
                         self._send_to_client(control_response(msg_id, tool_name, self._proxy_status(), code=runtime_error))
                         continue
                     obj, accepted_call = self._prepare_interface_call(obj)
+                except _InterfaceUnavailable:
+                    self._send_interface_unavailable(msg_id)
+                    continue
+                except InvalidToolCall as exc:
+                    self._send_to_client(_make_error_response(msg_id, exc.code, str(exc)))
+                    continue
                 except (TypeError, ValueError) as exc:
                     self._refuse_interface_replay(
                         msg_id,

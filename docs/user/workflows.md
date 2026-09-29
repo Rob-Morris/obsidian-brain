@@ -26,6 +26,21 @@ inspect the reported boundary instead: consent cannot raise permissions, and
 switching transports is not a remedy for denial. A granted command still needs
 to be within the user's task.
 
+### Recovering discovery after an upgrade
+
+If a call returns `interface_changed`, inspect `brain_proxy_status({})`.
+Core can be current while `interface.tool_discovery.state` is `required`.
+Follow the highest-priority `next_action`; pending discovery names its owner,
+exact MCP `tools/list` request and affected tools. The **host**, not Brain's
+`command_list` or `command_describe`, must fetch that list and all `nextCursor`
+pages. Use the host's tool-refresh action if available; if the agent cannot
+trigger it, ask the user to reconnect Brain MCP. Repeating `brain_proxy_refresh`
+does not refresh the host catalogue. Changed discovery commands are blocked too,
+but the proxy status control remains callable. After rediscovery, use the new
+contract and verify an affected call instead of retrying blindly. If still
+blocked, report the diagnostic; do not loop through rediscovery. A new proxy
+instance ends exceptional consent; reauthorise only if the intended work needs it.
+
 ## Workspace-aware changes
 
 When a local workspace is bound, creation and semantic edits use its shared and
