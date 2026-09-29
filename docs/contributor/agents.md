@@ -83,7 +83,7 @@ When in doubt, check `docs/README.md` — if a doc file is listed there, it's a 
 
 Every launch of a managed-runtime interpreter, in `src/brain-core` and in
 `cli/`, goes through `_common._venv.managed_command` (or `run_managed` where a
-`subprocess.run`-shaped runner is injected). The owner decides once whether the
+runner is injected: it takes `subprocess.run`'s options plus `role`). The owner decides once whether the
 kernel executes a role-named link (`brain-mcp-python`, `brain-cli-python`) and
 keeps argv canonical; `env` enters only through `managed_command`, and the
 `run`, `popen` and `exec` methods pass argv and environment together, adding
