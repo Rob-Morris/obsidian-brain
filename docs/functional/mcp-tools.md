@@ -365,6 +365,52 @@ contracts continue normally. Refresh never replays a dispatched command, includi
 residual race between the pre-admission check and child execution continue to
 resolve owned receipts; an inconclusive receipt means unknown, not safe to retry.
 
+Status exposes `interface.tool_discovery` independently of Core/runtime readiness:
+`state` is `current`, `required` or `unknown` (no validated comparison), and
+`pending_tools` lists added, changed or removed contract names compared with the
+proxy's connection baseline and subsequent host discovery responses. This is a
+protocol observation, not proof of what the model sees in a host cache. Required
+discovery includes a `recovery` descriptor with `owner: mcp_host`,
+`method: tools/list`, empty initial `params`, and instructions to follow every
+`nextCursor`. Once higher-priority runtime/server recovery is resolved,
+`next_action` is `rediscover_tools`, not null. Partial pages acknowledge only the
+tools they contain; removed mappings retire at the end of a listing. Unchanged
+tools remain callable.
+
+If the installed Core version is unreadable while the runtime remains usable,
+status instead names `repair_installation`: repair the installation externally,
+then call `brain_proxy_refresh({})` and inspect `brain_proxy_status({})`.
+Pending rediscovery stays visible, but does not override that prerequisite.
+When no higher-priority recovery applies, an alive child without a validated
+command-interface header reports
+`server.refresh: interface_unavailable`, the header diagnostic and
+`next_action: brain_proxy_refresh`. Calls refused for this condition return
+`server_interface_unavailable` with status, not rediscovery advice. Repair the
+installation if needed, then refresh and inspect status; host tools/list cannot
+repair a missing or incompatible Core interface.
+
+`interface_changed` returns `effects: none`, `retryable: false` and this same
+host-owned recovery action without claiming every refusal happened in flight.
+The agent should use the host's tool-refresh facility, or ask the user to
+reconnect Brain MCP if none is available. Brain `command_list` and
+`command_describe` inspect application contracts, not host discovery, and may
+themselves require rediscovery after a change. They do not bypass the contract
+guard. Neither `brain_proxy_refresh` nor the stdio-preserving
+`brain_proxy_restart` acknowledges host discovery; proxy replacement is not a
+host reconnect.
+`brain_proxy_status({})` remains independent of the application catalogue.
+After host rediscovery, reformulate and verify an affected call; never treat
+Core version equality or an unaffected read as proof that changed tools work.
+If still blocked, report the diagnostic instead of repeating rediscovery.
+Caller-owned envelope faults are rejected before dispatch with a JSON-RPC error,
+not rediscovery advice: a missing or wrong `jsonrpc` version returns `-32600`
+(invalid request); non-object `params` or `_meta`, a non-string tool name,
+caller-supplied reserved Brain metadata, or a tool name this connection was never
+advertised returns `-32602` (invalid params). Correct the reported input, not the
+host catalogue. Tool `arguments` are validated by the command itself. The always-loaded bootstrap only routes to recovery; detailed
+instructions live in the on-demand status/error action. Both have tested token
+budgets, alongside complete response-envelope byte limits.
+
 Compatible child replacement retains the proxy's consent owner. New proxy
 instances always need fresh exceptional consent. `brain_proxy_restart` preserves
 POSIX stdin/stdout through a bounded in-place process replacement. It resolves

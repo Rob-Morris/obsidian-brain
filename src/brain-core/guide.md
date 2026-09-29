@@ -317,6 +317,18 @@ child. A missing child instead uses same-runtime activation. Unsupported platfor
 preflight may require restarting MCP through the host. These are MCP transport tools; `runtime_status`
 reports application warm-up instead.
 
+Core readiness does not imply host tool discovery is current. Status reports
+`interface.tool_discovery` separately, including `pending_tools` and the
+host-owned recovery operation. For `interface_changed`, the host must call MCP
+`tools/list` and follow all `nextCursor` pages. Use its tool-refresh action if
+available; otherwise ask the user to reconnect Brain MCP. Neither Brain
+`command_list`/`command_describe` nor `brain_proxy_refresh` acknowledges this
+discovery. The stdio-preserving `brain_proxy_restart` is not a host reconnect
+and does not acknowledge host discovery either. Changed discovery tools follow the same refusal rule as other tools;
+`brain_proxy_status({})` remains available independently. Do not retry the stale
+call unchanged. After rediscovery, reformulate with the new contract and verify
+an affected tool call; unchanged calls alone do not prove recovery.
+
 Reachable startup failures expose these same three controls. Repair prerequisites
 externally, then request recovery for the pinned Brain. Unknown or changed target
 bindings require configuration and host reconnect; failures before the proxy
