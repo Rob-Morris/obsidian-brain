@@ -11,34 +11,9 @@ from brain_mcp import proxy
 from brain_mcp._proxy_controls import add_control_discovery, control_response, tool_definitions
 from brain_mcp._command_adapter import application_interface_header
 from _application.registry import current_application_catalogue
-from test_mcp_proxy import _FakeChild, _make_inprocess_proxy, _write_vault
-from brain_mcp._proxy_handoff import RawLineReader
-
-
-def lifecycle_request(name="brain_proxy_refresh", request_id=1):
-    return {"jsonrpc": "2.0", "id": request_id, "method": "tools/call",
-            "params": {"name": name, "arguments": {}}}
-
-
-def drive_lifecycle(relay, name="brain_proxy_refresh"):
-    """Drive the wired admission/preparation/completion path deterministically."""
-    if relay._client_protocol is None:
-        relay._client_protocol = "modern"
-    reader = RawLineReader(0)
-    incoming, outgoing = os.pipe()
-    relay._wake_write = outgoing
-    try:
-        code = relay._admit_lifecycle(lifecycle_request(name), reader)
-        if code:
-            return code
-        relay._prepare_lifecycle()
-        relay._finish_prepared_handoff(reader)
-        response = relay._outbound.get_nowait()["result"]["structuredContent"]
-        return response.get("error", {}).get("code")
-    finally:
-        relay._wake_write = None
-        os.close(incoming)
-        os.close(outgoing)
+from proxy_test_support import (
+    _FakeChild, _make_inprocess_proxy, _write_vault, drive_lifecycle, lifecycle_request,
+)
 
 
 def test_refresh_leaves_inflight_work_running(tmp_path):

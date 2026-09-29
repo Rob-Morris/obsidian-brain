@@ -7,16 +7,46 @@ from fnmatch import fnmatchcase
 import os
 from pathlib import Path
 import re
+import signal
 import subprocess
 
 import pytest
 import yaml
+from brain_test_support import process_diagnostics
 
 from test_ci_check import REPO_ROOT, SHA, runs
 
 
 def _workflow(name):
     return yaml.load((REPO_ROOT / ".github/workflows" / name).read_text(), Loader=yaml.BaseLoader)
+
+
+def _run_workflow(script, *, cwd, env, timeout=45):
+    """Own the shell/checker/gh process group, including the timeout path."""
+    process = subprocess.Popen(["bash", "-e", "-c", script], cwd=cwd, env=env,
+                               stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                               text=True, start_new_session=True)
+    try:
+        try:
+            stdout, stderr = process.communicate(timeout=timeout)
+        except subprocess.TimeoutExpired as exc:
+            try:
+                os.killpg(process.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+            exc.stdout, exc.stderr = process.communicate(timeout=5)
+            exc.add_note(process_diagnostics(exc))
+            raise
+        return subprocess.CompletedProcess(process.args, process.returncode, stdout, stderr)
+    finally:
+        if process.poll() is None:
+            try:
+                os.killpg(process.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+            process.wait(timeout=5)
+        process.stdout.close()
+        process.stderr.close()
 
 
 def _condition(expression, values):
@@ -113,10 +143,22 @@ def test_reusable_workflow_executes_exact_candidate_evidence_and_fails_closed(tm
     gh.write_text("#!/bin/sh\n" + ("exit 1\n" if state == "unavailable" else "printf '%s' '" + response + "'\n"))
     gh.chmod(0o755)
     output = tmp_path / "output"
-    completed = subprocess.run(["bash", "-e", "-c", script], cwd=root, capture_output=True, text=True,
-                               env={**os.environ, "PATH": f"{fake_bin}:{os.environ['PATH']}", "GITHUB_OUTPUT": str(output)})
-    assert completed.returncode == 0, completed.stderr
-    assert output.read_text().strip() == f"reuse={reuse}"
+    completed = _run_workflow(script, cwd=root,
+                              env={**os.environ, "PATH": f"{fake_bin}:{os.environ['PATH']}", "GITHUB_OUTPUT": str(output)})
+    assert completed.returncode == 0, process_diagnostics(completed)
+    assert output.exists(), process_diagnostics(completed)
+    assert output.read_text().strip() == f"reuse={reuse}", process_diagnostics(completed)
+
+
+def test_workflow_timeout_closes_descendants_inheriting_capture_pipes(tmp_path):
+    # Killing only Bash leaves sleep holding both capture pipes for a minute.
+    # The helper's bounded post-kill communicate must instead reach EOF.
+    with pytest.raises(subprocess.TimeoutExpired) as caught:
+        _run_workflow("sleep 60 & echo child-launched; wait", cwd=tmp_path,
+                      env=os.environ.copy(), timeout=5)
+    assert caught.value.timeout == 5
+    assert caught.value.stdout == "child-launched\n"
+    assert "child-launched" in "\n".join(caught.value.__notes__)
 
 
 @pytest.mark.parametrize("native,reuse,code", [("success", "false", 0), ("failure", "false", 1), ("skipped", "false", 1), ("skipped", "true", 0)])

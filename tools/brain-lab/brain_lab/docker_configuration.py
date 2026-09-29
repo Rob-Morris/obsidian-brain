@@ -77,7 +77,18 @@ class DockerConfiguration:
             except ProcessLaunchError as exc:
                 raise DockerEndpointError("Docker invocation failed during endpoint discovery") from exc
             if not execution.succeeded or not execution.evidence_complete:
-                raise DockerEndpointError("Docker endpoint discovery failed; no daemon fallback is permitted")
+                # Discovery inherits ambient credentials. Preserve status, not raw
+                # streams or paths into the temporary evidence being removed.
+                raise DockerEndpointError(
+                    "Docker endpoint discovery failed; no daemon fallback is permitted "
+                    f"(probe={arguments[0]}, returncode={execution.returncode}, "
+                    f"timed_out={execution.timed_out}, cancelled={execution.cancelled}, "
+                    f"duration_seconds={execution.duration_seconds}, "
+                    f"evidence_complete={execution.evidence_complete}, "
+                    f"stdout_bytes={execution.stdout.total_bytes}, stderr_bytes={execution.stderr.total_bytes}, "
+                    f"stdout_truncated={execution.stdout.truncated}, stderr_truncated={execution.stderr.truncated}, "
+                    f"stdin_error={execution.stdin_error is not None}, stream_error={execution.stream_error is not None})"
+                )
             # Docker warns and falls back when its configuration is malformed.
             if Path(execution.stderr.path).read_bytes():
                 raise DockerEndpointError("Docker endpoint discovery emitted a diagnostic; resolve it before retrying")

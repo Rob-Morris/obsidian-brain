@@ -8,7 +8,7 @@ import sys
 
 import pytest
 
-from test_mcp_proxy import _read_until_id
+from proxy_test_support import _read_until_id
 
 
 SERVER = Path(__file__).resolve().parents[1] / "fixtures/production_mcp_proxy.py"

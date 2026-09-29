@@ -65,6 +65,9 @@ Discovery failures, unsupported
 or ambiguous endpoint settings, daemon changes and invalid credential
 configuration return typed errors. Endpoint discovery diagnostics are kept in
 temporary storage and removed rather than copied into evidence.
+Failed discovery reports the probe, exit status, timeout/cancellation, duration,
+stream byte counts and evidence-completeness flags. It does not include raw
+streams, inherited credentials or paths to the deleted temporary logs.
 
 ## Prerequisites
 
