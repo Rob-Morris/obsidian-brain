@@ -17,6 +17,7 @@ from _bootstrap.runtime import (
 )
 from _bootstrap.vaults import find_vault_root, make_vault_parent_parser
 from _bootstrap.workspace_binding import (
+    WORKSPACE_ERROR_BRAIN_UNREGISTERED,
     WorkspaceBindingError,
     converge_workspace_binding,
     load_workspace_manifest_state,
@@ -24,6 +25,7 @@ from _bootstrap.workspace_binding import (
     resolve_local_brain_alias,
     resolve_workspace_dir,
     save_workspace_manifest_data,
+    unregistered_brain_message,
 )
 from _common import find_root_bootstrap_file, safe_write
 from _lifecycle_common import (
@@ -99,10 +101,14 @@ def configure_agent_skills_action(
 
 def _resolve_binding_brain(vault_root: Path, brain_id: str | None) -> str:
     if brain_id is None:
-        return resolve_local_brain_alias(vault_root)
+        alias = resolve_local_brain_alias(vault_root)
+        if alias is None:
+            raise WorkspaceBindingError(unregistered_brain_message(vault_root),
+                                        code=WORKSPACE_ERROR_BRAIN_UNREGISTERED)
+        return alias
     if resolve_local_brain_vault(brain_id) is None:
         raise WorkspaceBindingError(
-            f"unknown local Brain ID '{brain_id}'. Register or upgrade that Brain first, or pick a known vault alias."
+            f"unknown local Brain ID '{brain_id}'. Register that Brain first, or pick a known vault alias."
         )
     return brain_id
 
@@ -178,7 +184,7 @@ def configure_workspace_metadata_action(
         state = load_workspace_manifest_state(workspace_dir)
         if state.data is None:
             raise WorkspaceBindingError(
-                "workspace binding is missing; run `brain workspace setup` or `brain configure workspace binding` first."
+                "workspace binding is missing; run `brain workspace setup` first."
             )
         manifest = dict(state.data)
 

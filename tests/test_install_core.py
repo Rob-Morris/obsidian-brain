@@ -334,7 +334,8 @@ def test_install_core_registry_failure_reports_recovery_note(tmp_path, monkeypat
     assert result["status"] == "partial"
     assert (vault / ".brain-core" / "VERSION").is_file()
     assert any(step["name"] == "vault_registry" and step["status"] == "error" for step in result["steps"])
-    assert any("NOT registered" in note and "vault_registry.py --register" in note for note in result["notes"])
+    guidance = install_core.vault_registry.register_guidance(vault)
+    assert any("NOT registered" in note and guidance in note for note in result["notes"])
 
 
 def test_install_core_resolves_bare_launcher_on_path(tmp_path, monkeypatch):

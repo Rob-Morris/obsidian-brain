@@ -77,9 +77,15 @@ def prepare_workspace(context, request, *, frozen_inputs=None):
     if command == "workspace.bind":
         import configure
         import vault_registry
-        from _bootstrap.workspace_binding import resolve_local_brain_vault
+        from _bootstrap.workspace_binding import (WORKSPACE_ERROR_FILESYSTEM_ACCESS, WorkspaceBindingError,
+                                                  resolve_local_brain_vault)
 
-        alias = configure._resolve_binding_brain(root, request.brain_id)
+        try:
+            alias = configure._resolve_binding_brain(root, request.brain_id)
+        except WorkspaceBindingError as exc:
+            if exc.code == WORKSPACE_ERROR_FILESYSTEM_ACCESS:
+                raise
+            raise ValueError(str(exc)) from exc
         target = resolve_local_brain_vault(alias)
         files.add(Path(vault_registry.registry_path()))
         observations.append(ObservedResource("binding-brain", alias, str(target)))

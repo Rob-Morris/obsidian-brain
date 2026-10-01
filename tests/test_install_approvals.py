@@ -114,7 +114,7 @@ def test_fresh_install_and_same_version_rerun_apply_managed_cli_approvals(tmp_pa
     assert settings.read_bytes() == before
 
 
-def test_managed_registry_backfill_preserves_existing_identity_and_default(tmp_path, monkeypatch):
+def test_managed_registry_reregistration_preserves_existing_identity_and_default(tmp_path, monkeypatch):
     home = tmp_path / "home"
     binary = home / ".local/bin/brain"
     installed = subprocess.run(
@@ -136,7 +136,7 @@ def test_managed_registry_backfill_preserves_existing_identity_and_default(tmp_p
 
     result = subprocess.run(
         [sys.executable, str(ROOT / "src/brain-core/scripts/vault_registry.py"),
-         "--backfill", str(vault), "--id", "ignored-for-backfill"],
+         "--register", str(vault)],
         cwd=home, capture_output=True, text=True, timeout=60,
     )
     assert result.returncode == 0, result.stderr + result.stdout

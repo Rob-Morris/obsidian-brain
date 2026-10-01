@@ -362,27 +362,17 @@ registry_update() {
     [ -f "$script" ] || return 0
     local py="${_PY312_PATH:-}"
     if [ -z "$py" ]; then
-        py=$(find_python_for_script "$script") || return 0
+        if ! py=$(find_python_for_script "$script"); then
+            warn "Brain registry update skipped: no Python could run vault_registry.py."
+            info "Register this Brain once a Python 3.12+ interpreter is available:"
+            info "  brain register --request-json '{\"vault_root\":\"$path\"}'"
+            return 0
+        fi
     fi
-    # Thread --id when provided and action is --register (explicit brain ID).
-    # For explicit --id, surface a conflict instead of swallowing it silently.
-    if [ "$action" = "--register" ] && [ -n "${BRAIN_ID:-}" ]; then
-        local _reg_out
-        if _reg_out=$("$py" "$script" "$action" "$path" --id "$BRAIN_ID" 2>&1); then
-            : # registered cleanly — stay silent like the best-effort path
-        else
-            warn "Requested Brain ID '$BRAIN_ID' could not be registered (it may already be in use)."
-            info "$_reg_out"
-            info "This Brain was NOT registered under '$BRAIN_ID'. To resolve, free the id then re-register:"
-            info "  \"$py\" \"$script\" --unregister <path-shown-above>"
-            info "  \"$py\" \"$script\" --register \"$path\" --id \"$BRAIN_ID\""
-        fi
-    else
-        local registry_output
-        if ! registry_output=$("$py" "$script" "$action" "$path" 2>&1); then
-            warn "Brain registry update did not complete."
-            info "$registry_output"
-        fi
+    local registry_output
+    if ! registry_output=$("$py" "$script" "$action" "$path" 2>&1); then
+        warn "Brain registry update did not complete."
+        info "$registry_output"
     fi
 }
 
@@ -649,7 +639,10 @@ fi
 # ---------------------------------------------------------------------------
 
 if [ -n "$EXISTING_VERSION" ]; then
-    registry_update --backfill "$VAULT_PATH"
+    if [ -n "$BRAIN_ID" ]; then
+        warn "--id '$BRAIN_ID' is ignored for an existing vault: a registered vault keeps its Brain ID, and an unregistered one is registered under an ID derived from its folder name."
+    fi
+    registry_update --register "$VAULT_PATH"
 
     if is_semver "$EXISTING_VERSION" && is_semver "$SOURCE_VERSION"; then
         if compare_versions "$EXISTING_VERSION" "$SOURCE_VERSION"; then

@@ -163,15 +163,12 @@ def _summary(command_id: str) -> str:
     noun_words = noun.replace("-", " ")
     verb_words = verb.replace("-", " ")
     direct = {
-        "backfill": "Backfill the {noun} registry",
-        "approve": "Approve one pending {noun} request",
         "configure": "Configure {noun}",
         "doctor": "Diagnose {noun} state",
         "install": "Install one {noun}",
         "inspect": "Inspect {noun} state",
         "list": "List registered {noun} resources",
         "migrate-legacy-installations": "Migrate legacy {noun} installations",
-        "prune": "Prune stale {noun} records",
         "register": "Register one {noun}",
         "remove-orphans": "Remove orphaned {noun} resources",
         "remove-stale": "Remove stale {noun} records",

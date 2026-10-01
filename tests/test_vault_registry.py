@@ -219,14 +219,37 @@ def test_register_collision_appends_suffix(registry_home, monkeypatch):
     }
 
 
-def test_backfill_is_noop_when_path_present(registry_home):
-    vault_registry.register("/Users/rob/brain")
-    assert vault_registry.backfill("/Users/rob/brain") == "brain"
-    assert _local_entries() == {"brain": "/Users/rob/brain"}
+def test_brain_id_for_path_reads_without_registering(registry_home):
+    assert vault_registry.brain_id_for_path("/Users/rob/brain") is None
+    assert not Path(vault_registry.registry_path()).exists()
+    vault_registry.register("/Users/rob/brain", brain_id="rob")
+    assert vault_registry.brain_id_for_path("/Users/rob/brain") == "rob"
+    assert vault_registry.brain_id_for_path("/Users/rob/other") is None
 
 
-def test_backfill_registers_new_path(registry_home):
-    assert vault_registry.backfill("/Users/rob/brain") == "brain"
+@pytest.mark.parametrize("stored", ["canonical", "symlinked"])
+def test_brain_id_for_path_agrees_with_registration_lookup(registry_home, tmp_path, stored):
+    vault = tmp_path / "vault"
+    vault.mkdir()
+    link = tmp_path / "link"
+    link.symlink_to(vault)
+    row = vault if stored == "canonical" else link
+    _save_local_entries({"kept": str(row)})
+
+    found = vault_registry.brain_id_for_path(str(vault))
+    planned = vault_registry.preview_register_action(str(vault))
+
+    assert found == ("kept" if stored == "canonical" else None)
+    assert (found is None) is planned.changed
+
+
+def test_brain_id_for_path_matches_through_a_symlink(registry_home, tmp_path):
+    vault = tmp_path / "vault"
+    vault.mkdir()
+    alias = tmp_path / "alias"
+    alias.symlink_to(vault)
+    vault_registry.register(str(vault), brain_id="vault")
+    assert vault_registry.brain_id_for_path(str(alias)) == "vault"
 
 
 def test_unregister_by_path(registry_home):
@@ -616,16 +639,10 @@ def test_register_explicit_id_empty_raises(registry_home):
         vault_registry.register("/Users/rob/brain", brain_id="")
 
 
-# ---------------------------------------------------------------------------
-# backfill idempotency
-# ---------------------------------------------------------------------------
-
-
-def test_backfill_idempotent_returns_same_id(registry_home):
-    first_id = vault_registry.backfill("/Users/rob/brain")
-    second_id = vault_registry.backfill("/Users/rob/brain")
-    assert first_id == second_id == "brain"
-    assert len(_local_entries()) == 1
+def test_cli_has_no_backfill_alias(registry_home):
+    result = _run_cli(registry_home, "--backfill", "/Users/rob/brain", check=False)
+    assert result.returncode == 2
+    assert not Path(vault_registry.registry_path()).exists()
 
 
 # ---------------------------------------------------------------------------
@@ -697,3 +714,11 @@ def test_cli_register_with_id_conflict_exits_1(registry_home):
     )
     assert result.returncode == 1
     assert "already registered" in result.stderr
+
+
+@pytest.mark.parametrize("reader", ["load_registry_entries", "get_default"])
+def test_undecodable_registry_files_are_registry_read_errors(registry_dir, reader):
+    (registry_dir / "vaults").write_bytes(b"\xff\xfe broken\n")
+    (registry_dir / "default").write_bytes(b"\xff\xfe broken\n")
+    with pytest.raises(vault_registry.RegistryReadError):
+        getattr(vault_registry, reader)()

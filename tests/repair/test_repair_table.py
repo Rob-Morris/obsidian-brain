@@ -58,20 +58,75 @@ def test_every_machine_family_resolves_through_the_launcher_catalogue(kind):
     assert machine_maintenance.launcher_guidance(family, vault_root="/x y", subject=subject) == expected
 
 
-def test_core_doctor_register_guidance_matches_the_launcher_table():
+def test_core_register_guidance_matches_the_launcher_table():
     """Core cannot import the launcher, so its hand-built guidance is pinned to the table's rendering."""
     import json
     import shlex
 
-    import doctor_machine
+    import vault_registry
     from _launcher.registry import BrainRegisterRequest
 
     family = machine_maintenance.MACHINE_FAMILIES["brain_unregistered"]
-    guidance = doctor_machine.register_guidance("/x y")
+    guidance = vault_registry.register_guidance("/x y")
     assert guidance == machine_maintenance.launcher_guidance(family, subject={"path": "/x y"})
     argv = shlex.split(guidance)
     decoded = resolve_request(BrainRegisterRequest, json.loads(argv[argv.index("--request-json") + 1]))
     assert decoded.vault_root == Path("/x y") and decoded.brain_id is None
+
+
+def _core_guidance(tmp_path, spelling):
+    """Raise the Core error that carries one launcher spelling and return its message."""
+    import vault_registry
+    from _bootstrap.workspace_binding import WorkspaceBindingError, plan_workspace_binding, resolve_brain_target
+
+    start = tmp_path / "start"
+    start.mkdir()
+    if spelling.startswith("workspace setup"):
+        manifest = tmp_path / "ws" / ".brain" / "local" / "workspace.yaml"
+        manifest.parent.mkdir(parents=True)
+        manifest.write_text("brain: other\nslug: ws\n")
+        if spelling == "workspace setup":
+            call = lambda: plan_workspace_binding(tmp_path / "ws", brain="brain")
+        else:
+            call = lambda: plan_workspace_binding(tmp_path / "ws", brain="other", slug="different")
+    else:
+        if spelling == "clear-default":
+            default = Path(vault_registry.default_path())
+            default.parent.mkdir(parents=True, exist_ok=True)
+            default.write_text("ghost\n")
+        call = lambda: resolve_brain_target(workspace_env=None, vault_root_env=None, start_dir=start)
+    with pytest.raises(WorkspaceBindingError) as raised:
+        call()
+    return str(raised.value)
+
+
+@pytest.mark.parametrize("spelling", ["clear-default", "set-default", "workspace setup", "workspace setup slug"])
+def test_core_resolution_guidance_decodes_against_the_command_tables(tmp_path, spelling):
+    """Core's hand-written launcher commands must parse as the commands they name."""
+    import json
+    import re
+    import shlex
+
+    from _launcher.registry import BrainClearDefaultRequest, BrainSetDefaultRequest
+    from launcher_catalogue import LAUNCHER_CATALOGUE
+
+    message = _core_guidance(tmp_path, spelling)
+    command_name = spelling.removesuffix(" slug")
+    commands = [shlex.split(text) for text in re.findall(r"[(`](brain [^)`]*)[)`]", message)]
+    argv = next(command for command in commands if " ".join(command).startswith(f"brain {command_name}"))
+    split = argv.index("--request-json") if "--request-json" in argv else len(argv)
+    payload = json.loads(argv[split + 1]) if split < len(argv) else {}
+    if command_name == "workspace setup":
+        assert argv[:split] == ["brain", "workspace", "setup"]
+        assert current_request_resolver().resolve("workspace.setup", payload).force is True
+        return
+    entry = next(item for item in LAUNCHER_CATALOGUE.entries if list(item.entry_point) == argv[:split])
+    request_type = {"brain.set-default": BrainSetDefaultRequest, "brain.clear-default": BrainClearDefaultRequest}[entry.command_id]
+    assert entry.command_id == f"brain.{spelling}"
+    if spelling == "set-default":
+        assert payload == {"brain_id": "<id>"}, "the placeholder is the only field"
+        payload = {"brain_id": "example"}
+    assert isinstance(resolve_request(request_type, payload), request_type)
 
 
 def test_first_slice_dispositions_and_recovery_scopes():

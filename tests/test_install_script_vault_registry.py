@@ -79,7 +79,7 @@ def test_upgrade_does_not_duplicate_entry(tmp_path, install_source):
     assert len(_entries(fake_home / ".config" / "brain" / "vaults")) == 1
 
 
-def test_same_version_rerun_backfills_registry(tmp_path, install_source):
+def test_same_version_rerun_registers_unregistered_vault(tmp_path, install_source):
     fake_home = tmp_path / "home"
     fake_home.mkdir()
     vault = tmp_path / "brain"
@@ -93,6 +93,42 @@ def test_same_version_rerun_backfills_registry(tmp_path, install_source):
 
     assert registry.exists()
     assert len(_entries(registry)) == 1
+
+
+_ID_IGNORED = (
+    "--id 'replacement' is ignored for an existing vault: a registered vault keeps its Brain ID, "
+    "and an unregistered one is registered under an ID derived from its folder name."
+)
+
+
+def test_existing_vault_ignores_supplied_id_and_keeps_its_registration(tmp_path, install_source):
+    fake_home = tmp_path / "home"
+    fake_home.mkdir()
+    vault = tmp_path / "brain"
+    _run_install(install_source, vault, fake_home, "--id", "original")
+    registry = fake_home / ".config" / "brain" / "vaults"
+    before = registry.read_bytes()
+
+    result = _run_install(install_source, vault, fake_home, "--id", "replacement")
+
+    assert registry.read_bytes() == before
+    assert _ID_IGNORED in result.stderr
+    assert "could not be registered" not in result.stderr
+    assert "did not complete" not in result.stderr
+
+
+def test_existing_unregistered_vault_registers_without_supplied_id(tmp_path, install_source):
+    fake_home = tmp_path / "home"
+    fake_home.mkdir()
+    vault = tmp_path / "brain"
+    _run_install(install_source, vault, fake_home)
+    registry = fake_home / ".config" / "brain" / "vaults"
+    registry.unlink()
+
+    result = _run_install(install_source, vault, fake_home, "--id", "replacement")
+
+    assert _entries(registry) == [f"brain\tlocal\t{os.path.realpath(vault)}"]
+    assert _ID_IGNORED in result.stderr
 
 
 def _extract_bash_function(install_sh: Path, function_name: str) -> str:
@@ -385,3 +421,33 @@ def test_uninstall_removes_entry(tmp_path, install_source):
     )
     assert result.returncode == 0, result.stdout + result.stderr
     assert _entries(fake_home / ".config" / "brain" / "vaults") == []
+
+
+def test_registry_update_warns_when_no_python_can_run_the_registry(tmp_path):
+    fake_bin = tmp_path / "fake-bin"
+    fake_bin.mkdir()
+    broken = fake_bin / "python3"
+    broken.write_text("#!/bin/sh\nexit 1\n")
+    broken.chmod(0o755)
+    script = tmp_path / "vault_registry.py"
+    script.write_text("# placeholder\n")
+
+    install_sh = Path(__file__).resolve().parents[1] / "install.sh"
+    functions = "".join(
+        _extract_bash_function(install_sh, name)
+        for name in ("find_python_for_script", "registry_update")
+    )
+    cmd = (
+        'warn() { printf "warn: %s\\n" "$*" >&2; }\n'
+        'info() { printf "info: %s\\n" "$*" >&2; }\n'
+        f"{functions}\nregistry_update --register /vaults/brain {script}\n"
+    )
+    result = subprocess.run(
+        ["bash", "-c", cmd],
+        env={"PATH": f"{fake_bin}{os.pathsep}{launcher_discovery_path()}"},
+        capture_output=True, text=True,
+    )
+
+    assert result.returncode == 0
+    assert "warn: Brain registry update skipped: no Python could run vault_registry.py." in result.stderr
+    assert """brain register --request-json '{"vault_root":"/vaults/brain"}'""" in result.stderr

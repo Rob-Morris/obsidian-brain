@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-import logging
 import os
 import re
 import unicodedata
@@ -14,8 +13,6 @@ from _common._filesystem import safe_write
 from _common._vault import is_brain_vault
 from _common._yaml import YamlError, dump_mapping_text, load_mapping_file
 import vault_registry
-
-_log = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
@@ -28,6 +25,7 @@ WORKSPACE_MANIFEST_LEGACY_REL = os.path.join(".brain", "workspace.yaml")
 WORKSPACE_REASON_ALREADY_BOUND = "already_bound"
 WORKSPACE_ERROR_INVALID_BINDING = "invalid_binding"
 WORKSPACE_ERROR_FILESYSTEM_ACCESS = "filesystem_access"
+WORKSPACE_ERROR_BRAIN_UNREGISTERED = "brain_unregistered"
 
 
 # ---------------------------------------------------------------------------
@@ -303,9 +301,9 @@ def resolve_brain_target(
                 f"entry, before continuing.",
                 code="stale_binding",
             )
-        # MISSING — the explicit anchor's binding is absent.  It may still be
-        # repaired from BRAIN_VAULT_ROOT (rung 3, the project-reg case), but it
-        # must NOT fall to the machine default (rung 4): a deliberately-bound
+        # MISSING — the explicit anchor's binding is absent.  It may still
+        # resolve through BRAIN_VAULT_ROOT (rung 3), but it must NOT fall to
+        # the machine default (rung 4): a deliberately-bound
         # workspace whose binding is lost has a specific, now-unknowable intent,
         # and the default could serve a different Brain (Decision #2).
         anchor_missing = True
@@ -341,7 +339,7 @@ def resolve_brain_target(
         raise WorkspaceBindingError(
             f"BRAIN_WORKSPACE_DIR is set ({workspace_env}) but that workspace "
             f"has no Brain binding and no BRAIN_VAULT_ROOT is available to "
-            f"repair it — re-bind this workspace (brain workspace setup) before "
+            f"resolve it — re-bind this workspace (brain workspace setup) before "
             f"continuing.",
             code="no_brain",
         )
@@ -368,7 +366,7 @@ def resolve_brain_target(
         raise WorkspaceBindingError(
             f"the machine default Brain cannot be resolved: "
             f"{_stale_binding_detail(default_id)} — re-register it or clear the "
-            f"default (vault_registry --clear-default).",
+            f"default (brain clear-default).",
             code="stale_binding",
         )
 
@@ -378,124 +376,9 @@ def resolve_brain_target(
     raise WorkspaceBindingError(
         "no Brain could be resolved — bind this workspace "
         "(brain workspace setup) or set a machine default "
-        "(vault_registry --set-default).",
+        "(brain set-default --request-json '{\"brain_id\": \"<id>\"}').",
         code="no_brain",
     )
-
-
-# ---------------------------------------------------------------------------
-# Self-heal — best-effort, idempotent, missing-only
-# ---------------------------------------------------------------------------
-
-def heal_legacy_config(
-    target: BrainTarget,
-    *,
-    workspace_env: str | None,
-    vault_root_env: str | None,
-) -> None:
-    """Best-effort, idempotent migration of legacy Brain config state.
-
-    Runs AFTER a successful (non-stale) resolution.  Both triggers are
-    INDEPENDENT ``if`` blocks — not ``if/elif`` — so they can co-fire when
-    both conditions hold (e.g. ``vault_self`` source with a legacy
-    ``BRAIN_VAULT_ROOT`` set).
-
-    Trigger (1) — SELF-REGISTER
-        When source is "vault_self", backfill the vault into the registry.
-        This is idempotent: ``vault_registry.backfill`` returns the existing
-        Brain ID when the path is already registered.
-
-    Trigger (2) — LEGACY BRAIN_VAULT_ROOT signals
-        Guarded by ``vault_root_env``.  Inner branches are mutually exclusive
-        on ``workspace_env``:
-
-        PROJECT REG (``workspace_env`` set, source=="vault_root_env")
-            The anchor binding was MISSING (a stale one would have raised at
-            rung 1).  Register the vault and write the workspace binding.
-            ``allow_rebind=False`` ensures we only write when the binding is
-            absent — never overwrite an existing binding.
-
-        USER REG default-seed (``workspace_env`` not set)
-            Seed the machine default from the *env* value, never from
-            ``target.vault_root``.  When cd'd into a different bound vault,
-            ``target.vault_root`` is that other brain; the user-reg default
-            must come from ``vault_root_env``.  Only seeds when no default is
-            already set.
-    """
-    # (1) SELF-REGISTER — independent check; no return after this block.
-    if target.source == "vault_self":
-        try:
-            vault_registry.backfill(target.vault_root)
-        except (vault_registry.RegistryReadError, vault_registry.RegistryConflictError,
-                ValueError, WorkspaceBindingError, OSError) as exc:
-            _log.warning("heal_legacy_config: self-register backfill failed: %s", exc)
-
-    # (2) LEGACY BRAIN_VAULT_ROOT signals — guarded by vault_root_env.
-    if vault_root_env:
-        if workspace_env and target.source == "vault_root_env":
-            # PROJECT REG: the anchor binding was MISSING; write it now.
-            try:
-                brain_id = vault_registry.register(target.vault_root)
-                converge_workspace_binding(
-                    Path(workspace_env),
-                    brain=brain_id,
-                    allow_rebind=False,
-                )
-            except (vault_registry.RegistryReadError, vault_registry.RegistryConflictError,
-                    ValueError, WorkspaceBindingError, OSError) as exc:
-                _log.warning("heal_legacy_config: project-reg binding failed: %s", exc)
-        elif not workspace_env:
-            # USER REG default-seed: seed from vault_root_env, NOT target.vault_root.
-            try:
-                resolved = Path(vault_root_env).resolve()
-                if is_brain_vault(resolved):
-                    brain_id = vault_registry.register(str(resolved))
-                    if vault_registry.get_default() is None:
-                        vault_registry.set_default(brain_id)
-            except (vault_registry.RegistryReadError, vault_registry.RegistryConflictError,
-                    ValueError, WorkspaceBindingError, OSError) as exc:
-                _log.warning("heal_legacy_config: user-reg default-seed failed: %s", exc)
-
-
-def resolve_and_heal(
-    *,
-    workspace_env: str | None,
-    vault_root_env: str | None,
-    start_dir: Path,
-) -> BrainTarget:
-    """Resolve the active Brain target, then run best-effort self-heal.
-
-    Resolution MUST succeed (and is pure/non-mutating) before any heal runs.
-    Because ``resolve_brain_target`` raises on stale or missing bindings,
-    ``heal_legacy_config`` is never reached on the stale path.
-
-    Args:
-        workspace_env:   Value of the ``BRAIN_WORKSPACE_DIR`` env var, or None.
-        vault_root_env:  Value of the ``BRAIN_VAULT_ROOT`` env var, or None.
-        start_dir:       Directory from which to begin the rung-2 upward walk.
-
-    Returns:
-        The resolved ``BrainTarget``.
-
-    Raises:
-        ``WorkspaceBindingError`` on stale bindings, dangling defaults, or when
-        no brain can be resolved at all.  Heal errors are caught and logged;
-        they never propagate.
-    """
-    target = resolve_brain_target(
-        workspace_env=workspace_env,
-        vault_root_env=vault_root_env,
-        start_dir=start_dir,
-    )
-    try:
-        heal_legacy_config(
-            target,
-            workspace_env=workspace_env,
-            vault_root_env=vault_root_env,
-        )
-    except Exception as exc:  # pragma: no cover — heal errors are best-effort
-        _log.warning("resolve_and_heal: heal_legacy_config raised unexpectedly: %s", exc)
-    return target
 
 
 # ---------------------------------------------------------------------------
@@ -617,18 +500,24 @@ def require_workspace_binding(target_dir: Path) -> dict[str, str]:
     return binding
 
 
-def resolve_local_brain_alias(vault_root: Path) -> str:
-    """Return the authoritative local symbolic Brain ID for a vault.
+def resolve_local_brain_alias(vault_root: Path) -> str | None:
+    """Return the vault registry's Brain ID for a vault, or None when it is unregistered.
 
-    This comes from the user-home vault registry.
+    A pure lookup: an unregistered vault stays unregistered.
     """
     try:
-        return vault_registry.backfill(str(vault_root))
-    except (OSError, vault_registry.RegistryReadError) as exc:
+        return vault_registry.brain_id_for_path(str(vault_root))
+    except vault_registry.RegistryReadError as exc:
         raise WorkspaceBindingError(
             f"failed to resolve local Brain ID for {vault_root}: {exc}",
             code=WORKSPACE_ERROR_FILESYSTEM_ACCESS,
         ) from exc
+
+
+def unregistered_brain_message(vault_root: Path) -> str:
+    """Refusal for an operation that needs the Brain ID of an unregistered vault."""
+    return (f"the Brain at {vault_root} is not registered on this machine; "
+            f"run {vault_registry.register_guidance(vault_root)} first")
 
 
 def resolve_local_brain_vault(brain_id: str) -> Path | None:
@@ -779,13 +668,13 @@ def plan_workspace_binding(target_dir, *, brain, slug=None, allow_rebind=False):
     if existing_brain and existing_brain != brain and not allow_rebind:
         raise WorkspaceBindingError(
             f"{WORKSPACE_MANIFEST_REL} already binds this workspace to '{existing_brain}'. "
-            "Use `configure workspace binding` to change it.",
+            "Use `brain workspace setup --request-json '{\"force\": true}'` to change it.",
             code=WORKSPACE_REASON_ALREADY_BOUND,
         )
     if slug is not None and existing_slug and existing_slug != slug and not allow_rebind:
         raise WorkspaceBindingError(
             f"{WORKSPACE_MANIFEST_REL} already records slug '{existing_slug}'. "
-            "Use `configure workspace binding` to change it.",
+            "Use `brain workspace setup --request-json '{\"force\": true}'` to change it.",
             code=WORKSPACE_REASON_ALREADY_BOUND,
         )
 
