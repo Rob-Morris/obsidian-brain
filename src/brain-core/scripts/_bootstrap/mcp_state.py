@@ -98,8 +98,7 @@ def resolved_target_vault_root(server_config: Any) -> Optional[Path]:
     """Resolve the effective target Brain vault for a persisted MCP config.
 
     The authoritative local binding route is the user-home vault registry via
-    ``resolve_local_brain_vault()``. ``brains.json`` is derived machine state
-    and is never consulted here for workspace routing.
+    ``resolve_local_brain_vault()``.
     """
     legacy_root = configured_vault_root(server_config)
     if legacy_root is not None:

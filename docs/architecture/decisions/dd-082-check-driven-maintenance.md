@@ -2,6 +2,7 @@
 
 **Status:** Accepted
 **Extends:** DD-043, DD-061
+**Extended by:** DD-083
 
 ## Context
 
@@ -44,8 +45,9 @@ Safety comes from detecting again and from repairs that act on current state:
 each automatic repair re-checks the condition under its own lock and changes
 nothing if it is already fixed. The first automatic set is `router`, `lexical`
 and the new `temporaries` family (stranded atomic-write files under
-`.brain/local`), plus add-and-refresh synchronisation of the derived machine
-registry, which never drops a row. Concurrency is held by the pass lock, the
+`.brain/local`); the machine pass has no automatic family (DD-083), because
+nothing on the machine side passes the admission test below. Concurrency is
+held by the pass lock, the
 vault mutation lock inside each repair, and live claims; receipts are
 incidental to admission.
 
@@ -94,9 +96,9 @@ reporting the exceptional registry step for a person.
   semantic repair runs, so the pass reports `semantic` as needing a person.
 - `vault.check` stays at version 3 and now reports the lexical finding
   alongside a semantic one instead of suppressing it.
-- Doctor reports registry drift it no longer repairs; `brain
-  machine-registry sync` adds discovered Brains and a person decides about
-  stale rows.
+- Doctor reports what it no longer repairs; stale vault registry rows and an
+  unregistered current Brain are machine-pass judgement findings a person
+  decides about (DD-083).
 - Promoting a family to automatic needs both admission tests: a current-state
   re-check under its own lock and a derived-only or trivially reversible effect.
 
@@ -107,5 +109,5 @@ reporting the exceptional registry step for a person.
 suite over every automatic family, the context gate and the pass contract;
 `tests/application/test_maintenance_decisions.py` covers claims and
 dismissals; `tests/application/test_launcher_machine_maintenance.py` covers the
-machine pass and add-only sync; `tests/test_maintenance_findings.py` covers
+machine pass; `tests/test_maintenance_findings.py` covers
 identity, temporaries and the summary.

@@ -230,7 +230,7 @@ LAUNCHER_CATALOGUE = LauncherCatalogue(
                     "brain",
                     "clear-default",
                 ),
-                _read("brain.doctor", "_launcher.doctor:doctor", "brain", "doctor", version=2),
+                _read("brain.doctor", "_launcher.doctor:doctor", "brain", "doctor", version=3),
                 _read(
                     "brain.get-default",
                     "_launcher.registry:get_default",
@@ -389,14 +389,6 @@ LAUNCHER_CATALOGUE = LauncherCatalogue(
                     "machine-maintenance",
                     "release",
                     summary="Release a claimed machine maintenance finding.",
-                ),
-                _mutation(
-                    "machine-registry.sync",
-                    "_launcher.machine_registry:sync",
-                    "brain",
-                    "machine-registry",
-                    "sync",
-                    summary="Add discovered Brains to the derived machine registry without dropping rows.",
                 ),
             ),
             key=lambda entry: entry.command_id,

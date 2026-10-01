@@ -4,13 +4,15 @@ Same model as the Brain pass, over the same shared vocabulary: detection is
 the source of truth, only families flagged automatic run, and the only
 persistent state is human decisions in the machine decisions file beside the
 launcher receipts. Because ``LocalAuthority.allows`` always returns true, the
-automatic flag is the real gate, so the automatic set is one family:
-add-and-refresh synchronisation of the derived machine registry.
+automatic flag is the real gate, and no machine family passes the admission
+test for it (DD-083): every kind is judgement, so a pass detects, lists and
+writes its summary with no groups.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
+import json
 from typing import ClassVar, Mapping
 import uuid
 
@@ -89,14 +91,12 @@ def _machine(scope: str, command_id: str, description: str, disposition=Disposit
 # The machine repair table: one row per finding kind that a command repairs.
 # ``brain_repair`` findings resolve through the Brain table's machine-owned
 # scopes instead, so the two tables never disagree about them; kinds with no
-# row (stale machine-registry rows, orphaned processes) are report-and-decide.
+# row (orphaned processes) are report-and-decide.
 MACHINE_FAMILIES: Mapping[str, RepairFamily] = {
-    "machine_registry_drift": _machine(
-        "machine_registry_drift", "machine-registry.sync",
-        "Add discovered Brains to the derived machine registry; never drop a row.", Disposition.AUTOMATIC,
-    ),
     "stale_vault_registry": _machine(
-        "stale_vault_registry", "registry.remove-stale", "Remove stale entries from the curated vault registry."),
+        "stale_vault_registry", "registry.remove-stale", "Remove stale entries from the vault registry."),
+    "brain_unregistered": _machine(
+        "brain_unregistered", "brain.register", "Register a discovered Brain in the vault registry."),
     "orphan_runtime": _machine(
         "orphan_runtime", "runtime.remove-orphans", "Remove orphaned shared managed runtimes."),
     "mcp_registration": _machine(
@@ -118,17 +118,25 @@ def machine_paths() -> MaintenancePaths:
     return MaintenancePaths.under(launcher_state_home() / "brain" / "maintenance")
 
 
-def launcher_request(family: RepairFamily):
-    """Resolve a family's static request through the launcher's own catalogue."""
+def _request_payload(family: RepairFamily, subject: Mapping[str, object] | None) -> dict:
+    """The request ``family``'s command takes for one finding: static, unless the row derives it."""
+    payload = dict(family.request)
+    if family.scope == "brain_unregistered":
+        payload["vault_root"] = subject["path"]
+    return payload
+
+
+def launcher_request(family: RepairFamily, subject: Mapping[str, object] | None = None):
+    """Resolve a family's request for ``subject`` through the launcher's own catalogue."""
     from .owners import LAUNCHER_OWNERS
     from .projection import resolve_request
 
     owner = next(item for item in LAUNCHER_OWNERS.entries if item.command_id == family.command_id)
-    return resolve_request(owner.request_type, dict(family.request))
+    return resolve_request(owner.request_type, _request_payload(family, subject))
 
 
-def launcher_guidance(family: RepairFamily, *, vault_root=None) -> str:
-    """The shell-ready launcher command that repairs ``family``."""
+def launcher_guidance(family: RepairFamily, *, vault_root=None, subject: Mapping[str, object] | None = None) -> str:
+    """The shell-ready launcher command that repairs ``family`` for ``subject``."""
     from launcher_catalogue import LAUNCHER_CATALOGUE
 
     from _common import join_argv
@@ -139,6 +147,9 @@ def launcher_guidance(family: RepairFamily, *, vault_root=None) -> str:
     if vault_root is not None:
         argv.extend(["--vault", str(vault_root)])
     argv.extend(rest)
+    payload = _request_payload(family, subject)
+    if payload:
+        argv.extend(["--request-json", json.dumps(payload, separators=(",", ":"), sort_keys=True)])
     return join_argv(argv)
 
 
@@ -171,18 +182,14 @@ def detect_machine(context: LauncherContext) -> tuple[tuple[MaintenanceFinding, 
         process_scan=scan,
     )
     findings: list[MaintenanceFinding] = []
-    missing = summary["machine_registry"]["missing_brains"]
-    if missing:
-        findings.append(_finding("machine_registry_drift", {}, "Discovered Brains are missing from the derived machine registry.",
-                                 disposition=Disposition.AUTOMATIC, scope="machine_registry_drift",
-                                 evidence={"missing": sorted(missing)}))
     for entry in summary["stale_registry_entries"]:
         findings.append(_finding("stale_vault_registry", {"path": entry["path"]},
                                  f"Vault registry entry {entry['alias']!r} points at a path that is not a Brain.",
                                  disposition=Disposition.JUDGEMENT))
-    for entry in summary["stale_machine_registry_entries"]:
-        findings.append(_finding("stale_machine_registry", {"path": entry["path"]},
-                                 "Derived machine registry row points at a path that is not a Brain (an unplugged drive?).",
+    for path in summary["unregistered_brains"]:
+        findings.append(_finding("brain_unregistered", {"path": path},
+                                 "Brain is not registered on this machine: no workspace can bind to it, --brain cannot "
+                                 "select it, and it cannot verify its linked workspace registry.",
                                  disposition=Disposition.JUDGEMENT))
     for runtime in summary["runtimes"]:
         if runtime["orphan_candidate"]:
@@ -194,9 +201,9 @@ def detect_machine(context: LauncherContext) -> tuple[tuple[MaintenanceFinding, 
             findings.append(_finding("legacy_installation", {"brain": brain["path"]},
                                      "Brain still falls back to its legacy vault-local .venv.", disposition=Disposition.JUDGEMENT))
         for item in brain["repair_findings"]:
-            family = REPAIR_SCOPES[item["repair"]["scope"]]
-            if family.owner is not Owner.MACHINE:
-                continue  # Brain-owned scopes belong to that Brain's own pass
+            family = REPAIR_SCOPES.get(item.get("repair", {}).get("scope"))
+            if family is None or family.owner is not Owner.MACHINE:
+                continue  # Brain-owned and family-less findings belong to that Brain's own pass or a person
             findings.append(_finding(BRAIN_REPAIR, {"brain": brain["path"], "scope": family.scope}, item["message"],
                                      disposition=Disposition.JUDGEMENT, scope=BRAIN_REPAIR, code=family.scope,
                                      file=item["check"], evidence={"brain": brain["path"]}))
@@ -348,7 +355,7 @@ def _guidance(group: FindingGroup) -> str | None:
     if family is None:
         return None
     vault_root = group.subject["brain"] if group.check == BRAIN_REPAIR else None
-    return launcher_guidance(family, vault_root=vault_root)
+    return launcher_guidance(family, vault_root=vault_root, subject=group.subject)
 
 
 def _describe(group: FindingGroup, state: DecisionState, *, last_outcome: GroupOutcome | None) -> MachineMaintenanceItem:
@@ -457,7 +464,7 @@ def _run(context: LauncherContext, request: MachineMaintenanceRunRequest, paths:
                 results.append(MachineGroupResult(group.check, GroupOutcome.DEFERRED, None, None))
                 continue
             invocation_id = f"{context.invocation_id}-{pass_id}-{group.check}"
-            result = invoke_sibling(context, launcher_request(_family_for(group)), invocation_id=invocation_id)
+            result = invoke_sibling(context, launcher_request(_family_for(group), group.subject), invocation_id=invocation_id)
             outcome, error_code = _classify(result)
             effects.extend(getattr(result, "committed_effects", ()))
             results.append(MachineGroupResult(group.check, outcome, invocation_id, error_code))
