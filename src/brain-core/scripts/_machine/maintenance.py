@@ -11,6 +11,7 @@ import sys
 from typing import Any, Callable
 
 from _bootstrap import diagnostics as bootstrap_diagnostics
+from _bootstrap.maintenance_findings import Disposition, Owner
 from _bootstrap.runtime import step as _step
 from _common import central_venvs_root, join_argv
 from _common._venv import run_managed
@@ -18,7 +19,7 @@ from _lifecycle_common import derive_step_status
 from _repair_common import REPAIR_SCOPES, build_catalogue_command, build_repair_argv
 
 from ._labels import brain_label
-from .discovery import discover_brains, inspect_machine_registry
+from .discovery import discover_brains
 from .process_footprint import measure_footprint_bytes, summarise_runtime_memory
 from .topology import (
     classify_brain_runtime,
@@ -55,29 +56,40 @@ def collect_machine_summary(
     cli_binary: str | None = None,
     process_scan: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Collect machine runtime state; the derived registry is inspected, never written.
+    """Collect machine runtime state; nothing on this path writes.
 
     ``measure_memory`` adds the per-process footprint scan the doctor reports;
     other callers (migration, pruning, upgrade guidance) only need topology.
     ``process_scan`` lets a caller that already scanned the process table
     share that scan instead of running a second one.
     """
-    discovery = discover_brains(current_vault=current_vault)
     return inspect_machine_runtime_state(
         launcher_python=launcher_python,
-        discovery=discovery,
-        machine_registry=inspect_machine_registry(discovery["brains"]),
+        discovery=discover_brains(current_vault=current_vault),
         measure_memory=measure_memory,
         cli_binary=cli_binary,
         process_scan=process_scan,
     )
 
 
+def _counts_against_health(finding: dict[str, Any]) -> bool:
+    """Whether a per-Brain finding is one this machine owns or repairs itself.
+
+    Doctor's health reflects what the machine can verify and act on: a finding
+    with an automatic repair family or a machine-owned one. A judgement
+    finding resting on facts the machine cannot see (an unreachable linked
+    folder, say) is reported but never makes Doctor unhealthy.
+    """
+    family = REPAIR_SCOPES.get(finding.get("repair", {}).get("scope"))
+    if family is None:
+        return False
+    return family.disposition is Disposition.AUTOMATIC or family.owner is Owner.MACHINE
+
+
 def inspect_machine_runtime_state(
     *,
     launcher_python: str | None = None,
     discovery: dict[str, Any],
-    machine_registry: dict[str, Any],
     measure_memory: bool = False,
     cli_binary: str | None = None,
     process_scan: dict[str, Any] | None = None,
@@ -132,17 +144,11 @@ def inspect_machine_runtime_state(
     healthy = (
         registration_state["healthy"]
         and registration_coverage
-        and
-        not discovery["stale_registry_entries"]
-        and not machine_registry["stale_machine_registry_entries"]
-        and not machine_registry["blocked"]
-        and not machine_registry.get("drifted", False)
-        and not machine_registry.get("malformed", False)
-        and not machine_registry["malformed_rewritten"]
+        and not discovery["stale_registry_entries"]
         and all(
             brain["runtime"]["healthy_runtime"]
             and not brain["runtime"]["legacy_runtime_present"]
-            and not brain["repair_findings"]
+            and not any(_counts_against_health(finding) for finding in brain["repair_findings"])
             for brain in brains
         )
     )
@@ -155,19 +161,18 @@ def inspect_machine_runtime_state(
         "tidy": tidy,
         "launcher_python": launcher_python,
         "live_process_scan_available": live_usage["available"],
-        "machine_registry": machine_registry,
+        "registry": discovery["registry"],
         "venvs_root": str(central_venvs_root()),
         "brains": brains,
-        "stale_machine_registry_entries": machine_registry["stale_machine_registry_entries"],
         "stale_registry_entries": discovery["stale_registry_entries"],
+        "unregistered_brains": discovery["unregistered_brains"],
         "runtimes": runtime_rows,
         "counts": {
             "brains": len(brains),
             "brains_with_repair_findings": sum(1 for brain in brains if brain["repair_findings"]),
             "repair_findings": sum(len(brain["repair_findings"]) for brain in brains),
-            "machine_registry_brains": machine_registry["brains_count"],
-            "stale_machine_registry_entries": len(machine_registry["stale_machine_registry_entries"]),
             "stale_registry_entries": len(discovery["stale_registry_entries"]),
+            "unregistered_brains": len(discovery["unregistered_brains"]),
             "runtimes": len(runtime_rows),
             "orphan_candidates": len(orphan_candidates),
         },
@@ -550,7 +555,7 @@ def migrate_legacy_brains(
             {
                 finding["repair"]["scope"]
                 for finding in brain["repair_findings"]
-                if finding["repair"]["scope"] in {"mcp", "registry"}
+                if finding.get("repair", {}).get("scope") in {"mcp", "registry"}
             }
         )
         for scope in scopes:

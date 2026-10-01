@@ -93,27 +93,21 @@ def _machine_report(tmp_path):
         "tidy": False,
         "live_process_scan_available": True,
         "venvs_root": str((tmp_path / ".brain" / "venvs").resolve()),
-        "machine_registry": {
-            "path": str((tmp_path / ".config" / "brain" / "brains.json").resolve()),
-            "brains_count": 0,
-            "blocked": False,
-            "blocked_reason": None,
-            "changed": False,
-            "drifted": True,
-            "malformed": False,
-            "malformed_rewritten": False,
-            "stale_machine_registry_entries": [],
+        "registry": {
+            "path": str((tmp_path / ".config" / "brain" / "vaults").resolve()),
+            "brains_count": 1,
+            "stale": True,
         },
         "counts": {
             "brains": 1,
             "repair_findings": 1,
-            "stale_registry_entries": 0,
-            "stale_machine_registry_entries": 0,
+            "stale_registry_entries": 1,
+            "unregistered_brains": 0,
             "runtimes": 1,
             "orphan_candidates": 1,
         },
-        "stale_registry_entries": [],
-        "stale_machine_registry_entries": [],
+        "stale_registry_entries": [{"alias": "gone", "path": str((tmp_path / "Gone").resolve())}],
+        "unregistered_brains": [],
         "brains": [
             {
                 "alias": "brain",
@@ -128,6 +122,7 @@ def _machine_report(tmp_path):
                 },
                 "repair_findings": [
                     {
+                        "check": "mcp_registration",
                         "message": "MCP transport is stale.",
                         "repair": {
                             "scope": "mcp",
@@ -232,7 +227,9 @@ def test_doctor_returns_bounded_typed_diagnosis_without_registry_sync(
     assert result.status == "ok"
     assert result.result.healthy is False
     assert result.result.exit_code == 1
-    assert result.result.machine.registry.state is DoctorRegistryState.DRIFTED
+    assert result.result.machine.registry.state is DoctorRegistryState.STALE
+    assert result.result.machine.registry.brains_count == 1
+    assert result.result.machine.stale_vault_registry_entries[0].alias == "gone"
     assert result.result.machine.counts.orphan_candidates == 1
     assert result.result.machine.memory.measured_count == 1
     assert result.result.machine.memory.heavy_processes[0].pid == 4242
@@ -252,6 +249,51 @@ def test_doctor_returns_bounded_typed_diagnosis_without_registry_sync(
         }
     ]
     assert receipts.values[-1].state is ReceiptState.NONE
+
+
+def test_doctor_projects_findings_without_a_repair_family_and_unregistered_brains(tmp_path, monkeypatch):
+    machine = _machine_report(tmp_path)
+    unregistered = str((tmp_path / "Unregistered").resolve())
+    machine["healthy"] = True
+    machine["registry"] = {"path": machine["registry"]["path"], "brains_count": 0, "stale": False}
+    machine["stale_registry_entries"] = []
+    machine["unregistered_brains"] = [unregistered]
+    machine["brains"][0]["repair_findings"] = [
+        {"check": "workspace_registry", "code": "workspace_folder_unreachable", "file": ".brain/local/workspaces.json#a",
+         "message": "Linked folder is unreachable."},
+        {"check": "workspace_registry", "file": ".brain/local/workspaces.json", "message": "Registry is malformed.",
+         "repair": {"scope": "registry", "command": "x"}},
+    ]
+    machine["counts"].update(repair_findings=2, stale_registry_entries=0, unregistered_brains=1)
+    monkeypatch.setattr(doctor_script, "collect_cli_diagnosis", lambda **_kwargs: _cli_report(tmp_path))
+    monkeypatch.setattr(doctor_script.doctor_machine, "collect_machine_summary", lambda **_kwargs: machine)
+    monkeypatch.setattr(doctor_script, "collect_vault_diagnosis", lambda **_kwargs: {
+        "in_scope": False, "vault_root": None, "available": False, "exit_code": 0, "message": "none in scope", "result": None,
+    })
+
+    result = _invocation(tmp_path).invoke(BrainDoctorRequest())
+
+    assert result.status == "ok"
+    assert result.result.machine.registry.state is DoctorRegistryState.CURRENT
+    assert result.result.machine.unregistered_brains == (unregistered,)
+    assert result.result.machine.counts.unregistered_brains == 1
+    findings = result.result.machine.brains[0].repair_findings
+    assert (findings[0].scope, findings[0].command_id) == (None, None), "a family-less finding names no command"
+    assert (findings[0].check, findings[0].code, findings[0].file) == (
+        "workspace_registry", "workspace_folder_unreachable", ".brain/local/workspaces.json#a"
+    ), "its own identity survives the projection"
+    assert (findings[1].scope, findings[1].command_id, findings[1].file) == (
+        "registry", "workspace.repair-registry", ".brain/local/workspaces.json"
+    )
+    assert (findings[1].check, findings[1].code) == ("workspace_registry", None)
+
+
+@pytest.mark.parametrize("scope, command_id", [(None, "mcp.repair"), ("mcp", None)])
+def test_doctor_repair_finding_pairs_scope_with_command(scope, command_id):
+    from _launcher.doctor import DoctorRepairFinding
+
+    with pytest.raises(ValueError, match="set or absent together"):
+        DoctorRepairFinding("mcp_registration", scope, "m", command_id)
 
 
 @pytest.mark.parametrize("user_registered", [False, True])

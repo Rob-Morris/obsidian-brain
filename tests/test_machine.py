@@ -8,14 +8,9 @@ import pytest
 
 import doctor_machine
 import machine
-from _common import _venv, central_venvs_root, resolve_vault_venv_python
+from _common import _venv, central_venvs_root, config_home, resolve_vault_venv_python
 from _machine import maintenance
-from _machine.discovery import (
-    discover_brains,
-    inspect_machine_registry,
-    machine_registry_path,
-    sync_machine_registry,
-)
+from _machine.discovery import discover_brains
 from _machine.maintenance import (
     collect_machine_summary,
     inspect_machine_runtime_state,
@@ -78,7 +73,7 @@ def _make_drifted_vault(root: Path, name: str) -> Path:
     return vault
 
 
-def test_discover_brains_skips_registry_writes_until_sync(monkeypatch, tmp_path, fake_home):
+def test_discover_brains_reads_the_vault_registry_and_the_current_vault(monkeypatch, tmp_path, fake_home):
 
     current = _make_vault(tmp_path, "Current Brain")
     registered = _make_vault(tmp_path, "Registered Brain")
@@ -98,49 +93,70 @@ def test_discover_brains_skips_registry_writes_until_sync(monkeypatch, tmp_path,
     assert summary["stale_registry_entries"] == [
         {"alias": "missing", "path": str(stale.resolve())},
     ]
-    assert summary["machine_registry_view"]["path"] == str(machine_registry_path())
-    assert not machine_registry_path().exists()
-
-    sync = sync_machine_registry(summary["brains"])
-    assert sync["changed"]
-    assert machine_registry_path().exists()
-
-    registry_state = json.loads(machine_registry_path().read_text())
-    assert registry_state["version"] == 1
-    assert [brain["alias"] for brain in registry_state["brains"]] == [None, "registered-brain"]
-    assert [brain["path"] for brain in registry_state["brains"]] == [
-        str(current.resolve()),
-        str(registered.resolve()),
-    ]
+    assert summary["unregistered_brains"] == [str(current.resolve())]
+    assert summary["registry"] == {
+        "path": str(vault_registry.registry_path()),
+        "brains_count": 1,
+        "stale": True,
+    }
+    assert not (config_home() / "brain" / "brains.json").exists(), "discovery derives nothing to disk"
 
 
-def test_inspect_machine_registry_reports_drift_without_writing(tmp_path, fake_home):
+def test_discover_brains_merges_a_registered_current_vault(tmp_path, fake_home):
     current = _make_vault(tmp_path, "Current Brain")
-    discovery = discover_brains(current_vault=current)
+    vault_registry.register(str(current))
 
-    inspected = inspect_machine_registry(discovery["brains"])
+    summary = discover_brains(current_vault=current)
 
-    assert inspected["drifted"] is True
-    assert inspected["changed"] is False
-    assert inspected["brains_count"] == 0
-    assert not machine_registry_path().exists()
+    assert [brain["sources"] for brain in summary["brains"]] == [["current", "vault_registry"]]
+    assert summary["unregistered_brains"] == []
+    assert summary["registry"] == {
+        "path": str(vault_registry.registry_path()),
+        "brains_count": 1,
+        "stale": False,
+    }
 
 
-def test_machine_summary_can_diagnose_without_registry_synchronisation(
-    tmp_path,
-    fake_home,
-):
+def test_unregistered_current_vault_is_reported_and_healthy(tmp_path, fake_home):
     current = _make_vault(tmp_path, "Current Brain")
+    _install_central_runtime(resolve_vault_venv_python(current, launcher=Path(sys.executable)))
 
     summary = collect_machine_summary(
         current_vault=str(current),
         launcher_python=sys.executable,
     )
 
-    assert summary["machine_registry"]["drifted"] is True
-    assert summary["machine_registry"]["changed"] is False
-    assert summary["healthy"] is False
-    assert not machine_registry_path().exists()
+    assert summary["unregistered_brains"] == [str(current.resolve())]
+    assert summary["counts"]["unregistered_brains"] == 1
+    assert summary["registry"]["brains_count"] == 0
+    assert summary["healthy"] is True, "registering is a person's choice, not a health failure"
+
+
+def test_machine_health_counts_only_automatic_or_machine_owned_findings(monkeypatch, tmp_path, fake_home):
+    vault = _make_vault(tmp_path, "Active Brain")
+    selected_runtime = resolve_vault_venv_python(vault, launcher=Path(sys.executable))
+    _install_central_runtime(selected_runtime)
+    monkeypatch.setattr(maintenance.bootstrap_diagnostics, "collect_mcp_check_findings", lambda _root: [])
+
+    def summary_with(findings):
+        monkeypatch.setattr(maintenance.bootstrap_diagnostics, "collect_registry_check_findings", lambda _root: list(findings))
+        return collect_machine_summary(current_vault=str(vault), launcher_python=sys.executable)
+
+    judgement = {"check": "workspace_registry", "message": "bad rows", "repair": {"scope": "registry", "command": "x"}}
+    unverifiable = {"check": "workspace_registry", "code": "workspace_link_unverifiable", "message": "no manifest"}
+    machine_owned = {"check": "mcp_registration", "message": "drifted", "repair": {"scope": "mcp", "command": "x"}}
+    automatic = {"check": "router", "message": "stale", "repair": {"scope": "router", "command": "x"}}
+
+    listed = summary_with([judgement, unverifiable])
+    assert listed["counts"]["repair_findings"] == 2, "every finding is still listed"
+    assert listed["healthy"] is True
+
+    assert summary_with([machine_owned])["healthy"] is False
+    assert summary_with([automatic])["healthy"] is False
+
+    lines = doctor_machine.render_human_lines(listed)
+    assert "    finding: workspace_registry — no manifest" in lines, "a family-less finding is rendered by its check"
+    assert "    repair: registry — bad rows" in lines and "    command: x" in lines
 
 
 def test_discover_brains_ignores_non_local_authoritative_entries(monkeypatch, tmp_path, fake_home):
@@ -156,130 +172,6 @@ def test_discover_brains_ignores_non_local_authoritative_entries(monkeypatch, tm
     assert summary["stale_registry_entries"] == []
 
 
-def test_discover_brains_uses_machine_registry_as_a_root(monkeypatch, tmp_path, fake_home):
-
-    registered = _make_vault(tmp_path, "Registered Brain")
-
-    first = discover_brains(current_vault=registered)
-    sync = sync_machine_registry(first["brains"])
-    assert sync["changed"]
-
-    second = discover_brains()
-
-    assert [brain["path"] for brain in second["brains"]] == [str(registered.resolve())]
-    assert second["brains"][0]["sources"] == ["machine_registry"]
-    assert second["machine_registry_view"]["version"] == 1
-
-
-def test_discover_brains_reports_stale_machine_registry_entries(monkeypatch, tmp_path, fake_home):
-
-    active = _make_vault(tmp_path, "Active Brain")
-    missing = tmp_path / "Missing Brain"
-    machine_registry_path().parent.mkdir(parents=True, exist_ok=True)
-    machine_registry_path().write_text(
-        json.dumps(
-            {
-                "version": 1,
-                "brains": [
-                    {"alias": "active-brain", "path": str(active)},
-                    {"alias": "missing-brain", "path": str(missing)},
-                ],
-            },
-            indent=2,
-        )
-    )
-
-    summary = discover_brains()
-
-    assert summary["stale_machine_registry_entries"] == [
-        {"alias": "missing-brain", "path": str(missing.resolve())}
-    ]
-
-    sync = sync_machine_registry(summary["brains"])
-    assert sync["changed"]
-    assert sync["stale_machine_registry_entries"] == [
-        {"alias": "missing-brain", "path": str(missing.resolve())}
-    ]
-    registry_state = json.loads(machine_registry_path().read_text())
-    assert registry_state["brains"] == [
-        {"alias": "active-brain", "path": str(active.resolve())}
-    ]
-
-
-def test_sync_machine_registry_rewrites_malformed_v1_state_with_backup(monkeypatch, tmp_path, fake_home):
-
-    active = _make_vault(tmp_path, "Active Brain")
-    machine_registry_path().parent.mkdir(parents=True, exist_ok=True)
-    machine_registry_path().write_text(
-        json.dumps(
-            {
-                "version": 1,
-                "brains": [
-                    {"alias": 7, "path": str(active)},
-                    ["not-a-dict"],
-                ],
-            },
-            indent=2,
-        )
-    )
-
-    summary = discover_brains(current_vault=active)
-    sync = sync_machine_registry(summary["brains"])
-
-    assert sync["changed"]
-    assert sync["malformed_rewritten"]
-    assert sync["backup_path"] is not None
-    assert Path(sync["backup_path"]).is_file()
-    registry_state = json.loads(machine_registry_path().read_text())
-    assert registry_state["version"] == 1
-    assert registry_state["brains"] == [
-        {"alias": None, "path": str(active.resolve())}
-    ]
-
-
-def test_sync_machine_registry_blocks_invalid_json(monkeypatch, tmp_path, fake_home):
-
-    active = _make_vault(tmp_path, "Active Brain")
-    machine_registry_path().parent.mkdir(parents=True, exist_ok=True)
-    machine_registry_path().write_text("{not json\n")
-    original = machine_registry_path().read_text()
-
-    summary = discover_brains(current_vault=active)
-    sync = sync_machine_registry(summary["brains"])
-
-    assert summary["machine_registry_view"]["blocked"]
-    assert summary["machine_registry_view"]["blocked_reason"] == "invalid-json"
-    assert sync["blocked"]
-    assert sync["blocked_reason"] == "invalid-json"
-    assert not sync["changed"]
-    assert machine_registry_path().read_text() == original
-
-
-def test_sync_machine_registry_refuses_newer_schema(monkeypatch, tmp_path, fake_home):
-
-    active = _make_vault(tmp_path, "Active Brain")
-    machine_registry_path().parent.mkdir(parents=True, exist_ok=True)
-    machine_registry_path().write_text(
-        json.dumps(
-            {
-                "version": 2,
-                "brains": [{"alias": "active-brain", "path": str(active)}],
-            },
-            indent=2,
-        )
-    )
-    original = machine_registry_path().read_text()
-
-    summary = discover_brains(current_vault=active)
-    sync = sync_machine_registry(summary["brains"])
-
-    assert summary["machine_registry_view"]["blocked"]
-    assert summary["machine_registry_view"]["blocked_reason"] == "newer-version"
-    assert sync["blocked"]
-    assert not sync["changed"]
-    assert machine_registry_path().read_text() == original
-
-
 def test_inspect_machine_runtime_state_classifies_selected_and_orphan_runtimes(monkeypatch, tmp_path, fake_home):
 
     vault = _make_vault(tmp_path, "Active Brain")
@@ -289,15 +181,13 @@ def test_inspect_machine_runtime_state_classifies_selected_and_orphan_runtimes(m
     _install_central_runtime(orphan_runtime)
 
     discovery = discover_brains(current_vault=vault)
-    machine_registry = sync_machine_registry(discovery["brains"])
     summary = inspect_machine_runtime_state(
         launcher_python=sys.executable,
         discovery=discovery,
-        machine_registry=machine_registry,
     )
 
     assert summary["counts"]["brains"] == 1
-    assert summary["counts"]["machine_registry_brains"] == 1
+    assert summary["counts"]["unregistered_brains"] == 1
     assert summary["brains"][0]["runtime"]["status"] == "central_exact"
     assert summary["brains"][0]["runtime"]["selected_runtime"] == str(selected_runtime)
     assert summary["counts"]["orphan_candidates"] == 1
@@ -339,8 +229,7 @@ def test_persisted_alias_protects_stopped_runtime_from_pruning(tmp_path, fake_ho
     alias.symlink_to(retired)
     (Path.home() / ".claude.json").write_text(json.dumps({"mcpServers": {"brain": {"command": str(alias), "args": []}}}))
     discovery = discover_brains(current_vault=vault)
-    summary = inspect_machine_runtime_state(launcher_python=sys.executable, discovery=discovery,
-                                             machine_registry=sync_machine_registry(discovery["brains"]))
+    summary = inspect_machine_runtime_state(launcher_python=sys.executable, discovery=discovery)
     row = next(item for item in summary["runtimes"] if item["python"] == str(retired))
     assert row["persisted_registration_reference"]
     assert not row["orphan_candidate"]
@@ -388,11 +277,9 @@ def test_inspect_machine_runtime_state_marks_orphans_unknown_when_ps_fails(monke
     )
 
     discovery = discover_brains(current_vault=vault)
-    machine_registry = sync_machine_registry(discovery["brains"])
     summary = inspect_machine_runtime_state(
         launcher_python=sys.executable,
         discovery=discovery,
-        machine_registry=machine_registry,
     )
 
     assert summary["live_process_scan_available"] is False
@@ -551,11 +438,9 @@ def test_inspect_machine_runtime_state_reports_brain_level_repair_findings(monke
 
     vault = _make_drifted_vault(tmp_path, "Active Brain")
     discovery = discover_brains(current_vault=vault)
-    machine_registry = sync_machine_registry(discovery["brains"])
     summary = inspect_machine_runtime_state(
         launcher_python=sys.executable,
         discovery=discovery,
-        machine_registry=machine_registry,
     )
 
     brain = summary["brains"][0]
@@ -571,11 +456,9 @@ def test_migrate_legacy_brains_reports_missing_selector(monkeypatch, tmp_path, f
 
     vault = _make_vault(tmp_path, "Active Brain")
     discovery = discover_brains(current_vault=vault)
-    machine_registry = sync_machine_registry(discovery["brains"])
     summary = inspect_machine_runtime_state(
         launcher_python=sys.executable,
         discovery=discovery,
-        machine_registry=machine_registry,
     )
 
     result = migrate_legacy_brains(
@@ -598,11 +481,9 @@ def test_migrate_legacy_brains_reports_non_legacy_selector_as_noop(monkeypatch, 
     selected_runtime = resolve_vault_venv_python(vault, launcher=Path(sys.executable))
     _install_central_runtime(selected_runtime)
     discovery = discover_brains(current_vault=vault)
-    machine_registry = sync_machine_registry(discovery["brains"])
     summary = inspect_machine_runtime_state(
         launcher_python=sys.executable,
         discovery=discovery,
-        machine_registry=machine_registry,
     )
 
     result = migrate_legacy_brains(
@@ -626,11 +507,9 @@ def test_migrate_legacy_brains_dry_run_plans_runtime_and_venv_changes(monkeypatc
     _install_central_runtime(legacy_python)
 
     discovery = discover_brains(current_vault=vault)
-    machine_registry = sync_machine_registry(discovery["brains"])
     summary = inspect_machine_runtime_state(
         launcher_python=sys.executable,
         discovery=discovery,
-        machine_registry=machine_registry,
     )
 
     def _fake_run(argv, *, env, capture_output, text, timeout, check):
@@ -661,11 +540,9 @@ def test_migrate_legacy_brains_delegates_repairs_and_removes_legacy_venv(monkeyp
     _install_central_runtime(legacy_python)
 
     discovery = discover_brains(current_vault=vault)
-    machine_registry = sync_machine_registry(discovery["brains"])
     summary = inspect_machine_runtime_state(
         launcher_python=sys.executable,
         discovery=discovery,
-        machine_registry=machine_registry,
     )
 
     selected_runtime = resolve_vault_venv_python(vault, launcher=Path(sys.executable))
@@ -711,11 +588,9 @@ def test_migrate_legacy_brains_runs_through_an_injected_repair_runner(monkeypatc
     _install_central_runtime(legacy_python)
 
     discovery = discover_brains(current_vault=vault)
-    machine_registry = sync_machine_registry(discovery["brains"])
     summary = inspect_machine_runtime_state(
         launcher_python=sys.executable,
         discovery=discovery,
-        machine_registry=machine_registry,
     )
     selected_runtime = resolve_vault_venv_python(vault, launcher=Path(sys.executable))
     calls = []
@@ -749,11 +624,9 @@ def test_prune_orphaned_runtimes_removes_orphans(monkeypatch, tmp_path, fake_hom
     _install_central_runtime(orphan_runtime)
 
     discovery = discover_brains(current_vault=vault)
-    machine_registry = sync_machine_registry(discovery["brains"])
     summary = inspect_machine_runtime_state(
         launcher_python=sys.executable,
         discovery=discovery,
-        machine_registry=machine_registry,
     )
 
     result = prune_orphaned_runtimes(summary, dry_run=False)
@@ -770,11 +643,9 @@ def test_migrate_legacy_brains_keeps_legacy_venv_on_partial_delegated_repair(mon
     legacy_python = vault / ".venv" / "bin" / "python"
     _install_central_runtime(legacy_python)
     discovery = discover_brains(current_vault=vault)
-    machine_registry = sync_machine_registry(discovery["brains"])
     summary = inspect_machine_runtime_state(
         launcher_python=sys.executable,
         discovery=discovery,
-        machine_registry=machine_registry,
     )
 
     def _fake_run(argv, *, env, capture_output, text, timeout, check):
@@ -804,11 +675,9 @@ def test_migrate_legacy_brains_keeps_legacy_venv_when_live_process_detected(monk
     legacy_python = vault / ".venv" / "bin" / "python"
     _install_central_runtime(legacy_python)
     discovery = discover_brains(current_vault=vault)
-    machine_registry = sync_machine_registry(discovery["brains"])
     summary = inspect_machine_runtime_state(
         launcher_python=sys.executable,
         discovery=discovery,
-        machine_registry=machine_registry,
     )
     selected_runtime = resolve_vault_venv_python(vault, launcher=Path(sys.executable))
 
@@ -843,11 +712,9 @@ def test_migrate_legacy_brains_keeps_legacy_venv_when_live_scan_unavailable(monk
     legacy_python = vault / ".venv" / "bin" / "python"
     _install_central_runtime(legacy_python)
     discovery = discover_brains(current_vault=vault)
-    machine_registry = sync_machine_registry(discovery["brains"])
     summary = inspect_machine_runtime_state(
         launcher_python=sys.executable,
         discovery=discovery,
-        machine_registry=machine_registry,
     )
     selected_runtime = resolve_vault_venv_python(vault, launcher=Path(sys.executable))
 
@@ -902,11 +769,9 @@ def test_migrate_legacy_brains_keeps_legacy_venv_on_repair_scope_errors(
     legacy_python = vault / ".venv" / "bin" / "python"
     _install_central_runtime(legacy_python)
     discovery = discover_brains(current_vault=vault)
-    machine_registry = sync_machine_registry(discovery["brains"])
     summary = inspect_machine_runtime_state(
         launcher_python=sys.executable,
         discovery=discovery,
-        machine_registry=machine_registry,
     )
 
     monkeypatch.setattr("_machine.maintenance.subprocess.run", run_factory())
@@ -933,11 +798,9 @@ def test_migrate_legacy_brains_dry_run_reports_live_scan_uncertainty(monkeypatch
     _install_central_runtime(legacy_python)
 
     discovery = discover_brains(current_vault=vault)
-    machine_registry = sync_machine_registry(discovery["brains"])
     summary = inspect_machine_runtime_state(
         launcher_python=sys.executable,
         discovery=discovery,
-        machine_registry=machine_registry,
     )
 
     def _fake_run(argv, *, env, capture_output, text, timeout, check):
@@ -1024,11 +887,9 @@ def test_prune_orphaned_runtimes_keeps_live_unclaimed_runtime(monkeypatch, tmp_p
     )
 
     discovery = discover_brains(current_vault=vault)
-    machine_registry = sync_machine_registry(discovery["brains"])
     summary = inspect_machine_runtime_state(
         launcher_python=sys.executable,
         discovery=discovery,
-        machine_registry=machine_registry,
     )
 
     assert summary["counts"]["orphan_candidates"] == 0
@@ -1054,11 +915,9 @@ def test_prune_orphaned_runtimes_reports_rmtree_errors_per_target(monkeypatch, t
     _install_central_runtime(orphan_two)
 
     discovery = discover_brains(current_vault=vault)
-    machine_registry = sync_machine_registry(discovery["brains"])
     summary = inspect_machine_runtime_state(
         launcher_python=sys.executable,
         discovery=discovery,
-        machine_registry=machine_registry,
     )
 
     calls = {"count": 0}
@@ -1181,7 +1040,6 @@ def test_machine_main_renders_prune_json(monkeypatch, tmp_path, capsys, fake_hom
     assert payload["action"] == "prune-runtimes"
     assert payload["status"] == "planned"
     assert payload["counts"]["targets"] == 1
-    assert not machine_registry_path().exists(), "the machine script inspects the derived registry and never writes it"
 
 
 
@@ -1231,40 +1089,11 @@ def test_doctor_machine_main_renders_brain_level_repair_guidance(monkeypatch, tm
     assert {finding["repair"]["scope"] for finding in payload["brains"][0]["repair_findings"]} == {"mcp", "registry"}
 
 
-def test_doctor_machine_main_renders_default_blocked_registry_note(monkeypatch, tmp_path, capsys, fake_home):
-
-    vault = _make_vault(tmp_path, "Active Brain")
-    machine_registry_path().parent.mkdir(parents=True, exist_ok=True)
-    machine_registry_path().write_text("{not json\n")
-
-    monkeypatch.setattr(
-        sys,
-        "argv",
-        [
-            "doctor_machine.py",
-            "--vault",
-            str(vault),
-            "--current-vault",
-            str(vault),
-            "--launcher",
-            sys.executable,
-        ],
-    )
-    assert doctor_machine.main() == 1
-    human = capsys.readouterr().out
-    assert "registry note:" in human
-    assert "machine-registry state could not be safely interpreted; leaving brains.json untouched" in human
-
-
-
 def test_doctor_machine_main_renders_human_and_json(monkeypatch, tmp_path, capsys, fake_home):
 
     vault = _make_vault(tmp_path, "Active Brain")
     selected_runtime = resolve_vault_venv_python(vault, launcher=Path(sys.executable))
     _install_central_runtime(selected_runtime)
-    # Doctor is read-only (DD-082): the derived registry is synchronised beforehand.
-    sync_machine_registry(discover_brains(current_vault=vault)["brains"])
-    registry_before = machine_registry_path().read_text()
     monkeypatch.setattr(
         sys,
         "argv",
@@ -1281,9 +1110,11 @@ def test_doctor_machine_main_renders_human_and_json(monkeypatch, tmp_path, capsy
     assert doctor_machine.main() == 0
     human = capsys.readouterr().out
     assert "brains:" in human
-    assert "registry:" in human
+    assert f"registry:  {vault_registry.registry_path()} (0 registered, current)" in human
+    assert "unregistered brains:" in human
+    assert f"register: brain register --request-json '{{\"vault_root\":\"{vault.resolve()}\"}}'" in human
     assert "brain routes:" in human
-    assert machine_registry_path().read_text() == registry_before, "Doctor never mutates the registry"
+    assert not (config_home() / "brain" / "brains.json").exists(), "Doctor derives nothing to disk"
 
     monkeypatch.setattr(
         sys,
@@ -1304,7 +1135,8 @@ def test_doctor_machine_main_renders_human_and_json(monkeypatch, tmp_path, capsy
     assert payload["counts"]["brains"] == 1
     assert payload["counts"]["brains_with_repair_findings"] == 0
     assert payload["counts"]["repair_findings"] == 0
-    assert payload["machine_registry"]["brains_count"] == 1
+    assert payload["registry"] == {"path": str(vault_registry.registry_path()), "brains_count": 0, "stale": False}
+    assert payload["unregistered_brains"] == [str(vault.resolve())]
     assert payload["brains"][0]["runtime"]["status"] == "central_exact"
     assert payload["brains"][0]["repair_findings"] == []
 
@@ -1329,11 +1161,9 @@ def test_inspect_machine_runtime_state_reports_runtime_memory(monkeypatch, tmp_p
     monkeypatch.setattr("_machine.maintenance.measure_footprint_bytes", footprints.__getitem__)
 
     discovery = discover_brains(current_vault=vault)
-    machine_registry = sync_machine_registry(discovery["brains"])
     summary = inspect_machine_runtime_state(
         launcher_python=sys.executable,
         discovery=discovery,
-        machine_registry=machine_registry,
         measure_memory=True,
     )
 
@@ -1368,7 +1198,6 @@ def test_inspect_machine_runtime_state_skips_footprints_unless_asked(monkeypatch
     summary = inspect_machine_runtime_state(
         launcher_python=sys.executable,
         discovery=discovery,
-        machine_registry=sync_machine_registry(discovery["brains"]),
     )
 
     assert "memory" not in summary

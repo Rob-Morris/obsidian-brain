@@ -463,23 +463,12 @@ def apply_command_vault_overlay(
         lock.__enter__()
         resources.append(lock)
         details["lock_path"] = str(clone.vault_root / ".brain" / "local" / "mutation.lock")
-    elif name == "registry-blocked":
-        _write_json(machine_brain_dir / "brains.json", {"version": 999, "brains": []})
-    elif name == "registry-incomplete":
-        _write_json(
-            machine_brain_dir / "brains.json",
-            {"version": 1, "brains": [{"alias": "incomplete"}]},
-        )
     elif name == "registry-stale":
         missing = clone.config_home.parent / "missing-brain"
         machine_brain_dir.mkdir(parents=True, exist_ok=True)
         (machine_brain_dir / "vaults").write_text(
             f"# brain registry v2\nstale\tlocal\t{missing}\n",
             encoding="utf-8",
-        )
-        _write_json(
-            machine_brain_dir / "brains.json",
-            {"version": 1, "brains": [{"alias": "stale", "path": str(missing)}]},
         )
         details["missing_path"] = str(missing)
     elif name == "lifecycle-state":

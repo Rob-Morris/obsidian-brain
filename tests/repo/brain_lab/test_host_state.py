@@ -17,7 +17,7 @@ def test_host_state_detects_machine_config_and_vault_changes(tmp_path: Path, mon
     monkeypatch.setenv("XDG_CONFIG_HOME", str(home / ".config"))
 
     before = capture_host_state(home=home, vaults=[vault])
-    (config / "brains.json").write_text('{"version":1,"brains":[]}\n', encoding="utf-8")
+    (config / "default").write_text("brain\n", encoding="utf-8")
     (vault / "note.md").write_text("two", encoding="utf-8")
     after = capture_host_state(home=home, vaults=[vault])
 

@@ -50,7 +50,7 @@
     },
     {
       "command_id": "brain.doctor",
-      "version": 2,
+      "version": 3,
       "owner": "launcher",
       "classification": "none",
       "mcp": null,
@@ -241,18 +241,6 @@
       "authority": "operator"
     },
     {
-      "command_id": "machine-registry.sync",
-      "version": 1,
-      "owner": "launcher",
-      "classification": "machine_mutation",
-      "mcp": null,
-      "cli": [
-        "machine-registry",
-        "sync"
-      ],
-      "authority": "operator"
-    },
-    {
       "command_id": "mcp.configure",
       "version": 3,
       "owner": "launcher",
@@ -385,5 +373,5 @@
       "authority": "operator"
     }
   ],
-  "fingerprint": "sha256:ce622bcf9b9a4201b473efc038c3cc33f853a99fbb64441396e044cc60843f65"
+  "fingerprint": "sha256:43a32d82fd496860fbc831511fff17c3a9273f968ed6b498f1b1c327fb732395"
 }

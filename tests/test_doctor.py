@@ -11,7 +11,7 @@ MACHINE_SUMMARY = {
     "tidy": True,
     "venvs_root": "/tmp/.brain/venvs",
     "stale_registry_entries": [],
-    "stale_machine_registry_entries": [],
+    "unregistered_brains": [],
     "live_process_scan_available": True,
     "memory": {
         "process_count": 1,
@@ -25,17 +25,15 @@ MACHINE_SUMMARY = {
     "counts": {
         "brains": 1,
         "stale_registry_entries": 0,
+        "unregistered_brains": 0,
         "brains_with_repair_findings": 0,
         "runtimes": 1,
         "orphan_candidates": 0,
     },
-    "machine_registry": {
-        "path": "/tmp/.config/brain/brains.json",
+    "registry": {
+        "path": "/tmp/.config/brain/vaults",
         "brains_count": 1,
-        "blocked": False,
-        "changed": False,
-        "malformed_rewritten": False,
-        "stale_machine_registry_entries": [],
+        "stale": False,
     },
     "brains": [],
     "runtimes": [],

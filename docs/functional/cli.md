@@ -433,12 +433,17 @@ pass gets `authority_denied` (exit 3).
 
 Machine-owned findings (`runtime`, `mcp`) are listed as "see the machine
 pass"; `brain machine-maintenance run` mirrors the Brain pass over Doctor's
-feed, with one automatic family, `machine-registry.sync`, which adds
-discovered Brains to the derived registry and never drops a row. Stale rows,
-orphaned runtimes, MCP drift, legacy installs and orphaned Brain processes are
-judgement findings. An `unknown` machine sibling is reported the same way as
-on the Brain side: `command_outcome_unknown` naming the sibling. Doctor is
-read-only.
+feed. It has no automatic family: stale vault registry rows, an unregistered
+current Brain (listed with its `brain register` command), orphaned runtimes,
+MCP drift, legacy installs and orphaned Brain processes are all judgement
+findings, so a pass detects, lists and writes `last-pass` with no groups. An
+`unknown` machine sibling would be reported the same way as on the Brain
+side: `command_outcome_unknown` naming the sibling. Doctor is read-only and
+reports the vault registry (`~/.config/brain/vaults`) as `current` or
+`stale`. A stale row still counts against `machine.healthy`; a per-Brain
+finding counts only when its repair family is automatic or machine-owned, so
+one without such a family never makes Doctor unhealthy, and an unregistered
+current Brain is reported without entering the health rule at all.
 
 ### Claims and dismissals
 
