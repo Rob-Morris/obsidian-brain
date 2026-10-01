@@ -35,6 +35,11 @@ from .document import write_body as document_write_body
 from .foundation import build_application_catalogue, build_request_resolver
 from .links import check as links_check
 from .links import fix as links_fix
+from .maintenance import claim as maintenance_claim
+from .maintenance import dismiss as maintenance_dismiss
+from .maintenance import list as maintenance_list
+from .maintenance import release as maintenance_release
+from .maintenance import run as maintenance_run
 from .plugin import create as plugin_create
 from .plugin import replace as plugin_replace
 from .resource import create as resource_create
@@ -49,6 +54,7 @@ from .retrieval import rebuild_semantic as retrieval_rebuild_semantic
 from .retrieval import repair_semantic as retrieval_repair_semantic
 from .runtime import refresh_router as runtime_refresh_router
 from .runtime import read_environment as runtime_read_environment
+from .runtime import remove_temporaries as runtime_remove_temporaries
 from .runtime import status as runtime_status
 from .runtime import warmup as runtime_warmup
 from .session import start as session_start
@@ -119,6 +125,11 @@ _COMMAND_OWNERS = (
     document_write_body,
     links_check,
     links_fix,
+    maintenance_claim,
+    maintenance_dismiss,
+    maintenance_list,
+    maintenance_release,
+    maintenance_run,
     plugin_create,
     plugin_replace,
     resource_create,
@@ -133,6 +144,7 @@ _COMMAND_OWNERS = (
     retrieval_repair_semantic,
     runtime_refresh_router,
     runtime_read_environment,
+    runtime_remove_temporaries,
     runtime_status,
     runtime_warmup,
     session_start,

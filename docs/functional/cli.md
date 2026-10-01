@@ -323,6 +323,161 @@ Exit categories are stable across CLI and direct script:
 | 3 | Authority or capability unavailable |
 | 4 | Infrastructure failure or unknown mutation outcome |
 
+## Maintenance passes and scheduling
+
+Brain maintenance is check-driven (DD-082): checks produce findings, one
+repair table names each finding's repair and disposition, and a bounded pass
+runs the automatic families and lists the rest. Detection is the source of
+truth, so a repair that fails is simply found again; the only persistent
+state is human decisions (claims and dismissals), and history is a
+`maintenance` family in the operational log.
+
+### Scheduling existing commands
+
+Derived-cache commands are initially authorised, derived-only and suitable for
+a schedule on their own: `vault.check`, `runtime.refresh-router`,
+`retrieval.refresh-lexical` and `runtime.warmup`. `artefact.repair` and
+`links.fix` are preview-then-apply content repairs, initially authorised only
+in `normal` mode (never in `read-only`, nor in an `explicit` mode that omits
+them), and belong in a schedule only after a reviewed dry run. Exceptional
+commands such as `workspace.repair-registry` and `retrieval.repair-semantic`
+refuse a standalone call and need a `brain session run` job.
+
+A scheduled call is an ordinary CLI call: an absolute launcher path, an
+explicit `--brain ID` or `--vault PATH`, `--json`, no operator key anywhere in
+a crontab or process listing, and the same `XDG_*` environment as the
+interactive shell (or none in either). Without a selector a job silently
+resolves to the registered default Brain, because resolution is binding-first
+then default; always pass one.
+
+### The pass
+
+```bash
+/usr/local/bin/brain --brain my-brain maintenance run --json
+/usr/local/bin/brain --vault /path/to/brain maintenance run --dry-run --json
+brain --brain my-brain maintenance list --json
+brain --brain my-brain maintenance list --request-json '{"all":true}' --json
+brain machine-maintenance run --json
+```
+
+One scheduler entry per Brain, keyless, with an absolute launcher path and an
+explicit selector. The same environment that the interactive shell uses must
+reach the job (`XDG_CONFIG_HOME` for the registry, `XDG_STATE_HOME` for
+receipts and the machine pass), or neither should set one.
+
+```cron
+# crontab -e: nightly at 03:10, log the envelope
+10 3 * * * /usr/local/bin/brain --brain my-brain maintenance run --json >> "$HOME/.local/state/brain/maintenance-my-brain.log" 2>&1
+```
+
+```xml
+<!-- ~/Library/LaunchAgents/gg.underware.brain.maintenance.my-brain.plist -->
+<plist version="1.0"><dict>
+  <key>Label</key><string>gg.underware.brain.maintenance.my-brain</string>
+  <key>ProgramArguments</key><array>
+    <string>/usr/local/bin/brain</string><string>--brain</string><string>my-brain</string>
+    <string>maintenance</string><string>run</string><string>--json</string>
+  </array>
+  <key>StartCalendarInterval</key><dict><key>Hour</key><integer>3</integer><key>Minute</key><integer>10</integer></dict>
+  <key>StandardOutPath</key><string>/Users/me/.local/state/brain/maintenance-my-brain.log</string>
+  <key>StandardErrorPath</key><string>/Users/me/.local/state/brain/maintenance-my-brain.log</string>
+</dict></plist>
+```
+
+```ini
+# ~/.config/systemd/user/brain-maintenance@.service, enabled as brain-maintenance@my-brain.timer
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/brain --brain %i maintenance run --json
+
+# ~/.config/systemd/user/brain-maintenance@.timer
+[Timer]
+OnCalendar=*-*-* 03:10:00
+Persistent=true
+[Install]
+WantedBy=timers.target
+```
+
+```powershell
+# Windows Task Scheduler: a daily task running the launcher with an explicit selector
+schtasks /Create /SC DAILY /ST 03:10 /TN "Brain maintenance my-brain" `
+  /TR "\"C:\Program Files\Brain\brain.cmd\" --brain my-brain maintenance run --json"
+```
+
+The pass exits 0 when every repair succeeded, 1 after a partial or failed
+group, 3 when the context is refused, and 4 after an unknown sibling outcome
+or a blocked detection, so a scheduler's failure notification follows the
+exit code.
+
+`maintenance.run` takes `.brain/local/maintenance/pass.lock` without waiting
+(an overlapping pass exits 2 with a retryable `conflict`), detects in
+process, invokes each unheld automatic family (`router`, `lexical`,
+`temporaries`, in that order) as a fresh sibling invocation through normal
+admission, and writes `last-pass.json`. Every invoked group ends in one of
+`repaired`, `already_clean`, `partial`, `deferred`, `needs_person`, `failed`
+or `unknown`. The pass waits for at most one timed-out vault lock: after the
+first busy conflict every later lock-taking group is `deferred`. A live claim
+withholds a group; an expired claim is listed but no longer holds. The pass
+is `ok` (exit 0) unless a group was `partial` or
+`failed` (exit 1), or `unknown` (exit 4, `command_outcome_unknown` naming the
+sibling). Nothing follows an unknown up: the next pass re-detects. A
+`--dry-run` reports the plan and writes nothing, not even a blocked summary.
+
+The pass runs only from a standalone, keyless call under the default
+principal: `brain … maintenance run` or `command.py maintenance run` without
+`--operator-key`, outside MCP and outside a `brain session run` job. Any
+other context gets `capability_unavailable` (exit 3). A vault with customised
+`vault.profiles` must add `maintenance.*` and `runtime.remove-temporaries` to
+the intended profiles or run `brain permission set-profile`; otherwise the
+pass gets `authority_denied` (exit 3).
+
+Machine-owned findings (`runtime`, `mcp`) are listed as "see the machine
+pass"; `brain machine-maintenance run` mirrors the Brain pass over Doctor's
+feed, with one automatic family, `machine-registry.sync`, which adds
+discovered Brains to the derived registry and never drops a row. Stale rows,
+orphaned runtimes, MCP drift, legacy installs and orphaned Brain processes are
+judgement findings. An `unknown` machine sibling is reported the same way as
+on the Brain side: `command_outcome_unknown` naming the sibling. Doctor is
+read-only.
+
+### Claims and dismissals
+
+`maintenance list` shows judgement findings and groups, automatic groups
+whose last outcome was `failed`, `unknown`, `deferred` or `needs_person`, and
+expired claims, each with its `key`, `fingerprint` and claim state. A
+scope-wide judgement family (`frontmatter`, `ownership`, `empty_folders`,
+`semantic`, `registry`) is one group with one key; the two per-artefact
+`workspace_reference_missing` and `workspace_reference_archived` findings are
+one item per file.
+
+```bash
+brain --brain my-brain maintenance claim --request-json '{"key":"9a4c0e7b12d3f5a8","claimant":"rob"}' --json
+brain --brain my-brain maintenance dismiss --request-json \
+  '{"key":"c71e2b9d0f4a6e13","expected_fingerprint":"5d…","reason":"intentional link","actor":"rob"}' --json
+brain --brain my-brain maintenance release --request-json '{"key":"9a4c0e7b12d3f5a8","actor":"rob"}' --json
+```
+
+A claim lasts one hour from the last claim or re-claim; re-claiming extends it,
+another claimant is refused while it is live and replaces it after expiry. An
+expired claim on a still-detected finding is a review item until it is
+re-claimed, released or dismissed, and the pass never runs it. A dismissal
+records the fingerprint; a finding re-detected with the same fingerprint stays
+quiet for thirty days, changed evidence reopens it, and after retention the
+finding returns for a deliberate re-review. Automatic groups are claimable but
+never dismissible, and `router` is never held because detection depends on
+it. Claimant and actor names are self-asserted coordination, not access
+control. The decision commands are content class, so under
+`defaults.access.initial.mode: read-only` (or an `explicit` mode that omits
+them) they need either `normal` mode or a `brain session run` job; they
+detect in process, so the job route works. CLI jobs are verified on macOS only
+and unavailable on native Windows, where operators switch modes.
+
+A real router or lexical rebuild clears the semantic embeddings, so on a
+vault with semantic retrieval configured the pass reports `semantic` as
+needing a person after such a rebuild. Ordinary Brain writes also clear
+embeddings, so `semantic` is almost always advised on semantic vaults until
+`retrieval.repair-semantic` runs.
+
 ## Launcher recovery and old Brains
 
 CLI 3 can identify and recover an installed Brain older than 0.55.0, but it does not translate old grammars. Launcher-owned version, doctor, install and upgrade/recovery commands remain available. Attempting an application command returns structural `upgrade_required`; that Brain's own legacy scripts remain directly invocable until the Brain is upgraded.
@@ -408,6 +563,17 @@ interpreter (outside a virtual environment):
 ```bash
 /absolute/python3.12 cli/_distribution.py /path/to/source /path/to/prefix/bin/brain --bootstrap-python /absolute/python3.12
 ```
+
+Repair guidance in `vault.check` and Doctor findings names catalogue commands:
+the `brain --vault … <noun> <verb>` form when a launcher is on `PATH`, else the
+vault's own `command.py` form; `brain session run -- brain … workspace
+repair-registry` for the exceptional registry repair; and for the machine-owned
+`runtime` and `mcp` scopes the launcher form or, without a launcher,
+`repair.py <scope>`. `migrate-legacy-installations` runs its `runtime` and
+`mcp` steps through the launcher's own commands, each with its own receipt,
+and reports the exceptional `registry` step with status `attention`; the
+legacy `.venv` stays until an operator runs that repair and re-runs the
+migration.
 
 Use `brain.cmd` at the Windows destination. Doctor reports bootstrap availability
 separately from registration state. Successful repair does not reload an already

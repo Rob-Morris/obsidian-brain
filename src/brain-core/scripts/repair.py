@@ -10,8 +10,9 @@ Bootstrap layer:
 
 Runtime layer:
   - runs inside the central managed runtime
-  - performs named repair scopes: runtime, mcp, router, lexical, registry, frontmatter,
-    ownership, semantic, empty_folders
+  - performs the recovery scopes of the Brain repair table (DD-043, DD-082):
+    runtime, mcp, router, lexical, registry, frontmatter, ownership, semantic,
+    empty_folders; routine repairs run through catalogue commands instead
   - every scope may rely on the shared managed-runtime owner to recover a
     usable managed interpreter path; scope-specific requirements only control
     extra managed-package needs beyond that bootstrap
@@ -46,7 +47,7 @@ from _lifecycle_common import (
     make_result_envelope,
     render_human_result,
 )
-from _repair_common import REPAIR_SCOPES
+from _repair_common import RECOVERY_SCOPES
 
 
 BOOTSTRAP_TIMEOUT = 300
@@ -110,8 +111,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     if args.scope in LEGACY_SCOPE_RENAMES:
         replacement = LEGACY_SCOPE_RENAMES[args.scope]
         parser.error(f"repair scope '{args.scope}' was renamed to '{replacement}'")
-    if args.scope not in REPAIR_SCOPES:
-        choices = ", ".join(REPAIR_SCOPES.keys())
+    if args.scope not in RECOVERY_SCOPES:
+        choices = ", ".join(RECOVERY_SCOPES)
         parser.error(f"invalid choice: {args.scope!r} (choose from {choices})")
     return args
 

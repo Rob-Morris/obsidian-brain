@@ -8,17 +8,17 @@ from pathlib import Path
 import shutil
 import subprocess
 import sys
-from typing import Any
+from typing import Any, Callable
 
 from _bootstrap import diagnostics as bootstrap_diagnostics
 from _bootstrap.runtime import step as _step
 from _common import central_venvs_root, join_argv
 from _common._venv import run_managed
 from _lifecycle_common import derive_step_status
-from _repair_common import build_repair_argv
+from _repair_common import REPAIR_SCOPES, build_catalogue_command, build_repair_argv
 
 from ._labels import brain_label
-from .discovery import discover_brains, inspect_machine_registry, sync_machine_registry
+from .discovery import discover_brains, inspect_machine_registry
 from .process_footprint import measure_footprint_bytes, summarise_runtime_memory
 from .topology import (
     classify_brain_runtime,
@@ -27,8 +27,16 @@ from .topology import (
 )
 
 
+# A launcher-supplied runner executes one machine-owned repair scope against
+# one target Brain and returns a step record with ``status`` and ``outcome``.
+RepairRunner = Callable[[str | Path, str], dict[str, Any]]
+
+
 DELEGATED_REPAIR_TIMEOUT = 300
 _DELEGATED_OK_STATUSES = {"planned", "noop", "changed"}
+# Outside the cleanup-safe set by design: an exceptional repair waits for an
+# operator, and the legacy runtime stays until it has run.
+REGISTRY_ATTENTION_STATUS = "attention"
 
 
 @dataclass(frozen=True)
@@ -43,26 +51,25 @@ def collect_machine_summary(
     *,
     current_vault: str | None = None,
     launcher_python: str | None = None,
-    synchronise_registry: bool,
     measure_memory: bool = False,
     cli_binary: str | None = None,
+    process_scan: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Collect machine runtime state, optionally synchronising derived registry.
+    """Collect machine runtime state; the derived registry is inspected, never written.
 
     ``measure_memory`` adds the per-process footprint scan the doctor reports;
     other callers (migration, pruning, upgrade guidance) only need topology.
+    ``process_scan`` lets a caller that already scanned the process table
+    share that scan instead of running a second one.
     """
     discovery = discover_brains(current_vault=current_vault)
-    if synchronise_registry:
-        machine_registry = sync_machine_registry(discovery["brains"])
-    else:
-        machine_registry = inspect_machine_registry(discovery["brains"])
     return inspect_machine_runtime_state(
         launcher_python=launcher_python,
         discovery=discovery,
-        machine_registry=machine_registry,
+        machine_registry=inspect_machine_registry(discovery["brains"]),
         measure_memory=measure_memory,
         cli_binary=cli_binary,
+        process_scan=process_scan,
     )
 
 
@@ -73,6 +80,7 @@ def inspect_machine_runtime_state(
     machine_registry: dict[str, Any],
     measure_memory: bool = False,
     cli_binary: str | None = None,
+    process_scan: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Inspect discovered Brains and shared runtimes on this machine."""
     brains: list[dict[str, Any]] = []
@@ -93,7 +101,7 @@ def inspect_machine_runtime_state(
     persisted_references, registration_coverage = persisted_runtime_references(Path.home(), roots)
     launcher = cli_binary or shutil.which("brain")
     registration_state = inspect_registrations(Path.home(), roots, Path(launcher) if launcher else None)
-    live_usage = find_live_brain_runtime_processes(rt["python"] for rt in runtimes)
+    live_usage = find_live_brain_runtime_processes((rt["python"] for rt in runtimes), scan=process_scan)
     runtime_rows: list[dict[str, Any]] = []
     orphan_candidates: list[str] = []
 
@@ -319,6 +327,19 @@ def _run_repair_scope(
     )
 
 
+def _registry_attention_step(vault_root: str | Path) -> dict[str, Any]:
+    """Report the exceptional registry repair instead of running it (DD-082)."""
+    command = build_catalogue_command(vault_root, REPAIR_SCOPES["registry"])
+    return _step(
+        "registry",
+        REGISTRY_ATTENTION_STATUS,
+        "Local workspace registry repair needs an operator: run "
+        f"`{command}`, then re-run the migration to remove the legacy .venv.",
+        command=command,
+        outcome="none",
+    )
+
+
 def _select_legacy_targets(
     summary: dict[str, Any],
     selector: str | None,
@@ -420,7 +441,8 @@ def _legacy_venv_step(
         return _step(
             "legacy_venv",
             "noop",
-            "Left the legacy vault-local .venv in place because delegated repairs did not complete cleanly.",
+            "Left the legacy vault-local .venv in place because a delegated repair "
+            "did not complete cleanly or still needs an operator.",
             path=str(legacy_dir),
         )
     if not legacy_dir.exists():
@@ -487,7 +509,16 @@ def migrate_legacy_brains(
     launcher_python: str | None,
     dry_run: bool,
     selector: str | None = None,
+    repair_runner: RepairRunner | None = None,
 ) -> dict[str, Any]:
+    """Converge legacy Brains onto the shared runtime.
+
+    The ``runtime`` and ``mcp`` steps run through ``repair_runner`` when the
+    launcher supplies one (its own catalogue commands, DD-082); the Core-side
+    script still delegates to each Brain's ``repair.py`` (DD-043). The
+    exceptional ``registry`` step is never run here: it is reported with the
+    ``attention`` status, so legacy cleanup waits until an operator runs it.
+    """
     selection = _select_legacy_targets(summary, selector, dry_run=dry_run)
     if not selection.targets:
         return _build_action_result(
@@ -501,17 +532,17 @@ def migrate_legacy_brains(
         for brain in selection.targets
     )
 
+    def run_repair(vault_root: str, scope: str) -> dict[str, Any]:
+        if repair_runner is not None:
+            return repair_runner(vault_root, scope)
+        return _run_repair_scope(vault_root, scope, launcher_python=launcher_python, dry_run=dry_run)
+
     target_rows: list[dict[str, Any]] = []
     top_level_steps: list[dict[str, Any]] = [selection.step]
 
     for brain in selection.targets:
         steps: list[dict[str, Any]] = []
-        runtime_step = _run_repair_scope(
-            brain["path"],
-            "runtime",
-            launcher_python=launcher_python,
-            dry_run=dry_run,
-        )
+        runtime_step = run_repair(brain["path"], "runtime")
         steps.append(runtime_step)
 
         delegated_cleanup_safe = runtime_step["status"] in _DELEGATED_OK_STATUSES
@@ -523,12 +554,10 @@ def migrate_legacy_brains(
             }
         )
         for scope in scopes:
-            repair_step = _run_repair_scope(
-                brain["path"],
-                scope,
-                launcher_python=launcher_python,
-                dry_run=dry_run,
-            )
+            if scope == "registry":
+                repair_step = _registry_attention_step(brain["path"])
+            else:
+                repair_step = run_repair(brain["path"], scope)
             steps.append(repair_step)
             delegated_cleanup_safe = delegated_cleanup_safe and repair_step["status"] in _DELEGATED_OK_STATUSES
 

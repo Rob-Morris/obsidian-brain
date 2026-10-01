@@ -121,6 +121,7 @@ Each DD captures the reasoning behind an architectural decision at the time it w
 | DD-079 | One proxy transport owns blocked startup and recovery | Accepted | [dd-079](dd-079-unified-proxy-lifecycle.md) |
 | DD-080 | Registration-driven managed client approvals | Accepted | [dd-080](dd-080-managed-client-approvals.md) |
 | DD-081 | Named runtime interpreters through one launch owner | Accepted | [dd-081](dd-081-named-runtime-interpreters.md) |
+| DD-082 | Check-driven maintenance with human decisions as the only state | Accepted | [dd-082](dd-082-check-driven-maintenance.md) |
 
 ---
 
@@ -138,4 +139,4 @@ Related decisions grouped by domain. Arrows show supersede/extend chains.
 - **Agent methodology:** DD-024 → DD-057 → DD-058 → DD-068 → DD-069, DD-057 → DD-063, DD-035
 - **Workspaces:** DD-040 → DD-051 → DD-052 → DD-053 → DD-054 (DD-051 extends DD-023, DD-039, DD-040; DD-052 adds the runtime resolution ladder; DD-053 adds the explicit vault-self flag + the unified vault predicate single-sourced in `_common`, and — extending DD-049 — its sign-off refinements add the Decision-#2 anchor hard-error and record that the `brain` dispatch surface includes `setup`; DD-054 carries that ladder into no-MCP `brain session` through machine-owned resolution infrastructure; DD-055 retires the legacy `init.py` shell and consolidates transport CLI onto `configure`)
 - **Artefact lifecycle & folder convention:** DD-029, DD-030 → DD-050 → DD-056 → DD-057 → DD-063, DD-030 → DD-071, DD-041 → DD-056, DD-072
-- **Command application architecture:** DD-002 → DD-003 → DD-049 → DD-061 → DD-062, DD-049/DD-061 → DD-066, DD-045 → DD-061
+- **Command application architecture:** DD-002 → DD-003 → DD-049 → DD-061 → DD-062, DD-049/DD-061 → DD-066, DD-045 → DD-061, DD-043/DD-061 → DD-082

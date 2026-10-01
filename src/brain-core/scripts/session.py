@@ -609,6 +609,9 @@ def build_session_model(
         model["config"] = config_summary
     if access_summary is not None:
         model["access"] = access_summary
+    advisory = _maintenance_advisory(vault_root)
+    if advisory is not None:
+        model["maintenance"] = advisory
     if workspace_summary:
         model["workspace"] = workspace_summary
     if workspace_binding:
@@ -644,6 +647,23 @@ def build_session_model(
         }
 
     return model
+
+
+def _maintenance_advisory(vault_root):
+    """Read the coarse advisory the last maintenance pass left (DD-082, D17)."""
+    from datetime import datetime, timezone
+
+    from _bootstrap.maintenance_summary import brain_paths, read_advisory
+
+    return read_advisory(brain_paths(vault_root).last_pass, datetime.now(timezone.utc))
+
+
+def _render_maintenance_line(advisory):
+    counts = ", ".join(
+        f"{name} {advisory[name]}" for name in ("needs_person", "claim_expired", "failed", "deferred")
+    )
+    blocked = f"; blocked: {advisory['blocked']}" if advisory.get("blocked") else ""
+    return f"Last pass {advisory['finished_at']}: {counts}{blocked}. Run `brain maintenance list` for detail."
 
 
 def render_session_markdown(model):
@@ -713,6 +733,10 @@ def render_session_markdown(model):
             formatter=lambda item: f"`{item[0]}`: `{_format_scalar(item[1])}`",
         ),
     ])
+
+    advisory = model.get("maintenance")
+    if advisory:
+        sections.extend(["", "## Maintenance", "", _render_maintenance_line(advisory)])
 
     workspace = model.get("workspace")
     if workspace:

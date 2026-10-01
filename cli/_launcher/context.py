@@ -4,10 +4,18 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime
+import os
 from pathlib import Path
 from typing import Protocol
 
 from .contracts import ReceiptWriter
+
+
+def launcher_state_home() -> Path:
+    """The machine-local state root: ``$XDG_STATE_HOME`` or ``~/.local/state``."""
+    return Path(
+        os.environ.get("XDG_STATE_HOME", str(Path.home() / ".local" / "state"))
+    ).expanduser().resolve()
 
 
 class AuthorityEvaluator(Protocol):

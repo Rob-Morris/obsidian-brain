@@ -112,9 +112,13 @@ def _write_bytes(path: Path, content: bytes) -> None:
         existing_mode = stat.S_IMODE(path.stat().st_mode)
     except FileNotFoundError:
         pass
+    from _common._filesystem import ATOMIC_TEMPORARY_SUFFIX, atomic_temporary_prefix
+
     path.parent.mkdir(parents=True, exist_ok=True)
     _refuse_symlink_path(path)
-    fd, temporary = tempfile.mkstemp(prefix=path.name + ".", suffix=".tmp", dir=path.parent)
+    fd, temporary = tempfile.mkstemp(
+        prefix=atomic_temporary_prefix(path.name), suffix=ATOMIC_TEMPORARY_SUFFIX, dir=path.parent
+    )
     try:
         if existing_mode is not None and hasattr(os, "fchmod"):
             os.fchmod(fd, existing_mode)

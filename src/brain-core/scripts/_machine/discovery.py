@@ -23,6 +23,7 @@ import vault_registry
 
 
 MACHINE_REGISTRY_VERSION = 1
+MACHINE_REGISTRY_LOCK_TIMEOUT = 5.0
 DEFAULT_MACHINE_REGISTRY_BLOCK_MESSAGE = "machine-registry state could not be safely interpreted; leaving brains.json untouched"
 MACHINE_REGISTRY_BLOCK_MESSAGES = {
     "newer-version": "newer machine-registry schema detected; leaving brains.json untouched",
@@ -42,9 +43,13 @@ def machine_registry_path() -> Path:
 
 @contextlib.contextmanager
 def _locked_machine_registry():
-    """Serialise load-modify-save for the derived machine registry."""
+    """Serialise load-modify-save for the derived machine registry.
+
+    Bounded: a holder that never returns raises ``MutationLockError`` here
+    instead of hanging a scheduled pass.
+    """
     lock_path = Path(str(machine_registry_path()) + ".lock")
-    with exclusive_file_lock(lock_path):
+    with exclusive_file_lock(lock_path, timeout=MACHINE_REGISTRY_LOCK_TIMEOUT):
         yield
 
 
@@ -291,6 +296,14 @@ def sync_machine_registry(brains: list[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
+def _missing_brains(current: dict[str, Any], target_brains: list[dict[str, Any]]) -> list[str]:
+    """Discovered Brains that the derived registry does not list yet."""
+    known = {row["path"] for row in current["brains"]} | {
+        row["path"] for row in current["stale_machine_registry_entries"]
+    }
+    return sorted(row["path"] for row in target_brains if row["path"] not in known)
+
+
 def inspect_machine_registry(brains: list[dict[str, Any]]) -> dict[str, Any]:
     """Compare the derived machine registry without repairing or rewriting it."""
     target_brains = _render_machine_registry(brains)["brains"]
@@ -316,11 +329,67 @@ def inspect_machine_registry(brains: list[dict[str, Any]]) -> dict[str, Any]:
         "drifted": drifted,
         "malformed": current["malformed"],
         "malformed_rewritten": False,
+        "missing_brains": [] if current["blocked"] else _missing_brains(current, target_brains),
         "path": str(path),
         "stale_machine_registry_entries": current[
             "stale_machine_registry_entries"
         ],
         "version": current["version"],
+    }
+
+
+def add_and_refresh_machine_registry(
+    brains: list[dict[str, Any]],
+    *,
+    dry_run: bool = False,
+) -> dict[str, Any]:
+    """Add or refresh rows for discovered Brains; never drop a row (DD-082, D19).
+
+    A stale row may be an unplugged drive, so dropping it is a person's
+    decision. A blocked or malformed registry is left untouched and reported.
+    Raises ``MutationLockError`` when the bounded registry lock is busy.
+    """
+    target_brains = _render_machine_registry(brains)["brains"]
+    path = machine_registry_path()
+    with _locked_machine_registry():
+        current = _load_machine_registry()
+        blocked_reason = current["blocked_reason"] if current["blocked"] else (
+            "malformed" if current["malformed"] else None
+        )
+        if blocked_reason is not None:
+            return {
+                "blocked": True,
+                "blocked_reason": blocked_reason,
+                "added": [],
+                "refreshed": [],
+                "changed": False,
+                "brains_count": len(current["brains"]),
+                "path": str(path),
+                "version": current["version"],
+            }
+        rows = [dict(row) for row in (*current["brains"], *current["stale_machine_registry_entries"])]
+        by_path = {row["path"]: row for row in rows}
+        added, refreshed = [], []
+        for brain in target_brains:
+            row = by_path.get(brain["path"])
+            if row is None:
+                rows.append({"alias": brain["alias"], "path": brain["path"]})
+                added.append(brain["path"])
+            elif brain["alias"] is not None and row["alias"] != brain["alias"]:
+                row["alias"] = brain["alias"]
+                refreshed.append(brain["path"])
+        changed = bool(added or refreshed or (not current["exists"] and rows))
+        if changed and not dry_run:
+            safe_write_json(path, {"version": MACHINE_REGISTRY_VERSION, "brains": rows})
+    return {
+        "blocked": False,
+        "blocked_reason": None,
+        "added": added,
+        "refreshed": refreshed,
+        "changed": changed,
+        "brains_count": len(rows),
+        "path": str(path),
+        "version": MACHINE_REGISTRY_VERSION,
     }
 
 

@@ -40,7 +40,7 @@ BODIES_SCHEMA = "brain.debug-bodies/1"
 EXPORT_SCHEMA = "brain.diagnostics-export/1"
 
 DIAGNOSTICS_REL = Path(".brain") / "local" / "diagnostics"
-FAMILIES = ("command", "debug-bodies", "proxy", "proxy-rpc", "server")
+FAMILIES = ("command", "debug-bodies", "maintenance", "proxy", "proxy-rpc", "server")
 PROCESSES = ("cli", "proxy", "script", "server")
 _PRIMARY_FAMILY = {"cli": "command", "proxy": "proxy", "script": "command", "server": "server"}
 
@@ -120,6 +120,31 @@ _RESOLUTION_SOURCES = frozenset(
         "workspace_env",
     }
 )
+_MAINTENANCE_GROUP_OUTCOMES = frozenset(
+    {"repaired", "already_clean", "partial", "deferred", "needs_person", "failed", "unknown"}
+)
+_MAINTENANCE_PASS_OUTCOMES = frozenset({"ok", "partial", "error"})
+_MAINTENANCE_DECISIONS = frozenset({"claim", "release", "dismiss"})
+_ERROR_CODES = frozenset(
+    {
+        "invalid_request",
+        "not_found",
+        "conflict",
+        "authority_denied",
+        "authorisation_required",
+        "capability_unavailable",
+        "command_outcome_unknown",
+        "internal_error",
+    }
+)
+# Events accepted only in the named family; every other event belongs to the
+# process's primary family.
+_EVENT_FAMILIES = {
+    "maintenance.pass_started": "maintenance",
+    "maintenance.repair_invoked": "maintenance",
+    "maintenance.pass_finished": "maintenance",
+    "maintenance.decision_recorded": "maintenance",
+}
 
 
 def _safe_version(value: object) -> str:
@@ -254,6 +279,31 @@ _EVENT_FIELDS = {
     },
     "interface.accepted": {"interface_epoch": (_nonnegative_integer, True)},
     "interface.rejected": {},
+    "maintenance.decision_recorded": {
+        "kind": (_one_of(_MAINTENANCE_DECISIONS), True),
+        "key": (_closed_identifier, True),
+    },
+    "maintenance.pass_finished": {
+        "pass_id": (_closed_identifier, True),
+        "outcome": (_one_of(_MAINTENANCE_PASS_OUTCOMES), True),
+        "needs_person": (_nonnegative_integer, True),
+        "claim_expired": (_nonnegative_integer, True),
+        "failed": (_nonnegative_integer, True),
+        "deferred": (_nonnegative_integer, True),
+        "duration_ms": (_nonnegative_integer, True),
+    },
+    "maintenance.pass_started": {
+        "pass_id": (_closed_identifier, True),
+        "dry_run": (_boolean, True),
+    },
+    "maintenance.repair_invoked": {
+        "pass_id": (_closed_identifier, True),
+        "command_id": (_command_id, True),
+        "invocation_id": (_closed_identifier, True),
+        "outcome": (_one_of(_MAINTENANCE_GROUP_OUTCOMES), True),
+        "error_code": (_one_of(_ERROR_CODES), False),
+        "duration_ms": (_nonnegative_integer, True),
+    },
     "process.exited": {"exit_code": (_integer, False)},
     "process.started": {
         "bodies_enabled": (_boolean, False),
@@ -483,6 +533,13 @@ def _require_family(family: str) -> None:
         raise ValueError(f"unknown diagnostics family: {family}")
 
 
+def _require_event_family(event: str, family: str) -> None:
+    """Family-bound events are refused outside their family; others are free."""
+    expected = _EVENT_FAMILIES.get(event)
+    if expected is not None and family != expected:
+        raise ValueError(f"{event} belongs to the {expected} diagnostics family")
+
+
 def _open_regular_file(path: Path, flags: int) -> int:
     """Open one diagnostics endpoint without following its final component."""
     descriptor = os.open(path, flags | getattr(os, "O_NOFOLLOW", 0), 0o600)
@@ -690,6 +747,7 @@ class OperationalLogger:
         try:
             resolved = family or self._primary_family
             _require_family(resolved)
+            _require_event_family(event, resolved)
             self._enqueue((_RECORD, resolved, (event, fields, int(time.time() * 1000))))
         except Exception:
             self._add_drops(1)
@@ -849,14 +907,23 @@ def current_logger() -> OperationalLogger | None:
     return _INSTALLED
 
 
-def append_record(vault_root: Path, process: str, event: str, **fields: object) -> bool:
+def append_record(
+    vault_root: Path, process: str, event: str, *, family: str | None = None, **fields: object
+) -> bool:
     """Return whether a one-shot record persisted, without raising.
 
-    Failed command appends also emit the validated, bounded record on stderr
-    so a caller's correlation ID survives an unwritable diagnostics directory.
+    ``family`` defaults to the process's primary family, exactly as
+    ``OperationalLogger.record`` does. Failed command appends also emit the
+    validated, bounded record on stderr so a caller's correlation ID survives
+    an unwritable diagnostics directory.
     """
     line: bytes | None = None
     try:
+        if process not in PROCESSES:
+            raise ValueError(f"unknown diagnostics process: {process}")
+        resolved = family or _PRIMARY_FAMILY[process]
+        _require_family(resolved)
+        _require_event_family(event, resolved)
         global _ONESHOT_RUN_ID
         with _ONESHOT_LOCK:
             if _ONESHOT_RUN_ID is None:
@@ -870,7 +937,7 @@ def append_record(vault_root: Path, process: str, event: str, **fields: object) 
             event=event,
             **fields,
         )
-        append_lines(Path(vault_root), "command", [line])
+        append_lines(Path(vault_root), resolved, [line])
         return True
     except Exception as error:
         _stderr_note(

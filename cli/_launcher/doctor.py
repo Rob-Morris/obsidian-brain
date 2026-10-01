@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
+import subprocess
 from typing import ClassVar
 
 from .context import LauncherContext
@@ -366,23 +367,18 @@ class BrainDoctorRequest:
             raise ValueError("brain.doctor severity must be closed and typed")
 
 
-_REPAIR_COMMANDS = {
-    "empty_folders": "artefact.repair",
-    "frontmatter": "artefact.repair",
-    "lexical": "retrieval.refresh-lexical",
-    "mcp": "mcp.repair",
-    "ownership": "artefact.repair",
-    "registry": "workspace.repair-registry",
-    "router": "runtime.refresh-router",
-    "runtime": "runtime.repair",
-    "semantic": "retrieval.repair-semantic",
-}
+def _table_command_id(scope: str | None) -> str | None:
+    """Look a scope up in the bundled Brain repair table, tolerating unknown scopes."""
+    from _repair_common import REPAIR_SCOPES
+
+    family = REPAIR_SCOPES.get(scope) if scope is not None else None
+    return family.command_id if family is not None else None
 
 
 def _repair_finding(raw: dict) -> DoctorRepairFinding:
     repair = raw["repair"]
     scope = repair["scope"]
-    return DoctorRepairFinding(scope, raw["message"], _REPAIR_COMMANDS.get(scope))
+    return DoctorRepairFinding(scope, raw["message"], repair.get("command_id") or _table_command_id(scope))
 
 
 def _registry_status(raw: dict) -> DoctorRegistryStatus:
@@ -473,14 +469,16 @@ def _memory_status(raw: dict | None) -> DoctorMemoryStatus | None:
 
 
 def _vault_finding(raw: dict) -> DoctorVaultFinding:
-    repair = raw.get("repair")
-    scope = repair.get("scope") if isinstance(repair, dict) else None
+    repair = raw.get("repair") if isinstance(raw.get("repair"), dict) else {}
+    # The target's own vault.check names its repair command; the bundled table
+    # only serves the legacy check.py route of a pre-cutover Core.
+    command_id = repair.get("command_id") or _table_command_id(repair.get("scope"))
     return DoctorVaultFinding(
         raw.get("check") or "unspecified",
         DoctorSeverity(raw["severity"]),
         raw["file"],
         raw["message"],
-        _REPAIR_COMMANDS.get(scope),
+        command_id,
     )
 
 
@@ -515,6 +513,88 @@ def _vault_status(raw: dict) -> DoctorVaultStatus:
     )
 
 
+def _check_envelope(vault_root: Path, result: dict, *, actionable: bool) -> dict:
+    """Project a vault.check payload onto the check envelope Doctor renders."""
+    from _common import join_argv
+    from _repair_common import REPAIR_SCOPES, build_catalogue_command
+
+    findings = []
+    for item in result["findings"]:
+        finding = {
+            "check": item["check"],
+            "severity": item["severity"],
+            "file": item.get("file"),
+            "message": item["message"],
+        }
+        if item.get("code") is not None:
+            finding["code"] = item["code"]
+        if actionable and item.get("fix"):
+            finding["fix"] = item["fix"]
+        repair = item.get("repair")
+        if isinstance(repair, dict):
+            family = REPAIR_SCOPES.get(repair["scope"])
+            noun, verb = repair["command_id"].split(".", 1)
+            finding["repair"] = {
+                "scope": repair["scope"],
+                "description": repair["description"],
+                "command_id": repair["command_id"],
+                "command": (
+                    build_catalogue_command(vault_root, family)
+                    if family is not None and family.command_id == repair["command_id"]
+                    else join_argv(["brain", "--vault", str(vault_root), noun, verb])
+                ),
+            }
+        findings.append(finding)
+    return {
+        "summary": {"errors": result["errors"], "warnings": result["warnings"], "info": result["info"]},
+        "findings": findings,
+    }
+
+
+def run_vault_check(vault_root: Path, *, actionable: bool, severity: str | None):
+    """Run the target Brain's own ``vault.check`` through its ``command.py``.
+
+    Returns ``None`` for a pre-cutover target so Doctor falls back to that
+    target's legacy ``check.py``.
+    """
+    import json
+
+    from _common._venv import ROLE_CLI, run_managed
+    from _local_cli.execution import validate_application_envelope
+    from _local_cli.runtime import SelectedBrain, command_python
+
+    selected = SelectedBrain(vault_root, None, "doctor")
+    if not selected.supports_command_interface:
+        return None
+    payload = {"actionable": actionable}
+    if severity is not None:
+        payload["severity"] = severity
+    argv = [
+        str(command_python(selected, "portable")),
+        str(selected.command_script),
+        "vault",
+        "check",
+        "--request-json",
+        json.dumps(payload, separators=(",", ":")),
+        "--vault",
+        str(vault_root),
+        "--json",
+    ]
+    try:
+        completed = run_managed(argv, role=ROLE_CLI, capture_output=True, text=True, timeout=120, check=False)
+    except subprocess.TimeoutExpired as exc:
+        raise RuntimeError(f"vault.check did not finish within {exc.timeout:.0f} seconds") from exc
+    try:
+        envelope = json.loads(completed.stdout)
+    except json.JSONDecodeError as exc:
+        message = completed.stderr.strip() or "vault.check did not produce valid JSON output"
+        raise RuntimeError(message) from exc
+    validate_application_envelope(envelope, "vault.check", completed.returncode)
+    if envelope["status"] != "ok":
+        raise RuntimeError(envelope["error"]["message"])
+    return _check_envelope(vault_root, envelope["result"], actionable=actionable)
+
+
 def execute_doctor(context: LauncherContext, request: BrainDoctorRequest):
     import doctor
     from . import mcp as mcp_owner
@@ -539,7 +619,6 @@ def execute_doctor(context: LauncherContext, request: BrainDoctorRequest):
     machine = doctor.doctor_machine.collect_machine_summary(
         current_vault=current_vault,
         launcher_python=launcher_python,
-        synchronise_registry=False,
         measure_memory=True,
         cli_binary=str(context.cli_binary),
     )
@@ -548,6 +627,7 @@ def execute_doctor(context: LauncherContext, request: BrainDoctorRequest):
         launcher_python=launcher_python,
         actionable=request.actionable,
         severity=request.severity.value if request.severity is not None else None,
+        vault_check_runner=run_vault_check,
     )
     exit_code = doctor.overall_exit_code(cli=cli, machine=machine, vault=vault)
     from .approval_management import inspect_registered

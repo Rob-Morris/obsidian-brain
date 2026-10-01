@@ -247,7 +247,6 @@ def test_doctor_returns_bounded_typed_diagnosis_without_registry_sync(
         {
             "current_vault": str((tmp_path / "Brain").resolve()),
             "launcher_python": str(Path(sys.executable).resolve()),
-            "synchronise_registry": False,
             "measure_memory": True,
             "cli_binary": str((tmp_path / "bin" / "brain").resolve()),
         }
@@ -359,3 +358,35 @@ def test_unexpected_doctor_failure_is_privacy_bounded(tmp_path, monkeypatch):
 def test_diagnostic_requests_reject_invalid_intent(request_factory):
     with pytest.raises(ValueError):
         request_factory()
+
+
+def test_vault_check_runner_projects_the_target_payload_and_skips_pre_cutover_targets(tmp_path, monkeypatch):
+    import _repair_common
+    from _launcher.doctor import _check_envelope, _vault_finding, run_vault_check
+
+    old = (tmp_path / "Old").resolve()
+    (old / ".brain-core").mkdir(parents=True)
+    (old / ".brain-core" / "VERSION").write_text("0.54.0\n")
+    assert run_vault_check(old, actionable=False, severity=None) is None
+
+    monkeypatch.setattr(_repair_common, "find_launcher_binary", lambda: "/opt/bin/brain")
+    vault = (tmp_path / "Brain").resolve()
+    envelope = _check_envelope(vault, {
+        "errors": 1, "warnings": 0, "info": 0,
+        "findings": [
+            {"check": "router", "severity": "error", "file": None, "message": "missing", "fix": None,
+             "repair": {"scope": "router", "description": "d", "command_id": "runtime.refresh-router"}, "code": None},
+            {"check": "future", "severity": "error", "file": "x.md", "message": "new", "fix": "Edit it",
+             "repair": {"scope": "holograms", "description": "d", "command_id": "artefact.repair-holograms"}, "code": None},
+        ],
+    }, actionable=True)
+
+    assert envelope["summary"] == {"errors": 1, "warnings": 0, "info": 0}
+    assert envelope["findings"][0]["repair"]["command"] == f"/opt/bin/brain --vault {vault} runtime refresh-router"
+    assert envelope["findings"][1]["repair"]["command"] == f"brain --vault {vault} artefact repair-holograms"
+    assert envelope["findings"][1]["fix"] == "Edit it"
+    # Doctor reads the target's command identity rather than its own bundled table.
+    assert _vault_finding(envelope["findings"][1]).repair_command_id == "artefact.repair-holograms"
+    assert _vault_finding({"check": "x", "severity": "info", "file": None, "message": "m",
+                           "repair": {"scope": "router", "command": "python repair.py router"}}
+                          ).repair_command_id == "runtime.refresh-router"

@@ -82,7 +82,7 @@ behaviour and whether status changed. When several linked same-day transcripts
 name the source, it continues the one with the widest distinct resolved source
 set and rejects ties; path and basename spellings of the same file count once.
 
-`artefact.migrate-naming`, `retrieval.enable` and `workspace.repair-registry` remain available through the CLI, direct script and typed Python interfaces but are deliberately not registered in agent-facing MCP. Their catalogue records state the local-administration reason.
+`artefact.migrate-naming`, `retrieval.enable`, `workspace.repair-registry`, the `maintenance.*` commands and `runtime.remove-temporaries` remain available through the CLI, direct script and typed Python interfaces but are deliberately not registered in agent-facing MCP. Their catalogue records state the local-administration reason. The only MCP-visible maintenance signal is the coarse `maintenance` advisory on `session_start` and `runtime_status`, read from the last pass: `needs_person`, `claim_expired`, `failed` and `deferred` counts, a blocked reason and the pass age; it is absent until a pass has run.
 
 Explicit refresh enforces provider-specific and aggregate deadlines. Timed-out probes report `unknown`; a fixed process-wide daemon bound prevents repeated MCP calls from accumulating unbounded stuck probes or delaying CLI process exit.
 
@@ -547,4 +547,7 @@ attempt. The same diagnostic is projected through CLI and MCP. Router checks,
 repair decisions and mutation admission all verify source content; repair also
 verifies its postcondition. If sources change during rebuilding, it reports a
 partial outcome with recovery guidance instead of looping. `force: true` requests
-an unconditional rebuild, not a stronger repair algorithm.
+an unconditional rebuild, not a stronger repair algorithm. `vault.check` (still
+version 3) reports a stale lexical index alongside a semantic finding instead of
+suppressing it: the lexical repair is automatic and the semantic repair is a
+separate, heavier decision.
