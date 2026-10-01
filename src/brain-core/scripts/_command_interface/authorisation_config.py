@@ -10,6 +10,9 @@ from _common._yaml import load_mapping_text
 from _application.consent import ConsentPolicy
 
 
+DEFAULT_PRINCIPAL = 'default'
+
+
 @dataclass(frozen=True, slots=True)
 class AuthorisationDiagnostic:
     code: str
@@ -150,7 +153,7 @@ def resolve_authorisation_sources(sources: AuthorisationSources, *, catalogue, o
             _profile, explicit = brain_config.authenticate_operator_binding(operator_key, config)
             if explicit != binding:
                 raise ValueError('explicit operator key does not match the private session principal')
-    principal = f'operator:{binding.operator_id}' if binding.operator_id is not None else 'default'
+    principal = f'operator:{binding.operator_id}' if binding.operator_id is not None else DEFAULT_PRINCIPAL
     classes = {entry.command_id: entry.initial_class.value for entry in catalogue.entries}
     commands = frozenset(classes)
     permissions = profile_permissions(config, profile, commands=commands)

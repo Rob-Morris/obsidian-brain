@@ -422,6 +422,66 @@
       "authority": "contributor"
     },
     {
+      "command_id": "maintenance.claim",
+      "version": 1,
+      "owner": "application",
+      "classification": "content",
+      "mcp": null,
+      "cli": [
+        "maintenance",
+        "claim"
+      ],
+      "authority": "maintainer"
+    },
+    {
+      "command_id": "maintenance.dismiss",
+      "version": 1,
+      "owner": "application",
+      "classification": "content",
+      "mcp": null,
+      "cli": [
+        "maintenance",
+        "dismiss"
+      ],
+      "authority": "maintainer"
+    },
+    {
+      "command_id": "maintenance.list",
+      "version": 1,
+      "owner": "application",
+      "classification": "observation",
+      "mcp": null,
+      "cli": [
+        "maintenance",
+        "list"
+      ],
+      "authority": "reader"
+    },
+    {
+      "command_id": "maintenance.release",
+      "version": 1,
+      "owner": "application",
+      "classification": "content",
+      "mcp": null,
+      "cli": [
+        "maintenance",
+        "release"
+      ],
+      "authority": "maintainer"
+    },
+    {
+      "command_id": "maintenance.run",
+      "version": 1,
+      "owner": "application",
+      "classification": "observation",
+      "mcp": null,
+      "cli": [
+        "maintenance",
+        "run"
+      ],
+      "authority": "maintainer"
+    },
+    {
       "command_id": "plugin.create",
       "version": 1,
       "owner": "application",
@@ -586,6 +646,18 @@
       "cli": [
         "runtime",
         "refresh-router"
+      ],
+      "authority": "maintainer"
+    },
+    {
+      "command_id": "runtime.remove-temporaries",
+      "version": 1,
+      "owner": "application",
+      "classification": "observation",
+      "mcp": null,
+      "cli": [
+        "runtime",
+        "remove-temporaries"
       ],
       "authority": "maintainer"
     },
@@ -1025,5 +1097,5 @@
       "authority": "reader"
     }
   ],
-  "fingerprint": "sha256:3ac82ac3163d3398f62d570e5124adca4b0cb6635aa715c6382b37c9ea8e8e2f"
+  "fingerprint": "sha256:c4a6f4469dce5e396117c68f161589b46525720cee94cf8be992a07ceda498cb"
 }

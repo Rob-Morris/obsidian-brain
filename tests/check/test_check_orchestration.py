@@ -45,7 +45,7 @@ class TestRunChecks:
         finding = result["findings"][0]
         assert "router" in finding["check"]
         assert finding["repair"]["scope"] == "router"
-        assert "repair.py router" in finding["repair"]["command"]
+        assert "command.py runtime refresh-router" in finding["repair"]["command"]
 
     def test_with_loaded_router(self, vault):
         tmp_path, router = vault
@@ -65,7 +65,7 @@ class TestRunChecks:
         assert "source-content-drift" in hit["message"]
         assert hit["file"] == "_Config/router.md"
         assert hit["repair"]["scope"] == "router"
-        assert "repair.py router" in hit["repair"]["command"]
+        assert "command.py runtime refresh-router" in hit["repair"]["command"]
         assert result["summary"]["errors"] >= 1
 
     def test_invalid_router_metadata_returns_repairable_error(self, tmp_path):
@@ -95,7 +95,7 @@ class TestRunChecks:
         assert hit["severity"] == "warning"
         assert "missing" in hit["message"]
         assert hit["repair"]["scope"] == "lexical"
-        assert "repair.py lexical" in hit["repair"]["command"]
+        assert "command.py retrieval refresh-lexical" in hit["repair"]["command"]
 
     def test_lexical_version_drift_adds_warning_repair_guidance(self, tmp_path):
         compile_minimal_router(tmp_path)
@@ -138,7 +138,7 @@ class TestRunChecks:
 
         assert not any(f["check"] == "lexical_index" for f in result["findings"])
 
-    def test_semantic_repair_guidance_suppresses_lexical_guidance(self, tmp_path, monkeypatch):
+    def test_semantic_repair_guidance_does_not_suppress_lexical_guidance(self, tmp_path, monkeypatch):
         compile_minimal_router(tmp_path)
         semantic_finding = {
             "check": "retrieval-sidecars-missing",
@@ -156,7 +156,8 @@ class TestRunChecks:
         result = check.run_checks(str(tmp_path))
 
         assert any(f.get("repair", {}).get("scope") == "semantic" for f in result["findings"])
-        assert not any(f["check"] == "lexical_index" for f in result["findings"])
+        # Both repairs are reported: lexical is automatic, semantic needs a person (DD-082).
+        assert any(f["check"] == "lexical_index" for f in result["findings"])
 
     def test_human_output_prints_repair_commands_for_derived_cache_findings(self, tmp_path):
         missing_router_vault = tmp_path / "missing-router"
@@ -172,8 +173,8 @@ class TestRunChecks:
         lexical_result = check.run_checks(str(indexed_vault))
         lexical_lines = check.render_human_findings(lexical_result)
 
-        assert any("repair.py router" in line for line in router_lines)
-        assert any("repair.py lexical" in line for line in lexical_lines)
+        assert any("runtime refresh-router" in line for line in router_lines)
+        assert any("retrieval refresh-lexical" in line for line in lexical_lines)
 
 
 # ---------------------------------------------------------------------------

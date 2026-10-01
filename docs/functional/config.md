@@ -428,6 +428,23 @@ It contains exact before/after configuration evidence and must be treated with
 the same care as the client configuration itself. Normal repair does not parse
 legacy ledgers as canonical state. See [MCP lifecycle](cli.md#mcp-registration-and-repair).
 
+## Maintenance state
+
+`<vault>/.brain/local/maintenance/` holds the selected Brain's maintenance
+state (DD-082): `pass.lock` (the non-blocking pass lock), `last-pass.json`
+(schema `brain.maintenance-pass/1`: pass ID, host, finish time, outcome,
+per-family outcomes and counts; a cache for the advisory and for `list`,
+never read for correctness), `decisions.json` (schema
+`brain.maintenance-decisions/1`: claims and dismissals, the only persistent
+maintenance state) and `decisions.lock`. The pass only reads the decisions
+file; the decision commands prune and write it under the lock. An unreadable
+decisions file blocks the pass, which still writes a blocked summary; move it
+aside to recover. The machine pass keeps the same files under
+`$XDG_STATE_HOME/brain/maintenance/` (`~/.local/state` by default), beside
+the launcher receipts. These are local files, never vault notes, and
+`.brain/local` may be synced between hosts, so run passes for one Brain from
+one host; the pass warns when the host changes.
+
 ## Grok client configuration
 
 The supported client selectors are `claude`, `codex`, `grok` and `all`.

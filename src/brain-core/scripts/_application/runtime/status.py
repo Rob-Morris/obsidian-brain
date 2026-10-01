@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from typing import ClassVar, Mapping
 
 from ..context import InvocationContext
+from ..maintenance._advisory import MaintenanceAdvisory, read_maintenance_advisory
 from ..results import CommandNextAction, CommandArgument, Ok
 from ..runtime_status import RuntimeStatusSnapshot
 from ..types import (
@@ -26,6 +27,7 @@ class RuntimeStatusPayload:
     runtime_status: RuntimeStatusSnapshot
     instruction: str = "Ready records completed warm-up, not current cache health. Use router_check to diagnose blocked writes."
     router_check: CommandNextAction = CommandNextAction("vault.check", (CommandArgument("check", "router"),))
+    maintenance: MaintenanceAdvisory | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -38,11 +40,12 @@ class RuntimeStatusRequest:
 def execute(context: InvocationContext, _request: RuntimeStatusRequest):
     from _bootstrap.readiness import read_runtime_status
 
-    snapshot = typed_snapshot(read_runtime_status(context.selected_brain.vault_root))
+    root = context.selected_brain.vault_root
+    snapshot = typed_snapshot(read_runtime_status(root))
     return Ok(
         RuntimeStatusRequest.COMMAND_ID,
         RuntimeStatusRequest.COMMAND_VERSION,
-        RuntimeStatusPayload(snapshot),
+        RuntimeStatusPayload(snapshot, maintenance=read_maintenance_advisory(root, context.clock.now())),
     )
 
 

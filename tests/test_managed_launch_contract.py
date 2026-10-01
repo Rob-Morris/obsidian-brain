@@ -39,7 +39,7 @@ ALLOWED = {
     "src/brain-core/scripts/_bootstrap/workspace_scaffold.py::_run_git_rev_parse": "git",
     "src/brain-core/scripts/_skill_library/git_source.py::_run_bytes": "git",
     "src/brain-core/scripts/_skill_library/git_source.py::_run_archive": "git",
-    "src/brain-core/scripts/_machine/topology.py::find_live_brain_runtime_processes": "ps",
+    "src/brain-core/scripts/_machine/topology.py::scan_processes": "ps",
     "src/brain-core/scripts/_machine/process_footprint.py::_darwin_footprint": "footprint",
     "src/brain-core/scripts/shape_presentation.py::_render_pdf": "marp",
     "src/brain-core/scripts/shape_presentation.py::_launch_preview": "marp",

@@ -107,6 +107,19 @@ def _isolate_config_home(tmp_path, monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _isolate_launcher_binary(monkeypatch):
+    """Repair guidance must not depend on whether this machine has ``brain`` on PATH.
+
+    Without a launcher the guidance names the vault's own ``command.py`` or
+    ``repair.py`` forms; tests of the launcher form patch
+    ``_repair_common.find_launcher_binary`` explicitly.
+    """
+    import _repair_common
+
+    monkeypatch.setattr(_repair_common, "find_launcher_binary", lambda: None)
+
+
+@pytest.fixture(autouse=True)
 def _isolate_runtime_role(monkeypatch):
     """Launch-owner decisions must not inherit a role from whatever started pytest."""
     monkeypatch.delenv("BRAIN_RUNTIME_ROLE", raising=False)

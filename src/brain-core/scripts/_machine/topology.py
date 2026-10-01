@@ -152,52 +152,99 @@ def _match_runtime_process(
     return None
 
 
-def find_live_brain_runtime_processes(
-    runtime_pythons: Iterable[str | Path],
-) -> dict[str, Any]:
-    """Return live processes currently executing one of the supplied runtime paths."""
-    tracked = _tracked_runtime_processes(runtime_pythons)
-    if not tracked:
-        return {"available": True, "processes": {}}
+def scan_processes() -> dict[str, Any]:
+    """Return every process as ``{pid, ppid, command}``, or ``available: False``.
 
+    One full-width scan serves both live-runtime matching and orphan
+    detection; the parent process ID is what tells an orphan from a child.
+    """
     try:
         result = subprocess.run(
             # Unlimited width: procps truncates to the display width (such as
             # an inherited COLUMNS), which would hide a live runtime with a long
             # interpreter path from prune decisions.
-            ["ps", "-A", "-ww", "-o", "pid=,command="],
+            ["ps", "-A", "-ww", "-o", "pid=,ppid=,command="],
             capture_output=True,
             text=True,
             timeout=5,
             check=False,
         )
     except (OSError, subprocess.TimeoutExpired):
-        return {"available": False, "processes": _tracked_process_map(tracked)}
-
+        return {"available": False, "processes": []}
     if result.returncode != 0:
+        return {"available": False, "processes": []}
+    processes = []
+    for line in result.stdout.splitlines():
+        parts = line.strip().split(None, 2)
+        if len(parts) != 3:
+            continue
+        try:
+            pid, ppid = int(parts[0]), int(parts[1])
+        except ValueError:
+            continue
+        processes.append({"pid": pid, "ppid": ppid, "command": parts[2]})
+    return {"available": True, "processes": processes}
+
+
+def find_live_brain_runtime_processes(
+    runtime_pythons: Iterable[str | Path],
+    *,
+    scan: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Return live processes currently executing one of the supplied runtime paths."""
+    tracked = _tracked_runtime_processes(runtime_pythons)
+    if not tracked:
+        return {"available": True, "processes": {}}
+
+    scan = scan_processes() if scan is None else scan
+    if not scan["available"]:
         return {"available": False, "processes": _tracked_process_map(tracked)}
 
     @lru_cache(maxsize=None)
     def real_runtime_parent(path: str) -> str:
         return os.path.realpath(path)
 
-    for line in result.stdout.splitlines():
-        stripped = line.strip()
-        if not stripped:
-            continue
-        pid_text, _, command = stripped.partition(" ")
-        if not pid_text or not command:
-            continue
-        tracked_key = _match_runtime_process(command, tracked, parent_resolver=real_runtime_parent)
+    for process in scan["processes"]:
+        tracked_key = _match_runtime_process(process["command"], tracked, parent_resolver=real_runtime_parent)
         if tracked_key is None:
             continue
-        try:
-            pid = int(pid_text)
-        except ValueError:
-            continue
-        tracked[tracked_key]["processes"].append({"pid": pid, "command": command})
+        tracked[tracked_key]["processes"].append({"pid": process["pid"], "command": process["command"]})
 
     return {
         "available": True,
         "processes": _tracked_process_map(tracked),
     }
+
+
+def _brain_role(command: str) -> str | None:
+    """Return the Brain role of a role-named interpreter command line, if any."""
+    from _common._venv import ROLE_INTERPRETER_NAMES
+
+    executable = command.split(" ", 1)[0]
+    name = os.path.basename(executable)
+    for role, interpreter in ROLE_INTERPRETER_NAMES.items():
+        if name == interpreter:
+            return role
+    return None
+
+
+def find_orphaned_brain_processes(*, scan: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Return Brain-role interpreters that have lost their parent (DD-082, D19).
+
+    An orphan is a role-named interpreter whose parent is the init process
+    or is absent from the scan: a server whose proxy died, or a job
+    descendant whose supervisor is gone. Judgement, never automatic: the
+    machine cannot see whether the work it was doing has finished.
+    """
+    scan = scan_processes() if scan is None else scan
+    if not scan["available"]:
+        return {"available": False, "processes": []}
+    live = {process["pid"] for process in scan["processes"]}
+    orphans = []
+    for process in scan["processes"]:
+        role = _brain_role(process["command"])
+        if role is None:
+            continue
+        if process["ppid"] <= 1 or process["ppid"] not in live:
+            orphans.append({**process, "role": role})
+    return {"available": True, "processes": orphans}

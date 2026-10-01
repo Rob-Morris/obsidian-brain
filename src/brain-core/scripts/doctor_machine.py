@@ -22,8 +22,10 @@ def _counted_label(count: int, singular: str, plural: str) -> str:
 def _machine_registry_state_label(registry: dict) -> str:
     if registry["blocked"]:
         return "blocked"
-    if registry["changed"]:
-        return "updated"
+    if registry.get("malformed"):
+        return "malformed"
+    if registry.get("drifted"):
+        return "drifted"
     return "current"
 
 
@@ -36,18 +38,16 @@ def _machine_registry_note_lines(summary: dict) -> list[str]:
                 DEFAULT_MACHINE_REGISTRY_BLOCK_MESSAGE,
             )
         ]
-    if registry["malformed_rewritten"]:
-        lines = ["rewrote malformed machine-registry state from current discoveries"]
-        if registry.get("backup_path"):
-            lines.append(f"backup: {registry['backup_path']}")
-        lines.append("re-run brain doctor to confirm clean machine-registry state")
-        return lines
+    # Doctor is read-only (DD-082): the machine pass adds discovered Brains and
+    # a person decides what happens to stale rows.
+    lines = []
+    if registry.get("malformed"):
+        lines.append("malformed machine-registry rows; inspect brains.json before running the machine pass")
+    elif registry.get("missing_brains"):
+        lines.append("discovered Brains are missing from brains.json; run brain machine-registry sync")
     if summary["stale_machine_registry_entries"]:
-        return [
-            "pruned stale derived machine-registry entries",
-            "re-run brain doctor to confirm clean machine-registry state",
-        ]
-    return []
+        lines.append("stale machine-registry rows remain; review them with brain machine-maintenance list")
+    return lines
 
 
 def _render_repair_findings(findings: list[dict]) -> list[str]:
@@ -188,7 +188,6 @@ def main() -> int:
     summary = collect_machine_summary(
         current_vault=args.current_vault,
         launcher_python=args.launcher,
-        synchronise_registry=True,
         measure_memory=True,
     )
     if args.json:

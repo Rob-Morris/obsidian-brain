@@ -205,6 +205,30 @@ folder that gains content between the check and the repair is skipped.
 
 `brain doctor` also reports the physical memory footprint of live Brain runtime processes (`machine.memory` in the JSON result) and warns when one process exceeds 512 MB or the total exceeds 2 GB. A session server that has answered semantic queries sits near 200 MB; anything heavier means a corpus encode or a heavyweight runtime is resident in a long-lived process, and restarting that MCP session reclaims it.
 
+Schedule routine maintenance as a plain CLI call with an explicit selector:
+
+```bash
+/usr/local/bin/brain --brain my-brain maintenance run --json
+brain --brain my-brain maintenance list --json
+brain --brain my-brain maintenance claim --request-json '{"key":"…","claimant":"me"}' --json
+brain --brain my-brain maintenance dismiss --request-json '{"key":"…","expected_fingerprint":"…","reason":"…","actor":"me"}' --json
+brain --brain my-brain maintenance release --request-json '{"key":"…","actor":"me"}' --json
+brain machine-maintenance run --json
+```
+
+The pass repairs the derived caches and stranded temporaries it finds and
+lists everything that needs a person; it runs keyless, outside MCP and
+outside a session job. The existing derived-cache commands are also
+schedule-safe on their own: `vault check`, `runtime refresh-router`,
+`retrieval refresh-lexical` and `runtime warmup`. `artefact repair` and
+`links fix` are preview-then-apply content repairs and belong in a schedule
+only after a reviewed dry run; `workspace repair-registry` and
+`retrieval repair-semantic` are exceptional commands that need a
+`brain session run` job. See [scheduling existing commands](../functional/cli.md#scheduling-existing-commands). Claim a finding to hold it for an hour, dismiss a
+judgement finding at its current evidence for thirty days, or release it.
+`session_start` and `runtime_status` carry a coarse advisory from the last
+pass. See [maintenance passes and scheduling](../functional/cli.md#maintenance-passes-and-scheduling).
+
 Run `brain command describe <command-id> --json` before relying on an example here: the installed catalogue is authoritative.
 
 Document reads return `range.next_cursor` when more text remains. Repeat the same read with that cursor until it is null; restart without a cursor if the source revision changes.

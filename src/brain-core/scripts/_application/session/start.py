@@ -16,6 +16,7 @@ from typing import ClassVar, Mapping
 
 from ..context import InvocationContext
 from _workspace_contract import WorkspacePolicy
+from ..maintenance._advisory import MaintenanceAdvisory
 from ..results import CommandError, Error, ErrorCode, InstructionNextAction, Ok
 from ..runtime._snapshot import typed_snapshot
 from ..runtime_status import RuntimeProgressDetails, RuntimeState
@@ -164,6 +165,7 @@ class SessionStartPayload:
     workspace_record: SessionWorkspaceRecord | None
     workspace_default_tags: tuple[str, ...]
     workspace_policy: SessionWorkspacePolicies | None
+    maintenance: MaintenanceAdvisory | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -281,6 +283,7 @@ def _payload(model):
             WorkspacePolicy(item["shared"]["parent"], tuple(item["shared"]["tags"])),
             WorkspacePolicy(item["local"]["parent"], tuple(item["local"]["tags"])),
         )),
+        maintenance=_optional(model, "maintenance", lambda item: MaintenanceAdvisory(**item)),
     )
 
 

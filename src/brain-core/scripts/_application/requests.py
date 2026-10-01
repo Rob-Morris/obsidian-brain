@@ -39,6 +39,11 @@ from .document.update_frontmatter import DocumentUpdateFrontmatterRequest
 from .document.write_body import DocumentWriteBodyRequest
 from .links.check import LinksCheckRequest
 from .links.fix import LinksFixRequest
+from .maintenance.claim import MaintenanceClaimRequest
+from .maintenance.dismiss import MaintenanceDismissRequest
+from .maintenance.list import MaintenanceListRequest
+from .maintenance.release import MaintenanceReleaseRequest
+from .maintenance.run import MaintenanceRunRequest
 from .plugin.create import PluginCreateRequest
 from .plugin.replace import PluginReplaceRequest
 from .resource.create import ResourceCreateRequest
@@ -52,6 +57,7 @@ from .retrieval.refresh_lexical import RetrievalRefreshLexicalRequest
 from .retrieval.rebuild_semantic import RetrievalRebuildSemanticRequest
 from .retrieval.repair_semantic import RetrievalRepairSemanticRequest
 from .runtime.refresh_router import RuntimeRefreshRouterRequest
+from .runtime.remove_temporaries import RuntimeRemoveTemporariesRequest
 from .runtime.read_environment import RuntimeReadEnvironmentRequest
 from .runtime.status import RuntimeStatusRequest
 from .runtime.warmup import RuntimeWarmupRequest
@@ -143,6 +149,11 @@ __all__ = (
     "InvocationReadRequest",
     "LinksCheckRequest",
     "LinksFixRequest",
+    "MaintenanceClaimRequest",
+    "MaintenanceDismissRequest",
+    "MaintenanceListRequest",
+    "MaintenanceReleaseRequest",
+    "MaintenanceRunRequest",
     "PluginCreateRequest",
     "PluginReplaceRequest",
     "ResourceCreateRequest",
@@ -157,6 +168,7 @@ __all__ = (
     "RetrievalRepairSemanticRequest",
     "RuntimeReadEnvironmentRequest",
     "RuntimeRefreshRouterRequest",
+    "RuntimeRemoveTemporariesRequest",
     "RuntimeStatusRequest",
     "RuntimeWarmupRequest",
     "SessionStartRequest",
@@ -524,6 +536,11 @@ CommandRequest = (
     | DocumentWriteBodyRequest
     | LinksCheckRequest
     | LinksFixRequest
+    | MaintenanceClaimRequest
+    | MaintenanceDismissRequest
+    | MaintenanceListRequest
+    | MaintenanceReleaseRequest
+    | MaintenanceRunRequest
     | PluginCreateRequest
     | PluginReplaceRequest
     | ResourceCreateRequest
@@ -537,6 +554,7 @@ CommandRequest = (
     | RetrievalRebuildSemanticRequest
     | RetrievalRepairSemanticRequest
     | RuntimeRefreshRouterRequest
+    | RuntimeRemoveTemporariesRequest
     | RuntimeReadEnvironmentRequest
     | RuntimeStatusRequest
     | RuntimeWarmupRequest

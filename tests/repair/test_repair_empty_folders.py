@@ -17,8 +17,6 @@ import _repair_common as repair_common
 import _repair_runtime as repair_runtime
 import repair
 from _application.artefact.repair import ArtefactRepairScope
-from _application.vault import check as application_check
-from _launcher import doctor as launcher_doctor
 
 from _repair_helpers import _wiki_router
 
@@ -39,27 +37,14 @@ def _empty_owner(repair_vault, *parts):
 
 
 class TestScopeWiring:
-    def test_every_repair_scope_has_an_application_command(self):
-        assert set(repair_common.REPAIR_SCOPES) <= set(application_check._REPAIR_COMMANDS)
-
-    def test_every_repair_scope_has_a_doctor_command(self):
-        assert set(repair_common.REPAIR_SCOPES) <= set(launcher_doctor._REPAIR_COMMANDS)
+    """The single-source repair-table contract lives in test_repair_table.py."""
 
     def test_scope_identifier_is_uniform(self):
         assert ArtefactRepairScope.EMPTY_FOLDERS.value == "empty_folders"
-        assert "empty_folders" in repair_common.REPAIR_SCOPES
-        assert repair_common.REPAIR_SCOPES["empty_folders"]["description"]
-        assert repair_common.REPAIR_SCOPES["empty_folders"]["check_message"]
-
-    def test_every_repair_command_id_is_a_real_command(self):
-        from _application.registry import current_application_catalogue
-        from launcher_catalogue import LAUNCHER_CATALOGUE
-
-        known = {entry.command_id for entry in current_application_catalogue().entries}
-        known |= {entry.command_id for entry in LAUNCHER_CATALOGUE.entries}
-        for table in (application_check._REPAIR_COMMANDS, launcher_doctor._REPAIR_COMMANDS):
-            unknown = {scope: cid for scope, cid in table.items() if cid not in known}
-            assert not unknown, f"repair command ids that resolve to no command: {unknown}"
+        family = repair_common.REPAIR_SCOPES["empty_folders"]
+        assert family.command_id == "artefact.repair"
+        assert dict(family.request) == {"scope": "empty_folders"}
+        assert family.description
 
     def test_cli_accepts_the_scope(self):
         args = repair.parse_args(["empty_folders", "--dry-run"])

@@ -74,7 +74,7 @@ def context_for(vault_root, *, dependency_tier=DependencyTier.PORTABLE, workspac
                 derived_snapshots=None, session_mirror=None, allowed_commands=None,
                 initial_commands=None, profile="reader", catalogue=None, resolver=None,
                 context_available=True, context_kind="mcp-instance", request_policy="allowed",
-                invocation_id="inv-read", receipts=None):
+                invocation_id="inv-read", receipts=None, clock=None):
     catalogue = catalogue or current_application_catalogue()
     versions = {entry.command_id: entry.command_version for entry in catalogue.entries}
     allowed = frozenset(versions if allowed_commands is None else allowed_commands)
@@ -103,7 +103,7 @@ def context_for(vault_root, *, dependency_tier=DependencyTier.PORTABLE, workspac
         profile=profile, dependency_tier=dependency_tier,
         capabilities=CapabilitySnapshot("snapshot", SnapshotFreshness.FRESH, NOW, tuple(capabilities)),
         providers=ProviderBindings(tuple(providers)), correlation_id="corr-read", invocation_id=invocation_id,
-        receipt_reader=session.receipts, clock=_Clock(), authorisation=session,
+        receipt_reader=session.receipts, clock=clock or _Clock(), authorisation=session,
         dry_run=dry_run, workspace_dir=workspace_dir, derived_snapshots=derived_snapshots,
         session_mirror=session_mirror if session_mirror is not None else SynchronousSessionMirror(vault_root.resolve()))
     return replace(context, access=session.bind(context))
