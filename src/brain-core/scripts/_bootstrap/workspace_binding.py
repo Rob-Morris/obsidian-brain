@@ -620,8 +620,7 @@ def require_workspace_binding(target_dir: Path) -> dict[str, str]:
 def resolve_local_brain_alias(vault_root: Path) -> str:
     """Return the authoritative local symbolic Brain ID for a vault.
 
-    This comes from the user-home vault registry, not from the derived
-    machine registry in ``brains.json``.
+    This comes from the user-home vault registry.
     """
     try:
         return vault_registry.backfill(str(vault_root))

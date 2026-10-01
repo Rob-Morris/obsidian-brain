@@ -45,12 +45,33 @@ def test_every_family_request_decodes_through_its_owner_catalogue(scope):
 def test_every_machine_family_resolves_through_the_launcher_catalogue(kind):
     family = machine_maintenance.MACHINE_FAMILIES[kind]
     assert family.scope == kind and family.owner is Owner.MACHINE
-    request = machine_maintenance.launcher_request(family)
+    assert family.disposition is Disposition.JUDGEMENT, "no machine family passes the automatic admission test"
+    subject = {"path": "/x y"} if kind == "brain_unregistered" else {}
+    request = machine_maintenance.launcher_request(family, subject)
     assert request.COMMAND_ID == family.command_id
-    assert machine_maintenance.launcher_guidance(family).startswith("brain ")
-    assert machine_maintenance.launcher_guidance(family, vault_root="/x y") == (
-        f"brain --vault '/x y' {family.noun} {family.verb}" if family.noun != "brain" else f"brain --vault '/x y' {family.verb}"
-    )
+    assert machine_maintenance.launcher_guidance(family, subject=subject).startswith("brain ")
+    verb = f"{family.noun} {family.verb}" if family.noun != "brain" else family.verb
+    expected = f"brain --vault '/x y' {verb}"
+    if kind == "brain_unregistered":
+        assert request.vault_root == Path("/x y"), "the request is derived from the finding subject"
+        expected += """ --request-json '{"vault_root":"/x y"}'"""
+    assert machine_maintenance.launcher_guidance(family, vault_root="/x y", subject=subject) == expected
+
+
+def test_core_doctor_register_guidance_matches_the_launcher_table():
+    """Core cannot import the launcher, so its hand-built guidance is pinned to the table's rendering."""
+    import json
+    import shlex
+
+    import doctor_machine
+    from _launcher.registry import BrainRegisterRequest
+
+    family = machine_maintenance.MACHINE_FAMILIES["brain_unregistered"]
+    guidance = doctor_machine.register_guidance("/x y")
+    assert guidance == machine_maintenance.launcher_guidance(family, subject={"path": "/x y"})
+    argv = shlex.split(guidance)
+    decoded = resolve_request(BrainRegisterRequest, json.loads(argv[argv.index("--request-json") + 1]))
+    assert decoded.vault_root == Path("/x y") and decoded.brain_id is None
 
 
 def test_first_slice_dispositions_and_recovery_scopes():

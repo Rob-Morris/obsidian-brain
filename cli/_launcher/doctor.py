@@ -20,10 +20,10 @@ class DoctorSeverity(str, Enum):
 
 
 class DoctorRegistryState(str, Enum):
+    """The vault registry is current, or stale when rows point at non-Brains."""
+
     CURRENT = "current"
-    DRIFTED = "drifted"
-    MALFORMED = "malformed"
-    BLOCKED = "blocked"
+    STALE = "stale"
 
 
 class DoctorVaultState(str, Enum):
@@ -74,15 +74,13 @@ class DoctorRegistryStatus:
     state: DoctorRegistryState
     path: str
     brains_count: int
-    blocked_reason: str | None
 
     def __post_init__(self) -> None:
         if not isinstance(self.state, DoctorRegistryState):
             raise ValueError("Doctor registry state must be closed and typed")
-        _validate_absolute(self.path, "Doctor machine registry")
+        _validate_absolute(self.path, "Doctor vault registry")
         if self.brains_count < 0:
             raise ValueError("Doctor registry Brain count cannot be negative")
-        _validate_optional_text(self.blocked_reason, "Doctor registry block reason")
 
 
 @dataclass(frozen=True, slots=True)
@@ -97,13 +95,30 @@ class DoctorPathEntry:
 
 @dataclass(frozen=True, slots=True)
 class DoctorRepairFinding:
-    scope: str
+    """A per-Brain finding and the repair family that owns it, if one does.
+
+    ``check``, ``file`` and ``code`` carry the finding's own identity, so a
+    finding without a repair family (``scope`` and ``command_id`` both
+    ``None``) is still distinguishable from its neighbours. ``scope`` and
+    ``command_id`` are always set or absent together: a scope the repair
+    table does not name is a producer defect, not a finding without a family.
+    """
+
+    check: str
+    scope: str | None
     message: str
     command_id: str | None
+    file: str | None = None
+    code: str | None = None
 
     def __post_init__(self) -> None:
-        if not self.scope.strip() or not self.message.strip():
-            raise ValueError("Doctor repair findings require scope and message")
+        if not self.check.strip() or not self.message.strip():
+            raise ValueError("Doctor repair findings require check and message")
+        _validate_optional_text(self.scope, "Doctor repair scope")
+        _validate_optional_text(self.file, "Doctor repair finding file")
+        _validate_optional_text(self.code, "Doctor repair finding code")
+        if (self.scope is None) != (self.command_id is None):
+            raise ValueError("Doctor repair scope and command must be set or absent together")
         if self.command_id is not None:
             validate_command_id(self.command_id)
 
@@ -146,7 +161,7 @@ class DoctorMachineCounts:
     brains: int
     repair_findings: int
     stale_vault_registry_entries: int
-    stale_machine_registry_entries: int
+    unregistered_brains: int
     runtimes: int
     orphan_candidates: int
 
@@ -157,7 +172,7 @@ class DoctorMachineCounts:
                 self.brains,
                 self.repair_findings,
                 self.stale_vault_registry_entries,
-                self.stale_machine_registry_entries,
+                self.unregistered_brains,
                 self.runtimes,
                 self.orphan_candidates,
             )
@@ -220,7 +235,7 @@ class DoctorMachineStatus:
     registry: DoctorRegistryStatus
     counts: DoctorMachineCounts
     stale_vault_registry_entries: tuple[DoctorPathEntry, ...]
-    stale_machine_registry_entries: tuple[DoctorPathEntry, ...]
+    unregistered_brains: tuple[str, ...]
     brains: tuple[DoctorBrainStatus, ...]
     orphan_runtime_pythons: tuple[str, ...]
     memory: DoctorMemoryStatus | None
@@ -244,10 +259,9 @@ class DoctorMachineStatus:
             self.counts,
             DoctorMachineCounts,
         ):
-            raise ValueError("Doctor machine registry and counts must be typed")
+            raise ValueError("Doctor vault registry status and counts must be typed")
         typed_collections = (
             (self.stale_vault_registry_entries, DoctorPathEntry),
-            (self.stale_machine_registry_entries, DoctorPathEntry),
             (self.brains, DoctorBrainStatus),
         )
         if any(
@@ -256,6 +270,8 @@ class DoctorMachineStatus:
             for item in values
         ):
             raise ValueError("Doctor machine collections must be typed")
+        for path in self.unregistered_brains:
+            _validate_absolute(path, "Doctor unregistered Brain")
         for path in self.orphan_runtime_pythons:
             _validate_absolute(path, "Doctor orphan runtime")
         if self.orphan_runtime_pythons != tuple(sorted(set(self.orphan_runtime_pythons))):
@@ -264,11 +280,12 @@ class DoctorMachineStatus:
             self.counts.brains != len(self.brains)
             or self.counts.stale_vault_registry_entries
             != len(self.stale_vault_registry_entries)
-            or self.counts.stale_machine_registry_entries
-            != len(self.stale_machine_registry_entries)
+            or self.counts.unregistered_brains != len(self.unregistered_brains)
             or self.counts.orphan_candidates != len(self.orphan_runtime_pythons)
         ):
             raise ValueError("Doctor machine counts must agree with projected rows")
+        if (self.registry.state is DoctorRegistryState.STALE) != bool(self.stale_vault_registry_entries):
+            raise ValueError("Doctor registry state must agree with the stale vault registry rows")
 
 
 @dataclass(frozen=True, slots=True)
@@ -351,7 +368,7 @@ class BrainDoctorPayload:
 @dataclass(frozen=True, slots=True)
 class BrainDoctorRequest:
     COMMAND_ID: ClassVar[str] = "brain.doctor"
-    COMMAND_VERSION: ClassVar[int] = 2
+    COMMAND_VERSION: ClassVar[int] = 3
     RESULT_TYPE: ClassVar[type] = BrainDoctorPayload
 
     current_vault: Path | None = None
@@ -376,26 +393,15 @@ def _table_command_id(scope: str | None) -> str | None:
 
 
 def _repair_finding(raw: dict) -> DoctorRepairFinding:
-    repair = raw["repair"]
-    scope = repair["scope"]
-    return DoctorRepairFinding(scope, raw["message"], repair.get("command_id") or _table_command_id(scope))
+    repair = raw.get("repair")
+    scope = repair["scope"] if repair is not None else None
+    command_id = (repair.get("command_id") or _table_command_id(scope)) if repair is not None else None
+    return DoctorRepairFinding(raw["check"], scope, raw["message"], command_id, raw.get("file"), raw.get("code"))
 
 
 def _registry_status(raw: dict) -> DoctorRegistryStatus:
-    if raw["blocked"]:
-        state = DoctorRegistryState.BLOCKED
-    elif raw.get("malformed", False):
-        state = DoctorRegistryState.MALFORMED
-    elif raw.get("drifted", False):
-        state = DoctorRegistryState.DRIFTED
-    else:
-        state = DoctorRegistryState.CURRENT
-    return DoctorRegistryStatus(
-        state,
-        raw["path"],
-        raw["brains_count"],
-        raw.get("blocked_reason"),
-    )
+    state = DoctorRegistryState.STALE if raw["stale"] else DoctorRegistryState.CURRENT
+    return DoctorRegistryStatus(state, raw["path"], raw["brains_count"])
 
 
 def _machine_status(raw: dict) -> DoctorMachineStatus:
@@ -419,12 +425,12 @@ def _machine_status(raw: dict) -> DoctorMachineStatus:
         raw["tidy"],
         raw["live_process_scan_available"],
         raw["venvs_root"],
-        _registry_status(raw["machine_registry"]),
+        _registry_status(raw["registry"]),
         DoctorMachineCounts(
             counts["brains"],
             counts["repair_findings"],
             counts["stale_registry_entries"],
-            counts["stale_machine_registry_entries"],
+            counts["unregistered_brains"],
             counts["runtimes"],
             counts["orphan_candidates"],
         ),
@@ -432,10 +438,7 @@ def _machine_status(raw: dict) -> DoctorMachineStatus:
             DoctorPathEntry(item["alias"], item["path"])
             for item in raw["stale_registry_entries"]
         ),
-        tuple(
-            DoctorPathEntry(item.get("alias"), item["path"])
-            for item in raw["stale_machine_registry_entries"]
-        ),
+        tuple(raw["unregistered_brains"]),
         brains,
         tuple(
             sorted(

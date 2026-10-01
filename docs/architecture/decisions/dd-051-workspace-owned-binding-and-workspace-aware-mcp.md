@@ -3,6 +3,7 @@
 **Status:** Accepted
 **Extends:** DD-023, DD-039, DD-040
 **Extended by:** DD-052, DD-055, DD-078
+**Amended by:** DD-083 (staged: §2's targeted `configure workspace binding` surface and `workspace.bind` are to be retired, with `workspace.setup --force` as the rebind surface)
 
 ## Context
 

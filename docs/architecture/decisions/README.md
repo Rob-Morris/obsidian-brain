@@ -122,6 +122,7 @@ Each DD captures the reasoning behind an architectural decision at the time it w
 | DD-080 | Registration-driven managed client approvals | Accepted | [dd-080](dd-080-managed-client-approvals.md) |
 | DD-081 | Named runtime interpreters through one launch owner | Accepted | [dd-081](dd-081-named-runtime-interpreters.md) |
 | DD-082 | Check-driven maintenance with human decisions as the only state | Accepted | [dd-082](dd-082-check-driven-maintenance.md) |
+| DD-083 | One home per register | Accepted | [dd-083](dd-083-one-home-per-register.md) |
 
 ---
 
@@ -133,6 +134,7 @@ Related decisions grouped by domain. Arrows show supersede/extend chains.
 - **Config & install:** DD-003 → DD-049 → DD-054, DD-049 → DD-055 → DD-058 → DD-068, DD-015, DD-023 → DD-039 → DD-043 → DD-048 → DD-049 → DD-054, DD-048 → DD-070, DD-048/DD-077 → DD-081, DD-023 → DD-055, DD-023/DD-039 → DD-051 → DD-055, DD-032, DD-033
 - **Router & bootstrap:** DD-008, DD-009 → DD-071, DD-009 → DD-072, DD-012, DD-013, DD-014, DD-017, DD-019, DD-038 → DD-065 → DD-076, DD-042, DD-054
 - **MCP lifecycle:** DD-043/DD-051/DD-052/DD-077 → DD-078; DD-073/DD-074/DD-075/DD-078 → DD-079
+- **Registers:** DD-052/DD-078/DD-082 → DD-083 (DD-083 amends DD-051 §2 and DD-053)
 - **Host approvals:** DD-073/DD-078 → DD-080
 - **Security & integrity:** DD-031 → DD-059, DD-033 → DD-062 → DD-073, DD-036, DD-043, DD-067
 - **Plugins & platforms:** DD-004, DD-005, DD-006, DD-007, DD-021, DD-022
