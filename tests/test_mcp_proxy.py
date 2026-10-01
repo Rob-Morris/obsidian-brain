@@ -223,7 +223,7 @@ class TestMessageForwarding:
 
 class TestMainEnvCaptureOrder:
     """proxy.main() must capture BRAIN_WORKSPACE_DIR / BRAIN_VAULT_ROOT BEFORE it
-    mutates os.environ, so the heal layer receives the original (pre-mutation)
+    mutates os.environ, so resolution receives the original (pre-mutation)
     values — guarding against a refactor that reintroduces the v0.46.0
     wrong-default footgun. proxy.main() is otherwise never exercised by the suite."""
 
@@ -237,7 +237,7 @@ class TestMainEnvCaptureOrder:
         class _Stop(Exception):
             pass
 
-        def fake_resolve_and_heal(*, workspace_env, vault_root_env, start_dir):
+        def fake_resolve_brain_target(*, workspace_env, vault_root_env, start_dir):
             captured["workspace_env"] = workspace_env
             captured["vault_root_env"] = vault_root_env
             # At call time os.environ must still hold the ORIGINAL value — main
@@ -245,7 +245,7 @@ class TestMainEnvCaptureOrder:
             captured["env_at_call"] = os.environ.get("BRAIN_VAULT_ROOT")
             raise _Stop()
 
-        monkeypatch.setattr(proxy_mod, "resolve_brain_target", fake_resolve_and_heal)
+        monkeypatch.setattr(proxy_mod, "resolve_brain_target", fake_resolve_brain_target)
 
         with pytest.raises(_Stop):
             proxy_mod.main()

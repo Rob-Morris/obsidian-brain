@@ -13,6 +13,7 @@ from pathlib import Path
 import pytest
 
 from _bootstrap.workspace_binding import (
+    WORKSPACE_ERROR_FILESYSTEM_ACCESS,
     BrainTarget,
     WorkspaceBindingError,
     resolve_brain_target,
@@ -634,6 +635,25 @@ class TestRung4RegistryDefault:
                 start_dir=empty_dir,
             )
         assert exc_info.value.code == "stale_binding"
+        assert "(brain clear-default)" in str(exc_info.value)
+        assert "vault_registry --" not in str(exc_info.value)
+
+    def test_rung4_unreadable_default_uses_filesystem_code(self, tmp_path, isolated_home, monkeypatch):
+        """A default-pointer read failure carries filesystem_access for correct remediation."""
+        def unreadable():
+            raise vault_registry.RegistryReadError("denied")
+
+        monkeypatch.setattr(vault_registry, "get_default", unreadable)
+        empty_dir = tmp_path / "start"
+        empty_dir.mkdir()
+
+        with pytest.raises(WorkspaceBindingError) as exc_info:
+            resolve_brain_target(
+                workspace_env=None,
+                vault_root_env=None,
+                start_dir=empty_dir,
+            )
+        assert exc_info.value.code == WORKSPACE_ERROR_FILESYSTEM_ACCESS
 
 
 # ---------------------------------------------------------------------------
@@ -657,6 +677,11 @@ class TestRung5Nothing:
         msg = str(exc_info.value).lower()
         assert "brain" in msg
         assert "setup" in msg or "bind" in msg or "default" in msg
+        assert (
+            "(brain set-default --request-json '{\"brain_id\": \"<id>\"}')"
+            in str(exc_info.value)
+        )
+        assert "vault_registry --" not in str(exc_info.value)
 
 
 # ---------------------------------------------------------------------------

@@ -4,10 +4,10 @@
 **Extends:** DD-052, DD-078, DD-082
 **Amends:** DD-051 (§2), DD-053
 
-Items 1, 3, 7, 8 and 9 are in the code. Items 2, 4, 5, 6, 10 and 11, the
-consequences that follow from them and the amendments to DD-051 and DD-053
-are staged: they record the decision and land in later changes, after which
-this text is reconciled with the code.
+Items 1, 2, 3, 7, 8 and 9 and the amendment to DD-053 are in the code. Items
+4, 5, 6, 10 and 11, the consequences that follow from them and the amendment
+to DD-051 are staged: they record the decision and land in later changes,
+after which this text is reconciled with the code.
 
 ## Context
 
@@ -199,3 +199,9 @@ repository contract that no file under `src/` or `cli/` names the derived
 file; `tests/test_machine.py` and
 `tests/application/test_launcher_machine_maintenance.py` cover discovery, the
 health rule and the pass without an automatic family.
+`tests/test_resolution_purity.py` proves every resolution outcome and the
+local Brain ID lookup leave the redirected machine homes, vaults and workspace
+manifests byte-identical and take no file lock;
+`tests/test_registry_write_owners.py` proves the vault registry's writers,
+derived from the module itself, are reached only from `install.py` and the
+launcher's registry owners.

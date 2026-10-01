@@ -356,7 +356,7 @@ def install_vault_action(
     registry_step, resolved_id = _register_vault(vault_root, brain_id)
     steps.append(registry_step)
     if registry_step["status"] == "error":
-        notes.append("Vault scaffold is present but NOT registered; run vault_registry.py --register for this vault.")
+        notes.append(f"Vault scaffold is present but NOT registered; run {vault_registry.register_guidance(vault_root)} for this vault.")
     steps.append(_ensure_git_ignore_rules(vault_root, client=client, mcp_scope=mcp_scope))
 
     if mcp_scope == "skip":

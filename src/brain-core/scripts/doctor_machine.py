@@ -6,20 +6,14 @@ from __future__ import annotations
 import argparse
 import json
 
-from _common import join_argv
 from _machine._labels import brain_label
 from _machine.maintenance import collect_machine_summary
 from _machine.process_footprint import format_bytes
+from vault_registry import register_guidance
 
 
 def _counted_label(count: int, singular: str, plural: str) -> str:
     return singular if count == 1 else plural
-
-
-def register_guidance(vault_root: str) -> str:
-    """The launcher command that registers an unregistered Brain."""
-    request = json.dumps({"vault_root": vault_root}, separators=(",", ":"), sort_keys=True)
-    return join_argv(["brain", "register", "--request-json", request])
 
 
 def _render_repair_findings(findings: list[dict]) -> list[str]:

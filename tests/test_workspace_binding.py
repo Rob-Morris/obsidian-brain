@@ -2,7 +2,15 @@
 
 from __future__ import annotations
 
-from _bootstrap.workspace_binding import converge_workspace_binding
+import pytest
+
+import _bootstrap.workspace_binding as workspace_binding
+from _bootstrap.workspace_binding import (
+    WORKSPACE_ERROR_FILESYSTEM_ACCESS,
+    WorkspaceBindingError,
+    converge_workspace_binding,
+    load_workspace_manifest_state,
+)
 
 
 def test_converge_workspace_binding_migrates_legacy_manifest(tmp_path):
@@ -53,3 +61,19 @@ def test_converge_workspace_binding_preserves_existing_custom_slug(tmp_path):
     assert result.status == "changed"
     assert result.slug == "custom-slug"
     assert canonical.read_text(encoding="utf-8") == "brain: brain\nslug: custom-slug\n"
+
+
+def test_unreadable_workspace_manifest_uses_filesystem_code(tmp_path, monkeypatch):
+    """Manifest read failures carry filesystem_access so callers can give correct remediation."""
+    manifest = tmp_path / ".brain" / "local" / "workspace.yaml"
+    manifest.parent.mkdir(parents=True)
+    manifest.write_text("brain: x\nslug: ws\n")
+
+    def unreadable(_path):
+        raise PermissionError("denied")
+
+    monkeypatch.setattr(workspace_binding, "load_mapping_file", unreadable)
+
+    with pytest.raises(WorkspaceBindingError) as exc_info:
+        load_workspace_manifest_state(tmp_path)
+    assert exc_info.value.code == WORKSPACE_ERROR_FILESYSTEM_ACCESS

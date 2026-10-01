@@ -52,7 +52,7 @@ def is_brain_vault(path):
 
     Narrower than :func:`is_vault_root`: it requires ``.brain-core/VERSION`` and
     does NOT accept an ``AGENTS.md``-only bootstrap directory. This is the single
-    narrow predicate for resolution / heal / refuse-guard decisions — the proxy
+    narrow predicate for resolution and refuse-guard decisions — the proxy
     re-points ``PYTHONPATH`` at ``.brain-core``, so a directory without one can
     never be a resolution target, and an ``AGENTS.md``-only *workspace* must not
     be mistaken for a vault. The broad :func:`is_vault_root` stays for CLI vault

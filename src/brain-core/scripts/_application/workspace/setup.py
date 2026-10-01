@@ -58,7 +58,8 @@ def _observe_scaffold(target):
 def plan_setup(context, request, *, frozen_inputs=None):
     import vault_registry
     import workspace_registry
-    from _bootstrap.workspace_binding import plan_workspace_binding, resolve_local_brain_vault
+    from _bootstrap.workspace_binding import (plan_workspace_binding, resolve_local_brain_alias,
+                                              resolve_local_brain_vault, unregistered_brain_message)
     from _common._workspace import manifest_workspace_reference, workspace_policy
     from ._preparation import _observe_file
 
@@ -67,11 +68,9 @@ def plan_setup(context, request, *, frozen_inputs=None):
         raise ValueError("workspace setup requires an existing caller directory")
     alias = request.brain_id
     if alias is None:
-        aliases = sorted(key for key, entry in vault_registry.load_registry_entries().items()
-                         if entry.kind == "local" and Path(entry.value).resolve() == root.resolve())
-        if not aliases:
-            raise ValueError("Selected Brain has no machine registration; register the Brain before workspace setup")
-        alias = aliases[0]
+        alias = resolve_local_brain_alias(root)
+        if alias is None:
+            raise ValueError(unregistered_brain_message(root))
     selected = resolve_local_brain_vault(alias)
     if selected != root.resolve():
         raise ValueError("Setup brain_id must identify the selected Brain; select that Brain before setup")

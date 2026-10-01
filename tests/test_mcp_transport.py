@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import subprocess
-from unittest.mock import MagicMock
 
 import pytest
 
@@ -410,11 +409,6 @@ def test_apply_mcp_transport_action_quotes_remove_command_on_win32(tmp_path, mon
         lambda _vault: r"C:\Program Files\Python312\python.exe",
     )
     monkeypatch.setattr(mcp_transport, "_warn_if_user_scope_exists", lambda *_args, **_kwargs: None)
-    monkeypatch.setattr(
-        mcp_transport,
-        "_converge_workspace_manifest",
-        lambda *_args, **_kwargs: MagicMock(message="ok"),
-    )
     monkeypatch.setattr(mcp_transport, "ensure_brain_ignore_rules", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(
         mcp_transport,
@@ -433,3 +427,27 @@ def test_apply_mcp_transport_action_quotes_remove_command_on_win32(tmp_path, mon
 
     assert f'"{bootstrap_vault}"' in result["remove_command"]
     assert f'"{project}"' in result["remove_command"]
+
+
+@pytest.mark.parametrize("client", ["claude", "codex"])
+def test_transport_refuses_unbound_target_without_implicit_binding(tmp_path, fake_home, monkeypatch, client):
+    import vault_registry
+
+    vault = tmp_path / "vault"
+    (vault / ".brain-core").mkdir(parents=True)
+    (vault / ".brain-core" / "VERSION").write_text("1.0.0\n")
+    vault_registry.register(str(vault))
+    workspace = tmp_path / "project"
+    workspace.mkdir()
+
+    def unexpected_runtime(*args, **kwargs):
+        raise AssertionError("Runtime work must follow target admission")
+
+    monkeypatch.setattr(mcp_transport, "_resolve_managed_python", unexpected_runtime)
+    with pytest.raises(mcp_transport.InitTransportError):
+        mcp_transport.apply_mcp_transport_action(
+            vault, client_arg=client, scope="project", target_dir=workspace, remove=False,
+        )
+    assert not (workspace / ".brain/local/workspace.yaml").exists()
+    assert not (workspace / ".mcp.json").exists()
+    assert not (workspace / ".codex/config.toml").exists()

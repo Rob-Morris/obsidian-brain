@@ -460,3 +460,77 @@ def test_workspace_preview_enters_and_spends_specific_consent_without_content_ef
     assert registry.read_text() == '[malformed\n'
     assert not (workspace / 'AGENTS.md').exists()
     assert not list(registry.parent.glob('workspaces.json.*.bak'))
+
+
+@pytest.mark.parametrize("path", ["invoke", "prepare"])
+def test_workspace_setup_refuses_an_unregistered_brain_without_registering_it(command_vault_clone, tmp_path, path):
+    import vault_registry
+    from _application.consent import ConsentError
+    from command_application import context_for
+
+    root = command_vault_clone.vault_root
+    workspace = (tmp_path / "workspace").resolve()
+    workspace.mkdir()
+    expected = f"not registered on this machine; run {vault_registry.register_guidance(root)} first"
+
+    if path == "invoke":
+        result = _caller_application(root, workspace).invoke(WorkspaceSetupRequest())
+        assert result.status == "error"
+        assert result.effects == "none"
+        assert expected in result.error.message
+    else:
+        context = context_for(root, context_kind="cli-job", dependency_tier=DependencyTier.PORTABLE,
+            workspace_dir=workspace, providers=(_CallerFilesystemProvider(),),
+            capabilities=(Capability("caller_filesystem", Availability.AVAILABLE),))
+        with pytest.raises(ConsentError) as raised:
+            context.access.prepare("workspace.setup", {})
+        assert raised.value.reason == "invalid_request"
+        assert expected in str(raised.value)
+    assert vault_registry.load_registry_entries() == {}
+    assert not (workspace / ".brain").exists()
+
+
+def test_workspace_bind_preparation_refuses_an_unregistered_brain_without_registering_it(command_vault_clone, tmp_path):
+    import vault_registry
+    from _application.consent import ConsentError
+    from command_application import context_for
+
+    root = command_vault_clone.vault_root
+    workspace = (tmp_path / "workspace").resolve()
+    workspace.mkdir()
+    context = context_for(root, context_kind="cli-job", dependency_tier=DependencyTier.BOOTSTRAP,
+        workspace_dir=workspace, providers=(_CallerFilesystemProvider(),),
+        capabilities=(Capability("caller_filesystem", Availability.AVAILABLE),))
+
+    with pytest.raises(ConsentError) as raised:
+        context.access.prepare("workspace.bind", {})
+
+    assert raised.value.reason == "invalid_request"
+    assert "not registered on this machine" in str(raised.value)
+    assert vault_registry.load_registry_entries() == {}
+    assert not (workspace / ".brain").exists()
+
+
+def test_workspace_bind_preparation_keeps_a_registry_read_failure_distinct(command_vault_clone, tmp_path, monkeypatch):
+    """An unreadable vault registry stays an I/O failure; it is not reported as an invalid request."""
+    import vault_registry
+    from _bootstrap.workspace_binding import WORKSPACE_ERROR_FILESYSTEM_ACCESS, WorkspaceBindingError
+    from command_application import context_for
+
+    workspace = (tmp_path / "workspace").resolve()
+    workspace.mkdir()
+
+    def unreadable():
+        raise vault_registry.RegistryReadError("denied")
+
+    monkeypatch.setattr(vault_registry, "load_registry_entries", unreadable)
+    context = context_for(command_vault_clone.vault_root, context_kind="cli-job",
+        dependency_tier=DependencyTier.BOOTSTRAP, workspace_dir=workspace,
+        providers=(_CallerFilesystemProvider(),),
+        capabilities=(Capability("caller_filesystem", Availability.AVAILABLE),))
+
+    with pytest.raises(WorkspaceBindingError) as raised:
+        context.access.prepare("workspace.bind", {})
+
+    assert raised.value.code == WORKSPACE_ERROR_FILESYSTEM_ACCESS
+    assert not (workspace / ".brain").exists()

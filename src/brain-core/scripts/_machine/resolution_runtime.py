@@ -25,6 +25,7 @@ _DEPLOY_FILES: tuple[tuple[str, str], ...] = (
     ("_common/_vault.py", "_common/_vault.py"),
     ("_common/_filesystem.py", "_common/_filesystem.py"),
     ("_common/_paths.py", "_common/_paths.py"),
+    ("_common/_shell.py", "_common/_shell.py"),
     ("_common/_templates.py", "_common/_templates.py"),
     ("_common/_slugs.py", "_common/_slugs.py"),
     ("_common/_file_lock.py", "_common/_file_lock.py"),

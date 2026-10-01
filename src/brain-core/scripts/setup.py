@@ -18,7 +18,6 @@ from _bootstrap.runtime import step as _step
 from _bootstrap.workspace_binding import (
     WORKSPACE_REASON_ALREADY_BOUND,
     WorkspaceBindingError,
-    resolve_local_brain_alias,
     resolve_workspace_dir,
     workspace_slug,
 )
@@ -139,7 +138,14 @@ def _run_guided_workspace_setup(
     brain_id: str | None,
     slug: str | None,
 ) -> dict:
-    default_brain = brain_id or resolve_local_brain_alias(vault_root)
+    try:
+        default_brain = brain_id or configure._resolve_binding_brain(vault_root, None)
+    except WorkspaceBindingError as exc:
+        return _result_envelope(
+            "workspace_setup",
+            vault_root,
+            [_step("workspace_binding", "error", str(exc), reason=exc.code)],
+        )
     default_slug = slug or workspace_slug(workspace_dir.name)
 
     chosen_brain = _prompt("Brain ID", default=default_brain)
