@@ -682,3 +682,30 @@ def test_grok_native_transaction_dry_run_configure_repair_remove(
     assert result.result.status is McpMutationStatus.CHANGED
     assert not (root / ".grok/rules/brain.md").exists()
     assert not (vault / ".brain/local/init-state.json").exists()
+
+
+@pytest.mark.parametrize("binding", ["none", "other-brain"])
+def test_configure_refuses_project_folder_not_bound_to_selected_brain(tmp_path, monkeypatch, binding):
+    import vault_registry
+
+    vault = _vault(tmp_path)
+    _healthy_runtime(monkeypatch, vault)
+    workspace = (tmp_path / "workspace").resolve()
+    workspace.mkdir()
+    if binding == "other-brain":
+        other = (tmp_path / "Other").resolve()
+        (other / ".brain-core").mkdir(parents=True)
+        (other / ".brain-core" / "VERSION").write_text("0.54.42\n")
+        manifest = workspace / ".brain" / "local" / "workspace.yaml"
+        manifest.parent.mkdir(parents=True)
+        manifest.write_text(f"brain: {vault_registry.register(str(other))}\nslug: workspace\n")
+    before = sorted(str(path) for path in workspace.rglob("*"))
+
+    result = _invocation(vault, caller=workspace).invoke(McpConfigureRequest(client=McpClient.ALL))
+
+    assert result.status == "error"
+    assert result.error.code is ErrorCode.CONFLICT
+    if binding == "other-brain":
+        assert f"is not bound to the selected Brain {vault}" in result.error.message
+    assert result.effects == "none"
+    assert sorted(str(path) for path in workspace.rglob("*")) == before

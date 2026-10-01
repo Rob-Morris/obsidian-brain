@@ -11,6 +11,7 @@ from pathlib import Path
 from _machine.resolve_brain import RESOLUTION_RUNTIME_VERSION as ENTRY_VERSION
 from _machine.resolve_brain import resolve_payload
 from _machine.resolution_runtime import (
+    _DEPLOY_FILES,
     RESOLUTION_RUNTIME_VERSION as DEPLOY_VERSION,
     deployed_version,
     ensure_resolution_runtime,
@@ -81,12 +82,18 @@ def test_resolution_runtime_refuses_partial_deploy_when_source_closure_missing(t
 def test_deployed_resolution_runtime_import_closure_is_self_contained(tmp_path):
     runtime_root = tmp_path / "runtime"
     ensure_resolution_runtime(SCRIPTS_DIR, runtime_root=runtime_root)
+    # Importing every deployed module proves each one's module-level imports
+    # are themselves deployed (or standard library).
+    modules = sorted(
+        dest.removesuffix(".py").removesuffix("/__init__").replace("/", ".")
+        for _source, dest in _DEPLOY_FILES
+    )
 
     proc = subprocess.run(
         [
             sys.executable,
             "-c",
-            "import resolve_brain; import _bootstrap.workspace_binding; import vault_registry",
+            "import importlib\n" + "".join(f"importlib.import_module({name!r})\n" for name in modules),
         ],
         cwd=runtime_root,
         env={"PYTHONPATH": str(runtime_root)},

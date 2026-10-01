@@ -27,7 +27,6 @@ forms part of the vaults row format.
 Usage:
     python3 vault_registry.py --register /path/to/vault
     python3 vault_registry.py --register /path/to/vault --id my-brain
-    python3 vault_registry.py --backfill /path/to/vault
     python3 vault_registry.py --unregister /path/to/vault
     python3 vault_registry.py --list [--json]
     python3 vault_registry.py --prune
@@ -47,6 +46,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from _common._filesystem import safe_write
+from _common._shell import join_argv
 from _common._file_lock import exclusive_file_lock
 from _common._paths import config_home
 from _common._slugs import title_to_slug
@@ -168,7 +168,7 @@ def get_default():
 
     Best-effort unlocked read — mirrors load_registry_entries().
     Missing file or empty content returns None.
-    A real OS error is wrapped in RegistryReadError.
+    An OS or decoding error is wrapped in RegistryReadError.
     The returned id is returned as-is; staleness classification belongs in
     Phase 2 resolution.
     """
@@ -179,7 +179,7 @@ def get_default():
         return brain_id if brain_id else None
     except FileNotFoundError:
         return None
-    except OSError as exc:
+    except (OSError, UnicodeDecodeError) as exc:
         raise RegistryReadError(
             f"could not read default Brain pointer at {path}: {exc}"
         ) from exc
@@ -268,7 +268,7 @@ def load_registry_entries():
                 result[entry.brain_id] = entry
     except FileNotFoundError:
         return {}
-    except OSError as exc:
+    except (OSError, UnicodeDecodeError) as exc:
         raise RegistryReadError(f"could not read brain registry at {path}: {exc}") from exc
     if malformed:
         print(
@@ -322,6 +322,22 @@ def _find_local_brain_id_by_path(entries, abs_path):
         if entry.value == abs_path:
             return brain_id
     return None
+
+
+def brain_id_for_path(vault_path):
+    """Return the Brain ID registered for vault_path, or None when it is unregistered.
+
+    A read: it takes no lock and creates nothing. It applies registration's own
+    lookup, an exact match of the stored value against ``_absolute(vault_path)``,
+    so it answers "registered" exactly when ``register`` would no-op.
+    """
+    return _find_local_brain_id_by_path(load_registry_entries(), _absolute(vault_path))
+
+
+def register_guidance(vault_root):
+    """The launcher command that registers the Brain at vault_root."""
+    request = json.dumps({"vault_root": str(vault_root)}, separators=(",", ":"), sort_keys=True)
+    return join_argv(["brain", "register", "--request-json", request])
 
 
 def _is_valid_brain_id(brain_id):
@@ -415,20 +431,6 @@ def register(vault_path, brain_id=None):
     the established public scalar return contract.
     """
     return register_action(vault_path, brain_id=brain_id).brain_id
-
-
-def backfill(vault_path):
-    """Register the vault if absent.
-
-    Equivalent to register() since register already no-ops when the path is
-    already known; kept as a named entry point for upgrade/install intent.
-    """
-    return register(vault_path)
-
-
-def backfill_action(vault_path, *, dry_run=False):
-    """Backfill or plan a local vault and report resolved ID/change state."""
-    return register_action(vault_path, dry_run=dry_run)
 
 
 def _require_no_mcp_integrations(vault_path, plan=None):
@@ -591,7 +593,6 @@ def main():
     parser = argparse.ArgumentParser(description="User-home authoritative Brain registry")
     group = parser.add_mutually_exclusive_group(required=True)
     group.add_argument("--register", metavar="PATH")
-    group.add_argument("--backfill", metavar="PATH")
     group.add_argument("--unregister", metavar="PATH")
     group.add_argument("--list", action="store_true")
     group.add_argument("--prune", action="store_true")
@@ -606,11 +607,11 @@ def main():
 
     try:
         from _bootstrap import machine_cli
-        if machine_cli.approvals_present() and any((args.register, args.backfill, args.unregister, args.prune, args.set_default, args.clear_default)):
-            if args.register or args.backfill:
+        if machine_cli.approvals_present() and any((args.register, args.unregister, args.prune, args.set_default, args.clear_default)):
+            if args.register:
                 command, request = "brain.register", {
-                    "vault_root": _absolute(args.register or args.backfill),
-                    "brain_id": args.id if args.register else None,
+                    "vault_root": _absolute(args.register),
+                    "brain_id": args.id,
                 }
             elif args.unregister:
                 command, request = "brain.unregister", {"vault_root": _absolute(args.unregister)}
@@ -625,8 +626,6 @@ def main():
             raise SystemExit(0 if result["status"] == "ok" else 1)
         if args.register:
             print(register(args.register, brain_id=args.id))
-        elif args.backfill:
-            print(backfill(args.backfill))
         elif args.unregister:
             unregister(args.unregister)  # best-effort; always exit 0
         elif args.list:

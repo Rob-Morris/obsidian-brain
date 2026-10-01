@@ -29,7 +29,7 @@ def test_setup_workspace_creates_binding_manifest(tmp_path, vault, monkeypatch, 
     workspace.mkdir()
 
     monkeypatch.setattr(configure, "resolve_local_brain_vault", lambda brain_id: vault if brain_id == "brain" else None)
-    monkeypatch.setattr(brain_setup, "resolve_local_brain_alias", lambda _vault_root: "brain")
+    monkeypatch.setattr(configure, "resolve_local_brain_alias", lambda _vault_root: "brain")
 
     exit_code = brain_setup.main([
         "workspace",
@@ -76,7 +76,7 @@ def test_guided_setup_orchestrates_optional_branches(tmp_path, vault, monkeypatc
     workspace.mkdir()
 
     monkeypatch.setattr(configure, "resolve_local_brain_vault", lambda brain_id: vault if brain_id == "brain" else None)
-    monkeypatch.setattr(brain_setup, "resolve_local_brain_alias", lambda _vault_root: "brain")
+    monkeypatch.setattr(configure, "resolve_local_brain_alias", lambda _vault_root: "brain")
     monkeypatch.setattr(
         configure,
         "configure_mcp_action",
@@ -143,7 +143,7 @@ def test_converge_workspace_binding_refuses_vault_root(tmp_path):
 def test_setup_workspace_refuses_vault_root(tmp_path, vault, monkeypatch, capsys):
     """setup workspace at a vault root surfaces the vault_root_not_workspace error."""
     monkeypatch.setattr(configure, "resolve_local_brain_vault", lambda brain_id: vault if brain_id == "brain" else None)
-    monkeypatch.setattr(brain_setup, "resolve_local_brain_alias", lambda _vault_root: "brain")
+    monkeypatch.setattr(configure, "resolve_local_brain_alias", lambda _vault_root: "brain")
 
     # vault IS the vault root — the refuse-guard should fire.
     exit_code = brain_setup.main([
@@ -170,7 +170,7 @@ def test_guided_setup_rebinds_when_user_confirms(tmp_path, vault, monkeypatch, c
     workspace.mkdir()
 
     monkeypatch.setattr(configure, "resolve_local_brain_vault", lambda brain_id: vault if brain_id == "brain" else None)
-    monkeypatch.setattr(brain_setup, "resolve_local_brain_alias", lambda _vault_root: "brain")
+    monkeypatch.setattr(configure, "resolve_local_brain_alias", lambda _vault_root: "brain")
 
     calls = []
 
@@ -223,3 +223,24 @@ def test_guided_setup_rebinds_when_user_confirms(tmp_path, vault, monkeypatch, c
     payload = json.loads(capsys.readouterr().out)
     assert payload["status"] == "ok"
     assert payload["steps"][0]["status"] == "changed"
+
+
+@pytest.mark.parametrize("guided", [False, True])
+def test_setup_workspace_refuses_unregistered_brain_without_registering(tmp_path, vault, monkeypatch, capsys, guided):
+    import vault_registry
+
+    workspace = tmp_path / "demo-workspace"
+    workspace.mkdir()
+    monkeypatch.setattr("builtins.input", lambda _prompt="": pytest.fail("refusal must precede prompts"))
+
+    exit_code = brain_setup.main([
+        "workspace", str(workspace), "--vault", str(vault), *(["--guided"] if guided else []), "--json",
+    ])
+
+    assert exit_code != 0
+    step = json.loads(capsys.readouterr().out)["steps"][0]
+    assert step["reason"] == "brain_unregistered"
+    assert "not registered on this machine" in step["message"]
+    assert vault_registry.register_guidance(vault) in step["message"]
+    assert vault_registry.load_registry_entries() == {}
+    assert not (workspace / ".brain").exists()

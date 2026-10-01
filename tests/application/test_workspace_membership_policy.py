@@ -188,7 +188,7 @@ def test_setup_preparation_is_read_only_without_machine_registration(command_vau
     context = application(command_vault_clone.vault_root, workspace)._context
     from pathlib import Path
     before = Path(path).read_bytes() if Path(path).exists() else None
-    with pytest.raises(ValueError, match="machine registration"):
+    with pytest.raises(ValueError, match="not registered on this machine"):
         prepare_setup(context, WorkspaceSetupRequest())
     assert (Path(path).read_bytes() if Path(path).exists() else None) == before
 

@@ -36,11 +36,6 @@ from _bootstrap.mcp_state import (
     write_toml_config,
 )
 from _bootstrap.runtime import target_managed_python
-from _bootstrap.workspace_binding import (
-    WorkspaceBindingError,
-    converge_workspace_binding,
-    resolve_local_brain_alias,
-)
 from _bootstrap.workspace_scaffold import GitInspectionError, ensure_brain_ignore_rules
 from _common import join_argv, safe_write, safe_write_json
 
@@ -383,29 +378,6 @@ def cleanup_claude_bootstrap(
     for line in lines:
         changed = _remove_bootstrap_line(path, line) or changed
     return changed
-
-
-def _converge_workspace_manifest(
-    target_dir: Path,
-    *,
-    vault_root: Path | None = None,
-    brain_id: str | None = None,
-    allow_rebind: bool = False,
-):
-    resolved_brain = brain_id
-    if resolved_brain is None:
-        if vault_root is None:
-            raise WorkspaceBindingError(
-                "Workspace binding now requires an explicit Brain identity.\n"
-                "Pass vault_root or brain_id when converging the workspace manifest."
-            )
-        resolved_brain = resolve_local_brain_alias(vault_root)
-
-    return converge_workspace_binding(
-        target_dir,
-        brain=resolved_brain,
-        allow_rebind=allow_rebind,
-    )
 
 
 def ensure_session_start_hook(
