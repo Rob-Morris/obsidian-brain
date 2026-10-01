@@ -2,6 +2,7 @@
 
 import json
 import os
+import re
 import sys
 import tempfile
 from pathlib import Path
@@ -12,6 +13,23 @@ from _portable_path import (
 )
 
 _WRITE_ALLOWED_UNDERSCORE = {"_Temporal", "_Config"}
+
+# Brain's atomic writers stage ``<target>.<8 chars>.tmp`` beside the target
+# (``tempfile.mkstemp`` draws eight characters from ``[a-z0-9_]``). One rule,
+# three readers: ``safe_write_via``, the bootstrap file transaction and the
+# stranded-temporaries lister.
+ATOMIC_TEMPORARY_SUFFIX = ".tmp"
+_ATOMIC_TEMPORARY_NAME = re.compile(r"^.+\.[a-z0-9_]{8}\.tmp$")
+
+
+def atomic_temporary_prefix(target_name):
+    """Return the ``mkstemp`` prefix that stages a write to ``target_name``."""
+    return f"{target_name}."
+
+
+def is_atomic_write_temporary(name):
+    """Return whether ``name`` is one of Brain's atomic-write temporaries."""
+    return isinstance(name, str) and _ATOMIC_TEMPORARY_NAME.fullmatch(name) is not None
 
 
 def resolve_and_check_bounds(path, bounds, *, follow_symlinks=True):
@@ -102,8 +120,8 @@ def _safe_write_resolved(target, writer, *, mode, encoding, exclusive):
     os.makedirs(os.path.dirname(target) or ".", exist_ok=True)
 
     fd, tmp_path = tempfile.mkstemp(
-        prefix=os.path.basename(target) + ".",
-        suffix=".tmp",
+        prefix=atomic_temporary_prefix(os.path.basename(target)),
+        suffix=ATOMIC_TEMPORARY_SUFFIX,
         dir=os.path.dirname(target) or ".",
     )
     try:

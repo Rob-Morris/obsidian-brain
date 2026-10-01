@@ -9,9 +9,13 @@ def workspace_findings(vault_root, router, *, workspace_dir=None):
 
     findings = []
 
-    def report(code, path, message, fix, severity="error"):
-        findings.append({"check": "workspace_contract", "code": code, "severity": severity,
-                         "file": path, "message": message, "fix": fix})
+    def report(code, path, message, fix, severity="error", *, evidence=None):
+        finding = {"check": "workspace_contract", "code": code, "severity": severity,
+                   "file": path, "message": message, "fix": fix}
+        if evidence is not None:
+            # Declared evidence fingerprints a judgement finding; prose never does.
+            finding["evidence"] = evidence
+        findings.append(finding)
 
     try:
         graph = read_ownership_graph(vault_root)
@@ -36,7 +40,8 @@ def workspace_findings(vault_root, router, *, workspace_dir=None):
                 archived = any(item.archived for item in candidates)
                 code = "workspace_reference_archived" if archived else "workspace_reference_missing"
                 report(code, record.path, f"{workspace} has no current living workspace hub" + (" (archived identity)" if archived else ""),
-                       "Restore the original hub or explicitly reassign affected artefacts; tags are not membership")
+                       "Restore the original hub or explicitly reassign affected artefacts; tags are not membership",
+                       evidence={"workspace": workspace})
             elif entry.get("type") != "living/workspace":
                 report("workspace_reference_wrong_type", record.path, f"{workspace} resolves to {entry.get('type')}, not living/workspace", "Restore the workspace hub's type/identity before mutating its members")
             else:

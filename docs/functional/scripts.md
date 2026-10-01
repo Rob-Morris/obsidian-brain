@@ -127,6 +127,12 @@ it fails closed and directs callers to `artefact.create` through `brain` or
 test/maintenance seams, not supported semantic routes; do not use them to bypass
 workspace preparation, policy, lifecycle guards, or index completion.
 
+Maintenance is CLI and direct-script only: `command.py maintenance run
+[--dry-run]`, `maintenance list`, `maintenance claim`, `maintenance dismiss`,
+`maintenance release` and `runtime remove-temporaries` take the same request
+objects as the CLI. The pass needs a keyless standalone call; see
+[maintenance passes](cli.md#maintenance-passes-and-scheduling).
+
 Machine-global operations do not run through selected-Brain `command.py`. The versioned CLI distribution owns the separate stdlib-safe launcher catalogue and its install, upgrade, registry, runtime, MCP and diagnostic owners.
 
 The legacy `setup.py workspace` entry point retains its historical local

@@ -590,10 +590,30 @@ def collect_mcp_legacy_vault_root_findings(vault_root: str | Path) -> list[dict]
     return findings
 
 
+def collect_temporaries_check_findings(vault_root: str | Path, *, now=None) -> list[dict]:
+    """Return one finding per stranded atomic-write temporary under .brain/local."""
+    from datetime import datetime, timezone
+
+    from _bootstrap.stranded_temporaries import find_stranded_temporaries
+
+    vault_root = Path(vault_root)
+    findings: list[dict] = []
+    for rel_path in find_stranded_temporaries(vault_root, now or datetime.now(timezone.utc)):
+        finding = {
+            "check": "temporaries",
+            "severity": "info",
+            "file": rel_path,
+            "message": "Stranded atomic-write temporary file; a Brain write did not complete.",
+        }
+        findings.append(attach_repair_guidance(finding, vault_root, "temporaries"))
+    return findings
+
+
 def collect_bootstrap_check_findings(vault_root: str | Path) -> list[dict]:
     """Return launcher-safe repair-oriented compliance findings."""
     findings = collect_registry_check_findings(vault_root)
     findings.extend(collect_runtime_check_findings(vault_root))
     findings.extend(collect_mcp_check_findings(vault_root))
     findings.extend(collect_mcp_legacy_vault_root_findings(vault_root))
+    findings.extend(collect_temporaries_check_findings(vault_root))
     return findings

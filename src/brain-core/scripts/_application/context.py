@@ -54,6 +54,10 @@ class DiagnosticReporter(Protocol):
         error: BaseException,
     ) -> None: ...
 
+    def record(self, event: str, *, family: str, **fields: object) -> None:
+        """Record one content-free operational event in a named log family."""
+        ...
+
 
 @dataclass(frozen=True, slots=True)
 class NullDiagnosticReporter:
@@ -66,6 +70,19 @@ class NullDiagnosticReporter:
         error: BaseException,
     ) -> None:
         del phase, command_id, correlation_id, error
+
+    def record(self, event: str, *, family: str, **fields: object) -> None:
+        del event, family, fields
+
+
+class MaintenanceInvoker(Protocol):
+    """Run one automatic repair family as a fresh sibling invocation (DD-082).
+
+    Only a standalone, keyless script context is given this port, so the
+    maintenance pass cannot run from MCP, a CLI job or a keyed context.
+    """
+
+    def repair(self, family, *, invocation_id: str): ...
 
 
 def report_failure_safely(
@@ -92,6 +109,20 @@ def report_failure_safely(
             )
         except Exception:
             # Diagnostic fallback must never change the command outcome.
+            pass
+
+
+def record_safely(context: "InvocationContext", event: str, *, family: str, **fields: object) -> None:
+    """Record an operational event without letting diagnostics alter the outcome."""
+
+    try:
+        context.diagnostics.record(event, family=family, **fields)
+    except Exception as reporter_error:
+        try:
+            sys.__stderr__.write(
+                f"Brain diagnostic reporter failed while recording {event} ({type(reporter_error).__name__}).\n"
+            )
+        except Exception:
             pass
 
 
@@ -232,6 +263,7 @@ class InvocationContext:
     derived_snapshots: DerivedSnapshotStore | None = None
     session_mirror: SessionMirrorPublisher | None = None
     admission: InvocationAdmission | None = None
+    maintenance: MaintenanceInvoker | None = None
 
     def __post_init__(self) -> None:
         if not self.profile.strip():

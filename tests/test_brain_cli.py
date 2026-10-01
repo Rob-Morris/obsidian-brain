@@ -136,10 +136,10 @@ def test_version_and_launcher_discovery_need_no_selected_brain(tmp_path):
     assert len(commands["entries"]) == 25
     by_id = {entry["command_id"]: entry for entry in commands["entries"]}
     assert by_id["brain.version"]["entry_point"] == ["brain", "version"]
-    assert by_id["runtime.inspect"]["entry_point"] == [
+    assert by_id["machine-maintenance.run"]["entry_point"] == [
         "brain",
-        "runtime",
-        "inspect",
+        "machine-maintenance",
+        "run",
     ]
     assert {
         "brain.backfill",

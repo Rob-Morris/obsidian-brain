@@ -11,7 +11,7 @@ import sys
 import time
 import uuid
 
-from _launcher.context import LauncherContext, ProviderBindings
+from _launcher.context import LauncherContext, ProviderBindings, launcher_state_home
 from _launcher.contracts import OutcomeReceipt, ReceiptState
 from _distribution import source_versions
 
@@ -243,9 +243,7 @@ def compose_launcher_context(
     operator_key: str | None = None,
 ) -> LauncherContext:
     invocation_id = f"cli-{uuid.uuid4()}"
-    state_home = Path(
-        os.environ.get("XDG_STATE_HOME", str(Path.home() / ".local" / "state"))
-    ).expanduser().resolve()
+    state_home = launcher_state_home()
     return LauncherContext(
         profile="local-operator",
         authority=LocalAuthority(),

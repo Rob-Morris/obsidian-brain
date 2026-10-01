@@ -136,12 +136,13 @@ class LauncherCatalogue:
         return "sha256:" + hashlib.sha256(encoded).hexdigest()
 
 
-def _read(command_id: str, owner_ref: str, *entry_point: str, version: int = 1) -> LauncherEntry:
-    return LauncherEntry(command_id, version, owner_ref, entry_point, "reader", "none", "safe")
+def _read(command_id: str, owner_ref: str, *entry_point: str, version: int = 1, summary: str = "") -> LauncherEntry:
+    return LauncherEntry(command_id, version, owner_ref, entry_point, "reader", "none", "safe", summary=summary)
 
 
 def _mutation(
-    command_id: str, owner_ref: str, *entry_point: str, version: int = 1, approval_transition: str | None = None
+    command_id: str, owner_ref: str, *entry_point: str, version: int = 1, approval_transition: str | None = None,
+    summary: str = "",
 ) -> LauncherEntry:
     return LauncherEntry(
         command_id,
@@ -152,6 +153,7 @@ def _mutation(
         "machine_mutation",
         "receipt_required",
         required_providers=("caller_filesystem",),
+        summary=summary,
         approval_transition=approval_transition,
     )
 
@@ -347,6 +349,54 @@ LAUNCHER_CATALOGUE = LauncherCatalogue(
                     "registry",
                     "remove-stale",
                     approval_transition="prune",
+                ),
+                _mutation(
+                    "machine-maintenance.run",
+                    "_launcher.machine_maintenance:run",
+                    "brain",
+                    "machine-maintenance",
+                    "run",
+                    summary="Run one bounded machine maintenance pass over Doctor's feed.",
+                ),
+                _read(
+                    "machine-maintenance.list",
+                    "_launcher.machine_maintenance:list",
+                    "brain",
+                    "machine-maintenance",
+                    "list",
+                    summary="List machine maintenance findings that need a person, with claim state.",
+                ),
+                _mutation(
+                    "machine-maintenance.claim",
+                    "_launcher.machine_maintenance:claim",
+                    "brain",
+                    "machine-maintenance",
+                    "claim",
+                    summary="Claim a machine maintenance finding for one hour.",
+                ),
+                _mutation(
+                    "machine-maintenance.dismiss",
+                    "_launcher.machine_maintenance:dismiss",
+                    "brain",
+                    "machine-maintenance",
+                    "dismiss",
+                    summary="Dismiss a machine judgement finding at its current evidence.",
+                ),
+                _mutation(
+                    "machine-maintenance.release",
+                    "_launcher.machine_maintenance:release",
+                    "brain",
+                    "machine-maintenance",
+                    "release",
+                    summary="Release a claimed machine maintenance finding.",
+                ),
+                _mutation(
+                    "machine-registry.sync",
+                    "_launcher.machine_registry:sync",
+                    "brain",
+                    "machine-registry",
+                    "sync",
+                    summary="Add discovered Brains to the derived machine registry without dropping rows.",
                 ),
             ),
             key=lambda entry: entry.command_id,

@@ -22,19 +22,6 @@ class CheckSeverity(str, Enum):
     INFO = "info"
 
 
-_REPAIR_COMMANDS = {
-    "empty_folders": "artefact.repair",
-    "frontmatter": "artefact.repair",
-    "lexical": "retrieval.refresh-lexical",
-    "mcp": "mcp.repair",
-    "ownership": "artefact.repair",
-    "registry": "workspace.repair-registry",
-    "router": "runtime.refresh-router",
-    "runtime": "runtime.repair",
-    "semantic": "retrieval.repair-semantic",
-}
-
-
 @dataclass(frozen=True, slots=True)
 class CheckRepairAction:
     scope: str
@@ -85,6 +72,7 @@ class VaultCheckRequest:
 
 def execute(context: InvocationContext, request: VaultCheckRequest):
     import check
+    from _repair_common import REPAIR_SCOPES
 
     try:
         result = check.run_checks(context.selected_brain.vault_root, workspace_dir=context.workspace_dir)
@@ -103,8 +91,8 @@ def execute(context: InvocationContext, request: VaultCheckRequest):
         repair = None
         if repair_source:
             scope = repair_source["scope"]
-            command_id = _REPAIR_COMMANDS.get(scope)
-            if command_id is None:
+            family = REPAIR_SCOPES.get(scope)
+            if family is None:
                 return command_error(
                     VaultCheckRequest,
                     ErrorCode.INTERNAL_ERROR,
@@ -113,8 +101,8 @@ def execute(context: InvocationContext, request: VaultCheckRequest):
                 )
             repair = CheckRepairAction(
                 scope,
-                repair_source["description"],
-                command_id,
+                family.description,
+                family.command_id,
             )
         findings.append(
             VaultCheckFinding(

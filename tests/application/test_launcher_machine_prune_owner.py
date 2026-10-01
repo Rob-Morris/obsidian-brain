@@ -226,7 +226,6 @@ def test_runtime_remove_orphans_uses_trusted_current_vault_during_discovery(
 
     assert result.result.status is RuntimeRemovalStatus.NOOP
     assert calls[0]["current_vault"] == str(current_vault)
-    assert calls[0]["synchronise_registry"] is False
 
 
 def test_runtime_remove_orphans_fails_known_when_live_process_scan_is_unavailable(

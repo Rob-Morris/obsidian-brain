@@ -343,3 +343,65 @@ def test_doctor_machine_memory_line_warns_when_total_exceeds_threshold():
 
     assert "memory:    2.5 GB across 3 live runtime processes" in lines
     assert "  total exceeds 2.0 GB; restart idle MCP sessions to reclaim it" in lines
+
+
+class TestVaultCheckRunner:
+    """Doctor consumes the target's vault.check through an injected runner (DD-082)."""
+
+    def _payload(self):
+        return {
+            "summary": {"errors": 0, "warnings": 1, "info": 0},
+            "findings": [{
+                "check": "lexical_index", "severity": "warning", "file": None, "message": "stale",
+                "repair": {"scope": "lexical", "description": "d", "command_id": "retrieval.refresh-lexical",
+                           "command": "brain retrieval refresh-lexical"},
+            }],
+        }
+
+    def test_runner_payload_is_used_without_a_subprocess(self, tmp_path, monkeypatch):
+        monkeypatch.setattr("_common._venv.subprocess.run",
+                            lambda *_a, **_k: (_ for _ in ()).throw(AssertionError("legacy check.py must not run")))
+        calls = []
+
+        def runner(vault_root, *, actionable, severity):
+            calls.append((vault_root, actionable, severity))
+            return self._payload()
+
+        result = doctor.collect_vault_diagnosis(current_vault=str(tmp_path), launcher_python=sys.executable,
+                                                actionable=True, severity="warning", vault_check_runner=runner)
+
+        assert calls == [(tmp_path, True, "warning")]
+        assert result["available"] is True
+        assert result["exit_code"] == 1
+        assert result["route"] == "vault.check"
+        assert result["result"]["findings"][0]["repair"]["command_id"] == "retrieval.refresh-lexical"
+
+    def test_runner_returning_none_falls_back_to_legacy_check_py(self, tmp_path, monkeypatch):
+        scripts = tmp_path / ".brain-core" / "scripts"
+        scripts.mkdir(parents=True)
+        (scripts / "check.py").write_text("#!/usr/bin/env python3\n")
+        monkeypatch.setattr(doctor, "find_runnable_python", lambda *_args, **_kwargs: Path(sys.executable))
+        monkeypatch.setattr(
+            "_common._venv.subprocess.run",
+            lambda argv, *, env, capture_output, text, timeout, check: subprocess.CompletedProcess(
+                argv, 2, json.dumps({"summary": {"errors": 1, "warnings": 0, "info": 0},
+                                     "findings": [{"severity": "error", "file": None, "message": "legacy"}]}), ""),
+        )
+
+        result = doctor.collect_vault_diagnosis(current_vault=str(tmp_path), launcher_python=sys.executable,
+                                                actionable=False, severity=None,
+                                                vault_check_runner=lambda *_a, **_k: None)
+
+        assert result["route"] == "legacy-check"
+        assert result["exit_code"] == 2
+
+    def test_runner_failure_is_reported_as_an_unavailable_vault_section(self, tmp_path):
+        def runner(*_args, **_kwargs):
+            raise RuntimeError("vault.check refused")
+
+        result = doctor.collect_vault_diagnosis(current_vault=str(tmp_path), launcher_python=sys.executable,
+                                                actionable=False, severity=None, vault_check_runner=runner)
+
+        assert result["available"] is False
+        assert "vault.check refused" in result["message"]
+        assert result["exit_code"] == 1

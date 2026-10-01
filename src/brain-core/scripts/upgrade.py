@@ -1653,7 +1653,6 @@ def _inspect_runtime_orphans(vault_root: Path) -> dict:
             summary = maintenance.collect_machine_summary(
                 current_vault=str(vault_root),
                 launcher_python=sys.executable,
-                synchronise_registry=False,
             )
     except (OSError, RuntimeError, ValueError) as exc:
         return {

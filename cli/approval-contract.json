@@ -181,6 +181,78 @@
       "authority": "reader"
     },
     {
+      "command_id": "machine-maintenance.claim",
+      "version": 1,
+      "owner": "launcher",
+      "classification": "machine_mutation",
+      "mcp": null,
+      "cli": [
+        "machine-maintenance",
+        "claim"
+      ],
+      "authority": "operator"
+    },
+    {
+      "command_id": "machine-maintenance.dismiss",
+      "version": 1,
+      "owner": "launcher",
+      "classification": "machine_mutation",
+      "mcp": null,
+      "cli": [
+        "machine-maintenance",
+        "dismiss"
+      ],
+      "authority": "operator"
+    },
+    {
+      "command_id": "machine-maintenance.list",
+      "version": 1,
+      "owner": "launcher",
+      "classification": "none",
+      "mcp": null,
+      "cli": [
+        "machine-maintenance",
+        "list"
+      ],
+      "authority": "reader"
+    },
+    {
+      "command_id": "machine-maintenance.release",
+      "version": 1,
+      "owner": "launcher",
+      "classification": "machine_mutation",
+      "mcp": null,
+      "cli": [
+        "machine-maintenance",
+        "release"
+      ],
+      "authority": "operator"
+    },
+    {
+      "command_id": "machine-maintenance.run",
+      "version": 1,
+      "owner": "launcher",
+      "classification": "machine_mutation",
+      "mcp": null,
+      "cli": [
+        "machine-maintenance",
+        "run"
+      ],
+      "authority": "operator"
+    },
+    {
+      "command_id": "machine-registry.sync",
+      "version": 1,
+      "owner": "launcher",
+      "classification": "machine_mutation",
+      "mcp": null,
+      "cli": [
+        "machine-registry",
+        "sync"
+      ],
+      "authority": "operator"
+    },
+    {
       "command_id": "mcp.configure",
       "version": 3,
       "owner": "launcher",
@@ -313,5 +385,5 @@
       "authority": "operator"
     }
   ],
-  "fingerprint": "sha256:832a245fc4724c5bd1bb06c45c1e34b9f7ed860ae25349d0590941805a204e37"
+  "fingerprint": "sha256:ce622bcf9b9a4201b473efc038c3cc33f853a99fbb64441396e044cc60843f65"
 }

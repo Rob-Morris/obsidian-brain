@@ -43,12 +43,35 @@ def _imports(path: Path) -> set[str]:
     return imported
 
 
+BOOTSTRAP_TIER_MODULES = (
+    "_bootstrap/maintenance_findings.py",
+    "_bootstrap/maintenance_summary.py",
+    "_bootstrap/maintenance_decisions.py",
+    "_bootstrap/stranded_temporaries.py",
+    "_repair_common.py",
+)
+
+
 def test_application_contracts_have_no_adapter_or_managed_dependency_imports():
     offenders = {}
-    for path in APPLICATION_ROOT.glob("*.py"):
-        forbidden = _imports(path) & FORBIDDEN_APPLICATION_IMPORTS
+    for path in APPLICATION_ROOT.rglob("*.py"):
+        forbidden = _imports(path) & (FORBIDDEN_APPLICATION_IMPORTS | {"_command_interface"})
         if forbidden:
-            offenders[path.name] = sorted(forbidden)
+            offenders[str(path.relative_to(APPLICATION_ROOT))] = sorted(forbidden)
+
+    assert offenders == {}
+
+
+def test_maintenance_bootstrap_modules_import_nothing_above_bootstrap():
+    """The launcher reuses these at its own version; they must stay launcher-safe."""
+    stdlib = set(sys.stdlib_module_names)
+    allowed = stdlib | {"_bootstrap", "_common"}
+    offenders = {}
+    for relative in BOOTSTRAP_TIER_MODULES:
+        path = APPLICATION_ROOT.parent / relative
+        above = _imports(path) - allowed
+        if above:
+            offenders[relative] = sorted(above)
 
     assert offenders == {}
 
