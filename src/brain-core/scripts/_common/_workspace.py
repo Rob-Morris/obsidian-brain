@@ -163,6 +163,11 @@ def resolve_workspace_binding(router, manifest, *, brain_binding_error=None):
     """Classify local intent without promoting registry or path evidence to identity."""
     if manifest is None:
         return "unconfigured", None, None
+    from _bootstrap.workspace_binding import states_a_link
+
+    if not states_a_link(manifest) and isinstance(manifest.get("links", {}), dict):
+        # Neither link field: an unlinked manifest whose defaults wait for the next setup.
+        return "unconfigured", None, None
     reference = None
     try:
         reference = manifest_workspace_reference(manifest)

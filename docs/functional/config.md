@@ -130,8 +130,10 @@ The distinction from Brain config:
 - `.brain/local/workspace.yaml` is workspace-level identity and defaults (machine-local)
 - `.brain/local/workspaces.json` is machine-local binding state for linked workspaces
 
-`workspace.bind` may scaffold `.brain/local/workspace.yaml`, but the file remains human-editable and is expected to evolve over time.
-`workspace.repair-registry` is intentionally narrower: it repairs or normalises `.brain/local/workspaces.json` only, not the human-owned workspace manifest.
+`workspace.setup` writes the link fields of `.brain/local/workspace.yaml` (`brain` and `links.workspace`) together with `slug`, and `workspace.unregister` removes the two link fields; the rest of the file remains human-editable and is expected to evolve over time.
+`workspace.repair-registry` is intentionally narrower: an initially authorised, maintainer-level repair that normalises `.brain/local/workspaces.json` only, not the human-owned workspace manifest. A file that cannot be read is refused with no change. A file that was read and found malformed is rebuilt from its salvageable rows, and its previous content is kept as the one fixed-name backup `.brain/local/workspaces.json.bak`. The backup replaces the previous one only after the rebuilt registry has been saved, so a failed repair keeps the earlier backup.
+
+Built-in profile allow-lists that a vault stores in `.brain/config.yaml` are never widened automatically. A grant added to a template profile, such as `workspace.repair-registry` for `maintainer`, reaches new vaults and vaults that keep the template profiles; a vault whose stored profile carries a `label` or other edits keeps it as written until the grant is added by hand.
 
 Canonical `workspace.setup` also ensures a `living/workspace` hub and stores its
 bare key in `links.workspace`. That exact link selects the canonical

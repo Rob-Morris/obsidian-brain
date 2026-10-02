@@ -248,6 +248,7 @@ LAUNCHER_CATALOGUE = LauncherCatalogue(
                     "_launcher.machine:migrate_legacy_installations",
                     "brain",
                     "migrate-legacy-installations",
+                    version=2,
                     approval_transition="inventory",
                 ),
                 _mutation(

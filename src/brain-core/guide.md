@@ -251,8 +251,10 @@ brain agent-skill configure --vault /path/to/vault --request-json '{"client":"al
 
 `workspace.setup` ensures a canonical workspace hub before saving the local binding.
 Its result reports Brain registration and local binding separately; a local failure
-can be retried after inspecting the reported committed effects. `workspace.bind`
-changes only the local binding. `workspace.configure-bootstrap` and `mcp.configure`
+can be retried after inspecting the reported committed effects; `force` rebinds.
+`workspace.unregister` removes the link from both ends: the Brain's registry row,
+then the manifest link fields in the folder that row records, when that folder's
+manifest still names this Brain and the same workspace key. `workspace.configure-bootstrap` and `mcp.configure`
 remain separate bootstrap and transport owners. Use `brain command describe` for
 their exact request contracts.
 

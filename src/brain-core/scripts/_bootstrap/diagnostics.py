@@ -137,7 +137,28 @@ def inspect_registry(vault_root: Path) -> dict:
             "canonical": {"workspaces": {}},
         }
 
-    raw, error = _read_json_safe(path)
+    try:
+        text = path.read_bytes().decode("utf-8")
+    except UnicodeDecodeError:
+        text = None
+    except OSError as exc:
+        # An unreadable file is not a malformed one: nothing may rewrite it.
+        return {
+            "path": path,
+            "healthy": False,
+            "present": True,
+            "readable": False,
+            "message": f"Registry file could not be read: {exc}",
+            "canonical": {"workspaces": {}},
+        }
+    raw, error = None, "not UTF-8"
+    if text is not None:
+        try:
+            raw, error = json.loads(text), None
+        except json.JSONDecodeError as exc:
+            error = str(exc)
+    if not isinstance(raw, dict):
+        raw = None
     if error:
         return {
             "path": path,

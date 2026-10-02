@@ -4,10 +4,11 @@
 **Extends:** DD-052, DD-078, DD-082
 **Amends:** DD-051 (§2), DD-053
 
-Items 1, 2, 3, 7, 8 and 9 and the amendment to DD-053 are in the code. Items
-4, 5, 6, 10 and 11, the consequences that follow from them and the amendment
-to DD-051 are staged: they record the decision and land in later changes,
-after which this text is reconciled with the code.
+Items 1, 2, 3, 5, 7, 8, 9 and 10 and the amendments to DD-051 and DD-053 are
+in the code, as is item 11's configuration migration. Items 4 and 6, the rest
+of item 11 and the consequences that follow from them are staged: they record
+the decision and land in later changes, after which this text is reconciled
+with the code.
 
 ## Context
 
@@ -85,12 +86,16 @@ with an automatic repair. No fact is maintained by a hidden write.
    registry are `workspace.setup`, `workspace.unregister` (version 2: request
    `{key}`, drops the row and, when the recorded folder is reachable and its
    manifest names this Brain and key, unbinds that manifest too) and
-   `workspace.repair-registry`. `workspace.register`, `workspace.bind`
+   `workspace.repair-registry`, and MCP configuration and migration derive
+   the row a manifest implies through `workspace_registry` rather than writing
+   the file themselves. `workspace.register`, `workspace.bind`
    (`workspace.setup --force` is the rebind surface), `setup.py workspace`,
    `configure.py workspace binding` and `workspace_registry.py`'s
    `--register`/`--unregister` are retired. A vault configuration migration
    removes the retired command IDs from profile allow-lists, initial-command
-   lists and overrides without widening any grant. DD-051 §2's statement that
+   lists and overrides without widening any grant, and the historical profile
+   projections drop the same IDs, so an upgrade from any earlier version
+   reaches it. DD-051 §2's statement that
    the targeted `configure ...` commands remain valid is amended accordingly.
 6. **Disagreement is a finding, detected where each end can be seen.** From
    the Brain end, `collect_registry_check_findings` emits
@@ -184,6 +189,13 @@ with an automatic repair. No fact is maintained by a hidden write.
   missing is kept and reported as unverifiable.
 - Removing command IDs is a breaking contract under the pre-1.0 rule, so the
   configuration migration ships with a minor version bump.
+- A vault at a pre-0.71.0 Core whose profiles hold `workspace.bind` or
+  `workspace.register` fails to load authorisation under a newer `dev` Core
+  until `migrate_to_0_71_0.migrate` has been applied to it, because the
+  migration only runs on an upgrade to 0.71.0. The loader gains no tolerance
+  for retired IDs; development and lab use apply the migration first.
+- Stored allow-lists are never widened automatically: a grant added to a
+  template profile reaches stored profiles only when someone adds it.
 - Row verification does one `isdir` per row inside Doctor and the passes, the
   same call `vault_registry.list_entries` already makes per vault-registry
   row; a dead network mount can stall it. Not bounded here.
@@ -204,4 +216,11 @@ local Brain ID lookup leave the redirected machine homes, vaults and workspace
 manifests byte-identical and take no file lock;
 `tests/test_registry_write_owners.py` proves the vault registry's writers,
 derived from the module itself, are reached only from `install.py` and the
-launcher's registry owners.
+launcher's registry owners, and the linked workspace registry's only from
+`workspace.setup`, `workspace.unregister`, the registry repair and the
+historical migration that first wrote it.
+`tests/application/test_caller_workspace_owners.py` covers `workspace.unregister`
+removing both ends, dropping only the row for a folder that is not this link's,
+and taking its two locks one after the other; `tests/test_migrate_to_0_71_0.py`
+applies the configuration migration directly and loads the result through the
+authorisation resolver.

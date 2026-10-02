@@ -938,18 +938,6 @@
       "authority": "reader"
     },
     {
-      "command_id": "workspace.bind",
-      "version": 1,
-      "owner": "application",
-      "classification": "exceptional",
-      "mcp": null,
-      "cli": [
-        "workspace",
-        "bind"
-      ],
-      "authority": "operator"
-    },
-    {
       "command_id": "workspace.configure-bootstrap",
       "version": 2,
       "owner": "application",
@@ -998,28 +986,16 @@
       "authority": "reader"
     },
     {
-      "command_id": "workspace.register",
-      "version": 1,
-      "owner": "application",
-      "classification": "exceptional",
-      "mcp": null,
-      "cli": [
-        "workspace",
-        "register"
-      ],
-      "authority": "operator"
-    },
-    {
       "command_id": "workspace.repair-registry",
-      "version": 1,
+      "version": 2,
       "owner": "application",
-      "classification": "exceptional",
+      "classification": "observation",
       "mcp": null,
       "cli": [
         "workspace",
         "repair-registry"
       ],
-      "authority": "operator"
+      "authority": "maintainer"
     },
     {
       "command_id": "workspace.setup",
@@ -1035,7 +1011,7 @@
     },
     {
       "command_id": "workspace.unregister",
-      "version": 1,
+      "version": 2,
       "owner": "application",
       "classification": "exceptional",
       "mcp": null,
@@ -1097,5 +1073,5 @@
       "authority": "reader"
     }
   ],
-  "fingerprint": "sha256:c4a6f4469dce5e396117c68f161589b46525720cee94cf8be992a07ceda498cb"
+  "fingerprint": "sha256:96cb116241c5e087c20b07f32fb2edeed82d25e6b36768a785870ea95f8611ab"
 }

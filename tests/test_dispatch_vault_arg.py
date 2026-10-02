@@ -12,7 +12,7 @@ Two test groups:
    emits no argparse error.  Uses ``--help`` so no vault state is
    needed; argparse processes ``--vault`` before ``--help``.
 
-2. Focused parse_args tests — unit-level, configure + setup only.
+2. Focused parse_args tests — unit-level, configure only.
    Asserts correct value resolution for front-injected, post-subcommand,
    and absent ``--vault``, proving SUPPRESS prevents same-dest clobber.
 """
@@ -26,7 +26,6 @@ from pathlib import Path
 import pytest
 
 import configure
-import setup as brain_setup
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -35,7 +34,7 @@ SCRIPTS_DIR = REPO_ROOT / "src" / "brain-core" / "scripts"
 # ── Dispatch contract (mirrors test_brain_cli.py) ──────────────────────────
 _PUBLIC_DISPATCH_CONTRACT = [
     "check", "create", "edit", "rename",
-    "setup", "configure", "repair", "upgrade",
+    "configure", "repair", "upgrade",
     "session", "read", "migrate-naming", "fix-links",
 ]
 _DISPATCH_COMPAT = []
@@ -95,32 +94,32 @@ def test_dispatch_script_accepts_front_injected_vault(tmp_path, subcommand):
 # 2. configure.parse_args — vault placement and SUPPRESS semantics
 # ---------------------------------------------------------------------------
 
-def test_configure_vault_front_injected_workspace_binding(tmp_path):
-    """Front-injected form: ``configure --vault X workspace binding``."""
-    ns = configure.parse_args(["--vault", str(tmp_path), "workspace", "binding"])
+def test_configure_vault_front_injected_workspace_metadata(tmp_path):
+    """Front-injected form: ``configure --vault X workspace metadata``."""
+    ns = configure.parse_args(["--vault", str(tmp_path), "workspace", "metadata"])
     assert getattr(ns, "vault", None) == str(tmp_path)
     assert ns.command == "workspace"
-    assert ns.workspace_command == "binding"
+    assert ns.workspace_command == "metadata"
 
 
-def test_configure_vault_post_subcommand_workspace_binding(tmp_path):
-    """Post-subcommand form: ``configure workspace binding --vault X``."""
-    ns = configure.parse_args(["workspace", "binding", "--vault", str(tmp_path)])
+def test_configure_vault_post_subcommand_workspace_metadata(tmp_path):
+    """Post-subcommand form: ``configure workspace metadata --vault X``."""
+    ns = configure.parse_args(["workspace", "metadata", "--vault", str(tmp_path)])
     assert getattr(ns, "vault", None) == str(tmp_path)
     assert ns.command == "workspace"
-    assert ns.workspace_command == "binding"
+    assert ns.workspace_command == "metadata"
 
 
 def test_configure_vault_same_value_both_placements(tmp_path):
     """Both placements resolve to the same vault path (no clobber)."""
-    front = configure.parse_args(["--vault", str(tmp_path), "workspace", "binding"])
-    post = configure.parse_args(["workspace", "binding", "--vault", str(tmp_path)])
+    front = configure.parse_args(["--vault", str(tmp_path), "workspace", "metadata"])
+    post = configure.parse_args(["workspace", "metadata", "--vault", str(tmp_path)])
     assert getattr(front, "vault", None) == getattr(post, "vault", None)
 
 
 def test_configure_vault_absent_is_none(tmp_path):
     """Absent ``--vault`` must not set args.vault (SUPPRESS semantics)."""
-    ns = configure.parse_args(["workspace", "binding"])
+    ns = configure.parse_args(["workspace", "metadata"])
     assert getattr(ns, "vault", None) is None
 
 
@@ -150,34 +149,3 @@ def test_configure_vault_front_injected_workspace_bootstrap(tmp_path):
     ns = configure.parse_args(["--vault", str(tmp_path), "workspace", "bootstrap"])
     assert getattr(ns, "vault", None) == str(tmp_path)
     assert ns.workspace_command == "bootstrap"
-
-
-# ---------------------------------------------------------------------------
-# 3. setup.parse_args — vault placement and SUPPRESS semantics
-# ---------------------------------------------------------------------------
-
-def test_setup_vault_front_injected_workspace(tmp_path):
-    """Front-injected form: ``setup --vault X workspace``."""
-    ns = brain_setup.parse_args(["--vault", str(tmp_path), "workspace"])
-    assert getattr(ns, "vault", None) == str(tmp_path)
-    assert ns.command == "workspace"
-
-
-def test_setup_vault_post_subcommand_workspace(tmp_path):
-    """Post-subcommand form: ``setup workspace --vault X``."""
-    ns = brain_setup.parse_args(["workspace", "--vault", str(tmp_path)])
-    assert getattr(ns, "vault", None) == str(tmp_path)
-    assert ns.command == "workspace"
-
-
-def test_setup_vault_same_value_both_placements(tmp_path):
-    """Both placements resolve to the same vault path (no clobber)."""
-    front = brain_setup.parse_args(["--vault", str(tmp_path), "workspace"])
-    post = brain_setup.parse_args(["workspace", "--vault", str(tmp_path)])
-    assert getattr(front, "vault", None) == getattr(post, "vault", None)
-
-
-def test_setup_vault_absent_is_none():
-    """Absent ``--vault`` must not set args.vault (SUPPRESS semantics)."""
-    ns = brain_setup.parse_args(["workspace"])
-    assert getattr(ns, "vault", None) is None

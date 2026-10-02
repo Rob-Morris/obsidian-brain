@@ -14,8 +14,12 @@ from .types import (
     DependencyTier,
     EffectClass,
     Locality,
+    Projection,
     RetryClass,
 )
+
+
+MAINTENANCE_MCP_EXCLUSION = "maintenance administration is CLI and direct-script only"
 
 
 FrontmatterScalar = str | int | float | bool | None
@@ -181,6 +185,20 @@ def operator_mutation_entry(request_type, executor):
 
 def administrator_mutation_entry(request_type, executor):
     return mutation_entry(request_type, executor, Authority.ADMINISTRATOR)
+
+
+def derived_cache_maintenance_entry(request_type, executor, preparation, *, summary: str = ""):
+    """A maintainer's derived-cache repair: initially authorised, safe to retry, and outside MCP."""
+    from dataclasses import replace
+    from .catalogue import exclude_projection
+
+    entry = replace(maintainer_mutation_entry(request_type, executor),
+                    initial_class=InitialAuthorisationClass.OBSERVATION,
+                    effect_class=EffectClass.DERIVED_CACHE_WRITE,
+                    retry_class=RetryClass.SAFE,
+                    preparation=preparation,
+                    **({"summary": summary} if summary else {}))
+    return exclude_projection(entry, Projection.MCP, MAINTENANCE_MCP_EXCLUSION)
 
 
 def mutation_entry(request_type, executor, authority: Authority):

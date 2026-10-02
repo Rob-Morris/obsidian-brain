@@ -138,7 +138,7 @@ def test_first_slice_dispositions_and_recovery_scopes():
         "frontmatter", "ownership", "semantic", "empty_folders",
     }
     assert {scope for scope, family in REPAIR_SCOPES.items() if family.owner is Owner.MACHINE} == {"runtime", "mcp"}
-    assert {scope for scope, family in REPAIR_SCOPES.items() if family.exceptional} == {"registry", "semantic"}
+    assert {scope for scope, family in REPAIR_SCOPES.items() if family.exceptional} == {"semantic"}
     for scope in AUTOMATIC_SCOPES:
         assert _brain_entry(REPAIR_SCOPES[scope]).initial_class is InitialAuthorisationClass.OBSERVATION, scope
     assert repair_common.JUDGEMENT_CODES == {
@@ -188,11 +188,18 @@ class TestGuidanceForms:
     def test_exceptional_family_names_a_session_run_job(self, tmp_path, monkeypatch):
         monkeypatch.setattr(repair_common, "find_launcher_binary", lambda: None)
 
-        argv = repair_common.build_catalogue_argv(tmp_path, REPAIR_SCOPES["registry"])
+        argv = repair_common.build_catalogue_argv(tmp_path, REPAIR_SCOPES["semantic"])
 
         root = str(tmp_path.resolve())
         assert argv == ["brain", "--vault", root, "session", "run", "--",
-                        "brain", "--vault", root, "workspace", "repair-registry"]
+                        "brain", "--vault", root, "retrieval", "repair-semantic"]
+
+    def test_ordinary_registry_family_names_its_command_directly(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(repair_common, "find_launcher_binary", lambda: "/opt/bin/brain")
+
+        argv = repair_common.build_catalogue_argv(tmp_path, REPAIR_SCOPES["registry"])
+
+        assert argv == ["/opt/bin/brain", "--vault", str(tmp_path.resolve()), "workspace", "repair-registry"]
 
     def test_machine_family_prefers_the_launcher_and_falls_back_to_repair_py(self, tmp_path, monkeypatch):
         monkeypatch.setattr(repair_common, "find_launcher_binary", lambda: "/opt/bin/brain")
