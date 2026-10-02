@@ -67,7 +67,7 @@ class Coverage:
         reasons = list(self.invalid)
         if self.unreachable:
             reasons.append(unreachable_message(self.unreachable))
-        return "Persisted-registration coverage is incomplete: " + " ".join(reasons)
+        return "Persisted MCP registration coverage is incomplete: " + " ".join(reasons)
 
 
 def _record_or_refuse(unreachable, location: UnreachableLocation) -> None:

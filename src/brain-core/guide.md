@@ -252,7 +252,7 @@ brain agent-skill configure --vault /path/to/vault --request-json '{"client":"al
 `workspace.setup` ensures a canonical workspace hub before saving the local binding.
 Its result reports Brain registration and local binding separately; a local failure
 can be retried after inspecting the reported committed effects; `force` rebinds.
-`workspace.unregister` removes the link from both ends: the Brain's registry row,
+`workspace.unregister` removes the link from both ends: the Brain's linked workspace registry row,
 then the manifest link fields in the folder that row records, when that folder's
 manifest still names this Brain and the same workspace key. `workspace.configure-bootstrap` and `mcp.configure`
 remain separate bootstrap and transport owners. Use `brain command describe` for
@@ -283,7 +283,7 @@ omission preserves a compatible parent, not a create default. Relationship tags
 never imply adoption. Run `vault.check` afterward; checkpoint and upgrade the
 vault before a bulk rollout, and set a shared default parent only after adoption.
 
-For project scope, registration is not the whole story. Claude still needs the project's `.mcp.json` entry approved via `/mcp`, and Codex still needs the project trusted with the project-scoped `brain` MCP enabled. Once that project-scoped entry is active, it outranks the user-scoped one. Until then, either client may keep routing `mcp__brain__*` calls to a user-scoped `brain`.
+For project scope, MCP registration is not the whole story. Claude still needs the project's `.mcp.json` entry approved via `/mcp`, and Codex still needs the project trusted with the project-scoped `brain` MCP enabled. Once that project-scoped entry is active, it outranks the user-scoped one. Until then, either client may keep routing `mcp__brain__*` calls to a user-scoped `brain`.
 
 The optional shaping adapter is a stable discovery shim, not a copied workflow.
 At invocation time it calls `session.start` and loads the active Brain's

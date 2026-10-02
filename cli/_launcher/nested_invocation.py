@@ -31,7 +31,7 @@ def invoke_nested(context: LauncherContext, request: object, *, vault_root: Path
     ``workspace_dir`` and ``caller_dir`` are rebound to the target vault
     because workspace-breadth repairs target ``context.workspace_dir or
     context.caller_dir``; without that, repairing Brain Y would rewrite the
-    caller directory's registration.
+    caller directory's MCP registration.
     """
     root = Path(vault_root)
     if not root.is_absolute():

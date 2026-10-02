@@ -340,7 +340,7 @@ def resolve_workspace(vault_root, slug, registry=None):
     raise UnknownWorkspaceError(
         f"Unknown workspace '{slug}'. "
         f"No embedded data folder at _Workspaces/{slug}/ "
-        f"and no linked registration in .brain/local/workspaces.json."
+        f"and no row in this Brain's linked workspace registry (.brain/local/workspaces.json)."
     )
 
 
@@ -507,7 +507,7 @@ def stage_link_row(plan, vault_root, slug, path):
     if slug in workspaces:
         if row_records(salvage_row(slug, workspaces[slug]), path):
             return
-        raise ValueError(f"Conflicting reverse registration for {slug}: {registry_path}")
+        raise ValueError(f"Conflicting MCP reverse registration for {slug}: {registry_path}")
     _stage(plan, registry_path, {**data, "workspaces": {**workspaces, slug: row}})
 
 

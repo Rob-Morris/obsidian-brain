@@ -117,7 +117,7 @@ def _default_path():
 
 
 def registry_path():
-    """Return the authoritative machine registry path for read-only diagnostics."""
+    """Return the vault registry path (the authoritative list of local Brains) for read-only diagnostics."""
     return _registry_path()
 
 
@@ -309,7 +309,7 @@ def _absolute(vault_path):
 
 
 def is_canonical_value(value):
-    """Whether a stored local path is in the form registration stores: absolute and its own ``realpath``.
+    """Whether a stored local path is in the form Brain registration stores: absolute and its own ``realpath``.
 
     Registration always stores ``realpath``, so a row that no longer resolves
     to itself (a symlink left or planted at an old path) has drifted. It never
@@ -525,7 +525,7 @@ def _is_valid_brain_id(brain_id):
 
 
 def _plan_registration(entries, abs_path, brain_id):
-    """Return one registration result after mutating only the provided mapping."""
+    """Return one Brain registration result after mutating only the provided mapping."""
     existing_id = _find_local_brain_id_by_path(entries, abs_path)
     if existing_id is None:
         drifted = sorted(entry.brain_id for entry in _local_entries(entries).values()
@@ -573,7 +573,7 @@ def _plan_registration(entries, abs_path, brain_id):
 
 
 class NotABrainError(ValueError):
-    """Registration refused: the path is not an installed Brain (no ``.brain-core/VERSION``)."""
+    """Brain registration refused: the path is not an installed Brain (no ``.brain-core/VERSION``)."""
 
 
 def _require_installed_brain(abs_path):
@@ -584,7 +584,7 @@ def _require_installed_brain(abs_path):
 
 
 def preview_register_action(vault_path, brain_id=None, *, installing=False):
-    """Plan registration without acquiring a lock or creating filesystem state.
+    """Plan Brain registration without acquiring a lock or creating filesystem state.
 
     ``installing`` is for an install preview: the path is not a Brain yet, and
     the install that registers it scaffolds ``.brain-core`` first.

@@ -106,7 +106,7 @@ def install_distribution(
     bootstrap_python: Path | None = None,
     failpoint=None,
 ) -> InstalledDistribution:
-    """Serialize CLI capability replacement with native registration mutations."""
+    """Serialise CLI capability replacement with native MCP registration mutations."""
     from _bootstrap.mcp_registration import registration_lock
     from _launcher.approval_lifecycle import distribution_cutover
 

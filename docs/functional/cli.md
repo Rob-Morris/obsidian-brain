@@ -42,10 +42,10 @@ The CLI 3 launcher break is deliberate:
 | `brain machine migrate-legacy` | `brain migrate-legacy-installations` | Migrate legacy Brain installations on this machine. |
 | `brain machine prune-runtimes` | `brain runtime remove-orphans` | Remove orphaned managed runtimes. |
 | `brain backfill` | `brain register` | Register an installed Brain; the removed command duplicated this operation. |
-| `brain prune` | `brain registry remove-stale` | Remove stale local Brain registry entries (version 2): rows that name no installed Brain, or that are no longer their own canonical path (a symlink left at an old path). It removes every stale row or none, and refuses while any stale row still owns MCP integrations (a drifted row's at the path it resolves to), while managed approvals hold records and a row has drifted, or while the approval state itself needs recovery. `brain list` and `brain doctor` name it as a row's guidance only where it would succeed. While another row blocks it, a canonical row is named for `brain unregister` instead, unless approvals hold records; otherwise the explanation says what blocks it. After removing a moved Brain's drifted row, register the Brain again with `brain register` and its old `brain_id`. |
+| `brain prune` | `brain registry remove-stale` | Remove stale vault registry rows (version 2): rows that name no installed Brain, or that are no longer their own canonical path (a symlink left at an old path). It removes every stale row or none, and refuses while any stale row still owns MCP integrations (a drifted row's at the path it resolves to), while managed approvals hold records and a row has drifted, or while the approval state itself needs recovery. `brain list` and `brain doctor` name it as a row's guidance only where it would succeed. While another row blocks it, a canonical row is named for `brain unregister` instead, unless approvals hold records; otherwise the explanation says what blocks it. After removing a moved Brain's drifted row, register the Brain again with `brain register` and its old `brain_id`. |
 | `brain runtime resolve` and `brain runtime resolve-runnable` | `brain runtime inspect` | Report the expected managed runtime and the selected runnable Python source together. |
 
-`brain resolve` remains the direct registry lookup from Brain ID to vault path; version 2 refuses a stale row with its recovery. These launcher commands are CLI-only; the MCP catalogue is unchanged.
+`brain resolve` remains the direct vault registry lookup from Brain ID to vault path; version 2 refuses a stale row with its recovery. These launcher commands are CLI-only; the MCP catalogue is unchanged.
 
 A vault registry row that is no longer its own canonical path never selects a Brain. `brain register` (version 2) registers only an installed Brain and never gives the Brain a drifted row resolves to a second ID, whatever ID is passed. `brain unregister` (version 2) accepts an ordinary path through a symlink and refuses only when a drifted row makes it ambiguous: the path is a drifted row's stored value, or a drifted row also resolves to the Brain it names. `brain list` (version 2) reports each stale row's `stale_reason`, `stale_guidance` and `stale_explanation`, and `brain doctor` carries the same `reason`, `guidance` and `explanation` for each stale row. The guidance is empty when no command recovers the row; the explanation then says why.
 
@@ -104,7 +104,8 @@ Launcher commands may run without a selected Brain when their schema permits it.
 ### Workspace registration and policy
 
 `brain workspace setup --workspace /absolute/repo --request-json '{}'`
-converges canonical Brain registration and the caller-local binding. It requires
+converges the workspace registration (its canonical `living/workspace` hub), the
+linked workspace registry row and the caller-local binding. It requires
 an already registered selected Brain and operator authority. Setup has composite
 `selected_brain_and_caller_local` locality and
 `selected_brain_and_caller_local_mutation` effects: it creates or attaches the
@@ -119,7 +120,7 @@ then folder: the vault lock is held from the registry row write through the
 manifest write, with the folder lock nested inside, and is released before the
 ignore rules. A local-write failure reports known Brain effects and
 can be retried without creating another hub. The success payload separates
-`registration` from `binding`. `--request-json '{"force": true}'` rebinds a
+`registration` (the workspace hub) from `binding`. `--request-json '{"force": true}'` rebinds a
 workspace that is already bound to another Brain or slug.
 
 `brain workspace unregister --request-json '{"key": "<key>"}'` (version 2)
@@ -144,12 +145,12 @@ accepts canonical `workspace`, optional `default_parent`, `clear_parent`, and
 local tag/descriptive-link updates and adds `parent` / `clear_parent` for `defaults.parent`.
 `links.workspace` is reserved to setup: metadata cannot set it and `clear_links`
 preserves it. Generic artefact creation and document frontmatter edits reject
-shared `default_parent` / `default_tags`; use the policy owner after registration.
+shared `default_parent` / `default_tags`; use the policy owner after workspace registration.
 Both parent policies require an existing non-terminal living artefact in the
 same workspace; a workspace hub is self-scoped.
 
 Setup and local metadata updates support CLI, direct-script and Python adapters,
-and remain unavailable over MCP. Registration and shared policy support all
+and remain unavailable over MCP. Workspace registration (`workspace.ensure-registration`) and shared policy support all
 application projections. Session bootstrap reports `valid`, `unconfigured`,
 `configured_invalid` or `terminal_inactive` and supplies repair guidance for
 invalid or inactive bindings. A manifest's Brain alias must resolve to the
@@ -382,7 +383,7 @@ brain machine-maintenance run --json
 
 One scheduler entry per Brain, keyless, with an absolute launcher path and an
 explicit selector. The same environment that the interactive shell uses must
-reach the job (`XDG_CONFIG_HOME` for the registry, `XDG_STATE_HOME` for
+reach the job (`XDG_CONFIG_HOME` for the vault registry, `XDG_STATE_HOME` for
 receipts and the machine pass), or neither should set one.
 
 ```cron
@@ -569,13 +570,13 @@ embeddings, so `semantic` is almost always advised on semantic vaults until
 
 CLI 3 can identify and recover an installed Brain older than 0.55.0, but it does not translate old grammars. Launcher-owned version, doctor, install and upgrade/recovery commands remain available. Attempting an application command returns structural `upgrade_required`; that Brain's own legacy scripts remain directly invocable until the Brain is upgraded.
 
-`brain.upgrade` v3 performs a complete-registry preflight and coordinates Brain Core 0.55+, the installed CLI, catalogue, manifest and proxy contracts. Known other pre-cutover Brains require `acknowledge_global_cli_cutover: true`. Stale registry IDs, including a row that is no longer its own canonical path (version 3; v2 refused it as an unsafe path), require an exact sorted `excluded_stale_brain_ids` list; unknown registry scope cannot be waived.
+`brain.upgrade` v3 performs a complete-registry preflight and coordinates Brain Core 0.55+, the installed CLI, catalogue, manifest and proxy contracts. Known other pre-cutover Brains require `acknowledge_global_cli_cutover: true`. Stale vault registry IDs, including a row that is no longer its own canonical path (version 3; v2 refused it as an unsafe path), require an exact sorted `excluded_stale_brain_ids` list; unknown registry scope cannot be waived.
 
-After provisioning the target managed runtime, upgrade invokes the compatible machine CLI's ownership migration and Brain-breadth MCP repair. This covers shared user registration even when the vault has no project registration, and the selected Brain's registered external targets. Registration or readiness failure is a known partial outcome with explicit effects and recovery guidance, not a false success. Upgrade then starts or joins the selected Brain's canonical runtime warm-up and waits for a recorded `ready` state. Its read-only machine inspection recommends explicit runtime removal only when both persisted-registration coverage and live-process inspection permit it.
+After provisioning the target managed runtime, upgrade invokes the compatible machine CLI's ownership migration and Brain-breadth MCP repair. This covers shared user MCP registration even when the vault has no project MCP registration, and the selected Brain's registered external targets. MCP registration or readiness failure is a known partial outcome with explicit effects and recovery guidance, not a false success. Upgrade then starts or joins the selected Brain's canonical runtime warm-up and waits for a recorded `ready` state. Its read-only machine inspection recommends explicit runtime removal only when both persisted MCP registration coverage and live-process inspection permit it.
 
 ## MCP registration and repair
 
-`mcp.configure` v4 requires `client`: `claude`, `codex`, `grok`, or `all` (v4: a workspace bound to a Brain whose registry row is no longer canonical refuses, with that row's recovery).
+`mcp.configure` v4 requires `client`: `claude`, `codex`, `grok`, or `all` (v4: a workspace bound to a Brain whose vault registry row is no longer canonical refuses, with that row's recovery).
 Claude supports `project`, `local`, and `user`; Codex and Grok support project
 and user only. `all` with local scope selects Claude and reports the exclusions.
 Configuration never creates a workspace binding or changes the machine default.
@@ -606,16 +607,19 @@ moved) does not: Brain and machine breadth repair everything reachable and name
 each absent location in a `follow_up_required` warning (`mcp.repair` version 4).
 Reconnect it, or unregister it. While approval records exist, the approval
 inventory, which needs every registered location, runs first, so the repair
-still refuses with the same remedy. Uninstall, Brain unregistration and
-migration also need every registered location and refuse with that remedy. Unrelated native client settings
+still refuses with the same remedy. Uninstall and Brain unregistration need
+every linked folder of the Brain they remove; while approval records exist,
+the approval inventory runs first for them too and needs every registered
+location. MCP migration and approval changes need every registered location.
+Each refuses with that remedy. Unrelated native client settings
 are preserved. Shared Claude hooks/bootstrap survive ordinary scope removal
 while an admitted sibling or user route still needs them.
 
-Brain registry unregister and stale-entry removal refuse surviving canonical
+Brain unregistration (`brain unregister`) and stale-entry removal refuse surviving canonical
 integrations or unowned native Brain slots. Remove those integrations explicitly,
 or use composed Brain uninstall, before dropping their inventory root. CLI
-replacement takes the same machine registration lock as projection mutation, so
-capability checks and cutover cannot race a new shared registration.
+replacement takes the same machine MCP registration lock as projection mutation, so
+capability checks and cutover cannot race a new shared MCP registration.
 
 ### Migration and bootstrap recovery
 
@@ -667,10 +671,10 @@ repair-semantic` for the exceptional semantic repair; and for the machine-owned
 linked workspace registry belongs to the Brain and is not part of it.
 
 Use `brain.cmd` at the Windows destination. Doctor reports bootstrap availability
-separately from registration state. Successful repair does not reload an already
+separately from MCP registration state. Successful repair does not reload an already
 running MCP host; reconnect/restart that host as required by the runtime-drift
 diagnostic. CLI replacement refuses to remove stdio capability while persisted
-user registrations still depend on it.
+user MCP registrations still depend on it.
 
 ## Installation
 

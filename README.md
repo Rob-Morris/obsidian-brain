@@ -92,7 +92,7 @@ For the 0.55.0 cutover itself, or when recovering without the installed CLI, run
 bash install.sh /path/to/brain --acknowledge-global-cli-cutover
 ```
 
-The cutover preflights the complete local Brain registry, requires an exact acknowledgement when other local Brains depend on the global CLI, and commits Brain Core plus the versioned CLI distribution as one checked transaction. Incomplete registries, unacknowledged affected Brains, stale entries without explicit exclusions, unsafe paths, and version mismatches fail before mutation. A failed commit restores the proven old set or retains explicit recovery material rather than claiming rollback without evidence. See [CLI](docs/functional/cli.md) for the complete request contract.
+The cutover preflights the complete vault registry of local Brains, requires an exact acknowledgement when other local Brains depend on the global CLI, and commits Brain Core plus the versioned CLI distribution as one checked transaction. Incomplete registries, unacknowledged affected Brains, stale entries without explicit exclusions, unsafe paths, and version mismatches fail before mutation. A failed commit restores the proven old set or retains explicit recovery material rather than claiming rollback without evidence. See [CLI](docs/functional/cli.md) for the complete request contract.
 
 Upgrading from before 0.70.3 also offers optional [managed approvals](docs/functional/approvals.md)
 setup: inspect first, then explicitly configure if wanted. No approvals are enabled
@@ -122,7 +122,7 @@ see [MCP lifecycle and recovery](docs/functional/cli.md#mcp-registration-and-rep
 `retrieval.repair-semantic` is the semantic equivalent after a vault has been opted in
 with `retrieval.enable`: it repairs the pinned runtime packages,
 the local model snapshot/manifest, and the embeddings sidecars together. The
-other scopes repair generated router/index state or the local workspace
+other scopes repair generated router/index state or the linked workspace
 registry.
 
 If you do not know what is broken, start with:
@@ -132,8 +132,8 @@ brain doctor --vault /path/to/brain --json
 brain vault check --vault /path/to/brain --json
 ```
 
-When `vault.check` detects router, MCP, semantic-runtime, or local
-workspace-registry drift, it returns the exact granular repair command to run.
+When `vault.check` detects router, MCP, semantic-runtime, or linked
+workspace registry drift, it returns the exact granular repair command to run.
 Launcher recovery may start from any compatible Python 3.12+ interpreter, but
 packageful repair converges into the central managed runtime at
 `~/.brain/venvs/py<X.Y>-<sha16>/`; it does not install packages into your
@@ -209,7 +209,7 @@ brain mcp configure --vault /path/to/brain --workspace /path/to/project \
   --request-json '{"scope":"local","client":"claude"}' --json
 ```
 
-Use `scope: "user"` if you want the Brain everywhere. Bind a project without choosing transport, then run `mcp.configure` only when wanted. Use `scope: "local", client: "claude"` for gitignored Claude-only local configuration. For project scope, registration alone is not enough: approve `brain` via `/mcp` in Claude; trust the project and enable `brain` in Codex.
+Use `scope: "user"` if you want the Brain everywhere. Bind a project without choosing transport, then run `mcp.configure` only when wanted. Use `scope: "local", client: "claude"` for gitignored Claude-only local configuration. For project scope, MCP registration alone is not enough: approve `brain` via `/mcp` in Claude; trust the project and enable `brain` in Codex.
 
 To expose shaping through each client's native skill discovery while keeping the
 workflow version-matched to the active Brain, install the small discovery adapters
@@ -252,7 +252,7 @@ Brain configures Grok natively; Claude compatibility settings are not required.
 Use `brain mcp configure --request-json '{"client":"grok","scope":"project"}'`
 from a bound workspace or vault, or choose `"scope":"user"` for the standard
 user configuration. `"client":"all"` includes Claude, Codex and Grok.
-Grok stores registration in `.grok/config.toml` and receives a small Brain-owned
+Grok stores its MCP registration in `.grok/config.toml` and receives a small Brain-owned
 startup rule at `.grok/rules/brain.md`. Review Grok's folder-trust prompt before
 using project configuration, then verify with `grok inspect` and
 `grok mcp doctor brain`. See [client configuration](docs/functional/config.md#grok-client-configuration)
