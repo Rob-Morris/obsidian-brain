@@ -142,6 +142,9 @@ def _stale_binding_detail(brain: str) -> str:
         registered = None
     if registered is None:
         return f"Brain id '{brain}' is not in the registry"
+    if not vault_registry.is_canonical_value(registered):
+        entries = vault_registry.load_registry_entries()
+        return vault_registry.stale_explanation(entries[brain], entries)
     return f"Brain '{brain}' is registered but its vault at {registered} is missing or moved"
 
 
@@ -519,9 +522,10 @@ def resolve_local_brain_vault(brain_id: str) -> Path | None:
             f"failed to read local Brain registry while resolving Brain ID '{brain_id}': {exc}",
             code=WORKSPACE_ERROR_FILESYSTEM_ACCESS,
         ) from exc
-    if not resolved:
+    # A row that is no longer canonical never resolves: it is stale, not a way to follow a symlink.
+    if not resolved or not vault_registry.is_canonical_value(resolved):
         return None
-    candidate = Path(resolved).resolve()
+    candidate = Path(resolved)
     if not is_brain_vault(candidate):
         return None
     return candidate

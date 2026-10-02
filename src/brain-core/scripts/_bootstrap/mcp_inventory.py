@@ -28,16 +28,22 @@ class UnreachableLocation:
 
     path: Path
     label: str
+    # A location with its own recovery (a drifted Brain registry row) is not offered the generic remedies.
+    recovery: str | None = None
 
     def __str__(self) -> str:
         return f"{self.label} at {self.path}"
 
 
 def unreachable_message(locations) -> str:
-    """Why work that needs every registered location cannot proceed, and the two remedies."""
+    """Why work that needs every registered location cannot proceed, and how to recover each location."""
     names = "; ".join(str(item) for item in locations)
-    return (f"Registered locations are not reachable on this machine: {names}. Reconnect them, or unregister "
-            "them (brain workspace unregister for a linked workspace, brain registry remove-stale for a Brain).")
+    parts = [f"Registered locations are not reachable on this machine: {names}.",
+             *(item.recovery for item in locations if item.recovery is not None)]
+    if any(item.recovery is None for item in locations):
+        parts.append("Reconnect them, or unregister them (brain workspace unregister for a linked "
+                     "workspace, brain registry remove-stale for a Brain).")
+    return " ".join(parts)
 
 
 @dataclass(frozen=True)
@@ -77,32 +83,45 @@ def local_brains(plan: FilePlan, selected: Path | None = None, *, allow_missing:
     """Read authoritative identities strictly; remote entries confer no local authority.
 
     An absent Brain root raises, unless ``allow_missing`` keeps it in the result
-    or an ``unreachable`` collector records it and leaves it out.
+    or an ``unreachable`` collector records it and leaves it out. A row that is
+    no longer its own canonical path is never followed: an ``unreachable``
+    collector records it and leaves it out, and every other caller refuses it
+    with its recovery. It is not absent, so ``allow_missing`` never keeps it.
     """
     import vault_registry
 
     path = Path(vault_registry.registry_path())
     content = plan.read_text(path)
-    roots = set()
-    identities = set()
+    entries = {}
     for line in (content or "").splitlines():
         if not line.strip() or line.startswith("#"):
             continue
         entry = vault_registry._parse_entry(line)
-        if entry is None or entry.brain_id in identities:
+        if entry is None or entry.brain_id in entries:
             raise ValueError(f"Incomplete Brain registry: malformed or duplicate identity in {path}")
-        identities.add(entry.brain_id)
+        entries[entry.brain_id] = entry
+    roots = set()
+    for entry in entries.values():
         if entry.kind == vault_registry.TYPE_REMOTE:
             continue
         if entry.kind != vault_registry.TYPE_LOCAL:
             raise ValueError(f"Unsupported registry kind for {entry.brain_id}")
         root = Path(entry.value)
-        if not root.is_absolute() or root.is_symlink():
+        if not root.is_absolute():
             raise ValueError(f"Unsafe registered Brain path: {root}")
-        if plan.read_text(root / ".brain-core" / "VERSION") is None and not allow_missing:
-            _record_or_refuse(unreachable, UnreachableLocation(root, f"registered Brain {entry.brain_id}"))
+        if not vault_registry.is_canonical_value(entry.value):
+            if unreachable is None:
+                raise ValueError(f"Incomplete inventory: {vault_registry.stale_explanation(entry, entries)}")
+            unreachable.append(UnreachableLocation(
+                root, f"registered Brain {entry.brain_id} (no longer its canonical path)",
+                vault_registry.stale_explanation(entry, entries)))
             continue
-        root = root.resolve()
+        if plan.read_text(root / ".brain-core" / "VERSION") is None and not allow_missing:
+            # Its own recovery: reconnect it, or recover the stale row as the registry would accept.
+            _record_or_refuse(unreachable, UnreachableLocation(
+                root, f"registered Brain {entry.brain_id}",
+                f"Reconnect it, or recover its row: {vault_registry.stale_explanation(entry, entries)}"))
+            continue
         if root in roots:
             raise ValueError(f"Conflicting Brain identities for {root}")
         roots.add(root)

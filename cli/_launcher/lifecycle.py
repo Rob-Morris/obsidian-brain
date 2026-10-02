@@ -17,6 +17,7 @@ from .cutover import CutoverPreflight, CutoverPreflightError, preflight as cutov
 from .contracts import (
     CapabilityUnavailableDetails,
     CommandError,
+    CommandWarning,
     CommittedEffect,
     Error,
     ErrorCode,
@@ -27,6 +28,7 @@ from .contracts import (
     Partial,
     RecoveryRequiredDetails,
     RequestErrorDetails,
+    WarningCode,
     no_effect_error,
 )
 
@@ -169,7 +171,8 @@ class BrainUpgradePayload:
 @dataclass(frozen=True, slots=True)
 class BrainInstallRequest:
     COMMAND_ID: ClassVar[str] = "brain.install"
-    COMMAND_VERSION: ClassVar[int] = 4
+    # 5: the managed runtime is provisioned whatever the MCP scope; skip skips MCP registration only.
+    COMMAND_VERSION: ClassVar[int] = 5
     RESULT_TYPE: ClassVar[type] = BrainInstallPayload
 
     vault_root: Path
@@ -204,7 +207,8 @@ class BrainUninstallRequest:
 @dataclass(frozen=True, slots=True)
 class BrainUpgradeRequest:
     COMMAND_ID: ClassVar[str] = "brain.upgrade"
-    COMMAND_VERSION: ClassVar[int] = 2
+    # 3: a registry row that is no longer its own canonical path is stale (exclude it), not an unsafe-path refusal.
+    COMMAND_VERSION: ClassVar[int] = 3
     RESULT_TYPE: ClassVar[type] = BrainUpgradePayload
 
     force: bool = False
@@ -317,6 +321,7 @@ def _install_preview(context: LauncherContext, request: BrainInstallRequest, sou
         registration = vault_registry.preview_register_action(
             vault,
             brain_id=request.brain_id,
+            installing=True,
         )
     except (
         vault_registry.RegistryReadError,
@@ -350,21 +355,13 @@ def _install_preview(context: LauncherContext, request: BrainInstallRequest, sou
             "Would converge Brain-managed ignore rules.",
         ),
     ]
+    # The runtime is provisioned whatever the MCP scope; skip skips MCP registration only.
+    steps.append(LifecycleStep("managed_runtime", LifecycleStatus.PLANNED, "Would provision the managed runtime."))
     if request.mcp_scope is not InstallMcpScope.SKIP:
-        steps.extend(
-            (
-                LifecycleStep(
-                    "managed_runtime",
-                    LifecycleStatus.PLANNED,
-                    "Would provision the managed runtime.",
-                ),
-                LifecycleStep(
-                    "mcp_transport",
-                    LifecycleStatus.PLANNED,
-                    "Would configure the requested MCP clients.",
-                ),
-            )
-        )
+        steps.append(LifecycleStep("mcp_transport", LifecycleStatus.PLANNED, "Would configure the requested MCP clients."))
+    else:
+        # The same step execute reports, so a preview and the install list the same steps.
+        steps.append(LifecycleStep("mcp_transport", LifecycleStatus.NOOP, "MCP registration skipped."))
     return Ok(
         request.COMMAND_ID,
         request.COMMAND_VERSION,
@@ -404,8 +401,10 @@ def execute_install(context: LauncherContext, request: BrainInstallRequest):
     raw_steps = list(result.get("steps", []))
     effects = _install_effects(request, raw_steps)
     errors = [step for step in raw_steps if step.get("status") == "error"]
+    # Core's notes carry the remedy (runtime repair, MCP later); every route reaches the person with them.
+    notes = tuple(note for note in result.get("notes", []) if isinstance(note, str) and note)
     if errors:
-        message = errors[-1].get("message") or "Brain installation did not complete."
+        message = " ".join((errors[-1].get("message") or "Brain installation did not complete.", *notes))
         error = CommandError(ErrorCode.CONFLICT, message, RequestErrorDetails(None, message))
         if effects:
             return Partial(request.COMMAND_ID, request.COMMAND_VERSION, error, effects)
@@ -423,6 +422,7 @@ def execute_install(context: LauncherContext, request: BrainInstallRequest):
             _raw_steps(raw_steps),
         ),
         effects,
+        tuple(CommandWarning(WarningCode.FOLLOW_UP_REQUIRED, note) for note in notes),
     )
 
 

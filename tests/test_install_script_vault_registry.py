@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from brain_test_support import copy_install_source, launcher_discovery_path
+from brain_test_support import copy_install_source, offline_install_env, launcher_discovery_path
 
 
 @pytest.fixture(autouse=True)
@@ -31,6 +31,7 @@ def _run_install(source, vault_path, fake_home, *extra):
     env = os.environ.copy()
     env["HOME"] = str(fake_home)
     env.pop("XDG_CONFIG_HOME", None)
+    offline_install_env(env, fake_home.parent)
     return subprocess.run(
         [
             "bash", str(source / "install.sh"),
@@ -262,6 +263,7 @@ def _run_install_no_skip_mcp(source, vault_path, fake_home, *extra):
     env = os.environ.copy()
     env["HOME"] = str(fake_home)
     env.pop("XDG_CONFIG_HOME", None)
+    offline_install_env(env, fake_home.parent)
     return subprocess.run(
         [
             "bash", str(source / "install.sh"),
@@ -321,6 +323,7 @@ def test_explicit_id_registers_under_given_id(tmp_path, install_source):
     env = os.environ.copy()
     env["HOME"] = str(fake_home)
     env.pop("XDG_CONFIG_HOME", None)
+    offline_install_env(env, fake_home.parent)
     result = subprocess.run(
         [
             "bash", str(install_source / "install.sh"),
@@ -369,6 +372,7 @@ def test_explicit_id_collision_is_surfaced(tmp_path, install_source):
     env = os.environ.copy()
     env["HOME"] = str(fake_home)
     env.pop("XDG_CONFIG_HOME", None)
+    offline_install_env(env, fake_home.parent)
     result = subprocess.run(
         [
             "bash", str(install_source / "install.sh"),
@@ -411,6 +415,7 @@ def test_uninstall_removes_entry(tmp_path, install_source):
     env = os.environ.copy()
     env["HOME"] = str(fake_home)
     env.pop("XDG_CONFIG_HOME", None)
+    offline_install_env(env, fake_home.parent)
     result = subprocess.run(
         [
             "bash", str(install_source / "install.sh"),

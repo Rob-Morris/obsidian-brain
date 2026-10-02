@@ -209,7 +209,11 @@ def test_process_scan_reads_parent_pids_positionally(monkeypatch):
 def test_detection_classifies_the_machine_feed_and_excludes_brain_owned_scopes(tmp_path, monkeypatch):
     vault = _vault(tmp_path, "Brain A")
     summary = {
-        "stale_registry_entries": [{"alias": "old", "path": str(tmp_path / "Old")}],
+        "stale_registry_entries": [
+            {"alias": "old", "path": str(tmp_path / "Old"), "guidance": "brain registry remove-stale"},
+            # remove-stale would refuse this row, so it has no guidance and is reported for a person.
+            {"alias": "held", "path": str(tmp_path / "Held"), "guidance": None, "explanation": "needs manual recovery"},
+        ],
         "unregistered_brains": [str(tmp_path / "Unregistered")],
         "runtimes": [{"python": "/venvs/x/bin/python", "orphan_candidate": True}],
         "brains": [{
@@ -238,12 +242,20 @@ def test_detection_classifies_the_machine_feed_and_excludes_brain_owned_scopes(t
 
     kinds = sorted(item.check for item in findings)
     assert kinds == ["brain_repair", "brain_repair", "brain_unregistered", "legacy_installation",
-                     "mcp_registration", "orphan_runtime", "orphaned_process", "stale_vault_registry"]
+                     "mcp_registration", "orphan_runtime", "orphaned_process", "stale_vault_registry",
+                     "stale_vault_registry_blocked"]
     assert scan_available is True
     assert all(item.disposition is Disposition.JUDGEMENT for item in findings), "nothing on the machine side is automatic"
     unregistered = next(item for item in findings if item.check == "brain_unregistered")
     assert unregistered.subject == {"path": str(tmp_path / "Unregistered")}
+    blocked = next(item for item in findings if item.check == "stale_vault_registry_blocked")
+    assert (blocked.subject, blocked.message) == ({"path": str(tmp_path / "Held")}, "needs manual recovery")
+    removable = next(item for item in findings if item.check == "stale_vault_registry")
+    flipped = machine_maintenance._finding("stale_vault_registry", blocked.subject, "now removable",
+                                           disposition=Disposition.JUDGEMENT, identity="stale_vault_registry")
+    assert flipped.key == blocked.key != removable.key, "a row keeps its identity when its kind flips"
     groups = {group.check: group for group in group_by_family(findings)}
+    assert machine_maintenance._family_for(groups["stale_vault_registry_blocked"]) is None, "no command is named"
     assert machine_maintenance._guidance(groups["brain_unregistered"]) == (
         f"""brain register --request-json '{{"vault_root":"{tmp_path / "Unregistered"}"}}'"""
     )
@@ -274,7 +286,7 @@ def test_pass_runs_an_automatic_family_and_lists_the_rest(tmp_path, state_home, 
                                _finding("brain_unregistered", {"path": unregistered}),
                                _finding("orphan_runtime", {"python": "/venvs/x/bin/python"}))
     effect = CommittedEffect("registry.remove-stale", "file:/registry")
-    fake, calls = _sibling(Ok("registry.remove-stale", 1, object(), (effect,)))
+    fake, calls = _sibling(Ok("registry.remove-stale", 2, object(), (effect,)))
     monkeypatch.setattr(nested_invocation, "invoke_sibling", fake)
     receipts = _Receipts()
 
@@ -323,7 +335,7 @@ def test_a_real_pass_has_no_automatic_family_and_writes_an_empty_summary(tmp_pat
 
 def test_a_retryable_sibling_conflict_defers_the_group(tmp_path, state_home, fake_detection, fake_automatic_family, monkeypatch):
     fake_detection["value"] = (_automatic(),)
-    busy = Error("registry.remove-stale", 1, CommandError(ErrorCode.CONFLICT, "busy", RequestErrorDetails(None, "busy")),
+    busy = Error("registry.remove-stale", 2, CommandError(ErrorCode.CONFLICT, "busy", RequestErrorDetails(None, "busy")),
                  retryable=True)
     fake, _calls = _sibling(busy)
     monkeypatch.setattr(nested_invocation, "invoke_sibling", fake)
@@ -340,7 +352,7 @@ def test_unknown_launcher_sibling_is_recorded_unknown_and_reported_as_unknown_ef
 
     def unknown(invocation_id):
         reference = OutcomeReference(invocation_id)
-        return Error("registry.remove-stale", 1, CommandError(ErrorCode.COMMAND_OUTCOME_UNKNOWN, "lost",
+        return Error("registry.remove-stale", 2, CommandError(ErrorCode.COMMAND_OUTCOME_UNKNOWN, "lost",
                      OutcomeUnknownDetails(reference)), effects="unknown", outcome_reference=reference)
 
     fake, _calls = _sibling(unknown)

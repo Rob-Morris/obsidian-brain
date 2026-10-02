@@ -359,20 +359,30 @@ def install_vault_action(
         notes.append(f"Vault scaffold is present but NOT registered; run {vault_registry.register_guidance(vault_root)} for this vault.")
     steps.append(_ensure_git_ignore_rules(vault_root, client=client, mcp_scope=mcp_scope))
 
+    # The managed runtime is the dependency tier of managed CLI and direct commands (brain session
+    # start among them) as well as of the MCP server, so it is provisioned whatever the MCP scope.
+    runtime_step = _ensure_managed_runtime(vault_root, launcher_path)
+    steps.append(runtime_step)
+    if runtime_step["status"] == "error":
+        from _repair_common import build_repair_command
+
+        # repair.py is the form that works without the brain CLI (an install with --skip-cli).
+        notes.append("Vault scaffold is present, but the managed runtime is not: managed commands such as "
+                     "brain session start need it. Install Python 3.12 or newer if this host lacks it, then run "
+                     f"brain runtime repair --vault {vault_root} (or {build_repair_command(vault_root, 'runtime')}).")
+
     if mcp_scope == "skip":
         steps.append(_step("mcp_transport", "noop", "MCP registration skipped."))
-        notes.append("Register MCP later with configure.py mcp.")
+        notes.append("Register MCP later with brain mcp configure --vault "
+                     f"{vault_root} --request-json '{{\"client\":\"all\",\"scope\":\"project\"}}'.")
+    elif runtime_step["status"] == "error":
+        notes.append("MCP registration was not attempted; register it after the runtime repair.")
     else:
-        runtime_step = _ensure_managed_runtime(vault_root, launcher_path)
-        steps.append(runtime_step)
-        if runtime_step["status"] == "error":
-            notes.append("Vault scaffold is present; rerun runtime repair before registering MCP.")
-        else:
-            mcp_step, mcp_notes = _configure_mcp(vault_root, scope=mcp_scope, client=client)
-            steps.append(mcp_step)
-            notes.extend(mcp_notes)
-            if mcp_scope == "user" and mcp_step["status"] != "error":
-                steps.append(_set_default_brain(resolved_id))
+        mcp_step, mcp_notes = _configure_mcp(vault_root, scope=mcp_scope, client=client)
+        steps.append(mcp_step)
+        notes.extend(mcp_notes)
+        if mcp_scope == "user" and mcp_step["status"] != "error":
+            steps.append(_set_default_brain(resolved_id))
 
     return result()
 
@@ -408,7 +418,7 @@ def main(argv: list[str] | None = None) -> int:
             if any((args.approvals, args.approval_client, args.approval_scope)) and not all((args.approvals, args.approval_client, args.approval_scope)):
                 raise ValueError("Approval opt-in requires --approval-client, --approval-scope and --approvals")
             vault = _resolve_vault_root(args.vault)
-            request = {"vault_root": str(vault), "brain_id": vault_registry.preview_register_action(vault, args.brain_id).brain_id,
+            request = {"vault_root": str(vault), "brain_id": vault_registry.preview_register_action(vault, args.brain_id, installing=True).brain_id,
                        "mcp_scope": args.mcp_scope, "client": args.client}
             if args.approvals:
                 request.update(approval_client=args.approval_client, approval_scope=args.approval_scope,
