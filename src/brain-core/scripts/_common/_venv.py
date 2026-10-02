@@ -458,6 +458,25 @@ def run_managed(argv, *, role: str | None = None, env=None, **options) -> subpro
 _MIN_SUPPORTED_VERSION = (3, 12)
 
 
+def _parse_python_tag(tag: str) -> Optional[tuple[int, int]]:
+    """Parse a ``pyX.Y`` tag into ``(X, Y)``, or ``None`` when it is not one."""
+    if not tag.startswith("py"):
+        return None
+    parts = tag[len("py"):].split(".")
+    try:
+        return (int(parts[0]), int(parts[1])) if len(parts) == 2 else None
+    except ValueError:
+        return None
+
+
+def launcher_floor_error(tag: str, launcher) -> Optional[str]:
+    """Why a launcher cannot build a managed runtime (DD-048's 3.12 floor), or ``None`` when it can."""
+    version = _parse_python_tag(tag)
+    if version is None or version < _MIN_SUPPORTED_VERSION:
+        return f"{launcher} reports {tag}; the managed runtime needs Python 3.12 or newer"
+    return None
+
+
 def _parse_venv_minor(dirname: str, rhash: str) -> Optional[tuple[int, int]]:
     """Parse a central-venv directory name like ``py3.12-<hash>`` into ``(major, minor)``.
 
@@ -466,16 +485,9 @@ def _parse_venv_minor(dirname: str, rhash: str) -> Optional[tuple[int, int]]:
     ``rhash``. Defensive against junk directories under ``~/.brain/venvs/``.
     """
     suffix = f"-{rhash}"
-    if not dirname.endswith(suffix) or not dirname.startswith("py"):
+    if not dirname.endswith(suffix):
         return None
-    version_str = dirname[len("py"):-len(suffix)]
-    try:
-        parts = version_str.split(".")
-        if len(parts) != 2:
-            return None
-        return (int(parts[0]), int(parts[1]))
-    except ValueError:
-        return None
+    return _parse_python_tag(dirname[:-len(suffix)])
 
 
 def find_existing_central_venv(
@@ -641,6 +653,9 @@ def ensure_central_venv(
 
     tag = python_tag(launcher)
     rhash = requirements_hash(requirements_path)
+    floor_error = launcher_floor_error(tag, launcher)
+    if floor_error is not None:
+        raise RuntimeError(floor_error)
     venv_dir = central_venvs_root() / f"{tag}-{rhash}"
     py = venv_python(venv_dir)
     # Readiness probe: the venv interpreter alone is not a guarantee that the
@@ -990,8 +1005,13 @@ def resolve_or_provision_central_venv(
                 "effect_outcome": "committed" if changed else "none",
             }
 
-    # Step 5: no runtime exists — create the exact-tag venv.
+    # Step 5: no runtime exists — create the exact-tag venv, never below the 3.12 floor. The floor is
+    # checked before the dry-run return, so a preview and the real run agree.
     new_tag = python_tag(launcher)
+    floor_error = launcher_floor_error(new_tag, launcher)
+    if floor_error is not None:
+        return {"outcome": RUNTIME_ERROR, "python": None, "venv_dir": None, "effect_outcome": "none",
+                "message": floor_error}
     new_dir = central_venvs_root() / f"{new_tag}-{rhash}"
     new_py = venv_python(new_dir)
     if dry_run:
@@ -1066,8 +1086,8 @@ def _main(argv: Optional[list[str]] = None) -> int:
     - `runnable-python --vault X --launcher Y` — print the first existing
       runnable python in the fallback chain: central venv → legacy
       `<vault>/.venv` → launcher. Used by `cli/brain` so dispatched
-      subcommands remain usable in supported no-runtime states (e.g.
-      `bash install.sh --skip-mcp <vault>`). Exits non-zero if no
+      subcommands remain usable in supported no-runtime states (e.g. an
+      install whose runtime step failed offline). Exits non-zero if no
       candidate exists.
     - `ensure --vault X --launcher Y` — create the central venv if missing
       and (re-)run pip when the readiness sentinel is absent. Prints the

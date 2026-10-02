@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import os
 from pathlib import Path
 import re
 
@@ -69,6 +70,7 @@ def preflight(
     selected = selected_vault.resolve()
     classified: list[CutoverBrain] = []
     stale: list[str] = []
+    explanations: dict[str, str] = {}
     remote: list[str] = []
     paths: dict[Path, str] = {}
     source_version = _version(source_brain_core_version, "source Brain Core")
@@ -90,11 +92,16 @@ def preflight(
                 f"registry entry {brain_id!r} has unsupported kind {entry.kind!r}"
             )
         root = Path(entry.value).expanduser()
-        if not root.is_absolute() or root.is_symlink():
+        if not root.is_absolute():
             raise CutoverPreflightError(
                 f"registry entry {brain_id!r} has an unsafe local path"
             )
-        resolved = root.resolve()
+        if vault_registry.stale_reason(entry) is not None:
+            # vault_registry's one stale rule: a drifted row, or one naming no Brain, is never followed.
+            stale.append(brain_id)
+            explanations[brain_id] = vault_registry.stale_explanation(entry, entries)
+            continue
+        resolved = root
         previous = paths.get(resolved)
         if previous is not None:
             raise CutoverPreflightError(
@@ -121,7 +128,7 @@ def preflight(
                 brain_id,
                 str(resolved),
                 version_text,
-                resolved == selected,
+                vault_registry.row_matches(entry, selected),
                 parsed < CUTOVER_VERSION,
                 parsed >= (0, 70, 0),
             )
@@ -138,13 +145,16 @@ def preflight(
     unclassified = sorted(set(stale) - set(exclusions))
     if unclassified:
         raise CutoverPreflightError(
-            "stale registry entries require explicit exclusion before cutover: "
-            + ", ".join(unclassified)
+            "stale registry entries require explicit exclusion before cutover (or recover them first): "
+            + "; ".join(f"{brain_id}: {explanations.get(brain_id, 'stale')}" for brain_id in unclassified)
         )
     selected_ids = tuple(item.brain_id for item in classified if item.selected)
     if not selected_ids:
+        drifted = sorted(brain_id for brain_id in stale
+                         if os.path.realpath(entries[brain_id].value) == str(selected))
         raise CutoverPreflightError(
             "the selected Brain is not present in the complete local registry"
+            + (f"; it is the stale row {explanations[drifted[0]]}" if drifted else "")
         )
     affected = tuple(
         item.brain_id

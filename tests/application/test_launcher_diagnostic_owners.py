@@ -106,7 +106,9 @@ def _machine_report(tmp_path):
             "runtimes": 1,
             "orphan_candidates": 1,
         },
-        "stale_registry_entries": [{"alias": "gone", "path": str((tmp_path / "Gone").resolve())}],
+        "stale_registry_entries": [{"alias": "gone", "path": str((tmp_path / "Gone").resolve()),
+                                    "reason": "not_a_brain", "guidance": "brain registry remove-stale",
+                                    "explanation": "Brain ID 'gone' points at a path that is not an installed Brain"}],
         "unregistered_brains": [],
         "brains": [
             {
@@ -229,7 +231,9 @@ def test_doctor_returns_bounded_typed_diagnosis_without_registry_sync(
     assert result.result.exit_code == 1
     assert result.result.machine.registry.state is DoctorRegistryState.STALE
     assert result.result.machine.registry.brains_count == 1
-    assert result.result.machine.stale_vault_registry_entries[0].alias == "gone"
+    [gone] = result.result.machine.stale_vault_registry_entries
+    assert (gone.alias, gone.reason, gone.guidance) == ("gone", "not_a_brain", "brain registry remove-stale")
+    assert gone.explanation == "Brain ID 'gone' points at a path that is not an installed Brain"
     assert result.result.machine.counts.orphan_candidates == 1
     assert result.result.machine.memory.measured_count == 1
     assert result.result.machine.memory.heavy_processes[0].pid == 4242

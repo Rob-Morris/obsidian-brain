@@ -91,7 +91,10 @@ def test_discover_brains_reads_the_vault_registry_and_the_current_vault(monkeypa
     assert summary["brains"][0]["sources"] == ["current"]
     assert summary["brains"][1]["sources"] == ["vault_registry"]
     assert summary["stale_registry_entries"] == [
-        {"alias": "missing", "path": str(stale.resolve())},
+        {"alias": "missing", "path": str(stale.resolve()), "reason": "not_a_brain",
+         "guidance": "brain registry remove-stale",
+         "explanation": f"Brain ID 'missing' points at {stale.resolve()}, which is not an installed Brain; "
+                        "run brain registry remove-stale"},
     ]
     assert summary["unregistered_brains"] == [str(current.resolve())]
     assert summary["registry"] == {

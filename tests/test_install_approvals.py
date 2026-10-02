@@ -9,7 +9,7 @@ import sys
 
 import pytest
 
-from brain_test_support import copy_install_source
+from brain_test_support import copy_install_source, offline_install_env
 from _bootstrap.mcp_registration import user_ledger_path
 import vault_registry
 
@@ -97,6 +97,7 @@ def test_fresh_install_and_same_version_rerun_apply_managed_cli_approvals(tmp_pa
     claude.write_text("#!/bin/sh\nprintf '99.0.0\\n'\n")
     claude.chmod(0o755)
     monkeypatch.setenv("PATH", str(fake_bin) + os.pathsep + os.environ["PATH"])
+    monkeypatch.setenv("BRAIN_VENV_LAUNCHER", offline_install_env({}, tmp_path)["BRAIN_VENV_LAUNCHER"])
     vault = tmp_path / "vault"
     command = [
         "bash", str(source / "install.sh"), "--non-interactive", "--skip-mcp",

@@ -821,3 +821,137 @@ def test_a_registry_write_that_loses_a_race_writes_nothing_and_is_retryable(comm
     assert "changed while this command was updating it" in result.error.message
     assert set(workspace_registry.load_registry(root)) == {"linked", "by-mcp"}
     assert folder.is_dir()
+
+
+# One rule for a workspace planner's known refusal on access.prepare: a defect in the request or in the
+# binding it names is invalid_request; a failure to read or use local state is conflict, the class invoke
+# reports for the same case.
+PLANNER_REFUSALS = [
+    ("already-bound", "invalid_request"), ("vault-root", "invalid_request"),
+    ("malformed-manifest", "invalid_request"), ("unknown-key", "invalid_request"),
+    ("metadata-malformed-manifest", "invalid_request"), ("missing-router", "conflict"),
+    ("broken-git", "conflict"), ("manifest-is-a-directory", "conflict"),
+    ("unreadable-vault-registry", "conflict"), ("unreadable-workspace-registry", "conflict"),
+    ("unreadable-gitignore", "conflict"), ("unreadable-claude-md", "conflict"),
+]
+_UNREADABLE = {"unreadable-vault-registry", "unreadable-workspace-registry", "unreadable-gitignore",
+               "unreadable-claude-md"}
+
+
+def _planner_refusal(refusal, root, tmp_path):
+    """Arrange one known planner refusal; returns (command, arguments, request, workspace, expected, unreadable)."""
+    import subprocess
+    import vault_registry
+
+    vault_registry.register(root, "command-vault")
+    workspace = (tmp_path / "workspace").resolve()
+    (workspace / ".brain" / "local").mkdir(parents=True)
+    manifest = workspace / ".brain" / "local" / "workspace.yaml"
+    command, arguments, request, expected, unreadable = "workspace.setup", {}, WorkspaceSetupRequest(), None, None
+    if refusal == "already-bound":
+        register_other_brain(tmp_path, "other-brain")
+        manifest.write_text("brain: other-brain\nslug: workspace\n")
+        expected = "already binds this workspace to 'other-brain'"
+    elif refusal == "vault-root":
+        workspace = root
+        expected = "is a Brain vault root"
+    elif refusal == "malformed-manifest":
+        manifest.write_text("brain: [unclosed\n")
+        expected = "failed to load"
+    elif refusal == "unknown-key":
+        command, arguments = "workspace.unregister", {"key": "absent"}
+        request, expected = WorkspaceUnregisterRequest("absent"), "is not registered as a linked workspace"
+    elif refusal == "metadata-malformed-manifest":
+        manifest.write_text("brain: [unclosed\n")
+        command, arguments = "workspace.update-metadata", {"tags": ["project/x"]}
+        request, expected = WorkspaceUpdateMetadataRequest(tags=("project/x",)), "failed to load"
+    elif refusal == "missing-router":
+        (root / ".brain" / "local" / "compiled-router.json").unlink()
+        expected = "router"
+    elif refusal == "broken-git":
+        (workspace / ".git").write_text("gitdir: /nonexistent/git-dir\n")
+        expected = "git"
+    elif refusal == "manifest-is-a-directory":
+        manifest.mkdir()
+        expected = "cannot read"
+    elif refusal == "unreadable-vault-registry":
+        unreadable, expected = Path(vault_registry.registry_path()), "registry"
+    elif refusal == "unreadable-workspace-registry":
+        unreadable = root / ".brain" / "local" / "workspaces.json"
+        unreadable.write_text(json.dumps({"workspaces": {}}))
+        expected = "workspaces.json"
+    elif refusal == "unreadable-gitignore":
+        subprocess.run(["git", "init", "-q", str(workspace)], check=True)
+        unreadable = workspace / ".gitignore"
+        unreadable.write_text("user-owned\n")
+        expected = ".gitignore"
+    else:
+        unreadable = workspace / "CLAUDE.md"
+        unreadable.write_text("user-owned\n")
+        command, arguments = "workspace.configure-bootstrap", {"surface": "claude"}
+        request, expected = WorkspaceConfigureBootstrapRequest("claude"), "CLAUDE.md"
+    return command, arguments, request, workspace, expected, unreadable
+
+
+def _unreadable(path):
+    import os
+    import sys
+
+    if path is not None:
+        if sys.platform == "win32" or os.geteuid() == 0:
+            pytest.skip("POSIX permission bits that bind the test user")
+        path.chmod(0)
+
+
+@pytest.mark.parametrize(("refusal", "reason"), PLANNER_REFUSALS)
+def test_workspace_planner_refusals_reach_access_prepare_with_no_effects(command_vault_clone, tmp_path, refusal, reason):
+    """A planner's known refusal is a no-effect consent error on access.prepare, never an unknown outcome."""
+    from _application.consent import ConsentError
+    from command_application import context_for
+
+    root = command_vault_clone.vault_root
+    command, arguments, _request, workspace, expected, unreadable = _planner_refusal(refusal, root, tmp_path)
+    before = folder_tree(workspace) if workspace != root else None
+    context = context_for(root, context_kind="cli-job", dependency_tier=DependencyTier.PORTABLE,
+        workspace_dir=workspace, providers=(_CallerFilesystemProvider(),),
+        capabilities=(Capability("caller_filesystem", Availability.AVAILABLE),))
+    _unreadable(unreadable)
+
+    try:
+        with pytest.raises(ConsentError) as raised:
+            context.access.prepare(command, arguments)
+    finally:
+        if unreadable is not None:
+            unreadable.chmod(0o644)
+
+    assert raised.value.reason == reason, raised.value
+    assert expected.lower() in str(raised.value).lower(), str(raised.value)
+    if before is not None:
+        assert folder_tree(workspace) == before
+
+
+@pytest.mark.parametrize("refusal", ["missing-router", *sorted(_UNREADABLE)])
+def test_workspace_invoke_keeps_its_own_no_effect_refusal(command_vault_clone, tmp_path, refusal):
+    """Only the prepare path converts: invoke keeps a stale router's cache details and next action, and a
+    local read failure stays a no-effect CONFLICT."""
+    root = command_vault_clone.vault_root
+    _command, _arguments, request, workspace, expected, unreadable = _planner_refusal(refusal, root, tmp_path)
+    before = folder_tree(workspace)
+    _unreadable(unreadable)
+
+    try:
+        result = _caller_application(root, workspace).invoke(request)
+    finally:
+        if unreadable is not None:
+            unreadable.chmod(0o644)
+
+    assert result.status == "error" and result.effects == "none", result
+    assert result.error.code is ErrorCode.CONFLICT, result
+    if refusal == "missing-router":
+        assert type(result.error.details).__name__ == "CacheErrorDetails"
+        assert result.error.next_action.command_id == "runtime.refresh-router"
+    else:
+        assert expected.lower() in result.error.message.lower(), result.error.message
+    after = folder_tree(workspace)
+    after.pop(".brain/local/mutation.lock", None)  # invoke takes the folder lock before it reads
+    assert after == before

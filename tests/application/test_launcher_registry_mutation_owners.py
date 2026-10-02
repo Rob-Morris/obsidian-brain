@@ -224,8 +224,12 @@ def test_unregister_reports_registry_and_default_effects(vault, tmp_path):
 
 def test_remove_stale_removes_only_stale_registrations(vault, tmp_path):
     stale = tmp_path / "missing-brain"
+    (stale / ".brain-core").mkdir(parents=True)
+    (stale / ".brain-core" / "VERSION").write_text("0.70.10\n")
     vault_registry.register(vault, brain_id="live-brain")
     vault_registry.register(stale, brain_id="stale-brain")
+    import shutil
+    shutil.rmtree(stale)  # registered while installed; the Brain has since gone
 
     result = _invocation(tmp_path).invoke(RegistryRemoveStaleRequest())
 
@@ -331,3 +335,52 @@ def test_unexpected_registry_failure_is_a_non_retryable_unknown_outcome(
 def test_registry_mutation_requests_reject_invalid_intent(request_factory):
     with pytest.raises(ValueError):
         request_factory()
+
+
+def _drift(tmp_path):
+    """Register /a/Brain, move it to /d/Brain and leave a symlink at the old path."""
+    import vault_registry
+
+    old = tmp_path / "a" / "Brain"
+    (old / ".brain-core").mkdir(parents=True)
+    (old / ".brain-core" / "VERSION").write_text("0.70.10\n")
+    vault_registry.register(str(old), "moved")
+    moved = (tmp_path / "d" / "Brain").resolve()
+    moved.parent.mkdir()
+    old.rename(moved)
+    old.symlink_to(moved)
+    return old, moved
+
+
+@pytest.mark.parametrize("brain_id", [None, "moved", "fresh"])
+def test_register_never_gives_a_drifted_rows_brain_a_second_id(tmp_path, brain_id):
+    """brain.register v2: whatever ID is asked for, the Brain a drifted row resolves to is refused."""
+    import vault_registry
+
+    old, moved = _drift(tmp_path)
+
+    result = _invocation(tmp_path).invoke(BrainRegisterRequest(moved, brain_id))
+
+    assert result.status == "error" and result.command_version == 2, result
+    assert "brain registry remove-stale" in result.error.message
+    assert vault_registry.resolve("moved") == str(old) and vault_registry.resolve("fresh") is None
+
+
+def test_list_and_resolve_report_a_drifted_row_with_its_recovery(tmp_path):
+    """brain.list v2 carries the reason and guidance; brain.resolve v2 refuses a stale row."""
+    import vault_registry
+    from _launcher.registry import BrainListRequest, BrainResolveRequest
+
+    old, moved = _drift(tmp_path)
+    invocation = _invocation(tmp_path)
+
+    listed = invocation.invoke(BrainListRequest())
+    resolved = invocation.invoke(BrainResolveRequest("moved"))
+
+    [entry] = listed.result.entries
+    assert (entry.stale, entry.stale_reason) == (True, vault_registry.STALE_NOT_CANONICAL)
+    assert entry.stale_guidance == "brain registry remove-stale"
+    assert entry.stale_explanation == vault_registry.list_entries()[0]["stale_explanation"]
+    assert str(old) in entry.stale_explanation and str(moved) in entry.stale_explanation
+    assert resolved.status == "error" and resolved.command_version == 2
+    assert vault_registry.register_guidance(moved, brain_id="moved") in resolved.error.message

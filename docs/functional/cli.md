@@ -42,10 +42,12 @@ The CLI 3 launcher break is deliberate:
 | `brain machine migrate-legacy` | `brain migrate-legacy-installations` | Migrate legacy Brain installations on this machine. |
 | `brain machine prune-runtimes` | `brain runtime remove-orphans` | Remove orphaned managed runtimes. |
 | `brain backfill` | `brain register` | Register an installed Brain; the removed command duplicated this operation. |
-| `brain prune` | `brain registry remove-stale` | Remove stale local Brain registry entries. |
+| `brain prune` | `brain registry remove-stale` | Remove stale local Brain registry entries (version 2): rows that name no installed Brain, or that are no longer their own canonical path (a symlink left at an old path). It removes every stale row or none, and refuses while any stale row still owns MCP integrations (a drifted row's at the path it resolves to), while managed approvals hold records and a row has drifted, or while the approval state itself needs recovery. `brain list` and `brain doctor` name it as a row's guidance only where it would succeed. While another row blocks it, a canonical row is named for `brain unregister` instead, unless approvals hold records; otherwise the explanation says what blocks it. After removing a moved Brain's drifted row, register the Brain again with `brain register` and its old `brain_id`. |
 | `brain runtime resolve` and `brain runtime resolve-runnable` | `brain runtime inspect` | Report the expected managed runtime and the selected runnable Python source together. |
 
-`brain resolve` remains the direct registry lookup from Brain ID to vault path. These launcher commands are CLI-only; the MCP catalogue is unchanged.
+`brain resolve` remains the direct registry lookup from Brain ID to vault path; version 2 refuses a stale row with its recovery. These launcher commands are CLI-only; the MCP catalogue is unchanged.
+
+A vault registry row that is no longer its own canonical path never selects a Brain. `brain register` (version 2) registers only an installed Brain and never gives the Brain a drifted row resolves to a second ID, whatever ID is passed. `brain unregister` (version 2) accepts an ordinary path through a symlink and refuses only when a drifted row makes it ambiguous: the path is a drifted row's stored value, or a drifted row also resolves to the Brain it names. `brain list` (version 2) reports each stale row's `stale_reason`, `stale_guidance` and `stale_explanation`, and `brain doctor` carries the same `reason`, `guidance` and `explanation` for each stale row. The guidance is empty when no command recovers the row; the explanation then says why.
 
 `--request-json -` reads the object from standard input. Unknown fields, malformed JSON, unknown launcher entry points and application commands with anything other than one noun and one verb fail as request errors.
 
@@ -451,8 +453,9 @@ pass gets `authority_denied` (exit 3).
 
 Machine-owned findings (`runtime`, `mcp`) are listed as "see the machine
 pass"; `brain machine-maintenance run` mirrors the Brain pass over Doctor's
-feed. It has no automatic family: stale vault registry rows, an unregistered
-current Brain (listed with its `brain register` command), orphaned runtimes,
+feed. It has no automatic family: stale vault registry rows (a row that
+remove-stale would refuse is `stale_vault_registry_blocked`, with no repair
+command, because it needs manual recovery), an unregistered current Brain (listed with its `brain register` command), orphaned runtimes,
 MCP drift, legacy installs and orphaned Brain processes are all judgement
 findings, so a pass detects, lists and writes `last-pass` with no groups. An
 `unknown` machine sibling would be reported the same way as on the Brain
@@ -566,13 +569,13 @@ embeddings, so `semantic` is almost always advised on semantic vaults until
 
 CLI 3 can identify and recover an installed Brain older than 0.55.0, but it does not translate old grammars. Launcher-owned version, doctor, install and upgrade/recovery commands remain available. Attempting an application command returns structural `upgrade_required`; that Brain's own legacy scripts remain directly invocable until the Brain is upgraded.
 
-`brain.upgrade` v2 performs a complete-registry preflight and coordinates Brain Core 0.55+, the installed CLI, catalogue, manifest and proxy contracts. Known other pre-cutover Brains require `acknowledge_global_cli_cutover: true`. Stale registry IDs require an exact sorted `excluded_stale_brain_ids` list; unknown registry scope cannot be waived.
+`brain.upgrade` v3 performs a complete-registry preflight and coordinates Brain Core 0.55+, the installed CLI, catalogue, manifest and proxy contracts. Known other pre-cutover Brains require `acknowledge_global_cli_cutover: true`. Stale registry IDs, including a row that is no longer its own canonical path (version 3; v2 refused it as an unsafe path), require an exact sorted `excluded_stale_brain_ids` list; unknown registry scope cannot be waived.
 
 After provisioning the target managed runtime, upgrade invokes the compatible machine CLI's ownership migration and Brain-breadth MCP repair. This covers shared user registration even when the vault has no project registration, and the selected Brain's registered external targets. Registration or readiness failure is a known partial outcome with explicit effects and recovery guidance, not a false success. Upgrade then starts or joins the selected Brain's canonical runtime warm-up and waits for a recorded `ready` state. Its read-only machine inspection recommends explicit runtime removal only when both persisted-registration coverage and live-process inspection permit it.
 
 ## MCP registration and repair
 
-`mcp.configure` v3 requires `client`: `claude`, `codex`, `grok`, or `all`.
+`mcp.configure` v4 requires `client`: `claude`, `codex`, `grok`, or `all` (v4: a workspace bound to a Brain whose registry row is no longer canonical refuses, with that row's recovery).
 Claude supports `project`, `local`, and `user`; Codex and Grok support project
 and user only. `all` with local scope selects Claude and reports the exclusions.
 Configuration never creates a workspace binding or changes the machine default.

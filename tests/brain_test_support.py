@@ -10,6 +10,7 @@ from ``brain_test_support`` directly.
 """
 
 import atexit
+import contextlib
 import functools
 import os
 from pathlib import Path
@@ -339,3 +340,35 @@ def link_folder(vault, folder, key, manifest=None):
 def manifest_text(key, brain="brain"):
     """A manifest linking a folder to ``brain`` under the hub key ``key``."""
     return f"brain: {brain}\nslug: s\nlinks:\n  workspace: {key}\n"
+
+
+@contextlib.contextmanager
+def offline_managed_runtime():
+    """An in-process install whose managed-runtime step is a stand-in that provisions nothing.
+
+    Every install now provisions the runtime whatever its MCP scope, which
+    would run pip and write under the real ``~/.brain/venvs``; this keeps an
+    in-process install offline and leaves no runtime, as a skip install once did.
+    """
+    import install
+
+    real = install._ensure_managed_runtime
+    install._ensure_managed_runtime = lambda _vault_root, _launcher: install._step(
+        "managed_runtime", "noop", "Offline test stand-in: no managed runtime provisioned.")
+    try:
+        yield
+    finally:
+        install._ensure_managed_runtime = real
+
+
+def offline_install_env(env, directory):
+    """Point a subprocess install's runtime provisioning at a launcher stub whose venv and pip are stand-ins.
+
+    The stub delegates ``-c`` probes to this interpreter, so the runtime lands
+    at the path the real launcher would use, under the environment's ``HOME``.
+    """
+    launcher = Path(directory) / "offline-launcher" / "python3.12"
+    if not launcher.exists():
+        write_fake_launcher(launcher, cversion=None, venv="ok")
+    env["BRAIN_VENV_LAUNCHER"] = str(launcher)
+    return env

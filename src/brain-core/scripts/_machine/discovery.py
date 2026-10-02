@@ -12,7 +12,6 @@ from pathlib import Path
 from typing import Any
 
 from _common import is_vault_root
-from _common._vault import is_brain_vault
 import vault_registry
 
 
@@ -79,13 +78,16 @@ def discover_brains(
     for entry in vault_registry.list_entries():
         if entry.get("kind") != vault_registry.TYPE_LOCAL:
             continue
-        registry_path = _canonical_brain_path(entry["value"])
-        # The same narrow predicate as resolution and the MCP inventory: a registered Brain is present
-        # only with its .brain-core/VERSION, so a row is never a Brain here and absent there.
-        if entry["stale"] or not is_brain_vault(registry_path):
-            stale_registry_entries.append(
-                {"alias": entry["alias"], "path": str(registry_path)}
-            )
+        # The stored value is used as stored: vault_registry's one stale rule (a row that is not its own
+        # realpath, or names no .brain-core/VERSION) decides, so a symlinked row is stale here and
+        # everywhere, never canonicalised into a match.
+        registry_path = Path(entry["value"])
+        if entry["stale"]:
+            stale_registry_entries.append({
+                "alias": entry["alias"], "path": str(registry_path),
+                "reason": entry["stale_reason"], "guidance": entry["stale_guidance"],
+                "explanation": entry["stale_explanation"],
+            })
             continue
 
         _merge_brain_entry(

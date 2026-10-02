@@ -2,9 +2,61 @@
 
 from __future__ import annotations
 
+from contextlib import contextmanager
 from pathlib import Path
 
 from ..preparation import ObservedResource, bind_operation, content_digest
+
+
+class PlannerRefusal(ValueError):
+    """A workspace planner's known refusal on the ``access.prepare`` path, with the consent reason it reports.
+
+    One rule: a defect in the request or in the binding it names is
+    ``invalid_request``; a failure to read or use local state is ``conflict``,
+    the class invoke reports for the same case (a no-effect ``CONFLICT``).
+    """
+
+    def __init__(self, message: str, *, consent_reason: str = "invalid_request"):
+        super().__init__(message)
+        self.consent_reason = consent_reason
+
+
+@contextmanager
+def planner_refusals():
+    """A known refusal leaves a workspace planner as ``PlannerRefusal``, never as an unknown outcome.
+
+    ``access.prepare`` maps a ``ValueError`` to its ``consent_reason`` with no
+    effects (the planner convention in ``access_session``). A binding refusal
+    (already bound without ``force``, the vault root, a malformed manifest)
+    is ``invalid_request``; a binding read failure (``filesystem_access``), a
+    stale or missing router, a broken git checkout, a permission failure and a
+    path that cannot be read as a file are ``conflict``.
+    """
+    from _bootstrap.workspace_binding import WORKSPACE_ERROR_FILESYSTEM_ACCESS, WorkspaceBindingError
+    from _bootstrap.workspace_scaffold import GitInspectionError
+    from _lifecycle.derived_cache_state import RouterCacheUnavailable
+
+    try:
+        yield
+    except WorkspaceBindingError as exc:
+        reason = "conflict" if exc.code == WORKSPACE_ERROR_FILESYSTEM_ACCESS else "invalid_request"
+        raise PlannerRefusal(str(exc), consent_reason=reason) from exc
+    except (RouterCacheUnavailable, GitInspectionError) as exc:
+        raise PlannerRefusal(str(exc), consent_reason="conflict") from exc
+    except (PermissionError, IsADirectoryError, NotADirectoryError) as exc:
+        raise PlannerRefusal(f"workspace preparation cannot read {exc.filename}: {exc.strerror}",
+                             consent_reason="conflict") from exc
+
+
+def prepare_workspace_for_consent(context, request, *, frozen_inputs=None):
+    """The ``access.prepare`` planner for workspace commands: a known refusal is a no-effect consent error.
+
+    Invoke admits through ``prepare_workspace`` and ``plan_setup`` directly, so
+    its errors keep their own mapping (a stale router keeps its cache details
+    and the ``runtime.refresh-router`` next action).
+    """
+    with planner_refusals():
+        return prepare_workspace(context, request, frozen_inputs=frozen_inputs)
 
 
 def _observe_file(path: Path) -> ObservedResource:

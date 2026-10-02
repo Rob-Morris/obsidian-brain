@@ -13,7 +13,7 @@ import uuid
 
 import pytest
 
-from brain_test_support import copy_install_source, folder_tree, register_other_brain
+from brain_test_support import copy_install_source, folder_tree, offline_install_env, register_other_brain
 from _common import config_home, resolve_vault_venv_python
 from _machine import maintenance, topology
 from _machine.maintenance import collect_machine_summary
@@ -38,9 +38,9 @@ def _no_live_processes(monkeypatch):
 def installed_vault(tmp_path, fake_home):
     """Install into an empty home as a real ``install.py`` subprocess, then stand in a central runtime.
 
-    A ``--mcp-scope skip`` install provisions no managed runtime, and Doctor
-    needs one to report a healthy Brain, so the symlink supplies what a
-    non-skip install would have created.
+    Every install provisions the managed runtime, even with ``--mcp-scope
+    skip``; the offline launcher stub creates it without pip, and the symlink
+    then makes its interpreter a real one so Doctor can probe it.
     """
     source = tmp_path / "source"
     source.mkdir()
@@ -49,12 +49,15 @@ def installed_vault(tmp_path, fake_home):
     completed = subprocess.run(
         [sys.executable, str(source / "src" / "brain-core" / "scripts" / "install.py"), str(vault),
          "--source-root", str(source), "--mcp-scope", "skip", "--json"],
-        capture_output=True, text=True, env=os.environ.copy(), check=False,
+        capture_output=True, text=True, env=offline_install_env(os.environ.copy(), tmp_path), check=False,
     )
     assert completed.returncode == 0, completed.stderr + completed.stdout
-    assert json.loads(completed.stdout)["status"] == "ok"
+    install = json.loads(completed.stdout)
+    assert install["status"] == "ok"
+    assert {step["name"]: step["status"] for step in install["steps"]}["managed_runtime"] == "changed"
     runtime = resolve_vault_venv_python(vault, launcher=Path(sys.executable))
-    runtime.parent.mkdir(parents=True, exist_ok=True)
+    assert runtime.is_file(), "the skip install provisioned the runtime Doctor resolves"
+    runtime.unlink()
     runtime.symlink_to(sys.executable)
     return vault.resolve()
 

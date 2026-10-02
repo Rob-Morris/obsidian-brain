@@ -9,7 +9,7 @@ import shutil
 import sys
 
 from _bootstrap.file_transaction import FilePlan
-from _bootstrap.mcp_registration import user_ledger_path
+from _bootstrap.mcp_registration import APPROVAL_LEDGER_SCHEMA, user_ledger_path
 from _common._venv import run_managed
 
 
@@ -18,6 +18,53 @@ def approvals_present(home: Path | None = None) -> bool:
     base = user_ledger_path(home or Path.home()).parent
     return any(FilePlan().read_bytes(base / name) is not None for name in (
         "client-approvals.json", "client-approvals.pending.json", "client-approvals.transitions.json"))
+
+
+def _approval_ledger(home: Path | None):
+    """The managed approval ledger's records, or ``None`` when it cannot be used as the writer would.
+
+    ``{}`` when the ledger is absent. A ledger that cannot be read or parsed, or
+    whose schema is not the one the managed writer accepts, gives ``None``: the
+    writer refuses it too.
+    """
+    path = user_ledger_path(home or Path.home()).with_name("client-approvals.json")
+    try:
+        content = FilePlan().read_text(path)
+        if content is None:
+            return {}
+        value = json.loads(content)
+    except (OSError, ValueError):
+        return None
+    if not isinstance(value, dict) or value.get("schema") != APPROVAL_LEDGER_SCHEMA:
+        return None
+    records = value.get("records")
+    return records if isinstance(records, dict) else None
+
+
+def approval_records_present(home: Path | None = None) -> bool:
+    """Whether the managed approval ledger holds records, or cannot be used.
+
+    The managed writer reads the strict Brain inventory around a registry
+    change only when it holds records, so this is the fact that decides whether
+    that inventory can refuse. A ledger it could not use counts as holding
+    records: the writer refuses it too.
+    """
+    records = _approval_ledger(home)
+    return records is None or bool(records)
+
+
+def approval_state_blocks_changes(home: Path | None = None) -> bool:
+    """Whether the managed writer refuses every registry change until approvals are recovered.
+
+    That is an unusable ledger or a pending approval transaction journal.
+    """
+    if _approval_ledger(home) is None:
+        return True
+    journal = user_ledger_path(home or Path.home()).with_name("client-approvals.pending.json")
+    try:
+        return FilePlan().read_bytes(journal) is not None
+    except (OSError, ValueError):
+        return True
 
 
 def invoke(command: str, request: dict, *, source_root: Path | None = None,

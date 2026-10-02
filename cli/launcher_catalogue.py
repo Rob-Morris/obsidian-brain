@@ -239,10 +239,10 @@ LAUNCHER_CATALOGUE = LauncherCatalogue(
                     "_launcher.lifecycle:install",
                     "brain",
                     "install",
-                    version=4,
+                    version=5,
                     approval_transition="install",
                 ),
-                _read("brain.list", "_launcher.registry:list", "brain", "list"),
+                _read("brain.list", "_launcher.registry:list", "brain", "list", version=2),
                 _mutation(
                     "brain.migrate-legacy-installations",
                     "_launcher.machine:migrate_legacy_installations",
@@ -252,10 +252,11 @@ LAUNCHER_CATALOGUE = LauncherCatalogue(
                     approval_transition="inventory",
                 ),
                 _mutation(
-                    "brain.register", "_launcher.registry:register", "brain", "register", approval_transition="add"
+                    "brain.register", "_launcher.registry:register", "brain", "register", version=2,
+                    approval_transition="add",
                 ),
                 _read(
-                    "brain.resolve", "_launcher.registry:resolve", "brain", "resolve"
+                    "brain.resolve", "_launcher.registry:resolve", "brain", "resolve", version=2
                 ),
                 _mutation(
                     "brain.set-default",
@@ -277,11 +278,12 @@ LAUNCHER_CATALOGUE = LauncherCatalogue(
                     "_launcher.registry:unregister",
                     "brain",
                     "unregister",
+                    version=2,
                     approval_transition="remove",
                 ),
                 LauncherEntry(
                     "brain.upgrade",
-                    2,
+                    3,
                     "_launcher.lifecycle:upgrade",
                     ("brain", "upgrade"),
                     "operator",
@@ -297,7 +299,7 @@ LAUNCHER_CATALOGUE = LauncherCatalogue(
                     "brain",
                     "mcp",
                     "configure",
-                    version=3,
+                    version=4,
                     approval_transition="transport",
                 ),
                 _mutation(
@@ -346,6 +348,7 @@ LAUNCHER_CATALOGUE = LauncherCatalogue(
                     "brain",
                     "registry",
                     "remove-stale",
+                    version=2,
                     approval_transition="prune",
                 ),
                 _mutation(

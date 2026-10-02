@@ -13,6 +13,9 @@ from _bootstrap.paths import config_home
 
 REGISTRATION_SCHEMA = "brain.mcp-registration/2"
 LEDGER_VERSION = 2
+# The managed client approval ledger (client-approvals.json beside the user ledger). Core reads it only to
+# know whether the managed writer will refuse a registry change; the launcher owns writing it.
+APPROVAL_LEDGER_SCHEMA = "brain.client-approvals/1"
 
 
 def user_ledger_path(home: Path) -> Path:
