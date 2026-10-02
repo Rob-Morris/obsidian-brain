@@ -203,7 +203,7 @@ def detect_machine(context: LauncherContext) -> tuple[tuple[MaintenanceFinding, 
     for runtime in summary["runtimes"]:
         if runtime["orphan_candidate"]:
             findings.append(_finding("orphan_runtime", {"python": runtime["python"]},
-                                     "Shared managed runtime is selected by no Brain and referenced by no registration.",
+                                     "Shared managed runtime is selected by no Brain and referenced by no MCP registration.",
                                      disposition=Disposition.JUDGEMENT))
     for brain in summary["brains"]:
         if brain["runtime"]["status"] == "legacy_vault_venv":

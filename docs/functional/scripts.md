@@ -136,7 +136,7 @@ objects as the CLI. The pass needs a keyless standalone call; see
 Machine-global operations do not run through selected-Brain `command.py`. The versioned CLI distribution owns the separate stdlib-safe launcher catalogue and its install, upgrade, registry, runtime, MCP and diagnostic owners.
 
 Use `command.py workspace setup --workspace PATH` or `brain workspace setup
---workspace PATH` for the compound registration and binding contract; the
+--workspace PATH` for the compound workspace registration and binding contract; the
 legacy `setup.py workspace` entry point, which wrote only the local binding, is
 retired. This operation is unavailable over MCP because its second boundary
 needs caller filesystem access. `workspace_registry.py` lists and resolves
@@ -162,7 +162,7 @@ New MCP installation/configuration requires an explicit client. Use
 or choose one client. An install with `--skip-mcp` needs no client selection; it skips MCP registration only and still provisions the managed runtime.
 `configure.py mcp --client ... --user` delegates to the compatible installed
 machine CLI without resolving a Brain; project/local operations share the
-canonical registration planner. `repair.py mcp` remains vault-local and repairs
+canonical MCP registration planner. `repair.py mcp` remains vault-local and repairs
 only recorded vault-self project projections. Cross-root and user repair belongs
 to the [launcher breadth selectors](cli.md#mcp-registration-and-repair).
 
@@ -179,9 +179,9 @@ The version-crossing notice is also included in upgrade dry-run previews.
 
 The supported `install.py --client`, `configure.py mcp --client`,
 and `configure.py agent-skills --client` selections include `grok`; `all` includes all three clients. Grok supports user and project
-scope, including vault-self registration. The native CLI commands are shown in
+scope, including vault-self MCP registration. The native CLI commands are shown in
 [native Grok setup](cli.md#native-grok-setup). `repair.py mcp` and upgrade
-reconciliation inspect existing Grok project registrations and their owned
+reconciliation inspect existing Grok project MCP registrations and their owned
 startup rules. Standalone workspace bootstrap also accepts `--surface grok`.
 
 Bootstrap and document reads use the same bounded application results in every

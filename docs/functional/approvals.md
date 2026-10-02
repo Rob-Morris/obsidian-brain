@@ -43,7 +43,7 @@ bash install.sh --non-interactive --client all \
 PowerShell uses `-ApprovalClient`, `-ApprovalScope` and `-Approvals` with the same
 values. The typed `brain install` request uses `approval_client`,
 `approval_scope` and `approval_surfaces`. Omission creates no opt-in; existing
-opt-ins still follow supported registration and contract transitions. Scaffold,
+opt-ins still follow supported Brain registration, MCP transport and contract transitions. Scaffold,
 transport and approval outcomes remain distinct. Approval failure does not undo
 an already-created vault. The direct `configure.py approvals` adapter delegates
 to the same machine CLI; exact item adoption uses the CLI JSON interface.
@@ -178,7 +178,7 @@ Doctor reports stale projections, recognised restrictions and recovery evidence.
 Ambiguous or unavailable registry targets block unsafe reconciliation rather than
 turning an incomplete inventory into an empty set.
 
-A Brain registry row that is no longer its own canonical path (for example, a
+A vault registry row that is no longer its own canonical path (for example, a
 symlink left at a moved Brain's old path) is never followed. While approvals
 hold records, every reconciled transition and recovery refuses such a row
 before any change and names both paths, so `brain registry remove-stale` cannot
@@ -189,7 +189,7 @@ ledger the writer cannot use, or an interrupted approval transaction, blocks
 `brain registry remove-stale` for every row until approvals are recovered; the
 stale rows' explanations then name `brain approvals inspect --json`.
 
-Writes reuse the host registration lock and dependency-checked `FilePlan`. A
+Writes reuse the host MCP registration lock and dependency-checked `FilePlan`. A
 bounded `client-approvals.pending.json` journal and transition-owner locks preserve
 recovery evidence. Journal creation belongs to the approval transaction, not its
 immutable policy inputs; direct and nested CLI replacements still reject pending
