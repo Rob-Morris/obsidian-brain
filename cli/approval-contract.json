@@ -266,7 +266,7 @@
     },
     {
       "command_id": "mcp.repair",
-      "version": 3,
+      "version": 4,
       "owner": "launcher",
       "classification": "machine_mutation",
       "mcp": null,
@@ -373,5 +373,5 @@
       "authority": "operator"
     }
   ],
-  "fingerprint": "sha256:a32fa335418f1dc1cbcba45fd785d7fe2b8ef2d32230da87883b64f88a68e9cb"
+  "fingerprint": "sha256:156ab04cc45a33c05500c9dc897643581226e05e73bcc39824f7396f188d427c"
 }

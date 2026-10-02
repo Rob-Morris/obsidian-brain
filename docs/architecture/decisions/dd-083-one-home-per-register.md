@@ -4,11 +4,9 @@
 **Extends:** DD-052, DD-078, DD-082
 **Amends:** DD-051 (§2), DD-053
 
-Items 1, 2, 3, 5, 7, 8, 9 and 10 and the amendments to DD-051 and DD-053 are
-in the code, as is item 11's configuration migration. Items 4 and 6, the rest
-of item 11 and the consequences that follow from them are staged: they record
-the decision and land in later changes, after which this text is reconciled
-with the code.
+Items 1 to 12 and the amendments to DD-051 and DD-053 are in the code. The
+consolidated documentation of the machine and workspace state lands in a later
+change, after which this text is reconciled with it.
 
 ## Context
 
@@ -98,19 +96,53 @@ with an automatic repair. No fact is maintained by a hidden write.
    reaches it. DD-051 §2's statement that
    the targeted `configure ...` commands remain valid is amended accordingly.
 6. **Disagreement is a finding, detected where each end can be seen.** From
-   the Brain end, `collect_registry_check_findings` emits
-   `workspace_registry_malformed` and `workspace_link_disagreement` (a
-   reachable, readable manifest naming another hub key or a Brain resolving to
-   a different vault on this machine) as `warning` findings repaired by the
-   now-automatic `registry` family, and `workspace_link_unverifiable` (no
-   manifest, unreadable manifest or unresolvable Brain ID) and
-   `workspace_folder_unreachable` as `info` judgement findings, one per row,
-   each with `file` `.brain/local/workspaces.json#<key>`. From the workspace
-   end, `vault.check` reports `workspace_registry_missing` (`info`,
-   report-only). Reconciliation never adds a row, never drops a row it cannot
-   positively contradict, confirms a disagreeing manifest with a second read
-   under the vault lock immediately before the registry write, and takes no
-   lock and creates no file in any workspace folder.
+   the Brain end, `collect_registry_check_findings` reports, one finding per
+   row with `file` `.brain/local/workspaces.json#<key>`:
+   - `workspace_link_disagreement` (`warning`, repaired by the now-automatic
+     `registry` family): a reachable, readable manifest naming another valid
+     hub key, or a Brain that resolves to a different vault on this machine.
+   - `workspace_link_unverifiable` (`info`, judgement): the folder is a vault
+     root, has no manifest, its manifest cannot be read, its Brain ID does not
+     resolve on this machine, or its hub key is missing or not a valid key.
+   - `workspace_folder_unreachable` (`info`, judgement): the folder is absent.
+
+   The file itself is one finding. `workspace_registry_malformed` (`warning`,
+   `registry` family) is a file whose rows can be read but which needs
+   normalising or holds rows that name no usable folder (an invalid key, or a
+   path that is empty, relative or contains a NUL byte); the repair rebuilds it
+   without them and keeps the file as a backup. A file whose rows cannot be
+   read is never rebuilt unattended, because the registry cannot be re-derived:
+   `workspace_registry_unparseable` (not UTF-8, not JSON, or the wrong shape)
+   and `workspace_registry_unreadable` (the file cannot be read) are `warning`
+   judgement findings with no automatic repair. The person rebuilds an
+   unparseable file explicitly with `workspace.repair-registry`
+   `{"allow_row_loss": true}`, which keeps the backup. When this machine's vault
+   registry cannot be read, `workspace_links_unverified` (`info`, judgement)
+   says that no row was verified; a Brain that is not registered verifies
+   nothing and says nothing, because item 3 reports it machine-side.
+
+   From the workspace end, `vault.check` reports `workspace_registry_missing`
+   (`info`, report-only), comparing the canonical path of the row the Brain end
+   salvages. Reconciliation never adds a row and never drops a row it cannot
+   positively contradict. It classifies each row from one read of its manifest
+   outside the vault lock; under the lock it reads the registry again and drops
+   a row only if the row still records the same folder and a second read of
+   that folder's manifest is byte-identical to the one classified and still
+   disagrees. It takes no lock in, and creates no file in, any workspace
+   folder. Lock order is vault, then folder, never the reverse:
+   `workspace.setup` holds the vault lock from the row write through the
+   manifest write, with the folder lock nested inside, so a repair, which drops
+   a row only after a fresh read under the vault lock, cannot drop the new row
+   while the old manifest is still in place; `workspace.unregister` takes the
+   folder lock only after releasing the vault lock. Every writer of the file
+   (setup, unregister, the repair and MCP reverse registration) writes with a
+   compare-and-swap over the bytes it read; a writer that loses the race writes
+   nothing and returns a retryable `conflict`. No other lock order is needed:
+   MCP taking the vault lock would invert `repair_mcp`'s existing nesting.
+   Every reader applies one row rule, `workspace_registry.salvage_row`, which
+   returns the canonical form; a row stored in another form (such as `~`) is
+   normalised, and a row that names no usable folder is invalid everywhere and
+   never resolved against the current directory.
 7. **Doctor's payload describes the vault registry.** `machine.registry` is
    `state` (`current`, or `stale` when rows point at non-Brains), `path` and
    `brains_count`; the derived-registry fields are removed; counts gain
@@ -118,15 +150,18 @@ with an automatic repair. No fact is maintained by a hidden write.
 8. **Doctor health counts per-Brain findings only when the machine owns or
    repairs them.** A per-Brain finding counts against `machine.healthy` only
    when its repair family is automatic or machine-owned; one without such a
-   family is listed and never makes Doctor unhealthy, so a dismissal-free
-   Doctor is never stuck unhealthy on a per-Brain finding. Stale vault
-   registry rows, MCP registration drift and an unhealthy or legacy runtime
-   still count, as before. `brain_unregistered` is a machine-pass kind the
-   health formula does not read, so it is health-neutral by construction.
-   The two staged link codes, `workspace_link_unverifiable` and
-   `workspace_folder_unreachable`, are additionally emitted at `info`
-   severity so the current vault's `vault.check` exit code, which Doctor's
-   overall result also folds in, stays 0.
+   family is listed and never makes `machine.healthy` false, so a
+   dismissal-free Doctor is never stuck unhealthy on a per-Brain finding. MCP
+   registration drift that is not an unreachable location and an unhealthy or
+   legacy runtime still count, as before. `brain_unregistered` is a
+   machine-pass kind the health formula does not read, so it is health-neutral
+   by construction. The link codes `workspace_link_unverifiable`,
+   `workspace_folder_unreachable` and `workspace_links_unverified` are `info`,
+   so the current vault's `vault.check` exit code, which Doctor's overall
+   result also folds in, stays 0. `workspace_registry_unreadable` and
+   `workspace_registry_unparseable` are warnings: they leave `machine.healthy`
+   alone but make Doctor's overall result unhealthy for the current vault
+   until the file is restored or explicitly rebuilt.
 9. **The machine pass has no automatic family.** With `LocalAuthority.allows`
    always true, the automatic flag is the only gate on the machine side, and
    nothing left on it passes DD-082's admission test. The pass detects, lists
@@ -144,6 +179,29 @@ with an automatic repair. No fact is maintained by a hidden write.
     launcher's bundled Doctor still writes and inspects the derived file,
     which stays self-consistent and is corrected by `brain upgrade`. The
     configuration migration is versioned at the release that ships it.
+12. **An absent location is reported, never unhealthy, and pruning never runs
+    blind.** The machine cannot tell an unplugged drive from a deleted folder,
+    so one rule covers every location it cannot see. The MCP inventory's
+    coverage verdict splits its causes: `unreachable` names each registered
+    Brain root with no `.brain-core/VERSION` and each linked folder that is
+    not a directory; `invalid` is everything else (an unsafe or malformed
+    ledger, journal or registry, or a folder that is present but cannot be
+    inspected). Of the coverage causes, only `invalid` counts against
+    `machine.healthy` (MCP drift, runtime health and automatic or
+    machine-owned findings still count), and a stale vault registry row is
+    likewise reported (`stale_vault_registry`) and no longer unhealthy. Orphan-runtime pruning still needs both lists empty; when it is
+    blocked, its reason names each location to reconnect or unregister, and
+    `tidy` is false. MCP registration inspection reports an absent folder as
+    `unreachable`, with that remedy and never `mcp migrate`. Doctor's payload
+    lists the unreachable locations, and its approval inspection reports an
+    approval target as `unreachable` when its folder is absent or when it
+    cannot be judged while a registered Brain is unreachable; neither counts.
+    `mcp.repair` (version 4) repairs the reachable targets at Brain and machine
+    breadth and names the rest in a `follow_up_required` warning, except while
+    approval records exist: the approval inventory, which needs every
+    registered location, runs first and refuses. Uninstall, Brain
+    unregistration, MCP migration and approval changes still need every
+    registered location and refuse with the same remedy.
 
 ## Alternatives Considered
 
@@ -180,13 +238,15 @@ with an automatic repair. No fact is maintained by a hidden write.
 
 - A fresh install and an upgraded install are healthy under Doctor without a
   derived file; `machine.healthy` loses its five derived-registry terms.
-- `brain.doctor` is version 3, `workspace.unregister` is version 2, and the
+- `brain.doctor` is version 3, `workspace.unregister` is version 2,
+  `workspace.repair-registry` is version 2, `mcp.repair` is version 4, and the
   launcher catalogue loses `machine-registry.sync`.
 - A linked workspace whose folder is moved is reported as unreachable and
   stays reported until `workspace setup` runs from the new location or
-  `workspace unregister` forgets it; a manifest edited to another Brain is
-  dropped from the old Brain's registry by the pass; a row whose manifest is
-  missing is kept and reported as unverifiable.
+  `workspace unregister` forgets it, or the finding is dismissed; Doctor stays
+  healthy meanwhile. A manifest edited to another Brain is dropped from the
+  old Brain's registry by the pass; a row whose manifest is missing is kept and
+  reported as unverifiable.
 - Removing command IDs is a breaking contract under the pre-1.0 rule, so the
   configuration migration ships with a minor version bump.
 - A vault at a pre-0.71.0 Core whose profiles hold `workspace.bind` or
@@ -196,9 +256,10 @@ with an automatic repair. No fact is maintained by a hidden write.
   for retired IDs; development and lab use apply the migration first.
 - Stored allow-lists are never widened automatically: a grant added to a
   template profile reaches stored profiles only when someone adds it.
-- Row verification does one `isdir` per row inside Doctor and the passes, the
-  same call `vault_registry.list_entries` already makes per vault-registry
-  row; a dead network mount can stall it. Not bounded here.
+- Row verification costs about four filesystem calls per reachable row and one
+  per unreachable row inside Doctor and the passes; a dead network mount can
+  stall it. Not bounded here. The registry repair classifies outside the vault
+  lock and holds the lock only to recheck the disagreeing rows and write.
 
 ## Verification
 
@@ -224,3 +285,34 @@ removing both ends, dropping only the row for a folder that is not this link's,
 and taking its two locks one after the other; `tests/test_migrate_to_0_71_0.py`
 applies the configuration migration directly and loads the result through the
 authorisation resolver.
+`tests/application/test_workspace_checks.py` covers the link checks from both
+ends, including every unverifiable cause, invalid hub keys, a CRLF manifest,
+the file conditions and a workspace end that must not crash on a malformed
+file; `tests/check/test_check_orchestration.py` pins that the Brain-end `info`
+codes add only information to `vault.check`.
+`tests/application/test_maintenance_pass.py` adds the `registry` family to the
+current-state suite and covers a manifest that agrees, names yet another hub,
+loses its other Brain, or a row that moves, between the repair's own
+classification and its locked recheck (each keeps its row, and removing the
+recheck fails them), a held vault lock, an other-Brain drop and a per-folder
+digest showing the pass writes nothing in any linked folder.
+`tests/application/test_caller_workspace_owners.py` proves a repair cannot run
+between `workspace.setup`'s row and manifest writes, and
+`tests/application/test_workspace_registry_repair_owner.py` and
+`tests/repair/test_repair_scopes.py` cover the dropped rows, the dry run, the
+explicit lossy rebuild and its unattended refusal.
+`tests/test_mcp_registration_parity.py` proves an absent linked folder with an
+MCP record leaves registrations healthy, names the folder in the coverage
+verdict and lets `plan_repair` repair the reachable target; that a linked path
+replaced by a file is absent, not invalid; and that the inventory reads `~`,
+relative and NUL rows by the one row rule. The owner tests show a row MCP
+commits inside the repair's locked window survives the repair's
+compare-and-swap, that a file which tears between the repair's read and its
+lock is never rebuilt, even with `allow_row_loss`, and that a relative row is
+never resolved against the current directory by `workspace.unregister`;
+`tests/application/test_launcher_machine_maintenance.py` runs the machine pass
+over an uninspectable folder and a malformed registry.
+`tests/test_install_then_doctor.py` runs deleted, re-keyed, other-Brain, moved
+and unplugged links on an installed Brain through the pass, the maintenance
+decisions and the launcher Doctor, which stays healthy with exit code 0 while
+the folders are away and blocks pruning with a reason that names them.

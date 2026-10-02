@@ -241,6 +241,8 @@ class DoctorMachineStatus:
     memory: DoctorMemoryStatus | None
     mcp_registrations: tuple[DoctorMcpRegistration, ...] = ()
     registration_coverage_complete: bool = True
+    # Registered Brain roots and linked folders absent on this machine: reported, never unhealthy.
+    unreachable_locations: tuple[DoctorPathEntry, ...] = ()
 
     def __post_init__(self) -> None:
         if self.memory is not None and not isinstance(self.memory, DoctorMemoryStatus):
@@ -263,6 +265,7 @@ class DoctorMachineStatus:
         typed_collections = (
             (self.stale_vault_registry_entries, DoctorPathEntry),
             (self.brains, DoctorBrainStatus),
+            (self.unreachable_locations, DoctorPathEntry),
         )
         if any(
             not isinstance(item, expected)
@@ -393,9 +396,12 @@ def _table_command_id(scope: str | None) -> str | None:
 
 
 def _repair_finding(raw: dict) -> DoctorRepairFinding:
-    repair = raw.get("repair")
-    scope = repair["scope"] if repair is not None else None
-    command_id = (repair.get("command_id") or _table_command_id(scope)) if repair is not None else None
+    """A per-Brain finding from the bundled Core: its family comes from the same table, so none is tolerated unknown."""
+    from _repair_common import family_for_finding
+
+    family = family_for_finding(raw)
+    scope = family.scope if family is not None else None
+    command_id = family.command_id if family is not None else None
     return DoctorRepairFinding(raw["check"], scope, raw["message"], command_id, raw.get("file"), raw.get("code"))
 
 
@@ -451,6 +457,7 @@ def _machine_status(raw: dict) -> DoctorMachineStatus:
         tuple(DoctorMcpRegistration(item["path"], item["state"], item.get("client"), item.get("scope"), item.get("message"), item["action"])
               for item in raw.get("mcp_registrations", {}).get("registrations", [])),
         raw.get("registration_coverage_complete", True),
+        tuple(DoctorPathEntry(item["label"], item["path"]) for item in raw.get("unreachable_locations", ())),
     )
 
 
@@ -635,7 +642,7 @@ def execute_doctor(context: LauncherContext, request: BrainDoctorRequest):
     exit_code = doctor.overall_exit_code(cli=cli, machine=machine, vault=vault)
     from .approval_management import inspect_registered
     approvals = inspect_registered(context)
-    if any(item.state not in {"current", "not_managed"} for item in approvals):
+    if any(item.state not in {"current", "not_managed", "unreachable"} for item in approvals):
         exit_code = max(exit_code, 1)
     if not bootstrap_available and any(
         item.get("scope") == "user" and item.get("state") != "absent"

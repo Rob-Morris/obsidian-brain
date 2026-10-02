@@ -25,20 +25,22 @@ NAMESPACE = "brain"
 
 def classify(raw_findings) -> tuple[MaintenanceFinding, ...]:
     """Attach disposition, owner, key and evidence to raw ``run_checks`` findings."""
-    from _repair_common import JUDGEMENT_CODES, REPAIR_SCOPES
+    from _repair_common import JUDGEMENT_CODES, family_for_finding
 
     findings = []
     for raw in raw_findings:
-        repair = raw.get("repair")
+        try:
+            family = family_for_finding(raw)
+        except KeyError as exc:
+            # A broken producer fails detection the same way a malformed repair does.
+            raise ValueError(f"{raw.get('check')!r} names an unknown repair scope: {exc}") from exc
         check = raw["check"]
         code = raw.get("code")
         file = raw.get("file")
         evidence = raw.get("evidence")
         if evidence is not None and not isinstance(evidence, Mapping):
             raise ValueError(f"{check} declared non-mapping evidence")
-        if isinstance(repair, Mapping):
-            # Guidance is attached from the table, so the scope is always a row.
-            family = REPAIR_SCOPES[repair["scope"]]
+        if family is not None:
             subject = {"scope": family.scope}
             findings.append(MaintenanceFinding(
                 check, raw["severity"], file, raw["message"], family.disposition,
@@ -69,9 +71,10 @@ def detect(context: InvocationContext) -> tuple[MaintenanceFinding, ...]:
 
     try:
         raw = check.run_checks(context.selected_brain.vault_root, workspace_dir=context.workspace_dir)
+        # A broken producer (a non-mapping repair or evidence, an unknown scope) fails detection too.
+        return classify(raw["findings"])
     except (OSError, ValueError) as exc:
         raise DetectionFailed(str(exc)) from exc
-    return classify(raw["findings"])
 
 
 def semantic_retrieval_configured(vault_root) -> bool:

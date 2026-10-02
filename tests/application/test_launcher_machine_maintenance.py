@@ -218,13 +218,16 @@ def test_detection_classifies_the_machine_feed_and_excludes_brain_owned_scopes(t
             "repair_findings": [
                 {"check": "mcp_registration:claude_python_mismatch", "message": "stale", "repair": {"scope": "mcp"}},
                 {"check": "mcp_registration", "message": "drifted", "repair": {"scope": "mcp"}},
-                {"check": "workspace_registry", "message": "bad", "repair": {"scope": "registry"}},
+                {"check": "workspace_registry", "code": "workspace_registry_malformed", "message": "bad",
+                 "repair": {"scope": "registry"}},
                 {"check": "workspace_registry", "code": "workspace_folder_unreachable", "message": "gone"},
             ],
         }],
         "mcp_registrations": {"registrations": [
             {"client": "claude", "scope": "user", "path": "/home/.claude.json", "state": "current", "action": "x"},
             {"client": "codex", "scope": "user", "path": "/home/.codex/config.toml", "state": "modified", "action": "x"},
+            # The owning Brain reports an unreachable folder; the machine pass does not repeat it.
+            {"state": "unreachable", "path": "/gone", "message": "gone", "action": "x"},
         ]},
     }
     monkeypatch.setattr(maintenance, "collect_machine_summary", lambda **_kwargs: summary)
@@ -421,3 +424,38 @@ def test_machine_maintenance_entries_match_the_launcher_contract():
         assert entry.authority == "operator" and entry.approval_transition is None
     assert entries["machine-maintenance.run"].entry_point == ("brain", "machine-maintenance", "run")
     assert "machine-registry.sync" not in entries
+
+
+@pytest.mark.parametrize("case", ["uninspectable-folder", "malformed-registry"])
+def test_a_brain_level_registration_item_is_listed_by_path_not_crashed_on(tmp_path, fake_home, state_home, monkeypatch, case):
+    """An invalid registration cause (DD-083 item 12) names a vault, not a client slot."""
+    import os
+    from dataclasses import replace
+    import vault_registry
+    import workspace_registry
+
+    if case == "uninspectable-folder" and (sys.platform == "win32" or os.geteuid() == 0):
+        pytest.skip("POSIX permission bits that bind the test user")
+    vault = _vault(tmp_path, "Brain A")
+    vault_registry.register(vault, "brain-a")
+    locked = tmp_path / "locked"
+    if case == "uninspectable-folder":
+        (locked / "ws").mkdir(parents=True)
+        workspace_registry.register_workspace(vault, "ws", locked / "ws")
+        locked.chmod(0)
+    else:
+        (vault / workspace_registry.REGISTRY_REL).parent.mkdir(parents=True, exist_ok=True)
+        (vault / workspace_registry.REGISTRY_REL).write_text('{"workspaces": {"bad": 5}}\n')
+    monkeypatch.setattr(maintenance, "find_live_brain_runtime_processes",
+                        lambda runtime_pythons, *, scan=None: {"available": True, "processes": {}})
+    monkeypatch.setattr(topology, "scan_processes", lambda: {"available": True, "processes": []})
+    context = replace(_context(tmp_path), current_vault=vault)
+    try:
+        result = LauncherInvocation(context, LAUNCHER_CATALOGUE, LAUNCHER_OWNERS).invoke(MachineMaintenanceRunRequest())
+    finally:
+        if case == "uninspectable-folder":
+            locked.chmod(0o755)
+
+    assert result.status == "ok", getattr(result, "error", None)
+    registrations = [item for item in result.result.attention if item.kind == "mcp_registration"]
+    assert {"path": str(vault)} in [dict(item.subject) for item in registrations]

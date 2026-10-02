@@ -48,39 +48,14 @@ def linked_folder(vault_root: Path, key: str) -> Path | None:
     import workspace_registry
 
     row = workspace_registry.load_registry_strict(vault_root).get(key)
-    return None if row is None else Path(workspace_registry.canonical_path(row["path"]))
+    return None if row is None else Path(row["path"])
 
 
 def _refusal(vault_root: Path, folder: Path, key: str) -> str | None:
     """Why the folder is not this link's other end, in words, or ``None`` when it is."""
-    from _bootstrap.workspace_binding import LinkVerdict, classify_link
+    from _bootstrap.workspace_binding import classify_link, describe_link
 
-    verdict = classify_link(vault_root, folder, key)
-    return {
-        LinkVerdict.MATCHES: None,
-        LinkVerdict.UNREACHABLE: "the folder is unreachable",
-        LinkVerdict.VAULT_ROOT: "the folder is a Brain vault root",
-        LinkVerdict.NO_MANIFEST: "the folder has no workspace manifest",
-        LinkVerdict.UNREADABLE: f"the folder could not be inspected ({verdict.detail})",
-        LinkVerdict.BRAIN_UNRESOLVED: "its manifest's Brain ID does not resolve on this machine",
-        LinkVerdict.KEY_MISSING: "its manifest names no workspace key",
-        LinkVerdict.OTHER_BRAIN: "its manifest names another Brain",
-        LinkVerdict.OTHER_KEY: "its manifest names another workspace",
-    }[verdict.verdict]
-
-
-def _manifest_snapshot(folder: Path) -> tuple[bytes | None, ...]:
-    from _bootstrap.workspace_binding import legacy_manifest_path_for, manifest_path_for
-
-    snapshot = []
-    for path in (manifest_path_for(folder), legacy_manifest_path_for(folder)):
-        try:
-            snapshot.append(path.read_bytes())
-        except FileNotFoundError:
-            snapshot.append(None)
-        except OSError:
-            snapshot.append(b"unreadable")
-    return tuple(snapshot)
+    return describe_link(classify_link(vault_root, folder, key))
 
 
 def _unlink(vault_root: Path, folder: Path, key: str) -> str | None:
@@ -107,7 +82,7 @@ def _unlink(vault_root: Path, folder: Path, key: str) -> str | None:
 
 def execute(context: InvocationContext, request: WorkspaceUnregisterRequest):
     from _common import MutationLockError, public_mutation_error_message, vault_mutation_lock
-    from _bootstrap.workspace_binding import WorkspaceBindingError, manifest_path_for
+    from _bootstrap.workspace_binding import WorkspaceBindingError, manifest_path_for, manifest_snapshot
     import workspace_registry
 
     root = context.selected_brain.vault_root
@@ -124,6 +99,8 @@ def execute(context: InvocationContext, request: WorkspaceUnregisterRequest):
                 workspace_registry.unregister_workspace(root, key, before_write=before_write)
     except MutationLockError as exc:
         return no_effect_error(type(request), ErrorCode.CONFLICT, public_mutation_error_message(exc), retryable=True)
+    except workspace_registry.RegistryChangedError as exc:
+        return no_effect_error(type(request), ErrorCode.CONFLICT, str(exc), retryable=True)
     except (OSError, ValueError) as exc:
         return no_effect_error(type(request), ErrorCode.CONFLICT, str(exc))
 
@@ -133,14 +110,15 @@ def execute(context: InvocationContext, request: WorkspaceUnregisterRequest):
         f"{'Would remove' if planned else 'Removed'} linked workspace {key} from the registry.")]
     effects = [] if planned else [CommittedEffect(request.COMMAND_ID, f"caller-workspace-registration:{key}")]
     manifest = manifest_path_for(folder)
-    # The two locks are never held together: the folder is locked only after the row is gone.
+    # Lock order is vault, then folder, never the reverse; here the folder is locked only after
+    # the vault lock is released, so the two are never held together.
     refusal = _refusal(root, folder, key)
     if refusal is None and not planned:
-        before = _manifest_snapshot(folder)
+        before = manifest_snapshot(folder)
         try:
             refusal = _unlink(root, folder, key)
         except (MutationLockError, OSError, ValueError, WorkspaceBindingError) as exc:
-            if _manifest_snapshot(folder) != before:
+            if not manifest_snapshot(folder).confirms(before):
                 effects.append(CommittedEffect("workspace.unbound", str(manifest)))
             message = (f"Removed linked workspace {key} from the registry, but {manifest} still links it ({exc}): "
                        "remove its brain and links.workspace fields, or run `brain workspace setup` from that "

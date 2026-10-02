@@ -306,7 +306,7 @@ LAUNCHER_CATALOGUE = LauncherCatalogue(
                     "brain",
                     "mcp",
                     "repair",
-                    version=3,
+                    version=4,
                     approval_transition="transport",
                 ),
                 _mutation("mcp.migrate", "_launcher.mcp:migrate", "brain", "mcp", "migrate", approval_transition="transport"),

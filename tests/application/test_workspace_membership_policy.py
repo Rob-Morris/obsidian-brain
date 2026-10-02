@@ -121,7 +121,8 @@ def test_setup_creates_then_attaches_and_keeps_explicit_link(command_vault_clone
     assert "workspace/canonical" in compiled["artefact_index"]
 
 
-def test_setup_one_admission_with_separate_locks_and_known_second_boundary_partial(command_vault_clone, tmp_path, monkeypatch):
+def test_setup_one_admission_with_nested_locks_and_known_second_boundary_partial(command_vault_clone, tmp_path, monkeypatch):
+    """Lock order is vault, then folder: the folder lock is only ever taken inside the vault lock."""
     from contextlib import contextmanager
     import _common
     from _bootstrap import workspace_binding
@@ -133,11 +134,12 @@ def test_setup_one_admission_with_separate_locks_and_known_second_boundary_parti
     context = application(root, workspace)._context
     request = WorkspaceSetupRequest()
     admission = MatchingAdmission(prepare_setup(context, request))
-    held = []
+    held, nested = [], []
     original_lock = _common.vault_mutation_lock
     @contextmanager
     def distinct_locks(path, *args, **kwargs):
-        assert not held or held[-1] == path
+        assert not held or (held == [root] and path == workspace), (held, path)
+        nested.append(tuple(held) + (path,))
         held.append(path)
         try:
             with original_lock(path, *args, **kwargs):
@@ -152,6 +154,7 @@ def test_setup_one_admission_with_separate_locks_and_known_second_boundary_parti
     result = setup(replace(context, admission=admission), request)
     assert result.status == "partial", result
     assert admission.calls == 1
+    assert (root, workspace) in nested, "the manifest is written under the folder lock inside the vault lock"
     assert [effect.kind for effect in result.committed_effects] == ["workspace.registered", "workspace.path-registered"]
     monkeypatch.setattr(workspace_binding, "save_workspace_manifest_data", original_save)
     retry = application(root, workspace).invoke(request)

@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any
 
 from _common import is_vault_root
+from _common._vault import is_brain_vault
 import vault_registry
 
 
@@ -79,7 +80,9 @@ def discover_brains(
         if entry.get("kind") != vault_registry.TYPE_LOCAL:
             continue
         registry_path = _canonical_brain_path(entry["value"])
-        if entry["stale"] or not is_vault_root(registry_path):
+        # The same narrow predicate as resolution and the MCP inventory: a registered Brain is present
+        # only with its .brain-core/VERSION, so a row is never a Brain here and absent there.
+        if entry["stale"] or not is_brain_vault(registry_path):
             stale_registry_entries.append(
                 {"alias": entry["alias"], "path": str(registry_path)}
             )

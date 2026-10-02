@@ -1,6 +1,7 @@
 """Canonical ownership, migration and composable MCP repair behaviour."""
 
 import json
+import sys
 import tomllib
 from pathlib import Path
 
@@ -325,3 +326,111 @@ def test_registry_removal_cannot_drop_project_ownership(tmp_path, monkeypatch, s
     with pytest.raises(ValueError, match="registered MCP integrations"):
         action()
     assert vault_registry.resolve("brain") == str(vault)
+
+
+def test_an_unreachable_target_is_reported_while_the_reachable_one_is_repaired(tmp_path, monkeypatch):
+    """An absent linked folder is named, never unhealthy, and never blocks repairing the rest (DD-083)."""
+    import shutil
+    import vault_registry
+    import workspace_registry
+    from _bootstrap.mcp_state import build_mcp_config
+
+    home = tmp_path / "home"
+    home.mkdir()
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(home / ".config"))
+    vault = (tmp_path / "Brain").resolve()
+    (vault / ".brain-core").mkdir(parents=True)
+    (vault / ".brain-core/VERSION").write_text("0.70.10")
+    # A stand-in managed runtime keeps the test offline.
+    monkeypatch.setattr(owner, "_runtime_python", lambda _vault: sys.executable)
+    vault_registry.register(vault, "brain")
+    folders = {}
+    for key in ("here", "away"):
+        folder = (tmp_path / key).resolve()
+        (folder / ".brain/local").mkdir(parents=True)
+        (folder / ".brain/local/workspace.yaml").write_text(f"brain: brain\nslug: {key}\nlinks:\n  workspace: {key}\n")
+        workspace_registry.register_workspace(vault, key, folder)
+        server = build_mcp_config(owner._runtime_python(vault), vault, workspace_dir=folder)
+        apply(owner._configure_plan(vault, home, folder, owner.McpScope.PROJECT, (owner.McpClient.CLAUDE,), server))
+        folders[key] = folder
+    shutil.rmtree(folders["away"])
+    binary = tmp_path / "bin/brain"
+
+    inventory = mcp_inventory.inspect_registrations(home, (vault,), binary)
+    unreachable = [item for item in inventory["registrations"] if item["state"] == "unreachable"]
+    assert inventory["healthy"] and inventory["complete"], inventory
+    assert [item["path"] for item in unreachable] == [str(folders["away"])]
+    assert "migrate" not in unreachable[0]["action"]
+    references, coverage = mcp_inventory.persisted_runtime_references(home, (vault,))
+    assert [item.path for item in coverage.unreachable] == [folders["away"]]
+    assert coverage.invalid == () and not coverage.complete
+    assert "Reconnect them, or unregister them" in coverage.blocked_reason()
+
+    projection = owner._config_path(owner.McpClient.CLAUDE, owner.McpScope.PROJECT, folders["here"], home)
+    projection.unlink()
+    with pytest.raises(ValueError, match="is unavailable"):
+        mcp_inventory.plan_repair(FilePlan(), (vault,), home, binary)
+    collected = []
+    plan = FilePlan()
+    _, targets = mcp_inventory.plan_repair(plan, (vault,), home, binary, unreachable=collected)
+    assert targets == (str(folders["here"]),)
+    assert [item.path for item in collected] == [folders["away"]]
+    apply(plan)
+    assert projection.exists(), "the reachable target is repaired"
+
+
+def test_a_linked_path_replaced_by_a_file_is_absent_not_invalid(tmp_path, monkeypatch):
+    """Every PROJECT and LOCAL slot lives under the folder, so an absent folder's slots are never read."""
+    import vault_registry
+    import workspace_registry
+
+    home = tmp_path / "home"
+    home.mkdir()
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(home / ".config"))
+    monkeypatch.setattr(owner, "_runtime_python", lambda _vault: sys.executable)
+    vault = (tmp_path / "Brain").resolve()
+    (vault / ".brain-core").mkdir(parents=True)
+    (vault / ".brain-core/VERSION").write_text("0.70.10")
+    vault_registry.register(vault, "brain")
+    replaced = (tmp_path / "replaced").resolve()
+    replaced.mkdir()
+    workspace_registry.register_workspace(vault, "replaced", replaced)
+    replaced.rmdir()
+    replaced.write_text("now a file\n")
+
+    _references, coverage = mcp_inventory.persisted_runtime_references(home, (vault,))
+    inventory = mcp_inventory.inspect_registrations(home, (vault,), tmp_path / "bin/brain")
+
+    assert [item.path for item in coverage.unreachable] == [replaced]
+    assert coverage.invalid == ()
+    assert inventory["healthy"], inventory
+
+
+@pytest.mark.parametrize(("row", "absent"), [("~/linked-under-home", False), ("relative", None), ("/tmp/a\u0000b", None)])
+def test_the_inventory_reads_rows_by_the_registry_row_rule(tmp_path, monkeypatch, row, absent):
+    """`~` is a usable (absolute) row; a relative or NUL row is invalid, never absent and never cwd-relative."""
+    import json as json_module
+    import vault_registry
+
+    home = tmp_path / "home"
+    (home / "linked-under-home").mkdir(parents=True)
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(home / ".config"))
+    vault = (tmp_path / "Brain").resolve()
+    (vault / ".brain-core").mkdir(parents=True)
+    (vault / ".brain-core/VERSION").write_text("0.70.10")
+    (vault / ".brain/local").mkdir(parents=True)
+    (vault / ".brain/local/workspaces.json").write_text(json_module.dumps({"workspaces": {"key": {"path": row}}}))
+    vault_registry.register(vault, "brain")
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "relative").mkdir()
+
+    collected = []
+    if absent is None:
+        with pytest.raises(ValueError, match="names no usable folder"):
+            mcp_inventory.workspace_paths(FilePlan(), vault, unreachable=collected)
+        assert collected == []
+    else:
+        assert (home / "linked-under-home").resolve() in mcp_inventory.workspace_paths(FilePlan(), vault, unreachable=collected)

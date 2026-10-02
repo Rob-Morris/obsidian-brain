@@ -419,12 +419,12 @@ def test_nested_repair_runner_targets_the_vault_and_maps_results(tmp_path, monke
     def effect():
         return (CommittedEffect("mcp.repair", f"file:{vault}/.mcp.json"),)
 
-    ok_effects = Ok("mcp.repair", 3, object(), effect())
-    partial = Partial("mcp.repair", 3, CommandError(ErrorCode.CONFLICT, "half"), effect())
+    ok_effects = Ok("mcp.repair", 4, object(), effect())
+    partial = Partial("mcp.repair", 4, CommandError(ErrorCode.CONFLICT, "half"), effect())
     reference = OutcomeReference("inv-x")
-    unknown = Error("mcp.repair", 3, CommandError(ErrorCode.COMMAND_OUTCOME_UNKNOWN, "lost",
+    unknown = Error("mcp.repair", 4, CommandError(ErrorCode.COMMAND_OUTCOME_UNKNOWN, "lost",
                     OutcomeUnknownDetails(reference)), effects="unknown", outcome_reference=reference)
-    failed = Error("mcp.repair", 3, CommandError(ErrorCode.CONFLICT, "busy"))
+    failed = Error("mcp.repair", 4, CommandError(ErrorCode.CONFLICT, "busy"))
     mapped = {
         name: repair_step_from_result("mcp", result, dry_run=dry, command="c", invocation_id="i")
         for name, result, dry in (

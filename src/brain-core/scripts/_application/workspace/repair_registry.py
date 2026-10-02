@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from .._decoding import decode_empty
+from .._decoding import optional_bool, reject_unexpected
 from dataclasses import dataclass
 from enum import Enum
 from typing import ClassVar, Mapping
@@ -26,39 +26,52 @@ class RegistryRepairStatus(str, Enum):
 
 
 @dataclass(frozen=True, slots=True)
+class RegistryDroppedRow:
+    key: str
+    path: str
+
+
+@dataclass(frozen=True, slots=True)
 class WorkspaceRepairRegistryPayload:
     status: RegistryRepairStatus
     reason: str
     dry_run: bool
     entry_count: int
     backup_path: str | None
+    dropped: tuple[RegistryDroppedRow, ...]
 
 
 @dataclass(frozen=True, slots=True)
 class WorkspaceRepairRegistryRequest:
+    """``allow_row_loss`` is the person's explicit choice to rebuild a file whose rows cannot be read."""
+
     COMMAND_ID: ClassVar[str] = "workspace.repair-registry"
     COMMAND_VERSION: ClassVar[int] = 2
     RESULT_TYPE: ClassVar[type] = WorkspaceRepairRegistryPayload
 
+    allow_row_loss: bool = False
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.allow_row_loss, bool):
+            raise ValueError("workspace.repair-registry allow_row_loss must be a boolean")
+
 
 def execute(context: InvocationContext, request: WorkspaceRepairRegistryRequest):
-    from _common import (
-        MutationLockError,
-        public_mutation_error_message,
-        vault_mutation_lock,
-    )
+    from _common import MutationLockError, public_mutation_error_message
     from _portable.registry_maintenance import (
         RegistryRepairPartialError,
         repair_registry,
     )
-    root = context.selected_brain.vault_root
-    try:
-        with vault_mutation_lock(root):
-            from .._caller_workspace import workspace_admission
+    from workspace_registry import RegistryChangedError
+    from .._caller_workspace import workspace_admission
 
-            before_write = workspace_admission(context, request)
-            result = repair_registry(root, dry_run=context.dry_run, before_write=before_write)
-            before_write()
+    root = context.selected_brain.vault_root
+    before_write = workspace_admission(context, request)
+    try:
+        # The repair takes the vault lock itself, after classifying its rows outside it.
+        result = repair_registry(root, dry_run=context.dry_run, allow_row_loss=request.allow_row_loss,
+                                 before_write=before_write)
+        before_write()
     except MutationLockError as exc:
         return no_effect_error(
             WorkspaceRepairRegistryRequest,
@@ -78,6 +91,8 @@ def execute(context: InvocationContext, request: WorkspaceRepairRegistryRequest)
             ),
             (CommittedEffect(request.COMMAND_ID, exc.backup_path),),
         )
+    except RegistryChangedError as exc:
+        return no_effect_error(WorkspaceRepairRegistryRequest, ErrorCode.CONFLICT, str(exc), retryable=True)
     except (OSError, ValueError) as exc:
         return no_effect_error(
             WorkspaceRepairRegistryRequest,
@@ -92,6 +107,7 @@ def execute(context: InvocationContext, request: WorkspaceRepairRegistryRequest)
         result.dry_run,
         result.entry_count,
         result.backup_path,
+        tuple(RegistryDroppedRow(row.key, row.path) for row in result.dropped),
     )
     effects = ()
     if status is RegistryRepairStatus.CHANGED:
@@ -111,7 +127,8 @@ def execute(context: InvocationContext, request: WorkspaceRepairRegistryRequest)
 
 
 def decode(payload: Mapping[str, object]) -> WorkspaceRepairRegistryRequest:
-    return decode_empty(payload, WorkspaceRepairRegistryRequest)
+    reject_unexpected(payload, {"allow_row_loss"})
+    return WorkspaceRepairRegistryRequest(optional_bool(payload.get("allow_row_loss"), "allow_row_loss"))
 
 
 def catalogue_entry():

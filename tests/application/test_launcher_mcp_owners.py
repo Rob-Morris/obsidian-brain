@@ -179,6 +179,46 @@ def test_machine_repair_composes_two_brains_and_deduplicates_shared_work(tmp_pat
     assert not (second / ".mcp.json").exists()
 
 
+@pytest.mark.parametrize("breadth", [mcp_owner.RepairBreadth.BRAIN, mcp_owner.RepairBreadth.MACHINE])
+def test_composed_repair_repairs_what_is_reachable_and_names_what_is_not(tmp_path, monkeypatch, breadth):
+    """Version 4: an absent linked folder or Brain root is a follow-up, never a refusal of the whole repair."""
+    import shutil
+    import vault_registry
+    import workspace_registry
+    from _bootstrap import runtime, mcp_registration as registration
+    from _bootstrap.mcp_state import build_mcp_config
+
+    vault = _vault(tmp_path / "one")
+    home = tmp_path / "home"
+    python = _healthy_runtime(monkeypatch, vault)
+    vault_registry.register(vault, "one")
+    away = (tmp_path / "away").resolve()
+    (away / ".brain/local").mkdir(parents=True)
+    (away / ".brain/local/workspace.yaml").write_text("brain: one\nslug: away\nlinks:\n  workspace: away\n")
+    workspace_registry.register_workspace(vault, "away", away)
+    plan = registration._configure_plan(vault, home, away, McpScope.PROJECT, (McpClient.CLAUDE,),
+                                         build_mcp_config(python, vault, workspace_dir=away))
+    file_transaction.apply_file_changes(plan.changes())
+    shutil.rmtree(away)
+    unplugged = _vault(tmp_path / "two")
+    vault_registry.register(unplugged, "two")
+    shutil.rmtree(unplugged)
+    monkeypatch.setattr(runtime, "target_runtime_contract", lambda root: object())
+    monkeypatch.setattr(runtime, "bootstrap_managed_runtime", lambda root, **kwargs: {
+        "status": "planned" if kwargs.get("dry_run") else "ready", "managed_python": python,
+        "runtime_dir": str(Path(python).parent.parent), "effect_outcome": "none"})
+
+    result = _invocation(vault, home=home).invoke(McpRepairRequest(breadth=breadth))
+
+    assert result.status == "ok", result
+    assert result.command_version == 4
+    follow_up = [warning for warning in result.warnings if warning.code.value == "follow_up_required"]
+    assert len(follow_up) == 1 and f"linked workspace away of {vault} at {away}" in follow_up[0].message
+    assert ("registered Brain two" in follow_up[0].message) is (breadth is mcp_owner.RepairBreadth.MACHINE)
+    assert "Reconnect them, or unregister them" in follow_up[0].message
+    assert not away.exists(), "nothing is recreated at an absent folder"
+
+
 def test_brain_repair_admits_projections_before_runtime_effects(tmp_path, monkeypatch):
     from _bootstrap import runtime
 
