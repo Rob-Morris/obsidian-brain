@@ -14,6 +14,8 @@ import uuid
 
 import pytest
 
+from brain_test_support import folder_tree, link_folder, manifest_text, register_other_brain
+
 from command_application import application_for, context_for
 from _application.application import CommandApplication
 from _application.maintenance import _detection, run as maintenance_run
@@ -36,6 +38,8 @@ import _command_interface.direct as direct_context
 MAINTENANCE = ".brain/local/maintenance"
 ROUTER = ".brain/local/compiled-router.json"
 INDEX = ".brain/local/retrieval-index.json"
+REGISTRY = ".brain/local/workspaces.json"
+AUTOMATIC = ["router", "lexical", "temporaries", "registry"]
 
 
 class _RealClock:
@@ -134,11 +138,19 @@ def _seed(root: Path, scope: str) -> None:
         (root / INDEX).unlink()
     elif scope == "temporaries":
         _strand(root)
+    elif scope == "registry":
+        # A registered Brain with one agreeing link, one row its manifest contradicts and one invalid row.
+        parent = root.parent / f"{root.name}-linked"
+        parent.mkdir()
+        _linked_folders(root, parent, {"agrees": manifest_text("agrees"), "rekeyed": manifest_text("another")})
+        rows = json.loads((root / REGISTRY).read_text())
+        rows["workspaces"]["relative"] = "foreign"
+        (root / REGISTRY).write_text(json.dumps(rows))
     else:
         raise AssertionError(scope)
 
 
-@pytest.mark.parametrize("scope", ["router", "lexical", "temporaries"])
+@pytest.mark.parametrize("scope", AUTOMATIC)
 def test_run_twice_repairs_then_finds_nothing(command_vault_clone, young_temporaries_count, scope):
     root = command_vault_clone.vault_root
     _seed(root, scope)
@@ -161,9 +173,14 @@ def test_run_twice_repairs_then_finds_nothing(command_vault_clone, young_tempora
     assert len(invoker.calls) in {calls, calls + 1}, "a second pass either skips the family or its sibling is a noop"
 
 
-@pytest.mark.parametrize("scope", ["router", "lexical", "temporaries"])
+@pytest.mark.parametrize("scope", AUTOMATIC)
 def test_direct_call_on_a_clean_fixture_is_a_noop(command_vault_clone, young_temporaries_count, scope):
     root = command_vault_clone.vault_root
+    if scope == "registry":
+        # Clean means verified, not empty: a registered Brain with one agreeing link.
+        parent = root.parent / f"{root.name}-linked"
+        parent.mkdir()
+        _linked_folders(root, parent, {"agrees": manifest_text("agrees")})
     family = REPAIR_SCOPES[scope]
     request = current_request_resolver().resolve(family.command_id, dict(family.request))
 
@@ -173,7 +190,7 @@ def test_direct_call_on_a_clean_fixture_is_a_noop(command_vault_clone, young_tem
     assert result.committed_effects == ()
 
 
-@pytest.mark.parametrize("scope", ["router", "lexical", "temporaries"])
+@pytest.mark.parametrize("scope", AUTOMATIC)
 def test_state_change_between_detection_and_repair_is_honoured(command_vault_clone, young_temporaries_count, scope):
     root = command_vault_clone.vault_root
     _seed(root, scope)
@@ -205,7 +222,7 @@ class _Mutating:
         return self.inner.repair(family, invocation_id=invocation_id)
 
 
-@pytest.mark.parametrize("scope", ["router", "lexical", "temporaries"])
+@pytest.mark.parametrize("scope", AUTOMATIC)
 def test_a_condition_that_vanishes_during_the_pass_is_already_clean(command_vault_clone, young_temporaries_count, scope):
     root = command_vault_clone.vault_root
     _seed(root, scope)
@@ -223,6 +240,97 @@ def test_a_condition_that_vanishes_during_the_pass_is_already_clean(command_vaul
     assert result.status == "ok"
     assert {item.scope: item.outcome for item in result.result.groups}[scope] is GroupOutcome.ALREADY_CLEAN
     assert all(effect.kind == "maintenance.summary" for effect in result.committed_effects)
+
+
+def _linked_folders(root: Path, tmp_path: Path, manifests: dict) -> dict:
+    """Register this Brain and one linked folder per key; ``None`` means no manifest."""
+    import vault_registry
+
+    vault_registry.register(root, "brain")
+    return {key: link_folder(root, tmp_path / f"linked-{key}", key, manifest) for key, manifest in manifests.items()}
+
+
+def test_the_registry_pass_drops_only_rows_its_manifest_contradicts_and_writes_in_no_folder(command_vault_clone, tmp_path):
+    import shutil
+    import workspace_registry
+
+    root = command_vault_clone.vault_root
+    register_other_brain(tmp_path)
+    folders = _linked_folders(root, tmp_path, {
+        "agrees": manifest_text("agrees"),
+        "rekeyed": manifest_text("another"),
+        "elsewhere": manifest_text("elsewhere", brain="other"),
+        "ghost": manifest_text("ghost", brain="not-on-this-machine"),
+        "badkey": "brain: brain\nlinks:\n  workspace: ''\n",
+        "unverifiable": None,
+        "away": manifest_text("away"),
+    })
+    shutil.rmtree(folders["away"])
+    before = {key: folder_tree(folder) for key, folder in folders.items()}
+
+    result = _invoke(root, MaintenanceRunRequest(), _Sibling(root))
+
+    assert result.status == "ok", getattr(result, "error", None)
+    assert {item.scope: item.outcome for item in result.result.groups}["registry"] is GroupOutcome.REPAIRED
+    assert sorted(workspace_registry.load_registry(root)) == ["agrees", "away", "badkey", "ghost", "unverifiable"]
+    assert {key: folder_tree(folder) for key, folder in folders.items()} == before, "the pass created nothing in any linked folder"
+    second = _invoke(root, MaintenanceRunRequest(), _Sibling(root))
+    assert "registry" not in {item.scope for item in second.result.groups}, "a second pass finds nothing to repair"
+
+
+@pytest.mark.parametrize("change", ["now-agrees", "other-bytes", "other-brain-gone", "row-moved"])
+def test_a_row_is_dropped_only_if_it_still_disagrees_under_the_lock(command_vault_clone, tmp_path, monkeypatch, change):
+    """The repair classifies outside the lock; a change before its locked recheck keeps the row."""
+    import shutil
+    import workspace_registry
+    from _portable import registry_maintenance
+
+    root = command_vault_clone.vault_root
+    other = register_other_brain(tmp_path)
+    brain = "other" if change == "other-brain-gone" else "brain"
+    folders = _linked_folders(root, tmp_path, {"stale": manifest_text("another", brain=brain)})
+    manifest = folders["stale"] / ".brain" / "local" / "workspace.yaml"
+    moved = (tmp_path / "moved").resolve()
+    real = registry_maintenance._disagreeing
+
+    def then_change(verification):
+        planned = real(verification)
+        assert [row.key for row in planned] == ["stale"], "the repair's own classification saw the disagreement"
+        if change == "now-agrees":
+            manifest.write_text(manifest_text("stale"))
+        elif change == "other-bytes":
+            manifest.write_text(manifest_text("yet-another"))
+        elif change == "other-brain-gone":
+            shutil.rmtree(other / ".brain-core")
+        else:
+            moved.mkdir()
+            workspace_registry.save_registry(root, {"stale": {"path": str(moved)}})
+        return planned
+
+    monkeypatch.setattr(registry_maintenance, "_disagreeing", then_change)
+    result = _invoke(root, MaintenanceRunRequest(), _Sibling(root))
+
+    assert result.status == "ok", getattr(result, "error", None)
+    assert {item.scope: item.outcome for item in result.result.groups}["registry"] is GroupOutcome.ALREADY_CLEAN
+    assert "stale" in workspace_registry.load_registry(root)
+
+
+def test_a_held_vault_lock_defers_the_registry_repair(command_vault_clone, tmp_path, monkeypatch):
+    import _bootstrap.file_lock as file_lock
+    import _common
+    import workspace_registry
+
+    root = command_vault_clone.vault_root
+    _linked_folders(root, tmp_path, {"rekeyed": "brain: brain\nlinks:\n  workspace: another\n"})
+    real = file_lock.vault_mutation_lock
+    monkeypatch.setattr(file_lock, "vault_mutation_lock",
+                        lambda vault_root, *, timeout=30.0, create_parent=True: real(vault_root, timeout=0.1))
+    monkeypatch.setattr(_common, "vault_mutation_lock", file_lock.vault_mutation_lock)
+    with real(root):
+        result = _invoke(root, MaintenanceRunRequest(), _Sibling(root))
+
+    assert {item.scope: item.outcome for item in result.result.groups} == {"registry": GroupOutcome.DEFERRED}
+    assert "rekeyed" in workspace_registry.load_registry(root)
 
 
 def test_a_condition_that_changes_during_the_pass_is_repaired_as_it_is_now(command_vault_clone, young_temporaries_count):

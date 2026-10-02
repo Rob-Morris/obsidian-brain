@@ -183,3 +183,21 @@ class TestLogVocabulary:
         assert log._MAINTENANCE_DECISIONS == {"claim", "release", "dismiss"}
         finished = log._EVENT_FIELDS["maintenance.pass_finished"]
         assert set(finished) == {"pass_id", "outcome", "duration_ms", *COUNT_FIELDS}
+
+
+def test_each_linked_workspace_row_is_its_own_judgement_finding():
+    from _application.maintenance._detection import classify
+
+    def unreachable(key, path):
+        return {"check": "workspace_registry", "code": "workspace_folder_unreachable", "severity": "info",
+                "file": f".brain/local/workspaces.json#{key}", "message": f"{key} is away",
+                "evidence": {"key": key, "path": path}}
+
+    first, second = classify([unreachable("a", "/drive/a"), unreachable("b", "/drive/b")])
+    assert first.disposition is second.disposition is Disposition.JUDGEMENT
+    assert first.key != second.key
+
+    moved, unchanged = classify([unreachable("a", "/elsewhere/a"), unreachable("b", "/drive/b")])
+    assert (moved.key, unchanged.key) == (first.key, second.key)
+    assert finding_fingerprint(moved.key, moved.evidence) != finding_fingerprint(first.key, first.evidence)
+    assert finding_fingerprint(unchanged.key, unchanged.evidence) == finding_fingerprint(second.key, second.evidence)

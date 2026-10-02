@@ -398,3 +398,28 @@ class TestCheckCli:
         assert payload["findings"][0]["severity"] == "error"
         assert payload["findings"][0]["message"] == "managed runtime unavailable"
         assert payload["findings"][0]["repair"]["scope"] == "runtime"
+
+
+def test_info_registry_findings_leave_the_check_exit_code_at_zero(tmp_path):
+    """The Brain-end unverifiable and unreachable codes are information, so vault.check still exits 0 (DD-083)."""
+    import shutil
+    import vault_registry
+    from brain_test_support import link_folder
+
+    compile_minimal_router(tmp_path)
+    build_result = search_index.build_index(str(tmp_path))
+    search_index.persist_retrieval_index(str(tmp_path), build_result.index)
+    before = check.run_checks(str(tmp_path))["summary"]
+    vault_registry.register(tmp_path, "brain")
+    link_folder(tmp_path, tmp_path.parent / f"{tmp_path.name}-unverifiable", "unverifiable")
+    shutil.rmtree(link_folder(tmp_path, tmp_path.parent / f"{tmp_path.name}-away", "away"))
+
+    result = check.run_checks(str(tmp_path))
+
+    registry = sorted((f["code"], f["severity"]) for f in result["findings"] if f["check"] == "workspace_registry")
+    assert registry == [("workspace_folder_unreachable", "info"), ("workspace_link_unverifiable", "info")]
+    summary = result["summary"]
+    assert (summary["errors"], summary["warnings"], summary["info"]) == (
+        before["errors"], before["warnings"], before["info"] + 2), "only information was added"
+    registry_only = check.filter_and_summarize_findings(result, check_name="workspace_registry")["summary"]
+    assert check.exit_code_for_summary(registry_only) == 0

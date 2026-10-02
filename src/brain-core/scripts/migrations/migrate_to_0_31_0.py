@@ -66,7 +66,7 @@ from _common import (
 )
 from compile_router import build_living_artefact_index
 from rename import rename_and_update_links
-from workspace_registry import EMBEDDED_DATA_DIR, load_registry, save_registry
+from workspace_registry import EMBEDDED_DATA_DIR, load_raw_registry, save_registry
 
 
 VERSION = "0.31.0"
@@ -524,7 +524,7 @@ def plan_workspace_reconciliation(vault_root, router):
             })
 
     stem_to_key = {stem: k for k, stem in key_to_stem.items() if stem != k}
-    registry = load_registry(vault_root)
+    registry = load_raw_registry(vault_root)
     for key in list(registry.keys()):
         if key in key_to_stem:
             continue
@@ -553,7 +553,7 @@ def apply_workspace_reconciliation(vault_root, plan):
             results["folder_renames"].append({**rename, "error": str(exc)})
 
     if plan["registry_remaps"]:
-        registry = load_registry(vault_root)
+        registry = load_raw_registry(vault_root)
         for remap in plan["registry_remaps"]:
             if remap["from"] in registry:
                 registry[remap["to"]] = registry.pop(remap["from"])

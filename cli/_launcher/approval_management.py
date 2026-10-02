@@ -123,11 +123,12 @@ def _launcher_facts(plan, root=None):
     return read_snapshot(_object(raw, path))
 
 
-def inventory(plan: FilePlan, context) -> tuple[Path, ...]:
-    return mcp_inventory.local_brains(plan, context.current_vault)
+def inventory(plan: FilePlan, context, *, unreachable=None) -> tuple[Path, ...]:
+    """The registered Brains; mutations need every one, so only an inspection passes ``unreachable``."""
+    return mcp_inventory.local_brains(plan, context.current_vault, unreachable=unreachable)
 
 
-def _target_roots(plan, selection, target, roots, home):
+def _target_roots(plan, selection, target, roots, home, *, unreachable=None):
     # Command-first CLI forms can select another registered Brain after the verb.
     # Native project scope limits rule loading, not the executable's --vault target.
     if selection.scope == "user" or selection.surface == "cli":
@@ -145,7 +146,7 @@ def _target_roots(plan, selection, target, roots, home):
         if len(registered) != 1:
             raise ValueError(f"Conflicting MCP owners for approval workspace: {target}")
         return tuple(registered)
-    owners = [root for root in roots if target in mcp_inventory.workspace_paths(plan, root)]
+    owners = [root for root in roots if target in mcp_inventory.workspace_paths(plan, root, unreachable=unreachable)]
     if len(owners) != 1:
         raise ValueError(f"Approval workspace needs one authoritative Brain registration: {target}")
     return tuple(owners)
@@ -433,17 +434,36 @@ def inspect_registered(context):
             raise ValueError("Approval recovery evidence is pending; inspect and explicitly recover before repair")
         if not records:
             return ()
-        roots = inventory(plan, context)
+        # An inspection reports an absent Brain or linked folder instead of blocking on it (DD-083).
+        unreachable = []
+        roots = inventory(plan, context, unreachable=unreachable)
     except (OSError, ValueError) as exc:
         return (ApprovalTargetStatus("machine", "user", "all", str(ledger_path(home)), "blocked", (), str(exc)),)
     results = []
+    absent_brains = "; ".join(str(item) for item in unreachable)
+
+    def reported(selection, message):
+        return ApprovalTargetStatus(selection.client, selection.scope, selection.surface, str(selection.path),
+                                    "unreachable", (), message)
+
     for record in records.values():
         selection = record_selection(record, home)
         target = Path(record["target"]) if record["target"] else None
+        if target is not None and not target.is_dir():
+            # The same absence rule as the inventory: the folder holding this policy is not here.
+            results.append(reported(selection, f"The approval target {target} is not reachable; reconnect it, "
+                                               "or remove its approvals."))
+            continue
         try:
-            relevant = _target_roots(plan, selection, target, roots, home)
+            relevant = _target_roots(plan, selection, target, roots, home, unreachable=[])
             _, result = _stage_target(plan, selection, target, relevant, record, action="inspect")
         except (OSError, ValueError) as exc:
-            result = ApprovalTargetStatus(selection.client, selection.scope, selection.surface, str(selection.path), "blocked", (), str(exc))
+            result = ApprovalTargetStatus(selection.client, selection.scope, selection.surface, str(selection.path),
+                                          "blocked", (), str(exc))
+        if unreachable and result.state not in {"current", "not_managed"}:
+            # The owning or contributing Brain may be the absent one, so this inspection cannot judge the
+            # target until it is reconnected (DD-083 item 12); approval changes still refuse.
+            result = reported(selection, f"The approval target cannot be judged while registered Brains are not "
+                                         f"reachable: {absent_brains}. Reconnect them, or unregister them.")
         results.append(result)
     return tuple(results)

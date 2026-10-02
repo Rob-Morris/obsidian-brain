@@ -32,7 +32,7 @@ REGISTERS = {
     "workspace_registry": (SCRIPTS / "workspace_registry.py", {
         SCRIPTS / "_application/workspace/setup.py": {"register_workspace"},
         SCRIPTS / "_application/workspace/unregister.py": {"unregister_workspace"},
-        SCRIPTS / "_portable/registry_maintenance.py": {"save_registry"},
+        SCRIPTS / "_portable/registry_maintenance.py": {"replace_registry"},
         SCRIPTS / "migrations/migrate_to_0_31_0.py": {"save_registry"},
         # MCP configuration derives the row its manifest implies (DD-083 item 5).
         SCRIPTS / "_bootstrap/mcp_registration.py": {"stage_link_row"},
@@ -59,7 +59,7 @@ SCRIPT_NAME_ALLOWED = {
 }
 SHELL_SUFFIXES = {".sh", ".ps1", ".cmd", ".bash"}
 
-_WRITE_CALLS = {"safe_write", "safe_write_json", "exclusive_file_lock"}
+_WRITE_CALLS = {"safe_write", "safe_write_json", "exclusive_file_lock", "apply_file_changes"}
 _OS_WRITE_CALLS = {"unlink", "remove", "rename", "replace"}
 # Path-style writers, matched on any receiver; ``replace`` stays os-only because str.replace shares it.
 _METHOD_WRITE_CALLS = {"write_text", "write_bytes", "touch", "unlink", "mkdir", "rename"}

@@ -112,8 +112,10 @@ then writes `brain`, `slug` and the bare `links.workspace` key locally.
 An existing `links.workspace` wins over the local slug and any registry path
 match. With no link, this explicit setup operation uses the binding slug and
 persists the link. Terminal workspaces require explicit reactivation. One
-preparation, admission and receipt cover both boundaries; their mutation locks
-are never held together. A local-write failure reports known Brain effects and
+preparation, admission and receipt cover both boundaries. Lock order is vault,
+then folder: the vault lock is held from the registry row write through the
+manifest write, with the folder lock nested inside, and is released before the
+ignore rules. A local-write failure reports known Brain effects and
 can be retried without creating another hub. The success payload separates
 `registration` from `binding`. `--request-json '{"force": true}'` rebinds a
 workspace that is already bound to another Brain or slug.
@@ -428,7 +430,7 @@ exit code.
 `maintenance.run` takes `.brain/local/maintenance/pass.lock` without waiting
 (an overlapping pass exits 2 with a retryable `conflict`), detects in
 process, invokes each unheld automatic family (`router`, `lexical`,
-`temporaries`, in that order) as a fresh sibling invocation through normal
+`temporaries`, `registry`, in that order) as a fresh sibling invocation through normal
 admission, and writes `last-pass.json`. Every invoked group ends in one of
 `repaired`, `already_clean`, `partial`, `deferred`, `needs_person`, `failed`
 or `unknown`. The pass waits for at most one timed-out vault lock: after the
@@ -443,7 +445,7 @@ The pass runs only from a standalone, keyless call under the default
 principal: `brain … maintenance run` or `command.py maintenance run` without
 `--operator-key`, outside MCP and outside a `brain session run` job. Any
 other context gets `capability_unavailable` (exit 3). A vault with customised
-`vault.profiles` must add `maintenance.*` and `runtime.remove-temporaries` to
+`vault.profiles` must add `maintenance.*`, `runtime.remove-temporaries` and `workspace.repair-registry` to
 the intended profiles or run `brain permission set-profile`; otherwise the
 pass gets `authority_denied` (exit 3).
 
@@ -456,10 +458,68 @@ findings, so a pass detects, lists and writes `last-pass` with no groups. An
 `unknown` machine sibling would be reported the same way as on the Brain
 side: `command_outcome_unknown` naming the sibling. Doctor is read-only and
 reports the vault registry (`~/.config/brain/vaults`) as `current` or
-`stale`. A stale row still counts against `machine.healthy`; a per-Brain
-finding counts only when its repair family is automatic or machine-owned, so
-one without such a family never makes Doctor unhealthy, and an unregistered
-current Brain is reported without entering the health rule at all.
+`stale`. A stale row is reported and listed, never counted against
+`machine.healthy`, because the machine cannot tell an unplugged drive from a
+deleted vault. A per-Brain finding counts against `machine.healthy` only when
+its repair family is automatic or machine-owned, and an unregistered current
+Brain is reported without entering the health rule at all. A registered Brain
+root or linked folder that is absent is listed under `unreachable_locations`
+and never counts either; it pauses orphan-runtime detection, so `tidy` is false
+and `prune-runtimes` refuses with a reason that names each location to
+reconnect or unregister. Of the coverage causes, only invalid ones (an unsafe
+or malformed ledger, journal or registry, or a folder that is present but
+cannot be inspected) count against `machine.healthy`; MCP registration drift,
+runtime health and automatic or machine-owned findings still count as before.
+Doctor's approval inspection reports an approval target whose folder is absent,
+or which cannot be judged while a registered Brain is unreachable, as
+`unreachable`, which does not count either; approval changes still refuse.
+Every writer of `.brain/local/workspaces.json` (`workspace.setup`,
+`workspace.unregister`, the `registry` repair and MCP reverse registration)
+writes with a compare-and-swap over the bytes it read, so none overwrites a row
+another committed meanwhile; the loser returns a retryable `conflict` with no
+effect.
+
+The `registry` family re-derives the linked workspace registry from the
+manifests in the folders it records. `vault.check` verifies each row and
+reports, keyed by `.brain/local/workspaces.json#<key>`:
+`workspace_link_disagreement` (`warning`, repaired) when the folder's readable
+manifest names another valid hub key or a Brain ID resolving to a different
+vault; `workspace_link_unverifiable` (`info`) when the folder is a vault root,
+has no manifest or an unreadable one, its Brain ID does not resolve on this
+machine, or its hub key is missing or not a valid key; and
+`workspace_folder_unreachable` (`info`) when the folder is not there. The file
+itself is one finding. `workspace_registry_malformed` (`warning`, repaired) is
+a file that needs normalising or holds rows that name no usable folder (an
+invalid key, or a path that is empty, relative or contains a NUL byte); the
+repair rebuilds it without them and keeps the file as
+`workspaces.json.bak`. A file whose rows cannot be read is never rebuilt
+unattended: `workspace_registry_unparseable` (not UTF-8, not JSON, or the wrong
+shape) and `workspace_registry_unreadable` (the file cannot be read) are
+`warning` judgement findings with no automatic repair. Restore the file, or
+rebuild an unparseable one empty with
+`brain workspace repair-registry --request-json '{"allow_row_loss": true}'`
+(the request is admitted like any other `workspace.repair-registry` call, with
+no extra prompt), which keeps the backup, then run `workspace setup` from each
+linked folder. When this machine's vault registry cannot be read,
+`workspace_links_unverified` (`info`) says no row was verified.
+
+The repair drops a row only on disagreement. It classifies the rows outside
+the vault lock; under the lock it reads the registry again and drops a row only
+if the row still records the same folder and the folder's manifest is
+byte-identical and still disagrees. It never adds a row, takes no lock in, and
+writes nothing to, any workspace folder, and names each dropped row with the
+folder it recorded (`dropped`), so `workspace setup` can be run from it. On a
+Brain that is not registered on this machine, a well-formed file verifies
+nothing and the repair is a `noop` saying so. From the workspace end,
+`vault.check` with a workspace reports `workspace_registry_missing` (`info`,
+report-only) when the selected Brain has no row recording that folder for the
+manifest's hub key; `brain workspace setup` from the folder writes it. The
+`workspace_link_unverifiable` and `workspace_folder_unreachable` codes are
+judgement findings, one per row: claim one, dismiss one while a drive is
+unplugged, or run `workspace setup` from the folder's new location. The `info`
+codes keep `vault.check` at exit 0, so Doctor stays healthy; the two
+unreadable-file warnings make Doctor's overall result unhealthy for the
+current vault until the file is restored or rebuilt.
 
 ### Claims and dismissals
 
@@ -467,9 +527,12 @@ current Brain is reported without entering the health rule at all.
 whose last outcome was `failed`, `unknown`, `deferred` or `needs_person`, and
 expired claims, each with its `key`, `fingerprint` and claim state. A
 scope-wide judgement family (`frontmatter`, `ownership`, `empty_folders`,
-`semantic`, `registry`) is one group with one key; the two per-artefact
+`semantic`) is one group with one key; the two per-artefact
 `workspace_reference_missing` and `workspace_reference_archived` findings are
-one item per file.
+one item per file, `workspace_link_unverifiable` and
+`workspace_folder_unreachable` are one item per linked workspace row, and
+`workspace_registry_unreadable`, `workspace_registry_unparseable` and
+`workspace_links_unverified` are one item for the registry file.
 
 ```bash
 brain --brain my-brain maintenance claim --request-json '{"key":"9a4c0e7b12d3f5a8","claimant":"rob"}' --json
@@ -534,8 +597,14 @@ the same admitted workset without writes. Results separate native scope, repair
 breadth, target paths, runtime steps and known file effects.
 
 Repair restores missing owned files but never installs an unselected client.
-Unowned or modified Brain slots, damaged ledgers, unavailable registered targets
-and missing reverse coverage stop admission. Unrelated native client settings
+Unowned or modified Brain slots, damaged ledgers and missing reverse coverage
+stop admission. A registered Brain or linked folder that is absent (unplugged or
+moved) does not: Brain and machine breadth repair everything reachable and name
+each absent location in a `follow_up_required` warning (`mcp.repair` version 4).
+Reconnect it, or unregister it. While approval records exist, the approval
+inventory, which needs every registered location, runs first, so the repair
+still refuses with the same remedy. Uninstall, Brain unregistration and
+migration also need every registered location and refuse with that remedy. Unrelated native client settings
 are preserved. Shared Claude hooks/bootstrap survive ordinary scope removal
 while an admitted sibling or user route still needs them.
 

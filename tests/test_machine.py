@@ -142,7 +142,8 @@ def test_machine_health_counts_only_automatic_or_machine_owned_findings(monkeypa
         monkeypatch.setattr(maintenance.bootstrap_diagnostics, "collect_registry_check_findings", lambda _root: list(findings))
         return collect_machine_summary(current_vault=str(vault), launcher_python=sys.executable)
 
-    judgement = {"check": "workspace_registry", "message": "bad rows", "repair": {"scope": "registry", "command": "x"}}
+    judgement = {"check": "duplicate_frontmatter", "message": "duplicate frontmatter", "repair": {"scope": "frontmatter", "command": "x"}}
+    registry = {"check": "workspace_registry", "message": "stale row", "repair": {"scope": "registry", "command": "x"}}
     unverifiable = {"check": "workspace_registry", "code": "workspace_link_unverifiable", "message": "no manifest"}
     machine_owned = {"check": "mcp_registration", "message": "drifted", "repair": {"scope": "mcp", "command": "x"}}
     automatic = {"check": "router", "message": "stale", "repair": {"scope": "router", "command": "x"}}
@@ -153,10 +154,11 @@ def test_machine_health_counts_only_automatic_or_machine_owned_findings(monkeypa
 
     assert summary_with([machine_owned])["healthy"] is False
     assert summary_with([automatic])["healthy"] is False
+    assert summary_with([registry])["healthy"] is False, "the registry family is automatic, so it counts"
 
     lines = doctor_machine.render_human_lines(listed)
     assert "    finding: workspace_registry — no manifest" in lines, "a family-less finding is rendered by its check"
-    assert "    repair: registry — bad rows" in lines and "    command: x" in lines
+    assert "    repair: frontmatter — duplicate frontmatter" in lines and "    command: x" in lines
 
 
 def test_discover_brains_ignores_non_local_authoritative_entries(monkeypatch, tmp_path, fake_home):
@@ -1060,7 +1062,8 @@ def test_doctor_machine_main_renders_brain_level_repair_guidance(monkeypatch, tm
     assert "repair: mcp — Claude SessionStart hook for session.start is missing or does not match the canonical command." in human
     assert ".brain-core/scripts/repair.py" in human
     assert "mcp --vault" in human
-    assert "repair: registry — Registry contains invalid linked-workspace entries: bad" in human
+    assert "repair: registry — The linked workspace registry has rows that name no usable folder" in human
+    assert "'bad'. The repair rebuilds it without them" in human
     assert "workspace repair-registry" in human
 
     monkeypatch.setattr(

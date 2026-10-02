@@ -17,8 +17,68 @@ class RegisteredTarget:
     clients: tuple[registration.McpClient, ...]
 
 
-def local_brains(plan: FilePlan, selected: Path | None = None, *, allow_missing: bool = False) -> tuple[Path, ...]:
-    """Read authoritative identities strictly; remote entries confer no local authority."""
+@dataclass(frozen=True)
+class UnreachableLocation:
+    """A registered location that is absent on this machine: a Brain root with no
+    ``.brain-core/VERSION``, or a linked workspace folder that is not a directory.
+
+    Absent is not invalid: a folder that is present but cannot be inspected, an
+    unsafe path or a malformed row still raises.
+    """
+
+    path: Path
+    label: str
+
+    def __str__(self) -> str:
+        return f"{self.label} at {self.path}"
+
+
+def unreachable_message(locations) -> str:
+    """Why work that needs every registered location cannot proceed, and the two remedies."""
+    names = "; ".join(str(item) for item in locations)
+    return (f"Registered locations are not reachable on this machine: {names}. Reconnect them, or unregister "
+            "them (brain workspace unregister for a linked workspace, brain registry remove-stale for a Brain).")
+
+
+@dataclass(frozen=True)
+class Coverage:
+    """Whether every persisted launch reference could be read, with the causes split.
+
+    ``unreachable`` locations are reported and never count against health;
+    ``invalid`` causes (an unsafe or malformed ledger, journal or registry) do.
+    Pruning needs both empty.
+    """
+
+    unreachable: tuple[UnreachableLocation, ...] = ()
+    invalid: tuple[str, ...] = ()
+
+    @property
+    def complete(self) -> bool:
+        return not self.unreachable and not self.invalid
+
+    def blocked_reason(self) -> str:
+        """Why pruning cannot run, naming every location to reconnect or unregister."""
+        reasons = list(self.invalid)
+        if self.unreachable:
+            reasons.append(unreachable_message(self.unreachable))
+        return "Persisted-registration coverage is incomplete: " + " ".join(reasons)
+
+
+def _record_or_refuse(unreachable, location: UnreachableLocation) -> None:
+    """Record an absent location in the caller's collector, or refuse when the caller needs every one."""
+    if unreachable is None:
+        raise ValueError(f"Incomplete inventory: {location.label} is unavailable: {location.path}. "
+                         + unreachable_message((location,)))
+    unreachable.append(location)
+
+
+def local_brains(plan: FilePlan, selected: Path | None = None, *, allow_missing: bool = False,
+                 unreachable: list[UnreachableLocation] | None = None) -> tuple[Path, ...]:
+    """Read authoritative identities strictly; remote entries confer no local authority.
+
+    An absent Brain root raises, unless ``allow_missing`` keeps it in the result
+    or an ``unreachable`` collector records it and leaves it out.
+    """
     import vault_registry
 
     path = Path(vault_registry.registry_path())
@@ -40,7 +100,8 @@ def local_brains(plan: FilePlan, selected: Path | None = None, *, allow_missing:
         if not root.is_absolute() or root.is_symlink():
             raise ValueError(f"Unsafe registered Brain path: {root}")
         if plan.read_text(root / ".brain-core" / "VERSION") is None and not allow_missing:
-            raise ValueError(f"Incomplete inventory: registered Brain is unavailable: {root}")
+            _record_or_refuse(unreachable, UnreachableLocation(root, f"registered Brain {entry.brain_id}"))
+            continue
         root = root.resolve()
         if root in roots:
             raise ValueError(f"Conflicting Brain identities for {root}")
@@ -50,9 +111,14 @@ def local_brains(plan: FilePlan, selected: Path | None = None, *, allow_missing:
     return tuple(sorted(roots, key=str))
 
 
-def workspace_paths(plan: FilePlan, vault: Path) -> set[Path]:
-    """Validate the reverse index without mistaking damaged state for an empty list."""
-    from _common._slugs import is_valid_key
+def workspace_paths(plan: FilePlan, vault: Path, *, unreachable: list[UnreachableLocation] | None = None) -> set[Path]:
+    """Validate the reverse index without mistaking damaged state for an empty list.
+
+    A linked folder that is absent raises, unless an ``unreachable`` collector
+    records it and leaves it out. A folder that is present but cannot be
+    inspected is never absent: ``is_dir`` raises its ``PermissionError``.
+    """
+    import workspace_registry
 
     path = vault / ".brain/local/workspaces.json"
     data = registration._json_object(plan, path)
@@ -61,11 +127,15 @@ def workspace_paths(plan: FilePlan, vault: Path) -> set[Path]:
         raise ValueError(f"Invalid workspace registry: {path}")
     roots = {vault}
     for slug, value in raw.items():
-        if not is_valid_key(slug) or not isinstance(value, dict) or not isinstance(value.get("path"), str):
-            raise ValueError(f"Workspace registry migration required: {path}")
-        root = Path(value["path"])
-        if not root.is_absolute() or not root.is_dir():
-            raise ValueError(f"Incomplete inventory: workspace {slug} is unavailable: {root}")
+        # The registry's one row rule: a row that names no usable folder is invalid, never absent.
+        row = workspace_registry.salvage_row(slug, value)
+        if row is None:
+            raise ValueError(f"Workspace registry row {slug!r} names no usable folder; run brain workspace "
+                             f"repair-registry: {path}")
+        root = Path(row["path"])
+        if not root.is_dir():
+            _record_or_refuse(unreachable, UnreachableLocation(root, f"linked workspace {slug} of {vault}"))
+            continue
         roots.add(root.resolve())
     embedded = vault / "_Workspaces"
     if embedded.exists():
@@ -73,12 +143,21 @@ def workspace_paths(plan: FilePlan, vault: Path) -> set[Path]:
     return roots
 
 
-def brain_targets(plan: FilePlan, vault: Path, home: Path) -> tuple[RegisteredTarget, ...]:
-    roots = workspace_paths(plan, vault)
+def brain_targets(plan: FilePlan, vault: Path, home: Path, *,
+                  unreachable: list[UnreachableLocation] | None = None) -> tuple[RegisteredTarget, ...]:
+    """The Brain's recorded MCP targets; with an ``unreachable`` collector, a record whose
+    folder is absent is reported there and left out, never admitted."""
+    absent: list[UnreachableLocation] = []
+    roots = workspace_paths(plan, vault, unreachable=None if unreachable is None else absent)
+    if unreachable is not None:
+        unreachable.extend(absent)
+    absent_paths = {item.path.resolve() for item in absent}
     _, records = registration.read_records(plan, vault, home, registration.McpScope.PROJECT)
     grouped = {}
     for record in records:
         target = Path(record["target_path"])
+        if target.resolve() in absent_paths:
+            continue
         if target.resolve() not in roots:
             raise ValueError(f"Workspace reverse registration requires recovery: {target}")
         registration.plan_target_admission(plan, vault, target)
@@ -88,10 +167,15 @@ def brain_targets(plan: FilePlan, vault: Path, home: Path) -> tuple[RegisteredTa
                  for (target, scope), clients in sorted(grouped.items(), key=lambda item: (str(item[0][0]), item[0][1].value)))
 
 
-def require_owned_native_slots(plan: FilePlan, vault: Path, home: Path, registered: tuple[RegisteredTarget, ...]) -> None:
-    """Reject incomplete ownership before any composed repair or removal."""
+def require_owned_native_slots(plan: FilePlan, vault: Path, home: Path, registered: tuple[RegisteredTarget, ...], *,
+                               unreachable: list[UnreachableLocation] | None = None) -> None:
+    """Reject incomplete ownership before any composed repair or removal.
+
+    With an ``unreachable`` collector, absent folders are left out (their slots
+    cannot be read) instead of refused; the collector already names them.
+    """
     owned = {(client, item.scope, item.target) for item in registered for client in item.clients}
-    for target_path in workspace_paths(plan, vault):
+    for target_path in workspace_paths(plan, vault, unreachable=None if unreachable is None else []):
         for scope in (registration.McpScope.PROJECT, registration.McpScope.LOCAL):
             for client in registration._clients(registration.McpClient.ALL, scope):
                 path = registration._config_path(client, scope, target_path, home)
@@ -99,8 +183,13 @@ def require_owned_native_slots(plan: FilePlan, vault: Path, home: Path, register
                     raise ValueError(f"Unowned MCP entry requires explicit migration/admission: {path}")
 
 
-def plan_repair(plan: FilePlan, vaults: tuple[Path, ...], home: Path, cli_binary: Path, *, runtimes: dict[Path, Path] | None = None):
-    """Compose all native target projections plus shared user projections once."""
+def plan_repair(plan: FilePlan, vaults: tuple[Path, ...], home: Path, cli_binary: Path, *,
+                runtimes: dict[Path, Path] | None = None, unreachable: list[UnreachableLocation] | None = None):
+    """Compose all native target projections plus shared user projections once.
+
+    With an ``unreachable`` collector, the reachable targets are repaired and the
+    absent ones are named there; without one, an absent folder refuses the whole repair.
+    """
     from _bootstrap.mcp_state import build_mcp_config
 
     targets = []
@@ -108,8 +197,8 @@ def plan_repair(plan: FilePlan, vaults: tuple[Path, ...], home: Path, cli_binary
     runtimes = dict(runtimes or {})
     clients = set()
     for vault in vaults:
-        registered = brain_targets(plan, vault, home)
-        require_owned_native_slots(plan, vault, home, registered)
+        registered = brain_targets(plan, vault, home, unreachable=unreachable)
+        require_owned_native_slots(plan, vault, home, registered, unreachable=unreachable)
         for target in registered:
             for client in target.clients:
                 path = registration._config_path(client, target.scope, target.target, home)
@@ -146,12 +235,13 @@ def inspect_registrations(home: Path, vaults: tuple[Path, ...], cli_binary: Path
         for client in registration._clients(registration.McpClient.ALL, scope):
             slots[(client, scope, None)] = None
     for vault in vaults:
+        absent: list[UnreachableLocation] = []
         try:
-            for target_path in workspace_paths(plan, vault):
+            for target_path in workspace_paths(plan, vault, unreachable=absent):
                 for scope in (registration.McpScope.PROJECT, registration.McpScope.LOCAL):
                     for client in registration._clients(registration.McpClient.ALL, scope):
                         slots[(client, scope, target_path)] = vault
-            targets = brain_targets(plan, vault, home)
+            targets = brain_targets(plan, vault, home, unreachable=[])
             for target in targets:
                 for client in target.clients:
                     slots[(client, target.scope, target.target)] = vault
@@ -159,6 +249,10 @@ def inspect_registrations(home: Path, vaults: tuple[Path, ...], cli_binary: Path
             complete = False
             findings.append({"state": "migration_required" if "migration" in str(exc).lower() else "incomplete",
                              "path": str(vault), "message": str(exc), "action": "brain mcp migrate --dry-run --json"})
+        # An absent folder's slots cannot be read; it is reported once, never counted as missing or migrated.
+        for item in absent:
+            findings.append({"state": "unreachable", "path": str(item.path), "message": f"{item} is not reachable.",
+                             "action": "Reconnect the folder, or run brain workspace unregister for it."})
     runtime_cache = {}
     for (client, scope, target), vault in slots.items():
         path = registration._config_path(client, scope, target, home)
@@ -192,15 +286,26 @@ def inspect_registrations(home: Path, vaults: tuple[Path, ...], cli_binary: Path
             complete = False
             findings.append({"client": client.value, "scope": scope.value, "path": str(path), "state": "incomplete", "message": str(exc),
                              "action": "brain mcp migrate --dry-run --json"})
-    return {"complete": complete, "healthy": complete and all(item["state"] in ("current", "bootstrap_only", "absent") for item in findings),
+    return {"complete": complete,
+            "healthy": complete and all(item["state"] in REPORTED_STATES for item in findings),
             "registrations": findings}
 
 
-def persisted_runtime_references(home: Path, vaults: tuple[Path, ...]) -> tuple[set[str], bool]:
-    """Treat even legacy/unowned native launch references as retention roots, not write authority."""
+# Registration states that are reported but never count against health.
+REPORTED_STATES = frozenset({"current", "bootstrap_only", "absent", "unreachable"})
+
+
+def persisted_runtime_references(home: Path, vaults: tuple[Path, ...]) -> tuple[set[str], Coverage]:
+    """Treat even legacy/unowned native launch references as retention roots, not write authority.
+
+    An absent location's slots live under it and cannot be read, so the coverage
+    verdict names it as unreachable and pruning waits until it is reconnected or
+    unregistered.
+    """
     plan = FilePlan()
     references = set()
-    complete = True
+    unreachable: list[UnreachableLocation] = []
+    invalid: list[str] = []
     from _bootstrap.mcp_migration import read_journal
     import base64
     import json
@@ -217,22 +322,24 @@ def persisted_runtime_references(home: Path, vaults: tuple[Path, ...]) -> tuple[
                         if not isinstance(record, dict):
                             raise ValueError("Invalid retired registration record")
                         _add_references(references, record.get("server_config", {}))
-    except (OSError, ValueError, TypeError, KeyError):
-        complete = False
+    except (OSError, ValueError, TypeError, KeyError) as exc:
+        invalid.append(f"The MCP migration journal could not be read: {exc}.")
     try:
         _, user_records = registration.read_records(plan, None, home, registration.McpScope.USER)
         for record in user_records:
             _add_references(references, record["server_config"])
-    except (OSError, ValueError, RuntimeError):
-        complete = False
+    except (OSError, ValueError, RuntimeError) as exc:
+        invalid.append(f"The user MCP registration ledger could not be read: {exc}.")
     slots = {(client, registration.McpScope.USER, None) for client in registration._clients(registration.McpClient.ALL, registration.McpScope.USER)}
     try:
-        local_brains(plan)
-    except (OSError, ValueError, RuntimeError):
-        complete = False
+        local_brains(plan, unreachable=unreachable)
+    except (OSError, ValueError, RuntimeError) as exc:
+        invalid.append(f"The vault registry could not be read: {exc}.")
     for vault in vaults:
+        absent: list[UnreachableLocation] = []
         try:
-            targets = workspace_paths(plan, vault)
+            targets = workspace_paths(plan, vault, unreachable=absent)
+            unreachable.extend(absent)
             data = registration._json_object(plan, vault / ".brain/local/init-state.json")
             records = data.get("records", [])
             if not isinstance(records, list):
@@ -249,16 +356,16 @@ def persisted_runtime_references(home: Path, vaults: tuple[Path, ...]) -> tuple[
             for target in targets:
                 for scope in (registration.McpScope.PROJECT, registration.McpScope.LOCAL):
                     slots.update((client, scope, target) for client in registration._clients(registration.McpClient.ALL, scope))
-        except (OSError, ValueError, RuntimeError):
-            complete = False
+        except (OSError, ValueError, RuntimeError) as exc:
+            invalid.append(f"The MCP registrations of {vault} could not be read: {exc}.")
     for client, scope, target in slots:
         try:
             server = registration.observed_server(plan, client, registration._config_path(client, scope, target, home))
             if server is not None:
                 _add_references(references, server)
-        except (OSError, ValueError, RuntimeError):
-            complete = False
-    return references, complete
+        except (OSError, ValueError, RuntimeError) as exc:
+            invalid.append(f"An MCP configuration could not be read: {exc}.")
+    return references, Coverage(tuple(unreachable), tuple(invalid))
 
 
 def _add_references(references: set[str], server: dict) -> None:

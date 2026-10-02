@@ -60,7 +60,10 @@ def registration_error(request, exc, effects):
     if effects:
         error = getattr(exc, "error", None) or CommandError(ErrorCode.CONFLICT, str(exc), RequestErrorDetails(None, str(exc)))
         return Partial(request.COMMAND_ID, request.COMMAND_VERSION, error, tuple(effects))
-    return no_effect_error(type(request), ErrorCode.CONFLICT, str(exc))
+    from workspace_registry import RegistryChangedError
+
+    # A registry compare-and-swap that lost a race wrote nothing, so running again is safe.
+    return no_effect_error(type(request), ErrorCode.CONFLICT, str(exc), retryable=isinstance(exc, RegistryChangedError))
 
 
 def decode(payload: Mapping[str, object]):

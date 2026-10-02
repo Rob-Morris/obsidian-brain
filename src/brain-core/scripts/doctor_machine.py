@@ -104,6 +104,12 @@ def render_human_lines(summary: dict) -> list[str]:
             lines.append(f"  {path}")
             lines.append(f"    register: {register_guidance(path)}")
 
+    if summary.get("unreachable_locations"):
+        # Reported, never unhealthy; orphan detection waits until each is reconnected or unregistered.
+        lines.append("unreachable (orphan detection paused):")
+        for item in summary["unreachable_locations"]:
+            lines.append(f"  {item['label']}: {item['path']}")
+
     if not summary["live_process_scan_available"]:
         lines.extend(["runtime note:", "  ps failed; orphan detection skipped"])
 

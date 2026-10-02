@@ -159,7 +159,8 @@ class McpConfigureRequest:
 @dataclass(frozen=True, slots=True)
 class McpRepairRequest:
     COMMAND_ID: ClassVar[str] = "mcp.repair"
-    COMMAND_VERSION: ClassVar[int] = 3
+    # 4: a composed repair repairs the reachable targets and names the unreachable ones in a warning.
+    COMMAND_VERSION: ClassVar[int] = 4
     RESULT_TYPE: ClassVar[type] = McpMutationPayload
 
     client: McpClient = McpClient.ALL
@@ -412,8 +413,10 @@ def _execute_composed_repair(context, request):
         with nullcontext() if context.dry_run else registration.registration_lock(context.home_dir):
             plan = FilePlan()
             _verify_stable_launcher(context)
+            # An absent Brain root or linked folder is named and left alone; the rest is repaired.
+            unreachable = []
             if request.breadth is RepairBreadth.MACHINE:
-                vaults = mcp_inventory.local_brains(plan)
+                vaults = mcp_inventory.local_brains(plan, unreachable=unreachable)
             elif context.current_vault is not None:
                 vaults = (context.current_vault,)
             else:
@@ -435,7 +438,8 @@ def _execute_composed_repair(context, request):
                     raise ValueError(preview.get("message") or f"Cannot plan managed runtime for {vault}")
                 runtimes[vault] = Path(preview["managed_python"])
                 runtime_work.setdefault(preview["runtime_dir"], (vault, arguments, preview))
-            clients, targets = mcp_inventory.plan_repair(plan, vaults, context.home_dir, context.cli_binary, runtimes=runtimes)
+            clients, targets = mcp_inventory.plan_repair(plan, vaults, context.home_dir, context.cli_binary,
+                                                         runtimes=runtimes, unreachable=unreachable)
             runtime_steps = []
             plan.validate()
             for directory, (vault, arguments, preview) in runtime_work.items():
@@ -463,7 +467,11 @@ def _execute_composed_repair(context, request):
                 status = result.result.status
                 if any(step.status is not McpMutationStatus.NOOP for step in runtime_steps):
                     status = McpMutationStatus.PLANNED if context.dry_run else McpMutationStatus.CHANGED
-                result = replace(result, committed_effects=(*effects, *result.committed_effects),
+                warnings = result.warnings
+                if unreachable:
+                    warnings = (*warnings, CommandWarning(WarningCode.FOLLOW_UP_REQUIRED,
+                                                          mcp_inventory.unreachable_message(unreachable)))
+                result = replace(result, committed_effects=(*effects, *result.committed_effects), warnings=warnings,
                                  result=replace(result.result, targets=targets, breadth=request.breadth,
                                                 runtimes=tuple(runtime_steps), status=status))
             elif effects:

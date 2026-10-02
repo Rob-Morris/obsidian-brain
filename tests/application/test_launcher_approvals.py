@@ -713,3 +713,42 @@ def test_new_allowance_follows_committed_contract_and_failed_transition_does_not
         return Ok(req.COMMAND_ID, req.COMMAND_VERSION, SimpleNamespace())
     assert invoke(context, req, "version", succeed).status == "ok"
     assert "mcp__brain__artefact_new" in json.loads((home / ".claude/settings.json").read_text())["permissions"]["allow"]
+
+
+def test_doctor_inspection_reports_an_absent_approval_target_as_unreachable(configured, monkeypatch):
+    """An approval target whose folder is absent is reported, never blocked, and Doctor does not count it (DD-083)."""
+    from _bootstrap.approval_clients import config_root
+
+    invocation, home, _vault = configured
+    gone = (home.parent / "unplugged-workspace").resolve()
+    record = {"client": "claude", "scope": "project", "surface": "mcp", "target": str(gone),
+              "root": str(config_root("claude", "project", home, gone)),
+              "executable": str(invocation._context.cli_binary), "server": "brain", "owned": True}
+    monkeypatch.setattr(manager, "read_records", lambda _plan, _home: {"unplugged": record})
+
+    statuses = manager.inspect_registered(invocation._context)
+
+    assert [item.state for item in statuses] == ["unreachable"]
+    assert statuses[0].path.startswith(str(gone))
+    assert str(gone) in statuses[0].activation
+
+
+def test_doctor_inspection_reports_a_target_of_an_unplugged_brain_as_unreachable(configured):
+    """With a contributing Brain unplugged, inspection cannot judge the target: unreachable, never blocked."""
+    import shutil
+
+    invocation, _home, _vault = configured
+    other = invocation._context.home_dir.parent / "other"
+    (other / ".brain-core").mkdir(parents=True)
+    (other / ".brain-core/VERSION").write_text("0.70.3")
+    (other / ".brain-core/approval-contract.json").write_text(json.dumps(snapshot((
+        CommandFact("artefact.list", 1, "application", "observation", "artefact_list", ("artefact", "list")),
+    ))))
+    vault_registry.register(other, "other")
+    assert invocation.invoke(request()).status == "ok"
+    shutil.rmtree(other)
+
+    states = {item.state for item in manager.inspect_registered(invocation._context)}
+
+    assert states <= {"current", "unreachable"} and "unreachable" in states
+    assert "blocked" not in states

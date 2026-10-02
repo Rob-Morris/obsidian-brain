@@ -261,8 +261,8 @@ def test_doctor_projects_findings_without_a_repair_family_and_unregistered_brain
     machine["brains"][0]["repair_findings"] = [
         {"check": "workspace_registry", "code": "workspace_folder_unreachable", "file": ".brain/local/workspaces.json#a",
          "message": "Linked folder is unreachable."},
-        {"check": "workspace_registry", "file": ".brain/local/workspaces.json", "message": "Registry is malformed.",
-         "repair": {"scope": "registry", "command": "x"}},
+        {"check": "workspace_registry", "code": "workspace_registry_malformed", "file": ".brain/local/workspaces.json",
+         "message": "Registry is malformed.", "repair": {"scope": "registry", "command": "x"}},
     ]
     machine["counts"].update(repair_findings=2, stale_registry_entries=0, unregistered_brains=1)
     monkeypatch.setattr(doctor_script, "collect_cli_diagnosis", lambda **_kwargs: _cli_report(tmp_path))
@@ -285,7 +285,7 @@ def test_doctor_projects_findings_without_a_repair_family_and_unregistered_brain
     assert (findings[1].scope, findings[1].command_id, findings[1].file) == (
         "registry", "workspace.repair-registry", ".brain/local/workspaces.json"
     )
-    assert (findings[1].check, findings[1].code) == ("workspace_registry", None)
+    assert (findings[1].check, findings[1].code) == ("workspace_registry", "workspace_registry_malformed")
 
 
 @pytest.mark.parametrize("scope, command_id", [(None, "mcp.repair"), ("mcp", None)])

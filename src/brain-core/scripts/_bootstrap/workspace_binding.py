@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
+import io
 import os
 import re
 import unicodedata
@@ -12,7 +13,8 @@ from typing import Any
 
 from _common._filesystem import safe_write
 from _common._vault import is_brain_vault
-from _common._yaml import YamlError, dump_mapping_text, load_mapping_file
+from _common._slugs import is_valid_key
+from _common._yaml import YamlError, dump_mapping_text, load_mapping_file, load_mapping_text
 import vault_registry
 
 
@@ -707,8 +709,31 @@ class LinkVerdict(str, Enum):
     UNREADABLE = "unreadable"
     BRAIN_UNRESOLVED = "brain_unresolved"
     KEY_MISSING = "key_missing"
+    KEY_INVALID = "key_invalid"
     OTHER_BRAIN = "other_brain"
     OTHER_KEY = "other_key"
+
+
+# Only these two verdicts positively contradict a row; every other one proves nothing.
+LINK_DISAGREEMENT = frozenset({LinkVerdict.OTHER_BRAIN, LinkVerdict.OTHER_KEY})
+
+
+@dataclass(frozen=True, eq=False)
+class ManifestSnapshot:
+    """The bytes of a folder's canonical and legacy manifests from one read, ``None`` where a file is absent.
+
+    A read that failed records why in ``failure``, outside the bytes, and
+    confirms nothing: it is never the same as another read, failed or not.
+    """
+
+    canonical: bytes | None
+    legacy: bytes | None
+    failure: str | None = None
+
+    def confirms(self, other: ManifestSnapshot) -> bool:
+        """Whether both reads succeeded and saw exactly the same bytes."""
+        return (self.failure is None and other.failure is None
+                and self.canonical == other.canonical and self.legacy == other.legacy)
 
 
 @dataclass(frozen=True)
@@ -716,42 +741,104 @@ class LinkClassification:
     verdict: LinkVerdict
     state: WorkspaceManifestState | None = None
     detail: str | None = None
+    # The bytes the verdict was read from; ``None`` when no manifest was read.
+    snapshot: ManifestSnapshot | None = None
+
+
+def manifest_snapshot(folder: Path) -> ManifestSnapshot:
+    """One read of the bytes of a folder's canonical and legacy manifests, for an exact change check."""
+    found: list[bytes | None] = []
+    for path in (manifest_path_for(folder), legacy_manifest_path_for(folder)):
+        try:
+            found.append(path.read_bytes())
+        except FileNotFoundError:
+            found.append(None)
+        except OSError as exc:
+            return ManifestSnapshot(None, None, f"{path}: {exc}")
+    return ManifestSnapshot(*found)
+
+
+def _manifest_state_from(folder: Path, snapshot: ManifestSnapshot) -> WorkspaceManifestState:
+    """Parse the manifest a snapshot holds, canonical before legacy as ``load_workspace_manifest_state`` does."""
+    manifest_path, legacy_path = manifest_path_for(folder), legacy_manifest_path_for(folder)
+    for source, rel, content in ((manifest_path, WORKSPACE_MANIFEST_REL, snapshot.canonical),
+                                 (legacy_path, WORKSPACE_MANIFEST_LEGACY_REL, snapshot.legacy)):
+        if content is None:
+            continue
+        try:
+            # Universal newlines, as ``read_text`` gives the file loader, so a CRLF manifest parses the same.
+            text = io.TextIOWrapper(io.BytesIO(content), encoding="utf-8").read()
+            data = load_mapping_text(text, source=str(source))
+        except (UnicodeDecodeError, YamlError) as exc:
+            raise WorkspaceBindingError(f"failed to load {rel}: {exc}") from exc
+        return WorkspaceManifestState(folder, manifest_path, legacy_path, source, data)
+    return WorkspaceManifestState(folder, manifest_path, legacy_path, None, None)
 
 
 def classify_link(vault_root: Path, folder: Path, key: str) -> LinkClassification:
     """Whether the manifest at ``folder`` is the workspace end of the Brain's row ``key``.
 
-    A read only: it takes no lock and writes nothing. Absence proves nothing:
-    a ``brain`` ID that does not resolve on this machine is ``BRAIN_UNRESOLVED``,
-    never ``OTHER_BRAIN``, and a missing hub key is ``KEY_MISSING``, never
-    ``OTHER_KEY``. Only the two ``OTHER_*`` verdicts are positive disagreement.
+    A read only: it takes no lock and writes nothing, and the verdict comes from
+    the bytes in ``snapshot``, so a caller can confirm a later read saw the same
+    manifest. Absence proves nothing: a ``brain`` ID that does not resolve on
+    this machine is ``BRAIN_UNRESOLVED``, never ``OTHER_BRAIN``, and a hub key
+    that is missing or not a valid key is ``KEY_MISSING`` or ``KEY_INVALID``,
+    never ``OTHER_KEY``. Only the two ``OTHER_*`` verdicts are positive
+    disagreement.
     """
     try:
         if not folder.is_dir():
             return LinkClassification(LinkVerdict.UNREACHABLE)
         if is_brain_vault(folder):
             return LinkClassification(LinkVerdict.VAULT_ROOT)
-        state = load_workspace_manifest_state(folder)
-    except (OSError, WorkspaceBindingError) as exc:
+    except OSError as exc:
         return LinkClassification(LinkVerdict.UNREADABLE, detail=str(exc))
+    snapshot = manifest_snapshot(folder)
+    if snapshot.failure is not None:
+        return LinkClassification(LinkVerdict.UNREADABLE, detail=snapshot.failure, snapshot=snapshot)
+    try:
+        state = _manifest_state_from(folder, snapshot)
+    except WorkspaceBindingError as exc:
+        return LinkClassification(LinkVerdict.UNREADABLE, detail=str(exc), snapshot=snapshot)
     if state.data is None:
-        return LinkClassification(LinkVerdict.NO_MANIFEST, state)
+        return LinkClassification(LinkVerdict.NO_MANIFEST, state, snapshot=snapshot)
     brain, linked_key = link_fields(state.data)
     if not isinstance(brain, str) or not brain:
-        return LinkClassification(LinkVerdict.BRAIN_UNRESOLVED, state)
+        return LinkClassification(LinkVerdict.BRAIN_UNRESOLVED, state, snapshot=snapshot)
     try:
         bound = resolve_local_brain_vault(brain)
     except WorkspaceBindingError as exc:
-        return LinkClassification(LinkVerdict.BRAIN_UNRESOLVED, state, str(exc))
+        return LinkClassification(LinkVerdict.BRAIN_UNRESOLVED, state, str(exc), snapshot)
     if bound is None:
-        return LinkClassification(LinkVerdict.BRAIN_UNRESOLVED, state)
+        return LinkClassification(LinkVerdict.BRAIN_UNRESOLVED, state, snapshot=snapshot)
     if bound != Path(vault_root).resolve():
-        return LinkClassification(LinkVerdict.OTHER_BRAIN, state)
+        return LinkClassification(LinkVerdict.OTHER_BRAIN, state, snapshot=snapshot)
     if linked_key is None:
-        return LinkClassification(LinkVerdict.KEY_MISSING, state)
+        return LinkClassification(LinkVerdict.KEY_MISSING, state, snapshot=snapshot)
+    if not is_valid_key(linked_key):
+        return LinkClassification(LinkVerdict.KEY_INVALID, state, snapshot=snapshot)
     if linked_key != key:
-        return LinkClassification(LinkVerdict.OTHER_KEY, state)
-    return LinkClassification(LinkVerdict.MATCHES, state)
+        return LinkClassification(LinkVerdict.OTHER_KEY, state, snapshot=snapshot)
+    return LinkClassification(LinkVerdict.MATCHES, state, snapshot=snapshot)
+
+
+def describe_link(classification: LinkClassification) -> str | None:
+    """Why the folder is not the link's workspace end, in words, or ``None`` when it is."""
+    verdict = classification.verdict
+    if verdict is LinkVerdict.MATCHES:
+        return None
+    if verdict is LinkVerdict.UNREADABLE:
+        return f"the folder could not be inspected ({classification.detail})"
+    return {
+        LinkVerdict.UNREACHABLE: "the folder is unreachable",
+        LinkVerdict.VAULT_ROOT: "the folder is a Brain vault root",
+        LinkVerdict.NO_MANIFEST: "the folder has no workspace manifest",
+        LinkVerdict.BRAIN_UNRESOLVED: "its manifest's Brain ID does not resolve on this machine",
+        LinkVerdict.KEY_MISSING: "its manifest names no workspace key",
+        LinkVerdict.KEY_INVALID: "its manifest's workspace key is not a valid key",
+        LinkVerdict.OTHER_BRAIN: "its manifest names another Brain",
+        LinkVerdict.OTHER_KEY: "its manifest names another workspace",
+    }[verdict]
 
 
 def _binding_payload(existing: dict[str, Any], *, brain: str, slug: str) -> dict[str, Any]:

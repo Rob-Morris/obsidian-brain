@@ -211,18 +211,22 @@ Schedule routine maintenance as a plain CLI call with an explicit selector:
 /usr/local/bin/brain --brain my-brain maintenance run --json
 brain --brain my-brain maintenance list --json
 brain --brain my-brain maintenance claim --request-json '{"key":"…","claimant":"me"}' --json
-brain --brain my-brain maintenance dismiss --request-json '{"key":"…","expected_fingerprint":"…","reason":"…","actor":"me"}' --json
+# For example, an unplugged drive is reported, not unhealthy (with approvals configured, approval changes and
+# mcp repair still wait for it); dismiss its workspace_folder_unreachable item to quiet it.
+brain --brain my-brain maintenance dismiss --request-json '{"key":"…","expected_fingerprint":"…","reason":"drive unplugged","actor":"me"}' --json
 brain --brain my-brain maintenance release --request-json '{"key":"…","actor":"me"}' --json
 brain machine-maintenance run --json
 ```
 
-The pass repairs the derived caches and stranded temporaries it finds and
-lists everything that needs a person; it runs keyless, outside MCP and
+The pass repairs the derived caches, stranded temporaries and linked
+workspace registry rows whose manifest names another Brain or workspace and lists everything that needs a person; it runs keyless, outside MCP and
 outside a session job. The existing derived-cache commands are also
 schedule-safe on their own: `vault check`, `runtime refresh-router`,
 `retrieval refresh-lexical` and `runtime warmup`. `artefact repair` and
 `links fix` are preview-then-apply content repairs and belong in a schedule
-only after a reviewed dry run; `workspace repair-registry` is schedule-safe,
+only after a reviewed dry run; `workspace repair-registry` is schedule-safe
+(it never rebuilds a registry whose rows cannot be read unless asked with
+`allow_row_loss`),
 and `retrieval repair-semantic` is an exceptional command that needs a
 `brain session run` job. See [scheduling existing commands](../functional/cli.md#scheduling-existing-commands). Claim a finding to hold it for an hour, dismiss a
 judgement finding at its current evidence for thirty days, or release it.
