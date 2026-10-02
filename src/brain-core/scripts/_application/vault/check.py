@@ -72,7 +72,7 @@ class VaultCheckRequest:
 
 def execute(context: InvocationContext, request: VaultCheckRequest):
     import check
-    from _repair_common import REPAIR_SCOPES
+    from _repair_common import family_for_finding
 
     try:
         result = check.run_checks(context.selected_brain.vault_root, workspace_dir=context.workspace_dir)
@@ -87,20 +87,19 @@ def execute(context: InvocationContext, request: VaultCheckRequest):
 
     findings = []
     for source in result["findings"]:
-        repair_source = source.get("repair")
         repair = None
-        if repair_source:
-            scope = repair_source["scope"]
-            family = REPAIR_SCOPES.get(scope)
-            if family is None:
-                return command_error(
-                    VaultCheckRequest,
-                    ErrorCode.INTERNAL_ERROR,
-                    f"Unsupported repair scope: {scope}",
-                    None,
-                )
+        try:
+            family = family_for_finding(source)
+        except (KeyError, ValueError) as exc:
+            return command_error(
+                VaultCheckRequest,
+                ErrorCode.INTERNAL_ERROR,
+                f"Unsupported repair scope: {exc}",
+                None,
+            )
+        if family is not None:
             repair = CheckRepairAction(
-                scope,
+                family.scope,
                 family.description,
                 family.command_id,
             )

@@ -16,6 +16,8 @@ from pathlib import Path
 
 import pytest
 
+from brain_test_support import folder_tree
+
 from _bootstrap.workspace_binding import (
     WorkspaceBindingError,
     resolve_brain_target,
@@ -64,13 +66,6 @@ def forbid_locks(monkeypatch):
         monkeypatch.setattr(vault_registry, "_locked", refuse)
 
     return apply
-
-
-def _tree(root: Path) -> dict[str, bytes | None]:
-    return {
-        str(path.relative_to(root)): None if path.is_dir() else path.read_bytes()
-        for path in sorted(root.rglob("*"))
-    }
 
 
 def _anchor_valid(root):
@@ -146,7 +141,7 @@ def _nothing(root):
 def test_every_rung_outcome_leaves_state_byte_identical(tmp_path, arrange, forbid_locks):
     arguments, outcome = arrange(tmp_path)
     forbid_locks()
-    before = _tree(tmp_path)
+    before = folder_tree(tmp_path)
 
     try:
         observed = resolve_brain_target(**arguments).source
@@ -154,7 +149,7 @@ def test_every_rung_outcome_leaves_state_byte_identical(tmp_path, arrange, forbi
         observed = exc.code
 
     assert observed == outcome
-    assert _tree(tmp_path) == before
+    assert folder_tree(tmp_path) == before
 
 
 @pytest.mark.parametrize("registered", [True, False])
@@ -163,7 +158,7 @@ def test_local_alias_lookup_leaves_state_byte_identical(tmp_path, registered, fo
     if registered:
         vault_registry.register(str(vault), brain_id="named")
     forbid_locks()
-    before = _tree(tmp_path)
+    before = folder_tree(tmp_path)
 
     assert resolve_local_brain_alias(vault) == ("named" if registered else None)
-    assert _tree(tmp_path) == before
+    assert folder_tree(tmp_path) == before

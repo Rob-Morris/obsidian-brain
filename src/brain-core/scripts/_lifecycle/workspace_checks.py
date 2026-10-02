@@ -74,9 +74,34 @@ def workspace_findings(vault_root, router, *, workspace_dir=None):
         try:
             state = load_workspace_manifest_state(workspace_dir)
             manifest_path = str(state.manifest_path)
-            binding, _reference, guidance = resolve_selected_workspace_binding(vault_root, router, state.data)
+            binding, reference, guidance = resolve_selected_workspace_binding(vault_root, router, state.data)
             if binding not in {"valid", "unconfigured"}:
                 report("workspace_binding_" + binding, manifest_path, guidance or binding, "Run brain workspace setup for the intended selected Brain; repair local defaults or reactivate the hub as reported")
+            elif binding == "valid":
+                _report_missing_row(vault_root, workspace_dir, reference.split("/", 1)[1], manifest_path, report)
         except (WorkspaceBindingError, OSError, ValueError) as exc:
             report("workspace_binding_configured_invalid", manifest_path, str(exc), "Repair the local manifest with brain workspace setup / workspace.update-metadata")
     return findings
+
+
+def _report_missing_row(vault_root, workspace_dir, key, manifest_path, report):
+    """From the workspace end, the Brain's registry must record this folder for the hub key.
+
+    Report-only (DD-083 item 6): only a caller-anchored check can see it, so no
+    pass acts on it, and ``workspace setup`` from this folder writes the row.
+    It reads the rows the Brain end salvages; a registry whose rows cannot be
+    read is the Brain end's finding, not a missing row.
+    """
+    from pathlib import Path
+    from _bootstrap.diagnostics import RegistryCondition, inspect_registry
+    import workspace_registry
+
+    if workspace_registry.is_embedded(vault_root, key):
+        return
+    registry = inspect_registry(Path(vault_root))
+    if registry.condition in {RegistryCondition.UNREADABLE, RegistryCondition.UNPARSEABLE}:
+        return
+    if not workspace_registry.row_records(registry.rows.get(key), workspace_dir):
+        report("workspace_registry_missing", manifest_path,
+               f"The selected Brain's linked workspace registry has no row for {key} at {workspace_dir}.",
+               "Run brain workspace setup from this workspace", "info")

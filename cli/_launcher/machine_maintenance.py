@@ -60,7 +60,7 @@ from _bootstrap.maintenance_summary import (
     read_last_pass,
     write_last_pass,
 )
-from _repair_common import REPAIR_SCOPES, RepairFamily
+from _repair_common import REPAIR_SCOPES, RepairFamily, family_for_finding
 
 from .context import LauncherContext, launcher_state_home, report_failure_safely
 from .contracts import (
@@ -201,16 +201,21 @@ def detect_machine(context: LauncherContext) -> tuple[tuple[MaintenanceFinding, 
             findings.append(_finding("legacy_installation", {"brain": brain["path"]},
                                      "Brain still falls back to its legacy vault-local .venv.", disposition=Disposition.JUDGEMENT))
         for item in brain["repair_findings"]:
-            family = REPAIR_SCOPES.get(item.get("repair", {}).get("scope"))
+            family = family_for_finding(item)
             if family is None or family.owner is not Owner.MACHINE:
                 continue  # Brain-owned and family-less findings belong to that Brain's own pass or a person
             findings.append(_finding(BRAIN_REPAIR, {"brain": brain["path"], "scope": family.scope}, item["message"],
                                      disposition=Disposition.JUDGEMENT, scope=BRAIN_REPAIR, code=family.scope,
                                      file=item["check"], evidence={"brain": brain["path"]}))
+    from _bootstrap.mcp_inventory import REPORTED_STATES
+
     for item in summary["mcp_registrations"]["registrations"]:
-        if item["state"] in {"current", "bootstrap_only", "absent"}:
+        # An unreachable folder is the owning Brain's finding (workspace_folder_unreachable), not a machine item.
+        if item["state"] in REPORTED_STATES:
             continue
-        subject = {"path": item["path"], "client": item["client"], "scope": item["scope"]}
+        # A Brain-level item (incomplete or migration_required) names a vault, not a client slot.
+        subject = ({"path": item["path"], "client": item["client"], "scope": item["scope"]}
+                   if "client" in item else {"path": item["path"]})
         findings.append(_finding("mcp_registration", subject, item.get("message") or f"MCP registration is {item['state']}.",
                                  disposition=Disposition.JUDGEMENT, evidence={"state": item["state"]}))
     processes = find_orphaned_brain_processes(scan=scan)

@@ -129,8 +129,8 @@ def test_core_resolution_guidance_decodes_against_the_command_tables(tmp_path, s
     assert isinstance(resolve_request(request_type, payload), request_type)
 
 
-def test_first_slice_dispositions_and_recovery_scopes():
-    assert AUTOMATIC_SCOPES == ("router", "lexical", "temporaries")
+def test_dispositions_and_recovery_scopes():
+    assert AUTOMATIC_SCOPES == ("router", "lexical", "temporaries", "registry")
     assert repair_common.NEVER_HELD == {"router"}
     assert {scope for scope, family in REPAIR_SCOPES.items() if family.clears_embeddings} == {"router", "lexical"}
     assert set(RECOVERY_SCOPES) == {
@@ -144,7 +144,14 @@ def test_first_slice_dispositions_and_recovery_scopes():
     assert repair_common.JUDGEMENT_CODES == {
         ("workspace_contract", "workspace_reference_missing"),
         ("workspace_contract", "workspace_reference_archived"),
+        ("workspace_registry", "workspace_link_unverifiable"),
+        ("workspace_registry", "workspace_folder_unreachable"),
+        ("workspace_registry", "workspace_links_unverified"),
+        ("workspace_registry", "workspace_registry_unreadable"),
+        ("workspace_registry", "workspace_registry_unparseable"),
     }
+    registry = REPAIR_SCOPES["registry"]
+    assert (registry.holdable, registry.clears_embeddings, registry.recovery) == (True, False, True)
 
 
 def test_repair_py_offers_only_recovery_scopes(capsys):
@@ -220,3 +227,14 @@ class TestGuidanceForms:
         assert finding["repair"]["command_id"] == "retrieval.refresh-lexical"
         assert finding["repair"]["command"].endswith("retrieval refresh-lexical")
         assert finding["fix"] == f"Run `{finding['repair']['command']}`"
+
+
+def test_family_for_finding_is_the_one_lookup_and_fails_loudly_on_a_broken_producer():
+    from _repair_common import family_for_finding
+
+    assert family_for_finding({"check": "workspace_registry"}) is None
+    assert family_for_finding({"check": "router", "repair": {"scope": "router"}}) is REPAIR_SCOPES["router"]
+    with pytest.raises(KeyError):
+        family_for_finding({"check": "x", "repair": {"scope": "no-such-scope"}})
+    with pytest.raises(ValueError):
+        family_for_finding({"check": "x", "repair": None})

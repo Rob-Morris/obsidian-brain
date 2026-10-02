@@ -30,7 +30,7 @@ __all__ = [
     "AUTOMATIC_SCOPES", "Disposition", "JUDGEMENT_CODES", "NEVER_HELD", "Owner", "RECOVERY_SCOPES",
     "REPAIR_SCOPES", "RepairFamily", "attach_repair_guidance", "build_catalogue_argv",
     "build_catalogue_command", "build_repair_argv", "build_repair_command", "build_repair_metadata",
-    "find_launcher_binary",
+    "family_for_finding", "find_launcher_binary",
 ]
 
 REPAIR_SCRIPT_REL = Path(".brain-core/scripts/repair.py")
@@ -132,8 +132,8 @@ REPAIR_SCOPES: Mapping[str, RepairFamily] = _table(
         exceptional=True,
     ),
     _brain(
-        "registry", "workspace.repair-registry", {}, Disposition.JUDGEMENT,
-        "Repair the current vault's local workspace registry state.",
+        "registry", "workspace.repair-registry", {}, Disposition.AUTOMATIC,
+        "Rebuild a malformed linked workspace registry without its invalid rows and drop rows whose manifest names another Brain or workspace.",
     ),
     _machine(
         "runtime", "runtime.repair",
@@ -150,6 +150,11 @@ REPAIR_SCOPES: Mapping[str, RepairFamily] = _table(
 JUDGEMENT_CODES = frozenset({
     ("workspace_contract", "workspace_reference_missing"),
     ("workspace_contract", "workspace_reference_archived"),
+    ("workspace_registry", "workspace_link_unverifiable"),
+    ("workspace_registry", "workspace_folder_unreachable"),
+    ("workspace_registry", "workspace_links_unverified"),
+    ("workspace_registry", "workspace_registry_unreadable"),
+    ("workspace_registry", "workspace_registry_unparseable"),
 })
 
 RECOVERY_SCOPES = tuple(scope for scope, family in REPAIR_SCOPES.items() if family.recovery)
@@ -259,6 +264,21 @@ def build_repair_metadata(vault_root: str | Path, scope: str) -> dict:
         "command_id": family.command_id,
         "command": build_catalogue_command(vault_root, family),
     }
+
+
+def family_for_finding(finding: Mapping) -> RepairFamily | None:
+    """The repair family that owns a finding, or ``None`` when it carries no ``repair``.
+
+    Producers attach ``repair`` only through ``attach_repair_guidance``, so a
+    ``repair`` that is not a mapping, or names a scope this table lacks, is a
+    broken producer and fails loudly: ``ValueError`` and ``KeyError``.
+    """
+    if "repair" not in finding:
+        return None
+    repair = finding["repair"]
+    if not isinstance(repair, Mapping):
+        raise ValueError(f"finding {finding.get('check')!r} carries a non-mapping repair: {repair!r}")
+    return REPAIR_SCOPES[repair["scope"]]
 
 
 def attach_repair_guidance(finding: dict, vault_root: str | Path, scope: str) -> dict:

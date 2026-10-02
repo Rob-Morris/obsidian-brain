@@ -300,3 +300,42 @@ def build_and_persist_index(vault):
     index = search_index_mod.build_index(vault).index
     search_index_mod.persist_retrieval_index(vault, index)
     return index
+
+
+def folder_tree(folder):
+    """Every path under ``folder``, relative to it, with file bytes (``None`` for a directory); ``{}`` when absent."""
+    folder = Path(folder)
+    if not folder.exists():
+        return {}
+    return {str(path.relative_to(folder)): None if path.is_dir() else path.read_bytes()
+            for path in sorted(folder.rglob("*"))}
+
+
+def register_other_brain(parent, brain_id="other"):
+    """Register a second Brain on this machine, so a manifest naming it positively names another Brain."""
+    import vault_registry
+
+    other = (Path(parent) / f"brain-{brain_id}").resolve()
+    (other / ".brain-core").mkdir(parents=True)
+    (other / ".brain-core" / "VERSION").write_text("1.0.0\n")
+    vault_registry.register(other, brain_id)
+    return other
+
+
+def link_folder(vault, folder, key, manifest=None):
+    """A linked workspace registry row for ``key`` at ``folder`` and, unless ``manifest`` is None, its manifest text."""
+    import workspace_registry
+
+    folder = Path(folder).resolve()
+    folder.mkdir(parents=True, exist_ok=True)
+    workspace_registry.register_workspace(vault, key, folder)
+    if manifest is not None:
+        path = folder / ".brain" / "local" / "workspace.yaml"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(manifest)
+    return folder
+
+
+def manifest_text(key, brain="brain"):
+    """A manifest linking a folder to ``brain`` under the hub key ``key``."""
+    return f"brain: {brain}\nslug: s\nlinks:\n  workspace: {key}\n"

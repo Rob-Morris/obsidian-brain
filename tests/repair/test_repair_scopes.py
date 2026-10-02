@@ -10,6 +10,8 @@ import subprocess
 import sys
 
 import pytest
+
+from brain_test_support import link_folder, manifest_text
 import rename
 
 import _bootstrap.diagnostics as bootstrap_diagnostics
@@ -684,6 +686,61 @@ class TestRepairScopes:
         assert result["status"] == "ok"
         repaired = json.loads(registry_path.read_text())
         assert repaired == {"workspaces": {"ext": {"path": "/tmp/ext"}}}
+
+    @staticmethod
+    def _disagreeing_row(vault, *, invalid_row=False):
+        import vault_registry
+        import workspace_registry
+
+        vault_registry.register(vault, "repair-brain")
+        folder = link_folder(vault, vault.parent / f"{vault.name}-linked-stale", "stale",
+                             manifest_text("another", brain="repair-brain"))
+        if invalid_row:
+            path = vault / workspace_registry.REGISTRY_REL
+            rows = json.loads(path.read_text())
+            rows["workspaces"]["relative"] = "foreign"
+            path.write_text(json.dumps(rows))
+        return folder
+
+    @pytest.mark.parametrize("dry_run", [True, False])
+    @pytest.mark.parametrize("invalid_row", [True, False])
+    def test_registry_repair_names_each_dropped_row_and_its_folder(self, repair_vault, dry_run, invalid_row):
+        folder = self._disagreeing_row(repair_vault, invalid_row=invalid_row)
+
+        result = repair_runtime.repair_registry(repair_vault, dry_run=dry_run)
+
+        assert result["status"] == ("planned" if dry_run else "ok")
+        message = result["steps"][-1]["message"]
+        verb = "would remove" if dry_run else "removed"
+        assert f"{verb} rows that disagree with their manifests: stale ({folder})" in message
+        assert ("preserved the malformed copy" in message) is (invalid_row and not dry_run)
+
+    def test_registry_repair_never_rebuilds_a_file_whose_rows_cannot_be_read(self, repair_vault):
+        registry_path = repair_vault / ".brain" / "local" / "workspaces.json"
+        registry_path.write_text("{broken\n")
+
+        result = repair_runtime.repair_registry(repair_vault, dry_run=False)
+
+        assert result["steps"][-1]["status"] == "error"
+        assert "never rebuilt automatically" in result["steps"][-1]["message"]
+        assert registry_path.read_text() == "{broken\n"
+        assert not registry_path.with_name("workspaces.json.bak").exists()
+
+    def test_registry_repair_reports_a_held_vault_lock(self, repair_vault, monkeypatch):
+        import _bootstrap.file_lock as file_lock
+        import _common
+
+        self._disagreeing_row(repair_vault)
+        real = file_lock.vault_mutation_lock
+        monkeypatch.setattr(_common, "vault_mutation_lock",
+                            lambda root, *, timeout=30.0, create_parent=True: real(root, timeout=0.1))
+        with real(repair_vault):
+            result = repair_runtime.repair_registry(repair_vault, dry_run=False)
+
+        step = result["steps"][-1]
+        assert step["status"] == "error"
+        assert step["message"].startswith("Vault is busy; retry the mutation.")
+        assert "stale" in json.loads((repair_vault / ".brain/local/workspaces.json").read_text())["workspaces"]
 
     def test_frontmatter_repair_merges_nested_frontmatter_blocks(self, repair_vault, monkeypatch):
         bad = repair_vault / "Wiki" / "Duplicate Frontmatter.md"

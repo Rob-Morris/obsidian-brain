@@ -1,5 +1,6 @@
 """One admitted Brain-first setup operation across two separately locked boundaries."""
 
+from contextlib import ExitStack
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import ClassVar, Mapping
@@ -93,7 +94,7 @@ def plan_setup(context, request, *, frozen_inputs=None):
     manifest = linked_payload(manifest, key=key)
     registry = workspace_registry.load_registry(root)
     embedded = root / workspace_registry.EMBEDDED_DATA_DIR / key
-    if embedded.exists():
+    if workspace_registry.is_embedded(root, key):
         raise ValueError(f"Cannot register linked workspace {key}: embedded workspace exists")
     observations.append(ObservedResource("embedded-workspace", str(embedded), None))
     files = {state.manifest_path, state.legacy_path, Path(vault_registry.registry_path()),
@@ -132,39 +133,44 @@ def execute(context, request):
         return target
     effects = []
     try:
-        with vault_mutation_lock(context.selected_brain.vault_root):
-            router, registration, plan, state, manifest, registry, binding, local = plan_setup(
-                context, request, frozen_inputs=context.admission.frozen_inputs)
-            context.admission.admit(binding)
-            key = manifest["links"]["workspace"]
-            if not context.dry_run:
+        # Lock order is vault, then folder, never the reverse. The vault lock is held from the row
+        # write through the manifest write, so a registry repair, which drops a row only after a fresh
+        # read under that lock, cannot drop the new row while the old manifest is in place; it is
+        # released before the ignore rules, which the folder lock alone guards.
+        with ExitStack() as folder_lock:
+            with vault_mutation_lock(context.selected_brain.vault_root):
+                router, registration, plan, state, manifest, registry, binding, local = plan_setup(
+                    context, request, frozen_inputs=context.admission.frozen_inputs)
+                context.admission.admit(binding)
+                key = manifest["links"]["workspace"]
+                if context.dry_run:
+                    return Ok(request.COMMAND_ID, request.COMMAND_VERSION, WorkspaceSetupPayload(
+                        replace(registration, status="planned"),
+                        WorkspaceBindingOutcome(manifest["brain"], manifest["slug"], key, "planned"), True))
                 apply_registration(context, router, registration, plan, effects)
-                if registry.get(key) != {"path": workspace_registry.canonical_path(target)}:
+                if not workspace_registry.row_records(registry.get(key), target):
                     workspace_registry.register_workspace(context.selected_brain.vault_root, key, target)
                     effects.append(CommittedEffect("workspace.path-registered", f"selected-brain:.brain/local/workspaces.json#{key}"))
-        if context.dry_run:
-            return Ok(request.COMMAND_ID, request.COMMAND_VERSION, WorkspaceSetupPayload(
-                replace(registration, status="planned"), WorkspaceBindingOutcome(manifest["brain"], manifest["slug"], key, "planned"), True))
-        with vault_mutation_lock(target):
-            # A separate caller lock must recheck the admitted local observations.
-            identity = next(item for item in binding.observations if item.kind == "caller-workspace")
-            stat = target.stat()
-            if identity.identity != str(target.resolve()) or identity.revision != f"{stat.st_dev}:{stat.st_ino}":
-                raise ValueError("Caller workspace identity changed after admission; retry setup")
-            admitted_scaffold = next(item for item in binding.observations if item.kind == "caller-scaffold")
-            def revalidate_scaffold():
-                if _observe_scaffold(target)[1] != admitted_scaffold:
-                    raise ValueError("Caller scaffold destination changed after admission; Brain registration is complete, retry setup")
-            revalidate_scaffold()
-            if any(_observe_file(Path(item.identity)) != item for item in local):
-                raise ValueError("Caller workspace changed after admission; Brain registration is complete, retry setup")
-            before_manifest = _observe_file(state.manifest_path)
-            try:
-                write = save_workspace_manifest_data(target, manifest, state=state)
-            finally:
-                # Legacy cleanup may fail after the canonical manifest committed.
-                if _observe_file(state.manifest_path) != before_manifest:
-                    effects.append(CommittedEffect("workspace.bound", "caller-workspace:.brain/local/workspace.yaml"))
+                folder_lock.enter_context(vault_mutation_lock(target))
+                # A separate caller lock must recheck the admitted local observations.
+                identity = next(item for item in binding.observations if item.kind == "caller-workspace")
+                stat = target.stat()
+                if identity.identity != str(target.resolve()) or identity.revision != f"{stat.st_dev}:{stat.st_ino}":
+                    raise ValueError("Caller workspace identity changed after admission; retry setup")
+                admitted_scaffold = next(item for item in binding.observations if item.kind == "caller-scaffold")
+                def revalidate_scaffold():
+                    if _observe_scaffold(target)[1] != admitted_scaffold:
+                        raise ValueError("Caller scaffold destination changed after admission; Brain registration is complete, retry setup")
+                revalidate_scaffold()
+                if any(_observe_file(Path(item.identity)) != item for item in local):
+                    raise ValueError("Caller workspace changed after admission; Brain registration is complete, retry setup")
+                before_manifest = _observe_file(state.manifest_path)
+                try:
+                    write = save_workspace_manifest_data(target, manifest, state=state)
+                finally:
+                    # Legacy cleanup may fail after the canonical manifest committed.
+                    if _observe_file(state.manifest_path) != before_manifest:
+                        effects.append(CommittedEffect("workspace.bound", "caller-workspace:.brain/local/workspace.yaml"))
             before_scaffold = tuple(_observe_file(Path(item.identity)) for item in local
                                     if Path(item.identity).name in {".gitignore", "exclude"})
             try:

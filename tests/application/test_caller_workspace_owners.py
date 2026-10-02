@@ -7,6 +7,8 @@ from pathlib import Path
 
 import pytest
 
+from brain_test_support import folder_tree, register_other_brain
+
 from _application._caller_workspace import CallerWorkspaceStatus
 from _application.context import Capability
 from _application.registry import current_application_catalogue, current_request_resolver
@@ -205,6 +207,42 @@ def test_workspace_setup_reports_known_partial_binding_effect(
     assert (command_vault_clone.vault_root / result.committed_effects[0].subject).exists()
 
 
+def test_a_registry_repair_cannot_run_between_setups_row_and_manifest_writes(command_vault_clone, tmp_path, monkeypatch):
+    """Lock order is vault, then folder: a rebind holds the vault lock through its manifest write."""
+    import _common
+    import vault_registry
+    from _bootstrap import workspace_binding
+    from _bootstrap.file_lock import MutationLockError
+    from _portable.registry_maintenance import repair_registry
+
+    root = command_vault_clone.vault_root
+    vault_registry.register(root, "command-vault")
+    register_other_brain(tmp_path, "other-brain")
+    workspace = (tmp_path / "workspace").resolve()
+    (workspace / ".brain" / "local").mkdir(parents=True)
+    (workspace / ".brain" / "local" / "workspace.yaml").write_text(
+        "brain: other-brain\nslug: rebound\nlinks:\n  workspace: rebound\n")
+    real_save, real_lock = workspace_binding.save_workspace_manifest_data, _common.vault_mutation_lock
+    between = []
+
+    def save_after_a_repair(*args, **kwargs):
+        try:
+            between.append(repair_registry(root, dry_run=False))
+        except MutationLockError as exc:
+            between.append(exc)
+        return real_save(*args, **kwargs)
+
+    monkeypatch.setattr(_common, "vault_mutation_lock", lambda target, *, timeout=30.0, create_parent=True:
+                        real_lock(target, timeout=0.2, create_parent=create_parent))
+    monkeypatch.setattr(workspace_binding, "save_workspace_manifest_data", save_after_a_repair)
+    result = _caller_application(root, workspace).invoke(WorkspaceSetupRequest(force=True))
+
+    assert result.status == "ok", result
+    assert len(between) == 1 and isinstance(between[0], MutationLockError), between
+    assert workspace_registry.load_registry(root)["rebound"] == {"path": str(workspace)}
+    assert repair_registry(root, dry_run=False).status == "noop"
+
+
 @pytest.mark.parametrize("drift", ["git-init", "git-dir", "gitignore"])
 def test_workspace_setup_rechecks_scaffold_under_caller_lock(command_vault_clone, tmp_path, monkeypatch, drift):
     from contextlib import contextmanager
@@ -324,11 +362,6 @@ def test_workspace_metadata_decodes_typed_links_and_reports_manifest_effect(
     )
 
 
-def _tree(root: Path) -> dict[str, bytes | None]:
-    return {str(path.relative_to(root)): None if path.is_dir() else path.read_bytes()
-            for path in sorted(root.rglob("*"))}
-
-
 def _linked(root: Path, tmp_path: Path, *, key="linked", brain="command-vault", manifest_key=None,
             manifest=True, folder_name="linked"):
     """A registry row for ``key`` and, optionally, the manifest at its folder."""
@@ -384,10 +417,7 @@ def test_workspace_unregister_drops_only_the_row_when_the_folder_is_not_this_lin
         workspace_registry.register_workspace(root, "linked", folder)
     else:
         if case == "other-brain":
-            other = (tmp_path / "Other").resolve()
-            (other / ".brain-core").mkdir(parents=True)
-            (other / ".brain-core" / "VERSION").write_text("1.0.0\n")
-            vault_registry.register(other, "other-brain")
+            register_other_brain(tmp_path, "other-brain")
         brain = {"other-brain": "other-brain", "brain-unresolved": "unknown-here"}.get(case, "command-vault")
         folder = _linked(root, tmp_path, brain=brain, manifest_key="another" if case == "other-key" else None,
                          manifest=case != "no-manifest")
@@ -395,7 +425,7 @@ def test_workspace_unregister_drops_only_the_row_when_the_folder_is_not_this_lin
             shutil.rmtree(folder)
         if case == "unreadable":
             (folder / ".brain" / "local" / "workspace.yaml").write_text("brain: [unclosed\n")
-    before = _tree(folder) if folder.is_dir() and folder != root else None
+    before = folder_tree(folder) if folder.is_dir() and folder != root else None
 
     result = _caller_application(root, None).invoke(WorkspaceUnregisterRequest("linked"))
 
@@ -409,7 +439,7 @@ def test_workspace_unregister_drops_only_the_row_when_the_folder_is_not_this_lin
     if expected:
         assert expected in result.warnings[0].message
     if before is not None:
-        assert _tree(folder) == before
+        assert folder_tree(folder) == before
 
 
 def test_workspace_unregister_refuses_while_an_mcp_integration_is_registered(command_vault_clone, tmp_path):
@@ -421,7 +451,7 @@ def test_workspace_unregister_refuses_while_an_mcp_integration_is_registered(com
     record = mcp_registration._record_for(mcp_registration.McpClient.CLAUDE, mcp_registration.McpScope.PROJECT,
                                           folder, folder / ".mcp.json", {"command": "brain", "args": ["mcp", "serve"]})
     (root / ".brain" / "local" / "init-state.json").write_text(json_module.dumps({"version": 2, "records": [record]}))
-    before = _tree(folder)
+    before = folder_tree(folder)
 
     result = _caller_application(root, None).invoke(WorkspaceUnregisterRequest("linked"))
 
@@ -429,7 +459,7 @@ def test_workspace_unregister_refuses_while_an_mcp_integration_is_registered(com
     assert result.effects == "none"
     assert f"Remove registered MCP integrations for {folder}" in result.error.message
     assert "linked" in workspace_registry.load_registry(root)
-    assert _tree(folder) == before
+    assert folder_tree(folder) == before
 
 
 def test_workspace_unregister_refuses_an_unknown_key(command_vault_clone):
@@ -467,7 +497,7 @@ def test_workspace_unregister_dry_run_writes_nothing_at_either_end(command_vault
     root = command_vault_clone.vault_root
     folder = _linked(root, tmp_path)
     registry = (root / ".brain/local/workspaces.json").read_bytes()
-    before = _tree(folder)
+    before = folder_tree(folder)
 
     result = _caller_application(root, None, dry_run=True).invoke(WorkspaceUnregisterRequest("linked"))
 
@@ -475,7 +505,7 @@ def test_workspace_unregister_dry_run_writes_nothing_at_either_end(command_vault
     assert result.result.status is CallerWorkspaceStatus.PLANNED
     assert result.committed_effects == ()
     assert (root / ".brain/local/workspaces.json").read_bytes() == registry
-    assert _tree(folder) == before
+    assert folder_tree(folder) == before
 
 
 @pytest.mark.parametrize("failure", ["os-error", "binding-error", "legacy-unlink"])
@@ -670,7 +700,9 @@ def test_workspace_preview_enters_and_spends_specific_consent_without_content_ef
     workspace = tmp_path / 'preview-workspace'
     workspace.mkdir()
     registry = root / '.brain/local/workspaces.json'
-    registry.write_text('[malformed\n')
+    # A row that names no usable folder: a dry run plans the rebuild a real run would make.
+    malformed = '{"workspaces": {"relative": "foreign"}}\n'
+    registry.write_text(malformed)
     context = context_for(root, context_kind='cli-job', dry_run=True,
         dependency_tier=DependencyTier.PORTABLE, workspace_dir=workspace,
         providers=(_CallerFilesystemProvider(),), capabilities=(Capability('caller_filesystem', Availability.AVAILABLE),))
@@ -689,7 +721,7 @@ def test_workspace_preview_enters_and_spends_specific_consent_without_content_ef
     outcome = context.receipt_reader.read(OutcomeReference('execute-preview')).outcome
     assert outcome.execution is ExecutionState.SUCCEEDED
     assert outcome.receipt.state is ReceiptState.NONE
-    assert registry.read_text() == '[malformed\n'
+    assert registry.read_text() == malformed
     assert not (workspace / 'AGENTS.md').exists()
     assert not (registry.parent / 'workspaces.json.bak').exists()
 
@@ -740,3 +772,52 @@ def test_workspace_unregister_consent_review_names_the_recorded_folder(command_v
         str(folder / ".brain" / "local" / "workspace.yaml"),
         str(folder / ".brain" / "workspace.yaml"),
     ]
+
+
+def test_workspace_unregister_never_resolves_a_relative_row_against_the_current_directory(
+        command_vault_clone, tmp_path, monkeypatch):
+    import vault_registry
+    from _bootstrap.workspace_binding import read_workspace_manifest, save_workspace_manifest_data
+
+    root = command_vault_clone.vault_root
+    vault_registry.register(root, "command-vault")
+    monkeypatch.chdir(tmp_path)
+    foreign = tmp_path / "foreign"
+    foreign.mkdir()
+    save_workspace_manifest_data(foreign, {"brain": "command-vault", "slug": "foreign", "links": {"workspace": "foreign"}})
+    registry = root / ".brain/local/workspaces.json"
+    registry.write_text(json.dumps({"workspaces": {"foreign": {"path": "foreign"}}}))
+    before = registry.read_bytes()
+
+    result = _caller_application(root, None).invoke(WorkspaceUnregisterRequest("foreign"))
+
+    assert result.status == "error" and result.effects == "none"
+    assert "names no usable folder" in result.error.message
+    assert registry.read_bytes() == before
+    assert read_workspace_manifest(foreign)["links"] == {"workspace": "foreign"}, "the cwd folder is untouched"
+
+
+def test_a_registry_write_that_loses_a_race_writes_nothing_and_is_retryable(command_vault_clone, tmp_path, monkeypatch):
+    """Every writer compare-and-swaps the bytes it read, so a row committed meanwhile survives (DM1)."""
+    root = command_vault_clone.vault_root
+    folder = _linked(root, tmp_path)
+    registry = root / ".brain/local/workspaces.json"
+    real = workspace_registry.read_registry_strict
+    calls = []
+
+    def then_mcp_commits(vault_root):
+        rows, content = real(vault_root)
+        calls.append(vault_root)
+        if len(calls) == 2:  # unregister_workspace's own read: MCP commits between it and the write
+            data = json.loads(registry.read_text())
+            data["workspaces"]["by-mcp"] = {"path": str(tmp_path)}
+            registry.write_text(json.dumps(data))
+        return rows, content
+
+    monkeypatch.setattr(workspace_registry, "read_registry_strict", then_mcp_commits)
+    result = _caller_application(root, None).invoke(WorkspaceUnregisterRequest("linked"))
+
+    assert result.status == "error" and result.effects == "none" and result.retryable
+    assert "changed while this command was updating it" in result.error.message
+    assert set(workspace_registry.load_registry(root)) == {"linked", "by-mcp"}
+    assert folder.is_dir()

@@ -1,6 +1,7 @@
 """Discoverable workspace failures and historical membership diagnostics."""
 
 import pytest
+from brain_test_support import link_folder, register_other_brain
 from _common import parse_frontmatter, serialize_frontmatter
 from _lifecycle.workspace_checks import workspace_findings
 from _lifecycle.derived_cache_state import require_fresh_compiled_router
@@ -89,3 +90,198 @@ def test_checks_surface_local_policy_and_tag_only_adoption_candidates(scoped):
     codes = {item.code for item in result.result.findings}
     assert {"workspace_binding_configured_invalid", "workspace_adoption_candidate"} <= codes
     assert "workspace" not in parse_frontmatter(path.read_text())[0]
+
+
+# ---------------------------------------------------------------------------
+# The workspace link, seen from both ends (DD-083 item 6)
+# ---------------------------------------------------------------------------
+
+def _link(root, tmp_path, key, manifest):
+    """A registry row for ``key`` and, unless ``manifest`` is None, the text of the manifest at its folder."""
+    return link_folder(root, tmp_path / f"linked-{key}", key, manifest)
+
+
+def _registry_findings(root):
+    from _bootstrap.diagnostics import collect_registry_check_findings
+
+    return {item["file"]: item for item in collect_registry_check_findings(root)}
+
+
+@pytest.fixture
+def linked_root(command_vault_clone, tmp_path):
+    import vault_registry
+
+    root = command_vault_clone.vault_root
+    vault_registry.register(root, "brain")
+    register_other_brain(tmp_path)
+    return root
+
+
+DISAGREES = ("workspace_link_disagreement", "warning", True)
+
+
+def _unverifiable(reason):
+    return ("workspace_link_unverifiable", "info", False, reason)
+
+
+@pytest.mark.parametrize(("manifest", "expected"), [
+    ("brain: brain\nslug: elsewhere\nlinks:\n  workspace: key\n", None),
+    ("brain: brain\r\nslug: s\r\nlinks:\r\n  workspace: key\r\n", None),
+    ("brain: brain\nslug: s\nlinks:\n  workspace: another\n", DISAGREES),
+    ("brain: other\nslug: s\nlinks:\n  workspace: key\n", DISAGREES),
+    ("brain: unknown-here\nslug: s\nlinks:\n  workspace: key\n", _unverifiable("brain_unresolved")),
+    (None, _unverifiable("no_manifest")),
+    ("brain: [unclosed\n", _unverifiable("unreadable")),
+    ("brain: brain\nslug: bind-era\n", _unverifiable("key_missing")),
+    # A hub key that is not a valid key names no hub, so it proves nothing (never other_key).
+    ("brain: brain\nlinks:\n  workspace: 5\n", _unverifiable("key_invalid")),
+    ("brain: brain\nlinks:\n  workspace: ''\n", _unverifiable("key_invalid")),
+    ("brain: brain\nlinks:\n  workspace: [alpha]\n", _unverifiable("key_invalid")),
+    ("brain: brain\nlinks:\n  workspace: 'Not A Key!'\n", _unverifiable("key_invalid")),
+])
+def test_each_row_is_verified_against_the_manifest_in_its_folder(linked_root, tmp_path, manifest, expected):
+    folder = _link(linked_root, tmp_path, "key", manifest)
+    before = sorted(str(path) for path in folder.rglob("*"))
+
+    findings = _registry_findings(linked_root)
+
+    row = findings.get(".brain/local/workspaces.json#key")
+    if expected is None:
+        assert findings == {}, "an agreeing row is quiet even when the slug differs from the key"
+    else:
+        assert (row["code"], row["severity"], "repair" in row) == expected[:3]
+        assert row["evidence"]["key"] == "key" and row["evidence"]["path"] == str(folder)
+        if len(expected) == 4:
+            assert row["evidence"]["reason"] == expected[3]
+            assert expected[3] not in row["message"], "the message is prose, not the verdict token"
+            assert row["fix"] in row["message"]
+    assert sorted(str(path) for path in folder.rglob("*")) == before, "verification writes nothing in the folder"
+
+
+def test_a_row_recording_a_vault_root_is_unverifiable_and_not_sent_to_setup(linked_root):
+    import workspace_registry
+
+    workspace_registry.register_workspace(linked_root, "itself", linked_root)
+
+    row = _registry_findings(linked_root)[".brain/local/workspaces.json#itself"]
+
+    assert (row["code"], row["evidence"]["reason"]) == ("workspace_link_unverifiable", "vault_root")
+    assert "workspace setup" not in row["fix"] and "workspace unregister" in row["fix"]
+
+
+def test_an_unreachable_folder_and_a_malformed_file_are_reported_with_their_own_identity(linked_root, tmp_path):
+    import shutil
+
+    folder = _link(linked_root, tmp_path, "gone", "brain: brain\nlinks:\n  workspace: gone\n")
+    shutil.rmtree(folder)
+    findings = _registry_findings(linked_root)
+    assert findings[".brain/local/workspaces.json#gone"]["code"] == "workspace_folder_unreachable"
+    assert findings[".brain/local/workspaces.json#gone"]["severity"] == "info"
+    assert findings[".brain/local/workspaces.json#gone"]["evidence"] == {"key": "gone", "path": str(folder)}
+
+    (linked_root / ".brain/local/workspaces.json").write_text('{"workspaces": {"relative": "foreign"}}\n')
+    malformed = _registry_findings(linked_root)[".brain/local/workspaces.json"]
+    assert (malformed["code"], malformed["severity"], malformed["repair"]["scope"]) == (
+        "workspace_registry_malformed", "warning", "registry")
+
+
+@pytest.mark.parametrize("content", ["{broken\n", "[]\n", '{"workspaces": [1]}\n'])
+def test_a_registry_whose_rows_cannot_be_read_is_a_judgement_finding_with_no_repair(linked_root, content):
+    from _repair_common import JUDGEMENT_CODES
+
+    (linked_root / ".brain/local/workspaces.json").write_text(content)
+
+    findings = list(_registry_findings(linked_root).values())
+
+    assert [(item["code"], item["severity"], "repair" in item) for item in findings] == [
+        ("workspace_registry_unparseable", "warning", False)]
+    assert ("workspace_registry", "workspace_registry_unparseable") in JUDGEMENT_CODES
+    assert "allow_row_loss" in findings[0]["message"]
+
+
+def test_an_unreadable_vault_registry_is_reported_at_the_brain_end(linked_root, tmp_path, monkeypatch):
+    import vault_registry
+
+    _link(linked_root, tmp_path, "key", "brain: brain\nslug: s\nlinks:\n  workspace: another\n")
+
+    def unreadable(*_args, **_kwargs):
+        raise vault_registry.RegistryReadError("vault registry unreadable")
+
+    monkeypatch.setattr(vault_registry, "brain_id_for_path", unreadable)
+    findings = list(_registry_findings(linked_root).values())
+
+    assert [(item["code"], item["severity"], item["evidence"]) for item in findings] == [
+        ("workspace_links_unverified", "info", {"reason": "vault_registry_unreadable"})]
+
+
+def test_an_unreadable_registry_is_reported_without_an_automatic_repair(linked_root):
+    import os
+    import sys
+
+    if sys.platform == "win32" or os.geteuid() == 0:
+        pytest.skip("POSIX permission bits that bind the test user")
+    path = linked_root / ".brain/local/workspaces.json"
+    path.write_text('{"workspaces": {}}\n')
+    path.chmod(0)
+    try:
+        findings = _registry_findings(linked_root)
+    finally:
+        path.chmod(0o644)
+    assert [(item["code"], "repair" in item) for item in findings.values()] == [("workspace_registry_unreadable", False)]
+    from _repair_common import JUDGEMENT_CODES
+
+    assert ("workspace_registry", "workspace_registry_unreadable") in JUDGEMENT_CODES
+    assert "Restore read access" in next(iter(findings.values()))["message"]
+
+
+def test_an_unregistered_brain_verifies_no_row_and_its_repair_is_a_noop(command_vault_clone, tmp_path):
+    import vault_registry
+    import workspace_registry
+    from _application.workspace.repair_registry import RegistryRepairStatus, WorkspaceRepairRegistryRequest
+    from command_application import application_for
+
+    root = command_vault_clone.vault_root
+    register_other_brain(tmp_path)
+    _link(root, tmp_path, "key", "brain: other\nlinks:\n  workspace: key\n")
+    registry = (root / ".brain/local/workspaces.json").read_bytes()
+
+    assert _registry_findings(root) == {}
+    result = application_for(root).invoke(WorkspaceRepairRegistryRequest())
+
+    assert result.status == "ok", result
+    assert (result.result.status, result.result.reason) == (
+        RegistryRepairStatus.NOOP, workspace_registry.Unverified.BRAIN_UNREGISTERED.describe())
+    assert (root / ".brain/local/workspaces.json").read_bytes() == registry
+
+
+@pytest.mark.parametrize("row", ["absent", "other-path", "present", "trailing-slash", "extra-key", "embedded",
+                                 "list-shaped", "workspaces-list", "invalid-json"])
+def test_the_workspace_end_reports_a_missing_row_as_information(scoped, row):
+    import workspace_registry
+
+    root, local, app, _parents = scoped
+    manifest = read_workspace_manifest(local)
+    manifest.pop("defaults")
+    save_workspace_manifest_data(local, manifest)
+    if row == "other-path":
+        workspace_registry.save_registry(root, {"alpha": {"path": "/elsewhere"}})
+    elif row == "present":
+        workspace_registry.save_registry(root, {"alpha": {"path": workspace_registry.canonical_path(local)}})
+    elif row == "trailing-slash":
+        workspace_registry.save_registry(root, {"alpha": {"path": workspace_registry.canonical_path(local) + "/"}})
+    elif row == "extra-key":
+        workspace_registry.save_registry(root, {"alpha": {"path": str(local), "mode": "linked"}})
+    elif row == "embedded":
+        (root / workspace_registry.EMBEDDED_DATA_DIR / "alpha").mkdir(parents=True)
+    elif row != "absent":
+        # The Brain end reports a registry whose rows cannot be read; this end must not crash on it.
+        content = {"list-shaped": "[]\n", "workspaces-list": '{"workspaces": [1]}\n', "invalid-json": "{broken\n"}[row]
+        (root / workspace_registry.REGISTRY_REL).write_text(content)
+
+    result = app.invoke(VaultCheckRequest(check="workspace_contract"))
+
+    missing = [item for item in result.result.findings if item.code == "workspace_registry_missing"]
+    if row not in {"absent", "other-path"}:
+        assert missing == []
+    else:
+        assert [(item.severity, item.file) for item in missing] == [("info", str(local / ".brain/local/workspace.yaml"))]
