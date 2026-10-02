@@ -65,6 +65,74 @@ def _runtime_result(vault_root: Path) -> dict:
     }
 
 
+@pytest.fixture(autouse=True)
+def _offline_runtime(monkeypatch, tmp_path):
+    """Every install provisions the managed runtime; the stand-in keeps it offline and outside the vault.
+
+    Tests that exercise provisioning patch ``ensure_central_venv`` again, which wins.
+    """
+    calls = []
+
+    def stand_in(_requirements, *, launcher, full_conformance):
+        calls.append(launcher)
+        return _runtime_result(tmp_path / "stand-in-runtime-root")
+
+    monkeypatch.setattr(install_core, "ensure_central_venv", stand_in)
+    return calls
+
+
+def test_skip_provisions_the_managed_runtime_and_registers_no_mcp(tmp_path, _offline_runtime):
+    """The runtime is the dependency tier of managed CLI commands, so skip skips MCP registration only."""
+    source = _copy_source(tmp_path)
+    vault = tmp_path / "vault"
+
+    result = install_core.install_vault_action(vault, source_root=source, launcher=sys.executable, mcp_scope="skip")
+
+    assert result["status"] == "ok"
+    steps = {step["name"]: step for step in result["steps"]}
+    assert steps["managed_runtime"]["status"] == "changed" and len(_offline_runtime) == 1
+    assert steps["mcp_transport"]["status"] == "noop"
+    assert not (vault / ".mcp.json").exists()
+
+
+def test_skip_without_a_usable_launcher_reports_an_error_step_and_keeps_the_vault(tmp_path, monkeypatch):
+    source = _copy_source(tmp_path)
+    vault = tmp_path / "vault"
+
+    def no_launcher(_requirements, *, launcher, full_conformance):
+        raise RuntimeError("Python 3.12+ is required to create the managed runtime")
+
+    monkeypatch.setattr(install_core, "ensure_central_venv", no_launcher)
+    result = install_core.install_vault_action(vault, source_root=source, mcp_scope="skip")
+
+    assert result["status"] == "partial"
+    assert (vault / ".brain-core" / "VERSION").is_file()
+    assert {step["name"]: step["status"] for step in result["steps"]}["managed_runtime"] == "error"
+    assert any("brain session start" in note and "brain runtime repair" in note for note in result["notes"])
+
+
+def test_a_launcher_below_python_3_12_never_builds_a_runtime(tmp_path, monkeypatch):
+    """Through the real provisioning path: an old launcher is an error step and a note, never a 3.11 runtime."""
+    from _common import _venv
+    from brain_test_support import write_fake_launcher
+
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    monkeypatch.delenv("BRAIN_VENV_LAUNCHER", raising=False)
+    monkeypatch.setattr(install_core, "ensure_central_venv", _venv.ensure_central_venv)
+    launcher = tmp_path / "python3.11"
+    write_fake_launcher(launcher, cversion="3.11", venv="marker")
+    source = _copy_source(tmp_path)
+
+    result = install_core.install_vault_action(tmp_path / "vault", source_root=source, launcher=launcher,
+                                               mcp_scope="skip")
+
+    step = {item["name"]: item for item in result["steps"]}["managed_runtime"]
+    assert result["status"] == "partial" and step["status"] == "error"
+    assert "needs Python 3.12 or newer" in step["message"]
+    assert not (tmp_path / "home" / ".brain" / "venvs").exists(), "no runtime was built"
+    assert any("Install Python 3.12" in note for note in result["notes"])
+
+
 def test_managed_runtime_step_reports_dependency_repair(monkeypatch, tmp_path):
     runtime = _runtime_result(tmp_path)
     runtime.update(created=False, dependencies_installed=True, conformance_changed=True)
@@ -295,6 +363,8 @@ def test_install_core_keeps_scaffold_when_runtime_install_fails(tmp_path, monkey
     assert (vault / ".brain-core" / "VERSION").is_file()
     assert any(step["name"] == "managed_runtime" and step["status"] == "error" for step in result["steps"])
     assert any("Vault scaffold is present" in note for note in result["notes"])
+    assert "MCP registration was not attempted; register it after the runtime repair." in result["notes"]
+    assert any("repair.py" in note and "runtime" in note for note in result["notes"]), "a remedy without the CLI"
 
 
 def test_install_core_does_not_set_user_default_when_runtime_install_fails(tmp_path, monkeypatch):

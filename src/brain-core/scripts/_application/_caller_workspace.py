@@ -187,7 +187,7 @@ def require_string(value: object, field: str, *, optional: bool = False):
 def caller_workspace_entry(request_type, executor):
     from .catalogue import ApplicationEntry
     from .preparation import OperationPreparation
-    from .workspace._preparation import prepare_workspace
+    from .workspace._preparation import prepare_workspace_for_consent
 
     return ApplicationEntry(
         initial_class=InitialAuthorisationClass.EXCEPTIONAL,
@@ -200,7 +200,7 @@ def caller_workspace_entry(request_type, executor):
         authority=Authority.OPERATOR,
         effect_class=EffectClass.CALLER_LOCAL_MUTATION,
         retry_class=RetryClass.RECEIPT_REQUIRED,
-        preparation=OperationPreparation(prepare_workspace),
+        preparation=OperationPreparation(prepare_workspace_for_consent),
         projections=(
             ProjectionEligibility(Projection.MCP, False, MCP_UNSUPPORTED_REASON),
             ProjectionEligibility(Projection.CLI, True),

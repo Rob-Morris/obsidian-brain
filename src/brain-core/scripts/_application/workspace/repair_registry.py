@@ -133,7 +133,7 @@ def decode(payload: Mapping[str, object]) -> WorkspaceRepairRegistryRequest:
 
 def catalogue_entry():
     from ..preparation import OperationPreparation
-    from ._preparation import prepare_workspace
+    from ._preparation import prepare_workspace_for_consent
 
     return derived_cache_maintenance_entry(
-        WorkspaceRepairRegistryRequest, execute, OperationPreparation(prepare_workspace))
+        WorkspaceRepairRegistryRequest, execute, OperationPreparation(prepare_workspace_for_consent))

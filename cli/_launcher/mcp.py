@@ -133,7 +133,8 @@ class McpMutationPayload:
 @dataclass(frozen=True, slots=True)
 class McpConfigureRequest:
     COMMAND_ID: ClassVar[str] = "mcp.configure"
-    COMMAND_VERSION: ClassVar[int] = 3
+    # 4: a workspace bound to a Brain whose registry row is no longer canonical refuses (DD-083 item 2).
+    COMMAND_VERSION: ClassVar[int] = 4
     RESULT_TYPE: ClassVar[type] = McpMutationPayload
 
     client: McpClient

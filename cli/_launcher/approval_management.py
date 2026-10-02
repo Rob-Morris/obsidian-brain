@@ -16,11 +16,11 @@ from _bootstrap.approval_ownership import reconcile_items
 from _bootstrap.approval_policy import POLICY, CommandFact, desired_policy, read_snapshot
 from _bootstrap.file_transaction import FilePlan, FileChange, FileTransactionError, apply_file_changes
 from _bootstrap import mcp_inventory, mcp_registration
+from _bootstrap.mcp_registration import APPROVAL_LEDGER_SCHEMA as LEDGER_SCHEMA
 
 from .approvals import ApprovalItemStatus, ApprovalTargetStatus, ApprovalsPayload
 
 
-LEDGER_SCHEMA = "brain.client-approvals/1"
 JOURNAL_SCHEMA = "brain.client-approval-transaction/1"
 MIN_CLIENT_VERSION = {"codex": (0, 155, 1), "claude": (2, 1, 278)}
 
@@ -440,7 +440,6 @@ def inspect_registered(context):
     except (OSError, ValueError) as exc:
         return (ApprovalTargetStatus("machine", "user", "all", str(ledger_path(home)), "blocked", (), str(exc)),)
     results = []
-    absent_brains = "; ".join(str(item) for item in unreachable)
 
     def reported(selection, message):
         return ApprovalTargetStatus(selection.client, selection.scope, selection.surface, str(selection.path),
@@ -463,7 +462,7 @@ def inspect_registered(context):
         if unreachable and result.state not in {"current", "not_managed"}:
             # The owning or contributing Brain may be the absent one, so this inspection cannot judge the
             # target until it is reconnected (DD-083 item 12); approval changes still refuse.
-            result = reported(selection, f"The approval target cannot be judged while registered Brains are not "
-                                         f"reachable: {absent_brains}. Reconnect them, or unregister them.")
+            result = reported(selection, "The approval target cannot be judged while registered Brains are not "
+                                         f"reachable. {mcp_inventory.unreachable_message(unreachable)}")
         results.append(result)
     return tuple(results)

@@ -66,9 +66,10 @@ class BoundAuthorisationAccess:
             value = self.coordinator.prepare(self.context, request, request_id=self.context.invocation_id,
                                              validate_view=self._validate_preparation)
         except ValueError as exc:
-            # Domain planners use ValueError for known pre-entry validation.
-            # Uncertain private-owner transport failures have distinct I/O types.
-            raise ConsentError("invalid_request", str(exc)) from exc
+            # Domain planners use ValueError for known pre-entry validation; a planner may name a
+            # different no-effect reason (a local read conflict). Uncertain private-owner transport
+            # failures have distinct I/O types.
+            raise ConsentError(getattr(exc, "consent_reason", "invalid_request"), str(exc)) from exc
         if value["state"] == "discarded":
             raise ConsentError("operation_missing", "The original preparation was discarded; prepare a new operation.")
         return dto.PreparedOperation(operation_id=value["operation_id"], command_id=value["command_id"],

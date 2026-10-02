@@ -507,12 +507,7 @@ def resolve_direct_brain_id(root: Path) -> str:
         entries = vault_registry.load_registry_entries()
     except vault_registry.RegistryReadError as exc:
         raise DirectContextError(str(exc)) from exc
-    matches = sorted(
-        entry.brain_id
-        for entry in entries.values()
-        if entry.kind == vault_registry.TYPE_LOCAL
-        and Path(entry.value).resolve() == root
-    )
+    matches = sorted(entry.brain_id for entry in entries.values() if vault_registry.row_matches(entry, root))
     if len(matches) > 1:
         raise DirectContextError("selected Brain path has multiple local registry identities")
     if matches:

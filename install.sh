@@ -7,7 +7,7 @@
 #
 # From a clone:
 #   bash install.sh ~/my-brain
-#   bash install.sh --skip-mcp ~/my-brain
+#   bash install.sh --skip-mcp ~/my-brain       # skip MCP registration only
 #   bash install.sh --skip-cli ~/my-brain
 #   bash install.sh --system ~/my-brain          # install brain CLI to /usr/local/bin
 #   bash install.sh --enable-semantic ~/my-brain
@@ -21,7 +21,7 @@
 #   1. Clones the repo to a temp directory (or uses existing clone)
 #   2. Copies template-vault to your chosen location
 #   3. Copies brain-core into the vault as .brain-core
-#   4. Installs Python dependencies into the central managed runtime under ~/.brain/venvs/ (unless skipped)
+#   4. Installs Python dependencies into the central managed runtime under ~/.brain/venvs/
 #   5. Registers the Brain MCP server for Claude Code, Codex and Grok (unless skipped)
 #   6. Optionally delegates semantic setup to configure.py
 #   7. Installs the `brain` CLI to ~/.local/bin (or /usr/local/bin with --system) unless --skip-cli
@@ -345,9 +345,8 @@ find_python_for_script() {
 # canonical interpreter the rest of the install/upgrade flow uses. Falls back
 # to any Python that can actually execute `vault_registry.py` (probed via
 # `--list`) because the script is stdlib + `_common`-only; a 3.10/3.11 host
-# doing a scaffold-only install (`install.sh --skip-mcp`) still gets its
-# registry updated even though it lacks the 3.12 floor everything else
-# enforces. The probe matches the actual invocation shape we're about to
+# still gets its registry updated even though it lacks the 3.12 floor
+# everything else enforces. The probe matches the actual invocation shape we're about to
 # make, so we never accept an interpreter that can start but cannot import
 # the script's dependencies.
 #
@@ -537,7 +536,7 @@ if [ -n "$PYTHON" ]; then
 else
     py_version=$(python3 -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")' 2>/dev/null || echo "?")
     printf '  \033[1mgit\033[0m ✓  \033[1mpython %s\033[0m ✓  \033[1mfrontal lobe\033[0m (recommended but not required) ✓\n' "$py_version" >&2
-    printf '  \033[33mNote: Python 3.12+ not found. Vault can still be scaffolded, but upgrade handoff and MCP setup will be unavailable.\033[0m\n' >&2
+    printf '  \033[33mNote: Python 3.12+ not found. Install and upgrade need it (the managed runtime and MCP setup run on it); install it, then rerun.\033[0m\n' >&2
     info "Install later with: brew install python@3.12"
 fi
 
@@ -702,9 +701,8 @@ if [ "$UPGRADE_MODE" = true ]; then
         --source "$REPO_DIR/src/brain-core"
         --vault "$VAULT_PATH"
     )
-    if [ "$SKIP_MCP" = true ]; then
-        upgrade_cmd+=(--no-sync-deps)
-    fi
+    # --skip-mcp skips MCP registration only: an upgrade still syncs the managed runtime.
+    # Run upgrade.py --no-sync-deps directly to defer that sync.
     if [ "$NON_INTERACTIVE" = true ]; then
         upgrade_cmd+=(--unattended)
     fi
@@ -758,7 +756,7 @@ else
         else
             printf '    2) Make this your default brain  (user scope)\n' >&2
         fi
-        printf '    3) Skip MCP registration  (scaffold only)\n' >&2
+        printf '    3) Skip MCP registration  (the managed runtime and CLI are still installed)\n' >&2
         printf '\n' >&2
         printf '  Choice [1]: ' >&2
         read -r MCP_SCOPE_CHOICE_RAW

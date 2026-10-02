@@ -62,8 +62,9 @@ def _future(context, request, kind, roots):
         roots.add(target)
         overrides[target] = context.distribution_root / "src/brain-core"
     elif kind == "prune":
-        import vault_registry
-        roots = {root for root in roots if vault_registry.is_vault_root(root)}
+        # The roots that survive remove-stale: vault_registry's stale rule keeps only installed Brains.
+        from _common._vault import is_brain_vault
+        roots = {root for root in roots if is_brain_vault(root)}
     return tuple(sorted(roots, key=str)), overrides
 
 

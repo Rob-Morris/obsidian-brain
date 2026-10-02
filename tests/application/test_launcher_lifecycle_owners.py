@@ -189,6 +189,9 @@ def test_install_dry_run_validates_registry_and_writes_nothing(tmp_path, monkeyp
     assert result.result.status is LifecycleStatus.PLANNED
     assert result.result.mode is InstallMode.FRESH
     assert result.result.brain_core_version == CORE_VERSION
+    steps = {step.name: step.status for step in result.result.steps}
+    assert steps["managed_runtime"] is LifecycleStatus.PLANNED, "skip skips MCP registration only"
+    assert steps["mcp_transport"] is LifecycleStatus.NOOP, "the preview lists the step execute reports"
     assert result.committed_effects == ()
     assert not target.exists()
     assert not (tmp_path / "config").exists()
@@ -625,3 +628,36 @@ def test_upgrade_partial_carries_typed_cli_cleanup_recovery_paths(
     assert projected.structured_content["error"]["details"][
         "recovery_paths"
     ] == [str(recovery)]
+
+
+def test_a_skip_install_whose_runtime_fails_reports_core_notes(tmp_path, monkeypatch):
+    """On the launcher route (approvals present), the runtime remedy reaches the person."""
+    import install
+
+    target = (tmp_path / "skip").resolve()
+    raw = {"status": "partial", "steps": [
+        {"name": "vault_scaffold", "status": "changed", "message": "Created Brain vault scaffold.", "path": str(target)},
+        {"name": "managed_runtime", "status": "error", "message": "Could not provision managed runtime: no 3.12"},
+        {"name": "mcp_transport", "status": "noop", "message": "MCP registration skipped."},
+    ], "notes": ["Vault scaffold is present, but the managed runtime is not: run brain runtime repair."]}
+    monkeypatch.setattr(install, "install_vault_action", lambda *_args, **_kwargs: raw)
+
+    result = _invocation(tmp_path).invoke(BrainInstallRequest(target, "skip", mcp_scope=InstallMcpScope.SKIP))
+
+    assert result.status == "partial", result
+    assert "no 3.12" in result.error.message and "brain runtime repair" in result.error.message
+
+
+def test_a_clean_install_carries_core_notes_as_follow_ups(tmp_path, monkeypatch):
+    import install
+
+    target = (tmp_path / "skip").resolve()
+    raw = {"status": "ok", "steps": [
+        {"name": "vault_scaffold", "status": "changed", "message": "Created Brain vault scaffold.", "path": str(target)},
+    ], "notes": ["Register MCP later with brain mcp configure."]}
+    monkeypatch.setattr(install, "install_vault_action", lambda *_args, **_kwargs: raw)
+
+    result = _invocation(tmp_path).invoke(BrainInstallRequest(target, "skip", mcp_scope=InstallMcpScope.SKIP))
+
+    assert result.status == "ok", result
+    assert [warning.message for warning in result.warnings] == ["Register MCP later with brain mcp configure."]

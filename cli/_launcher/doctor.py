@@ -87,10 +87,17 @@ class DoctorRegistryStatus:
 class DoctorPathEntry:
     alias: str | None
     path: str
+    # For a stale vault registry row: why it is stale, the one command that recovers it (None: none), and why in words.
+    reason: str | None = None
+    guidance: str | None = None
+    explanation: str | None = None
 
     def __post_init__(self) -> None:
         _validate_optional_text(self.alias, "Doctor path alias")
         _validate_absolute(self.path, "Doctor path entry")
+        _validate_optional_text(self.reason, "Doctor stale reason")
+        _validate_optional_text(self.guidance, "Doctor stale guidance")
+        _validate_optional_text(self.explanation, "Doctor stale explanation")
 
 
 @dataclass(frozen=True, slots=True)
@@ -441,7 +448,8 @@ def _machine_status(raw: dict) -> DoctorMachineStatus:
             counts["orphan_candidates"],
         ),
         tuple(
-            DoctorPathEntry(item["alias"], item["path"])
+            DoctorPathEntry(item["alias"], item["path"], item.get("reason"), item.get("guidance"),
+                            item.get("explanation"))
             for item in raw["stale_registry_entries"]
         ),
         tuple(raw["unregistered_brains"]),

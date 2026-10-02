@@ -270,7 +270,7 @@ def test_launcher_description_carries_exact_schema_and_example(tmp_path):
     payload = json.loads(result.stdout)
     assert result.returncode == 0
     assert payload["command_id"] == "brain.upgrade"
-    assert payload["command_version"] == 2
+    assert payload["command_version"] == 3
     schema = json.loads(payload["payload"]["request_schema_json"])
     assert "acknowledge_global_cli_cutover" in schema["properties"]
     assert "excluded_stale_brain_ids" in schema["properties"]

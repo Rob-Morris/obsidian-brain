@@ -159,7 +159,7 @@ Portable `vault.check` inspects semantic metadata locally and verifies model loa
 
 New MCP installation/configuration requires an explicit client. Use
 `install.sh --non-interactive --client all /path/to/brain` (Windows: `-Client all`),
-or choose one client. Scaffold-only installation needs no client selection.
+or choose one client. An install with `--skip-mcp` needs no client selection; it skips MCP registration only and still provisions the managed runtime.
 `configure.py mcp --client ... --user` delegates to the compatible installed
 machine CLI without resolving a Brain; project/local operations share the
 canonical registration planner. `repair.py mcp` remains vault-local and repairs

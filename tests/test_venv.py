@@ -592,3 +592,21 @@ def test_cli_runnable_python_exits_nonzero_when_no_candidate(tmp_path):
     )
     assert result.returncode != 0
     assert "no runnable python" in result.stderr
+
+
+@pytest.mark.parametrize("dry_run", [True, False])
+def test_the_orchestrator_refuses_a_launcher_below_3_12_in_both_modes(monkeypatch, tmp_path, dry_run):
+    """A preview and the real run agree: no plan to create a 3.11 runtime, and nothing created."""
+    from brain_test_support import write_fake_launcher
+
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    monkeypatch.delenv("BRAIN_VENV_LAUNCHER", raising=False)
+    vault = _make_vault(tmp_path)
+    launcher = tmp_path / "python3.11"
+    write_fake_launcher(launcher, cversion="3.11", venv="marker")
+
+    result = _venv.resolve_or_provision_central_venv(vault, launcher=launcher, dry_run=dry_run)
+
+    assert (result["outcome"], result["effect_outcome"]) == (_venv.RUNTIME_ERROR, "none")
+    assert "needs Python 3.12 or newer" in result["message"]
+    assert not (tmp_path / "home" / ".brain" / "venvs").exists()

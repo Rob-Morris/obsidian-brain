@@ -72,7 +72,7 @@
     },
     {
       "command_id": "brain.install",
-      "version": 4,
+      "version": 5,
       "owner": "launcher",
       "classification": "machine_mutation",
       "mcp": null,
@@ -83,7 +83,7 @@
     },
     {
       "command_id": "brain.list",
-      "version": 1,
+      "version": 2,
       "owner": "launcher",
       "classification": "none",
       "mcp": null,
@@ -105,7 +105,7 @@
     },
     {
       "command_id": "brain.register",
-      "version": 1,
+      "version": 2,
       "owner": "launcher",
       "classification": "machine_mutation",
       "mcp": null,
@@ -116,7 +116,7 @@
     },
     {
       "command_id": "brain.resolve",
-      "version": 1,
+      "version": 2,
       "owner": "launcher",
       "classification": "none",
       "mcp": null,
@@ -149,7 +149,7 @@
     },
     {
       "command_id": "brain.unregister",
-      "version": 1,
+      "version": 2,
       "owner": "launcher",
       "classification": "machine_mutation",
       "mcp": null,
@@ -160,7 +160,7 @@
     },
     {
       "command_id": "brain.upgrade",
-      "version": 2,
+      "version": 3,
       "owner": "launcher",
       "classification": "machine_mutation",
       "mcp": null,
@@ -242,7 +242,7 @@
     },
     {
       "command_id": "mcp.configure",
-      "version": 3,
+      "version": 4,
       "owner": "launcher",
       "classification": "machine_mutation",
       "mcp": null,
@@ -302,7 +302,7 @@
     },
     {
       "command_id": "registry.remove-stale",
-      "version": 1,
+      "version": 2,
       "owner": "launcher",
       "classification": "machine_mutation",
       "mcp": null,
@@ -373,5 +373,5 @@
       "authority": "operator"
     }
   ],
-  "fingerprint": "sha256:156ab04cc45a33c05500c9dc897643581226e05e73bcc39824f7396f188d427c"
+  "fingerprint": "sha256:f89d1db921b4bd7c83204eafd266d92846a82a5f3c04882dbab6ea83ebd79c44"
 }

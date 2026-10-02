@@ -147,16 +147,16 @@ never runs the remote check automatically.
 
 When a user asks an agent working in this repo to install a Brain vault on their behalf, separate the job into two outcomes:
 
-1. Vault scaffold created at the requested path
-2. MCP setup completed (central managed runtime at `~/.brain/venvs/` + dependency install + registration)
+1. Vault scaffold and the central managed runtime at `~/.brain/venvs/` (dependency install), which every install provisions
+2. MCP registration completed
 
 Do not treat those as all-or-nothing unless the user explicitly requires MCP to be ready immediately.
 
 Preferred command selection:
 
-- Use `bash install.sh --non-interactive --skip-mcp <path>` in restricted, sandboxed, or otherwise uncertain environments.
-- Use `bash install.sh --non-interactive --client all <path>` only when package index access is expected to work; replace `all` with an explicitly selected client when appropriate.
-- If the user explicitly wants a vault only, use `--skip-mcp` even when network access is available.
+- Use `bash install.sh --non-interactive --skip-mcp <path>` in restricted, sandboxed, or otherwise uncertain environments: it skips MCP registration, still attempts the runtime, and reports a failed runtime step (repair later with `brain runtime repair`) without losing the vault.
+- Use `bash install.sh --non-interactive --client all <path>` when the user wants MCP registered; replace `all` with an explicitly selected client when appropriate.
+- If the user explicitly wants no MCP registration, use `--skip-mcp` even when network access is available.
 
 Reporting expectations:
 

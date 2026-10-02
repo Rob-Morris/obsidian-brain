@@ -114,7 +114,11 @@ def test_registry_stale_overlay_uses_the_real_vault_registry_contract(command_va
     with isolated_command_environment(command_vault_clone.environment):
         summary = discovery.discover_brains()
 
-    assert summary["stale_registry_entries"] == [{"alias": "stale", "path": overlay.details["missing_path"]}]
+    [entry] = summary["stale_registry_entries"]
+    assert {key: entry[key] for key in ("alias", "path", "reason", "guidance")} == {
+        "alias": "stale", "path": overlay.details["missing_path"], "reason": "not_a_brain",
+        "guidance": "brain registry remove-stale"}
+    assert "is not an installed Brain" in entry["explanation"]
     assert summary["registry"]["stale"] is True
 
 

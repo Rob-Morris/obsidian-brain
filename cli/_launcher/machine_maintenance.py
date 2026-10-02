@@ -80,6 +80,7 @@ from .contracts import (
 
 
 NAMESPACE = "machine"
+REMOVE_STALE = "brain registry remove-stale"
 SUMMARY_EFFECT_KIND = "machine-maintenance.summary"
 BRAIN_REPAIR = "brain_repair"
 
@@ -91,7 +92,8 @@ def _machine(scope: str, command_id: str, description: str, disposition=Disposit
 # The machine repair table: one row per finding kind that a command repairs.
 # ``brain_repair`` findings resolve through the Brain table's machine-owned
 # scopes instead, so the two tables never disagree about them; kinds with no
-# row (orphaned processes) are report-and-decide.
+# row (orphaned processes, and a stale registry row that remove-stale would
+# refuse) are report-and-decide.
 MACHINE_FAMILIES: Mapping[str, RepairFamily] = {
     "stale_vault_registry": _machine(
         "stale_vault_registry", "registry.remove-stale", "Remove stale entries from the vault registry."),
@@ -159,10 +161,12 @@ def launcher_guidance(family: RepairFamily, *, vault_root=None, subject: Mapping
 
 def _finding(kind: str, subject: Mapping[str, object], message: str, *, disposition: Disposition,
              evidence: Mapping[str, object] | None = None, severity: str = "warning",
-             scope: str | None = None, code: str | None = None, file: str | None = None) -> MaintenanceFinding:
+             scope: str | None = None, code: str | None = None, file: str | None = None,
+             identity: str | None = None) -> MaintenanceFinding:
+    """``identity`` keys the finding under another kind's name, so claims and dismissals survive a kind change."""
     return MaintenanceFinding(
         kind, severity, file, message, disposition, code=code, scope=scope, owner=Owner.MACHINE,
-        key=finding_key(NAMESPACE, kind, subject), subject=subject, evidence=evidence,
+        key=finding_key(NAMESPACE, identity or kind, subject), subject=subject, evidence=evidence,
     )
 
 
@@ -183,9 +187,14 @@ def detect_machine(context: LauncherContext) -> tuple[tuple[MaintenanceFinding, 
     )
     findings: list[MaintenanceFinding] = []
     for entry in summary["stale_registry_entries"]:
-        findings.append(_finding("stale_vault_registry", {"path": entry["path"]},
-                                 f"Vault registry entry {entry['alias']!r} points at a path that is not a Brain.",
-                                 disposition=Disposition.JUDGEMENT))
+        message = entry.get("explanation") or f"Vault registry entry {entry['alias']!r} points at a path that is not a Brain."
+        # remove-stale is named only where it would succeed. Any other row (no guidance, or guidance that is
+        # not remove-stale) is reported for a person, with no repair family. Both kinds share one identity,
+        # because a row's kind flips with other rows (remove-stale removes every stale row or none).
+        removable = entry.get("guidance", REMOVE_STALE) == REMOVE_STALE
+        findings.append(_finding("stale_vault_registry" if removable else "stale_vault_registry_blocked",
+                                 {"path": entry["path"]}, message, disposition=Disposition.JUDGEMENT,
+                                 identity="stale_vault_registry"))
     for path in summary["unregistered_brains"]:
         findings.append(_finding("brain_unregistered", {"path": path},
                                  "Brain is not registered on this machine: no workspace can bind to it, --brain cannot "

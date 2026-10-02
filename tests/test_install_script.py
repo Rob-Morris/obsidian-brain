@@ -17,6 +17,7 @@ from brain_test_support import (
     copy_install_source as _copy_source_checkout,
     launcher_discovery_path,
     write_executable as _write_executable,
+    offline_install_env,
     write_fake_launcher,
 )
 
@@ -225,6 +226,8 @@ def test_install_can_skip_mcp_setup(tmp_path):
     target = tmp_path / "vault"
     env = os.environ.copy()
     env["PATH"] = f"{fake_bin}{os.pathsep}{launcher_discovery_path()}"
+    env["HOME"] = str(tmp_path / "home")
+    offline_install_env(env, tmp_path)
 
     result = subprocess.run(
         ["bash", "install.sh", "--non-interactive", "--skip-mcp", str(target)],
@@ -241,6 +244,9 @@ def test_install_can_skip_mcp_setup(tmp_path):
     assert not (target / ".mcp.json").exists()
     assert not (target / ".codex" / "config.toml").exists()
     assert "MCP registration skipped." in result.stderr
+    # Skip skips MCP registration only: the managed runtime is still provisioned.
+    venvs = [path for path in (tmp_path / "home" / ".brain" / "venvs").iterdir() if path.is_dir()]
+    assert len(venvs) == 1 and (venvs[0] / "bin" / "python").is_file()
 
 
 def test_install_can_enable_semantic_after_skipping_mcp(tmp_path):
@@ -264,6 +270,8 @@ def test_install_can_enable_semantic_after_skipping_mcp(tmp_path):
     target = tmp_path / "vault"
     env = os.environ.copy()
     env["PATH"] = f"{fake_bin}{os.pathsep}{launcher_discovery_path()}"
+    env["HOME"] = str(tmp_path / "home")
+    offline_install_env(env, tmp_path)
 
     result = subprocess.run(
         ["bash", "install.sh", "--non-interactive", "--skip-mcp", "--enable-semantic", str(target)],
@@ -446,6 +454,8 @@ def test_install_keeps_vault_when_semantic_setup_fails(tmp_path):
     target = tmp_path / "vault"
     env = os.environ.copy()
     env["PATH"] = f"{fake_bin}{os.pathsep}{launcher_discovery_path()}"
+    env["HOME"] = str(tmp_path / "home")
+    offline_install_env(env, tmp_path)
 
     result = subprocess.run(
         ["bash", "install.sh", "--non-interactive", "--skip-mcp", "--enable-semantic", str(target)],
@@ -474,6 +484,8 @@ def test_uninstall_preserves_user_claude_md_content_and_cleans_vault_local_claud
     target = tmp_path / "vault"
     env = os.environ.copy()
     env["PATH"] = f"{fake_bin}{os.pathsep}{launcher_discovery_path()}"
+    env["HOME"] = str(tmp_path / "home")
+    offline_install_env(env, tmp_path)
 
     install_result = subprocess.run(
         ["bash", "install.sh", "--non-interactive", "--skip-mcp", str(target)],
@@ -484,6 +496,7 @@ def test_uninstall_preserves_user_claude_md_content_and_cleans_vault_local_claud
         timeout=60,
     )
     assert install_result.returncode == 0, install_result.stderr
+    assert "Created managed runtime." in install_result.stderr, "the offline stand-in provisioned the runtime"
 
     target.joinpath("CLAUDE.md").write_text(
         "# My Vault\n\n"
@@ -654,7 +667,8 @@ def test_upgrade_non_interactive_does_not_pass_force_to_upgrade_script(tmp_path)
 
     assert result.returncode == 0, result.stderr
     assert "--force" not in (target / "upgrade-args.txt").read_text()
-    assert "--no-sync-deps" in (target / "upgrade-args.txt").read_text()
+    # --skip-mcp skips MCP registration only; the upgrade still syncs the runtime.
+    assert "--no-sync-deps" not in (target / "upgrade-args.txt").read_text()
 
 
 def test_upgrade_wrapper_preserves_repeated_stale_brain_exclusions(tmp_path):

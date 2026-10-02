@@ -97,6 +97,8 @@ def render_human_lines(summary: dict) -> list[str]:
         lines.append("stale vault registry:")
         for entry in summary["stale_registry_entries"]:
             lines.append(f"  {entry['alias']}: {entry['path']}")
+            if entry.get("explanation"):
+                lines.append(f"    {entry['explanation']}")
 
     if summary["unregistered_brains"]:
         lines.append("unregistered brains:")
