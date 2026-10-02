@@ -16,7 +16,7 @@ from _bootstrap.runtime import step as _step
 from _common import central_venvs_root, join_argv
 from _common._venv import run_managed
 from _lifecycle_common import derive_step_status
-from _repair_common import REPAIR_SCOPES, build_catalogue_command, build_repair_argv
+from _repair_common import REPAIR_SCOPES, build_repair_argv
 
 from ._labels import brain_label
 from .discovery import discover_brains
@@ -35,9 +35,6 @@ RepairRunner = Callable[[str | Path, str], dict[str, Any]]
 
 DELEGATED_REPAIR_TIMEOUT = 300
 _DELEGATED_OK_STATUSES = {"planned", "noop", "changed"}
-# Outside the cleanup-safe set by design: an exceptional repair waits for an
-# operator, and the legacy runtime stays until it has run.
-REGISTRY_ATTENTION_STATUS = "attention"
 
 
 @dataclass(frozen=True)
@@ -332,19 +329,6 @@ def _run_repair_scope(
     )
 
 
-def _registry_attention_step(vault_root: str | Path) -> dict[str, Any]:
-    """Report the exceptional registry repair instead of running it (DD-082)."""
-    command = build_catalogue_command(vault_root, REPAIR_SCOPES["registry"])
-    return _step(
-        "registry",
-        REGISTRY_ATTENTION_STATUS,
-        "Local workspace registry repair needs an operator: run "
-        f"`{command}`, then re-run the migration to remove the legacy .venv.",
-        command=command,
-        outcome="none",
-    )
-
-
 def _select_legacy_targets(
     summary: dict[str, Any],
     selector: str | None,
@@ -520,9 +504,7 @@ def migrate_legacy_brains(
 
     The ``runtime`` and ``mcp`` steps run through ``repair_runner`` when the
     launcher supplies one (its own catalogue commands, DD-082); the Core-side
-    script still delegates to each Brain's ``repair.py`` (DD-043). The
-    exceptional ``registry`` step is never run here: it is reported with the
-    ``attention`` status, so legacy cleanup waits until an operator runs it.
+    script still delegates to each Brain's ``repair.py`` (DD-043).
     """
     selection = _select_legacy_targets(summary, selector, dry_run=dry_run)
     if not selection.targets:
@@ -551,20 +533,10 @@ def migrate_legacy_brains(
         steps.append(runtime_step)
 
         delegated_cleanup_safe = runtime_step["status"] in _DELEGATED_OK_STATUSES
-        scopes = sorted(
-            {
-                finding["repair"]["scope"]
-                for finding in brain["repair_findings"]
-                if finding.get("repair", {}).get("scope") in {"mcp", "registry"}
-            }
-        )
-        for scope in scopes:
-            if scope == "registry":
-                repair_step = _registry_attention_step(brain["path"])
-            else:
-                repair_step = run_repair(brain["path"], scope)
-            steps.append(repair_step)
-            delegated_cleanup_safe = delegated_cleanup_safe and repair_step["status"] in _DELEGATED_OK_STATUSES
+        if any(finding.get("repair", {}).get("scope") == "mcp" for finding in brain["repair_findings"]):
+            mcp_step = run_repair(brain["path"], "mcp")
+            steps.append(mcp_step)
+            delegated_cleanup_safe = delegated_cleanup_safe and mcp_step["status"] in _DELEGATED_OK_STATUSES
 
         legacy_python = brain["runtime"]["legacy_runtime_python"]
         live_processes = legacy_usage["processes"].get(legacy_python, [])

@@ -527,8 +527,8 @@ def test_migrate_legacy_brains_dry_run_plans_runtime_and_venv_changes(monkeypatc
     assert result["status"] == "planned"
     assert result["counts"]["targets"] == 1
     target = result["targets"][0]
-    assert [step["status"] for step in target["steps"]] == ["planned", "planned", "attention", "planned"]
-    assert "Would remove the legacy vault-local .venv" in target["steps"][3]["message"]
+    assert [step["status"] for step in target["steps"]] == ["planned", "planned", "planned"]
+    assert "Would remove the legacy vault-local .venv" in target["steps"][2]["message"]
     assert legacy_python.parent.parent.exists()
 
 
@@ -562,22 +562,17 @@ def test_migrate_legacy_brains_delegates_repairs_and_removes_legacy_venv(monkeyp
         dry_run=False,
     )
 
-    # The exceptional registry repair is reported, never run, so cleanup waits
-    # and verification honestly reports the legacy runtime still present.
-    assert result["status"] == "partial"
+    # The linked workspace registry finding belongs to the Brain pass, so it
+    # neither runs here nor holds back the legacy runtime's removal.
+    assert result["status"] == "ok"
     assert result["counts"]["targets"] == 1
-    assert legacy_python.parent.parent.exists()
+    assert not legacy_python.parent.parent.exists()
     assert Path(selected_runtime).is_file()
     target = result["targets"][0]
-    assert [step["name"] for step in target["steps"]] == ["runtime", "mcp", "registry", "legacy_venv", "verify"]
+    assert [step["name"] for step in target["steps"]] == ["runtime", "mcp", "legacy_venv", "verify"]
     assert "repair.py" in target["steps"][0]["command"] and " runtime " in target["steps"][0]["command"] and "--json" in target["steps"][0]["command"]
     assert "repair.py" in target["steps"][1]["command"] and " mcp " in target["steps"][1]["command"] and "--json" in target["steps"][1]["command"]
-    assert target["steps"][2]["status"] == "attention"
-    assert target["steps"][2]["outcome"] == "none"
-    assert "session run" in target["steps"][2]["command"] and "workspace repair-registry" in target["steps"][2]["command"]
-    assert target["steps"][3]["status"] == "noop"
-    assert "needs an operator" in target["steps"][3]["message"]
-    assert target["steps"][4]["status"] == "error"
+    assert target["steps"][2]["status"] == "changed"
 
 
 def test_migrate_legacy_brains_runs_through_an_injected_repair_runner(monkeypatch, tmp_path, fake_home):
@@ -665,7 +660,7 @@ def test_migrate_legacy_brains_keeps_legacy_venv_on_partial_delegated_repair(mon
     assert result["status"] == "partial"
     target = result["targets"][0]
     assert target["steps"][1]["status"] == "partial"
-    assert target["steps"][3]["status"] == "noop"
+    assert target["steps"][2]["status"] == "noop"
     assert legacy_python.parent.parent.exists()
 
 
@@ -700,8 +695,8 @@ def test_migrate_legacy_brains_keeps_legacy_venv_when_live_process_detected(monk
 
     assert result["status"] == "partial"
     target = result["targets"][0]
-    assert target["steps"][3]["status"] == "error"
-    assert "still in use by a live process" in target["steps"][3]["message"]
+    assert target["steps"][2]["status"] == "error"
+    assert "still in use by a live process" in target["steps"][2]["message"]
     assert legacy_python.parent.parent.exists()
 
 
@@ -734,8 +729,8 @@ def test_migrate_legacy_brains_keeps_legacy_venv_when_live_scan_unavailable(monk
 
     assert result["status"] == "partial"
     target = result["targets"][0]
-    assert target["steps"][3]["status"] == "error"
-    assert "live-process detection is unavailable" in target["steps"][3]["message"]
+    assert target["steps"][2]["status"] == "error"
+    assert "live-process detection is unavailable" in target["steps"][2]["message"]
     assert legacy_python.parent.parent.exists()
 
 
@@ -786,7 +781,7 @@ def test_migrate_legacy_brains_keeps_legacy_venv_on_repair_scope_errors(
     target = result["targets"][0]
     assert target["steps"][0]["status"] == "error"
     assert expected_fragment in target["steps"][0]["message"]
-    assert target["steps"][3]["status"] == "noop"
+    assert target["steps"][2]["status"] == "noop"
     assert legacy_python.parent.parent.exists()
 
 
@@ -817,8 +812,8 @@ def test_migrate_legacy_brains_dry_run_reports_live_scan_uncertainty(monkeypatch
 
     assert result["status"] == "planned"
     target = result["targets"][0]
-    assert target["steps"][3]["status"] == "planned"
-    assert "proving no live process still uses it" in target["steps"][3]["message"]
+    assert target["steps"][2]["status"] == "planned"
+    assert "proving no live process still uses it" in target["steps"][2]["message"]
 
 
 def test_delegated_repair_timeout_marks_the_child_outcome_unknown(

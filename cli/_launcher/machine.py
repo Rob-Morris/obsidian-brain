@@ -34,7 +34,6 @@ class LegacyMigrationStatus(str, Enum):
 class LegacyMigrationOperation(str, Enum):
     RUNTIME = "runtime"
     MCP = "mcp"
-    REGISTRY = "registry"
     LEGACY_RUNTIME = "legacy-runtime"
     VERIFY = "verify"
 
@@ -43,7 +42,6 @@ class LegacyMigrationStepStatus(str, Enum):
     NOOP = "noop"
     PLANNED = "planned"
     CHANGED = "changed"
-    ATTENTION = "attention"
 
 
 @dataclass(frozen=True, slots=True)
@@ -125,7 +123,7 @@ class BrainMigrateLegacyInstallationsPayload:
 @dataclass(frozen=True, slots=True)
 class BrainMigrateLegacyInstallationsRequest:
     COMMAND_ID: ClassVar[str] = "brain.migrate-legacy-installations"
-    COMMAND_VERSION: ClassVar[int] = 1
+    COMMAND_VERSION: ClassVar[int] = 2
     RESULT_TYPE: ClassVar[type] = BrainMigrateLegacyInstallationsPayload
 
     target: LegacyMigrationSelector | None = None
@@ -200,7 +198,6 @@ def _legacy_step_operation(name: str) -> LegacyMigrationOperation:
     return {
         "runtime": LegacyMigrationOperation.RUNTIME,
         "mcp": LegacyMigrationOperation.MCP,
-        "registry": LegacyMigrationOperation.REGISTRY,
         "legacy_venv": LegacyMigrationOperation.LEGACY_RUNTIME,
         "verify": LegacyMigrationOperation.VERIFY,
     }[name]
@@ -211,7 +208,6 @@ def _legacy_step_status(status: str) -> LegacyMigrationStepStatus:
         "noop": LegacyMigrationStepStatus.NOOP,
         "planned": LegacyMigrationStepStatus.PLANNED,
         "changed": LegacyMigrationStepStatus.CHANGED,
-        "attention": LegacyMigrationStepStatus.ATTENTION,
     }[status]
 
 
@@ -309,7 +305,7 @@ def _migration_effects(
                 continue
             if step["name"] == "legacy_venv":
                 subject = f"legacy-runtime:{step['path']}"
-            elif step["name"] in {"runtime", "mcp", "registry"}:
+            elif step["name"] in {"runtime", "mcp"}:
                 subject = f"brain-{step['name']}:{brain_path}"
             else:
                 continue

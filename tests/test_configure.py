@@ -503,31 +503,9 @@ def test_load_config_checked_propagates_programmer_errors(tmp_path, monkeypatch)
         semantic_config.load_config_checked(vault)
 
 
-def test_configure_workspace_binding_writes_binding_manifest(tmp_path, monkeypatch, capsys):
-    vault = _make_vault(tmp_path)
-    workspace = tmp_path / "demo-workspace"
-    workspace.mkdir()
-
-    monkeypatch.setattr(configure, "resolve_local_brain_vault", lambda brain_id: vault if brain_id == "brain" else None)
-
-    exit_code = configure.main([
-        "workspace",
-        "binding",
-        "--vault",
-        str(vault),
-        "--path",
-        str(workspace),
-        "--brain",
-        "brain",
-        "--json",
-    ])
-
-    assert exit_code == 0
-    payload = json.loads(capsys.readouterr().out)
-    assert payload["status"] == "ok"
-    assert (workspace / ".brain" / "local" / "workspace.yaml").read_text(encoding="utf-8") == (
-        "brain: brain\nslug: demo-workspace\n"
-    )
+def test_configure_workspace_binding_is_retired():
+    with pytest.raises(SystemExit):
+        configure.parse_args(["workspace", "binding"])
 
 
 def test_configure_workspace_metadata_updates_defaults_and_links(tmp_path, monkeypatch, capsys):

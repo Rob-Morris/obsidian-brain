@@ -222,8 +222,8 @@ outside a session job. The existing derived-cache commands are also
 schedule-safe on their own: `vault check`, `runtime refresh-router`,
 `retrieval refresh-lexical` and `runtime warmup`. `artefact repair` and
 `links fix` are preview-then-apply content repairs and belong in a schedule
-only after a reviewed dry run; `workspace repair-registry` and
-`retrieval repair-semantic` are exceptional commands that need a
+only after a reviewed dry run; `workspace repair-registry` is schedule-safe,
+and `retrieval repair-semantic` is an exceptional command that needs a
 `brain session run` job. See [scheduling existing commands](../functional/cli.md#scheduling-existing-commands). Claim a finding to hold it for an hour, dismiss a
 judgement finding at its current evidence for thirty days, or release it.
 `session_start` and `runtime_status` carry a coarse advisory from the last

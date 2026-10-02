@@ -82,11 +82,9 @@ from .vault.check import VaultCheckRequest
 from .vault.read_config import VaultReadConfigRequest
 from .vault.read_router import VaultReadRouterRequest
 from .vault.read_file import VaultReadFileRequest
-from .workspace.bind import WorkspaceBindRequest
 from .workspace.configure_bootstrap import WorkspaceConfigureBootstrapRequest
 from .workspace.list import WorkspaceListRequest
 from .workspace.read import WorkspaceReadRequest
-from .workspace.register import WorkspaceRegisterRequest
 from .workspace.repair_registry import WorkspaceRepairRegistryRequest
 from .workspace.setup import WorkspaceSetupRequest
 from .workspace.ensure_registration import WorkspaceEnsureRegistrationRequest
@@ -192,11 +190,9 @@ __all__ = (
     "VaultReadConfigRequest",
     "VaultReadFileRequest",
     "VaultReadRouterRequest",
-    "WorkspaceBindRequest",
     "WorkspaceConfigureBootstrapRequest",
     "WorkspaceListRequest",
     "WorkspaceReadRequest",
-    "WorkspaceRegisterRequest",
     "WorkspaceRepairRegistryRequest",
     "WorkspaceSetupRequest",
     "WorkspaceEnsureRegistrationRequest",
@@ -579,11 +575,9 @@ CommandRequest = (
     | VaultReadConfigRequest
     | VaultReadRouterRequest
     | VaultReadFileRequest
-    | WorkspaceBindRequest
     | WorkspaceConfigureBootstrapRequest
     | WorkspaceListRequest
     | WorkspaceReadRequest
-    | WorkspaceRegisterRequest
     | WorkspaceRepairRegistryRequest
     | WorkspaceSetupRequest
     | WorkspaceEnsureRegistrationRequest

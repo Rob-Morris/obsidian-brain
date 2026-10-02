@@ -7,12 +7,11 @@ from enum import Enum
 from typing import ClassVar, Mapping
 
 from .._decoding import decode_empty
-from .._mutation_support import maintainer_mutation_entry, no_effect_error
+from .._mutation_support import derived_cache_maintenance_entry, no_effect_error
 from ..context import InvocationContext
 from ..preparation import ObservedResource, OperationPreparation, admit_owner, bind_operation
 from ..receipts import CommittedEffect
 from ..results import CommandError, ErrorCode, Ok, Partial, RequestErrorDetails
-from ..types import EffectClass, InitialAuthorisationClass, Projection, RetryClass
 
 
 class TemporariesRemovalStatus(str, Enum):
@@ -114,17 +113,7 @@ def decode(payload: Mapping[str, object]) -> RuntimeRemoveTemporariesRequest:
 
 
 def catalogue_entry():
-    from dataclasses import replace
-
-    from ..catalogue import exclude_projection
-
-    entry = replace(
-        maintainer_mutation_entry(RuntimeRemoveTemporariesRequest, execute),
-        initial_class=InitialAuthorisationClass.OBSERVATION,
-        effect_class=EffectClass.DERIVED_CACHE_WRITE,
-        retry_class=RetryClass.SAFE,
-        preparation=OperationPreparation(prepare_temporaries),
-        summary="Remove stranded atomic-write temporary files from .brain/local.",
-    )
-    return exclude_projection(entry, Projection.MCP, "maintenance administration is CLI and direct-script only")
+    return derived_cache_maintenance_entry(
+        RuntimeRemoveTemporariesRequest, execute, OperationPreparation(prepare_temporaries),
+        summary="Remove stranded atomic-write temporary files from .brain/local.")
 

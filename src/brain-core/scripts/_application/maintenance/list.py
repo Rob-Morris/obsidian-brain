@@ -10,6 +10,7 @@ from _bootstrap.maintenance_findings import Disposition, Owner
 from _bootstrap.maintenance_summary import SHOWN_AUTOMATIC, LastPassSummary
 
 from .._decoding import decode_bool, reject_unexpected
+from .._mutation_support import MAINTENANCE_MCP_EXCLUSION
 from .._read_support import catalogue_entry as _read_entry
 from ..context import InvocationContext
 from ..results import Ok
@@ -72,4 +73,4 @@ def catalogue_entry():
 
     entry = replace(_read_entry(MaintenanceListRequest, execute),
                     summary="List maintenance findings that need a person, with their claim state.")
-    return exclude_projection(entry, Projection.MCP, "maintenance administration is CLI and direct-script only")
+    return exclude_projection(entry, Projection.MCP, MAINTENANCE_MCP_EXCLUSION)

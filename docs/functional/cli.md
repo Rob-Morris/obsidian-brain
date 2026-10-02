@@ -115,7 +115,23 @@ persists the link. Terminal workspaces require explicit reactivation. One
 preparation, admission and receipt cover both boundaries; their mutation locks
 are never held together. A local-write failure reports known Brain effects and
 can be retried without creating another hub. The success payload separates
-`registration` from `binding`.
+`registration` from `binding`. `--request-json '{"force": true}'` rebinds a
+workspace that is already bound to another Brain or slug.
+
+`brain workspace unregister --request-json '{"key": "<key>"}'` (version 2)
+removes a link from both ends. Under the selected Brain's lock it drops the
+linked workspace registry row for `key`, refusing while an MCP integration is
+registered for that folder. Then, holding only that folder's lock, it removes
+`brain` and `links.workspace` from the manifest in the folder the row records,
+keeping `slug`, `defaults` and the other links, so the manifest classifies as
+`unconfigured`. It edits that folder only when it is a reachable directory, is
+not a Brain vault root, and its manifest names this Brain and `key`; otherwise
+it drops the row alone and returns a `follow_up_required` warning naming the
+folder and the reason. The folder is the row's, not the caller's, and the
+result names it. The command has the same locality, effect class and
+projections as setup. `workspace.bind`, `workspace.register`, `setup.py
+workspace`, `configure.py workspace binding` and `workspace_registry.py
+--register/--unregister` are retired: each wrote one end of a link.
 
 `workspace.ensure-registration` accepts `key` and optional `title`, mutates only
 the selected Brain and requires contributor authority. `workspace.update-policy`
@@ -336,12 +352,12 @@ state is human decisions (claims and dismissals), and history is a
 
 Derived-cache commands are initially authorised, derived-only and suitable for
 a schedule on their own: `vault.check`, `runtime.refresh-router`,
-`retrieval.refresh-lexical` and `runtime.warmup`. `artefact.repair` and
+`retrieval.refresh-lexical`, `runtime.warmup` and `workspace.repair-registry`. `artefact.repair` and
 `links.fix` are preview-then-apply content repairs, initially authorised only
 in `normal` mode (never in `read-only`, nor in an `explicit` mode that omits
 them), and belong in a schedule only after a reviewed dry run. Exceptional
-commands such as `workspace.repair-registry` and `retrieval.repair-semantic`
-refuse a standalone call and need a `brain session run` job.
+commands such as `retrieval.repair-semantic` refuse a standalone call and need
+a `brain session run` job.
 
 A scheduled call is an ordinary CLI call: an absolute launcher path, an
 explicit `--brain ID` or `--vault PATH`, `--json`, no operator key anywhere in
@@ -571,14 +587,12 @@ interpreter (outside a virtual environment):
 
 Repair guidance in `vault.check` and Doctor findings names catalogue commands:
 the `brain --vault … <noun> <verb>` form when a launcher is on `PATH`, else the
-vault's own `command.py` form; `brain session run -- brain … workspace
-repair-registry` for the exceptional registry repair; and for the machine-owned
+vault's own `command.py` form; `brain session run -- brain … retrieval
+repair-semantic` for the exceptional semantic repair; and for the machine-owned
 `runtime` and `mcp` scopes the launcher form or, without a launcher,
 `repair.py <scope>`. `migrate-legacy-installations` runs its `runtime` and
-`mcp` steps through the launcher's own commands, each with its own receipt,
-and reports the exceptional `registry` step with status `attention`; the
-legacy `.venv` stays until an operator runs that repair and re-runs the
-migration.
+`mcp` steps through the launcher's own commands, each with its own receipt; the
+linked workspace registry belongs to the Brain and is not part of it.
 
 Use `brain.cmd` at the Windows destination. Doctor reports bootstrap availability
 separately from registration state. Successful repair does not reload an already

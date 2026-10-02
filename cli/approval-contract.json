@@ -94,7 +94,7 @@
     },
     {
       "command_id": "brain.migrate-legacy-installations",
-      "version": 1,
+      "version": 2,
       "owner": "launcher",
       "classification": "machine_mutation",
       "mcp": null,
@@ -373,5 +373,5 @@
       "authority": "operator"
     }
   ],
-  "fingerprint": "sha256:43a32d82fd496860fbc831511fff17c3a9273f968ed6b498f1b1c327fb732395"
+  "fingerprint": "sha256:a32fa335418f1dc1cbcba45fd785d7fe2b8ef2d32230da87883b64f88a68e9cb"
 }

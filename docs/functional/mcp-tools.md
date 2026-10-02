@@ -235,8 +235,9 @@ MCP callers provide only semantic fields. The adapter derives selected Brain, wo
 
 `workspace.ensure-registration` and `workspace.update-policy` are selected-Brain
 content commands and are available over MCP. `workspace.setup` and
-`workspace.update-metadata` require caller filesystem access and remain local
-CLI/script/Python operations. Session workspace configuration reports a
+`workspace.update-metadata` write the caller's folder, and
+`workspace.unregister` writes the folder the registry row records; all three
+need local filesystem access and remain local CLI/script/Python operations. Session workspace configuration reports a
 canonical reference and explicit `valid`, `unconfigured`, `configured_invalid`
 or `terminal_inactive` state; unresolved manifest links never produce synthetic
 workspace records.

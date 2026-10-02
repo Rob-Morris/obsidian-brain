@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import ClassVar, Mapping
 
-from .._mutation_support import no_effect_error, operator_mutation_entry
+from .._mutation_support import derived_cache_maintenance_entry, no_effect_error
 from ..context import InvocationContext
 from ..receipts import CommittedEffect
 from ..results import (
@@ -37,7 +37,7 @@ class WorkspaceRepairRegistryPayload:
 @dataclass(frozen=True, slots=True)
 class WorkspaceRepairRegistryRequest:
     COMMAND_ID: ClassVar[str] = "workspace.repair-registry"
-    COMMAND_VERSION: ClassVar[int] = 1
+    COMMAND_VERSION: ClassVar[int] = 2
     RESULT_TYPE: ClassVar[type] = WorkspaceRepairRegistryPayload
 
 
@@ -115,17 +115,8 @@ def decode(payload: Mapping[str, object]) -> WorkspaceRepairRegistryRequest:
 
 
 def catalogue_entry():
-    from dataclasses import replace
     from ..preparation import OperationPreparation
     from ._preparation import prepare_workspace
-    from ..catalogue import exclude_projection
-    from ..types import Projection, InitialAuthorisationClass
 
-    return exclude_projection(
-        replace(operator_mutation_entry(WorkspaceRepairRegistryRequest, execute),
-                initial_class=InitialAuthorisationClass.EXCEPTIONAL,
-                preparation=OperationPreparation(prepare_workspace)),
-        Projection.MCP,
-        "Local workspace-registry repair is reserved for deliberate CLI or "
-        "direct-script administration.",
-    )
+    return derived_cache_maintenance_entry(
+        WorkspaceRepairRegistryRequest, execute, OperationPreparation(prepare_workspace))

@@ -445,15 +445,9 @@ def plan_reverse_registration(plan: FilePlan, vault: Path, target: Path) -> None
 
     manifest = read_workspace_manifest(target)
     slug = manifest_workspace_reference(manifest).split("/", 1)[1]
-    path = vault / ".brain/local/workspaces.json"
-    data = _json_object(plan, path)
-    workspaces = data.get("workspaces", {})
-    if not isinstance(workspaces, dict):
-        raise ValueError(f"Workspace registry requires explicit recovery: {path}")
-    existing = workspaces.get(slug)
-    if existing is not None and existing != {"path": str(target)}:
-        raise ValueError(f"Conflicting reverse registration for {slug}: {path}")
-    _write_json(plan, path, {**data, "workspaces": {**workspaces, slug: {"path": str(target)}}})
+    import workspace_registry
+
+    workspace_registry.stage_link_row(plan, vault, slug, target)
 
 
 def _configure_plan(

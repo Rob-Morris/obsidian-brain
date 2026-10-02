@@ -151,10 +151,15 @@ def exclusive_file_lock(
 
 
 def vault_mutation_lock(
-    vault_root: str | Path, *, timeout: float = 30.0
+    vault_root: str | Path, *, timeout: float = 30.0, create_parent: bool = True
 ) -> contextlib.AbstractContextManager[None]:
-    """Return the shared cross-process mutation lock for one vault."""
+    """Return the shared cross-process mutation lock for one vault or workspace folder.
+
+    ``create_parent=False`` refuses with ``FileNotFoundError`` rather than
+    recreating a ``.brain/local`` directory that has gone.
+    """
     return exclusive_file_lock(
         Path(vault_root) / ".brain" / "local" / "mutation.lock",
         timeout=timeout,
+        create_parent=create_parent,
     )

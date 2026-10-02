@@ -1,10 +1,13 @@
-"""Brain registration has one owner: only the install and the launcher reach the vault registry's writers.
+"""Each register has its owners: only they reach its module's writers.
 
-The writer set is derived from ``vault_registry.py`` itself: every function that,
-directly or through the module's other functions, writes a file, removes one or
-takes the registry lock. Product code (``src``, ``cli``, ``tools``) may name a
-writer only from the owners pinned below, and may not reach the module in a way
-the scan cannot follow.
+Brain registration (``vault_registry``) is written by the install and the
+launcher; the linked workspace registry (``workspace_registry``) by the commands
+that make, remove or repair a link, plus the historical migration that first
+wrote it. Each writer set is derived from the module itself: every function
+that, directly or through the module's other functions, writes a file, removes
+one or takes a lock. Product code (``src``, ``cli``, ``tools``) may name a writer
+only from the owners pinned below, and may not reach the module in a way the
+scan cannot follow.
 """
 
 from __future__ import annotations
@@ -16,12 +19,35 @@ import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SCANNED = ("src", "cli", "tools")
-WRITER_MODULE = Path("src/brain-core/scripts/vault_registry.py")
+SCRIPTS = Path("src/brain-core/scripts")
+WRITER_MODULE = SCRIPTS / "vault_registry.py"
 OWNERS = {
-    Path("src/brain-core/scripts/install.py"): {"register", "set_default"},
+    SCRIPTS / "install.py": {"register", "set_default"},
     Path("cli/_launcher/registry.py"): {
         "register_action", "unregister_action", "set_default_action", "clear_default_action", "prune_action",
     },
+}
+REGISTERS = {
+    "vault_registry": (WRITER_MODULE, OWNERS),
+    "workspace_registry": (SCRIPTS / "workspace_registry.py", {
+        SCRIPTS / "_application/workspace/setup.py": {"register_workspace"},
+        SCRIPTS / "_application/workspace/unregister.py": {"unregister_workspace"},
+        SCRIPTS / "_portable/registry_maintenance.py": {"save_registry"},
+        SCRIPTS / "migrations/migrate_to_0_31_0.py": {"save_registry"},
+        # MCP configuration derives the row its manifest implies (DD-083 item 5).
+        SCRIPTS / "_bootstrap/mcp_registration.py": {"stage_link_row"},
+        SCRIPTS / "_bootstrap/mcp_migration.py": {"stage_canonical_rows"},
+    }),
+}
+# Functions that both name the linked workspace registry's file and write
+# something, accepted because the registry write itself goes elsewhere.
+REGISTRY_PATH_WRITERS = {
+    (SCRIPTS / "_application/workspace/setup.py", "execute"):
+        "writes the row through register_workspace; the path names the effect subject",
+    (SCRIPTS / "_bootstrap/mcp_migration.py", "resume_migration"):
+        "replays a journalled MCP migration whose registry change stage_canonical_rows staged",
+    (SCRIPTS / "migrations/migrate_to_0_16_0.py", "migrate"):
+        "historical migration that moved the file into .brain/local",
 }
 # Files that may name the direct script: the resolution runtime deploys it, and
 # the shell installers are the install owner's own entry points.
@@ -33,7 +59,7 @@ SCRIPT_NAME_ALLOWED = {
 }
 SHELL_SUFFIXES = {".sh", ".ps1", ".cmd", ".bash"}
 
-_WRITE_CALLS = {"safe_write", "exclusive_file_lock"}
+_WRITE_CALLS = {"safe_write", "safe_write_json", "exclusive_file_lock"}
 _OS_WRITE_CALLS = {"unlink", "remove", "rename", "replace"}
 # Path-style writers, matched on any receiver; ``replace`` stays os-only because str.replace shares it.
 _METHOD_WRITE_CALLS = {"write_text", "write_bytes", "touch", "unlink", "mkdir", "rename"}
@@ -65,21 +91,21 @@ def derive_writers(source: str) -> set[str]:
         writers = grown
 
 
-def scan(source: str, writers: set[str]) -> tuple[set[str], list[str]]:
-    """Return the writer names a module reaches and any access the scan cannot follow."""
+def scan(source: str, writers: set[str], module: str = "vault_registry") -> tuple[set[str], list[str]]:
+    """Return the writer names a source reaches in ``module`` and any access the scan cannot follow."""
     tree = ast.parse(source)
     aliases = {
         alias.asname or alias.name
         for node in ast.walk(tree) if isinstance(node, ast.Import)
-        for alias in node.names if alias.name == "vault_registry"
+        for alias in node.names if alias.name == module
     }
     reached, opaque = set(), []
     followed: set[int] = set()
     for node in ast.walk(tree):
-        if isinstance(node, ast.ImportFrom) and node.module == "vault_registry":
+        if isinstance(node, ast.ImportFrom) and node.module == module:
             for alias in node.names:
                 if alias.name == "*":
-                    opaque.append("star import from vault_registry")
+                    opaque.append(f"star import from {module}")
                 elif alias.name in writers:
                     reached.add(alias.name)
         elif isinstance(node, ast.Attribute) and isinstance(node.value, ast.Name) and node.value.id in aliases:
@@ -91,13 +117,43 @@ def scan(source: str, writers: set[str]) -> tuple[set[str], list[str]]:
             name = func.id if isinstance(func, ast.Name) else func.attr if isinstance(func, ast.Attribute) else None
             first = node.args[0] if node.args else None
             if name in {"import_module", "__import__"} and isinstance(first, ast.Constant) \
-                    and str(first.value).split(".")[-1] == "vault_registry":
-                opaque.append("dynamic import of vault_registry")
+                    and str(first.value).split(".")[-1] == module:
+                opaque.append(f"dynamic import of {module}")
     for node in ast.walk(tree):
         if (isinstance(node, ast.Name) and node.id in aliases and isinstance(node.ctx, ast.Load)
                 and id(node) not in followed):
-            opaque.append(f"vault_registry module object used directly at line {node.lineno}")
+            opaque.append(f"{module} module object used directly at line {node.lineno}")
     return reached, opaque
+
+
+def registry_path_writers(source: str) -> list[str]:
+    """Functions that name ``workspaces.json`` and also call a write primitive."""
+    tree = ast.parse(source)
+
+    def literal(node):
+        return any(isinstance(item, ast.Constant) and isinstance(item.value, str) and "workspaces.json" in item.value
+                   for item in ast.walk(node))
+
+    constants = {target.id for node in tree.body if isinstance(node, ast.Assign) and literal(node.value)
+                 for target in node.targets if isinstance(target, ast.Name)}
+    writes = _WRITE_CALLS | _METHOD_WRITE_CALLS | {"_write_json", "delete", "replace", "copy2", "move"}
+    found = []
+    for node in ast.walk(tree):
+        if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            continue
+        names = literal(node) or any(
+            isinstance(item, ast.Name) and item.id in constants | {"REGISTRY_REL"}
+            or isinstance(item, ast.Attribute) and item.attr in {"REGISTRY_REL", "REGISTRY_FILE", "_registry_path"}
+            and isinstance(item.value, ast.Name) and item.value.id == "workspace_registry"
+            for item in ast.walk(node))
+        writer = any(
+            isinstance(item, ast.Call) and (
+                isinstance(item.func, ast.Name) and item.func.id in writes
+                or isinstance(item.func, ast.Attribute) and item.func.attr in writes)
+            for item in ast.walk(node))
+        if names and writer:
+            found.append(node.name)
+    return found
 
 
 def _has_shebang(path: Path) -> bool:
@@ -105,8 +161,8 @@ def _has_shebang(path: Path) -> bool:
         return handle.read(2) == b"#!"
 
 
-def _writers() -> set[str]:
-    return derive_writers((REPO_ROOT / WRITER_MODULE).read_text(encoding="utf-8"))
+def _writers(module_path: Path = WRITER_MODULE) -> set[str]:
+    return derive_writers((REPO_ROOT / module_path).read_text(encoding="utf-8"))
 
 
 def _product_files():
@@ -138,8 +194,55 @@ def test_vault_registry_writers_are_reached_only_from_their_owners():
             named_script.add(relative)
 
     assert opaque == {}
-    assert reached == OWNERS
+    assert reached == REGISTERS["vault_registry"][1]
     assert named_script - SCRIPT_NAME_ALLOWED == set()
+
+
+def test_linked_workspace_registry_writers_are_reached_only_from_the_link_owners():
+    module_path, owners = REGISTERS["workspace_registry"]
+    writers = _writers(module_path)
+    reached, opaque = {}, {}
+    for path in _product_files():
+        relative = path.relative_to(REPO_ROOT)
+        if path.suffix != ".py" or not path.is_file() or relative == module_path:
+            continue
+        names, problems = scan(path.read_text(encoding="utf-8"), writers, "workspace_registry")
+        if names:
+            reached[relative] = names
+        if problems:
+            opaque[relative] = problems
+
+    assert opaque == {}
+    assert reached == owners
+
+
+def test_no_function_outside_the_owners_writes_the_linked_workspace_registry_by_path():
+    module_path = REGISTERS["workspace_registry"][0]
+    found = set()
+    for path in _product_files():
+        relative = path.relative_to(REPO_ROOT)
+        if path.suffix == ".py" and path.is_file() and relative != module_path:
+            found.update((relative, name) for name in registry_path_writers(path.read_text(encoding="utf-8")))
+
+    assert found == set(REGISTRY_PATH_WRITERS)
+
+
+@pytest.mark.parametrize(("snippet", "found"), [
+    ("def f(root):\n    safe_write_json(root / '.brain/local/workspaces.json', {})\n", ["f"]),
+    ("PATH = ('.brain', 'local', 'workspaces.json')\ndef f(root):\n    (root.joinpath(*PATH)).write_text('{}')\n", ["f"]),
+    ("import workspace_registry\ndef f(plan, root):\n    plan.write_text(workspace_registry._registry_path(root), '{}')\n", ["f"]),
+    ("def f(root):\n    return (root / '.brain/local/workspaces.json').read_text()\n", []),
+])
+def test_path_scan_sees_literal_constant_and_module_paths(snippet, found):
+    assert registry_path_writers(snippet) == found
+
+
+def test_linked_workspace_registry_script_no_longer_writes():
+    writers = _writers(REGISTERS["workspace_registry"][0])
+    assert {"save_registry", "register_workspace", "unregister_workspace"} <= writers
+    assert "main" not in writers
+    assert not writers & {"load_registry", "load_registry_strict", "resolve_workspace", "list_workspaces",
+                          "canonical_path"}
 
 
 def test_derived_writers_cover_the_write_primitives_and_spare_the_readers():
