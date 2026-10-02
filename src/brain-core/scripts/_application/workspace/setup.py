@@ -4,12 +4,12 @@ from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import ClassVar, Mapping
 
-from .._caller_workspace import (caller_workspace_entry, decode_workspace_binding,
-    validate_workspace_binding_request, workspace_dir)
+from .._caller_workspace import compound_workspace_entry, require_string, workspace_dir
+from .._decoding import optional_bool, reject_unexpected
 from ..preparation import bind_operation, ObservedResource, canonical_json, content_digest
 from ..receipts import CommittedEffect
 from ..results import Error, Ok
-from ..types import DependencyTier, EffectClass, Locality
+from ..types import validate_slug
 from ._registration import WorkspaceRegistration, plan_registration, apply_registration
 from .ensure_registration import registration_error
 
@@ -40,7 +40,12 @@ class WorkspaceSetupRequest:
     force: bool = False
 
     def __post_init__(self):
-        validate_workspace_binding_request(self)
+        require_string(self.brain_id, "brain_id", optional=True)
+        require_string(self.slug, "slug", optional=True)
+        if self.slug is not None:
+            validate_slug(self.slug)
+        if not isinstance(self.force, bool):
+            raise ValueError("force must be a boolean")
 
 
 def _observe_scaffold(target):
@@ -58,7 +63,7 @@ def _observe_scaffold(target):
 def plan_setup(context, request, *, frozen_inputs=None):
     import vault_registry
     import workspace_registry
-    from _bootstrap.workspace_binding import (plan_workspace_binding, resolve_local_brain_alias,
+    from _bootstrap.workspace_binding import (linked_payload, plan_workspace_binding, resolve_local_brain_alias,
                                               resolve_local_brain_vault, unregistered_brain_message)
     from _common._workspace import manifest_workspace_reference, workspace_policy
     from ._preparation import _observe_file
@@ -85,7 +90,7 @@ def plan_setup(context, request, *, frozen_inputs=None):
     router, registration, plan, observations, frozen = plan_registration(
         context, key, frozen_inputs=frozen_inputs)
     workspace_policy(router, reference, manifest.get("defaults", {}), local=True)
-    manifest["links"] = {**links, "workspace": key}
+    manifest = linked_payload(manifest, key=key)
     registry = workspace_registry.load_registry(root)
     embedded = root / workspace_registry.EMBEDDED_DATA_DIR / key
     if embedded.exists():
@@ -134,7 +139,7 @@ def execute(context, request):
             key = manifest["links"]["workspace"]
             if not context.dry_run:
                 apply_registration(context, router, registration, plan, effects)
-                if registry.get(key) != {"path": str(target)}:
+                if registry.get(key) != {"path": workspace_registry.canonical_path(target)}:
                     workspace_registry.register_workspace(context.selected_brain.vault_root, key, target)
                     effects.append(CommittedEffect("workspace.path-registered", f"selected-brain:.brain/local/workspaces.json#{key}"))
         if context.dry_run:
@@ -176,11 +181,13 @@ def execute(context, request):
 
 
 def decode(payload: Mapping[str, object]):
-    return decode_workspace_binding(payload, WorkspaceSetupRequest)
+    reject_unexpected(payload, {"brain_id", "slug", "force"})
+    return WorkspaceSetupRequest(
+        require_string(payload.get("brain_id"), "brain_id", optional=True),
+        require_string(payload.get("slug"), "slug", optional=True),
+        optional_bool(payload.get("force"), "force"),
+    )
 
 
 def catalogue_entry():
-    return replace(caller_workspace_entry(WorkspaceSetupRequest, execute),
-        dependency_tier=DependencyTier.PORTABLE,
-        locality=Locality.SELECTED_BRAIN_AND_CALLER_LOCAL,
-        effect_class=EffectClass.SELECTED_BRAIN_AND_CALLER_LOCAL_MUTATION)
+    return compound_workspace_entry(WorkspaceSetupRequest, execute)

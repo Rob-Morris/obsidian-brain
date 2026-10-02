@@ -5,7 +5,6 @@ from __future__ import annotations
 import sys
 
 import configure
-import setup as brain_setup
 from _lifecycle import semantic_repairs
 import _repair_runtime
 
@@ -25,8 +24,7 @@ def test_lifecycle_envelopes_preserve_executable_launch_path(monkeypatch, tmp_pa
     step = {"name": "probe", "status": "noop", "message": "ok"}
 
     modules_and_calls = (
-        (configure, lambda: configure._result_envelope("workspace_binding", vault, [step])),
-        (brain_setup, lambda: brain_setup._result_envelope("workspace_setup", vault, [step])),
+        (configure, lambda: configure._result_envelope("workspace_metadata", vault, [step])),
         (_repair_runtime, lambda: _repair_runtime._finalise_result("runtime", vault, False, [step])),
         (semantic_repairs, lambda: semantic_repairs._finalise_result("semantic", vault, False, [step])),
     )

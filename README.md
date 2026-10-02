@@ -194,8 +194,8 @@ When MCP setup is enabled, the installer registers only explicitly selected clie
 brain mcp configure --vault /path/to/brain \
   --request-json '{"scope":"user","client":"all"}' --json
 
-# Bind and configure a specific project for all three clients
-brain workspace bind --vault /path/to/brain --workspace /path/to/project \
+# Link and configure a specific project for all three clients
+brain workspace setup --vault /path/to/brain --workspace /path/to/project \
   --request-json '{}' --json
 brain mcp configure --vault /path/to/brain --workspace /path/to/project \
   --request-json '{"scope":"project","client":"all"}' --json

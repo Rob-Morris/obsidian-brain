@@ -18,15 +18,9 @@ def migration_plan(home: Path, cli_binary: Path, selected: Path | None = None) -
     machine_path, user_records = registration.read_records(plan, None, home, registration.McpScope.USER)
     claims = {registration._record_id(record): record for record in user_records}
     for vault in vaults:
-        registry_path = vault / ".brain/local/workspaces.json"
-        registry = registration._json_object(plan, registry_path)
-        workspaces = registry.get("workspaces", {})
-        if not isinstance(workspaces, dict):
-            raise ValueError(f"Invalid workspace registry: {registry_path}")
-        canonical = {slug: {"path": value} if isinstance(value, str) else value
-                     for slug, value in workspaces.items()}
-        if canonical != workspaces:
-            registration._write_json(plan, registry_path, {**registry, "workspaces": canonical})
+        import workspace_registry
+
+        workspace_registry.stage_canonical_rows(plan, vault)
         path = vault / INIT_STATE_REL
         data = registration._json_object(plan, path)
         if not data and plan.read_bytes(path) is None:

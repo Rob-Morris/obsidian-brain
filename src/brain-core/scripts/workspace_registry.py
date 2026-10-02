@@ -6,15 +6,20 @@ Maps workspace slugs to their data folder paths. Embedded workspaces
 resolve implicitly (slug → _Workspaces/slug/). Linked workspaces store
 their external path in .brain/local/workspaces.json.
 
-The MCP server loads the registry on startup and uses it to resolve
-workspace file operations. The registry is machine-local config (in
-.brain/local/, gitignored) — the vault remains portable.
+Workspace listing, reading and path resolution read it. The registry is
+machine-local config (in .brain/local/, gitignored), so the vault remains
+portable.
+
+Each row is the Brain end of a link whose workspace end is the manifest in
+the recorded folder. Its writers are ``workspace.setup``, which writes a row
+when it makes a link; ``workspace.unregister``, which drops one; the
+``workspace.repair-registry`` rebuild of a malformed file; and MCP
+configuration, which stages the row its manifest implies.
 
 Usage:
     python3 workspace_registry.py                # list all workspaces
     python3 workspace_registry.py --vault /path
-    python3 workspace_registry.py --register slug /path/to/data
-    python3 workspace_registry.py --unregister slug
+    python3 workspace_registry.py --resolve slug
 """
 
 import json
@@ -45,6 +50,11 @@ class UnknownWorkspaceError(ValueError):
 # ---------------------------------------------------------------------------
 # Registry I/O
 # ---------------------------------------------------------------------------
+
+def canonical_path(path):
+    """The one form in which a linked workspace folder is stored and compared."""
+    return os.path.abspath(os.path.expanduser(os.fspath(path)))
+
 
 def _registry_path(vault_root):
     """Return absolute path to .brain/local/workspaces.json."""
@@ -337,7 +347,7 @@ def register_workspace(vault_root, slug, path, *, before_write=None):
             f"an embedded workspace already exists at _Workspaces/{slug}/."
         )
 
-    path = os.path.abspath(os.path.expanduser(path))
+    path = canonical_path(path)
 
     registry = load_registry_strict(vault_root)
     was_update = slug in registry
@@ -360,6 +370,59 @@ def register_workspace(vault_root, slug, path, *, before_write=None):
     }
 
 
+def _staged_registry(plan, vault_root):
+    """Read the registry through a file transaction; a damaged file is refused, never rewritten."""
+    from pathlib import Path
+
+    path = Path(_registry_path(vault_root))
+    content = plan.read_text(path)
+    if content is None:
+        return path, {}, {}
+    try:
+        data = json.loads(content)
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"Workspace registry requires explicit recovery: {path}: {exc}") from exc
+    workspaces = data.get("workspaces", {}) if isinstance(data, dict) else None
+    if not isinstance(workspaces, dict):
+        raise ValueError(f"Workspace registry requires explicit recovery: {path}")
+    return path, data, workspaces
+
+
+def _stage(plan, path, data):
+    plan.write_text(path, json.dumps(data, indent=2, ensure_ascii=False) + "\n")
+
+
+def stage_link_row(plan, vault_root, slug, path):
+    """Stage the row a manifest naming this Brain implies, inside an MCP file transaction.
+
+    This is the derivation of the registry from a manifest that MCP configuration
+    and migration perform (DD-083 item 5): an absent row is added, an equal row is
+    kept, and a different row for the slug is a conflict, never overwritten.
+    """
+    registry_path, data, workspaces = _staged_registry(plan, vault_root)
+    row = {"path": canonical_path(path)}
+    existing = workspaces.get(slug)
+    if existing == row:
+        return
+    if existing is not None:
+        raise ValueError(f"Conflicting reverse registration for {slug}: {registry_path}")
+    _stage(plan, registry_path, {**data, "workspaces": {**workspaces, slug: row}})
+
+
+def stage_canonical_rows(plan, vault_root):
+    """Stage rewriting legacy bare-string rows as ``{"path": ...}`` inside an MCP file transaction."""
+    registry_path, data, workspaces = _staged_registry(plan, vault_root)
+    canonical = {slug: {"path": value} if isinstance(value, str) else value for slug, value in workspaces.items()}
+    if canonical != workspaces:
+        _stage(plan, registry_path, {**data, "workspaces": canonical})
+
+
+def missing_row_message(slug):
+    """The refusal for a slug with no linked workspace registry row."""
+    return (f"Workspace '{slug}' is not registered as a linked workspace. "
+            f"Only linked workspaces (in .brain/local/workspaces.json) can be unregistered.")
+
+
 def unregister_workspace(vault_root, slug, *, before_write=None):
     """Remove a linked workspace from .brain/local/workspaces.json.
 
@@ -375,10 +438,7 @@ def unregister_workspace(vault_root, slug, *, before_write=None):
     """
     registry = load_registry_strict(vault_root)
     if slug not in registry:
-        raise ValueError(
-            f"Workspace '{slug}' is not registered as a linked workspace. "
-            f"Only linked workspaces (in .brain/local/workspaces.json) can be unregistered."
-        )
+        raise ValueError(missing_row_message(slug))
 
     from pathlib import Path
     from _bootstrap.mcp_registration import require_no_registered_integrations
@@ -399,12 +459,8 @@ def unregister_workspace(vault_root, slug, *, before_write=None):
 def main():
     import argparse
 
-    parser = argparse.ArgumentParser(description="Workspace registry management")
+    parser = argparse.ArgumentParser(description="List and resolve workspaces")
     parser.add_argument("--vault", help="Vault root (auto-detected if omitted)")
-    parser.add_argument("--register", nargs=2, metavar=("SLUG", "PATH"),
-                        help="Register a linked workspace")
-    parser.add_argument("--unregister", metavar="SLUG",
-                        help="Unregister a linked workspace")
     parser.add_argument("--resolve", metavar="SLUG",
                         help="Resolve a workspace slug to its path")
     parser.add_argument("--json", action="store_true", help="JSON output")
@@ -412,22 +468,7 @@ def main():
 
     vault_root = str(find_vault_root(args.vault))
 
-    if args.register:
-        slug, path = args.register
-        result = register_workspace(vault_root, slug, path)
-        if args.json:
-            print(json.dumps(result, indent=2))
-        else:
-            print(f"{result['action']}: {slug} → {path}")
-
-    elif args.unregister:
-        result = unregister_workspace(vault_root, args.unregister)
-        if args.json:
-            print(json.dumps(result, indent=2))
-        else:
-            print(f"Unregistered: {args.unregister}")
-
-    elif args.resolve:
+    if args.resolve:
         try:
             result = resolve_workspace(vault_root, args.resolve)
             if args.json:

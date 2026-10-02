@@ -135,12 +135,13 @@ objects as the CLI. The pass needs a keyless standalone call; see
 
 Machine-global operations do not run through selected-Brain `command.py`. The versioned CLI distribution owns the separate stdlib-safe launcher catalogue and its install, upgrade, registry, runtime, MCP and diagnostic owners.
 
-The legacy `setup.py workspace` entry point retains its historical local
-binding and ignore-scaffold behavior for compatibility; it does not ensure a
-canonical workspace hub. Use `command.py workspace setup --workspace PATH`
-or `brain workspace setup --workspace PATH` for the compound registration and
-binding contract. This operation is unavailable over MCP because its second
-boundary needs caller filesystem access.
+Use `command.py workspace setup --workspace PATH` or `brain workspace setup
+--workspace PATH` for the compound registration and binding contract; the
+legacy `setup.py workspace` entry point, which wrote only the local binding, is
+retired. This operation is unavailable over MCP because its second boundary
+needs caller filesystem access. `workspace_registry.py` lists and resolves
+workspaces; its `--register` and `--unregister` writers are retired in favour
+of `workspace setup` and `workspace unregister`.
 
 ## Dependency boundaries
 
@@ -177,8 +178,7 @@ Crossing 0.70.3 offers optional managed-approval discovery via read-only
 The version-crossing notice is also included in upgrade dry-run previews.
 
 The supported `install.py --client`, `configure.py mcp --client`,
-`configure.py agent-skills --client` and interactive `setup.py` selections
-include `grok`; `all` includes all three clients. Grok supports user and project
+and `configure.py agent-skills --client` selections include `grok`; `all` includes all three clients. Grok supports user and project
 scope, including vault-self registration. The native CLI commands are shown in
 [native Grok setup](cli.md#native-grok-setup). `repair.py mcp` and upgrade
 reconciliation inspect existing Grok project registrations and their owned

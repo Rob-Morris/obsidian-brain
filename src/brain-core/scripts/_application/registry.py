@@ -78,11 +78,9 @@ from .vault import check as vault_check
 from .vault import read_config as vault_read_config
 from .vault import read_router as vault_read_router
 from .vault import read_file as vault_read_file
-from .workspace import bind as workspace_bind
 from .workspace import configure_bootstrap as workspace_configure_bootstrap
 from .workspace import list as workspace_list
 from .workspace import read as workspace_read
-from .workspace import register as workspace_register
 from .workspace import repair_registry as workspace_repair_registry
 from .workspace import setup as workspace_setup
 from .workspace import ensure_registration as workspace_ensure_registration
@@ -168,11 +166,9 @@ _COMMAND_OWNERS = (
     vault_read_config,
     vault_read_router,
     vault_read_file,
-    workspace_bind,
     workspace_configure_bootstrap,
     workspace_list,
     workspace_read,
-    workspace_register,
     workspace_repair_registry,
     workspace_setup,
     workspace_ensure_registration,

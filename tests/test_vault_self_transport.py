@@ -1,9 +1,9 @@
-"""Tests for vault-self MCP transport mode and the converge_workspace_binding refuse-guard.
+"""Tests for vault-self MCP transport mode and the plan_workspace_binding refuse-guard.
 
 Phase 4 contract:
 - apply_mcp_transport_action with vault_self=True writes project-scope MCP config
   with BRAIN_WORKSPACE_DIR=<vault> and writes NO workspace.yaml.
-- converge_workspace_binding raises with code='vault_root_not_workspace' on a vault root.
+- plan_workspace_binding raises with code='vault_root_not_workspace' on a vault root.
 """
 
 from __future__ import annotations
@@ -23,7 +23,7 @@ from _bootstrap.mcp_state import BRAIN_SERVER_NAME
 from _bootstrap.mcp_transport import apply_mcp_transport_action, InitTransportError
 from _bootstrap.workspace_binding import (
     WorkspaceBindingError,
-    converge_workspace_binding,
+    plan_workspace_binding,
 )
 
 
@@ -72,35 +72,33 @@ def _make_apply_result(vault_root, *, vault_self, scope="project", client_arg="a
 # Refuse-guard tests
 # ---------------------------------------------------------------------------
 
-class TestConvergeWorkspaceBindingRefuseGuard:
-    """converge_workspace_binding refuses vault roots."""
+class TestPlanWorkspaceBindingRefuseGuard:
+    """plan_workspace_binding refuses vault roots."""
 
     def test_raises_on_vault_root(self, vault):
         """A vault root must raise with code vault_root_not_workspace."""
         with pytest.raises(WorkspaceBindingError) as exc_info:
-            converge_workspace_binding(vault, brain="some-brain", allow_rebind=False)
+            plan_workspace_binding(vault, brain="some-brain", allow_rebind=False)
         assert exc_info.value.code == "vault_root_not_workspace"
 
     def test_raises_with_allow_rebind_true(self, vault):
         """Even with allow_rebind=True, vault root must raise."""
         with pytest.raises(WorkspaceBindingError) as exc_info:
-            converge_workspace_binding(vault, brain="some-brain", allow_rebind=True)
+            plan_workspace_binding(vault, brain="some-brain", allow_rebind=True)
         assert exc_info.value.code == "vault_root_not_workspace"
 
     def test_raises_with_slug_set(self, vault):
         """Explicit slug does not bypass the refuse-guard."""
         with pytest.raises(WorkspaceBindingError) as exc_info:
-            converge_workspace_binding(vault, brain="some-brain", slug="my-slug", allow_rebind=False)
+            plan_workspace_binding(vault, brain="some-brain", slug="my-slug", allow_rebind=False)
         assert exc_info.value.code == "vault_root_not_workspace"
 
     def test_normal_workspace_is_not_affected(self, tmp_path, vault):
         """A regular workspace (not a vault root) must still be bindable."""
         ws = tmp_path / "myworkspace"
         ws.mkdir()
-        # Should not raise — just return a convergence result.
-        result = converge_workspace_binding(ws, brain="some-brain", allow_rebind=False)
-        assert result.brain == "some-brain"
-        assert (ws / ".brain" / "local" / "workspace.yaml").is_file()
+        _state, payload = plan_workspace_binding(ws, brain="some-brain", allow_rebind=False)
+        assert payload["brain"] == "some-brain"
 
     def test_agents_md_only_workspace_is_not_refused(self, tmp_path, vault):
         """A workspace with an AGENTS.md (e.g. the dev repo) but no
@@ -109,14 +107,13 @@ class TestConvergeWorkspaceBindingRefuseGuard:
         ws = tmp_path / "devrepo"
         ws.mkdir()
         (ws / "AGENTS.md").write_text("# bootstrap\n")
-        result = converge_workspace_binding(ws, brain="some-brain", allow_rebind=False)
-        assert result.brain == "some-brain"
-        assert (ws / ".brain" / "local" / "workspace.yaml").is_file()
+        _state, payload = plan_workspace_binding(ws, brain="some-brain", allow_rebind=False)
+        assert payload["brain"] == "some-brain"
 
     def test_error_message_mentions_vault_root(self, vault):
         """The error message should mention vault root and explain the contract."""
         with pytest.raises(WorkspaceBindingError) as exc_info:
-            converge_workspace_binding(vault, brain="brain", allow_rebind=False)
+            plan_workspace_binding(vault, brain="brain", allow_rebind=False)
         msg = str(exc_info.value).lower()
         assert "vault" in msg
 

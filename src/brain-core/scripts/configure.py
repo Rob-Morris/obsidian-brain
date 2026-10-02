@@ -17,15 +17,11 @@ from _bootstrap.runtime import (
 )
 from _bootstrap.vaults import find_vault_root, make_vault_parent_parser
 from _bootstrap.workspace_binding import (
-    WORKSPACE_ERROR_BRAIN_UNREGISTERED,
     WorkspaceBindingError,
-    converge_workspace_binding,
     load_workspace_manifest_state,
-    resolve_local_brain_vault,
-    resolve_local_brain_alias,
     resolve_workspace_dir,
     save_workspace_manifest_data,
-    unregistered_brain_message,
+    with_links,
 )
 from _common import find_root_bootstrap_file, safe_write
 from _lifecycle_common import (
@@ -97,49 +93,6 @@ def configure_agent_skills_action(
             "Restart the affected agent client so it reloads the shaping skill adapter."
         )
     return _result_envelope(action, vault_root, steps, notes=notes)
-
-
-def _resolve_binding_brain(vault_root: Path, brain_id: str | None) -> str:
-    if brain_id is None:
-        alias = resolve_local_brain_alias(vault_root)
-        if alias is None:
-            raise WorkspaceBindingError(unregistered_brain_message(vault_root),
-                                        code=WORKSPACE_ERROR_BRAIN_UNREGISTERED)
-        return alias
-    if resolve_local_brain_vault(brain_id) is None:
-        raise WorkspaceBindingError(
-            f"unknown local Brain ID '{brain_id}'. Register that Brain first, or pick a known vault alias."
-        )
-    return brain_id
-
-
-def configure_workspace_binding_action(
-    vault_root: Path,
-    *,
-    workspace_dir: Path,
-    brain_id: str | None,
-    slug: str | None,
-    force: bool,
-    before_write=None,
-) -> dict:
-    try:
-        resolved_brain = _resolve_binding_brain(vault_root, brain_id)
-        convergence = converge_workspace_binding(
-            workspace_dir,
-            brain=resolved_brain,
-            slug=slug,
-            allow_rebind=force,
-            before_write=before_write,
-        )
-        step = _step("workspace_binding", convergence.status, convergence.message)
-        notes = [f"workspace brain: {convergence.brain}", f"workspace slug: {convergence.slug}"]
-        return _result_envelope("workspace_binding", vault_root, [step], notes=notes)
-    except WorkspaceBindingError as exc:
-        return _result_envelope(
-            "workspace_binding",
-            vault_root,
-            [_step("workspace_binding", "error", str(exc), reason=getattr(exc, "code", None))],
-        )
 
 
 def _parse_link_args(entries: list[str]) -> dict[str, str]:
@@ -218,11 +171,7 @@ def configure_workspace_metadata_action(
         if not isinstance(current_links, dict):
             raise WorkspaceBindingError("workspace manifest links must be a mapping")
         from _common._workspace import update_metadata_links
-        current_links = update_metadata_links(current_links, parsed_links, clear=clear_links)
-        if current_links:
-            manifest["links"] = current_links
-        else:
-            manifest.pop("links", None)
+        manifest = with_links(manifest, update_metadata_links(current_links, parsed_links, clear=clear_links))
 
         if defaults.get("parent") is not None:
             from _common._workspace import manifest_workspace_reference, require_workspace, workspace_policy
@@ -389,20 +338,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
     workspace = subparsers.add_parser(
         "workspace",
-        help="Configure workspace-owned binding, metadata, and bootstrap state.",
+        help="Configure workspace-owned metadata and bootstrap state.",
     )
     workspace_subparsers = workspace.add_subparsers(dest="workspace_command", required=True)
-
-    binding = workspace_subparsers.add_parser(
-        "binding",
-        help="Create or update the workspace-to-Brain binding.",
-        parents=[make_vault_parent_parser()],
-    )
-    binding.add_argument("--path", help="Workspace directory to bind (default: current directory).")
-    binding.add_argument("--brain", help="Symbolic local Brain ID to bind to (default: current vault's alias).")
-    binding.add_argument("--slug", help="Explicit workspace slug (default: existing slug or derived from folder name).")
-    binding.add_argument("--force", action="store_true", help="Allow rebinding or slug changes when the workspace is already bound.")
-    binding.add_argument("--json", action="store_true", help="Emit machine-readable JSON.")
 
     metadata = workspace_subparsers.add_parser(
         "metadata",
@@ -676,16 +614,6 @@ def main(argv: list[str] | None = None) -> int:
             f"workspace_{args.workspace_command}",
             vault_root,
             [_step(f"workspace_{args.workspace_command}", "error", str(exc))],
-        )
-        return _emit_result(result, as_json=args.json)
-
-    if args.workspace_command == "binding":
-        result = configure_workspace_binding_action(
-            vault_root,
-            workspace_dir=workspace_dir,
-            brain_id=args.brain,
-            slug=args.slug,
-            force=args.force,
         )
         return _emit_result(result, as_json=args.json)
 

@@ -28,6 +28,7 @@ from _bootstrap.maintenance_summary import (
 )
 
 from .._decoding import decode_empty
+from .._mutation_support import MAINTENANCE_MCP_EXCLUSION
 from ..context import InvocationContext, record_safely, report_failure_safely
 from ..preparation import OperationPreparation, admit_owner, bind_operation
 from ..receipts import CommittedEffect, OutcomeReference
@@ -387,4 +388,4 @@ def catalogue_entry():
         projections=ALL_APPLICATION_PROJECTIONS,
         summary="Run one bounded maintenance pass: detect, repair automatic families, list the rest.",
     )
-    return exclude_projection(entry, Projection.MCP, "maintenance administration is CLI and direct-script only")
+    return exclude_projection(entry, Projection.MCP, MAINTENANCE_MCP_EXCLUSION)

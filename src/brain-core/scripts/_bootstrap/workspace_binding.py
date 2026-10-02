@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from enum import Enum
 from pathlib import Path
 import os
 import re
@@ -25,7 +26,6 @@ WORKSPACE_MANIFEST_LEGACY_REL = os.path.join(".brain", "workspace.yaml")
 WORKSPACE_REASON_ALREADY_BOUND = "already_bound"
 WORKSPACE_ERROR_INVALID_BINDING = "invalid_binding"
 WORKSPACE_ERROR_FILESYSTEM_ACCESS = "filesystem_access"
-WORKSPACE_ERROR_BRAIN_UNREGISTERED = "brain_unregistered"
 
 
 # ---------------------------------------------------------------------------
@@ -60,18 +60,6 @@ class WorkspaceManifestWrite:
     """Result of writing canonical workspace manifest content."""
 
     manifest_path: Path
-    status: str
-    message: str
-    migrated_legacy: bool
-
-
-@dataclass(frozen=True)
-class WorkspaceBindingConvergence:
-    """Result of converging one workspace binding payload."""
-
-    manifest_path: Path
-    brain: str
-    slug: str
     status: str
     message: str
     migrated_legacy: bool
@@ -610,22 +598,6 @@ def save_workspace_manifest_data(
     )
 
 
-def converge_workspace_binding(
-    target_dir: Path,
-    *,
-    brain: str,
-    slug: str | None = None,
-    allow_rebind: bool,
-    before_write=None,
-) -> WorkspaceBindingConvergence:
-    """Create or update the canonical workspace binding manifest."""
-    state, payload = plan_workspace_binding(target_dir, brain=brain, slug=slug,
-                                            allow_rebind=allow_rebind)
-    write = save_workspace_manifest_data(target_dir, payload, state=state, before_write=before_write)
-    return WorkspaceBindingConvergence(write.manifest_path, brain, payload["slug"],
-                                       write.status, write.message, write.migrated_legacy)
-
-
 def plan_workspace_binding(target_dir, *, brain, slug=None, allow_rebind=False):
     """Validate and resolve a binding without writing either boundary."""
     # Refuse-guard: a vault root is a Brain, not a workspace of itself.
@@ -680,6 +652,106 @@ def plan_workspace_binding(target_dir, *, brain, slug=None, allow_rebind=False):
 
     payload = _binding_payload(existing, brain=brain, slug=resolved_slug)
     return state, payload
+
+
+# ---------------------------------------------------------------------------
+# The workspace link: the two manifest fields that state it, and one verdict
+# on whether a folder's manifest is the workspace end of a Brain's row.
+# ---------------------------------------------------------------------------
+
+# ``brain`` names the Brain and ``links.workspace`` the hub key. The ``slug``,
+# defaults and other links are local and never part of the link.
+LINK_FIELDS = ("brain", "links.workspace")
+
+
+def link_fields(manifest: dict[str, Any]) -> tuple[Any, Any]:
+    """The manifest's ``brain`` and ``links.workspace`` values, ``None`` where absent."""
+    links = manifest.get("links")
+    return manifest.get("brain"), links.get("workspace") if isinstance(links, dict) else None
+
+
+def states_a_link(manifest: dict[str, Any]) -> bool:
+    """Whether the manifest holds either link field, valid or not."""
+    links = manifest.get("links")
+    return "brain" in manifest or isinstance(links, dict) and "workspace" in links
+
+
+def with_links(manifest: dict[str, Any], links: dict[str, Any]) -> dict[str, Any]:
+    """The manifest with ``links`` replaced, dropping the key when no link remains."""
+    updated = {name: value for name, value in manifest.items() if name != "links"}
+    if links:
+        updated["links"] = links
+    return updated
+
+
+def linked_payload(manifest: dict[str, Any], *, key: str) -> dict[str, Any]:
+    """The manifest with its hub key set; ``brain`` and ``slug`` come from ``plan_workspace_binding``."""
+    links = manifest.get("links", {})
+    if not isinstance(links, dict):
+        raise ValueError("Workspace links must be a mapping")
+    return with_links(manifest, {**links, "workspace": key})
+
+
+def unlinked_payload(manifest: dict[str, Any]) -> dict[str, Any]:
+    """The manifest without either link field, keeping ``slug``, defaults and other links."""
+    links = manifest.get("links", {})
+    remaining = {name: value for name, value in links.items() if name != "workspace"} if isinstance(links, dict) else links
+    return with_links({name: value for name, value in manifest.items() if name != "brain"}, remaining)
+
+
+class LinkVerdict(str, Enum):
+    MATCHES = "matches"
+    UNREACHABLE = "unreachable"
+    VAULT_ROOT = "vault_root"
+    NO_MANIFEST = "no_manifest"
+    UNREADABLE = "unreadable"
+    BRAIN_UNRESOLVED = "brain_unresolved"
+    KEY_MISSING = "key_missing"
+    OTHER_BRAIN = "other_brain"
+    OTHER_KEY = "other_key"
+
+
+@dataclass(frozen=True)
+class LinkClassification:
+    verdict: LinkVerdict
+    state: WorkspaceManifestState | None = None
+    detail: str | None = None
+
+
+def classify_link(vault_root: Path, folder: Path, key: str) -> LinkClassification:
+    """Whether the manifest at ``folder`` is the workspace end of the Brain's row ``key``.
+
+    A read only: it takes no lock and writes nothing. Absence proves nothing:
+    a ``brain`` ID that does not resolve on this machine is ``BRAIN_UNRESOLVED``,
+    never ``OTHER_BRAIN``, and a missing hub key is ``KEY_MISSING``, never
+    ``OTHER_KEY``. Only the two ``OTHER_*`` verdicts are positive disagreement.
+    """
+    try:
+        if not folder.is_dir():
+            return LinkClassification(LinkVerdict.UNREACHABLE)
+        if is_brain_vault(folder):
+            return LinkClassification(LinkVerdict.VAULT_ROOT)
+        state = load_workspace_manifest_state(folder)
+    except (OSError, WorkspaceBindingError) as exc:
+        return LinkClassification(LinkVerdict.UNREADABLE, detail=str(exc))
+    if state.data is None:
+        return LinkClassification(LinkVerdict.NO_MANIFEST, state)
+    brain, linked_key = link_fields(state.data)
+    if not isinstance(brain, str) or not brain:
+        return LinkClassification(LinkVerdict.BRAIN_UNRESOLVED, state)
+    try:
+        bound = resolve_local_brain_vault(brain)
+    except WorkspaceBindingError as exc:
+        return LinkClassification(LinkVerdict.BRAIN_UNRESOLVED, state, str(exc))
+    if bound is None:
+        return LinkClassification(LinkVerdict.BRAIN_UNRESOLVED, state)
+    if bound != Path(vault_root).resolve():
+        return LinkClassification(LinkVerdict.OTHER_BRAIN, state)
+    if linked_key is None:
+        return LinkClassification(LinkVerdict.KEY_MISSING, state)
+    if linked_key != key:
+        return LinkClassification(LinkVerdict.OTHER_KEY, state)
+    return LinkClassification(LinkVerdict.MATCHES, state)
 
 
 def _binding_payload(existing: dict[str, Any], *, brain: str, slug: str) -> dict[str, Any]:

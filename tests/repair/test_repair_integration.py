@@ -139,7 +139,7 @@ class TestCheckRepairHints:
 
         hit = next(f for f in result["findings"] if f["check"] == "workspace_registry")
         assert hit["repair"]["scope"] == "registry"
-        assert "session run -- brain" in hit["repair"]["command"]
+        assert "session run" not in hit["repair"]["command"]
         assert "workspace repair-registry" in hit["repair"]["command"]
 
     def test_duplicate_frontmatter_adds_frontmatter_repair_guidance(self, repair_vault):

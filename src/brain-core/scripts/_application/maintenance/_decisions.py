@@ -17,7 +17,7 @@ from _bootstrap.maintenance_decisions import (
 from _bootstrap.maintenance_findings import FindingGroup
 from _bootstrap.maintenance_summary import brain_paths
 
-from .._mutation_support import maintainer_mutation_entry
+from .._mutation_support import MAINTENANCE_MCP_EXCLUSION, maintainer_mutation_entry
 from ..context import record_safely
 from ..preparation import OperationPreparation, admit_owner, bind_operation
 from ..receipts import CommittedEffect
@@ -51,7 +51,7 @@ def catalogue_entry(request_type, executor, summary: str):
 
     entry = replace(maintainer_mutation_entry(request_type, executor),
                     preparation=OperationPreparation(decision_binding), summary=summary)
-    return exclude_projection(entry, Projection.MCP, "maintenance administration is CLI and direct-script only")
+    return exclude_projection(entry, Projection.MCP, MAINTENANCE_MCP_EXCLUSION)
 
 
 def refused(request, refusal: Refusal):

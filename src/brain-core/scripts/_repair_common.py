@@ -134,7 +134,6 @@ REPAIR_SCOPES: Mapping[str, RepairFamily] = _table(
     _brain(
         "registry", "workspace.repair-registry", {}, Disposition.JUDGEMENT,
         "Repair the current vault's local workspace registry state.",
-        exceptional=True,
     ),
     _machine(
         "runtime", "runtime.repair",

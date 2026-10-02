@@ -17,6 +17,8 @@ this receipt is only the judgement they cannot make.
 
 [6] **Milestone.** Any milestone follow-up is identified and is not being treated as part of this promotion.
 
+[7] **Migration versions.** Every `migrate_to_*.py` added since the last release declares a `VERSION` equal to the release `VERSION`, and its file name spells the same version. The upgrade runner selects migrations by version, so one written ahead of its release on `dev` silently never runs if the cut picks another number.
+
 ## Log
 
 Write `.canary--pre-promotion` at the repo root before `promotion.py prepare`.
@@ -33,4 +35,5 @@ Log format: `[id] Short name: status, comment`
 [4] Impact review: done, no security or architecture change in the cut
 [5] Boundary: done
 [6] Milestone: skip, no milestone closes with this version
+[7] Migration versions: done, every new migration declares the release version
 ```

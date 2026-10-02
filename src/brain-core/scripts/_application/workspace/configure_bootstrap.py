@@ -65,7 +65,6 @@ def execute(context: InvocationContext, request: WorkspaceConfigureBootstrapRequ
             remove=request.remove,
         ),
         effect_subjects=effects,
-        lock_root=target,
     )
 
 

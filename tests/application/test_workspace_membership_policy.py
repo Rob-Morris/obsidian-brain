@@ -82,7 +82,9 @@ def test_default_parent_rejects_unscoped_and_other_workspace_ownership(scope):
 def test_binding_states_are_exact_and_terminal_identity_survives():
     view = router()
     assert resolve_workspace_binding(view, None)[0] == "unconfigured"
-    assert resolve_workspace_binding(view, {"slug": "demo"})[0] == "configured_invalid"
+    assert resolve_workspace_binding(view, {"slug": "demo", "defaults": {"tags": ["x"]}})[0] == "unconfigured"
+    assert resolve_workspace_binding(view, {"brain": "demo-brain", "slug": "demo"})[0] == "configured_invalid"
+    assert resolve_workspace_binding(view, {"slug": "demo", "links": "not-a-mapping"})[0] == "configured_invalid"
     assert resolve_workspace_binding(view, {"links": {"workspace": "missing"}})[:2] == ("configured_invalid", "workspace/missing")
     manifest = {"brain": "demo-brain", "slug": "repo", "links": {"workspace": "demo"}}
     assert resolve_workspace_binding(view, manifest)[:2] == ("valid", "workspace/demo")

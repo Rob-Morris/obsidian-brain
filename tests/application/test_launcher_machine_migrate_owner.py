@@ -272,8 +272,7 @@ def test_migrate_legacy_installations_success_reports_each_committed_effect(
     legacy_dir = vault / ".venv"
     steps = [
         _step("runtime", "changed", outcome="committed"),
-        _step("mcp", "noop", outcome="none"),
-        _step("registry", "changed", outcome="committed"),
+        _step("mcp", "changed", outcome="committed"),
         _step("legacy_venv", "changed", path=str(legacy_dir)),
         _step("verify", "noop"),
     ]
@@ -287,7 +286,7 @@ def test_migrate_legacy_installations_success_reports_each_committed_effect(
     assert result.result.status is LegacyMigrationStatus.CHANGED
     assert tuple(effect.subject for effect in result.committed_effects) == (
         f"brain-runtime:{vault}",
-        f"brain-registry:{vault}",
+        f"brain-mcp:{vault}",
         f"legacy-runtime:{legacy_dir}",
     )
 
@@ -444,20 +443,3 @@ def test_nested_repair_runner_targets_the_vault_and_maps_results(tmp_path, monke
 
     with pytest.raises(ValueError, match="unsupported machine-owned repair scope"):
         _nested_repair_runner(context)(vault, "registry")
-
-
-def test_attention_step_is_a_typed_status_outside_the_cleanup_safe_set(tmp_path, monkeypatch):
-    vault = (tmp_path / "legacy").resolve()
-    steps = [
-        _step("runtime", "changed", outcome="committed"),
-        _step("registry", "attention", "needs an operator", outcome="none"),
-        _step("legacy_venv", "noop"),
-        _step("verify", "noop"),
-    ]
-    _patch_action(monkeypatch, _result(vault, status="ok", target_status="ok", steps=steps))
-
-    result = _invocation(tmp_path).invoke(BrainMigrateLegacyInstallationsRequest())
-
-    target = result.result.targets[0]
-    assert target.steps[1].status is LegacyMigrationStepStatus.ATTENTION
-    assert tuple(effect.subject for effect in result.committed_effects) == (f"brain-runtime:{vault}",)
