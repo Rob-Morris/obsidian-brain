@@ -11,7 +11,7 @@ import sys
 
 
 def serve() -> int:
-    """Resolve a generic route without provisioning, registration writes or stdout noise."""
+    """Resolve a generic route without provisioning, MCP registration writes or stdout noise."""
     if sys.argv[1:] != ["mcp", "serve"]:
         print("brain: stdio bootstrap accepts only mcp serve", file=sys.stderr)
         return 2

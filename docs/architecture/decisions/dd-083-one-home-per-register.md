@@ -1,12 +1,8 @@
 # DD-083: One home per register
 
-**Status:** Accepted (implemented in stages)
+**Status:** Accepted
 **Extends:** DD-052, DD-078, DD-082
 **Amends:** DD-051 (§2), DD-053
-
-Items 1 to 12 and the amendments to DD-051 and DD-053 are in the code. The
-consolidated documentation of the machine and workspace state lands in a later
-change, after which this text is reconciled with it.
 
 ## Context
 
@@ -17,7 +13,7 @@ the two derivations were maintained differently from one another and from
 everything else.
 
 `~/.config/brain/brains.json`, the "derived machine registry", was a cache of
-the vault registry plus the current vault. Nothing on a registration path wrote
+the vault registry plus the current vault. Nothing on a Brain registration path wrote
 it: `install.py` and `brain register` write only the vault registry. It was
 written only as a side effect of diagnosis, until DD-082 made Doctor read-only
 and moved the write to an explicit `machine-registry.sync` pass family. A fresh
@@ -54,8 +50,13 @@ with an automatic repair. No fact is maintained by a hidden write.
    `malformed` and `blocked` registry states are removed. The vault registry
    (`~/.config/brain/vaults`) plus the default pointer (`~/.config/brain/default`)
    is the one home for which Brains exist on this machine. A leftover file on
-   disk is inert: nothing reads it, and it is not deleted, because a released
-   v0.70.10 Doctor on the same machine would recreate it.
+   disk is inert: nothing reads it, and it is not deleted automatically,
+   because the doctor scripts of a Brain on Core 0.70.10 or earlier on the
+   same machine would recreate it.
+   The upgrade notes say it may be deleted once no Brain on the machine runs
+   Brain Core 0.70.10 or earlier. The
+   files, their nature and their writers are listed once, under "Machine and
+   workspace state" in `docs/functional/config.md`.
 2. **Resolution never writes; Brain registration has one owner.** The vault
    registry and the default pointer are written only by `vault_registry.py`'s
    actions, reached from `install.py` (the act of installing), the launcher's
@@ -225,8 +226,9 @@ with an automatic repair. No fact is maintained by a hidden write.
 11. **Migration and mixed versions.** No automatic migration of `brains.json`
     rows into the vault registry (they were derived from it) and no deletion.
     Linked workspace registry rows survive and are verified lazily. An older
-    launcher's bundled Doctor still writes and inspects the derived file,
-    which stays self-consistent and is corrected by `brain upgrade`. The
+    Brain Core's doctor and machine scripts (`doctor.py`, `doctor_machine.py`
+    and `machine.py`, 0.70.10 or earlier) still write and inspect the derived
+    file, which stays self-consistent until that Brain is upgraded. The
     configuration migration is versioned at the release that ships it.
 12. **An absent location is reported, never unhealthy, and pruning never runs
     blind.** The machine cannot tell an unplugged drive from a deleted folder,
@@ -238,7 +240,9 @@ with an automatic repair. No fact is maintained by a hidden write.
     inspected). Of the coverage causes, only `invalid` counts against
     `machine.healthy` (MCP drift, runtime health and automatic or
     machine-owned findings still count), and a stale vault registry row is
-    likewise reported (`stale_vault_registry`) and no longer unhealthy. Orphan-runtime pruning still needs both lists empty; when it is
+    likewise reported (`stale_vault_registry`, or `stale_vault_registry_blocked`
+    when remove-stale would refuse it) and no longer unhealthy. Orphan-runtime
+    pruning still needs both lists empty; when it is
     blocked, its reason names each location to reconnect or unregister, and
     `tidy` is false. MCP registration inspection reports an absent folder as
     `unreachable`, with that remedy and never `mcp migrate`. Doctor's payload
@@ -248,16 +252,19 @@ with an automatic repair. No fact is maintained by a hidden write.
     `mcp.repair` (version 4) repairs the reachable targets at Brain and machine
     breadth and names the rest in a `follow_up_required` warning, except while
     approval records exist: the approval inventory, which needs every
-    registered location, runs first and refuses. Uninstall, Brain
-    unregistration, MCP migration and approval changes still need every
-    registered location and refuse with the same remedy.
+    registered location, runs first and refuses. Uninstall and Brain
+    unregistration need every linked folder of the Brain they remove; while
+    approval records exist, the approval inventory runs first for them too and
+    needs every registered location, as for `mcp.repair`. MCP migration and
+    approval changes need every registered location. Each refuses with the
+    same remedy.
 
 ## Alternatives Considered
 
 - Keeping `brains.json` as an add-only cache (DD-082 D19): rejected, because
   no reader needs a cache of a two-column text file and no shell fallback
   exists.
-- An automatic registration family for the unregistered Brain: rejected,
+- An automatic Brain registration family for the unregistered Brain: rejected,
   because choosing an identity is not a derived repair, and a vault that
   happens to be the current directory of a scheduled pass is not thereby a
   Brain the operator wants registered.
@@ -276,8 +283,8 @@ with an automatic repair. No fact is maintained by a hidden write.
   Brain.
 - Doctor reading the maintenance decisions file to decide health: rejected,
   because Doctor would then depend on maintenance state.
-- Deleting a leftover `brains.json` on upgrade: rejected, because a released
-  v0.70.10 Doctor on the same machine recreates it, and a delete-recreate loop
+- Deleting a leftover `brains.json` on upgrade: rejected, because the doctor scripts
+  of a Brain on Core 0.70.10 or earlier on the same machine recreate it, and a delete-recreate loop
   between two versions is worse than an inert file.
 - `session.start` writing the registry on contact: rejected, because
   bootstrap stays read-only; the missing-row finding plus `workspace setup`
@@ -297,7 +304,7 @@ with an automatic repair. No fact is maintained by a hidden write.
   ordinary operations can produce. Moving a Brain is one, so `brain.upgrade`
   moves to 3 for drifted rows. A state that can arise only by hand-editing
   stored data against the registry's canonical invariant (a row with a `..`
-  component or a trailing slash, which registration never writes) is
+  component or a trailing slash, which Brain registration never writes) is
   outside the command contract, for application and launcher commands
   alike. So `mcp.migrate`, `brain.uninstall`, `brain.set-default` and the
   managed-approval commands keep their versions: where they meet a drifted
@@ -348,8 +355,8 @@ with an automatic repair. No fact is maintained by a hidden write.
 ## Verification
 
 `tests/test_install_then_doctor.py` proves a fresh `install.py` subprocess
-(with a stand-in managed runtime, which a skip install does not provision) is
-healthy under `doctor_machine.py` and `brain doctor`, with and without a
+(a skip install, which provisions the managed runtime through an offline
+launcher stub) is healthy under `doctor_machine.py` and `brain doctor`, with and without a
 leftover `brains.json`, and that the machine pass with the leftover writes an
 empty summary and leaves the file untouched; `tests/repo/test_no_derived_registry.py` is the
 repository contract that no file under `src/` or `cli/` names the derived

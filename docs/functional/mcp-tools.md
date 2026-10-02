@@ -29,7 +29,7 @@ collision-free under the command grammar. Raw dotted names are not aliases.
 Command IDs in results, discovery arguments, permission profiles and access
 requests remain dotted; CLI commands remain `brain <noun> <verb>`.
 Interface epoch 3 requires clients to reconnect and rediscover tools after
-upgrade. Project registration repair updates exact managed bootstrap lines.
+upgrade. Project MCP registration repair updates exact managed bootstrap lines.
 
 The application catalogue owns the installed command inventory and marks each projection explicitly. A running server exposes only the MCP-eligible commands within the authenticated profile ceiling. Exact catalogue and profile counts are generated and checked from the authoritative catalogue; use MCP discovery or `command.list` for the selected installation rather than treating prose counts as a compatibility contract.
 
@@ -236,7 +236,7 @@ MCP callers provide only semantic fields. The adapter derives selected Brain, wo
 `workspace.ensure-registration` and `workspace.update-policy` are selected-Brain
 content commands and are available over MCP. `workspace.setup` and
 `workspace.update-metadata` write the caller's folder, and
-`workspace.unregister` writes the folder the registry row records; all three
+`workspace.unregister` writes the folder the linked workspace registry row records; all three
 need local filesystem access and remain local CLI/script/Python operations. Session workspace configuration reports a
 canonical reference and explicit `valid`, `unconfigured`, `configured_invalid`
 or `terminal_inactive` state; unresolved manifest links never produce synthetic
@@ -313,7 +313,7 @@ the current startup diagnostic. An unresolved target cannot recover by silently
 selecting a new Brain; changed trusted bindings require configuration and host
 reconnect. A known target is rechecked before activation/handoff. Repair runtime
 or filesystem prerequisites externally, then explicitly request recovery.
-Neither recovery nor startup changes registrations, client approvals or installed
+Neither recovery nor startup changes MCP registrations, client approvals or installed
 dependencies. Failures before proxy entry (including stable CLI/bootstrap or
 Python import failure) still require external repair and host reconnect.
 Initial trusted target/prerequisite assessment and process setup precede the

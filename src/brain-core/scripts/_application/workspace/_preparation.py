@@ -1,4 +1,4 @@
-"""Bind caller-workspace operations to their resolved files and registration state."""
+"""Bind caller-workspace operations to their resolved files, workspace hub and linked workspace registry state."""
 
 from __future__ import annotations
 

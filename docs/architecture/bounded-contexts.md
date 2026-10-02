@@ -7,11 +7,11 @@ Brain Core separates semantic application ownership, machine-global lifecycle ow
 | Context | Responsibility | Primary location |
 |---|---|---|
 | Application kernel | Sealed requests/results, invocation boundary, selected-Brain catalogue, resolver, discovery and projection facts | `src/brain-core/scripts/_application/` |
-| Launcher application | Machine-global registry, install/upgrade, runtime recovery, MCP/client configuration and maintenance | `cli/_launcher/` |
+| Launcher application | Brain registration in the machine's vault registry, install/upgrade, runtime recovery, MCP/client configuration and maintenance | `cli/_launcher/` |
 | Local CLI composition | Parse the canonical grammar, compose discovery, select an owner, invoke without merging semantics, render structural results | `cli/_local_cli/` |
 | MCP projection | Mechanical eligible-tool registration, proxy protocol and MCP result projection | `src/brain-core/brain_mcp/` |
 | Trusted local composition | Selected vault/workspace, profile, providers, tier and outcome receipt storage | `src/brain-core/scripts/_command_interface/` |
-| Bootstrap plane | Stdlib-safe config, selection, session, registry and recovery seams | `src/brain-core/scripts/_bootstrap/` |
+| Bootstrap plane | Stdlib-safe config, selection, session, vault and linked workspace registry, and recovery seams | `src/brain-core/scripts/_bootstrap/` |
 | Portable plane | Low-dependency vault reads/mutations and lexical operations | `src/brain-core/scripts/_portable/` and domain packages |
 | Managed plane | Optional managed-runtime retrieval, rendering and provider-backed work | managed domain/provider packages |
 | Platform adapters | Obsidian and other external capabilities behind explicit provider ports | platform-specific modules |

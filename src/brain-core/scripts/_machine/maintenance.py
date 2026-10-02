@@ -585,7 +585,7 @@ def prune_orphaned_runtimes(
     *,
     dry_run: bool,
 ) -> dict[str, Any]:
-    """Revalidate persisted launch references under the registration writer lock."""
+    """Revalidate persisted launch references under the MCP registration writer lock."""
     from contextlib import nullcontext
     from _bootstrap.mcp_registration import registration_lock
     from _bootstrap.mcp_inventory import local_brains, persisted_runtime_references
@@ -616,7 +616,7 @@ def prune_orphaned_runtimes(
 
 def _prune_orphaned_runtimes(summary: dict[str, Any], *, dry_run: bool) -> dict[str, Any]:
     if not summary.get("registration_coverage_complete", False):
-        reason = summary.get("registration_coverage_blocked") or "Persisted-registration coverage is incomplete."
+        reason = summary.get("registration_coverage_blocked") or "Persisted MCP registration coverage is incomplete."
         return _build_action_result("prune-runtimes", dry_run=dry_run,
             steps=[_step("selection", "error", f"Cannot prune shared runtimes. {reason}")])
     if not summary["live_process_scan_available"]:

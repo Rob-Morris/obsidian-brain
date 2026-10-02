@@ -44,7 +44,7 @@ For non-interactive agent installs in restricted environments, scaffold the vaul
 bash install.sh --non-interactive --skip-mcp /path/to/brain
 ```
 
-The installer creates the vault from the template, copies `.brain-core/` into it, provisions the light machine resolution runtime used by no-MCP `brain session`, and then asks for explicit client selection (Claude Code, Codex, Grok, or All supported clients) and a registration scope — register this Brain for this vault only (project scope, the default) or as your machine default brain (user scope) — provisioning the managed Python runtime as needed. `install.sh` and `install.ps1` both hand fresh/existing-vault install policy to the shared Python installer core at `src/brain-core/scripts/install.py`. The POSIX wrapper can also install brain-core into an existing Obsidian vault and detect already-installed Brain vaults; for those, the canonical upgrade path is `upgrade.py` and `install.sh` only delegates to it. `--skip-mcp` skips MCP registration only: the managed runtime is still provisioned, because managed CLI commands such as `brain session start` need it. In network-restricted environments the runtime step may fail; the installer keeps the vault, reports that step and prints `brain runtime repair` to rerun later. Use `--non-interactive --client all` (or name one client) for automated MCP setup; it selects the this-vault-only (project) scope. When upgrade changes either shipped runtime dependency export (`requirements.txt` or `requirements-semantic.txt` under `.brain-core/brain_mcp/`), `upgrade.py` provisions the matching shared runtime under `~/.brain/venvs/` itself; `install.sh --skip-mcp` does not skip that sync (it skips MCP registration only), so run `upgrade.py --no-sync-deps` directly to defer it. Same-version re-apply, downgrade, or explicit migration rerun flows remain explicit `upgrade.py --force` operations. Project scope still outranks user scope for all three clients once the project-scoped MCP is active: in Claude, approve `brain` via `/mcp`; in Codex, trust the project and ensure `brain` is enabled for that project; in Grok, review its folder-trust prompt. See [install.sh](../functional/scripts.md#installsh) and [install.py](../functional/scripts.md#installpy) for full details, modes, and flags.
+The installer creates the vault from the template, copies `.brain-core/` into it, provisions the light machine resolution runtime used by no-MCP `brain session`, and then asks for explicit client selection (Claude Code, Codex, Grok, or All supported clients) and an MCP registration scope: this vault only (project scope, the default) or user scope, which also makes this Brain the machine default, provisioning the managed Python runtime as needed. `install.sh` and `install.ps1` both hand fresh/existing-vault install policy to the shared Python installer core at `src/brain-core/scripts/install.py`. The POSIX wrapper can also install brain-core into an existing Obsidian vault and detect already-installed Brain vaults; for those, the canonical upgrade path is `upgrade.py` and `install.sh` only delegates to it. `--skip-mcp` skips MCP registration only: the managed runtime is still provisioned, because managed CLI commands such as `brain session start` need it. In network-restricted environments the runtime step may fail; the installer keeps the vault, reports that step and prints `brain runtime repair` to rerun later. Use `--non-interactive --client all` (or name one client) for automated MCP setup; it selects the this-vault-only (project) scope. When upgrade changes either shipped runtime dependency export (`requirements.txt` or `requirements-semantic.txt` under `.brain-core/brain_mcp/`), `upgrade.py` provisions the matching shared runtime under `~/.brain/venvs/` itself; `install.sh --skip-mcp` does not skip that sync (it skips MCP registration only), so run `upgrade.py --no-sync-deps` directly to defer it. Same-version re-apply, downgrade, or explicit migration rerun flows remain explicit `upgrade.py --force` operations. Project scope still outranks user scope for all three clients once the project-scoped MCP is active: in Claude, approve `brain` via `/mcp`; in Codex, trust the project and ensure `brain` is enabled for that project; in Grok, review its folder-trust prompt. See [install.sh](../functional/scripts.md#installsh) and [install.py](../functional/scripts.md#installpy) for full details, modes, and flags.
 
 Semantic retrieval remains optional. Enable it later with
 `brain retrieval enable --vault /path/to/brain --json`. That command
@@ -100,7 +100,7 @@ If those tools and generated assets are unavailable, follow `.brain-core/md-boot
 
 Commands declare bootstrap, portable or managed dependency tiers. The adapter never silently provisions or changes tier; availability and one next action are part of the structural result. See [User Reference](user-reference.md#dependency-and-availability-model) and [Script Reference](../functional/scripts.md).
 
-When you already have a registered Brain and want to register and bind a folder without choosing transport policy, use `workspace.setup`:
+When you already have a registered Brain and want to register a workspace (its hub) and link a folder to it without choosing transport policy, use `workspace.setup`:
 
 ```bash
 brain workspace setup --vault /path/to/brain --workspace /path/to/project \
@@ -109,8 +109,8 @@ brain workspace setup --vault /path/to/brain --workspace /path/to/project \
 
 That ensures a canonical Brain workspace hub first, then creates or repairs
 `.brain/local/workspace.yaml` with `brain + slug + links.workspace` and adds
-Brain-owned machine-local ignore rules in git-backed targets. Registration and
-local binding are reported separately: if the second step fails, inspect the
+Brain-owned machine-local ignore rules in git-backed targets. Workspace
+registration (the hub) and local binding are reported separately: if the second step fails, inspect the
 known partial result and retry. Existing content is not adopted from tags; use
 the [explicit adoption workflow](workflows.md#explicit-adoption-and-reassignment)
 before selecting an existing project as the shared default parent. Setup does not
@@ -316,13 +316,22 @@ launcher returns a known partial outcome with `brain runtime warmup` and
 `brain runtime status` recovery guidance. A failed MCP ownership migration likewise
 leaves the committed Core/CLI upgrade in place and reports recovery work;
 direct `upgrade.py` reports `status: partial` and exits 1. Preserve client
-approval settings when resolving registration conflicts; they are client policy,
+approval settings when resolving MCP registration conflicts; they are client policy,
 not permission for Brain to replace transport ownership.
 
 When upgrading from before 0.70.3, an optional [managed approvals](../functional/approvals.md)
 follow-up points to `brain approvals inspect --json`. Review it, then explicitly
 choose client, scope and surfaces with `brain approvals configure` if wanted.
 The notice neither enables approvals nor removes manually created rules.
+
+The vault registry (`~/.config/brain/vaults`) is the only list of the Brains on
+a machine. Earlier releases also kept a derived copy in
+`~/.config/brain/brains.json`; nothing reads or writes it now, so a leftover
+file is inert. You may delete it once no Brain on this machine runs Brain Core
+0.70.10 or earlier, whose `doctor.py`, `doctor_machine.py` and `machine.py`
+scripts recreate it. Existing linked
+workspace rows are kept, and the next `vault.check` or maintenance pass verifies
+them.
 
 Upgrade never silently deletes shared machine runtimes;
 when read-only topology inspection proves orphan candidates, it reports `brain
@@ -379,10 +388,10 @@ For most broken-tooling cases, `brain runtime repair` is the important command w
 the shared managed runtime under `~/.brain/venvs/` is broken. `mcp.repair`
 repairs recorded caller-workspace project MCP state against that usable runtime.
 Use `--request-json '{"scope":"user"}'` for the shared user connection,
-`'{"breadth":"brain"}'` for a selected Brain's runtime and all registered
+`'{"breadth":"brain"}'` for a selected Brain's runtime and all recorded MCP
 integrations, or `'{"breadth":"machine"}'` for all registered local Brains.
 None acts as a first-time installer or adds an unselected client. Existing
-pre-0.70 registrations first need `brain mcp migrate --json`; inspect with
+pre-0.70 MCP registrations first need `brain mcp migrate --json`; inspect with
 `--dry-run`. See [migration and bootstrap recovery](../functional/cli.md#migration-and-bootstrap-recovery)
 for missing base Python, conflicts and interrupted transitions.
 `retrieval.repair-semantic` is the semantic equivalent after a

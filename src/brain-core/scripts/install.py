@@ -179,7 +179,7 @@ def _register_vault(vault_root: Path, brain_id: str | None) -> tuple[dict, str |
 
 def _set_default_brain(brain_id: str | None) -> dict:
     if brain_id is None:
-        return _step("machine_default", "error", "Could not set machine default because vault registration failed.")
+        return _step("machine_default", "error", "Could not set machine default because Brain registration failed.")
     try:
         vault_registry.set_default(brain_id)
         return _step("machine_default", "changed", f"Set '{brain_id}' as the machine default Brain.")
@@ -400,7 +400,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--client", choices=("claude", "codex", "grok", "all"), help="Explicit client or all supported clients; required unless MCP is skipped"
     )
-    parser.add_argument("--id", dest="brain_id", help="Explicit local Brain ID for the machine registry.")
+    parser.add_argument("--id", dest="brain_id", help="Explicit local Brain ID for the vault registry.")
     parser.add_argument("--json", action="store_true", help="Emit machine-readable JSON.")
     parser.add_argument("--approval-client", choices=("codex", "claude", "all"))
     parser.add_argument("--approval-scope", choices=("user", "project", "local"))

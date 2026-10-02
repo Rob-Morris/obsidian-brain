@@ -1959,7 +1959,7 @@ def _repair_mcp_registration_after_upgrade(vault_root: Path) -> dict:
         effects.extend(getattr(exc, "committed_effects", []))
         return {"scope": "mcp", "outcome": "partial" if effects else "error", "message": str(exc), "committed_effects": effects}
     return {"scope": "mcp", "outcome": "ok", "committed_effects": effects,
-            "message": "Canonical registrations reconciled; client-host reconnect and a normal MCP call remain separate verification."}
+            "message": "Canonical MCP registrations reconciled; client-host reconnect and a normal MCP call remain separate verification."}
 
 
 def _deferred_mcp_registration_after_upgrade(vault_root: Path) -> dict:
