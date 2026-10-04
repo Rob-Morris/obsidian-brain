@@ -19,6 +19,8 @@ this receipt is only the judgement they cannot make.
 
 [7] **Migration versions.** Every `migrate_to_*.py` added since the last release declares a `VERSION` equal to the release `VERSION`, and its file name spells the same version. The upgrade runner selects migrations by version, so one written ahead of its release on `dev` silently never runs if the cut picks another number.
 
+[8] **Lab at the release version.** `make test-brain-lab-current-docker` passes when run from a scratch worktree of the cut whose `src/brain-core/VERSION` is set, uncommitted, to the release `VERSION`; the lab captures tracked modifications with the worktree. The lab selects the compatibility adapter that owns that version, so `dev` cannot run this check while its `VERSION` still names the last release. A launcher command whose request or grammar changed in the cut needs that adapter's gates changed to match.
+
 ## Log
 
 Write `.canary--pre-promotion` at the repo root before `promotion.py prepare`.
@@ -36,4 +38,5 @@ Log format: `[id] Short name: status, comment`
 [5] Boundary: done
 [6] Milestone: skip, no milestone closes with this version
 [7] Migration versions: done, every new migration declares the release version
+[8] Lab at the release version: done, current-template passes from a scratch worktree of the cut at the release version
 ```

@@ -99,6 +99,8 @@ Selection options are global and mutually constrained:
 - With no explicit selector, the CLI uses the canonical local resolution ladder.
 - `--operator-key KEY` authenticates the application command against the selected Brain's profiles.
 
+`brain doctor` (version 3) checks the vault of the Brain this selection names: `--vault`, `--brain`, `--workspace` or `BRAIN_WORKSPACE_DIR`, running inside a vault or a bound workspace folder, or `BRAIN_VAULT_ROOT`. Inside a `brain session run` job, that is the job's Brain. When the ladder reaches only its machine fallbacks (the default Brain, even one that no longer resolves, or nothing at all), Doctor stays machine-wide and reports no vault in scope. A selection that fails before then, such as an unknown `--brain`, a stale workspace binding or a `BRAIN_WORKSPACE_DIR` with no binding, fails Doctor with that selection's own message, as it fails any application command. The ladder passes over a `BRAIN_VAULT_ROOT` that names no installed Brain, for Doctor as for every command; inside a job it is the job's own selection, so it fails there. Its request carries only `actionable` and `severity`; it has no vault field.
+
 Launcher commands may run without a selected Brain when their schema permits it. Application commands always execute through the selected Brain's own `.brain-core/scripts/command.py`; the machine-global CLI does not import or emulate another Brain's application semantics.
 
 ### Workspace registration and policy

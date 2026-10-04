@@ -386,13 +386,10 @@ class BrainDoctorRequest:
     COMMAND_VERSION: ClassVar[int] = 3
     RESULT_TYPE: ClassVar[type] = BrainDoctorPayload
 
-    current_vault: Path | None = None
     actionable: bool = False
     severity: DoctorSeverity | None = None
 
     def __post_init__(self) -> None:
-        if self.current_vault is not None and not self.current_vault.is_absolute():
-            raise ValueError("brain.doctor current_vault must be absolute")
         if not isinstance(self.actionable, bool):
             raise ValueError("brain.doctor actionable must be boolean")
         if self.severity is not None and not isinstance(self.severity, DoctorSeverity):
@@ -633,8 +630,9 @@ def execute_doctor(context: LauncherContext, request: BrainDoctorRequest):
     launcher_python = (
         str(context.launcher_python) if context.launcher_python is not None else None
     )
+    # The vault section follows the launcher's Brain selection; with none, Doctor is machine-wide.
     current_vault = (
-        str(request.current_vault) if request.current_vault is not None else None
+        str(context.current_vault) if context.current_vault is not None else None
     )
     cli = doctor.collect_cli_diagnosis(
         binary_path=str(context.cli_binary),

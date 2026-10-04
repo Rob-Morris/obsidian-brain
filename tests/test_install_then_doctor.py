@@ -139,8 +139,8 @@ def _launcher_doctor(installed_vault, tmp_path, monkeypatch):
     monkeypatch.setattr(launcher_doctor, "run_vault_check", lambda vault_root, *, actionable, severity: {
         "summary": {"errors": 0, "warnings": 0, "info": 0}, "findings": [],
     })
-    context = _launcher_context(tmp_path, invocation_id="inv-doctor")
-    return LauncherInvocation(context, LAUNCHER_CATALOGUE, LAUNCHER_OWNERS).invoke(BrainDoctorRequest(installed_vault))
+    context = replace(_launcher_context(tmp_path, invocation_id="inv-doctor"), current_vault=installed_vault)
+    return LauncherInvocation(context, LAUNCHER_CATALOGUE, LAUNCHER_OWNERS).invoke(BrainDoctorRequest())
 
 
 def test_fresh_install_then_launcher_doctor_is_healthy(installed_vault, tmp_path, monkeypatch):
@@ -258,8 +258,8 @@ def _doctor_with_real_vault_check(vault: Path, tmp_path: Path, monkeypatch):
     })
     monkeypatch.setattr(launcher_doctor, "run_vault_check",
                         lambda vault_root, *, actionable, severity: check.run_checks(str(vault_root)))
-    context = _launcher_context(tmp_path, invocation_id=f"inv-doctor-{uuid.uuid4().hex[:8]}")
-    return LauncherInvocation(context, LAUNCHER_CATALOGUE, LAUNCHER_OWNERS).invoke(BrainDoctorRequest(vault))
+    context = replace(_launcher_context(tmp_path, invocation_id=f"inv-doctor-{uuid.uuid4().hex[:8]}"), current_vault=vault)
+    return LauncherInvocation(context, LAUNCHER_CATALOGUE, LAUNCHER_OWNERS).invoke(BrainDoctorRequest())
 
 
 def _key_of(vault: Path, folder: Path) -> str:

@@ -54,7 +54,7 @@ class _Clock:
         return NOW
 
 
-def _invocation(tmp_path, *, authority=None, receipts=None):
+def _invocation(tmp_path, *, authority=None, receipts=None, current_vault=None):
     context = LauncherContext(
         profile="operator",
         authority=authority or _Authority(),
@@ -68,6 +68,7 @@ def _invocation(tmp_path, *, authority=None, receipts=None):
         cli_version="2.0.0",
         cli_binary=(tmp_path / "bin" / "brain").resolve(),
         launcher_python=Path(sys.executable).resolve(),
+        current_vault=current_vault,
     )
     return LauncherInvocation(context, LAUNCHER_CATALOGUE, LAUNCHER_OWNERS)
 
@@ -218,12 +219,8 @@ def test_doctor_returns_bounded_typed_diagnosis_without_registry_sync(
     )
     receipts = _Receipts()
 
-    result = _invocation(tmp_path, receipts=receipts).invoke(
-        BrainDoctorRequest(
-            (tmp_path / "Brain").resolve(),
-            actionable=True,
-            severity=DoctorSeverity.ERROR,
-        )
+    result = _invocation(tmp_path, receipts=receipts, current_vault=(tmp_path / "Brain").resolve()).invoke(
+        BrainDoctorRequest(actionable=True, severity=DoctorSeverity.ERROR)
     )
 
     assert result.status == "ok"
@@ -393,7 +390,6 @@ def test_unexpected_doctor_failure_is_privacy_bounded(tmp_path, monkeypatch):
 @pytest.mark.parametrize(
     "request_factory",
     (
-        lambda: BrainDoctorRequest(Path("relative")),
         lambda: BrainDoctorRequest(actionable="yes"),
         lambda: BrainDoctorRequest(severity="error"),
         lambda: OperatorGenerateKeyRequest(0),
@@ -436,3 +432,198 @@ def test_vault_check_runner_projects_the_target_payload_and_skips_pre_cutover_ta
     assert _vault_finding({"check": "x", "severity": "info", "file": None, "message": "m",
                            "repair": {"scope": "router", "command": "python repair.py router"}}
                           ).repair_command_id == "runtime.refresh-router"
+
+
+def _doctor_entry_point(tmp_path, monkeypatch, *, default=None):
+    """Run ``brain doctor`` through the real launcher entry point on an isolated machine.
+
+    Doctor's machine and CLI collectors are stubbed; the real vault-section
+    collector runs over a clean ``vault.check`` result, so the reported vault
+    section shows which Brain the launcher selection scoped. ``default`` makes
+    the selected Brain (``"same"``) or a second Brain (``"other"``) the machine
+    default.
+    """
+    import vault_registry
+    from _launcher import doctor as launcher_doctor
+    from _local_cli.main import run
+
+    def brain(name):
+        root = tmp_path / name
+        (root / ".brain-core").mkdir(parents=True)
+        (root / ".brain-core" / "VERSION").write_text("0.70.10\n", encoding="utf-8")
+        return root.resolve()
+
+    home = tmp_path / "home"
+    home.mkdir()
+    vault = brain("Brain")
+    vault_registry.register(str(vault), "my-brain")
+    if default == "same":
+        vault_registry.set_default("my-brain")
+    elif default == "other":
+        vault_registry.register(str(brain("Other")), "other-brain")
+        vault_registry.set_default("other-brain")
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    monkeypatch.chdir(elsewhere)
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setattr(Path, "home", lambda: home)
+    monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "state"))
+    monkeypatch.setenv("BRAIN_CLI_BINARY", str(REPO_ROOT / "cli" / "brain"))
+    monkeypatch.setenv("BRAIN_CLI_DISTRIBUTION_ROOT", str(REPO_ROOT))
+    monkeypatch.delenv("BRAIN_VAULT_ROOT", raising=False)
+    monkeypatch.delenv("BRAIN_WORKSPACE_DIR", raising=False)
+    machine_calls = []
+    checked = []
+    machine = _machine_report(tmp_path)
+
+    def _machine(**kwargs):
+        machine_calls.append(kwargs["current_vault"])
+        return machine
+
+    def _vault_check(vault_root, *, actionable, severity):
+        checked.append(vault_root)
+        return {"summary": {"errors": 0, "warnings": 0, "info": 0}, "findings": []}
+
+    monkeypatch.setattr(doctor_script, "collect_cli_diagnosis", lambda **_kwargs: _cli_report(tmp_path))
+    monkeypatch.setattr(doctor_script.doctor_machine, "collect_machine_summary", _machine)
+    monkeypatch.setattr(launcher_doctor, "run_vault_check", _vault_check)
+    return vault, elsewhere, run, machine_calls, checked
+
+
+def _bind(folder: Path, brain_id: str) -> Path:
+    manifest = folder / ".brain" / "local" / "workspace.yaml"
+    manifest.parent.mkdir(parents=True)
+    manifest.write_text(f"brain: {brain_id}\nslug: example\n", encoding="utf-8")
+    return folder
+
+
+def _bound(tmp_path, brain_id="my-brain"):
+    folder = tmp_path / "bound"
+    folder.mkdir()
+    return _bind(folder, brain_id)
+
+
+@pytest.mark.parametrize("default", ["same", "other"])
+@pytest.mark.parametrize(
+    "selection",
+    ["vault", "brain", "vault_root_env", "bound_folder", "workspace", "workspace_env", "inside_vault"],
+)
+def test_doctor_entry_point_scopes_the_launcher_selected_brain(tmp_path, monkeypatch, capsys, selection, default):
+    import json
+
+    vault, elsewhere, run, machine_calls, checked = _doctor_entry_point(tmp_path, monkeypatch, default=default)
+    argv = []
+    if selection == "vault":
+        argv = ["--vault", str(vault)]
+    elif selection == "brain":
+        argv = ["--brain", "my-brain"]
+    elif selection == "vault_root_env":
+        monkeypatch.setenv("BRAIN_VAULT_ROOT", str(vault))
+    elif selection == "bound_folder":
+        monkeypatch.chdir(_bind(elsewhere, "my-brain"))
+    elif selection == "workspace":
+        argv = ["--workspace", str(_bound(tmp_path))]
+    elif selection == "workspace_env":
+        monkeypatch.setenv("BRAIN_WORKSPACE_DIR", str(_bound(tmp_path)))
+    elif selection == "inside_vault":
+        monkeypatch.chdir(vault)
+
+    run([*argv, "doctor", "--json"])
+
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["status"] == "ok", payload
+    assert payload["result"]["vault"]["state"] == "checked"
+    assert payload["result"]["vault"]["vault_root"] == str(vault)
+    assert checked == [vault]
+    assert machine_calls == [str(vault)]
+
+
+def test_doctor_in_a_session_job_checks_the_job_brain(tmp_path, monkeypatch, capsys):
+    """A ``brain session run`` job exports its Brain as ``BRAIN_VAULT_ROOT``, which selects it explicitly."""
+    import json
+    from types import SimpleNamespace
+
+    import _local_cli.main as cli_main
+
+    vault, _elsewhere, run, machine_calls, checked = _doctor_entry_point(tmp_path, monkeypatch, default="same")
+    job = SimpleNamespace(kind="cli-job", close=lambda: None)
+    monkeypatch.setattr(cli_main, "OwnerAttachment", SimpleNamespace(capture=lambda: job))
+    monkeypatch.setenv("BRAIN_VAULT_ROOT", str(vault))
+
+    run(["doctor", "--json"])
+
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["result"]["vault"]["state"] == "checked"
+    assert checked == [vault] and machine_calls == [str(vault)]
+
+
+@pytest.mark.parametrize("fallback", ["default", "dangling_default", "nothing"])
+def test_doctor_with_only_a_machine_fallback_stays_machine_wide(tmp_path, monkeypatch, capsys, fallback):
+    import json
+
+    vault, _elsewhere, run, machine_calls, checked = _doctor_entry_point(
+        tmp_path, monkeypatch, default=None if fallback == "nothing" else "same")
+    if fallback == "dangling_default":
+        (vault / ".brain-core" / "VERSION").unlink()
+
+    run(["doctor", "--json"])
+
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["status"] == "ok", payload
+    assert payload["result"]["vault"]["state"] == "not_scoped"
+    assert payload["result"]["vault"]["vault_root"] is None
+    assert payload["result"]["vault"]["message"] == "none in scope (select one with --vault or --brain, or run from a vault or a linked workspace)"
+    assert checked == []
+    assert machine_calls == [None]
+
+
+@pytest.mark.parametrize(
+    "selection, message",
+    [
+        ("stale_bound_folder", "cannot be resolved: Brain id 'gone-brain' is not in the registry"),
+        ("malformed_bound_folder", "failed to load"),
+        ("stale_workspace_env", "BRAIN_WORKSPACE_DIR points to a workspace that cannot be resolved"),
+        ("unbound_workspace_env", "that workspace has no Brain binding"),
+        ("vault_not_a_brain", "not an installed local Brain"),
+        ("unknown_brain", "registered local Brain not found: unknown"),
+    ],
+)
+def test_doctor_reports_a_selection_that_fails_before_the_machine_fallbacks(
+    tmp_path, monkeypatch, capsys, selection, message,
+):
+    """A broken selection fails Doctor with its own message, even with a usable machine default."""
+    _vault, elsewhere, run, machine_calls, checked = _doctor_entry_point(tmp_path, monkeypatch, default="same")
+    argv = []
+    if selection == "stale_bound_folder":
+        monkeypatch.chdir(_bind(elsewhere, "gone-brain"))
+    elif selection == "malformed_bound_folder":
+        manifest = elsewhere / ".brain" / "local" / "workspace.yaml"
+        manifest.parent.mkdir(parents=True)
+        manifest.write_text("brain: [unclosed\n", encoding="utf-8")
+    elif selection == "stale_workspace_env":
+        monkeypatch.setenv("BRAIN_WORKSPACE_DIR", str(_bound(tmp_path, "gone-brain")))
+    elif selection == "unbound_workspace_env":
+        monkeypatch.setenv("BRAIN_WORKSPACE_DIR", str(elsewhere))
+    elif selection == "vault_not_a_brain":
+        argv = ["--vault", str(elsewhere)]
+    elif selection == "unknown_brain":
+        argv = ["--brain", "unknown"]
+
+    code = run([*argv, "doctor", "--json"])
+
+    captured = capsys.readouterr()
+    assert code == 4, captured
+    assert captured.out == ""
+    assert message in captured.err
+    assert checked == [] and machine_calls == []
+
+
+def test_doctor_request_no_longer_names_a_vault(tmp_path, monkeypatch, capsys):
+    vault, _elsewhere, run, machine_calls, checked = _doctor_entry_point(tmp_path, monkeypatch)
+
+    code = run(["doctor", "--request-json", f'{{"current_vault":"{vault}"}}', "--json"])
+
+    captured = capsys.readouterr()
+    assert code != 0
+    assert "unknown fields: current_vault" in captured.err
+    assert checked == [] and machine_calls == []

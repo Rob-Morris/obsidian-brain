@@ -24,10 +24,31 @@ def test_compatibility_families_are_non_overlapping_and_cover_selected_versions(
     assert manifest.select("0.68.0").adapter_id == "brain-0.64"
     assert manifest.select("0.69.0").adapter_id == "brain-0.64"
     assert manifest.select("0.70.0").adapter_id == "brain-0.70"
+    assert manifest.select("0.70.10").adapter_id == "brain-0.70"
+    assert manifest.select("0.71.0").adapter_id == "brain-0.71"
     with pytest.raises(ValueError, match="no unique"):
         manifest.select("0.50.0")
     with pytest.raises(ValueError, match="no unique"):
-        manifest.select("0.71.0")
+        manifest.select("0.72.0")
+
+
+def test_brain_0_71_changes_only_how_doctor_selects_its_vault():
+    """Released 0.70 CLIs need Doctor's request field; from 0.71 the launcher selection scopes Doctor."""
+    from dataclasses import replace
+
+    manifest = CompatibilityManifest(MANIFEST)
+    released, current = manifest.select("0.70.0"), manifest.select("0.71.0")
+    released_doctor = next(gate for gate in released.health if gate.gate_id == "doctor")
+    current_doctor = next(gate for gate in current.health if gate.gate_id == "doctor")
+
+    assert released_doctor.command == ("brain", "doctor", "--request-json", '{{"current_vault":"{vault}"}}', "--json")
+    assert current_doctor.command == ("brain", "--vault", "{vault}", "doctor", "--json")
+    assert current_doctor.expected_json == released_doctor.expected_json
+    assert (current.revision, current.minimum_version, current.maximum_version_exclusive) == (1, "0.71.0", "0.72.0")
+    assert replace(current, adapter_id=released.adapter_id, minimum_version=released.minimum_version,
+                   maximum_version_exclusive=released.maximum_version_exclusive,
+                   health=tuple(released_doctor if gate is current_doctor else gate for gate in current.health)
+                   ) == released
 
 
 def test_commands_render_argv_without_shell_interpolation():
