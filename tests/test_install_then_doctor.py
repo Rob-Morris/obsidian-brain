@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 import json
 import os
 from pathlib import Path
+import shutil
 import subprocess
 import sys
 import uuid
@@ -282,6 +283,11 @@ def test_deleted_and_rekeyed_manifests_settle_and_doctor_stays_healthy(installed
 
     vault = _refreshed(installed_vault)
     other = register_other_brain(tmp_path, "other-brain")
+    # A complete stand-in: this Brain's runtime resolver and exports, so it resolves to the runtime the install provisioned.
+    shutil.copytree(vault / ".brain-core" / "brain_mcp", other / ".brain-core" / "brain_mcp",
+                    ignore=lambda _folder, names: [name for name in names if not name.startswith("requirements")])
+    (other / ".brain-core" / "scripts" / "_common").mkdir(parents=True)
+    shutil.copy2(vault / ".brain-core" / "scripts" / "_common" / "_venv.py", other / ".brain-core" / "scripts" / "_common")
     emptied, rekeyed, rebrained = ((tmp_path / "work" / name).resolve() for name in ("emptied", "rekeyed", "rebrained"))
     for folder in (emptied, rekeyed, rebrained):
         _link_by_setup(vault, folder)
@@ -307,14 +313,44 @@ def test_deleted_and_rekeyed_manifests_settle_and_doctor_stays_healthy(installed
     assert [(item["file"], item["code"], item["severity"]) for item in findings] == [
         (f".brain/local/workspaces.json#{emptied_key}", "workspace_link_unverifiable", "info")]
 
-    # The stand-in other Brain has no brain_mcp requirements, and a registered Brain without them crashes
-    # Doctor's runtime classification (a separate, pre-existing defect), so it is unregistered first.
-    vault_registry.unregister(str(other))
     doctor = _doctor_with_real_vault_check(vault, tmp_path, monkeypatch)
     assert doctor.status == "ok", getattr(doctor, "error", None)
+    routes = {brain.vault_root: brain for brain in doctor.result.machine.brains}
+    assert routes[str(other)].runtime_status == "central_exact", "the registered stand-in is counted, not excluded"
+    assert {finding.code for finding in routes[str(vault)].repair_findings} == {"workspace_link_unverifiable"}
     assert doctor.result.machine.healthy
     assert doctor.result.vault.exit_code == 0
     assert doctor.result.healthy and doctor.result.exit_code == 0, "an info finding leaves Doctor's overall result healthy"
+
+
+def test_a_registered_pre_contract_brain_is_reported_without_taking_down_launcher_doctor(
+        installed_vault, tmp_path, monkeypatch):
+    """A Brain whose Core predates the runtime resolver is one unhealthy route, not a Doctor crash."""
+    old = (tmp_path / "Old Brain").resolve()
+    (old / ".brain-core" / "mcp").mkdir(parents=True)
+    (old / ".brain-core" / "VERSION").write_text("0.36.0\n")
+    (old / ".brain-core" / "mcp" / "requirements.txt").write_text("mcp==1.0.0\n")
+    (old / ".venv" / "bin").mkdir(parents=True)
+    (old / ".venv" / "bin" / "python").symlink_to(sys.executable)
+    vault_registry.register(str(old))
+
+    doctor = _launcher_doctor(installed_vault, tmp_path, monkeypatch)
+
+    assert doctor.status == "ok", getattr(doctor, "error", None)
+    routes = {brain.vault_root: brain for brain in doctor.result.machine.brains}
+    stale = routes[str(old)]
+    assert (stale.runtime_status, stale.selected_runtime, stale.expected_runtime) == (
+        "runtime_contract_unavailable", None, None), "no runtime is guessed"
+    assert stale.legacy_runtime_present and stale.repair_findings == ()
+    assert str(old / ".brain-core" / "scripts" / "_common" / "_venv.py") in stale.runtime_message
+    assert f"brain --vault '{old}' upgrade" in stale.runtime_message
+    [paused] = doctor.result.machine.unreadable_runtime_contracts
+    assert (paused.path, paused.guidance) == (str(old), f"brain --vault '{old}' upgrade"), "the reason tidy is false"
+    assert routes[str(installed_vault)].runtime_status == "central_exact"
+    assert not doctor.result.machine.healthy and not doctor.result.machine.tidy
+    assert doctor.result.machine.registration_coverage_complete, "the old Brain is the only unhealthy cause"
+    assert doctor.result.vault.exit_code == 0
+    assert not doctor.result.healthy and doctor.result.exit_code == 1
 
 
 def test_moved_and_unplugged_folders_keep_their_rows_and_are_dismissed_one_at_a_time(installed_vault, tmp_path, monkeypatch):

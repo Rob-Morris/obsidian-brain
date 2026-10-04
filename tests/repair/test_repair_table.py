@@ -74,6 +74,22 @@ def test_core_register_guidance_matches_the_launcher_table():
     assert decoded.vault_root == Path("/x y") and decoded.brain_id is None
 
 
+def test_core_upgrade_guidance_decodes_as_the_launcher_upgrade():
+    """Core names the remedy for an unreadable runtime contract; the CLI's own parser must read it as brain.upgrade."""
+    import shlex
+
+    from launcher_catalogue import LAUNCHER_CATALOGUE
+    from _launcher.lifecycle import BrainUpgradeRequest
+    from _local_cli.main import _parse_common
+    from _machine.topology import upgrade_guidance
+
+    binary, *argv = shlex.split(upgrade_guidance("/x y"))
+    common, command_argv = _parse_common(argv)
+    entry = next(item for item in LAUNCHER_CATALOGUE.entries if item.entry_point == (binary, *command_argv))
+    assert entry.command_id == BrainUpgradeRequest.COMMAND_ID
+    assert common.vault == "/x y" and common.request_json is None
+
+
 def _core_guidance(tmp_path, spelling):
     """Raise the Core error that carries one launcher spelling and return its message."""
     import vault_registry

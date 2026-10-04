@@ -470,7 +470,22 @@ Brain is reported without entering the health rule at all. A registered Brain
 root or linked folder that is absent is listed under `unreachable_locations`
 and never counts either; it pauses orphan-runtime detection, so `tidy` is false
 and `prune-runtimes` refuses with a reason that names each location to
-reconnect or unregister. Of the coverage causes, only invalid ones (an unsafe
+reconnect or unregister. Each Brain's runtime is named by its own Core's
+runtime contract (`.brain-core/scripts/_common/_venv.py`), the rule its MCP
+launch and runtime repair use, so an older Brain on its own working runtime is
+healthy. A Brain whose own contract cannot be read (a Core older than that
+resolver, or a resolver that fails on a missing, unreadable or damaged export)
+has the runtime status `runtime_contract_unavailable`: no runtime path is
+guessed for it, its message names the cause and
+`brain --vault <path> upgrade`, and it counts against `machine.healthy`. It is also listed under
+`machine.unreadable_runtime_contracts`, each entry with that upgrade command as
+its `guidance`. It pauses orphan-runtime detection in the same way, because its
+runtime cannot be named, and `prune-runtimes` refuses while it is listed,
+naming each Brain's upgrade command. Like a missing runtime, it is not a
+machine-pass item or a legacy-migration target:
+`brain migrate-legacy-installations` names each such Brain with a legacy
+`.venv` as skipped, and refuses it by name when selected. Of the coverage
+causes, only invalid ones (an unsafe
 or malformed ledger, journal or registry, or a folder that is present but
 cannot be inspected) count against `machine.healthy`; MCP registration drift,
 runtime health and automatic or machine-owned findings still count as before.
@@ -568,7 +583,7 @@ embeddings, so `semantic` is almost always advised on semantic vaults until
 
 ## Launcher recovery and old Brains
 
-CLI 3 can identify and recover an installed Brain older than 0.55.0, but it does not translate old grammars. Launcher-owned version, doctor, install and upgrade/recovery commands remain available. Attempting an application command returns structural `upgrade_required`; that Brain's own legacy scripts remain directly invocable until the Brain is upgraded.
+CLI 3 can identify and recover an installed Brain older than 0.55.0, but it does not translate old grammars. Launcher-owned version, doctor, install and upgrade/recovery commands remain available. Doctor and the machine commands keep working beside a Brain whose own runtime contract cannot be read; see `runtime_contract_unavailable` above. Core Doctor then runs such a current Brain's `check.py` with its legacy `.venv` or the launcher and notes the upgrade command. Attempting an application command returns structural `upgrade_required`; that Brain's own legacy scripts remain directly invocable until the Brain is upgraded.
 
 `brain.upgrade` v3 performs a complete-registry preflight and coordinates Brain Core 0.55+, the installed CLI, catalogue, manifest and proxy contracts. Known other pre-cutover Brains require `acknowledge_global_cli_cutover: true`. Stale vault registry IDs, including a row that is no longer its own canonical path (version 3; v2 refused it as an unsafe path), require an exact sorted `excluded_stale_brain_ids` list; unknown registry scope cannot be waived.
 

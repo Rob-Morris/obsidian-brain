@@ -204,6 +204,20 @@ def test_inspect_machine_runtime_state_classifies_selected_and_orphan_runtimes(m
     assert not summary["tidy"]
 
 
+def _own_contract(monkeypatch, **resolvers):
+    """Stand in for a Brain's own runtime contract: this Core's resolvers, with the named ones replaced."""
+    from types import SimpleNamespace
+
+    contract = SimpleNamespace(
+        resolve_vault_venv_python=_venv.resolve_vault_venv_python,
+        find_existing_central_venv=_venv.find_existing_central_venv,
+        find_runnable_python=_venv.find_runnable_python,
+    )
+    for name, resolver in resolvers.items():
+        setattr(contract, name, resolver)
+    monkeypatch.setattr("_machine.topology.target_runtime_contract", lambda _vault: contract)
+
+
 def test_classify_brain_runtime_preserves_venv_symlink_boundary(monkeypatch, tmp_path):
     expected = tmp_path / "expected" / "bin" / "python"
     selected = tmp_path / "selected" / "bin" / "python"
@@ -213,9 +227,9 @@ def test_classify_brain_runtime_preserves_venv_symlink_boundary(monkeypatch, tmp
     selected.symlink_to(sys.executable)
     vault = _make_vault(tmp_path, "Active Brain")
 
-    monkeypatch.setattr("_machine.topology.resolve_vault_venv_python", lambda *_args, **_kwargs: expected)
-    monkeypatch.setattr("_machine.topology.find_existing_central_venv", lambda *_args, **_kwargs: selected)
-    monkeypatch.setattr("_machine.topology.find_runnable_python", lambda *_args, **_kwargs: selected)
+    _own_contract(monkeypatch, resolve_vault_venv_python=lambda *_args, **_kwargs: expected,
+                  find_existing_central_venv=lambda *_args, **_kwargs: selected,
+                  find_runnable_python=lambda *_args, **_kwargs: selected)
 
     runtime = classify_brain_runtime(vault, launcher_python=sys.executable)
 
@@ -416,8 +430,8 @@ def test_list_central_runtimes_uses_platform_venv_python(monkeypatch, tmp_path):
 def test_classify_brain_runtime_reports_launcher_fallback(monkeypatch, tmp_path):
     vault = _make_vault(tmp_path, "Fallback Brain")
 
-    monkeypatch.setattr("_machine.topology.find_existing_central_venv", lambda vault_path, launcher=None: None)
-    monkeypatch.setattr("_machine.topology.find_runnable_python", lambda vault_path, launcher=None: Path(sys.executable))
+    _own_contract(monkeypatch, find_existing_central_venv=lambda vault_path, launcher=None: None,
+                  find_runnable_python=lambda vault_path, launcher=None: Path(sys.executable))
 
     runtime = classify_brain_runtime(vault, launcher_python=sys.executable)
 
@@ -429,13 +443,232 @@ def test_classify_brain_runtime_reports_launcher_fallback(monkeypatch, tmp_path)
 def test_classify_brain_runtime_reports_missing_runtime(monkeypatch, tmp_path):
     vault = _make_vault(tmp_path, "Missing Brain")
 
-    monkeypatch.setattr("_machine.topology.find_existing_central_venv", lambda vault_path, launcher=None: None)
-    monkeypatch.setattr("_machine.topology.find_runnable_python", lambda vault_path, launcher=None: None)
+    _own_contract(monkeypatch, find_existing_central_venv=lambda vault_path, launcher=None: None,
+                  find_runnable_python=lambda vault_path, launcher=None: None)
 
     runtime = classify_brain_runtime(vault, launcher_python=sys.executable)
 
     assert runtime["status"] == "missing_runtime"
     assert "has no central runtime" in runtime["message"]
+
+
+def _make_pre_contract_vault(root: Path, name: str, *, layout: str = "mcp") -> Path:
+    """A Brain whose own runtime contract cannot be read.
+
+    ``mcp`` predates the runtime resolver: its one export lived under
+    ``.brain-core/mcp/`` and it has no ``_common/_venv.py``. ``no_semantic``
+    and ``crlf`` carry this Core's resolver with a missing or damaged export.
+    """
+    vault = root / name
+    (vault / ".brain-core").mkdir(parents=True)
+    (vault / ".brain-core" / "VERSION").write_text("0.36.0\n")
+    if layout == "mcp":
+        (vault / ".brain-core" / "mcp").mkdir()
+        (vault / ".brain-core" / "mcp" / "requirements.txt").write_text("mcp==1.0.0\n")
+        return vault
+    (vault / ".brain-core" / "VERSION").write_text("0.99.0\n")
+    resolver = vault / ".brain-core" / "scripts" / "_common" / "_venv.py"
+    resolver.parent.mkdir(parents=True)
+    resolver.write_text(Path(_venv.__file__).read_text())
+    exports = vault / ".brain-core" / "brain_mcp"
+    exports.mkdir()
+    (exports / "requirements.txt").write_text("mcp==1.0.0\n")
+    if layout == "crlf":
+        (exports / "requirements-semantic.txt").write_bytes(b"mcp==1.0.0\r\nx==1\r")
+    else:
+        assert layout == "no_semantic"
+    return vault
+
+
+@pytest.mark.parametrize(("layout", "detail"), [
+    ("mcp", "no supported runtime resolver: {vault}/.brain-core/scripts/_common/_venv.py"),
+    ("no_semantic", "runtime dependency export is missing: {vault}/.brain-core/brain_mcp/requirements-semantic.txt"),
+    ("crlf", "runtime dependency export has invalid line endings: {vault}/.brain-core/brain_mcp/requirements-semantic.txt"),
+])
+def test_classify_brain_runtime_reports_an_unreadable_runtime_contract(tmp_path, fake_home, layout, detail):
+    vault = _make_pre_contract_vault(tmp_path, "Old Brain", layout=layout)
+
+    runtime = classify_brain_runtime(vault, launcher_python=sys.executable)
+
+    assert runtime["status"] == "runtime_contract_unavailable"
+    assert runtime["healthy_runtime"] is False
+    assert (runtime["expected_runtime"], runtime["selected_runtime"], runtime["runnable_runtime"]) == (None, None, None), (
+        "no hash is guessed")
+    assert runtime["message"].startswith("The Brain's own runtime contract cannot be read: ")
+    assert detail.format(vault=vault) in runtime["message"]
+    assert f"upgrade or recover it with `brain --vault '{vault}' upgrade`" in runtime["message"]
+    assert runtime["legacy_runtime_present"] is False
+
+
+def test_classify_brain_runtime_judges_an_older_brain_by_its_own_contract(tmp_path, fake_home):
+    """A 0.55-0.68.6 Brain hashes requirements.txt alone; its own rule names its runtime, so it is healthy."""
+    import hashlib
+    import re
+
+    vault = tmp_path / "Older Brain"
+    exports = vault / ".brain-core" / "brain_mcp"
+    exports.mkdir(parents=True)
+    (vault / ".brain-core" / "VERSION").write_text("0.68.6\n")
+    (exports / "requirements.txt").write_text("mcp==1.0.0\n")
+    single_export_rule = (
+        'def requirements_hash(requirements_path: Path) -> str:\n'
+        '    """Stable, content-addressed identifier for a requirements file."""\n'
+        '    return hashlib.sha256(Path(requirements_path).read_bytes()).hexdigest()[:_HASH_LEN]\n'
+    )
+    resolver = vault / ".brain-core" / "scripts" / "_common" / "_venv.py"
+    resolver.parent.mkdir(parents=True)
+    source, replaced = re.subn(r"def requirements_hash\(.*?\n(?=\n\n)", lambda _match: single_export_rule,
+                               Path(_venv.__file__).read_text(), count=1, flags=re.S)
+    assert replaced == 1
+    resolver.write_text(source)
+    own_hash = hashlib.sha256((exports / "requirements.txt").read_bytes()).hexdigest()[:16]
+    runtime_python = central_venvs_root() / f"{_venv.python_tag(Path(sys.executable))}-{own_hash}" / "bin" / "python"
+    _install_central_runtime(runtime_python)
+
+    runtime = classify_brain_runtime(vault, launcher_python=sys.executable)
+
+    assert runtime["status"] == "central_exact", runtime["message"]
+    assert runtime["healthy_runtime"] is True
+    assert runtime["expected_runtime"] == runtime["selected_runtime"] == str(runtime_python)
+    with pytest.raises(_venv.RuntimeContractUnavailable):
+        _venv.resolve_vault_venv_python(vault, launcher=Path(sys.executable))  # this Core's rule cannot name it
+
+
+@pytest.mark.skipif(sys.platform == "win32" or os.geteuid() == 0, reason="needs POSIX permissions enforced")
+def test_classify_brain_runtime_reports_an_unreadable_export(tmp_path, fake_home):
+    vault = _make_pre_contract_vault(tmp_path, "Locked Brain", layout="no_semantic")
+    export = vault / ".brain-core" / "brain_mcp" / "requirements.txt"
+    export.chmod(0)
+    try:
+        runtime = classify_brain_runtime(vault, launcher_python=sys.executable)
+    finally:
+        export.chmod(0o644)
+
+    assert runtime["status"] == "runtime_contract_unavailable"
+    assert f"runtime dependency export cannot be read: {export}" in runtime["message"]
+
+
+def test_unreadable_runtime_contract_outranks_a_legacy_venv(tmp_path, fake_home):
+    """Legacy migration ends by verifying the shared runtime, which this Brain's contract cannot name."""
+    vault = _make_pre_contract_vault(tmp_path, "Old Brain")
+    _install_central_runtime(vault / ".venv" / "bin" / "python")
+
+    runtime = classify_brain_runtime(vault, launcher_python=sys.executable)
+
+    assert runtime["status"] == "runtime_contract_unavailable"
+    assert runtime["legacy_runtime_present"] is True
+    assert runtime["legacy_runtime_dir"] == str(vault / ".venv")
+
+
+def _machine_with_a_pre_contract_brain(tmp_path):
+    """A current Brain on its runtime, beside a registered pre-contract Brain on a runtime this Core cannot name."""
+    import hashlib
+
+    current = _make_vault(tmp_path, "Current Brain")
+    _install_central_runtime(resolve_vault_venv_python(current, launcher=Path(sys.executable)))
+    old = _make_pre_contract_vault(tmp_path, "Old Brain")
+    # The project MCP state such a Brain was installed with: it sends the old Brain through the MCP checks, which
+    # compare against its managed Python, and through the registration inventory, which reads its ledger.
+    legacy = {"command": "/usr/bin/python3", "env": {"BRAIN_VAULT_ROOT": str(old)},
+              "args": [str(old / ".brain-core" / "mcp" / "proxy.py"), "/usr/bin/python3",
+                       str(old / ".brain-core" / "mcp" / "server.py")]}
+    (old / ".mcp.json").write_text(json.dumps({"mcpServers": {"brain": legacy}}))
+    (old / ".brain" / "local").mkdir(parents=True)
+    (old / ".brain" / "local" / "init-state.json").write_text(json.dumps({"version": 1, "records": [{
+        "client": "claude", "scope": "project", "target_path": str(old), "config_path": str(old / ".mcp.json"),
+        "server_name": "brain", "server_config": legacy}]}))
+    _install_central_runtime(old / ".venv" / "bin" / "python")
+    vault_registry.register(str(old))
+    old_rule = hashlib.sha256((old / ".brain-core" / "mcp" / "requirements.txt").read_bytes()).hexdigest()[:16]
+    old_runtime = central_venvs_root() / f"py3.12-{old_rule}" / "bin" / "python"
+    _install_central_runtime(old_runtime)
+    return current, old.resolve(), old_runtime
+
+
+def test_machine_summary_survives_a_pre_contract_brain_and_pauses_orphan_detection(tmp_path, fake_home):
+    current, old, old_runtime = _machine_with_a_pre_contract_brain(tmp_path)
+    no_live_use = {"available": True, "processes": []}
+
+    summary = collect_machine_summary(current_vault=str(current), launcher_python=sys.executable, process_scan=no_live_use)
+
+    routes = {brain["path"]: brain for brain in summary["brains"]}
+    assert routes[str(current.resolve())]["runtime"]["status"] == "central_exact"
+    assert routes[str(old)]["runtime"]["status"] == "runtime_contract_unavailable"
+    assert not any(finding.get("repair", {}).get("scope") == "mcp" for finding in routes[str(old)]["repair_findings"])
+    assert {item["state"] for item in summary["mcp_registrations"]["registrations"] if item["path"] == str(old)} == {
+        "migration_required"}, "the old Brain's ledger is reported, not a crash"
+    assert summary["unreadable_runtime_contracts"] == [
+        {"path": str(old), "label": f"old-brain ({old})", "guidance": f"brain --vault '{old}' upgrade"}]
+    assert summary["counts"]["unreadable_runtime_contracts"] == 1
+    assert not summary["healthy"], "an unreadable runtime contract counts against health"
+    assert not summary["tidy"]
+    assert summary["registration_coverage_complete"] and summary["live_process_scan_available"], (
+        "only the unreadable contract pauses orphan detection here")
+    assert str(old_runtime) in {row["python"] for row in summary["runtimes"]}
+    assert not any(row["orphan_candidate"] for row in summary["runtimes"]), (
+        "the old Brain's runtime is never an orphan because its contract was unreadable")
+    assert summary["counts"]["orphan_candidates"] == 0
+
+    for integration in (old / ".brain" / "local" / "init-state.json", old / ".mcp.json"):
+        integration.unlink()  # unregistration refuses while the Brain holds MCP integrations
+    vault_registry.unregister(str(old))
+    control = collect_machine_summary(current_vault=str(current), launcher_python=sys.executable, process_scan=no_live_use)
+    assert control["unreadable_runtime_contracts"] == []
+    assert [row["python"] for row in control["runtimes"] if row["orphan_candidate"]] == [str(old_runtime)], (
+        "without the unreadable Brain, the same runtime is an orphan candidate")
+
+
+@pytest.mark.parametrize("dry_run", [True, False])
+def test_prune_refuses_while_a_runtime_contract_is_unreadable(tmp_path, fake_home, dry_run):
+    current, old, old_runtime = _machine_with_a_pre_contract_brain(tmp_path)
+    summary = collect_machine_summary(current_vault=str(current), launcher_python=sys.executable)
+    # Even a summary that named the old Brain's runtime an orphan must not reach it.
+    for row in summary["runtimes"]:
+        row["orphan_candidate"] = row["python"] == str(old_runtime)
+
+    result = prune_orphaned_runtimes(summary, dry_run=dry_run)
+
+    assert result["status"] == "error"
+    assert result["targets"] == []
+    assert result["steps"][0]["message"] == (
+        "Cannot prune shared runtimes while a Brain's own runtime contract cannot be read: "
+        f"old-brain ({old}) (run `brain --vault '{old}' upgrade`). Then rerun.")
+    assert old_runtime.is_file()
+
+
+def test_legacy_migration_skips_a_pre_contract_brain_and_refuses_it_by_name(tmp_path, fake_home):
+    current, old, _old_runtime = _machine_with_a_pre_contract_brain(tmp_path)
+    summary = collect_machine_summary(current_vault=str(current), launcher_python=sys.executable)
+
+    unselected = migrate_legacy_brains(summary, launcher_python=sys.executable, dry_run=False)
+    selected = migrate_legacy_brains(summary, launcher_python=sys.executable, dry_run=False, selector="old-brain")
+
+    assert unselected["status"] == "noop" and unselected["targets"] == []
+    assert unselected["steps"][0]["message"] == (
+        "No discovered legacy Brains need migration. Skipped, because their own runtime contract cannot be read: "
+        f"old-brain ({old}) (run `brain --vault '{old}' upgrade`).")
+    assert selected["status"] == "error" and selected["targets"] == []
+    message = selected["steps"][0]["message"]
+    assert message.startswith("Selected Brain 'old-brain' cannot be migrated: The Brain's own runtime contract cannot be read")
+    assert f"brain --vault '{old}' upgrade" in message
+    assert (old / ".venv").is_dir(), "nothing is removed"
+
+
+def test_doctor_machine_reports_a_pre_contract_brain_without_crashing(monkeypatch, tmp_path, capsys, fake_home):
+    current, old, _old_runtime = _machine_with_a_pre_contract_brain(tmp_path)
+    argv = ["doctor_machine.py", "--vault", str(current), "--current-vault", str(current), "--launcher", sys.executable]
+
+    monkeypatch.setattr(sys, "argv", argv)
+    assert doctor_machine.main() == 1
+    human = capsys.readouterr().out
+    assert f"  old-brain ({old})\n    route: runtime_contract_unavailable — The Brain's own runtime contract" in human
+    assert "expected runtime: None" not in human
+    assert f"unreadable runtime contracts (orphan detection paused):\n  old-brain ({old})" in human
+
+    monkeypatch.setattr(sys, "argv", [*argv, "--json"])
+    assert doctor_machine.main() == 1
+    payload = json.loads(capsys.readouterr().out)
+    assert [brain["runtime"]["status"] for brain in payload["brains"]] == ["central_exact", "runtime_contract_unavailable"]
 
 
 
