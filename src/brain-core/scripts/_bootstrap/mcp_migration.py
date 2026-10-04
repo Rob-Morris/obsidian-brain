@@ -57,7 +57,12 @@ def migration_plan(home: Path, cli_binary: Path, selected: Path | None = None) -
                 raise ValueError(f"Modified/conflicting MCP projection requires explicit resolution: {destination}")
             record = {**raw, "schema": registration.REGISTRATION_SCHEMA, "server_config": expected}
             if client is registration.McpClient.CLAUDE and target is not None:
-                from _bootstrap.mcp_state import build_session_hook_command, is_session_hook_command, bootstrap_line_for_target
+                from _bootstrap.mcp_state import (
+                    BRAIN_BOOTSTRAP_LINES,
+                    bootstrap_line_for_target,
+                    build_session_hook_command,
+                    is_session_hook_command,
+                )
 
                 old_hook = raw.get("hook_command")
                 desired_hook = build_session_hook_command(vault, target, python_path=expected["command"])
@@ -66,8 +71,15 @@ def migration_plan(home: Path, cli_binary: Path, selected: Path | None = None) -
                         raise ValueError(f"Unrecognised hook ownership requires explicit resolution: {path}")
                     hook_path, command = registration._ensure_hook(plan, target, vault, expected["command"], old_hook)
                     record.update(hook_path=str(hook_path), hook_command=command)
-                if raw.get("bootstrap_line") not in (None, bootstrap_line_for_target(target)):
-                    raise ValueError(f"Legacy bootstrap ownership needs explicit recovery before migration: {path}")
+                old_line = raw.get("bootstrap_line")
+                if old_line is not None and (not isinstance(old_line, str) or old_line not in BRAIN_BOOTSTRAP_LINES):
+                    raise ValueError(f"Unrecognised bootstrap line ownership requires explicit recovery before migration: {path}")
+                if data["version"] == 1 and old_line not in (None, bootstrap_line_for_target(target)):
+                    # A pre-0.70 ledger converges here; a canonical ledger is left to ordinary repair.
+                    bootstrap_path, line = registration._ensure_bootstrap(
+                        plan, target, local=scope is registration.McpScope.LOCAL
+                    )
+                    record.update(bootstrap_path=str(bootstrap_path), bootstrap_line=line)
             if scope is registration.McpScope.USER:
                 if raw.get("target_path") is not None:
                     raise ValueError(f"Invalid generic user claim: {destination}")

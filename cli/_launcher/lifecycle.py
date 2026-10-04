@@ -200,7 +200,8 @@ class BrainInstallRequest:
 @dataclass(frozen=True, slots=True)
 class BrainUninstallRequest:
     COMMAND_ID: ClassVar[str] = "brain.uninstall"
-    COMMAND_VERSION: ClassVar[int] = 2
+    # 3: every bootstrap line Brain has written is removed, not only the current one.
+    COMMAND_VERSION: ClassVar[int] = 3
     RESULT_TYPE: ClassVar[type] = BrainUninstallPayload
 
 
@@ -484,10 +485,9 @@ def _mcp_cleanup(context: LauncherContext):
             for target in targets:
                 registration._remove_plan(target.vault, context.home_dir, target.target, target.scope, target.clients,
                                           plan=plan, preserve_shared_routes=False)
-            from _bootstrap.mcp_state import CLAUDE_MD_FILE, bootstrap_line_for_target
+            from _bootstrap.mcp_state import CLAUDE_MD_FILE
 
-            registration._remove_bootstrap(plan, context.current_vault / CLAUDE_MD_FILE,
-                                           bootstrap_line_for_target(context.current_vault))
+            registration._remove_bootstrap(plan, context.current_vault / CLAUDE_MD_FILE)
             return (mcp._apply(request, context, mcp.McpOperation.REMOVE, mcp.McpScope.PROJECT,
                                context.current_vault, mcp._clients(mcp.McpClient.ALL, mcp.McpScope.PROJECT), plan),), plan
     except (OSError, RuntimeError, ValueError) as exc:

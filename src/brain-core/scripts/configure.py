@@ -9,7 +9,7 @@ from pathlib import Path
 import sys
 
 from _bootstrap import agent_skills, mcp_transport
-from _bootstrap.mcp_state import CLAUDE_MD_BOOTSTRAP_VAULT, CLAUDE_MD_FILE, bootstrap_line_for_target
+from _bootstrap.mcp_state import CLAUDE_MD_FILE, bootstrap_line_for_target, converge_bootstrap_text
 from _bootstrap.runtime import (
     handoff_current_script_to_managed_runtime,
     required_modules_for_scope,
@@ -23,7 +23,7 @@ from _bootstrap.workspace_binding import (
     save_workspace_manifest_data,
     with_links,
 )
-from _common import find_root_bootstrap_file, safe_write
+from _common import find_root_bootstrap_file, safe_write_via
 from _lifecycle_common import (
     emit_lifecycle_result,
     exit_code_for_result,
@@ -199,26 +199,23 @@ def configure_workspace_metadata_action(
 
 def _ensure_bootstrap_file(path: Path, bootstrap: str, *, before_write=None) -> tuple[str, str]:
     try:
-        existing = path.read_text(encoding="utf-8")
+        existing = path.read_bytes().decode("utf-8")
     except FileNotFoundError:
         existing = ""
-    except OSError as exc:
+    except (OSError, UnicodeDecodeError) as exc:
         raise WorkspaceBindingError(f"failed to read {path}: {exc}") from exc
 
-    if not existing:
-        if before_write is not None:
-            before_write()
-        safe_write(path, f"{bootstrap}\n")
-        return "changed", f"Created {path.name} with Brain bootstrap instructions."
-
-    if bootstrap in existing:
+    updated = converge_bootstrap_text(existing, bootstrap)
+    if updated == existing:
         return "noop", f"{path.name} already includes Brain bootstrap instructions."
-
-    separator = "\n" if existing.endswith("\n") else "\n\n"
     if before_write is not None:
         before_write()
-    safe_write(path, f"{existing}{separator}{bootstrap}\n")
-    return "changed", f"Appended Brain bootstrap instructions to {path.name}."
+    safe_write_via(path, lambda handle: handle.write(updated.encode("utf-8")))
+    if not existing:
+        return "changed", f"Created {path.name} with Brain bootstrap instructions."
+    if updated.startswith(existing):
+        return "changed", f"Appended Brain bootstrap instructions to {path.name}."
+    return "changed", f"Updated the Brain bootstrap instructions in {path.name}."
 
 
 def configure_workspace_bootstrap_action(
@@ -242,7 +239,9 @@ def configure_workspace_bootstrap_action(
             steps.append(_step("workspace_bootstrap_agents", status, "AGENTS.md bootstrap removal is not supported."))
         elif "agents" in surfaces:
             agents_path = find_root_bootstrap_file(workspace_dir, "AGENTS.md") or (workspace_dir / "AGENTS.md")
-            status, message = _ensure_bootstrap_file(agents_path, CLAUDE_MD_BOOTSTRAP_VAULT, before_write=before_write)
+            status, message = _ensure_bootstrap_file(
+                agents_path, bootstrap_line_for_target(workspace_dir), before_write=before_write
+            )
             steps.append(_step("workspace_bootstrap_agents", status, message))
         if "claude" in surfaces:
             if remove:

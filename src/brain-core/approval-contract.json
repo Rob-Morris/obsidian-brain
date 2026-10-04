@@ -939,7 +939,7 @@
     },
     {
       "command_id": "workspace.configure-bootstrap",
-      "version": 2,
+      "version": 3,
       "owner": "application",
       "classification": "exceptional",
       "mcp": null,
@@ -1073,5 +1073,5 @@
       "authority": "reader"
     }
   ],
-  "fingerprint": "sha256:96cb116241c5e087c20b07f32fb2edeed82d25e6b36768a785870ea95f8611ab"
+  "fingerprint": "sha256:6e88f9ff9007b275f90a6ea8c9801266650123f449f0652bc11c9455cc617b94"
 }
