@@ -138,7 +138,8 @@ class DoctorBrainStatus:
     runtime_status: str
     runtime_message: str
     selected_runtime: str | None
-    expected_runtime: str
+    # None when the Brain's runtime contract cannot be read, so its runtime cannot be named.
+    expected_runtime: str | None
     legacy_runtime_present: bool
     repair_findings: tuple[DoctorRepairFinding, ...]
 
@@ -153,7 +154,8 @@ class DoctorBrainStatus:
             raise ValueError("Doctor Brain runtime status must be complete")
         if self.selected_runtime is not None:
             _validate_absolute(self.selected_runtime, "Doctor selected runtime")
-        _validate_absolute(self.expected_runtime, "Doctor expected runtime")
+        if self.expected_runtime is not None:
+            _validate_absolute(self.expected_runtime, "Doctor expected runtime")
         if not isinstance(self.legacy_runtime_present, bool):
             raise ValueError("Doctor legacy-runtime state must be boolean")
         if any(
@@ -250,6 +252,8 @@ class DoctorMachineStatus:
     registration_coverage_complete: bool = True
     # Registered Brain roots and linked folders absent on this machine: reported, never unhealthy.
     unreachable_locations: tuple[DoctorPathEntry, ...] = ()
+    # Brains whose own runtime contract cannot be read (guidance: the upgrade command); they pause orphan detection.
+    unreadable_runtime_contracts: tuple[DoctorPathEntry, ...] = ()
 
     def __post_init__(self) -> None:
         if self.memory is not None and not isinstance(self.memory, DoctorMemoryStatus):
@@ -273,6 +277,7 @@ class DoctorMachineStatus:
             (self.stale_vault_registry_entries, DoctorPathEntry),
             (self.brains, DoctorBrainStatus),
             (self.unreachable_locations, DoctorPathEntry),
+            (self.unreadable_runtime_contracts, DoctorPathEntry),
         )
         if any(
             not isinstance(item, expected)
@@ -466,6 +471,8 @@ def _machine_status(raw: dict) -> DoctorMachineStatus:
               for item in raw.get("mcp_registrations", {}).get("registrations", [])),
         raw.get("registration_coverage_complete", True),
         tuple(DoctorPathEntry(item["label"], item["path"]) for item in raw.get("unreachable_locations", ())),
+        tuple(DoctorPathEntry(item["label"], item["path"], guidance=item["guidance"])
+              for item in raw.get("unreadable_runtime_contracts", ())),
     )
 
 

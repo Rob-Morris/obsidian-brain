@@ -3,6 +3,8 @@ from pathlib import Path
 import subprocess
 import sys
 
+import pytest
+
 import doctor
 
 
@@ -219,6 +221,90 @@ def test_collect_vault_diagnosis_keeps_install_sh_fallback_on_posix(monkeypatch,
     assert result["available"] is False
     assert "python repair.py runtime" in result["message"]
     assert "bash install.sh" in result["message"]
+
+
+_STDLIB_CHECK = (
+    "import json\n"
+    "print(json.dumps({'summary': {'errors': 0, 'warnings': 0, 'info': 0}, 'findings': []}))\n"
+)
+
+
+@pytest.mark.parametrize("legacy_venv", [True, False])
+def test_collect_vault_diagnosis_runs_a_pre_contract_brains_check_on_the_rest_of_the_chain(tmp_path, legacy_venv):
+    """check.py needs only the standard library: the legacy .venv, else the launcher, still runs it, with a note."""
+    vault = tmp_path / "Old Brain"
+    scripts = vault / ".brain-core" / "scripts"
+    scripts.mkdir(parents=True)
+    (scripts / "check.py").write_text(_STDLIB_CHECK)
+    expected = vault / ".venv" / "bin" / "python"
+    if legacy_venv:
+        expected.parent.mkdir(parents=True)
+        expected.symlink_to(sys.executable)
+    else:
+        expected = Path(sys.executable)
+
+    result = doctor.collect_vault_diagnosis(
+        current_vault=str(vault),
+        launcher_python=sys.executable,
+        actionable=False,
+        severity=None,
+        vault_check_runner=lambda *_args, **_kwargs: None,
+    )
+
+    assert result["available"] is True and result["exit_code"] == 0, result
+    assert result["route"] == "legacy-check"
+    assert f"check.py ran with {expected}." in result["note"]
+    assert f"runtime dependency export is missing: {vault / '.brain-core' / 'brain_mcp' / 'requirements.txt'}" in result["note"]
+    assert f"`brain --vault '{vault}' upgrade` brings this Brain onto" in result["note"]
+    assert f"  note: {result['note']}" in doctor._render_vault_lines(result, actionable=False)
+
+
+def test_doctor_main_reports_a_registered_pre_contract_brain_beside_a_current_one(monkeypatch, capsys, tmp_path, fake_home):
+    """Core Doctor end to end over the real machine summary: one old Brain is one unhealthy route."""
+    import vault_registry
+    from _common import _venv, resolve_vault_venv_python
+
+    current = (tmp_path / "Current Brain").resolve()
+    exports = current / ".brain-core" / "brain_mcp"
+    exports.mkdir(parents=True)
+    resolver = current / ".brain-core" / "scripts" / "_common" / "_venv.py"
+    resolver.parent.mkdir(parents=True)
+    resolver.write_text(Path(_venv.__file__).read_text())
+    (current / ".brain-core" / "VERSION").write_text("0.99.0\n")
+    for name in ("requirements.txt", "requirements-semantic.txt"):
+        (exports / name).write_text("mcp==1.0.0\n")
+    runtime = resolve_vault_venv_python(current, launcher=Path(sys.executable))
+    runtime.parent.mkdir(parents=True)
+    runtime.symlink_to(sys.executable)
+    old = (tmp_path / "Old Brain").resolve()
+    (old / ".brain-core" / "mcp").mkdir(parents=True)
+    (old / ".brain-core" / "VERSION").write_text("0.36.0\n")
+    (old / ".brain-core" / "mcp" / "requirements.txt").write_text("mcp==1.0.0\n")
+    (old / ".brain-core" / "scripts").mkdir()
+    (old / ".brain-core" / "scripts" / "check.py").write_text(_STDLIB_CHECK)
+    for vault in (current, old):
+        vault_registry.register(str(vault))
+    monkeypatch.setattr(doctor, "collect_cli_diagnosis", lambda **_kwargs: {
+        "version": "1.0.0", "binary": "/tmp/brain", "binary_dir": "/tmp", "path_ok": True,
+        "launcher_python": sys.executable, "launcher_version": "Python 3.12.0", "launcher_probe_failed": False,
+    })
+    argv = ["doctor.py", "--vault", str(current), "--launcher", sys.executable, "--binary", "/tmp/brain",
+            "--cli-version", "1.0.0", "--json"]
+
+    monkeypatch.setattr(sys, "argv", argv)
+    assert doctor.main() == 1
+    report = json.loads(capsys.readouterr().out)
+    routes = {brain["path"]: brain["runtime"] for brain in report["machine"]["brains"]}
+    assert routes[str(current)]["status"] == "central_exact"
+    assert routes[str(old)]["status"] == "runtime_contract_unavailable"
+    assert routes[str(old)]["expected_runtime"] is None
+    assert not report["machine"]["healthy"] and report["vault"]["in_scope"] is False
+
+    monkeypatch.setattr(sys, "argv", [*argv, "--current-vault", str(old)])
+    assert doctor.main() == 1, "the machine stays unhealthy; the old Brain's own check runs clean"
+    report = json.loads(capsys.readouterr().out)
+    assert report["vault"]["available"] is True and report["vault"]["exit_code"] == 0
+    assert f"brain --vault '{old}' upgrade" in report["vault"]["note"]
 
 
 

@@ -92,17 +92,36 @@ def legacy_vault_venv_python(vault_root: Path) -> Path:
     return venv_python(legacy_vault_venv_dir(vault_root))
 
 
+class RuntimeContractUnavailable(OSError, ValueError):
+    """A runtime dependency export cannot be read under this Core's contract.
+
+    A Brain whose Core predates this contract or layout, or whose exports are
+    damaged, raises this rather than a bare I/O error, so a caller that looks
+    across Brains can tell it from a failure of its own. It is both an
+    ``OSError`` and a ``ValueError`` so existing handlers of either still apply.
+    """
+
+
 def requirements_hash(requirements_path: Path) -> str:
     """Hash both shipped exports with stable names and a versioned domain.
 
     Normalise CRLF to LF for installed copies; Git attributes also protect the
     repository inputs. Contributor-only exports never affect runtime identity.
+    Raises ``RuntimeContractUnavailable`` naming the export that is missing,
+    unreadable or has invalid line endings.
     """
     digest = hashlib.sha256(CONTRACT_SCHEMA.encode() + b"\0")
     for name in RUNTIME_EXPORT_NAMES:
-        content = (Path(requirements_path).parent / name).read_bytes().replace(b"\r\n", b"\n")
+        export = Path(requirements_path).parent / name
+        try:
+            content = export.read_bytes().replace(b"\r\n", b"\n")
+        except FileNotFoundError as exc:
+            raise RuntimeContractUnavailable(f"runtime dependency export is missing: {export}") from exc
+        except OSError as exc:
+            raise RuntimeContractUnavailable(
+                f"runtime dependency export cannot be read: {export} ({exc.strerror or exc})") from exc
         if b"\r" in content:
-            raise ValueError(f"invalid dependency line endings: {name}")
+            raise RuntimeContractUnavailable(f"runtime dependency export has invalid line endings: {export}")
         digest.update(name.encode() + b"\0" + str(len(content)).encode() + b"\0" + content)
     return digest.hexdigest()[:_HASH_LEN]
 

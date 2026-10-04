@@ -9,13 +9,12 @@ import re
 import subprocess
 from typing import Any, Callable, Iterable
 
+from _bootstrap.runtime import target_runtime_contract
 from _common import (
     central_venvs_root,
-    find_existing_central_venv,
-    find_runnable_python,
+    join_argv,
     legacy_vault_venv_dir,
     legacy_vault_venv_python,
-    resolve_vault_venv_python,
     same_executable_path,
     venv_python,
 )
@@ -31,21 +30,56 @@ def _same_path(left: str | Path | None, right: str | Path | None) -> bool:
     return same_executable_path(left, right)
 
 
+RUNTIME_CONTRACT_UNAVAILABLE = "runtime_contract_unavailable"
+
+
+def upgrade_guidance(vault_root: str | Path) -> str:
+    """The launcher command that upgrades the Brain at ``vault_root`` from the installed distribution."""
+    return join_argv(["brain", "--vault", str(vault_root), "upgrade"])
+
+
 def classify_brain_runtime(
     vault_root: str | Path,
     *,
     launcher_python: str | None = None,
 ) -> dict[str, Any]:
-    """Classify how a discovered Brain currently resolves its runtime."""
+    """Classify how a discovered Brain currently resolves its runtime.
+
+    Each Brain is judged by its own Core's runtime contract, the one its MCP
+    launch and runtime repair use, so an older Brain is not misjudged by this
+    Core's rule. A Brain with no supported resolver, or whose resolver fails
+    (missing or damaged exports), is ``runtime_contract_unavailable`` with no
+    runtime paths: its runtime cannot be named without guessing.
+    """
     vault_path = Path(vault_root)
     launcher_path = Path(launcher_python) if launcher_python else None
-
-    expected_runtime_path = resolve_vault_venv_python(vault_path, launcher=launcher_path)
-    selected_runtime = find_existing_central_venv(vault_path, launcher=launcher_path)
-    runnable_runtime = find_runnable_python(vault_path, launcher=launcher_path)
     legacy_runtime_dir = legacy_vault_venv_dir(vault_path)
     legacy_runtime_python = legacy_vault_venv_python(vault_path)
-    legacy_runtime_present = legacy_runtime_dir.exists()
+    legacy_runtime = {
+        "legacy_runtime_dir": str(legacy_runtime_dir),
+        "legacy_runtime_python": str(legacy_runtime_python),
+        "legacy_runtime_present": legacy_runtime_dir.exists(),
+    }
+
+    try:
+        contract = target_runtime_contract(vault_path)
+        expected_runtime_path = contract.resolve_vault_venv_python(vault_path, launcher=launcher_path)
+        selected_runtime = contract.find_existing_central_venv(vault_path, launcher=launcher_path)
+        runnable_runtime = contract.find_runnable_python(vault_path, launcher=launcher_path)
+    except Exception as exc:
+        # The resolver is the Brain's own code: whatever it raises, this Brain's runtime cannot be named.
+        return {
+            "status": RUNTIME_CONTRACT_UNAVAILABLE,
+            "message": (
+                f"The Brain's own runtime contract cannot be read: {exc}. Its Core predates the runtime resolver "
+                f"or is damaged; upgrade or recover it with `{upgrade_guidance(vault_path)}`."
+            ),
+            "healthy_runtime": False,
+            "expected_runtime": None,
+            "selected_runtime": None,
+            "runnable_runtime": None,
+            **legacy_runtime,
+        }
 
     if selected_runtime is not None and _same_path(selected_runtime, expected_runtime_path):
         status = "central_exact"
@@ -70,9 +104,7 @@ def classify_brain_runtime(
         "expected_runtime": str(expected_runtime_path),
         "selected_runtime": str(selected_runtime) if selected_runtime is not None else None,
         "runnable_runtime": str(runnable_runtime) if runnable_runtime is not None else None,
-        "legacy_runtime_dir": str(legacy_runtime_dir),
-        "legacy_runtime_python": str(legacy_runtime_python),
-        "legacy_runtime_present": legacy_runtime_present,
+        **legacy_runtime,
     }
 
 
