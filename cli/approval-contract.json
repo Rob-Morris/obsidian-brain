@@ -138,7 +138,7 @@
     },
     {
       "command_id": "brain.uninstall",
-      "version": 2,
+      "version": 3,
       "owner": "launcher",
       "classification": "machine_mutation",
       "mcp": null,
@@ -254,7 +254,7 @@
     },
     {
       "command_id": "mcp.migrate",
-      "version": 1,
+      "version": 2,
       "owner": "launcher",
       "classification": "machine_mutation",
       "mcp": null,
@@ -373,5 +373,5 @@
       "authority": "operator"
     }
   ],
-  "fingerprint": "sha256:f89d1db921b4bd7c83204eafd266d92846a82a5f3c04882dbab6ea83ebd79c44"
+  "fingerprint": "sha256:006f0c5e3fe52ef7ebef0c9b450ecca4e319d61383995e31b899a1aa00f41e80"
 }

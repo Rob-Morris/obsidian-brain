@@ -655,8 +655,11 @@ brain doctor --json
 ```
 
 Migration admits exact recorded legacy claims, recovers known reverse targets,
-and moves shared user claims into the machine ledger. It preserves custom or
-ambiguous state for explicit resolution. Rerun migration to resume a journalled
+and moves shared user claims into the machine ledger. When a record claims a
+Claude bootstrap line from an earlier Brain release, the file's Brain-written
+lines become one current line in place, and the rest of the file is kept. It
+preserves custom or ambiguous state, including an edited recorded line, for
+explicit resolution. Rerun migration to resume a journalled
 interruption; do not delete its before/after evidence. Retired runtime references
 remain protected until the persisted user command completes a normal MCP read
 with the expected Brain identity. An unavailable Brain can therefore leave a
