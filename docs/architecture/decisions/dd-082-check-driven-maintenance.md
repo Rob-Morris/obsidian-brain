@@ -27,7 +27,11 @@ disposition declared by one repair table: `automatic` (a derived-only repair
 the pass may run), `judgement` (a person decides) or `report-only`. One
 `RepairFamily` type, one table per owner: the Brain table in
 `_repair_common.py`, read by `vault.check`, Doctor, `repair.py` and the pass;
-the machine table beside the machine pass.
+the machine table beside the machine pass. Every error is either repaired
+automatically or listed for a person: an error with no repair family is a
+judgement finding, one per file, keyed by its check and, when it declares
+one, its code. A warning or info finding with no family is `report-only`
+unless the Brain table lists its code deliberately as judgement.
 
 A pass is one bounded, non-interactive catalogue command per locality owner,
 `maintenance.run` for the selected Brain and `machine-maintenance.run` for the

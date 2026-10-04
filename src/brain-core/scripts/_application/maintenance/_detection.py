@@ -24,7 +24,14 @@ NAMESPACE = "brain"
 
 
 def classify(raw_findings) -> tuple[MaintenanceFinding, ...]:
-    """Attach disposition, owner, key and evidence to raw ``run_checks`` findings."""
+    """Attach disposition, owner, key and evidence to raw ``run_checks`` findings.
+
+    A finding takes its repair family's disposition. Without a family, every
+    error is a judgement finding, so none is left only in ``vault.check``; a
+    warning or info finding is one only when ``JUDGEMENT_CODES`` lists it.
+    Per-file judgement findings are keyed by ``check:code``, or by ``check``
+    for a check that declares no code.
+    """
     from _repair_common import JUDGEMENT_CODES, family_for_finding
 
     findings = []
@@ -47,11 +54,12 @@ def classify(raw_findings) -> tuple[MaintenanceFinding, ...]:
                 code=code, scope=family.scope, owner=family.owner,
                 key=family_key(NAMESPACE, family.scope), subject=subject, evidence=evidence,
             ))
-        elif (check, code) in JUDGEMENT_CODES:
+        elif raw["severity"] == "error" or (check, code) in JUDGEMENT_CODES:
             subject = {"file": file}
+            kind = f"{check}:{code}" if code else check
             findings.append(MaintenanceFinding(
                 check, raw["severity"], file, raw["message"], Disposition.JUDGEMENT, code=code,
-                owner=Owner.BRAIN, key=finding_key(NAMESPACE, f"{check}:{code}", subject),
+                owner=Owner.BRAIN, key=finding_key(NAMESPACE, kind, subject),
                 subject=subject, evidence=evidence,
             ))
         else:

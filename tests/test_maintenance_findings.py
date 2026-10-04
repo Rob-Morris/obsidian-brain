@@ -201,3 +201,83 @@ def test_each_linked_workspace_row_is_its_own_judgement_finding():
     assert (moved.key, unchanged.key) == (first.key, second.key)
     assert finding_fingerprint(moved.key, moved.evidence) != finding_fingerprint(first.key, first.evidence)
     assert finding_fingerprint(unchanged.key, unchanged.evidence) == finding_fingerprint(second.key, second.evidence)
+
+
+class TestErrorSeverityRule:
+    """Every error is repaired automatically or listed for a person (DD-082)."""
+
+    @staticmethod
+    def _raw(check, severity, file, *, code=None, evidence=None):
+        raw = {"check": check, "severity": severity, "file": file, "message": f"{check} at {file}"}
+        if code is not None:
+            raw["code"] = code
+        if evidence is not None:
+            raw["evidence"] = evidence
+        return raw
+
+    @pytest.mark.parametrize("code", [
+        "workspace_hub_invalid", "workspace_ownership_invalid", "workspace_reference_wrong_type",
+        "workspace_reference_malformed", "workspace_policy_invalid", "workspace_scan_unreadable",
+        "workspace_binding_terminal_inactive", "workspace_binding_configured_invalid",
+    ])
+    def test_a_family_less_error_code_is_a_keyed_judgement_item(self, code):
+        from _application.maintenance._detection import classify
+
+        (finding,) = classify([self._raw("workspace_contract", "error", "Notes/a.md", code=code)])
+
+        assert finding.disposition is Disposition.JUDGEMENT and finding.owner is Owner.BRAIN
+        assert finding.key == finding_key("brain", f"workspace_contract:{code}", {"file": "Notes/a.md"})
+        (group,) = group_by_family((finding,))
+        assert (group.file, group.fingerprint) == ("Notes/a.md", finding.key), "no declared evidence: the key"
+
+    @pytest.mark.parametrize("check", ["root_files", "living_key_fields"])
+    def test_a_code_less_error_is_keyed_per_file_by_its_check(self, check):
+        from _application.maintenance._detection import classify
+
+        first, second = classify([self._raw(check, "error", "a.md"), self._raw(check, "error", "b.md")])
+
+        assert first.disposition is second.disposition is Disposition.JUDGEMENT
+        assert first.key == finding_key("brain", check, {"file": "a.md"})
+        assert second.key == finding_key("brain", check, {"file": "b.md"})
+        assert len(group_by_family((first, second))) == 2
+
+    def test_a_family_less_warning_or_info_stays_report_only(self):
+        from _application.maintenance._detection import classify
+
+        findings = classify([
+            self._raw("naming", "warning", "a.md"),
+            self._raw("workspace_contract", "info", "b.md", code="workspace_adoption_candidate"),
+        ])
+
+        assert {finding.disposition for finding in findings} == {Disposition.REPORT_ONLY}
+        assert group_by_family(findings) == ()
+
+    @pytest.mark.parametrize("code", ["workspace_reference_missing", "workspace_reference_archived"])
+    def test_codes_judged_before_the_rule_keep_their_keys(self, code):
+        from _application.maintenance._detection import classify
+
+        (finding,) = classify([self._raw("workspace_contract", "error", "Notes/a.md", code=code,
+                                         evidence={"workspace": "workspace/x"})])
+
+        assert finding.key == finding_key("brain", f"workspace_contract:{code}", {"file": "Notes/a.md"})
+        (group,) = group_by_family((finding,))
+        assert group.fingerprint == finding_fingerprint(finding.key, {"workspace": "workspace/x"})
+
+    def test_same_key_findings_are_one_group_over_every_members_evidence(self):
+        from _application.maintenance._detection import classify
+
+        def finding(workspace):
+            return self._raw("workspace_contract", "error", "Notes/a.md", code="workspace_reference_missing",
+                             evidence={"workspace": workspace})
+
+        pair = classify([finding("workspace/y"), finding("workspace/x")])
+        (group,) = group_by_family(pair)
+
+        assert group.key == pair[0].key and len(group.members) == 2
+        assert group.file == "Notes/a.md" and not group.is_family
+        assert group.fingerprint == finding_fingerprint(
+            group.key, {"members": [{"workspace": "workspace/x"}, {"workspace": "workspace/y"}]})
+        (reordered,) = group_by_family(tuple(reversed(pair)))
+        assert reordered.fingerprint == group.fingerprint, "member order never changes the fingerprint"
+        (changed,) = group_by_family(classify([finding("workspace/x"), finding("workspace/z")]))
+        assert changed.fingerprint != group.fingerprint, "a member's changed evidence reopens a dismissal"

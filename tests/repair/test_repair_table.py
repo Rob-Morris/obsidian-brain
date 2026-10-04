@@ -157,9 +157,8 @@ def test_dispositions_and_recovery_scopes():
     assert {scope for scope, family in REPAIR_SCOPES.items() if family.exceptional} == {"semantic"}
     for scope in AUTOMATIC_SCOPES:
         assert _brain_entry(REPAIR_SCOPES[scope]).initial_class is InitialAuthorisationClass.OBSERVATION, scope
+    # Errors with no family are judgement by severity; the table lists only deliberate non-errors.
     assert repair_common.JUDGEMENT_CODES == {
-        ("workspace_contract", "workspace_reference_missing"),
-        ("workspace_contract", "workspace_reference_archived"),
         ("workspace_registry", "workspace_link_unverifiable"),
         ("workspace_registry", "workspace_folder_unreachable"),
         ("workspace_registry", "workspace_links_unverified"),
