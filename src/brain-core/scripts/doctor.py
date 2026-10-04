@@ -112,7 +112,7 @@ def collect_vault_diagnosis(
             "vault_root": None,
             "available": False,
             "exit_code": 0,
-            "message": "none in scope (run inside a vault or pass --vault)",
+            "message": "none in scope (select one with --vault or --brain, or run from a vault or a linked workspace)",
             "result": None,
         }
 
@@ -220,7 +220,7 @@ def _render_cli_lines(cli: dict) -> list[str]:
 
 def _render_vault_lines(vault: dict, *, actionable: bool) -> list[str]:
     if not vault["in_scope"]:
-        return ["  none in scope (run inside a vault or pass --vault)"]
+        return ["  none in scope (select one with --vault or --brain, or run from a vault or a linked workspace)"]
 
     lines = [f"  {vault['vault_root']}"]
     if vault.get("note"):

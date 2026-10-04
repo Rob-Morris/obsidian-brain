@@ -579,8 +579,6 @@ def run_acceptance(
             "doctor",
             "--vault",
             str(vault),
-            "--request-json",
-            json.dumps({"current_vault": str(vault)}, separators=(",", ":")),
             "--json",
         ],
         cwd=vault,

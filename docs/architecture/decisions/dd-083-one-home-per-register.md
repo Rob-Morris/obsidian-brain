@@ -196,7 +196,12 @@ with an automatic repair. No fact is maintained by a hidden write.
 7. **Doctor's payload describes the vault registry.** `machine.registry` is
    `state` (`current`, or `stale` when rows point at non-Brains), `path` and
    `brains_count`; the derived-registry fields are removed; counts gain
-   `unregistered_brains`; `brain.doctor` moves to version 3.
+   `unregistered_brains`; `brain.doctor` moves to version 3. Which vault
+   the launcher's `brain doctor` checks has one home too: the launcher's Brain
+   selection, not a request field, so version 3 also retires the request's
+   `current_vault`. Only the resolution ladder's machine fallbacks (the
+   default Brain, or nothing) leave Doctor machine-wide; a selection that
+   fails before them fails Doctor with its own message.
 8. **Doctor health counts per-Brain findings only when the machine owns or
    repairs them.** A per-Brain finding counts against `machine.healthy` only
    when its repair family is automatic or machine-owned; one without such a

@@ -22,6 +22,8 @@ TOOL_ROOT = REPO_ROOT / "tools" / "brain-lab"
 
 
 def test_current_repository_version_has_an_exact_compatibility_owner():
+    # Owner by VERSION only: dev keeps the last release's VERSION, so the worktree's own launcher grammar can
+    # already belong to the next adapter (brain-0.71's Doctor gate), which this owner changes to at the bump.
     version = (REPO_ROOT / "src" / "brain-core" / "VERSION").read_text().strip()
     adapter = CompatibilityManifest(TOOL_ROOT / "compatibility.json").select(version)
 
