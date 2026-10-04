@@ -443,3 +443,26 @@ def test_nested_repair_runner_targets_the_vault_and_maps_results(tmp_path, monke
 
     with pytest.raises(ValueError, match="unsupported machine-owned repair scope"):
         _nested_repair_runner(context)(vault, "registry")
+
+
+def test_migrate_legacy_installations_skips_a_pre_contract_brain_and_refuses_it_by_name(tmp_path, fake_home):
+    """Discovery survives a Brain whose runtime contract this Core cannot read; it is never a migration target."""
+    import vault_registry
+
+    old = (tmp_path / "Old Brain").resolve()
+    (old / ".brain-core" / "mcp").mkdir(parents=True)
+    (old / ".brain-core" / "VERSION").write_text("0.36.0\n")
+    (old / ".brain-core" / "mcp" / "requirements.txt").write_text("mcp==1.0.0\n")
+    (old / ".venv" / "bin").mkdir(parents=True)
+    (old / ".venv" / "bin" / "python").symlink_to(sys.executable)
+    vault_registry.register(str(old))
+
+    unselected = _invocation(tmp_path).invoke(BrainMigrateLegacyInstallationsRequest())
+    selected = _invocation(tmp_path).invoke(BrainMigrateLegacyInstallationsRequest(LegacyBrainIdTarget("old-brain")))
+
+    assert unselected.status == "ok", getattr(unselected, "error", None)
+    assert unselected.result.status is LegacyMigrationStatus.NOOP and unselected.result.targets == ()
+    assert selected.status == "error" and selected.effects == "none"
+    assert "cannot be migrated" in selected.error.message
+    assert f"brain --vault '{old}' upgrade" in selected.error.message
+    assert (old / ".venv").is_dir()

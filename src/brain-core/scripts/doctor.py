@@ -12,8 +12,9 @@ import sys
 
 import check as vault_check
 import doctor_machine
-from _common import find_runnable_python
+from _common import RuntimeContractUnavailable, find_runnable_python, legacy_vault_venv_python
 from _common._venv import run_managed
+from _machine.topology import upgrade_guidance
 from _repair_common import build_repair_command
 
 
@@ -142,7 +143,21 @@ def collect_vault_diagnosis(
         return _vault_failure(current_vault, "check.py missing — vault may be on an older brain-core")
 
     launcher_path = Path(launcher_python) if launcher_python else None
-    runnable_python = find_runnable_python(vault_path, launcher=launcher_path)
+    note = None
+    try:
+        runnable_python = find_runnable_python(vault_path, launcher=launcher_path)
+    except RuntimeContractUnavailable as exc:
+        # check.py needs only the standard library, so the legacy .venv or the launcher still serves it.
+        legacy = legacy_vault_venv_python(vault_path)
+        if legacy.is_file():
+            runnable_python = legacy
+        elif launcher_path is not None and launcher_path.exists():
+            runnable_python = launcher_path
+        else:
+            runnable_python = None
+        if runnable_python is not None:
+            note = (f"{exc}; check.py ran with {runnable_python}. "
+                    f"`{upgrade_guidance(current_vault)}` brings this Brain onto this tooling's runtime contract.")
     if runnable_python is None:
         return _vault_failure(current_vault, _no_runnable_python_guidance(current_vault))
 
@@ -180,6 +195,7 @@ def collect_vault_diagnosis(
         "message": None,
         "result": payload,
         "route": "legacy-check",
+        "note": note,
     }
 
 
@@ -207,6 +223,8 @@ def _render_vault_lines(vault: dict, *, actionable: bool) -> list[str]:
         return ["  none in scope (run inside a vault or pass --vault)"]
 
     lines = [f"  {vault['vault_root']}"]
+    if vault.get("note"):
+        lines.append(f"  note: {vault['note']}")
     if not vault["available"]:
         lines.append(f"  {vault['message']}")
         return lines

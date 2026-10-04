@@ -22,9 +22,11 @@ from ._labels import brain_label
 from .discovery import discover_brains
 from .process_footprint import measure_footprint_bytes, summarise_runtime_memory
 from .topology import (
+    RUNTIME_CONTRACT_UNAVAILABLE,
     classify_brain_runtime,
     find_live_brain_runtime_processes,
     list_central_runtimes,
+    upgrade_guidance,
 )
 
 
@@ -97,7 +99,10 @@ def inspect_machine_runtime_state(
     for brain in discovery["brains"]:
         runtime = classify_brain_runtime(brain["path"], launcher_python=launcher_python)
         repair_findings = bootstrap_diagnostics.collect_registry_check_findings(brain["path"])
-        repair_findings.extend(bootstrap_diagnostics.collect_mcp_check_findings(brain["path"]))
+        # MCP checks compare against the canonical managed Python, which an unreadable contract cannot name.
+        # Skipping them also hides this Brain's MCP findings that need no runtime until the Brain is upgraded.
+        if runtime["status"] != RUNTIME_CONTRACT_UNAVAILABLE:
+            repair_findings.extend(bootstrap_diagnostics.collect_mcp_check_findings(brain["path"]))
         record = dict(brain)
         record["runtime"] = runtime
         record["repair_findings"] = repair_findings
@@ -111,6 +116,14 @@ def inspect_machine_runtime_state(
     launcher = cli_binary or shutil.which("brain")
     registration_state = inspect_registrations(Path.home(), roots, Path(launcher) if launcher else None)
     live_usage = find_live_brain_runtime_processes((rt["python"] for rt in runtimes), scan=process_scan)
+    # A Brain whose runtime contract is unreadable may still use a runtime nothing can name,
+    # so no runtime is an orphan candidate until every Brain's selection is known.
+    unreadable_contracts = [
+        {"path": brain["path"], "label": brain_label(brain), "guidance": upgrade_guidance(brain["path"])}
+        for brain in brains
+        if brain["runtime"]["status"] == RUNTIME_CONTRACT_UNAVAILABLE
+    ]
+    orphan_detection = coverage.complete and live_usage["available"] and not unreadable_contracts
     runtime_rows: list[dict[str, Any]] = []
     orphan_candidates: list[str] = []
 
@@ -128,7 +141,7 @@ def inspect_machine_runtime_state(
             ]
         persisted = any(Path(reference).is_relative_to(Path(runtime["dir"]))
                         for reference in persisted_references)
-        orphan_candidate = coverage.complete and live_usage["available"] and not selected_by and not live_processes and not persisted
+        orphan_candidate = orphan_detection and not selected_by and not live_processes and not persisted
         if orphan_candidate:
             orphan_candidates.append(runtime["python"])
         row = dict(runtime)
@@ -150,8 +163,8 @@ def inspect_machine_runtime_state(
             for brain in brains
         )
     )
-    # Orphan detection is off while anything is unreachable, so the machine is not known to be tidy.
-    tidy = healthy and coverage.complete and live_usage["available"] and not orphan_candidates
+    # Orphan detection is off while anything is unreachable or unreadable, so the machine is not known to be tidy.
+    tidy = healthy and orphan_detection and not orphan_candidates
 
     summary = {
         "healthy": healthy,
@@ -159,6 +172,7 @@ def inspect_machine_runtime_state(
         "registration_coverage_complete": coverage.complete,
         "registration_coverage_blocked": None if coverage.complete else coverage.blocked_reason(),
         "unreachable_locations": [{"path": str(item.path), "label": item.label} for item in coverage.unreachable],
+        "unreadable_runtime_contracts": unreadable_contracts,
         "tidy": tidy,
         "launcher_python": launcher_python,
         "live_process_scan_available": live_usage["available"],
@@ -175,6 +189,7 @@ def inspect_machine_runtime_state(
             "stale_registry_entries": len(discovery["stale_registry_entries"]),
             "unregistered_brains": len(discovery["unregistered_brains"]),
             "unreachable_locations": len(coverage.unreachable),
+            "unreadable_runtime_contracts": len(unreadable_contracts),
             "runtimes": len(runtime_rows),
             "orphan_candidates": len(orphan_candidates),
         },
@@ -334,6 +349,16 @@ def _run_repair_scope(
     )
 
 
+def _skipped_unreadable_legacy(brains: list[dict[str, Any]]) -> str:
+    """Name each Brain with a legacy .venv that migration skips because its runtime contract cannot be read."""
+    skipped = [brain for brain in brains
+               if brain["runtime"]["status"] == RUNTIME_CONTRACT_UNAVAILABLE and brain["runtime"]["legacy_runtime_present"]]
+    if not skipped:
+        return ""
+    names = "; ".join(f"{brain_label(brain)} (run `{upgrade_guidance(brain['path'])}`)" for brain in skipped)
+    return f" Skipped, because their own runtime contract cannot be read: {names}."
+
+
 def _select_legacy_targets(
     summary: dict[str, Any],
     selector: str | None,
@@ -343,17 +368,18 @@ def _select_legacy_targets(
     brains = summary["brains"]
     if selector is None:
         targets = [brain for brain in brains if brain["runtime"]["status"] == "legacy_vault_venv"]
+        skipped = _skipped_unreadable_legacy(brains)
         if not targets:
             return _LegacyTargetSelection(
                 targets=[],
-                step=_step("selection", "noop", "No discovered legacy Brains need migration."),
+                step=_step("selection", "noop", f"No discovered legacy Brains need migration.{skipped}"),
             )
         return _LegacyTargetSelection(
             targets=targets,
             step=_step(
                 "selection",
                 "planned" if dry_run else "noop",
-                f"Selected {len(targets)} legacy Brain(s) for migration.",
+                f"Selected {len(targets)} legacy Brain(s) for migration.{skipped}",
             ),
         )
 
@@ -362,6 +388,15 @@ def _select_legacy_targets(
         return _LegacyTargetSelection(
             targets=[],
             step=_step("selection", "error", f"No discovered Brain matches {selector!r}."),
+        )
+
+    unreadable = [brain for brain in matching if brain["runtime"]["status"] == RUNTIME_CONTRACT_UNAVAILABLE]
+    if unreadable:
+        # Migration ends by verifying the shared runtime, which an unreadable contract cannot name.
+        return _LegacyTargetSelection(
+            targets=[],
+            step=_step("selection", "error",
+                       f"Selected Brain {selector!r} cannot be migrated: {unreadable[0]['runtime']['message']}"),
         )
 
     legacy = [brain for brain in matching if brain["runtime"]["status"] == "legacy_vault_venv"]
@@ -586,6 +621,9 @@ def prune_orphaned_runtimes(
     dry_run: bool,
 ) -> dict[str, Any]:
     """Revalidate persisted launch references under the MCP registration writer lock."""
+    blocked = _unreadable_contracts_block(summary)
+    if blocked is not None:
+        return _build_action_result("prune-runtimes", dry_run=dry_run, steps=[_step("selection", "error", blocked)])
     from contextlib import nullcontext
     from _bootstrap.mcp_registration import registration_lock
     from _bootstrap.mcp_inventory import local_brains, persisted_runtime_references
@@ -612,6 +650,14 @@ def prune_orphaned_runtimes(
                 return _build_action_result("prune-runtimes", dry_run=dry_run,
                     steps=[_step("selection", "error", str(exc))])
         return _prune_orphaned_runtimes(summary, dry_run=dry_run)
+
+
+def _unreadable_contracts_block(summary: dict[str, Any]) -> str | None:
+    unreadable = summary.get("unreadable_runtime_contracts", ())
+    if not unreadable:
+        return None
+    names = "; ".join(f"{item['label']} (run `{item['guidance']}`)" for item in unreadable)
+    return f"Cannot prune shared runtimes while a Brain's own runtime contract cannot be read: {names}. Then rerun."
 
 
 def _prune_orphaned_runtimes(summary: dict[str, Any], *, dry_run: bool) -> dict[str, Any]:

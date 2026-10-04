@@ -112,6 +112,12 @@ def render_human_lines(summary: dict) -> list[str]:
         for item in summary["unreachable_locations"]:
             lines.append(f"  {item['label']}: {item['path']}")
 
+    if summary.get("unreadable_runtime_contracts"):
+        # Unhealthy (the Brain's route says why); no runtime can be called an orphan meanwhile.
+        lines.append("unreadable runtime contracts (orphan detection paused):")
+        for item in summary["unreadable_runtime_contracts"]:
+            lines.append(f"  {item['label']}")
+
     if not summary["live_process_scan_available"]:
         lines.extend(["runtime note:", "  ps failed; orphan detection skipped"])
 
@@ -123,7 +129,7 @@ def render_human_lines(summary: dict) -> list[str]:
             lines.append(f"    route: {runtime['status']} — {runtime['message']}")
             if runtime["selected_runtime"] is not None:
                 lines.append(f"    runtime: {runtime['selected_runtime']}")
-            else:
+            elif runtime["expected_runtime"] is not None:
                 lines.append(f"    expected runtime: {runtime['expected_runtime']}")
             if runtime["legacy_runtime_present"]:
                 lines.append(f"    legacy .venv: {runtime['legacy_runtime_dir']}")

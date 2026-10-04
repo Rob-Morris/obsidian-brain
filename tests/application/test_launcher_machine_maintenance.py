@@ -333,6 +333,41 @@ def test_a_real_pass_has_no_automatic_family_and_writes_an_empty_summary(tmp_pat
     assert not (config_home() / "brain" / "brains.json").exists()
 
 
+def test_a_real_pass_skips_a_registered_pre_contract_brain_like_a_missing_runtime(tmp_path, fake_home, state_home, monkeypatch):
+    """Its contract is unreadable, so it is neither a legacy installation nor evidence that a runtime is orphaned."""
+    from dataclasses import replace
+
+    import vault_registry
+    from _common import central_venvs_root
+
+    vault = _vault(tmp_path, "Brain A")
+    old = (tmp_path / "Old Brain").resolve()
+    (old / ".brain-core" / "mcp").mkdir(parents=True)
+    (old / ".brain-core" / "VERSION").write_text("0.36.0\n")
+    (old / ".brain-core" / "mcp" / "requirements.txt").write_text("mcp==1.0.0\n")
+    (old / ".venv" / "bin").mkdir(parents=True)
+    (old / ".venv" / "bin" / "python").symlink_to(sys.executable)
+    vault_registry.register(str(old))
+    unnamed = central_venvs_root() / "py3.12-0123456789abcdef" / "bin" / "python"
+    unnamed.parent.mkdir(parents=True)
+    unnamed.symlink_to(sys.executable)
+    monkeypatch.setattr(maintenance, "find_live_brain_runtime_processes",
+                        lambda runtime_pythons, *, scan=None: {"available": True, "processes": {}})
+    monkeypatch.setattr(topology, "scan_processes", lambda: {"available": True, "processes": []})
+    context = replace(_context(tmp_path), current_vault=vault)
+
+    findings, _scan = detect_machine(context)
+    run = LauncherInvocation(context, LAUNCHER_CATALOGUE, LAUNCHER_OWNERS).invoke(MachineMaintenanceRunRequest())
+    listed = LauncherInvocation(context, LAUNCHER_CATALOGUE, LAUNCHER_OWNERS).invoke(MachineMaintenanceListRequest())
+
+    kinds = {item.check for item in findings}
+    assert "legacy_installation" not in kinds, "migration cannot verify a runtime this contract cannot name"
+    assert "orphan_runtime" not in kinds, "orphan detection waits until every Brain's contract is readable"
+    assert not any(item.subject.get("brain") == str(old) for item in findings)
+    assert run.status == "ok", getattr(run, "error", None)
+    assert listed.status == "ok", getattr(listed, "error", None)
+
+
 def test_a_retryable_sibling_conflict_defers_the_group(tmp_path, state_home, fake_detection, fake_automatic_family, monkeypatch):
     fake_detection["value"] = (_automatic(),)
     busy = Error("registry.remove-stale", 2, CommandError(ErrorCode.CONFLICT, "busy", RequestErrorDetails(None, "busy")),

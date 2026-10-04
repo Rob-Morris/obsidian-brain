@@ -279,6 +279,7 @@ from ._reconcile import (
 
 from ._venv import (
     REQUIREMENTS_REL,
+    RuntimeContractUnavailable,
     central_venvs_root,
     ensure_central_venv,
     format_subprocess_error,
