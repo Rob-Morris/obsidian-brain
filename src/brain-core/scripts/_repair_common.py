@@ -145,11 +145,10 @@ REPAIR_SCOPES: Mapping[str, RepairFamily] = _table(
     ),
 )
 
-# Judgement findings that have no repair family: (check, code) pairs whose
-# findings are claimable and dismissible per file.
+# Warning and info findings with no repair family that a person still decides
+# about, as (check, code) pairs claimable and dismissible per file. Every error
+# with no family is a judgement finding without being listed here.
 JUDGEMENT_CODES = frozenset({
-    ("workspace_contract", "workspace_reference_missing"),
-    ("workspace_contract", "workspace_reference_archived"),
     ("workspace_registry", "workspace_link_unverifiable"),
     ("workspace_registry", "workspace_folder_unreachable"),
     ("workspace_registry", "workspace_links_unverified"),

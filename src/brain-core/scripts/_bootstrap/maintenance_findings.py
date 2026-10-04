@@ -109,7 +109,8 @@ class FindingGroup:
 
     @property
     def file(self) -> str | None:
-        return self.members[0].file if len(self.members) == 1 else None
+        """A per-file group's members share one key, so one file; a family spans several."""
+        return self.members[0].file if len(self.members) == 1 or not self.is_family else None
 
     @property
     def subject(self) -> Mapping[str, object]:
@@ -121,22 +122,24 @@ class FindingGroup:
 
 
 def group_by_family(findings: tuple[MaintenanceFinding, ...]) -> tuple[FindingGroup, ...]:
-    """Collapse family findings to one group per family; keep per-file findings apart.
+    """Collapse family findings to one group per family, and per-file findings to one group per key.
 
     An automatic family's fingerprint is its key. A scope-wide judgement
     family is fingerprinted over its sorted member files, so a changed
-    member set reopens a dismissal. A code-bearing finding is fingerprinted
-    over its own declared evidence.
+    member set reopens a dismissal. A per-file finding is fingerprinted over
+    its own declared evidence. Two per-file findings with one key are one
+    group, fingerprinted over every member's evidence, so a claim or
+    dismissal never names two groups at once.
     """
     families: dict[str, list[MaintenanceFinding]] = {}
-    singles: list[MaintenanceFinding] = []
+    singles: dict[str, list[MaintenanceFinding]] = {}
     for finding in findings:
         if finding.disposition is Disposition.REPORT_ONLY:
             continue
         if finding.scope is not None:
             families.setdefault(finding.key, []).append(finding)
         else:
-            singles.append(finding)
+            singles.setdefault(finding.key, []).append(finding)
     groups = []
     for key, members in families.items():
         first = members[0]
@@ -146,9 +149,13 @@ def group_by_family(findings: tuple[MaintenanceFinding, ...]) -> tuple[FindingGr
             files = sorted({member.file for member in members if member.file is not None})
             fingerprint = finding_fingerprint(key, {"files": files})
         groups.append(FindingGroup(key, fingerprint, first.disposition, first.owner, first.scope, tuple(members)))
-    for finding in singles:
-        groups.append(FindingGroup(
-            finding.key, finding_fingerprint(finding.key, finding.evidence),
-            finding.disposition, finding.owner, None, (finding,),
-        ))
+    for key, members in singles.items():
+        first = members[0]
+        if len(members) == 1:
+            fingerprint = finding_fingerprint(key, first.evidence)
+        else:
+            evidence = sorted((None if member.evidence is None else dict(member.evidence) for member in members),
+                              key=_canonical)
+            fingerprint = finding_fingerprint(key, {"members": evidence})
+        groups.append(FindingGroup(key, fingerprint, first.disposition, first.owner, None, tuple(members)))
     return tuple(groups)
