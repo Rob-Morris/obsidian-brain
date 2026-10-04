@@ -53,6 +53,39 @@ def _hash_directory(path: Path) -> dict[str, Any]:
     }
 
 
+# The lab cannot import Brain Core, so this repeats `_bootstrap.mcp_state.BRAIN_SERVER_NAME`.
+BRAIN_SERVER_NAME = "brain"
+
+
+def _brain_server_entries(path: Path) -> dict[str, Any]:
+    """Hash the projection of ``~/.claude.json`` onto the ``brain`` MCP server entries.
+
+    Claude Code rewrites the rest of this file for its own state while any
+    session runs, so a whole-file hash cannot tell a lab leak from that churn.
+    A file this projection cannot read falls back to its whole-file hash.
+    """
+    if not path.is_file():
+        return _hash_file(path)
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+        return {"unreadable": True, **_hash_file(path)}
+    if not isinstance(data, dict):
+        return {"unreadable": True, **_hash_file(path)}
+
+    def server_entry(holder: Any) -> Any:
+        servers = holder.get("mcpServers") if isinstance(holder, dict) else None
+        # A malformed server table is kept whole, so damage to it still shows.
+        return servers.get(BRAIN_SERVER_NAME) if isinstance(servers, dict) else servers
+
+    projects = data.get("projects")
+    if isinstance(projects, dict):
+        entries = {project: server_entry(holder) for project, holder in projects.items()}
+        projects = {project: entry for project, entry in entries.items() if entry is not None}
+    projection = {"user": server_entry(data), "projects": projects}
+    return {"present": True, "sha256": hashlib.sha256(canonical_json(projection).encode("utf-8")).hexdigest()}
+
+
 def _brain_cli_state(binary: str | None) -> dict[str, Any]:
     if binary is None:
         return {"present": False}
@@ -130,7 +163,7 @@ def capture_host_state(
     brain_binary = shutil.which("brain")
     files = {
         "brain_machine_config": _hash_directory(config_home / "brain"),
-        "claude_global": _hash_file(home / ".claude.json"),
+        "claude_global": _brain_server_entries(home / ".claude.json"),
         "codex_global": _hash_file(home / ".codex" / "config.toml"),
         "brain_cli": _brain_cli_state(brain_binary),
     }

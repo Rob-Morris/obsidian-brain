@@ -306,7 +306,7 @@ tools/brain-lab/brain-lab --json scenario run --request-json - \
   < tools/brain-lab/scenarios/current-template.json
 ```
 
-Scenarios stop on a failed or partial/unknown-effect primitive unless `continue_after_failure` is explicitly true. Declared worktrees and vaults receive before/after host-state fingerprints.
+Scenarios stop on a failed or partial/unknown-effect primitive unless `continue_after_failure` is explicitly true. Declared worktrees and vaults receive before/after host-state fingerprints. The host state also covers the machine Brain configuration, managed runtimes, the `brain` CLI, `~/.codex/config.toml` and the `brain` MCP server entries in `~/.claude.json` (the user entry and each project's). Only those entries are compared, because Claude Code rewrites the rest of that file for its own state while any session runs; a file that cannot be parsed is compared whole.
 
 ## Inspect, export, rebuild, and clean up
 
