@@ -449,6 +449,19 @@ needed by another admitted route without expressing intent to reinstall the
 removed transport. Brain/workspace repair maintains that bootstrap or removes
 it once no surviving route needs it.
 
+The bootstrap lines Brain has written form a closed, versioned set, listed
+with their releases in `BOOTSTRAP_LINE_HISTORY`
+(`scripts/_bootstrap/mcp_state.py`). One rule brings a file's Brain line to the
+current line for its target: the first line in the set is replaced in place,
+keeping its indentation and line ending; later ones are dropped; the current
+line is appended only when the file holds none; and the rest of the file is
+kept byte for byte. MCP configuration, repair and migration, and
+`workspace.configure-bootstrap` for `CLAUDE.md` and `AGENTS.md`, all use it.
+Removal, including uninstall, removes every line in the set. A claim may record
+any line in the set; repair converges the file and the claim on the current
+line. Matching is on the whole line, so an edited or bulleted copy is user
+text, is never rewritten, and gets the current line added beside it.
+
 TOML transport repair compares parsed command, arguments and environment values.
 Equivalent formatting (including an omitted or inline empty environment table)
 does not cause a rewrite or a stale MCP registration diagnosis after approval setup.

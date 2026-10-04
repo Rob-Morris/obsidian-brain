@@ -179,7 +179,8 @@ class McpRepairRequest:
 @dataclass(frozen=True, slots=True)
 class McpMigrateRequest:
     COMMAND_ID: ClassVar[str] = "mcp.migrate"
-    COMMAND_VERSION: ClassVar[int] = 1
+    # 2: a record owning a retired Brain bootstrap line migrates, and the line becomes the current one.
+    COMMAND_VERSION: ClassVar[int] = 2
     RESULT_TYPE: ClassVar[type] = McpMutationPayload
 
 

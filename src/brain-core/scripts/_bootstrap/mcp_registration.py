@@ -160,29 +160,30 @@ def _remove_json_server(plan, path: Path, server_config: dict) -> bool:
 
 
 def _ensure_bootstrap(plan, target: Path, *, local: bool) -> tuple[Path, str]:
+    """Converge the target's Claude bootstrap file on the current line (see ``converge_bootstrap_text``)."""
     from _bootstrap import mcp_state
 
     line = mcp_state.bootstrap_line_for_target(target)
     path = target / (mcp_state.CLAUDE_LOCAL_MD_FILE if local else mcp_state.CLAUDE_MD_FILE)
-    existing = plan.read_text(path) or ""
-    if line not in existing.splitlines():
-        separator = "" if not existing else "\n" if existing.endswith("\n") else "\n\n"
-        plan.write_text(path, f"{existing}{separator}{line}\n")
+    existing = plan.read_text(path)
+    updated = mcp_state.converge_bootstrap_text(existing or "", line)
+    if updated != existing:
+        plan.write_text(path, updated)
     return path, line
 
 
-def _remove_bootstrap(plan, path: Path, line: str) -> None:
+def _remove_bootstrap(plan, path: Path) -> None:
+    """Remove every Brain bootstrap line from ``path`` (see ``remove_bootstrap_text``)."""
+    from _bootstrap import mcp_state
+
     content = plan.read_text(path)
     if content is None:
         return
-    lines = content.splitlines()
-    if not any(item.strip() == line for item in lines):
+    updated = mcp_state.remove_bootstrap_text(content)
+    if updated == content:
         return
-    kept = [item for item in lines if item.strip() != line]
-    while kept and not kept[-1].strip():
-        kept.pop()
-    if kept:
-        plan.write_text(path, "\n".join(kept) + "\n")
+    if updated:
+        plan.write_text(path, updated)
     else:
         plan.delete(path)
 
@@ -315,13 +316,15 @@ def read_records(plan, vault: Path | None, home: Path, scope: McpScope):
             raise ValueError(f"Invalid MCP ownership evidence: {path}")
         validate_server(record["server_config"], path)
         if client is McpClient.CLAUDE and target is not None:
-            from _bootstrap.mcp_state import build_session_hook_command, bootstrap_line_for_target
+            from _bootstrap.mcp_state import BRAIN_BOOTSTRAP_LINES, build_session_hook_command
 
             hook = record.get("hook_command")
             expected_hook = build_session_hook_command(vault, target, python_path=record["server_config"].get("command", ""))
             if hook is not None and hook != expected_hook:
                 raise ValueError(f"Invalid owned hook evidence; migration/recovery required: {path}")
-            if record.get("bootstrap_line") not in (None, bootstrap_line_for_target(target)):
+            # Any line Brain has written is owned; repair converges a retired one on the current line.
+            line = record.get("bootstrap_line")
+            if line is not None and (not isinstance(line, str) or line not in BRAIN_BOOTSTRAP_LINES):
                 raise ValueError(f"Invalid owned bootstrap evidence: {path}")
         identity = _record_id(record)
         if identity in identities:
@@ -486,14 +489,15 @@ def _configure_plan(
             if current is not None:
                 raise ValueError(f"Removed transport has reappeared without installation intent: {config_path}")
             if _remaining_claude_route(plan, records, owned, target, home):
-                _ensure_bootstrap(plan, target, local=scope is McpScope.LOCAL)
+                bootstrap_path, line = _ensure_bootstrap(plan, target, local=scope is McpScope.LOCAL)
                 _, command = _ensure_hook(plan, target, vault, server["command"], owned.get("hook_command"))
-                records = [{**item, "server_config": server, "hook_command": command} if item is owned else item for item in records]
+                records = [{**item, "server_config": server, "hook_command": command,
+                            "bootstrap_path": str(bootstrap_path), "bootstrap_line": line}
+                           if item is owned else item for item in records]
             else:
                 from _bootstrap import mcp_state
 
-                _remove_bootstrap(plan, target / (mcp_state.CLAUDE_LOCAL_MD_FILE if scope is McpScope.LOCAL else mcp_state.CLAUDE_MD_FILE),
-                                  mcp_state.bootstrap_line_for_target(target))
+                _remove_bootstrap(plan, target / (mcp_state.CLAUDE_LOCAL_MD_FILE if scope is McpScope.LOCAL else mcp_state.CLAUDE_MD_FILE))
                 _remove_hook(plan, target / mcp_state.CLAUDE_LOCAL_SETTINGS_FILE, vault, target, owned.get("hook_command"))
                 records = [item for item in records if item is not owned]
             continue
@@ -630,11 +634,7 @@ def _remove_plan(vault: Path, home: Path, target: Path | None, scope: McpScope, 
                     if scope is McpScope.LOCAL
                     else mcp_state.CLAUDE_MD_FILE
                 )
-                _remove_bootstrap(
-                    plan,
-                    bootstrap_path,
-                    mcp_state.bootstrap_line_for_target(target),
-                )
+                _remove_bootstrap(plan, bootstrap_path)
                 _remove_hook(
                     plan,
                     target / mcp_state.CLAUDE_LOCAL_SETTINGS_FILE,

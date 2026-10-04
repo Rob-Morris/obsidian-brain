@@ -270,7 +270,7 @@ LAUNCHER_CATALOGUE = LauncherCatalogue(
                     "_launcher.lifecycle:uninstall",
                     "brain",
                     "uninstall",
-                    version=2,
+                    version=3,
                     approval_transition="remove",
                 ),
                 _mutation(
@@ -311,7 +311,7 @@ LAUNCHER_CATALOGUE = LauncherCatalogue(
                     version=4,
                     approval_transition="transport",
                 ),
-                _mutation("mcp.migrate", "_launcher.mcp:migrate", "brain", "mcp", "migrate", approval_transition="transport"),
+                _mutation("mcp.migrate", "_launcher.mcp:migrate", "brain", "mcp", "migrate", version=2, approval_transition="transport"),
                 LauncherEntry(
                     "operator.generate-key",
                     1,

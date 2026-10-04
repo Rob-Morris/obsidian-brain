@@ -287,6 +287,21 @@ def test_uninstall_removes_only_system_paths_and_preserves_notes(tmp_path, monke
     assert any(effect.subject == f"file:{config_path}" for effect in result.committed_effects)
 
 
+def test_uninstall_removes_every_brain_bootstrap_line_and_keeps_the_prose(tmp_path, monkeypatch):
+    from _bootstrap.mcp_state import CLAUDE_MD_BOOTSTRAP_VAULT
+
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
+    vault = _vault(tmp_path)
+    retired = "ALWAYS DO FIRST: Call MCP `session.start`, else read `.brain-core/index.md` if it exists."
+    claude_md = vault / "CLAUDE.md"
+    claude_md.write_bytes(f"# Notes\r\nKeep this.\r\n\r\n{retired}\r\n{CLAUDE_MD_BOOTSTRAP_VAULT}\n".encode())
+
+    result = _invocation(tmp_path, vault=vault).invoke(BrainUninstallRequest())
+
+    assert result.result.status is LifecycleStatus.CHANGED
+    assert claude_md.read_bytes() == b"# Notes\r\nKeep this.\r\n"
+
+
 def test_uninstall_refuses_symlinked_system_state_before_mutation(tmp_path):
     vault = _vault(tmp_path)
     external = tmp_path / "external"
