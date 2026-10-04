@@ -431,6 +431,43 @@ def test_workspace_reference_findings_declare_their_workspace_as_evidence(comman
                                             {"file": findings[0]["file"]})
 
 
+def test_an_invalid_workspace_hub_is_listed_claimed_and_dismissed_per_member(command_vault_clone):
+    """An error with no repair family reaches a person through live detection (DD-082)."""
+    import compile_router
+
+    root = command_vault_clone.vault_root
+    (root / "Workspaces").mkdir(exist_ok=True)
+    (root / "Workspaces" / "Broken Hub.md").write_text(
+        "---\ntype: living/workspace\nkey: broken-hub\nparent: project/vanished\n---\n\n# Broken Hub\n"
+    )
+    (root / "Wiki").mkdir(exist_ok=True)
+    (root / "Wiki" / "Hub Member.md").write_text(
+        "---\ntype: living/wiki\nkey: hub-member\nworkspace: workspace/broken-hub\ntags: [wiki]\n---\n\n# Member\n"
+    )
+    compile_router.persist_compiled_router(str(root), compile_router.compile(str(root)))
+    key = finding_key("brain", "workspace_contract:workspace_hub_invalid", {"file": "Wiki/Hub Member.md"})
+
+    listed = _invoke(root, MaintenanceListRequest())
+    assert listed.status == "ok", listed
+    assert {(item.code, item.file) for item in listed.result.items} == {
+        ("workspace_hub_invalid", "Wiki/Hub Member.md"),
+        ("workspace_hub_invalid", "Workspaces/Broken Hub.md"),
+        ("workspace_ownership_invalid", "Workspaces/Broken Hub.md"),
+    }
+    (item,) = [item for item in listed.result.items if item.key == key]
+    assert (item.code, item.fingerprint, item.file) == ("workspace_hub_invalid", key, "Wiki/Hub Member.md")
+    assert item.disposition is Disposition.JUDGEMENT and item.state is ItemState.OPEN and item.command is None
+
+    claimed = _invoke(root, MaintenanceClaimRequest(key, "rob"))
+    assert claimed.status == "ok" and claimed.result.item.state is ItemState.HELD
+    dismissed = _invoke(root, MaintenanceDismissRequest(key, item.fingerprint, "hub repair scheduled", "rob"))
+    assert dismissed.status == "ok" and dismissed.result.item.state is ItemState.QUIET
+
+    quiet = _invoke(root, MaintenanceListRequest())
+    assert all(listed_item.key != key for listed_item in quiet.result.items)
+    assert quiet.result.hidden_quiet == 1
+
+
 def test_a_missing_router_leaves_the_decisions_file_intact(command_vault_clone):
     root = command_vault_clone.vault_root
     clock = _Clock(datetime.now(timezone.utc))

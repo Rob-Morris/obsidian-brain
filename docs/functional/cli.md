@@ -546,12 +546,19 @@ current vault until the file is restored or rebuilt.
 whose last outcome was `failed`, `unknown`, `deferred` or `needs_person`, and
 expired claims, each with its `key`, `fingerprint` and claim state. A
 scope-wide judgement family (`frontmatter`, `ownership`, `empty_folders`,
-`semantic`) is one group with one key; the two per-artefact
-`workspace_reference_missing` and `workspace_reference_archived` findings are
-one item per file, `workspace_link_unverifiable` and
+`semantic`) is one group with one key. Every `error` finding with no repair
+family is one item per file (one for the check when it names no file), keyed
+by its check and, when it declares one, its code: today the `workspace_contract` errors (`workspace_reference_missing`,
+`workspace_reference_archived`, `workspace_reference_wrong_type`,
+`workspace_reference_malformed`, `workspace_hub_invalid`,
+`workspace_ownership_invalid`, `workspace_policy_invalid` and
+`workspace_scan_unreadable`, plus the `workspace_binding_*` errors when the
+command runs from a workspace folder), `root_files` and `living_key_fields`.
+Of the warning and info findings, `workspace_link_unverifiable` and
 `workspace_folder_unreachable` are one item per linked workspace row, and
 `workspace_registry_unreadable`, `workspace_registry_unparseable` and
-`workspace_links_unverified` are one item for the registry file.
+`workspace_links_unverified` are one item for the registry file; every other
+warning or info finding with no repair family is report-only.
 
 ```bash
 brain --brain my-brain maintenance claim --request-json '{"key":"9a4c0e7b12d3f5a8","claimant":"rob"}' --json
