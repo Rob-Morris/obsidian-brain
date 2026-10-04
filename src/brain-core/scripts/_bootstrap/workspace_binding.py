@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from contextlib import contextmanager
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
@@ -35,11 +36,17 @@ WORKSPACE_ERROR_FILESYSTEM_ACCESS = "filesystem_access"
 # ---------------------------------------------------------------------------
 
 class WorkspaceBindingError(RuntimeError):
-    """Raised when workspace binding state cannot be converged safely."""
+    """Raised when workspace binding state cannot be converged safely.
 
-    def __init__(self, message: str, *, code: str = WORKSPACE_ERROR_INVALID_BINDING) -> None:
+    ``rung`` names the resolution-ladder rung that failed (a ``BrainTarget.source``
+    value, or ``RUNG_UNRESOLVED``), and is None outside ``resolve_brain_target``.
+    """
+
+    def __init__(self, message: str, *, code: str = WORKSPACE_ERROR_INVALID_BINDING,
+                 rung: str | None = None) -> None:
         super().__init__(message)
         self.code = code
+        self.rung = rung
 
 
 # ---------------------------------------------------------------------------
@@ -91,6 +98,23 @@ class BrainTarget:
     vault_root: str
     workspace_dir: str | None
     source: str
+
+
+# The ladder's last rung: nothing resolved a Brain.
+RUNG_UNRESOLVED = "unresolved"
+# The rungs no caller asserted: the machine default and nothing at all.
+MACHINE_FALLBACK_RUNGS = frozenset({"registry_default", RUNG_UNRESOLVED})
+
+
+@contextmanager
+def _rung(name: str):
+    """Attribute a resolution failure raised inside one ladder rung to that rung."""
+    try:
+        yield
+    except WorkspaceBindingError as exc:
+        if exc.rung is None:
+            exc.rung = name
+        raise
 
 
 # Binding-state constants used by the classifier helper.
@@ -261,7 +285,7 @@ def resolve_brain_target(
 
     Raises:
         ``WorkspaceBindingError`` on stale bindings, dangling defaults, or when
-        no brain can be resolved at all.
+        no brain can be resolved at all; its ``rung`` names the rung that failed.
     """
     # ------------------------------------------------------------------
     # Rung 1: explicit workspace anchor
@@ -277,7 +301,8 @@ def resolve_brain_target(
                 workspace_dir=None,
                 source="vault_self",
             )
-        state, vault, brain = _classify_workspace_binding(ws_dir)
+        with _rung("workspace_env"):
+            state, vault, brain = _classify_workspace_binding(ws_dir)
         if state == _STATE_VALID:
             assert vault is not None
             return BrainTarget(
@@ -293,6 +318,7 @@ def resolve_brain_target(
                 f"this workspace (brain workspace setup), or restore the registry "
                 f"entry, before continuing.",
                 code="stale_binding",
+                rung="workspace_env",
             )
         # MISSING — the explicit anchor's binding is absent.  It may still
         # resolve through BRAIN_VAULT_ROOT (rung 3), but it must NOT fall to
@@ -305,7 +331,8 @@ def resolve_brain_target(
         # ------------------------------------------------------------------
         # Rung 2: cwd walk (only when workspace_env is unset)
         # ------------------------------------------------------------------
-        target = _walk_for_nearest_marker(start_dir)
+        with _rung("workspace_binding"):
+            target = _walk_for_nearest_marker(start_dir)
         if target is not None:
             return target
         # target is None → MISSING marker or no marker found; continue to rung 3.
@@ -335,6 +362,7 @@ def resolve_brain_target(
             f"resolve it — re-bind this workspace (brain workspace setup) before "
             f"continuing.",
             code="no_brain",
+            rung="workspace_env",
         )
 
     # ------------------------------------------------------------------
@@ -346,10 +374,12 @@ def resolve_brain_target(
         raise WorkspaceBindingError(
             f"failed to read Brain registry default: {exc}",
             code=WORKSPACE_ERROR_FILESYSTEM_ACCESS,
+            rung="registry_default",
         ) from exc
 
     if default_id:
-        vault = resolve_local_brain_vault(default_id)
+        with _rung("registry_default"):
+            vault = resolve_local_brain_vault(default_id)
         if vault is not None:
             return BrainTarget(
                 vault_root=str(vault),
@@ -361,6 +391,7 @@ def resolve_brain_target(
             f"{_stale_binding_detail(default_id)} — re-register it or clear the "
             f"default (brain clear-default).",
             code="stale_binding",
+            rung="registry_default",
         )
 
     # ------------------------------------------------------------------
@@ -371,6 +402,7 @@ def resolve_brain_target(
         "(brain workspace setup) or set a machine default "
         "(brain set-default --request-json '{\"brain_id\": \"<id>\"}').",
         code="no_brain",
+        rung=RUNG_UNRESOLVED,
     )
 
 

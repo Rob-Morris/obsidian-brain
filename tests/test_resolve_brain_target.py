@@ -13,6 +13,8 @@ from pathlib import Path
 import pytest
 
 from _bootstrap.workspace_binding import (
+    MACHINE_FALLBACK_RUNGS,
+    RUNG_UNRESOLVED,
     WORKSPACE_ERROR_FILESYSTEM_ACCESS,
     BrainTarget,
     WorkspaceBindingError,
@@ -682,6 +684,65 @@ class TestRung5Nothing:
             in str(exc_info.value)
         )
         assert "vault_registry --" not in str(exc_info.value)
+
+
+# ---------------------------------------------------------------------------
+# Failure rung — which rung a resolution failure belongs to
+# ---------------------------------------------------------------------------
+
+def _unreadable_registry(monkeypatch):
+    def unreadable(_brain_id):
+        raise vault_registry.RegistryReadError("denied")
+
+    monkeypatch.setattr(vault_registry, "resolve", unreadable)
+
+
+@pytest.mark.parametrize(
+    "case, rung",
+    [
+        ("stale_workspace_env", "workspace_env"),
+        ("unbound_workspace_env", "workspace_env"),
+        ("stale_cwd_binding", "workspace_binding"),
+        ("unreadable_registry_for_cwd_binding", "workspace_binding"),
+        ("dangling_default", "registry_default"),
+        ("unreadable_default_pointer", "registry_default"),
+        ("unreadable_registry_for_default", "registry_default"),
+        ("nothing", RUNG_UNRESOLVED),
+    ],
+)
+def test_a_resolution_failure_names_its_rung(tmp_path, isolated_home, monkeypatch, case, rung):
+    """Error codes repeat across rungs; ``rung`` says whether a caller's own selection or a fallback failed."""
+    start = tmp_path / "start"
+    start.mkdir()
+    workspace_env = None
+    if case == "stale_workspace_env":
+        workspace_env = str(_make_workspace(tmp_path, "ws", brain="gone-brain"))
+    elif case == "unbound_workspace_env":
+        workspace_env = str(start)
+    elif case == "stale_cwd_binding":
+        start = _make_workspace(start, "ws", brain="gone-brain")
+    elif case == "unreadable_registry_for_cwd_binding":
+        start = _make_workspace(start, "ws", brain="any-brain")
+        _unreadable_registry(monkeypatch)
+    elif case == "dangling_default":
+        _write_default(isolated_home, "ghost-brain")
+    elif case == "unreadable_default_pointer":
+        def unreadable():
+            raise vault_registry.RegistryReadError("denied")
+
+        monkeypatch.setattr(vault_registry, "get_default", unreadable)
+    elif case == "unreadable_registry_for_default":
+        _write_default(isolated_home, "ghost-brain")
+        _unreadable_registry(monkeypatch)
+
+    with pytest.raises(WorkspaceBindingError) as exc_info:
+        resolve_brain_target(workspace_env=workspace_env, vault_root_env=None, start_dir=start)
+
+    assert exc_info.value.rung == rung
+
+
+def test_only_the_default_and_nothing_are_machine_fallbacks():
+    assert MACHINE_FALLBACK_RUNGS == {"registry_default", RUNG_UNRESOLVED}
 
 
 # ---------------------------------------------------------------------------
