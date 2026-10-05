@@ -209,6 +209,10 @@ class BrainUninstallRequest:
 class BrainUpgradeRequest:
     COMMAND_ID: ClassVar[str] = "brain.upgrade"
     # 3: a registry row that is no longer its own canonical path is stale (exclude it), not an unsafe-path refusal.
+    #    VERSION is written last as the commit witness; force re-applies only a matching same-version core
+    #    and never replays migrations; a mismatched same-version core re-applies without force; a source
+    #    older than the recorded content is a no-effect conflict; version_commit and router_compile
+    #    failures are partial with their own next actions.
     COMMAND_VERSION: ClassVar[int] = 3
     RESULT_TYPE: ClassVar[type] = BrainUpgradePayload
 
@@ -686,6 +690,56 @@ def _checked_preflight(
     )
 
 
+# (step name, upgrader result key, next action when its outcome is an error).
+# ``runtime_orphans`` is read-only inspection with its own outcome vocabulary
+# and is handled explicitly below.
+_RECONCILIATION_TABLE: tuple[tuple[str, str, str | None], ...] = (
+    (
+        "version_commit",
+        "version_commit",
+        "Rerun the same upgrade: the core and cutover are applied, and the rerun "
+        "writes VERSION and finishes the post-commit stages.",
+    ),
+    (
+        "router_compile",
+        "router_compile",
+        "Run runtime.refresh-router, then retry only after the router compiles.",
+    ),
+    ("managed_runtime", "central_runtime", None),
+    ("mcp_registration", "mcp_registration_repair", None),
+    ("machine_resolution_runtime", "machine_resolution_runtime", None),
+    ("retrieval_assets", "retrieval_asset_repair", None),
+    ("runtime_readiness", "runtime_readiness", None),
+)
+_FAILED_OUTCOMES = frozenset({"error", "partial", "unknown"})
+_UPGRADE_WARNING_CODES = {
+    "interrupted_previous_upgrade": WarningCode.FOLLOW_UP_REQUIRED,
+    "core_mismatch": WarningCode.FOLLOW_UP_REQUIRED,
+    "version_commit_not_durable": WarningCode.DEGRADED_CAPABILITY,
+}
+
+
+def _outcome(result: dict, key: str) -> str | None:
+    value = result.get(key)
+    return value.get("outcome") if isinstance(value, dict) else None
+
+
+def _upgrade_warnings(result: dict) -> tuple[CommandWarning, ...]:
+    """Carry every upgrader warning to the launcher result, keyed by its own code."""
+    warnings = []
+    for item in result.get("warnings", ()):
+        if not isinstance(item, dict) or not isinstance(item.get("message"), str):
+            continue
+        code = item.get("code")
+        warnings.append(
+            CommandWarning(
+                _UPGRADE_WARNING_CODES.get(code, WarningCode.DEGRADED_CAPABILITY),
+                f"{code}: {item['message']}" if isinstance(code, str) else item["message"],
+            )
+        )
+    return tuple(warnings)
+
+
 def _reconciliation_steps(result: dict) -> tuple[LifecycleStep, ...]:
     steps = []
     cutover = result.get("cutover_commit")
@@ -718,18 +772,12 @@ def _reconciliation_steps(result: dict) -> tuple[LifecycleStep, ...]:
                 result["sync_error"],
             )
         )
-    for name, key in (
-        ("managed_runtime", "central_runtime"),
-        ("mcp_registration", "mcp_registration_repair"),
-        ("machine_resolution_runtime", "machine_resolution_runtime"),
-        ("retrieval_assets", "retrieval_asset_repair"),
-        ("runtime_readiness", "runtime_readiness"),
-    ):
+    for name, key, _next_action in _RECONCILIATION_TABLE:
         value = result.get(key)
         if value is None:
             continue
         outcome = value.get("outcome") if isinstance(value, dict) else None
-        if outcome in {"error", "partial", "unknown"}:
+        if outcome in _FAILED_OUTCOMES:
             status = LifecycleStatus.CHANGED
             message = value.get("message") or f"{name} reconciliation requires recovery."
         else:
@@ -767,17 +815,16 @@ def _reconciliation_failed(result: dict) -> bool:
         isinstance(cutover, dict)
         and bool(cutover.get("cleanup_recovery_paths"))
     ) or isinstance(result.get("sync_error"), str) or any(
-        isinstance(result.get(key), dict)
-        and result[key].get("outcome") in {"error", "partial", "unknown"}
-        for key in (
-            "central_runtime",
-            "mcp_registration_repair",
-            "machine_resolution_runtime",
-            "retrieval_asset_repair",
-            "runtime_readiness",
-            "runtime_orphans",
-        )
-    )
+        _outcome(result, key) in _FAILED_OUTCOMES
+        for _name, key, _next_action in _RECONCILIATION_TABLE
+    ) or _outcome(result, "runtime_orphans") in _FAILED_OUTCOMES
+
+
+def _reconciliation_next_action(result: dict) -> InstructionNextAction | None:
+    for _name, key, instruction in _RECONCILIATION_TABLE:
+        if instruction is not None and _outcome(result, key) == "error":
+            return InstructionNextAction(instruction)
+    return None
 
 
 def _reconciliation_recovery_paths(result: dict) -> tuple[str, ...]:
@@ -885,10 +932,13 @@ def execute_upgrade(context: LauncherContext, request: BrainUpgradeRequest):
                     for path in recovery_paths
                 ),
             )
-        return no_effect_error(
-            type(request),
-            ErrorCode.CONFLICT,
-            result.get("message") or "Brain upgrade was rolled back.",
+        return replace(
+            no_effect_error(
+                type(request),
+                ErrorCode.CONFLICT,
+                result.get("message") or "Brain upgrade was rolled back.",
+            ),
+            warnings=_upgrade_warnings(result),
         )
     if status not in {"ok", "partial", "skipped"}:
         raise RuntimeError(f"Brain upgrader returned an unknown status: {status!r}")
@@ -954,10 +1004,12 @@ def execute_upgrade(context: LauncherContext, request: BrainUpgradeRequest):
                 ErrorCode.CONFLICT,
                 message,
                 details,
+                _reconciliation_next_action(result),
             ),
             effects,
+            _upgrade_warnings(result),
         )
-    return Ok(request.COMMAND_ID, request.COMMAND_VERSION, payload, effects)
+    return Ok(request.COMMAND_ID, request.COMMAND_VERSION, payload, effects, _upgrade_warnings(result))
 
 
 def install_owner():

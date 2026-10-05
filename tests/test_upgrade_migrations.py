@@ -186,7 +186,6 @@ def test_exact_0_3_no_release_data_runs_the_retained_migration_chain(tmp_path):
         str(vault),
         "0.3.0",
         current_version,
-        raise_on_error=True,
     )
 
     release_alignment = next(item for item in results if item["version"] == "0.34.0")
@@ -197,39 +196,21 @@ def test_exact_0_3_no_release_data_runs_the_retained_migration_chain(tmp_path):
     assert ledger["migrations"]["0.34.0"]["status"] == "skipped"
 
 
-def test_run_pending_migrations_records_ledger_and_skips_repeat(tmp_path):
+def test_run_migrations_records_ledger_and_skips_repeat(tmp_path):
     source = _make_source(
         tmp_path,
         "1.0.0",
         migrations={"migrate_to_1_0_0.py": _counter_migration("count-1.txt")},
     )
-    vault = _make_vault(tmp_path, "1.0.0")
+    vault = _make_vault(tmp_path, "0.9.0")
     shutil.copytree(source / "scripts" / "migrations", vault / ".brain-core" / "scripts" / "migrations")
 
-    first = upgrade.run_pending_migrations(str(vault))
-    second = upgrade.run_pending_migrations(str(vault))
+    first, _ = upgrade._run_migrations(str(vault), "0.9.0", "1.0.0")
+    second, _ = upgrade._run_migrations(str(vault), "0.9.0", "1.0.0")
 
     assert len(first) == 1
     assert second == []
     assert _counter(vault, "count-1.txt") == 1
-    assert _ledger(vault)["migrations"]["1.0.0"]["status"] == "ok"
-    assert (vault / ".brain" / "local" / ".migrated-version").read_text().strip() == "1.0.0"
-
-
-def test_run_pending_migrations_force_reruns_recorded_migration(tmp_path):
-    source = _make_source(
-        tmp_path,
-        "1.0.0",
-        migrations={"migrate_to_1_0_0.py": _counter_migration("count-force.txt")},
-    )
-    vault = _make_vault(tmp_path, "1.0.0")
-    shutil.copytree(source / "scripts" / "migrations", vault / ".brain-core" / "scripts" / "migrations")
-
-    upgrade.run_pending_migrations(str(vault))
-    forced = upgrade.run_pending_migrations(str(vault), force=True)
-
-    assert len(forced) == 1
-    assert _counter(vault, "count-force.txt") == 2
     assert _ledger(vault)["migrations"]["1.0.0"]["status"] == "ok"
 
 
@@ -242,7 +223,7 @@ def test_0_48_2_migration_noop_normalises_to_skipped_for_runner(tmp_path):
     assert [step["status"] for step in result["steps"]] == ["noop", "noop"]
 
 
-def test_force_run_accepts_legacy_0_48_2_noop_as_skipped(tmp_path):
+def test_run_accepts_legacy_0_48_2_noop_as_skipped(tmp_path):
     source = _make_source(
         tmp_path,
         "0.48.2",
@@ -252,16 +233,14 @@ def test_force_run_accepts_legacy_0_48_2_noop_as_skipped(tmp_path):
             ).read_text(encoding="utf-8"),
         },
     )
-    vault = _make_vault(tmp_path, "0.48.2")
+    vault = _make_vault(tmp_path, "0.48.1")
     shutil.rmtree(vault / ".brain-core" / "scripts")
     shutil.copytree(source / "scripts", vault / ".brain-core" / "scripts")
 
     results, ledger = upgrade._run_migrations(
         str(vault),
+        "0.48.1",
         "0.48.2",
-        "0.48.2",
-        force=True,
-        raise_on_error=True,
     )
 
     assert [result["version"] for result in results] == ["0.48.2"]
@@ -293,9 +272,9 @@ def test_dry_run_lists_pending_migrations_without_running_them(tmp_path):
     assert not (vault / ".brain" / "local" / "count-2-0.txt").exists()
 
 
-def test_dry_run_force_lists_all_migrations_through_new_version(tmp_path):
-    """--force --dry-run should list every migration up to new_version, including
-    those already recorded in the ledger — matching the real --force run.
+def test_dry_run_force_lists_no_recorded_migration(tmp_path):
+    """--force --dry-run lists nothing a real --force run would not run: recorded
+    migrations never replay, and a same-version source selects none.
     """
     source = _make_source(
         tmp_path,
@@ -316,14 +295,18 @@ def test_dry_run_force_lists_all_migrations_through_new_version(tmp_path):
     }))
 
     forced = upgrade.upgrade(str(vault), str(source), force=True, dry_run=True, sync=False)
-    assert [m["version"] for m in forced["migrations_preview"]] == ["1.0.0", "2.0.0"]
+    assert forced["status"] == "ok"
+    assert forced.get("migrations_preview", []) == []
 
-    # Without force, all migrations are recorded → preview is empty
-    skipped = upgrade.upgrade(str(vault), str(source), force=False, dry_run=True, sync=False)
-    assert skipped.get("migrations_preview", []) == []
+    # Without force the mismatched same-version core still re-applies, and the
+    # preview matches: nothing is recorded as pending.
+    unforced = upgrade.upgrade(str(vault), str(source), force=False, dry_run=True, sync=False)
+    assert unforced["status"] == "ok"
+    assert unforced.get("migrations_preview", []) == []
+    assert [w["code"] for w in unforced["warnings"]] == ["core_mismatch"]
 
 
-def test_upgrade_backfills_old_versions_and_prevents_startup_rerun(tmp_path):
+def test_upgrade_backfills_old_versions_and_runs_only_the_new_migration(tmp_path):
     source = _make_source(
         tmp_path,
         "2.0.0",
@@ -335,19 +318,17 @@ def test_upgrade_backfills_old_versions_and_prevents_startup_rerun(tmp_path):
     vault = _make_vault(tmp_path, "1.0.0")
 
     result = upgrade.upgrade(str(vault), str(source), sync=False)
-    startup = upgrade.run_pending_migrations(str(vault))
     ledger = _ledger(vault)
 
     assert result["status"] == "ok"
     assert [item["version"] for item in result["migrations"]] == ["2.0.0"]
     assert result["runtime_readiness"]["outcome"] == "ok"
     assert result["runtime_orphans"]["outcome"] == "ok"
-    assert startup == []
     assert ledger["migrations"]["1.0.0"]["status"] == "backfilled"
     assert ledger["migrations"]["2.0.0"]["status"] == "ok"
     assert _counter(vault, "count-new.txt") == 1
     assert not (vault / ".brain" / "local" / "count-old.txt").exists()
-    assert (vault / ".brain" / "local" / ".migrated-version").read_text().strip() == "2.0.0"
+    assert (vault / ".brain-core" / "VERSION").read_text().strip() == "2.0.0"
 
 
 def test_run_migrations_does_not_record_blocked_0_50_0_migration_and_halts(tmp_path):
@@ -380,7 +361,6 @@ def test_run_migrations_does_not_record_blocked_0_50_0_migration_and_halts(tmp_p
             str(vault),
             "0.49.9",
             "0.50.1",
-            raise_on_error=True,
         )
 
     ledger = _ledger(vault)
@@ -389,76 +369,7 @@ def test_run_migrations_does_not_record_blocked_0_50_0_migration_and_halts(tmp_p
     assert not (vault / ".brain" / "local" / "after-blocked.txt").exists()
 
 
-def test_run_migrations_default_path_halts_after_blocked_0_50_0_migration(tmp_path):
-    source = _make_source(
-        tmp_path,
-        "0.50.1",
-        migrations=None,
-    )
-    (source / "scripts" / "migrations" / "migrate_to_0_50_1.py").write_text(
-        _counter_migration("after-blocked.txt")
-    )
-    vault = _make_vault(tmp_path, "0.49.9")
-    (vault / "Designs").mkdir()
-    _write_taxonomy(vault, "living", "Designs", "living/design")
-    _write_artefact(
-        vault / "Designs" / "Broken.md",
-        {"type": "living/design", "tags": [], "key": "broken", "parent": "design/missing"},
-    )
-    compiled = compile_router.compile(str(vault))
-    (vault / ".brain" / "local" / "compiled-router.json").write_text(
-        json.dumps(compiled, indent=2) + "\n",
-        encoding="utf-8",
-    )
-    shutil.rmtree(vault / ".brain-core" / "scripts")
-    shutil.copytree(source / "scripts", vault / ".brain-core" / "scripts")
-    (vault / ".brain-core" / "VERSION").write_text("0.50.1\n")
-
-    results, ledger = upgrade._run_migrations(
-        str(vault),
-        "0.49.9",
-        "0.50.1",
-    )
-
-    assert [result["version"] for result in results] == ["0.50.0"]
-    assert results[0]["status"] == "error"
-    assert results[0]["message"] == "Cannot apply migration with blockers: invalid_chains"
-    assert results[0]["invalid_chains"][0]["parent"] == "design/missing"
-    assert "0.50.0" not in ledger["migrations"]
-    assert "0.50.1" not in ledger["migrations"]
-    assert not (vault / ".brain" / "local" / "after-blocked.txt").exists()
-    assert not (vault / ".brain" / "local" / ".migrated-version").exists()
-
-
-def test_run_migrations_treats_blocked_result_as_fatal_in_default_path(tmp_path):
-    source = _make_source(
-        tmp_path,
-        "0.52.0",
-        migrations={
-            "migrate_to_0_51_0.py": _blocked_migration(),
-            "migrate_to_0_52_0.py": _counter_migration("after-blocked.txt"),
-        },
-    )
-    vault = _make_vault(tmp_path, "0.50.0")
-    shutil.rmtree(vault / ".brain-core" / "scripts")
-    shutil.copytree(source / "scripts", vault / ".brain-core" / "scripts")
-    (vault / ".brain-core" / "VERSION").write_text("0.52.0\n")
-
-    results, ledger = upgrade._run_migrations(
-        str(vault),
-        "0.50.0",
-        "0.52.0",
-    )
-
-    assert [result["version"] for result in results] == ["0.51.0"]
-    assert results[0]["status"] == "blocked"
-    assert results[0]["blockers"] == ["stub"]
-    assert "0.51.0" not in ledger["migrations"]
-    assert "0.52.0" not in ledger["migrations"]
-    assert not (vault / ".brain" / "local" / "after-blocked.txt").exists()
-
-
-def test_run_migrations_treats_blocked_result_as_fatal_in_raise_path(tmp_path):
+def test_run_migrations_treats_blocked_result_as_fatal(tmp_path):
     source = _make_source(
         tmp_path,
         "0.52.0",
@@ -477,7 +388,6 @@ def test_run_migrations_treats_blocked_result_as_fatal_in_raise_path(tmp_path):
             str(vault),
             "0.50.0",
             "0.52.0",
-            raise_on_error=True,
         )
 
     assert exc_info.value.result["status"] == "blocked"
@@ -521,7 +431,6 @@ def test_upgrade_rollback_preserves_blocked_0_50_0_migration_diagnostics(tmp_pat
     assert upgrade_log["migration_result"]["invalid_chains"][0]["parent"] == "design/missing"
     assert not (vault / ".brain" / "local" / "migrations.json").exists()
     assert not (vault / ".brain" / "local" / "after-blocked.txt").exists()
-    assert not (vault / ".brain" / "local" / ".migrated-version").exists()
     assert (vault / ".brain-core" / "VERSION").read_text().strip() == "0.49.9"
 
 
@@ -843,3 +752,26 @@ def test_upgrade_refuses_invalid_old_authorisation_before_core_replacement(tmp_p
     assert 'capture existing authorisation' in result['message']
     assert result['rollback_verified'] is True
     assert (vault / '.brain-core/VERSION').read_text().strip() == '0.67.3'
+
+
+def test_declared_migration_targets_is_the_one_ledger_key_rule():
+    """Annotated handlers, an async ``migrate`` and the implicit default target all count."""
+    text = (
+        "TARGET_HANDLERS: dict[str, str] = {'pre_compile_patch': 'patch'}\n"
+        "async def migrate(vault_root):\n    return {'status': 'ok'}\n"
+        "def patch(vault_root, *, context=None):\n    return {'status': 'ok'}\n"
+    )
+    assert upgrade.declared_migration_targets(text) == {"post_compile", "pre_compile_patch"}
+    assert upgrade.declared_migration_targets("def helper():\n    pass\n") == frozenset()
+    with pytest.raises(upgrade.MigrationDefinitionError, match="invalid Python syntax"):
+        upgrade.declared_migration_targets("def migrate(:\n")
+
+
+def test_migration_file_version_and_record_keys_round_trip():
+    assert upgrade.migration_file_version("migrate_to_0_29_0.py") == "0.29.0"
+    assert upgrade.migration_file_version("migrate_to_0_29.py") == "0.29"
+    assert upgrade.migration_file_version("migrate_to_0_29_0.md") is None
+    key = upgrade.migration_record_key("0.29.0", "pre_compile_patch")
+    assert key == "0.29.0@pre_compile_patch"
+    assert upgrade.migration_record_version(key) == "0.29.0"
+    assert upgrade.migration_record_version(upgrade.migration_record_key("0.29.0", "post_compile")) == "0.29.0"

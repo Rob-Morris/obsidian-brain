@@ -2,7 +2,7 @@
 
 Migration scripts run automatically during CLI upgrade (`upgrade.py` or `install.sh`). They handle vault-level data transformations that can't be done by simply copying new files.
 
-Each successful or skipped migration is recorded in `.brain/local/migrations.json`. The runner checks that ledger before executing a migration again, so reinstalling `.brain-core/` into the same vault does not replay historical migrations. Passing `--force` to `upgrade.py` bypasses that ledger and re-runs migrations up to the target version. `install.sh` stays non-destructive here and does not forward installer prompt suppression into upgrade override semantics.
+Each successful or skipped migration is recorded in `.brain/local/migrations.json` straight after it runs. The runner selects only migrations above the installed `.brain-core/VERSION`, up to the target, whose ledger key is not yet recorded, so reinstalling `.brain-core/` into the same vault does not replay historical migrations. Nothing re-runs a recorded migration: `upgrade.py --force` re-applies the same version's core and selects no migration, and a correction ships as a new migration. `.brain-core/VERSION` is written last, after every migration, so an interrupted upgrade resumes as an ordinary upgrade that skips the recorded migrations and restarts the interrupted one.
 
 Ledger keys are target-aware:
 
@@ -85,6 +85,9 @@ from rename import rename_and_update_links
 ## Guidelines
 
 - Migrations must be **idempotent** — running twice produces the same result.
+- Migrations must be **restartable** — they converge from any partial application of themselves. A hard kill runs no rollback, so the next upgrade applies the migration again to content it may have half-changed, and it must finish the job rather than fail or double-apply.
+- A released migration keeps its **identity**: once a migration's version is at or below the repository `VERSION`, its file name and the set of targets it declares (`migrate` and the `TARGET_HANDLERS` keys) are permanent, because vault ledgers already record it under those keys. A repository contract rejects a staged rename, removal or re-targeting. Its body may still be corrected for vaults that have not yet upgraded; new behaviour is a new migration above `VERSION`.
+- On `dev` and in the lab, an unreleased migration (above the repository `VERSION`) is never selected by an upgrade, because selection is capped at the source `VERSION`. Apply the module directly (`migrate_to_X.migrate(vault_root)`) to exercise it; that writes no ledger record, so dev propagation from `src/brain-core` still passes the content guard that refuses a source older than the recorded content.
 - Return `{"status": "skipped"}` with no side effects when there's nothing to do.
 - `pre_compile_patch` handlers should be minimal compatibility repairs only. If they mutate vault files, rely on the upgrade runner's snapshot/rollback context rather than rolling their own partial rollback scheme.
 

@@ -136,14 +136,13 @@ def _upgrade_fixture(tmp_path, old_version, *, labelled_administrator=False):
     return source, vault, builtins
 
 
-@pytest.mark.parametrize(("old_version", "force"), [
-    ("0.62.5", False), ("0.58.0", False), ("0.70.10", False), ("0.70.10", True)])
-def test_upgrades_through_the_real_migration_chain_drop_the_retired_grants(tmp_path, fake_home, old_version, force):
+@pytest.mark.parametrize("old_version", ["0.62.5", "0.58.0", "0.70.10"])
+def test_upgrades_through_the_real_migration_chain_drop_the_retired_grants(tmp_path, fake_home, old_version):
     import upgrade
 
     source, vault, builtins = _upgrade_fixture(tmp_path, old_version, labelled_administrator=True)
 
-    result = upgrade.upgrade(str(vault), str(source), force=force, sync=False, sync_deps=False)
+    result = upgrade.upgrade(str(vault), str(source), sync=False, sync_deps=False)
 
     assert result["status"] == "ok", result.get("message", result)
     assert "0.71.0" in [entry["version"] for entry in result["migrations"]]
@@ -152,6 +151,39 @@ def test_upgrades_through_the_real_migration_chain_drop_the_retired_grants(tmp_p
         assert not set(profiles[name]["allow"]) & set(RETIRED), name
         assert set(profiles[name]["allow"]) <= set(builtins[name]), name
     assert _resolve(vault).profile == "operator"
+
+
+def test_a_forced_same_version_re_apply_runs_no_migration(tmp_path, fake_home):
+    """Force re-applies the core; it never replays a recorded migration (DD-084)."""
+    import upgrade
+
+    source, vault, _builtins = _upgrade_fixture(tmp_path, "0.70.10", labelled_administrator=True)
+    first = upgrade.upgrade(str(vault), str(source), sync=False, sync_deps=False)
+    assert first["status"] == "ok", first.get("message", first)
+    ledger_before = (vault / ".brain" / "local" / "migrations.json").read_bytes()
+    config_before = (vault / ".brain" / "config.yaml").read_bytes()
+
+    again = upgrade.upgrade(str(vault), str(source), force=True, sync=False, sync_deps=False)
+
+    assert again["status"] == "ok", again.get("message", again)
+    assert again["old_version"] == again["new_version"] == "0.71.0"
+    assert "migrations" not in again
+    assert "precompile_patch_migrations" not in again
+    assert (vault / ".brain" / "local" / "migrations.json").read_bytes() == ledger_before
+    assert (vault / ".brain" / "config.yaml").read_bytes() == config_before
+
+
+def test_a_direct_migration_records_nothing_in_the_ledger(tmp_path):
+    """Only upgrade.py writes the ledger, so a dev or lab application leaves no record (D21)."""
+    shared = tmp_path / ".brain" / "config.yaml"
+    _write(shared, {"vault": {"profiles": {"custom": {"allow": ["artefact.read", "workspace.bind"]}}}})
+    ledger = tmp_path / ".brain" / "local" / "migrations.json"
+    ledger.parent.mkdir(parents=True)
+    ledger.write_text('{"schema_version": 1, "migrations": {}}\n', encoding="utf-8")
+
+    assert migrate_to_0_71_0.migrate(str(tmp_path))["status"] == "ok"
+
+    assert ledger.read_text(encoding="utf-8") == '{"schema_version": 1, "migrations": {}}\n'
 
 
 def test_the_chain_fixture_carries_every_configuration_migration():

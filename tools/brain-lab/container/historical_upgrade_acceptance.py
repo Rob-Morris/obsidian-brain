@@ -212,9 +212,7 @@ def _write_legacy_records(vault: Path) -> tuple[Path, Path]:
 
 
 def _yaml_helpers(target_source: Path):
-    scripts = str(target_source / "src" / "brain-core" / "scripts")
-    if scripts not in sys.path:
-        sys.path.insert(0, scripts)
+    _target_scripts(target_source)
     from _common._yaml import dump_yaml_text, load_mapping_file
 
     return dump_yaml_text, load_mapping_file
@@ -367,6 +365,76 @@ def _require_ok_envelope(value: dict[str, Any], command: str) -> dict[str, Any]:
     return result
 
 
+def _target_scripts(target_source: Path) -> str:
+    scripts = str(target_source / "src" / "brain-core" / "scripts")
+    if scripts not in sys.path:
+        sys.path.insert(0, scripts)
+    return scripts
+
+
+def expected_migration_records(target_source: Path, target_core: str) -> set[str]:
+    """Every ledger key the target source's migrations produce at or below ``target_core``.
+
+    Read through the target source's own upgrader so the gate cannot disagree
+    with the discovery and key rule that writes the ledger.
+    """
+    scripts = _target_scripts(target_source)
+    import upgrade
+
+    core = tuple(int(part) for part in target_core.split("."))
+    migrations_dir = os.path.join(scripts, "migrations")
+    records = set()
+    for target in upgrade._MIGRATION_TARGETS:
+        for version_tuple, version_str, _path, _handler in upgrade._discover_target_migrations(
+            migrations_dir, target=target,
+        ):
+            if version_tuple <= core:
+                records.add(upgrade.migration_record_key(version_str, target))
+    return records
+
+
+def _version_of_record(record: str) -> tuple[int, ...]:
+    return tuple(int(part) for part in record.split("@", 1)[0].split("."))
+
+
+def require_ledger_coverage(
+    vault: Path,
+    target_source: Path,
+    historical_version: str,
+    target_core: str,
+) -> None:
+    """VERSION is the commit witness; the ledger must cover every migration it implies.
+
+    Records between the baseline and the target must have been run by this
+    upgrade: a backfilled record there would hide a seeding hole rather than
+    prove the migration ran.
+    """
+    try:
+        ledger = json.loads(
+            (vault / ".brain" / "local" / "migrations.json").read_text(encoding="utf-8")
+        )
+    except (OSError, ValueError) as exc:
+        raise AcceptanceFailure(f"migration ledger is unreadable: {exc}") from exc
+    recorded = ledger.get("migrations") if isinstance(ledger, dict) else None
+    if not isinstance(recorded, dict):
+        raise AcceptanceFailure("migration ledger is invalid")
+    required = REQUIRED_MIGRATION_RECORDS | expected_migration_records(target_source, target_core)
+    missing_records = sorted(required - set(recorded))
+    if missing_records:
+        raise AcceptanceFailure(f"migration ledger is missing required records: {missing_records}")
+    baseline = _version_of_record(historical_version)
+    core = _version_of_record(target_core)
+    for record in sorted(required):
+        if not baseline < _version_of_record(record) <= core:
+            continue
+        entry = recorded[record]
+        origin = entry.get("recorded_from") if isinstance(entry, dict) else None
+        if origin != "runner":
+            raise AcceptanceFailure(
+                f"migration ledger record {record} was {origin!r}, not run by the upgrade"
+            )
+
+
 def _target_versions(source: Path) -> tuple[str, str]:
     core = (source / "src" / "brain-core" / "VERSION").read_text(encoding="utf-8").strip()
     launcher = (source / "cli" / "brain").read_text(encoding="utf-8")
@@ -504,18 +572,7 @@ def run_acceptance(
     )
     if upgrade_log.get("runtime_readiness", {}).get("outcome") != "ok":
         raise AcceptanceFailure("upgrade did not record completed runtime readiness")
-    marker = (vault / ".brain" / "local" / ".migrated-version").read_text(encoding="utf-8").strip()
-    if marker != target_core:
-        raise AcceptanceFailure("upgrade did not record complete migration coverage")
-    ledger = json.loads(
-        (vault / ".brain" / "local" / "migrations.json").read_text(encoding="utf-8")
-    )
-    recorded = ledger.get("migrations")
-    if not isinstance(recorded, dict):
-        raise AcceptanceFailure("migration ledger is invalid")
-    missing_records = sorted(REQUIRED_MIGRATION_RECORDS - set(recorded))
-    if missing_records:
-        raise AcceptanceFailure(f"migration ledger is missing required records: {missing_records}")
+    require_ledger_coverage(vault, target_source, historical_version, target_core)
 
     after, receipt = _run_json(
         [
