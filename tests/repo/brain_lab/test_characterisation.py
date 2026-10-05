@@ -570,3 +570,83 @@ def test_mcp_probe_extracts_legacy_json_text_and_canonical_structured_content():
             }
         }
     ) == {"command": "command.list", "ok": True}
+
+
+def _acceptance_helper(name):
+    return runpy.run_path(
+        str(TOOL_ROOT / "container" / "historical_upgrade_acceptance.py"), run_name=name,
+    )
+
+
+def _repo_version() -> str:
+    return (REPO_ROOT / "src" / "brain-core" / "VERSION").read_text().strip()
+
+
+def test_historical_upgrade_acceptance_reads_coverage_through_the_target_upgrader():
+    """VERSION is the commit witness; the gate's record set is the runner's own discovery (DD-084)."""
+    import upgrade
+
+    script = TOOL_ROOT / "container" / "historical_upgrade_acceptance.py"
+    helper = _acceptance_helper("historical_upgrade_coverage_test")
+    version = _repo_version()
+    core = tuple(int(part) for part in version.split("."))
+    migrations_dir = str(REPO_ROOT / "src" / "brain-core" / "scripts" / "migrations")
+    expected = {
+        upgrade.migration_record_key(label, target)
+        for target in upgrade._MIGRATION_TARGETS
+        for version_tuple, label, _path, _handler in upgrade._discover_target_migrations(migrations_dir, target=target)
+        if version_tuple <= core
+    }
+
+    records = helper["expected_migration_records"](REPO_ROOT, version)
+
+    assert ".migrated-version" not in script.read_text(encoding="utf-8")
+    assert records == expected
+    assert helper["REQUIRED_MIGRATION_RECORDS"] <= records
+    assert "0.68.0@pre_compile_patch" in records and "0.68.0" in records
+
+
+def _ledger(vault, records):
+    local = vault / ".brain" / "local"
+    local.mkdir(parents=True)
+    (local / "migrations.json").write_text(json.dumps({"schema_version": 1, "migrations": records}))
+
+
+def _covering_records(helper, version, baseline="0.53.5"):
+    base = tuple(int(part) for part in baseline.split("."))
+    records = {}
+    for record in helper["REQUIRED_MIGRATION_RECORDS"] | helper["expected_migration_records"](REPO_ROOT, version):
+        parsed = tuple(int(part) for part in record.split("@", 1)[0].split("."))
+        records[record] = {"status": "ok", "recorded_from": "runner" if parsed > base else f"installed-version:{baseline}"}
+    return records
+
+
+def test_historical_upgrade_gate_accepts_a_fully_covered_ledger(tmp_path):
+    helper = _acceptance_helper("historical_upgrade_gate_ok_test")
+    version = _repo_version()
+    _ledger(tmp_path, _covering_records(helper, version))
+
+    helper["require_ledger_coverage"](tmp_path, REPO_ROOT, "0.53.5", version)
+
+
+def test_historical_upgrade_gate_rejects_a_missing_record(tmp_path):
+    helper = _acceptance_helper("historical_upgrade_gate_missing_test")
+    version = _repo_version()
+    records = _covering_records(helper, version)
+    records.pop("0.68.0@pre_compile_patch")
+    _ledger(tmp_path, records)
+
+    with pytest.raises(helper["AcceptanceFailure"], match=r"missing required records: \['0.68.0@pre_compile_patch'\]"):
+        helper["require_ledger_coverage"](tmp_path, REPO_ROOT, "0.53.5", version)
+
+
+def test_historical_upgrade_gate_rejects_a_backfilled_record_above_the_baseline(tmp_path):
+    """A backfilled record between baseline and target would hide the seeding hole, not prove the run."""
+    helper = _acceptance_helper("historical_upgrade_gate_backfilled_test")
+    version = _repo_version()
+    records = _covering_records(helper, version)
+    records["0.62.4"] = {"status": "backfilled", "recorded_from": "installed-version:0.62.4"}
+    _ledger(tmp_path, records)
+
+    with pytest.raises(helper["AcceptanceFailure"], match="0.62.4 was 'installed-version:0.62.4', not run by the upgrade"):
+        helper["require_ledger_coverage"](tmp_path, REPO_ROOT, "0.53.5", version)

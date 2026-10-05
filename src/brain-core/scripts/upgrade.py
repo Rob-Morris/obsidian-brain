@@ -179,6 +179,35 @@ def _parse_version(v: str) -> tuple:
     return tuple(parts)
 
 
+_STRICT_VERSION_RE = re.compile(r"(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)")
+
+
+def _strict_version(text: str) -> Optional[tuple[int, int, int]]:
+    """Parse ``X.Y.Z`` exactly, no leading zeros; anything else is None rather than an unorderable tuple."""
+    if _STRICT_VERSION_RE.fullmatch(text) is None:
+        return None
+    return tuple(int(part) for part in text.split("."))  # type: ignore[return-value]
+
+
+def _refuse_unreadable_version(
+    path: str, text: str, old_version: Optional[str], new_version: str,
+) -> Optional[dict]:
+    """Refuse a present VERSION that is not strict ``X.Y.Z``; an absent file is a separate case."""
+    if _strict_version(text) is not None:
+        return None
+    return {
+        "status": "error",
+        "old_version": old_version,
+        "new_version": new_version,
+        "reason": "version_unreadable",
+        "rollback_verified": True,
+        "message": (
+            f"Upgrade refused — {path} holds {text!r}, not a version of the form X.Y.Z, "
+            "so the guard that keeps an older Core off newer content cannot compare it."
+        ),
+    }
+
+
 def _managed_approval_followups(old_version: str | None, new_version: str) -> list[dict]:
     """Offer optional setup when an existing Brain gains managed approvals."""
     if old_version is None or not (
@@ -200,15 +229,31 @@ def _managed_approval_followups(old_version: str | None, new_version: str) -> li
     }]
 
 
-def _agent_skill_adapter_followups(vault_root: str, diff: dict) -> list[dict]:
-    """Return post-upgrade guidance only when the discovery adapter changed."""
+def _managed_adapter_copies_outdated(source: str) -> bool:
+    from _bootstrap.agent_skills import managed_adapter_copies_outdated
+
+    try:
+        with open(os.path.join(source, AGENT_SKILL_ADAPTER_REL), "r", encoding="utf-8") as handle:
+            content = handle.read()
+    except OSError:
+        return False
+    return managed_adapter_copies_outdated(Path.home(), content)
+
+
+def _agent_skill_adapter_followups(vault_root: str, source: str, diff: dict) -> list[dict]:
+    """Return post-upgrade guidance when the discovery adapter is new or managed copies lag it.
+
+    The "newly available" case is advisory and read from the copy diff; the
+    "updated" case compares managed copies with the source so a resumed or
+    re-applied run, whose diff is empty, still reports them.
+    """
     if AGENT_SKILL_ADAPTER_REL in diff.get("files_added", []):
         reason = "shaping_adapter_added"
         message = (
             "The Claude/Codex shaping discovery adapter is now available. "
             "Install it after the upgrade so each client loads shaping from the active Brain."
         )
-    elif AGENT_SKILL_ADAPTER_REL in diff.get("files_modified", []):
+    elif _managed_adapter_copies_outdated(source):
         reason = "shaping_adapter_updated"
         message = (
             "The Claude/Codex shaping discovery adapter changed. "
@@ -245,6 +290,103 @@ def _snapshot_file(path: str, snapshots: dict[str, dict]) -> None:
             snapshots[path] = {"exists": True, "content": f.read()}
     else:
         snapshots[path] = {"exists": False}
+
+
+def _fsync_files(paths) -> None:
+    """Make copied bytes durable before VERSION can witness them."""
+    for path in paths:
+        with open(path, "rb+") as handle:
+            os.fsync(handle.fileno())
+
+
+def _fsync_directories(paths) -> None:
+    """Make directory entries durable; directory fsync is a POSIX facility."""
+    if os.name != "posix":
+        return
+    synced = set()
+    for path in paths:
+        while not os.path.isdir(path):
+            path = os.path.dirname(path)
+        if path in synced:
+            continue
+        synced.add(path)
+        fd = os.open(path, os.O_RDONLY)
+        try:
+            os.fsync(fd)
+        finally:
+            os.close(fd)
+
+
+def _ensure_directory(path: str, changed_dirs: set[str]) -> None:
+    """Create ``path`` and note every directory whose entries changed."""
+    created = []
+    probe = path
+    while not os.path.isdir(probe):
+        created.append(probe)
+        probe = os.path.dirname(probe)
+    if not created:
+        return
+    os.makedirs(path, exist_ok=True)
+    changed_dirs.update(created)
+    changed_dirs.add(probe)
+
+
+def _copy_core_except_version(source: str, target: str, diff: dict) -> tuple[list[str], set[str]]:
+    """Copy added and modified core files and remove obsolete ones; VERSION is written at the commit.
+
+    Only the diff is touched, which keeps sync services from making conflict
+    copies of unchanged files. A failed removal raises, because VERSION will
+    claim a complete tree. Returns the copied paths and the directories whose
+    entries changed, for the durability pass.
+    """
+    copied: list[str] = []
+    changed_dirs: set[str] = set()
+    added = set(diff["files_added"])
+    for rel in diff["files_added"] + diff["files_modified"]:
+        if rel == "VERSION":
+            continue
+        src = os.path.join(source, rel)
+        dst = os.path.join(target, rel)
+        _ensure_directory(os.path.dirname(dst), changed_dirs)
+        shutil.copy2(src, dst)
+        copied.append(dst)
+        if rel in added:
+            changed_dirs.add(os.path.dirname(dst))
+    for rel in diff["files_removed"]:
+        abs_path = os.path.join(target, rel)
+        os.remove(abs_path)
+        changed_dirs.add(os.path.dirname(abs_path))
+        dir_path = os.path.dirname(abs_path)
+        try:
+            while dir_path != target:
+                os.rmdir(dir_path)  # only removes if empty
+                dir_path = os.path.dirname(dir_path)
+        except OSError:
+            pass
+    return copied, changed_dirs
+
+
+def _commit_version(target: str, version_bytes: bytes) -> Optional[str]:
+    """Write VERSION last so it witnesses a complete core and migrations.
+
+    The bytes were captured at run start, so the commit cannot pick up a
+    source that changed under the run. A failed read, write or replace
+    raises; once the replace has landed, a failed directory fsync is returned
+    as a message because the commit itself is already in place.
+    """
+    version_path = os.path.join(target, "VERSION")
+    try:
+        with open(version_path, "rb") as handle:
+            if handle.read() == version_bytes:
+                return None
+    except OSError:
+        pass
+    _safe_write(version_path, version_bytes)
+    try:
+        _fsync_directories((target,))
+    except OSError as exc:
+        return str(exc)
+    return None
 
 
 def _snapshot_tree(
@@ -485,6 +627,7 @@ def _diff_trees(source: str, target: str) -> dict:
 # ---------------------------------------------------------------------------
 
 _MIGRATION_RE_PATTERN = r"^migrate_to_(\d+(?:_\d+)*)\.py$"
+MIGRATION_FILE_RE = re.compile(_MIGRATION_RE_PATTERN)
 _DEFAULT_MIGRATION_TARGET = "post_compile"
 _PRECOMPILE_PATCH_TARGET = "pre_compile_patch"
 _MIGRATION_RECORD_SEP = "@"
@@ -514,17 +657,20 @@ class MigrationResultError(RuntimeError):
 
 def _discover_migrations(migrations_dir: str) -> list[tuple[tuple, str]]:
     """Find all migration scripts and return sorted (version_tuple, path) pairs."""
-    pattern = re.compile(_MIGRATION_RE_PATTERN)
     migrations = []
     if not os.path.isdir(migrations_dir):
         return migrations
     for name in os.listdir(migrations_dir):
-        m = pattern.match(name)
-        if m:
-            version_str = m.group(1).replace("_", ".")
-            version_tuple = _parse_version(version_str)
-            migrations.append((version_tuple, os.path.join(migrations_dir, name)))
+        version_str = migration_file_version(name)
+        if version_str is not None:
+            migrations.append((_parse_version(version_str), os.path.join(migrations_dir, name)))
     return sorted(migrations)
+
+
+def migration_file_version(filename: str) -> Optional[str]:
+    """Return the dotted version a migration file name declares, or None for any other file."""
+    match = MIGRATION_FILE_RE.match(filename)
+    return match.group(1).replace("_", ".") if match else None
 
 
 def _require_known_migration_target(target: str) -> None:
@@ -620,7 +766,10 @@ def _find_target_handlers_assignment(tree: ast.AST, script_path: str) -> Optiona
 
 def _extract_target_handler_names(script_path: str) -> dict[str, str]:
     """Return statically-declared target handlers from ``TARGET_HANDLERS``."""
-    tree = _load_migration_ast(script_path)
+    return _target_handler_names(_load_migration_ast(script_path), script_path)
+
+
+def _target_handler_names(tree: ast.AST, script_path: str) -> dict[str, str]:
     value_node = _find_target_handlers_assignment(tree, script_path)
     if value_node is None:
         return {}
@@ -658,10 +807,28 @@ def _extract_target_handler_names(script_path: str) -> dict[str, str]:
     return handlers
 
 
-def _module_defines_function(script_path: str, func_name: str) -> bool:
-    """Return True when ``script_path`` defines a top-level function."""
-    tree = _load_migration_ast(script_path)
-    return func_name in _top_level_function_names(tree)
+def _declared_targets(tree: ast.AST, handlers: dict[str, str]) -> frozenset[str]:
+    targets = set(handlers)
+    if "migrate" in _top_level_function_names(tree):
+        targets.add(_DEFAULT_MIGRATION_TARGET)
+    return frozenset(targets)
+
+
+def declared_migration_targets(text: str, *, filename: str = "<migration>") -> frozenset[str]:
+    """Return the ledger targets a migration's source declares: ``migrate`` and ``TARGET_HANDLERS``.
+
+    The one rule behind every ledger key. The upgrade runner, the repository
+    contract that keeps released migrations' identity and the lab's coverage
+    gate all read it from here, so the key set can never drift between them.
+    Pure: text in, no imports of the migration, no filesystem.
+    """
+    try:
+        tree = ast.parse(text, filename=filename)
+    except SyntaxError as exc:
+        raise MigrationDefinitionError(
+            f"{os.path.basename(filename)} has invalid Python syntax for migration discovery: {exc.msg}",
+        ) from exc
+    return _declared_targets(tree, _target_handler_names(tree, filename))
 
 
 def _discover_script_modules(scripts_dir: str) -> set[str]:
@@ -726,22 +893,25 @@ def _discover_target_migrations(
     _require_known_migration_target(target)
     discovered = []
     for version_tuple, script_path in _discover_migrations(migrations_dir):
-        version_str = _migration_version_str(version_tuple)
-        declared_handlers = _extract_target_handler_names(script_path)
-        if target == _DEFAULT_MIGRATION_TARGET:
-            handler_name = "migrate" if _module_defines_function(script_path, "migrate") else None
-        else:
-            handler_name = declared_handlers.get(target)
-        if handler_name:
-            discovered.append((version_tuple, version_str, script_path, handler_name))
+        tree = _load_migration_ast(script_path)
+        handlers = _target_handler_names(tree, script_path)
+        if target not in _declared_targets(tree, handlers):
+            continue
+        handler_name = "migrate" if target == _DEFAULT_MIGRATION_TARGET else handlers[target]
+        discovered.append((version_tuple, _migration_version_str(version_tuple), script_path, handler_name))
     return discovered
 
 
-def _migration_record_key(version_str: str, target: str) -> str:
-    """Return the ledger key for a migration target/version pair."""
+def migration_record_key(version_str: str, target: str) -> str:
+    """Encode the ledger key for a migration version and target."""
     if target == _DEFAULT_MIGRATION_TARGET:
         return version_str
     return f"{version_str}{_MIGRATION_RECORD_SEP}{target}"
+
+
+def migration_record_version(key: str) -> str:
+    """Decode the version a ledger key names, whatever its target."""
+    return key.split(_MIGRATION_RECORD_SEP, 1)[0]
 
 
 def _prospective_migration_effects(module, vault_root: str) -> tuple[str, ...]:
@@ -772,7 +942,6 @@ def _select_pending_migrations(
     new_version: str,
     ledger: dict,
     *,
-    force: bool,
     target: str,
 ) -> list:
     """Filter discovered migrations to those eligible to run.
@@ -780,21 +949,21 @@ def _select_pending_migrations(
     Single source of truth for the rule that determines which migrations a
     real run would invoke; `_run_migrations` and `_pending_migrations_summary`
     both call this so dry-run previews can never drift from real execution.
+    The window is ``installed VERSION < version <= target`` minus recorded
+    keys; nothing re-runs a recorded migration.
 
     Returns the same 4-tuple shape as `_discover_target_migrations`
     ((version_tuple, version_str, script_path, handler)) so callers can take
     what they need.
     """
     new_tuple = _parse_version(new_version)
-    if force:
-        return [m for m in all_migrations if m[0] <= new_tuple]
     old_tuple = _parse_version(old_version) if old_version else (0,)
     pending = []
     for entry in all_migrations:
         version_tuple, version_str, _sp, _h = entry
         if version_tuple <= old_tuple or version_tuple > new_tuple:
             continue
-        if _migration_record_key(version_str, target) in ledger["migrations"]:
+        if migration_record_key(version_str, target) in ledger["migrations"]:
             continue
         pending.append(entry)
     return pending
@@ -805,21 +974,22 @@ def _run_migrations(
     old_version: Optional[str],
     new_version: str,
     *,
-    force: bool = False,
     target: str = _DEFAULT_MIGRATION_TARGET,
     context: Optional[dict] = None,
-    raise_on_error: bool = False,
     prepare_effects=None,
 ) -> tuple[list[dict], dict]:
     """Run pending migrations between old_version and new_version.
 
-    Discovers migration scripts in .brain-core/scripts/migrations/,
-    runs those whose version is > old_version and <= new_version, unless
-    force=True, in which case every migration up to new_version is re-run.
+    Discovers migration scripts in .brain-core/scripts/migrations/ and runs
+    those whose version is > old_version and <= new_version and whose ledger
+    key is not yet recorded. A recorded migration never re-runs; a correction
+    ships as a new migration.
 
-    Per-migration execution is recorded in `.brain/local/migrations.json`.
-    Historical migrations up to old_version are backfilled into that ledger the
-    first time a vault with pre-ledger history is upgraded.
+    Each `ok` or `skipped` result is recorded in `.brain/local/migrations.json`
+    straight after its migration. Any other result, or a raising migration,
+    raises so the caller rolls back. Historical migrations up to old_version
+    are backfilled into the ledger the first time a vault with pre-ledger
+    history is upgraded.
 
     Returns (results, ledger) so callers can check completeness without
     re-discovering migrations or re-loading the ledger from disk.
@@ -838,8 +1008,7 @@ def _run_migrations(
     )
 
     pending = _select_pending_migrations(
-        all_migrations, old_version, new_version, ledger,
-        force=force, target=target,
+        all_migrations, old_version, new_version, ledger, target=target,
     )
     if not pending:
         return [], ledger
@@ -878,10 +1047,7 @@ def _run_migrations(
                         and not (result.get("message") or result.get("error"))
                     ):
                         result["message"] = context["compile_error"]
-                    if raise_on_error:
-                        raise MigrationResultError(result)
-                    results.append(result)
-                    break
+                    raise MigrationResultError(result)
             results.append(result)
             ledger = _record_migration_result(
                 vault_root, ledger, version_str, script_path, result, target=target,
@@ -889,17 +1055,9 @@ def _run_migrations(
         except MigrationResultError:
             raise
         except Exception as e:
-            if raise_on_error:
-                raise RuntimeError(
-                    f"Migration {os.path.basename(script_path)} target {target!r} failed: {e}",
-                ) from e
-            results.append({
-                "version": version_str,
-                "target": target,
-                "status": "error",
-                "message": str(e),
-            })
-            break
+            raise RuntimeError(
+                f"Migration {os.path.basename(script_path)} target {target!r} failed: {e}",
+            ) from e
     return results, ledger
 
 def _pending_migrations_summary(
@@ -907,7 +1065,6 @@ def _pending_migrations_summary(
     old_version: Optional[str],
     new_version: str,
     *,
-    force: bool = False,
     target: str = _DEFAULT_MIGRATION_TARGET,
     migrations_dir: Optional[str] = None,
 ) -> list[dict]:
@@ -920,8 +1077,7 @@ def _pending_migrations_summary(
 
     Unlike `_run_migrations`, this loads the ledger without seeding so the
     preview is fully side-effect-free; the version-comparison filter handles
-    pre-ledger history correctly without seeding for both force and non-force
-    paths.
+    pre-ledger history correctly without seeding.
 
     The migrations_dir override lets callers point at the source's migrations
     (e.g. during dry-run preview, before the upgrade copy step has run) so the
@@ -937,13 +1093,11 @@ def _pending_migrations_summary(
 
     ledger = _load_migration_ledger(vault_root)
     pending = _select_pending_migrations(
-        all_migrations, old_version, new_version, ledger,
-        force=force, target=target,
+        all_migrations, old_version, new_version, ledger, target=target,
     )
     return [{"version": vs, "target": target} for _vt, vs, _sp, _h in pending]
 
 
-_MIGRATED_VERSION_FILE = os.path.join(".brain", "local", ".migrated-version")
 _MIGRATION_LEDGER_FILE = os.path.join(".brain", "local", "migrations.json")
 _LAST_UPGRADE_FILE = os.path.join(".brain", "local", "last-upgrade.json")
 
@@ -1020,7 +1174,7 @@ def _seed_migration_ledger(
     for version_tuple, version_str, script_path, _handler in all_migrations:
         if version_tuple > upto_tuple:
             continue
-        record_key = _migration_record_key(version_str, target)
+        record_key = migration_record_key(version_str, target)
         if record_key in ledger["migrations"]:
             continue
         ledger["migrations"][record_key] = {
@@ -1048,15 +1202,18 @@ def _record_migration_result(
     *,
     target: str = _DEFAULT_MIGRATION_TARGET,
 ) -> dict:
-    """Record a successful or skipped migration in the local ledger."""
+    """Record an `ok` or `skipped` migration in the local ledger straight after it ran."""
     status = result.get("status")
-    if status == "error":
-        return ledger
+    if status not in {"ok", "skipped"}:
+        raise RuntimeError(
+            f"migration {version_str} target {target!r} returned {status!r}; "
+            "only ok or skipped results are recorded"
+        )
 
-    ledger["migrations"][_migration_record_key(version_str, target)] = {
+    ledger["migrations"][migration_record_key(version_str, target)] = {
         "version": version_str,
         "target": target,
-        "status": status or "ok",
+        "status": status,
         "recorded_at": datetime.now(timezone.utc).isoformat(),
         "recorded_from": "runner",
         "script": os.path.basename(script_path),
@@ -1065,81 +1222,63 @@ def _record_migration_result(
     return ledger
 
 
-def _all_migrations_recorded(
-    vault_root: str,
-    target_version: str,
-    ledger: Optional[dict] = None,
-    *,
-    target: str = _DEFAULT_MIGRATION_TARGET,
-) -> bool:
-    """Return True when every migration up to target_version is in the ledger.
+def _recorded_content_versions(ledger: dict) -> dict[str, tuple[int, int, int]]:
+    """Return each strictly parsed version the ledger records, keyed by its text."""
+    versions = {}
+    for key in ledger["migrations"]:
+        version_str = migration_record_version(key)
+        parsed = _strict_version(version_str)
+        if parsed is not None:
+            versions[version_str] = parsed
+    return versions
 
-    Pass a pre-loaded *ledger* to avoid re-reading the file from disk.
+
+def _refuse_older_source(
+    vault_root: str, old_version: Optional[str], new_version: str,
+) -> Optional[dict]:
+    """Refuse a source older than the recorded content, with or without force.
+
+    The content version is the higher of the installed ``VERSION`` and the
+    highest ledger record. Migrations only run forward, so an older Core over
+    content they shaped is undefined. The remedy never names ``brain upgrade``:
+    its upgrader is the installed distribution's, which may be the source
+    being refused.
     """
-    migrations_dir = os.path.join(vault_root, BRAIN_CORE_DIR, "scripts", "migrations")
-    all_migrations = _discover_target_migrations(migrations_dir, target=target)
-    if not all_migrations:
-        return True
-
-    target_tuple = _parse_version(target_version)
-    if ledger is None:
-        ledger = _load_migration_ledger(vault_root)
-    recorded = set(ledger["migrations"])
-    required = {
-        _migration_record_key(version_str, target)
-        for version_tuple, version_str, _script_path, _handler in all_migrations
-        if version_tuple <= target_tuple
+    source = _strict_version(new_version)
+    if source is None:
+        return None
+    recorded = _recorded_content_versions(_load_migration_ledger(vault_root))
+    candidates = dict(recorded)
+    installed = _strict_version(old_version) if old_version else None
+    if installed is not None:
+        candidates[old_version] = installed
+    if not candidates:
+        return None
+    content_str, content = max(candidates.items(), key=lambda item: item[1])
+    if source >= content:
+        return None
+    above = sorted(
+        (text for text, parsed in recorded.items() if parsed > source),
+        key=lambda text: recorded[text],
+    )
+    recorded_note = (
+        f" (the migration ledger records {', '.join(above)} above this source)"
+        if above else ""
+    )
+    return {
+        "status": "error",
+        "old_version": old_version,
+        "new_version": new_version,
+        "reason": "content_ahead",
+        "rollback_verified": True,
+        "message": (
+            f"Upgrade refused — this source is {new_version} but the Brain's content "
+            f"is at {content_str}{recorded_note}. Migrations only run forward, so "
+            "Brain never applies an older Core. Upgrade from a source at or above "
+            f"{content_str}: run install.sh from a current clone, or upgrade.py "
+            "--source <path> with that source."
+        ),
     }
-    return required <= recorded
-
-
-def _write_migrated_version_marker(vault_root: str, version: str) -> None:
-    """Write the coarse-grained migrated-version fast-path marker."""
-    marker = os.path.join(vault_root, _MIGRATED_VERSION_FILE)
-    _safe_write(marker, version + "\n")
-
-
-def run_pending_migrations(vault_root: str, *, force: bool = False) -> list[dict]:
-    """Run any migrations needed for the current vault version.
-
-    Reads the installed version from .brain-core/VERSION and runs
-    all migrations up to that version. For use by MCP server startup
-    and other non-upgrade entry points.
-
-    Stores per-migration execution in `.brain/local/migrations.json` and also
-    writes a coarse-grained `.brain/local/.migrated-version` marker after all
-    migrations up to the current version are recorded. `force=True` ignores
-    both markers and re-runs all migrations up to the current version.
-    """
-    target = os.path.join(vault_root, BRAIN_CORE_DIR)
-    current_version = _read_version(target)
-    if not current_version:
-        return []
-
-    # Fast path: skip if already migrated to this version.
-    # Still seed the per-migration ledger so pre-ledger vaults get their
-    # history backfilled — without this, reinstalling .brain-core/ after
-    # the marker is gone would replay all historical migrations.
-    marker = os.path.join(vault_root, _MIGRATED_VERSION_FILE)
-    if not force:
-        try:
-            with open(marker, "r", encoding="utf-8") as f:
-                if f.read().strip() == current_version:
-                    _seed_migration_ledger(
-                        vault_root,
-                        current_version,
-                        source=f"version-marker:{current_version}",
-                    )
-                    return []
-        except OSError:
-            pass
-
-    results, ledger = _run_migrations(vault_root, None, current_version, force=force)
-
-    if _all_migrations_recorded(vault_root, current_version, ledger=ledger):
-        _write_migrated_version_marker(vault_root, current_version)
-
-    return results
 
 
 # ---------------------------------------------------------------------------
@@ -1259,6 +1398,93 @@ def _write_upgrade_log(vault_root: str, result: dict) -> None:
         _safe_write(log_path, json.dumps(entry, indent=2) + "\n")
     except OSError:
         pass  # best-effort — don't let log failure mask the real error
+
+
+STAGE_BACKUP_BRAIN_CORE = "backup_brain_core"
+STAGE_COPY_BRAIN_CORE = "copy_brain_core"
+STAGE_VALIDATE_COMPILE = "validate_compile"
+STAGE_POST_COMPILE_MIGRATIONS = "post_compile_migrations"
+STAGE_VERSION_COMMIT = "version_commit"
+STAGE_POST_UPGRADE_SYNC = "post_upgrade_sync"
+STAGE_ROUTER_COMPILE = "router_compile"
+STAGE_DEPENDENCY_SYNC = "dependency_sync"
+STAGE_MCP_REGISTRATION_REPAIR = "mcp_registration_repair"
+STAGE_MACHINE_RESOLUTION_RUNTIME = "machine_resolution_runtime"
+STAGE_RETRIEVAL_ASSET_REPAIR = "retrieval_asset_repair"
+STAGE_RUNTIME_READINESS = "runtime_readiness"
+STAGE_RUNTIME_TIDINESS = "runtime_tidiness"
+# Every stage this upgrader logs, in order. The pre-commit set is closed: a
+# ``running`` log at any other stage, including one an older Core wrote, with
+# ``new_version == VERSION`` means the Core committed and post-commit work was lost.
+_STAGES = (
+    STAGE_BACKUP_BRAIN_CORE,
+    STAGE_COPY_BRAIN_CORE,
+    STAGE_VALIDATE_COMPILE,
+    STAGE_POST_COMPILE_MIGRATIONS,
+    STAGE_VERSION_COMMIT,
+    STAGE_POST_UPGRADE_SYNC,
+    STAGE_ROUTER_COMPILE,
+    STAGE_DEPENDENCY_SYNC,
+    STAGE_MCP_REGISTRATION_REPAIR,
+    STAGE_MACHINE_RESOLUTION_RUNTIME,
+    STAGE_RETRIEVAL_ASSET_REPAIR,
+    STAGE_RUNTIME_READINESS,
+    STAGE_RUNTIME_TIDINESS,
+)
+_PRE_COMMIT_STAGES = (
+    STAGE_BACKUP_BRAIN_CORE,
+    STAGE_COPY_BRAIN_CORE,
+    STAGE_VALIDATE_COMPILE,
+    STAGE_POST_COMPILE_MIGRATIONS,
+)
+_POST_COMMIT_STAGES = tuple(stage for stage in _STAGES if stage not in _PRE_COMMIT_STAGES)
+_POST_COMMIT_REPAIRS = "runtime.refresh-router, brain runtime repair or mcp.repair"
+_SAME_VERSION_RE_APPLY = (
+    "re-apply the same version (upgrade.py --force, or brain upgrade with \"force\": true)"
+)
+
+
+def _interrupted_upgrade_warning(vault_root: str, installed_version: Optional[str]) -> Optional[dict]:
+    """Warn about a ``running`` upgrade log; it is never an input to selection."""
+    try:
+        with open(os.path.join(vault_root, _LAST_UPGRADE_FILE), "r", encoding="utf-8") as handle:
+            entry = json.load(handle)
+    except (OSError, ValueError):
+        return None
+    if not isinstance(entry, dict) or entry.get("status") != "running":
+        return None
+    stage = entry.get("stage")
+    old = entry.get("old_version")
+    new = entry.get("new_version")
+    message = (
+        f"A previous upgrade {old or '(none)'} → {new} was interrupted during "
+        f"{stage or 'an unknown stage'}."
+    )
+    if new != installed_version:
+        message += (
+            " This upgrade resumes it: recorded migrations are skipped and the "
+            "interrupted one restarts."
+        )
+    elif stage not in _PRE_COMMIT_STAGES:
+        message += (
+            f" Its Core is committed; {_SAME_VERSION_RE_APPLY} or run the named "
+            f"repair ({_POST_COMMIT_REPAIRS}) to finish the post-commit stages."
+        )
+    elif old == new:
+        message += f" It was a same-version re-apply; {_SAME_VERSION_RE_APPLY} to finish it."
+    else:
+        message += (
+            " Its VERSION was written before its migrations finished, so some "
+            "migrations may be missing; a forced re-apply will not run them."
+        )
+    return {
+        "stage": "upgrade_start",
+        "code": "interrupted_previous_upgrade",
+        "message": message,
+        "interrupted_stage": stage,
+        "interrupted_old_version": old,
+        "interrupted_new_version": new,
+    }
 
 
 def _write_upgrade_progress(
@@ -1432,7 +1658,7 @@ def _ensure_central_runtime(
     *,
     requirements_changed: bool,
     sync_deps: Optional[bool],
-) -> Optional[dict]:
+) -> dict:
     """Ensure the central Brain managed runtime exists for this vault's requirements.
 
     Idempotent: when a venv already exists at the resolved central path
@@ -1441,16 +1667,16 @@ def _ensure_central_runtime(
     installs the requirements. Errors are informational and never fail the
     upgrade.
 
-    Auto mode (`sync_deps=None`) skips when nothing changed. `sync_deps=True`
-    forces resolution even on identical requirements. `sync_deps=False` opts
-    out entirely. The resolution uses the freshly-installed `_venv.py`
-    helper from the vault's `.brain-core/scripts/_common/`, so the path rule
-    is single-sourced.
+    Auto mode (`sync_deps=None`) ensures the runtime every run through the
+    sentinel-checked reuse, so a resumed or re-applied upgrade with an empty
+    copy diff still provisions it; `requirements_changed` is reported, not a
+    trigger. `sync_deps=True` adds full conformance checking of an existing
+    runtime. `sync_deps=False` opts out entirely. The resolution uses the
+    freshly-installed `_venv.py` helper from the vault's
+    `.brain-core/scripts/_common/`, so the path rule is single-sourced.
     """
     if sync_deps is False:
         return {"requirements_changed": requirements_changed, "outcome": RUNTIME_SKIPPED_DISABLED}
-    if not requirements_changed and sync_deps is not True:
-        return None
 
     venv_helper_path = vault_root / VENV_HELPER_REL
     if not venv_helper_path.is_file():
@@ -1488,12 +1714,14 @@ def _ensure_central_runtime(
             launcher=Path(sys.executable),
             required_modules=(),
             install_requirements=True,
-            full_conformance=True,
+            full_conformance=sync_deps is True,
             dry_run=False,
             timeout=DEPENDENCY_SYNC_TIMEOUT,
         )
     except subprocess.TimeoutExpired:
         return {**summary, "outcome": RUNTIME_ERROR, "message": f"timed out after {DEPENDENCY_SYNC_TIMEOUT}s"}
+    except OSError as e:
+        return {**summary, "outcome": RUNTIME_ERROR, "message": f"{type(e).__name__}: {e}"}
 
     if provision["outcome"] == venv_mod.RUNTIME_ERROR:
         return {**summary, "outcome": RUNTIME_ERROR, "message": provision.get("message", "unknown provision error")}
@@ -2059,25 +2287,29 @@ def upgrade(
 ) -> dict:
     """Upgrade .brain-core/ in a vault from a source directory.
 
-    Flow: backup → copy → compile (validate) → migrate → sync definitions.
-    If copy or compile fails, .brain-core/ is restored from the backup.
-    Migrations only run after compile succeeds. On non-dry-run success,
-    the upgrader also orchestrates central-runtime sync (when applicable)
-    and post-upgrade retrieval-asset repair via `repair.py lexical` or
-    `repair.py semantic`.
+    Flow: backup → copy (every core file except VERSION) → compile (validate)
+    → migrate → reconcile skills → cutover → write VERSION → sync definitions
+    → compile the router. ``VERSION`` is the commit witness: until it is
+    written every failure restores the backup, so an interrupted run resumes
+    as an ordinary upgrade whose recorded migrations are skipped. On
+    non-dry-run success, the upgrader also orchestrates central-runtime
+    provisioning and post-upgrade retrieval-asset repair via `repair.py
+    lexical` or `repair.py semantic`.
 
     Args:
         vault_root: Path to the vault root.
         source: Path to the source brain-core directory.
-        force: Allow same-version or downgrade upgrades.
+        force: Re-apply a source whose version and core already match the
+            installed Core. Migrations never re-run, and a source older than
+            the recorded content is refused regardless.
         dry_run: Report changes without modifying files.
         sync: Override artefact_sync preference (True=force, False=skip,
             None=follow preference).
-        sync_deps: Override post-upgrade central-runtime sync behaviour
-            (True=force, False=skip, None=follow requirements change).
+        sync_deps: Override post-upgrade central-runtime provisioning
+            (True=full conformance, False=skip, None=ensure every run).
         commit_callback: Optional local cutover callback executed after core,
-            compile and migrations validate but before rollback material is
-            released. Raising requests a checked core rollback.
+            compile and migrations validate but before VERSION is written.
+            Raising requests a checked core rollback.
 
     Returns:
         Dict with status, version info, and file change lists.
@@ -2086,32 +2318,58 @@ def upgrade(
     if not os.path.isdir(source):
         return {"status": "error", "message": f"Source directory not found: {source}"}
 
-    new_version = _read_version(source)
-    if new_version is None:
+    source_version_path = os.path.join(source, "VERSION")
+    try:
+        with open(source_version_path, "rb") as handle:
+            version_bytes = handle.read()
+    except OSError:
         return {"status": "error", "message": f"No VERSION file in source: {source}"}
+    new_version = version_bytes.decode("utf-8", errors="replace").strip()
 
     target = os.path.join(vault_root, BRAIN_CORE_DIR)
     old_version = _read_version(target)
 
-    # Version checks
-    if old_version and new_version and not force:
-        if old_version == new_version:
-            return {
+    warnings = []
+    interrupted = _interrupted_upgrade_warning(vault_root, old_version)
+    if interrupted is not None:
+        warnings.append(interrupted)
+
+    refusal = _refuse_unreadable_version(source_version_path, new_version, old_version, new_version)
+    if refusal is None and old_version is not None:
+        refusal = _refuse_unreadable_version(
+            os.path.join(target, "VERSION"), old_version, old_version, new_version,
+        )
+    if refusal is None:
+        refusal = _refuse_older_source(vault_root, old_version, new_version)
+    if refusal is not None:
+        if warnings:
+            refusal["warnings"] = warnings
+        return refusal
+
+    # Diff
+    diff = _diff_trees(source, target)
+
+    core_matches = not (diff["files_added"] or diff["files_modified"] or diff["files_removed"])
+    if old_version == new_version and not force:
+        if core_matches:
+            skipped = {
                 "status": "skipped",
                 "old_version": old_version,
                 "new_version": new_version,
                 "message": f"Already at {new_version}. Use --force to re-apply.",
             }
-        if _parse_version(new_version) < _parse_version(old_version):
-            return {
-                "status": "skipped",
-                "old_version": old_version,
-                "new_version": new_version,
-                "message": f"Downgrade {old_version} → {new_version}. Use --force to proceed.",
-            }
-
-    # Diff
-    diff = _diff_trees(source, target)
+            if warnings:
+                skipped["warnings"] = warnings
+            return skipped
+        warnings.append({
+            "stage": "version_guard",
+            "code": "core_mismatch",
+            "message": (
+                f"The installed Brain Core differs from this {new_version} source, "
+                "so this upgrade replaces it: any local edits under .brain-core/ "
+                "are overwritten. Keep customisations outside .brain-core/."
+            ),
+        })
 
     result = {
         "status": "ok",
@@ -2123,7 +2381,9 @@ def upgrade(
         "files_unchanged": diff["files_unchanged"],
         "dry_run": dry_run,
     }
-    followups = _agent_skill_adapter_followups(vault_root, diff)
+    if warnings:
+        result["warnings"] = warnings
+    followups = _agent_skill_adapter_followups(vault_root, source, diff)
     followups.extend(_managed_approval_followups(old_version, new_version))
     if followups:
         result["followups"] = followups
@@ -2141,6 +2401,7 @@ def upgrade(
         except (OSError, ValueError, RuntimeError) as exc:
             result.setdefault("warnings", []).append({
                 "stage": "skill_reconciliation_preview",
+                "code": "skill_reconciliation_preview_unavailable",
                 "message": str(exc),
             })
         else:
@@ -2159,14 +2420,14 @@ def upgrade(
         source_migrations_dir = os.path.join(source, "scripts", "migrations")
         precompile_preview = _pending_migrations_summary(
             vault_root, old_version, new_version,
-            force=force, target=_PRECOMPILE_PATCH_TARGET,
+            target=_PRECOMPILE_PATCH_TARGET,
             migrations_dir=source_migrations_dir,
         )
         if precompile_preview:
             result["precompile_patch_migrations_preview"] = precompile_preview
 
         migrations_preview = _pending_migrations_summary(
-            vault_root, old_version, new_version, force=force,
+            vault_root, old_version, new_version,
             migrations_dir=source_migrations_dir,
         )
         if migrations_preview:
@@ -2181,20 +2442,31 @@ def upgrade(
 
         return result
 
-    _write_upgrade_progress(
-        vault_root,
-        old_version=old_version,
-        new_version=new_version,
-        dry_run=False,
-        stage="backup_brain_core",
-        message=f"Preparing upgrade {old_version or '(none)'} → {new_version}",
-    )
+    def progress(stage: str, message: str) -> None:
+        _write_upgrade_progress(
+            vault_root,
+            old_version=old_version,
+            new_version=new_version,
+            dry_run=False,
+            stage=stage,
+            message=message,
+        )
+
+    progress(STAGE_BACKUP_BRAIN_CORE, f"Preparing upgrade {old_version or '(none)'} → {new_version}")
 
     # Preserve old security defaults before replacement; the existing pre-compile
     # migration context carries only inert evidence, never old executable code.
-    from _command_interface.authorisation_migration import capture_legacy_authorisation
+    # The template layer persists across runs because the copy replaces it
+    # before an interrupted run can resume.
+    from _command_interface.authorisation_migration import (
+        capture_legacy_authorisation,
+        load_or_persist_template_capture,
+    )
     try:
-        authorisation_before_upgrade = capture_legacy_authorisation(vault_root, old_version)
+        template_layer = load_or_persist_template_capture(vault_root, old_version)
+        authorisation_before_upgrade = capture_legacy_authorisation(
+            vault_root, old_version, template_layer,
+        )
     except (OSError, ValueError, TypeError) as exc:
         return {
             "status": "error",
@@ -2222,6 +2494,8 @@ def upgrade(
     precompile_snapshot_roots: dict[str, set[str]] = {}
     postcompile_snapshots: dict[str, dict] = {}
     postcompile_snapshot_roots: dict[str, set[str]] = {}
+    ledger_path = os.path.join(vault_root, _MIGRATION_LEDGER_FILE)
+    recovery_dir = os.path.join(backup_dir, "vault-state-recovery")
 
     def _snapshot_declared_effects(paths, snapshots):
         for path in paths:
@@ -2231,6 +2505,17 @@ def upgrade(
         restore_errors = []
         recovery_paths = []
         snapshots_verified = True
+        # The ledger is restored before any content: a migration records
+        # itself after its effects land, so unwinding must unrecord before it
+        # undoes. An interrupted rollback then leaves the ledger at or behind
+        # the content, and restartable migrations heal that on resume.
+        if ledger_path in precompile_snapshots:
+            report = _restore_snapshots(
+                {ledger_path: precompile_snapshots[ledger_path]},
+                recovery_dir=recovery_dir,
+            )
+            restore_errors.extend(f"migration ledger: {error}" for error in report.errors)
+            recovery_paths.extend(report.recovery_paths)
         # Unwind stages in reverse order. Their scopes can overlap: the later
         # snapshot may contain an earlier migration's intermediate bytes.
         for snapshots, roots, label in (
@@ -2242,7 +2527,7 @@ def upgrade(
             report = _restore_snapshots(
                 snapshots,
                 roots=roots,
-                recovery_dir=os.path.join(backup_dir, "vault-state-recovery"),
+                recovery_dir=recovery_dir,
             )
             restore_errors.extend(f"{label}: {error}" for error in report.errors)
             recovery_paths.extend(report.recovery_paths)
@@ -2294,47 +2579,22 @@ def upgrade(
         return err_result
 
     try:
-        _write_upgrade_progress(
-            vault_root,
-            old_version=old_version,
-            new_version=new_version,
-            dry_run=False,
-            stage="copy_brain_core",
-            message="Copying brain-core files into the vault",
-        )
-        # Copy only added and modified files (avoids touching unchanged files,
-        # which prevents sync-service conflict copies on iCloud/Dropbox/etc.)
-        for rel in diff["files_added"] + diff["files_modified"]:
-            src = os.path.join(source, rel)
-            dst = os.path.join(target, rel)
-            os.makedirs(os.path.dirname(dst), exist_ok=True)
-            shutil.copy2(src, dst)
-
-        # Remove obsolete files and clean up empty parent directories
-        for rel in diff["files_removed"]:
-            abs_path = os.path.join(target, rel)
-            try:
-                os.remove(abs_path)
-            except OSError:
-                continue
-            dir_path = os.path.dirname(abs_path)
-            try:
-                while dir_path != target:
-                    os.rmdir(dir_path)  # only removes if empty
-                    dir_path = os.path.dirname(dir_path)
-            except OSError:
-                pass
+        progress(STAGE_COPY_BRAIN_CORE, "Copying brain-core files into the vault")
+        try:
+            copied, changed_dirs = _copy_core_except_version(source, target, diff)
+        except (OSError, shutil.Error) as e:
+            return _rollback(f"copy failed: {e}")
+        try:
+            _fsync_files(copied)
+            _fsync_directories(changed_dirs)
+        except OSError as e:
+            return _rollback(f"could not make copied files durable: {e}")
 
         _snapshot_tree(os.path.join(vault_root, ".brain"), precompile_snapshots, roots=precompile_snapshot_roots)
         _snapshot_tree(os.path.join(vault_root, "_Config"), precompile_snapshots, roots=precompile_snapshot_roots)
-        _write_upgrade_progress(
-            vault_root,
-            old_version=old_version,
-            new_version=new_version,
-            dry_run=False,
-            stage="validate_compile",
-            message="Validating the upgraded router/compiler state",
-        )
+        # Snapshot the ledger even when absent, so rollback can unrecord first.
+        _snapshot_file(ledger_path, precompile_snapshots)
+        progress(STAGE_VALIDATE_COMPILE, "Validating the upgraded router/compiler state")
         compile_context = {
             "authorisation_before_upgrade": authorisation_before_upgrade,
             "compile_error": _validate_compile(vault_root),
@@ -2346,10 +2606,8 @@ def upgrade(
                 vault_root,
                 old_version,
                 new_version,
-                force=force,
                 target=_PRECOMPILE_PATCH_TARGET,
                 context=compile_context,
-                raise_on_error=True,
                 prepare_effects=lambda paths: _snapshot_declared_effects(
                     paths, precompile_snapshots
                 ),
@@ -2382,6 +2640,7 @@ def upgrade(
         compiled_router = {}
         result.setdefault("warnings", []).append({
             "stage": "post_compile_snapshot_seed",
+            "code": "post_compile_snapshot_seed_unavailable",
             "message": f"Could not read compiled router for post-compile rollback snapshots: {e}",
         })
 
@@ -2396,20 +2655,11 @@ def upgrade(
         )
 
     try:
-        _write_upgrade_progress(
-            vault_root,
-            old_version=old_version,
-            new_version=new_version,
-            dry_run=False,
-            stage="post_compile_migrations",
-            message="Running post-compile migrations",
-        )
+        progress(STAGE_POST_COMPILE_MIGRATIONS, "Running post-compile migrations")
         migrations, ledger = _run_migrations(
             vault_root,
             old_version,
             new_version,
-            force=force,
-            raise_on_error=True,
             prepare_effects=lambda paths: _snapshot_declared_effects(
                 paths, postcompile_snapshots
             ),
@@ -2427,8 +2677,6 @@ def upgrade(
         raise
     if migrations:
         result["migrations"] = migrations
-    if _all_migrations_recorded(vault_root, new_version, ledger=ledger):
-        _write_migrated_version_marker(vault_root, new_version)
 
     try:
         from _skill_library import (
@@ -2498,31 +2746,77 @@ def upgrade(
                 )
             raise
 
+    return _commit_and_reconcile(
+        vault_root, target, version_bytes, result, backup_dir, progress,
+        sync=sync, sync_deps=sync_deps,
+    )
+
+
+def _commit_and_reconcile(
+    vault_root: str,
+    target: str,
+    version_bytes: bytes,
+    result: dict,
+    backup_dir: str,
+    progress,
+    *,
+    sync: Optional[bool],
+    sync_deps: Optional[bool],
+) -> dict:
+    """Write VERSION, then run the post-commit stages; nothing here rolls back."""
+    from _command_interface.authorisation_migration import discard_template_capture
+
+    old_version = result["old_version"]
+    new_version = result["new_version"]
+
+    progress(STAGE_VERSION_COMMIT, "Committing the upgraded Brain Core version")
+    try:
+        not_durable = _commit_version(target, version_bytes)
+    except OSError as exc:
+        # The cutover has committed, so rollback no longer applies; the next
+        # run (old < new) has nothing left to migrate and finishes the commit.
+        result["version_commit"] = {
+            "outcome": "error",
+            "message": f"could not write {BRAIN_CORE_MARKER}: {exc}",
+        }
+        result["status"] = "partial"
+        result["message"] = (
+            f"Upgrade {old_version or '(none)'} → {new_version} applied, but its "
+            "VERSION could not be written; rerun the same upgrade."
+        )
+        shutil.rmtree(backup_dir, ignore_errors=True)
+        _write_upgrade_log(vault_root, result)
+        return result
+    if not_durable is not None:
+        result.setdefault("warnings", []).append({
+            "stage": STAGE_VERSION_COMMIT,
+            "code": "version_commit_not_durable",
+            "message": (
+                f"{BRAIN_CORE_MARKER} is written but its directory could not be "
+                f"fsynced ({not_durable}); a crash before the next sync could lose "
+                "the commit, and rerunning the upgrade would then resume it."
+            ),
+        })
+    discard_template_capture(vault_root)
     shutil.rmtree(backup_dir, ignore_errors=True)
 
-    # --- Post-upgrade definition sync ---
-    _write_upgrade_progress(
-        vault_root,
-        old_version=old_version,
-        new_version=new_version,
-        dry_run=False,
-        stage="post_upgrade_sync",
-        message="Running post-upgrade definition sync",
-    )
+    progress(STAGE_POST_UPGRADE_SYNC, "Running post-upgrade definition sync")
     sync_info = _post_upgrade_sync(vault_root, sync=sync)
     if sync_info is not None:
         result.update(sync_info)
-        sync_result = sync_info.get("sync_result")
-        if sync_result and any(
-            item.get("target", "").startswith("_Config/Taxonomy/")
-            for item in sync_result.get("updated", [])
-        ):
-            compile_error = _validate_compile(vault_root)
-            if compile_error is not None:
-                result["sync_compile_error"] = (
-                    "Definitions were updated but router recompilation failed: "
-                    f"{compile_error}"
-                )
+
+    # One compile after the commit: the router stamps and tracks VERSION, so
+    # every compile inside the transaction window is stale once it is written.
+    progress(STAGE_ROUTER_COMPILE, "Compiling the router for the committed Brain Core")
+    compile_error = _validate_compile(vault_root)
+    if compile_error is None:
+        result["router_compile"] = {"outcome": "ok"}
+    else:
+        result["router_compile"] = {
+            "outcome": "error",
+            "message": f"Router recompilation failed after the commit: {compile_error}",
+        }
+        result["status"] = "partial"
 
     from _common._venv import RUNTIME_EXPORT_NAMES
 
@@ -2530,32 +2824,16 @@ def upgrade(
         {os.path.join("brain_mcp", name) for name in RUNTIME_EXPORT_NAMES}
         & set(result.get("files_added", []) + result.get("files_modified", []) + result.get("files_removed", []))
     )
-    _write_upgrade_progress(
-        vault_root,
-        old_version=old_version,
-        new_version=new_version,
-        dry_run=False,
-        stage="dependency_sync",
-        message="Provisioning central managed runtime",
-    )
-    runtime = _ensure_central_runtime(
+    progress(STAGE_DEPENDENCY_SYNC, "Provisioning central managed runtime")
+    result["central_runtime"] = _ensure_central_runtime(
         Path(vault_root),
         requirements_changed=requirements_changed,
         sync_deps=sync_deps,
     )
-    if runtime is not None:
-        result["central_runtime"] = runtime
 
     dependency_provisioning_allowed = sync_deps is not False
 
-    _write_upgrade_progress(
-        vault_root,
-        old_version=old_version,
-        new_version=new_version,
-        dry_run=False,
-        stage="mcp_registration_repair",
-        message="Reconciling existing current-vault MCP registrations",
-    )
+    progress(STAGE_MCP_REGISTRATION_REPAIR, "Reconciling existing current-vault MCP registrations")
     if dependency_provisioning_allowed:
         result["mcp_registration_repair"] = _repair_mcp_registration_after_upgrade(
             Path(vault_root)
@@ -2565,24 +2843,10 @@ def upgrade(
             Path(vault_root)
         )
 
-    _write_upgrade_progress(
-        vault_root,
-        old_version=old_version,
-        new_version=new_version,
-        dry_run=False,
-        stage="machine_resolution_runtime",
-        message="Provisioning machine-level resolution runtime",
-    )
+    progress(STAGE_MACHINE_RESOLUTION_RUNTIME, "Provisioning machine-level resolution runtime")
     result["machine_resolution_runtime"] = _ensure_machine_resolution_runtime(Path(vault_root))
 
-    _write_upgrade_progress(
-        vault_root,
-        old_version=old_version,
-        new_version=new_version,
-        dry_run=False,
-        stage="retrieval_asset_repair",
-        message="Reconciling retrieval asset state after upgrade",
-    )
+    progress(STAGE_RETRIEVAL_ASSET_REPAIR, "Reconciling retrieval asset state after upgrade")
     if dependency_provisioning_allowed:
         result["retrieval_asset_repair"] = _repair_retrieval_assets_after_upgrade(
             Path(vault_root)
@@ -2592,30 +2856,18 @@ def upgrade(
             Path(vault_root)
         )
 
-    _write_upgrade_progress(
-        vault_root,
-        old_version=old_version,
-        new_version=new_version,
-        dry_run=False,
-        stage="runtime_readiness",
-        message="Completing selected-Brain runtime warm-up",
-    )
+    progress(STAGE_RUNTIME_READINESS, "Completing selected-Brain runtime warm-up")
     if dependency_provisioning_allowed:
         result["runtime_readiness"] = _complete_runtime_readiness(Path(vault_root))
     else:
         result["runtime_readiness"] = _deferred_runtime_readiness()
 
-    _write_upgrade_progress(
-        vault_root,
-        old_version=old_version,
-        new_version=new_version,
-        dry_run=False,
-        stage="runtime_tidiness",
-        message="Inspecting shared-runtime cleanup candidates",
-    )
+    progress(STAGE_RUNTIME_TIDINESS, "Inspecting shared-runtime cleanup candidates")
     result["runtime_orphans"] = _inspect_runtime_orphans(Path(vault_root))
 
     result["message"] = f"Upgraded {old_version or '(none)'} → {new_version}"
+    if result["router_compile"]["outcome"] == "error":
+        result["message"] += "; router recompilation requires recovery"
     if result["mcp_registration_repair"].get("outcome") in {"error", "partial", "unknown"}:
         result["status"] = "partial"
         result["message"] += "; MCP registration reconciliation requires recovery"
@@ -2666,7 +2918,10 @@ def main() -> None:
     )
     parser.add_argument(
         "--force", action="store_true",
-        help="Allow same-version or downgrade upgrades",
+        help=(
+            "Re-apply this version over a matching installed core; migrations "
+            "never re-run and an older source is still refused"
+        ),
     )
     parser.add_argument(
         "--json", action="store_true", dest="json_output",
@@ -2776,7 +3031,7 @@ def main() -> None:
 
     if args.json_output:
         print(json.dumps(result, indent=2))
-        if result["status"] == "partial":
+        if result["status"] in {"partial", "error"}:
             sys.exit(1)
         return
 
@@ -2791,6 +3046,8 @@ def main() -> None:
 
     if result["status"] == "skipped":
         info(result["message"])
+        for warning in result.get("warnings", []):
+            info(f"Warning: {warning['message']}")
         sys.exit(0)
 
     info(result["message"])
@@ -2983,13 +3240,22 @@ def main() -> None:
         if result.get("warnings"):
             print(file=sys.stderr)
 
+        version_commit = result.get("version_commit")
+        if version_commit is not None and version_commit["outcome"] == "error":
+            info(f"The upgrade applied but its VERSION was not committed: {version_commit['message']}")
+            info("  Rerun the same upgrade to finish.")
+            print(file=sys.stderr)
+
+        router_compile = result.get("router_compile")
+        if router_compile is not None and router_compile["outcome"] == "error":
+            info(router_compile["message"])
+            info("  Repair: brain runtime refresh-router --json")
+            print(file=sys.stderr)
+
         # Sync results
         if "sync_error" in result:
             info(f"Definition sync failed: {result['sync_error']}")
             info("Run sync_definitions.py manually after investigating.")
-        elif "sync_compile_error" in result:
-            info(result["sync_compile_error"])
-            info("Run compile_router.py manually after investigating.")
         elif "sync_result" in result:
             sr = result["sync_result"]
             if sr.get("updated"):

@@ -3,6 +3,7 @@
 **Status:** Accepted
 **Extends:** DD-052, DD-078, DD-082
 **Amends:** DD-051 (§2), DD-053
+**Extended by:** DD-084
 
 ## Context
 
