@@ -200,6 +200,31 @@ configure_existing_approvals() {
         --workspace "$VAULT_PATH" --surfaces "${surfaces[@]}"
 }
 
+# upgrade.py argv for this invocation; the same options drive the equal-version
+# preview and the real run, so a preview can never be refused for options the
+# run would have carried.
+build_upgrade_cmd() {
+    upgrade_cmd=(
+        "$PYTHON"
+        "$REPO_DIR/src/brain-core/scripts/upgrade.py"
+        --source "$REPO_DIR/src/brain-core"
+        --vault "$VAULT_PATH"
+    )
+    if [ "$NON_INTERACTIVE" = true ]; then
+        upgrade_cmd+=(--unattended)
+    fi
+    if [ "$ACKNOWLEDGE_GLOBAL_CLI_CUTOVER" = true ]; then
+        upgrade_cmd+=(--acknowledge-global-cli-cutover)
+    fi
+    # Bash 3.2 (the macOS system shell) treats "${empty_array[@]}" as an
+    # unbound variable under `set -u`. The `+` form expands to zero arguments
+    # when no exclusions were supplied while preserving spaces in populated
+    # entries.
+    for stale_brain_id in ${STALE_BRAIN_EXCLUSIONS[@]+"${STALE_BRAIN_EXCLUSIONS[@]}"}; do
+        upgrade_cmd+=(--exclude-stale-brain "$stale_brain_id")
+    done
+}
+
 # Expand ~ and resolve to absolute path
 resolve_path() {
     local p="${1/#\~/$HOME}"
@@ -650,23 +675,57 @@ if [ -n "$EXISTING_VERSION" ]; then
             version_cmp=$?
         fi
         if [ "$version_cmp" -eq 0 ]; then
+            # upgrade.py owns the same-version outcome: its side-effect-free
+            # preview shares the real run's guards, so "skipped" means the
+            # installed core already matches this source and nothing runs.
             printf '\n' >&2
-            info "Brain is already at v$SOURCE_VERSION. No core upgrade needed."
-            configure_existing_approvals
-            exit 0
+            if [ "$SKIP_CLI" = true ]; then
+                err "--skip-cli cannot be used for the coordinated Brain Core 0.55 / CLI 2 cutover."
+            fi
+            [ -n "$PYTHON" ] || err "Python 3.12+ is required for upgrade. Install it and rerun, or call upgrade.py with a compatible interpreter."
+            # A preview never prompts: an unacknowledged cutover is reported, not asked.
+            build_upgrade_cmd
+            set +e
+            preview_json=$("${upgrade_cmd[@]}" --unattended --dry-run --json 2>/dev/null)
+            preview_rc=$?
+            set -e
+            preview_status=$(printf '%s' "$preview_json" | "$PYTHON" -c '
+import json, sys
+try:
+    data = json.load(sys.stdin)
+except ValueError:
+    sys.exit(0)
+result = data.get("result")
+status = result.get("status") if isinstance(result, dict) and "status" in result else data.get("status")
+print({"noop": "skipped", "planned": "ok"}.get(status, status))
+print(data.get("message") or (result.get("message") if isinstance(result, dict) else "") or (data.get("error") or {}).get("message", ""))
+' 2>/dev/null || true)
+            preview_message=$(printf '%s' "$preview_status" | sed -n '2p')
+            preview_status=$(printf '%s' "$preview_status" | sed -n '1p')
+            if [ "$preview_rc" -ne 0 ]; then
+                err "Upgrade refused: ${preview_message:-upgrade.py --dry-run exited $preview_rc}"
+            fi
+            if [ "$preview_status" = "skipped" ]; then
+                info "Brain is already at v$SOURCE_VERSION. No core upgrade needed."
+                configure_existing_approvals
+                exit 0
+            fi
+            info "Brain is at v$SOURCE_VERSION but its installed core differs from this source; re-applying it overwrites any local edits under .brain-core/."
+            UPGRADE_MODE=true
         fi
         if [ "$version_cmp" -eq 1 ]; then
             printf '\n' >&2
             warn "Installed brain is newer than this source copy (v$EXISTING_VERSION > v$SOURCE_VERSION)."
-            info "install.sh does not perform downgrades."
-            info "If you really want to downgrade or re-apply, run:"
-            info "  \"${PYTHON:-python3.12}\" \"$REPO_DIR/src/brain-core/scripts/upgrade.py\" --source \"$REPO_DIR/src/brain-core\" --vault \"$VAULT_PATH\" --force"
+            info "Brain does not downgrade: migrations only run forward."
+            info "Upgrade from a source at or above v$EXISTING_VERSION (a current clone, or a checkout of that version or later)."
             configure_existing_approvals
             exit 0
         fi
     fi
 
-    if [ "$NON_INTERACTIVE" = true ]; then
+    if [ "$UPGRADE_MODE" = true ]; then
+        :
+    elif [ "$NON_INTERACTIVE" = true ]; then
         UPGRADE_MODE=true
         printf '\n  Upgrading v%s → v%s (--non-interactive)\n' "$EXISTING_VERSION" "$SOURCE_VERSION" >&2
     else
@@ -695,27 +754,9 @@ if [ "$UPGRADE_MODE" = true ]; then
     fi
     [ -n "$PYTHON" ] || err "Python 3.12+ is required for upgrade. Install it and rerun, or call upgrade.py with a compatible interpreter."
     step "Upgrading brain-core"
-    upgrade_cmd=(
-        "$PYTHON"
-        "$REPO_DIR/src/brain-core/scripts/upgrade.py"
-        --source "$REPO_DIR/src/brain-core"
-        --vault "$VAULT_PATH"
-    )
     # --skip-mcp skips MCP registration only: an upgrade still syncs the managed runtime.
     # Run upgrade.py --no-sync-deps directly to defer that sync.
-    if [ "$NON_INTERACTIVE" = true ]; then
-        upgrade_cmd+=(--unattended)
-    fi
-    if [ "$ACKNOWLEDGE_GLOBAL_CLI_CUTOVER" = true ]; then
-        upgrade_cmd+=(--acknowledge-global-cli-cutover)
-    fi
-    # Bash 3.2 (the macOS system shell) treats "${empty_array[@]}" as an
-    # unbound variable under `set -u`. The `+` form expands to zero arguments
-    # when no exclusions were supplied while preserving spaces in populated
-    # entries.
-    for stale_brain_id in ${STALE_BRAIN_EXCLUSIONS[@]+"${STALE_BRAIN_EXCLUSIONS[@]}"}; do
-        upgrade_cmd+=(--exclude-stale-brain "$stale_brain_id")
-    done
+    build_upgrade_cmd
     "${upgrade_cmd[@]}"
     configure_existing_approvals
     NEW_VERSION=$(cat "$VAULT_PATH/.brain-core/VERSION" 2>/dev/null || echo "unknown")

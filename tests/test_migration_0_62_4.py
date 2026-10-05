@@ -141,7 +141,7 @@ def test_v054_ledger_runs_new_backfill_without_repairing_inherited_errors(tmp_pa
     before = check_living_key_fields(str(vault), ROUTER)
 
     results, recorded = upgrade._run_migrations(
-        str(vault), "0.54.0", "0.62.4", raise_on_error=True
+        str(vault), "0.54.0", "0.62.4"
     )
     after = check_living_key_fields(str(vault), ROUTER)
 

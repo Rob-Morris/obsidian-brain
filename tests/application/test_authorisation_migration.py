@@ -7,7 +7,13 @@ import pytest
 
 from _common._yaml import dump_mapping_text, load_mapping_file
 from config import ConfigError
-from _command_interface.authorisation_migration import capture_legacy_authorisation, plan_authorisation_migration
+from _command_interface.authorisation_migration import (
+    TEMPLATE_CAPTURE_PATH,
+    capture_legacy_authorisation,
+    discard_template_capture,
+    load_or_persist_template_capture,
+    plan_authorisation_migration,
+)
 from migrations.migrate_to_0_68_0 import patch_pre_compile, migrate, prospective_effects
 
 
@@ -33,8 +39,12 @@ def write(root, path, value):
     (root / path).write_text(dump_mapping_text(value))
 
 
+def capture(root):
+    return capture_legacy_authorisation(root, '0.67.3', load_or_persist_template_capture(root, '0.67.3'))
+
+
 def cutover(root):
-    before = capture_legacy_authorisation(root, '0.67.3')
+    before = capture(root)
     write(root, '.brain-core/defaults/config.yaml', NEW)
     return before
 
@@ -142,7 +152,68 @@ def test_metadata_only_profile_override_uses_inherited_current_permissions(root)
     new['vault']['profiles']['reader']['allow'] = [*controls, 'vault.read-file']
     raw = {'vault': {'profiles': {'reader': {'label': 'Read-only agents'}}}}
     write(root, '.brain/config.yaml', raw)
-    before = capture_legacy_authorisation(root, '0.67.3')
+    before = capture(root)
     plan = plan_authorisation_migration(root, before, new_template=new)
     assert plan.writes == ()
     assert plan.report['conflicts'] == []
+
+
+def test_template_capture_persists_the_old_template_until_discarded(root):
+    """The copy replaces the template; an interrupted run must still convert against the old one."""
+    layer = load_or_persist_template_capture(root, '0.67.3')
+    write(root, '.brain-core/defaults/config.yaml', NEW)
+    assert layer['vault']['profiles'] == OLD['vault']['profiles']
+    assert (root / TEMPLATE_CAPTURE_PATH).is_file()
+
+    reused = load_or_persist_template_capture(root, '0.67.3')
+    assert reused == layer, 'a capture whose version matches the installed Core is reused'
+
+    refreshed = load_or_persist_template_capture(root, '0.68.0')
+    assert refreshed['vault']['profiles'] == NEW['vault']['profiles'], 'a capture for another version is ignored'
+
+    discard_template_capture(root)
+    assert not (root / TEMPLATE_CAPTURE_PATH).exists()
+    discard_template_capture(root)
+
+
+def test_capture_reads_authored_layers_fresh_and_template_from_the_capture(root):
+    write(root, '.brain/config.yaml', {'defaults': {'access': {'initial_profile': 'reader'}}})
+    template = load_or_persist_template_capture(root, '0.67.3')
+    write(root, '.brain-core/defaults/config.yaml', NEW)
+    write(root, '.brain/config.yaml', {'defaults': {'access': {'initial_profile': 'operator'}}})
+
+    before = capture_legacy_authorisation(root, '0.67.3', template)
+
+    assert before['layers'][0]['vault']['profiles'] == OLD['vault']['profiles']
+    assert before['layers'][1]['defaults']['access'] == {'initial_profile': 'operator'}
+    assert len(before['authored_revisions']) == 2
+
+
+def test_an_absent_capture_is_written_and_a_stale_one_is_rewritten(root):
+    assert not (root / TEMPLATE_CAPTURE_PATH).exists()
+    layer = load_or_persist_template_capture(root, '0.67.3')
+    assert layer['vault']['profiles'] == OLD['vault']['profiles']
+    assert json.loads((root / TEMPLATE_CAPTURE_PATH).read_text())['version'] == '0.67.3'
+
+    write(root, '.brain-core/defaults/config.yaml', NEW)
+    assert load_or_persist_template_capture(root, '0.68.0')['vault']['profiles'] == NEW['vault']['profiles']
+    assert json.loads((root / TEMPLATE_CAPTURE_PATH).read_text())['version'] == '0.68.0'
+
+
+@pytest.mark.parametrize('damage', ['not-json', 'wrong-schema', 'no-layer', 'invalid-utf8', 'directory'])
+def test_a_damaged_capture_raises_rather_than_reading_as_absent(root, damage):
+    path = root / TEMPLATE_CAPTURE_PATH
+    if damage == 'not-json':
+        path.write_text('{oops')
+    elif damage == 'wrong-schema':
+        path.write_text(json.dumps({'schema': 'other/1', 'version': '0.67.3', 'template_layer': {}}))
+    elif damage == 'no-layer':
+        path.write_text(json.dumps({'schema': 'brain.authorisation-template-before-upgrade/1', 'version': '0.67.3'}))
+    elif damage == 'invalid-utf8':
+        path.write_bytes(b'\xff\xfe{}')
+    else:
+        path.mkdir()
+    write(root, '.brain-core/defaults/config.yaml', NEW)
+
+    with pytest.raises(ConfigError, match=str(path)):
+        load_or_persist_template_capture(root, '0.67.3')

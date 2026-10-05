@@ -44,7 +44,7 @@ For non-interactive agent installs in restricted environments, scaffold the vaul
 bash install.sh --non-interactive --skip-mcp /path/to/brain
 ```
 
-The installer creates the vault from the template, copies `.brain-core/` into it, provisions the light machine resolution runtime used by no-MCP `brain session`, and then asks for explicit client selection (Claude Code, Codex, Grok, or All supported clients) and an MCP registration scope: this vault only (project scope, the default) or user scope, which also makes this Brain the machine default, provisioning the managed Python runtime as needed. `install.sh` and `install.ps1` both hand fresh/existing-vault install policy to the shared Python installer core at `src/brain-core/scripts/install.py`. The POSIX wrapper can also install brain-core into an existing Obsidian vault and detect already-installed Brain vaults; for those, the canonical upgrade path is `upgrade.py` and `install.sh` only delegates to it. `--skip-mcp` skips MCP registration only: the managed runtime is still provisioned, because managed CLI commands such as `brain session start` need it. In network-restricted environments the runtime step may fail; the installer keeps the vault, reports that step and prints `brain runtime repair` to rerun later. Use `--non-interactive --client all` (or name one client) for automated MCP setup; it selects the this-vault-only (project) scope. When upgrade changes either shipped runtime dependency export (`requirements.txt` or `requirements-semantic.txt` under `.brain-core/brain_mcp/`), `upgrade.py` provisions the matching shared runtime under `~/.brain/venvs/` itself; `install.sh --skip-mcp` does not skip that sync (it skips MCP registration only), so run `upgrade.py --no-sync-deps` directly to defer it. Same-version re-apply, downgrade, or explicit migration rerun flows remain explicit `upgrade.py --force` operations. Project scope still outranks user scope for all three clients once the project-scoped MCP is active: in Claude, approve `brain` via `/mcp`; in Codex, trust the project and ensure `brain` is enabled for that project; in Grok, review its folder-trust prompt. See [install.sh](../functional/scripts.md#installsh) and [install.py](../functional/scripts.md#installpy) for full details, modes, and flags.
+The installer creates the vault from the template, copies `.brain-core/` into it, provisions the light machine resolution runtime used by no-MCP `brain session`, and then asks for explicit client selection (Claude Code, Codex, Grok, or All supported clients) and an MCP registration scope: this vault only (project scope, the default) or user scope, which also makes this Brain the machine default, provisioning the managed Python runtime as needed. `install.sh` and `install.ps1` both hand fresh/existing-vault install policy to the shared Python installer core at `src/brain-core/scripts/install.py`. The POSIX wrapper can also install brain-core into an existing Obsidian vault and detect already-installed Brain vaults; for those, the canonical upgrade path is `upgrade.py` and `install.sh` only delegates to it. `--skip-mcp` skips MCP registration only: the managed runtime is still provisioned, because managed CLI commands such as `brain session start` need it. In network-restricted environments the runtime step may fail; the installer keeps the vault, reports that step and prints `brain runtime repair` to rerun later. Use `--non-interactive --client all` (or name one client) for automated MCP setup; it selects the this-vault-only (project) scope. When upgrade changes either shipped runtime dependency export (`requirements.txt` or `requirements-semantic.txt` under `.brain-core/brain_mcp/`), `upgrade.py` provisions the matching shared runtime under `~/.brain/venvs/` itself; `install.sh --skip-mcp` does not skip that sync (it skips MCP registration only), so run `upgrade.py --no-sync-deps` directly to defer it. `upgrade.py --force` re-applies the same version and nothing else: it never re-runs migrations, and a downgrade is refused because migrations only run forward. An interrupted upgrade resumes by rerunning the upgrade. Project scope still outranks user scope for all three clients once the project-scoped MCP is active: in Claude, approve `brain` via `/mcp`; in Codex, trust the project and ensure `brain` is enabled for that project; in Grok, review its folder-trust prompt. See [install.sh](../functional/scripts.md#installsh) and [install.py](../functional/scripts.md#installpy) for full details, modes, and flags.
 
 Semantic retrieval remains optional. Enable it later with
 `brain retrieval enable --vault /path/to/brain --json`. That command
@@ -306,7 +306,7 @@ These are freeform. Write whatever helps.
 
 To upgrade brain-core to a new version:
 
-- **CLI**: `brain upgrade --vault /path/to/brain --request-json '{}' --json` (add `"force": true` for same-version re-apply, downgrade, or migration rerun)
+- **CLI**: `brain upgrade --vault /path/to/brain --request-json '{}' --json` (add `"force": true` to re-apply the same version; it never re-runs migrations, and a downgrade is refused because migrations only run forward)
 - **install.sh wrapper**: `bash install.sh /path/to/brain` — detects the existing install and delegates to `upgrade.py`
 
 The checked upgrade runs every pending versioned migration in order, completes
@@ -318,6 +318,16 @@ leaves the committed Core/CLI upgrade in place and reports recovery work;
 direct `upgrade.py` reports `status: partial` and exits 1. Preserve client
 approval settings when resolving MCP registration conflicts; they are client policy,
 not permission for Brain to replace transport ownership.
+
+`.brain-core/VERSION` is written last, after every migration and the CLI
+cutover, so an interrupted upgrade leaves the old version in place and resumes
+by rerunning the upgrade: recorded migrations are skipped and the interrupted
+one restarts. A same-version run whose installed core differs from the source
+re-applies it without `force`, overwriting any local edits under `.brain-core/`;
+keep customisations outside it. **Transitional note:** if the first upgrade
+across this change is interrupted before the CLI cutover, resume it from the
+new source (`install.sh` from a current clone, or `upgrade.py --source`), not
+with `brain upgrade`, whose upgrader is still the old distribution's.
 
 When upgrading from before 0.70.3, an optional [managed approvals](../functional/approvals.md)
 follow-up points to `brain approvals inspect --json`. Review it, then explicitly
