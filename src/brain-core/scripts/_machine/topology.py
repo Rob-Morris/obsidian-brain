@@ -71,8 +71,9 @@ def classify_brain_runtime(
         return {
             "status": RUNTIME_CONTRACT_UNAVAILABLE,
             "message": (
-                f"The Brain's own runtime contract cannot be read: {exc}. Its Core predates the runtime resolver "
-                f"or is damaged; upgrade or recover it with `{upgrade_guidance(vault_path)}`."
+                f"The Brain's own runtime contract could not be evaluated ({type(exc).__name__}: {exc}). "
+                "Its Core may predate the runtime resolver or be damaged; "
+                f"upgrade or recover it with `{upgrade_guidance(vault_path)}`."
             ),
             "healthy_runtime": False,
             "expected_runtime": None,
