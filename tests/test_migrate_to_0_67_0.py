@@ -197,7 +197,7 @@ class TestThroughTheUpgradeRunner:
         declared = []
         results, ledger = upgrade._run_migrations(
             str(vault), "0.66.1", "0.67.0",
-            prepare_effects=lambda effects: declared.extend(effects),
+            prepare=lambda effects: declared.extend(effects),
         )
         assert [item["version"] for item in results] == ["0.67.0"]
         assert results[0]["status"] == "ok"

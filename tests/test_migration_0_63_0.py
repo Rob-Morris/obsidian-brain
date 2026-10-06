@@ -118,16 +118,21 @@ def test_declared_effects_restore_all_link_edits_after_a_failed_move(tmp_path, m
     other_link.parent.mkdir()
     for path in (root_link, other_link):
         path.write_text("See [[20260910 - Review]].\n")
-    snapshots = {}
-    for path in migrate_to_0_63_0.prospective_effects(str(tmp_path)):
-        upgrade._snapshot_file(str(path), snapshots)
+    from _bootstrap import upgrade_journal
+
+    journal = upgrade_journal.UpgradeJournal.open(str(tmp_path), "0.62.0", "0.63.0")
+    journal.capture(
+        upgrade_journal.STAGE_POST_COMPILE,
+        [str(path) for path in migrate_to_0_63_0.prospective_effects(str(tmp_path))],
+    )
     def fail_move(*_args):
         raise OSError("injected move failure")
 
     monkeypatch.setattr(rename.os, "rename", fail_move)
     with pytest.raises(PartialApplyError, match="injected move failure"):
         migrate_to_0_63_0.migrate(str(tmp_path))
-    restored = upgrade._restore_snapshots(snapshots)
+    snapshots, _roots = journal.stage_snapshots(upgrade_journal.STAGE_POST_COMPILE)
+    restored = upgrade_journal.restore_snapshots(snapshots)
     assert not restored.errors
     assert source.exists()
     for path in (root_link, other_link):
