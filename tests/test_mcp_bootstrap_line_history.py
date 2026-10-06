@@ -305,6 +305,17 @@ def test_mcp_configuration_converges_a_retired_workspace_line_in_place(tmp_path,
     assert not owner._configure_plan(vault, home, target, owner.McpScope.PROJECT, (owner.McpClient.CLAUDE,), server).changes()
 
 
+def test_mcp_configuration_replaces_a_retired_line_in_place_and_keeps_crlf_prose(tmp_path):
+    """The Claude file is read and written as bytes, so CRLF prose around the line survives untouched."""
+    retired = next(release.line for release in RETIRED if release.target == "project")
+    content = f"# My project\r\n\r\n  {retired}\r\nKeep this prose.\r\n"
+    (tmp_path / CLAUDE_MD_FILE).write_bytes(content.encode())
+
+    mcp_transport.ensure_claude_md(tmp_path)
+
+    assert text(tmp_path / CLAUDE_MD_FILE) == f"# My project\r\n\r\n  {CLAUDE_MD_BOOTSTRAP_PROJECT}\r\nKeep this prose.\r\n"
+
+
 def test_mcp_removal_removes_every_brain_line_and_keeps_crlf_prose(tmp_path, monkeypatch):
     home, vault, target, _state, _records, bootstrap = legacy_registration(tmp_path, monkeypatch, kind="project")
     retired = next(release.line for release in RETIRED if release.target == "project" and release.first_version == "0.55.0")
