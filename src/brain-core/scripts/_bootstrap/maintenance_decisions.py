@@ -261,15 +261,18 @@ def apply_decisions(
 ) -> dict[str, DecisionState]:
     """Mark each detected group open, held, claim-expired or quiet.
 
-    A dismissal only quiets a judgement group whose fingerprint still matches
-    and whose retention has not lapsed. A claim never holds a never-held
-    family, and a claim past its own retention is absent, as ``prune`` would
-    make it. Records for keys that are not detected are ignored.
+    A dismissal only quiets a dismissible group whose fingerprint still
+    matches and whose retention has not lapsed; a record against a group that
+    can no longer be dismissed, or whose evidence is now declared and so
+    fingerprints differently, is inert until ``prune`` drops it (DD-086). A
+    claim never holds a never-held family, and a claim past its own retention
+    is absent, as ``prune`` would make it. Records for keys that are not
+    detected are ignored.
     """
     states: dict[str, DecisionState] = {}
     for group in groups:
         dismissal = decisions.dismissals.get(group.key)
-        if (dismissal is not None and group.disposition is Disposition.JUDGEMENT
+        if (dismissal is not None and group.dismissible
                 and dismissal.fingerprint == group.fingerprint and dismissal.retained(now)):
             states[group.key] = DecisionState(ItemState.QUIET, dismissed_by=dismissal.dismissed_by,
                                               reason=dismissal.reason)
@@ -302,11 +305,26 @@ def decide_claim(group: FindingGroup, decisions: Decisions, now: datetime, *, cl
 
 def decide_dismiss(group: FindingGroup, decisions: Decisions, now: datetime, *, actor: str, reason: str,
                    expected_fingerprint: str) -> tuple[Decisions | None, Refusal | None]:
-    """Dismiss a judgement finding at its current evidence; the claimant's own claim retires."""
+    """Dismiss a judgement finding at its current evidence; the claimant's own claim retires.
+
+    A group whose dismissal could never reopen is refused: an automatic
+    family, or a kind-only per-file finding, one with neither a subject
+    discriminator nor declared evidence (DD-086).
+    """
     if group.disposition is Disposition.AUTOMATIC:
         return None, Refusal("invalid_request", "key",
                              "Automatic families are never dismissible: their fingerprint never changes, so a dismissal "
                              "would silence the family for the whole retention period. Claim it to hold it instead.")
+    if group.breaches:
+        return None, Refusal("invalid_request", "key",
+                             f"This finding cannot be dismissed: {group.breaches[0]}. It is listed as kind-only, "
+                             "claimable but never quieted, until Brain Core fixes the producer.")
+    if not group.dismissible:
+        return None, Refusal("invalid_request", "key",
+                             "This finding has nothing that identifies a change: no subject and no declared evidence, "
+                             "so every occurrence shares its fingerprint and a dismissal could never reopen; the next "
+                             "failure would stay hidden for the whole retention period. Claim it while someone fixes "
+                             "it, or fix it.")
     if group.fingerprint != expected_fingerprint:
         return None, Refusal("conflict", "expected_fingerprint",
                              f"The finding's evidence changed: current fingerprint is {group.fingerprint}; re-read it before dismissing.")

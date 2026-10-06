@@ -11,6 +11,7 @@ import pytest
 from _bootstrap import stranded_temporaries
 from _bootstrap.maintenance_findings import (
     Disposition,
+    Identity,
     Owner,
     MaintenanceFinding,
     family_key,
@@ -49,7 +50,7 @@ class TestIdentity:
             MaintenanceFinding("parent_contract", "warning", "B.md", "drift", Disposition.JUDGEMENT, scope="ownership", owner=Owner.BRAIN, key=ownership_key),
             MaintenanceFinding("workspace_contract", "error", "C.md", "gone", Disposition.JUDGEMENT, code="workspace_reference_missing",
                                owner=Owner.BRAIN, key=finding_key("brain", "workspace_contract:workspace_reference_missing", {"file": "C.md"}),
-                               evidence={"workspace": "workspace/x"}),
+                               evidence={"workspace": "workspace/x"}, identity=Identity.EVIDENCE),
             MaintenanceFinding("naming", "warning", "D.md", "prose only", Disposition.REPORT_ONLY),
         )
 
@@ -217,24 +218,60 @@ class TestErrorSeverityRule:
 
     @pytest.mark.parametrize("code", [
         "workspace_hub_invalid", "workspace_ownership_invalid", "workspace_reference_wrong_type",
-        "workspace_reference_malformed", "workspace_policy_invalid", "workspace_scan_unreadable",
+        "workspace_reference_malformed", "workspace_policy_invalid",
         "workspace_binding_terminal_inactive", "workspace_binding_configured_invalid",
     ])
-    def test_a_family_less_error_code_is_a_keyed_judgement_item(self, code):
+    def test_a_family_less_error_code_is_a_keyed_judgement_item_over_its_evidence(self, code):
         from _application.maintenance._detection import classify
 
-        (finding,) = classify([self._raw("workspace_contract", "error", "Notes/a.md", code=code)])
+        (finding,) = classify([self._raw("workspace_contract", "error", "Notes/a.md", code=code, evidence={"x": 1})])
 
         assert finding.disposition is Disposition.JUDGEMENT and finding.owner is Owner.BRAIN
         assert finding.key == finding_key("brain", f"workspace_contract:{code}", {"file": "Notes/a.md"})
         (group,) = group_by_family((finding,))
-        assert (group.file, group.fingerprint) == ("Notes/a.md", finding.key), "no declared evidence: the key"
+        assert (group.file, group.fingerprint) == ("Notes/a.md", finding_fingerprint(finding.key, {"x": 1}))
+        assert group.dismissible
 
-    @pytest.mark.parametrize("check", ["root_files", "living_key_fields"])
-    def test_a_code_less_error_is_keyed_per_file_by_its_check(self, check):
+    def test_a_kind_only_error_is_one_item_that_is_never_dismissible(self):
         from _application.maintenance._detection import classify
 
-        first, second = classify([self._raw(check, "error", "a.md"), self._raw(check, "error", "b.md")])
+        (finding,) = classify([self._raw("workspace_contract", "error", None, code="workspace_scan_unreadable")])
+
+        assert finding.key == finding_key("brain", "workspace_contract:workspace_scan_unreadable", {"file": None})
+        (group,) = group_by_family((finding,))
+        assert group.fingerprint == finding.key and not group.dismissible
+
+    @pytest.mark.parametrize("raw, breach", [
+        ({"check": "new_check", "severity": "error", "file": "a.md", "message": "m"}, "does not classify"),
+        ({"check": "living_key_fields", "severity": "error", "file": "a.md", "message": "m"},
+         "classified as evidence but declares a file and no evidence"),
+        ({"check": "living_key_fields", "severity": "error", "file": "a.md", "message": "m", "evidence": {}},
+         "declares a file and empty evidence"),
+        ({"check": "root_files", "severity": "error", "file": None, "message": "m"},
+         "classified as subject but declares no file and no evidence"),
+        ({"check": "root_files", "severity": "error", "file": "a.md", "message": "m", "evidence": {"x": 1}},
+         "classified as subject but declares a file and evidence"),
+        ({"check": "workspace_contract", "code": "workspace_scan_unreadable", "severity": "error", "file": "a.md",
+          "message": "m"}, "classified as kind_only but declares a file and no evidence"),
+    ])
+    def test_a_finding_that_breaks_its_rows_promise_is_demoted_to_kind_only(self, raw, breach):
+        """Fail safe: the finding stays listed and claimable, can never be quieted, and names the breach (DD-086)."""
+        from _application.maintenance._detection import classify
+
+        (finding,) = classify([raw])
+
+        assert finding.identity is Identity.KIND_ONLY and breach in finding.breach
+        assert finding.key == finding_key("brain", raw["check"] + (f":{raw['code']}" if raw.get("code") else ""),
+                                          {"file": raw["file"]}), "the key is untouched, so claims survive"
+        (group,) = group_by_family((finding,))
+        assert not group.dismissible and group.breaches == (finding.breach,)
+
+    @pytest.mark.parametrize("check, evidence", [("root_files", None), ("living_key_fields", {"key": None})])
+    def test_a_code_less_error_is_keyed_per_file_by_its_check(self, check, evidence):
+        from _application.maintenance._detection import classify
+
+        first, second = classify([self._raw(check, "error", "a.md", evidence=evidence),
+                                  self._raw(check, "error", "b.md", evidence=evidence)])
 
         assert first.disposition is second.disposition is Disposition.JUDGEMENT
         assert first.key == finding_key("brain", check, {"file": "a.md"})
@@ -281,3 +318,33 @@ class TestErrorSeverityRule:
         assert reordered.fingerprint == group.fingerprint, "member order never changes the fingerprint"
         (changed,) = group_by_family(classify([finding("workspace/x"), finding("workspace/z")]))
         assert changed.fingerprint != group.fingerprint, "a member's changed evidence reopens a dismissal"
+
+
+class TestIdentityRule:
+    """One rule says which declared shape honours which identity (DD-086)."""
+
+    @pytest.mark.parametrize("subject, evidence, admitted", [
+        ({"file": "a.md"}, None, {Identity.SUBJECT}),
+        ({"file": "a.md"}, {"key": None}, {Identity.EVIDENCE}),
+        ({"file": None}, {"key": None}, {Identity.EVIDENCE}),
+        ({"file": "a.md"}, {}, set()),
+        ({"file": None}, {}, set()),
+        ({"file": None}, None, {Identity.KIND_ONLY}),
+        ({}, None, {Identity.KIND_ONLY}),
+    ])
+    def test_admits_is_exclusive_and_empty_evidence_honours_nothing(self, subject, evidence, admitted):
+        assert {identity for identity in Identity if identity.admits(subject, evidence)} == admitted
+        if admitted:
+            assert Identity.honoured(subject, evidence) in admitted
+
+    def test_a_dismissible_identity_must_be_honoured_by_the_findings_shape(self):
+        key = finding_key("brain", "x", {"file": "a.md"})
+        with pytest.raises(ValueError, match="does not honour the evidence identity"):
+            MaintenanceFinding("x", "error", "a.md", "m", Disposition.JUDGEMENT, owner=Owner.BRAIN, key=key,
+                               subject={"file": "a.md"}, identity=Identity.EVIDENCE)
+        with pytest.raises(ValueError, match="requires an identity"):
+            MaintenanceFinding("x", "error", "a.md", "m", Disposition.JUDGEMENT, owner=Owner.BRAIN, key=key,
+                               subject={"file": "a.md"})
+        demoted = MaintenanceFinding("x", "error", "a.md", "m", Disposition.JUDGEMENT, owner=Owner.BRAIN, key=key,
+                                     subject={"file": "a.md"}, evidence={"k": 1}, identity=Identity.KIND_ONLY, breach="b")
+        assert not group_by_family((demoted,))[0].dismissible, "kind-only is the safe floor for any shape"

@@ -185,17 +185,20 @@ def test_an_unreachable_folder_and_a_malformed_file_are_reported_with_their_own_
         "workspace_registry_malformed", "warning", "registry")
 
 
-@pytest.mark.parametrize("content", ["{broken\n", "[]\n", '{"workspaces": [1]}\n'])
-def test_a_registry_whose_rows_cannot_be_read_is_a_judgement_finding_with_no_repair(linked_root, content):
-    from _repair_common import JUDGEMENT_CODES
+@pytest.mark.parametrize("content, reason", [("{broken\n", "invalid_json"), ("[]\n", "not_an_object"),
+                                             ('{"workspaces": [1]}\n', "workspaces_not_an_object"),
+                                             (b"\xff{}", "not_utf8")])
+def test_a_registry_whose_rows_cannot_be_read_is_a_judgement_finding_with_no_repair(linked_root, content, reason):
+    from _repair_common import JUDGEMENT_FINDINGS
 
-    (linked_root / ".brain/local/workspaces.json").write_text(content)
+    path = linked_root / ".brain/local/workspaces.json"
+    path.write_bytes(content) if isinstance(content, bytes) else path.write_text(content)
 
     findings = list(_registry_findings(linked_root).values())
 
-    assert [(item["code"], item["severity"], "repair" in item) for item in findings] == [
-        ("workspace_registry_unparseable", "warning", False)]
-    assert ("workspace_registry", "workspace_registry_unparseable") in JUDGEMENT_CODES
+    assert [(item["code"], item["severity"], "repair" in item, item["evidence"]) for item in findings] == [
+        ("workspace_registry_unparseable", "warning", False, {"reason": reason})]
+    assert ("workspace_registry", "workspace_registry_unparseable") in JUDGEMENT_FINDINGS
     assert "allow_row_loss" in findings[0]["message"]
 
 
@@ -227,10 +230,11 @@ def test_an_unreadable_registry_is_reported_without_an_automatic_repair(linked_r
         findings = _registry_findings(linked_root)
     finally:
         path.chmod(0o644)
-    assert [(item["code"], "repair" in item) for item in findings.values()] == [("workspace_registry_unreadable", False)]
-    from _repair_common import JUDGEMENT_CODES
+    assert [(item["code"], "repair" in item, item["evidence"]) for item in findings.values()] == [
+        ("workspace_registry_unreadable", False, {"reason": "EACCES"})]
+    from _repair_common import JUDGEMENT_FINDINGS
 
-    assert ("workspace_registry", "workspace_registry_unreadable") in JUDGEMENT_CODES
+    assert ("workspace_registry", "workspace_registry_unreadable") in JUDGEMENT_FINDINGS
     assert "Restore read access" in next(iter(findings.values()))["message"]
 
 

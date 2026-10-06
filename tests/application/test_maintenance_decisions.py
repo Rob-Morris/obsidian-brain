@@ -33,7 +33,16 @@ from _bootstrap.maintenance_decisions import (
     read_decisions,
     write_decisions,
 )
-from _bootstrap.maintenance_findings import Disposition, MaintenanceFinding, Owner, family_key, finding_key, group_by_family
+from _bootstrap.maintenance_findings import (
+    Disposition,
+    Identity,
+    MaintenanceFinding,
+    Owner,
+    family_key,
+    finding_fingerprint,
+    finding_key,
+    group_by_family,
+)
 from _repair_common import REPAIR_SCOPES
 
 
@@ -56,7 +65,7 @@ def _judgement(file="Notes/a.md", workspace="workspace/x"):
     return MaintenanceFinding("workspace_contract", "error", file, "gone", Disposition.JUDGEMENT,
                               code="workspace_reference_missing", owner=Owner.BRAIN,
                               key=finding_key("brain", "workspace_contract:workspace_reference_missing", {"file": file}),
-                              evidence={"workspace": workspace})
+                              evidence={"workspace": workspace}, identity=Identity.EVIDENCE)
 
 
 def _ownership(file):
@@ -455,7 +464,8 @@ def test_an_invalid_workspace_hub_is_listed_claimed_and_dismissed_per_member(com
         ("workspace_ownership_invalid", "Workspaces/Broken Hub.md"),
     }
     (item,) = [item for item in listed.result.items if item.key == key]
-    assert (item.code, item.fingerprint, item.file) == ("workspace_hub_invalid", key, "Wiki/Hub Member.md")
+    assert (item.code, item.fingerprint, item.file) == (
+        "workspace_hub_invalid", finding_fingerprint(key, {"workspace": "workspace/broken-hub"}), "Wiki/Hub Member.md")
     assert item.disposition is Disposition.JUDGEMENT and item.state is ItemState.OPEN and item.command is None
 
     claimed = _invoke(root, MaintenanceClaimRequest(key, "rob"))
@@ -481,3 +491,111 @@ def test_a_missing_router_leaves_the_decisions_file_intact(command_vault_clone):
 
     assert result.status == "ok" and listed.status == "ok"
     assert (root / DECISIONS).read_bytes() == before
+
+
+# ---------------------------------------------------------------------------
+# A dismissal needs something that can reopen it (DD-086)
+# ---------------------------------------------------------------------------
+
+SCAN_KEY = finding_key("brain", "workspace_contract:workspace_scan_unreadable", {"file": None})
+
+
+def _scan_unreadable():
+    return MaintenanceFinding("workspace_contract", "error", None, "Cannot inspect ownership in Notes/a.md: bad yaml",
+                              Disposition.JUDGEMENT, code="workspace_scan_unreadable", owner=Owner.BRAIN, key=SCAN_KEY,
+                              subject={"file": None}, identity=Identity.KIND_ONLY)
+
+
+def _dismissal_record(key, fingerprint, *, dismissed_at=NOW - timedelta(days=1)):
+    return {"fingerprint": fingerprint, "dismissed_by": "rob", "reason": "known", "dismissed_at": dismissed_at.isoformat()}
+
+
+def _write_legacy_decisions(root, dismissals):
+    path = root / DECISIONS
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps({"schema": "brain.maintenance-decisions/1", "claims": {}, "dismissals": dismissals}))
+
+
+def test_a_finding_with_no_file_and_no_evidence_is_claimable_but_never_dismissible(command_vault_clone, fake_detection):
+    root = command_vault_clone.vault_root
+    fake_detection["value"] = (_scan_unreadable(),)
+    (item,) = _invoke(root, MaintenanceListRequest()).result.items
+    assert (item.key, item.fingerprint, item.file) == (SCAN_KEY, SCAN_KEY, None)
+
+    refused = _invoke(root, MaintenanceDismissRequest(SCAN_KEY, item.fingerprint, "known broken file", "rob"))
+    assert refused.status == "error" and refused.error.code is ErrorCode.INVALID_REQUEST
+    assert refused.error.details.field == "key" and "could never reopen" in refused.error.message
+    assert "Claim it" in refused.error.message and refused.effects == "none"
+    assert not (root / DECISIONS).exists(), "a refusal writes nothing"
+
+    claimed = _invoke(root, MaintenanceClaimRequest(SCAN_KEY, "rob"))
+    assert claimed.status == "ok" and claimed.result.item.state is ItemState.HELD
+
+
+def test_root_files_dismissal_rests_on_the_file_alone(command_vault_clone):
+    root = command_vault_clone.vault_root
+    (root / "stray.md").write_text("# Stray\n")
+    key = finding_key("brain", "root_files", {"file": "stray.md"})
+
+    listed = _invoke(root, MaintenanceListRequest())
+    (item,) = [item for item in listed.result.items if item.key == key]
+    assert (item.fingerprint, item.file) == (key, "stray.md"), "the key identifies the condition, so it is the fingerprint"
+
+    dismissed = _invoke(root, MaintenanceDismissRequest(key, key, "leave it in the root", "rob"))
+    assert dismissed.status == "ok" and dismissed.result.item.state is ItemState.QUIET
+    assert all(item.key != key for item in _invoke(root, MaintenanceListRequest()).result.items)
+
+
+def test_living_key_fields_dismissal_reopens_when_the_key_breaks_differently(command_vault_clone):
+    import compile_router
+
+    root = command_vault_clone.vault_root
+    (root / "Wiki").mkdir(exist_ok=True)
+    page = root / "Wiki" / "Keyless.md"
+    page.write_text("---\ntype: living/wiki\ntags: [wiki]\n---\n\n# Keyless\n")
+    compile_router.persist_compiled_router(str(root), compile_router.compile(str(root)))
+    key = finding_key("brain", "living_key_fields", {"file": "Wiki/Keyless.md"})
+
+    def item():
+        listed = _invoke(root, MaintenanceListRequest(all=True))
+        assert listed.status == "ok", listed
+        return next(item for item in listed.result.items if item.key == key)
+
+    missing = item()
+    assert missing.fingerprint == finding_fingerprint(key, {"key": None})
+    assert _invoke(root, MaintenanceDismissRequest(key, missing.fingerprint, "authored by hand", "rob")).status == "ok"
+    assert item().state is ItemState.QUIET, "the same condition stays dismissed"
+
+    page.write_text("---\ntype: living/wiki\nkey: Not A Key!\ntags: [wiki]\n---\n\n# Keyless\n")
+    invalid = item()
+    assert invalid.fingerprint == finding_fingerprint(key, {"key": "Not A Key!"})
+    assert invalid.state is ItemState.OPEN, "a key that breaks differently reopens the dismissal"
+
+
+def test_a_dismissal_recorded_before_evidence_was_declared_reopens_once(command_vault_clone, fake_detection):
+    """The old fingerprint of an evidence-less finding was its key; the declared evidence now differs."""
+    root = command_vault_clone.vault_root
+    fake_detection["value"] = (_judgement(),)
+    _write_legacy_decisions(root, {MISSING_KEY: _dismissal_record(MISSING_KEY, MISSING_KEY)})
+
+    listed = _invoke(root, MaintenanceListRequest())
+    assert listed.status == "ok", listed
+    (item,) = listed.result.items
+    assert item.state is ItemState.OPEN and listed.result.hidden_quiet == 0
+
+    renewed = _invoke(root, MaintenanceDismissRequest(MISSING_KEY, item.fingerprint, "still fine", "rob"))
+    assert renewed.status == "ok" and renewed.result.item.state is ItemState.QUIET
+    assert _read(root)["dismissals"][MISSING_KEY]["fingerprint"] == item.fingerprint, "the new record replaces the old"
+
+
+def test_a_stored_dismissal_of_a_finding_that_can_no_longer_be_dismissed_is_inert(command_vault_clone, fake_detection):
+    root = command_vault_clone.vault_root
+    fake_detection["value"] = (_scan_unreadable(),)
+    _write_legacy_decisions(root, {SCAN_KEY: _dismissal_record(SCAN_KEY, SCAN_KEY)})
+
+    listed = _invoke(root, MaintenanceListRequest())
+    assert listed.status == "ok", listed
+    assert [item.state for item in listed.result.items] == [ItemState.OPEN] and listed.result.hidden_quiet == 0
+
+    pruned = _invoke(root, MaintenanceClaimRequest(SCAN_KEY, "rob"), clock=_Clock(NOW + DISMISSAL_RETENTION))
+    assert pruned.status == "ok" and SCAN_KEY not in _read(root)["dismissals"], "retention drops the inert record"

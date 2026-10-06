@@ -229,7 +229,9 @@ only after a reviewed dry run; `workspace repair-registry` is schedule-safe
 `allow_row_loss`),
 and `retrieval repair-semantic` is an exceptional command that needs a
 `brain session run` job. See [scheduling existing commands](../functional/cli.md#scheduling-existing-commands). Claim a finding to hold it for an hour, dismiss a
-judgement finding at its current evidence for thirty days, or release it.
+judgement finding at its current evidence for thirty days, or release it; a
+finding with nothing that identifies a change (no file and no declared
+evidence) can be claimed but not dismissed, because nothing could reopen it.
 `session_start` and `runtime_status` carry a coarse advisory from the last
 pass. See [maintenance passes and scheduling](../functional/cli.md#maintenance-passes-and-scheduling).
 

@@ -29,7 +29,7 @@ from _application.runtime.remove_temporaries import RuntimeRemoveTemporariesRequ
 from _application.runtime.status import RuntimeStatusRequest
 from _application.types import Authority, EffectClass, InitialAuthorisationClass, Projection, RetryClass
 from _bootstrap import maintenance_summary, stranded_temporaries
-from _bootstrap.maintenance_findings import Disposition, MaintenanceFinding, Owner, family_key
+from _bootstrap.maintenance_findings import Disposition, Identity, MaintenanceFinding, Owner, family_key
 from _common import vault_mutation_lock
 from _repair_common import REPAIR_SCOPES
 import _command_interface.direct as direct_context
@@ -743,7 +743,7 @@ def test_list_and_dismiss_work_inside_a_cli_job_where_the_pass_is_refused(comman
                                    code="workspace_reference_missing", owner=Owner.BRAIN,
                                    key=_detection.finding_key("brain", "workspace_contract:workspace_reference_missing",
                                                               {"file": "Notes/a.md"}),
-                                   subject={"file": "Notes/a.md"}, evidence={"workspace": "workspace/x"})
+                                   subject={"file": "Notes/a.md"}, evidence={"workspace": "workspace/x"}, identity=Identity.EVIDENCE)
     monkeypatch.setattr("_application.maintenance._items.detect", lambda context: (judgement,))
     composer = direct_context.DirectContextComposer(vault_root=root, catalogue=current_application_catalogue(),
                                                     transport_identity=ProcessIdentity("cli-job", "job-1"))
@@ -813,7 +813,7 @@ def test_list_shows_judgement_items_and_only_unsettled_automatic_groups(command_
     real_detect = _detection.detect
     judgement = MaintenanceFinding("workspace_contract", "error", "Notes/a.md", "gone", Disposition.JUDGEMENT,
                                    code="workspace_reference_missing", owner=Owner.BRAIN,
-                                   key="aaaaaaaaaaaaaaaa", evidence={"workspace": "workspace/x"})
+                                   key="aaaaaaaaaaaaaaaa", evidence={"workspace": "workspace/x"}, identity=Identity.EVIDENCE)
     monkeypatch.setattr("_application.maintenance._items.detect", lambda context: (*real_detect(context), judgement))
     (root / ROUTER).unlink()
     assert _invoke(root, MaintenanceRunRequest(), _Scripted({"router": _error(ErrorCode.CONFLICT)})).status == "partial"

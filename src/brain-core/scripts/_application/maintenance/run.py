@@ -199,7 +199,9 @@ class _Pass:
         if error is not None:
             return None, self._blocked("detection_failed", error)
         previous = read_last_pass(self.paths.last_pass)
-        return join_state(findings, decisions, self.context.clock.now(), previous), None
+        state = join_state(findings, decisions, self.context.clock.now(), previous)
+        self.warnings.extend(state.contract_warnings)
+        return state, None
 
     def _blocked(self, reason: str, error: Error) -> Error:
         """Leave a blocked summary so the advisory never shows a stale count as current."""

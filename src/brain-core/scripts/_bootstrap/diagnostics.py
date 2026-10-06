@@ -152,6 +152,8 @@ class RegistryInspection:
     rows: dict[str, dict] = field(default_factory=dict)
     # The exact bytes the condition was read from, the base of a compare-and-swap rewrite.
     content: bytes | None = None
+    # For an unreadable or unparseable file, the structured reason a finding declares as evidence.
+    reason: str | None = None
 
     @property
     def present(self) -> bool:
@@ -177,12 +179,14 @@ def inspect_registry(vault_root: Path) -> RegistryInspection:
     try:
         content = path.read_bytes()
     except OSError as exc:
+        import errno
+
         return RegistryInspection(path, RegistryCondition.UNREADABLE, (
             f"The linked workspace registry could not be read ({exc}); nothing rewrites it. Restore read access "
-            "to the file, then run vault.check again."))
+            "to the file, then run vault.check again."), reason=errno.errorcode.get(exc.errno, type(exc).__name__))
 
-    def unparseable(problem: str) -> RegistryInspection:
-        return RegistryInspection(path, RegistryCondition.UNPARSEABLE, content=content, message=(
+    def unparseable(reason: str, problem: str) -> RegistryInspection:
+        return RegistryInspection(path, RegistryCondition.UNPARSEABLE, content=content, reason=reason, message=(
             f"The linked workspace registry {problem}, so none of its rows can be read and it is never rebuilt "
             "automatically. Restore it from a copy, or rebuild it empty (keeping the file as "
             f"{path.name}.bak) with `{registry_rebuild_command(vault_root)}` and run brain workspace setup from "
@@ -191,14 +195,14 @@ def inspect_registry(vault_root: Path) -> RegistryInspection:
     try:
         raw = json.loads(content.decode("utf-8"))
     except UnicodeDecodeError:
-        return unparseable("is not UTF-8")
+        return unparseable("not_utf8", "is not UTF-8")
     except json.JSONDecodeError as exc:
-        return unparseable(f"is not valid JSON ({exc})")
+        return unparseable("invalid_json", f"is not valid JSON ({exc})")
     if not isinstance(raw, dict):
-        return unparseable("is not a JSON object")
+        return unparseable("not_an_object", "is not a JSON object")
     workspaces = raw.get("workspaces", {})
     if not isinstance(workspaces, dict):
-        return unparseable("has a `workspaces` value that is not an object")
+        return unparseable("workspaces_not_an_object", "has a `workspaces` value that is not an object")
 
     rows: dict[str, dict] = {}
     invalid: list[str] = []
@@ -463,7 +467,9 @@ def collect_registry_check_findings(vault_root: str | Path) -> list[dict]:
     disagrees, cannot be verified or cannot be reached is one finding of its
     own, keyed by ``.brain/local/workspaces.json#<key>`` so it is claimed,
     dismissed and reopened alone. The repairable codes and the two codes for a
-    file whose rows cannot be read are warnings; the rest are ``info``.
+    file whose rows cannot be read are warnings; the rest are ``info``. The
+    two unreadable-file codes declare the structured reason as evidence, so a
+    file that breaks differently reopens a dismissal (DD-086).
     """
     import workspace_registry
     from _bootstrap.workspace_binding import LINK_DISAGREEMENT, LinkVerdict, describe_link, link_fields
@@ -478,7 +484,7 @@ def collect_registry_check_findings(vault_root: str | Path) -> list[dict]:
         code = ("workspace_registry_unreadable" if registry.condition is RegistryCondition.UNREADABLE
                 else "workspace_registry_unparseable")
         return [{"check": "workspace_registry", "code": code, "severity": "warning",
-                 "file": relative, "message": registry.message}]
+                 "file": relative, "evidence": {"reason": registry.reason}, "message": registry.message}]
     findings: list[dict] = []
     if not registry.healthy:
         findings.append(attach_repair_guidance({
