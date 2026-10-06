@@ -37,6 +37,7 @@ COPY container/restore_seed_paths.py /usr/local/lib/brain-lab/restore_seed_paths
 COPY container/tree_manifest.py /usr/local/lib/brain-lab/tree_manifest.py
 COPY container/changed_content.py /usr/local/lib/brain-lab/changed_content.py
 COPY container/historical_upgrade_acceptance.py /usr/local/lib/brain-lab/historical_upgrade_acceptance.py
+COPY container/killed_upgrade_acceptance.py /usr/local/lib/brain-lab/killed_upgrade_acceptance.py
 
 ENV HOME=/home/brain \
     XDG_CONFIG_HOME=/home/brain/.config \

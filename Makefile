@@ -3,7 +3,7 @@ PYTHON := $(VENV)/bin/python
 PIP := $(VENV)/bin/pip
 PYTEST := $(VENV)/bin/pytest
 
-.PHONY: venv install install-semantic dependencies-check dependencies-update test test-parallel test-brain-lab test-brain-lab-docker test-brain-lab-docker-configuration test-brain-lab-current-docker test-brain-lab-upgrade-docker lint lint-docstrings lint-command-docs clean hooks sync-template sync-template-check dev-link precommit-check release-status promotion-status promotion-prepare promotion-finish promotion-publish promotion-adopt promotion-discard
+.PHONY: venv install install-semantic dependencies-check dependencies-update test test-parallel test-brain-lab test-brain-lab-docker test-brain-lab-docker-configuration test-brain-lab-current-docker test-brain-lab-upgrade-docker test-brain-lab-killed-upgrade-docker lint lint-docstrings lint-command-docs clean hooks sync-template sync-template-check dev-link precommit-check release-status promotion-status promotion-prepare promotion-finish promotion-publish promotion-adopt promotion-discard
 .PHONY: promotion-recover-plan promotion-recover-stage promotion-recover-status promotion-recover-apply promotion-recover-abort
 .PHONY: promotion-cleanup
 
@@ -41,7 +41,7 @@ test-fast: dev-link
 test-brain-lab:
 	$(PYTEST) -q tests/repo/brain_lab
 
-test-brain-lab-docker: test-brain-lab-docker-configuration test-brain-lab-current-docker test-brain-lab-upgrade-docker
+test-brain-lab-docker: test-brain-lab-docker-configuration test-brain-lab-current-docker test-brain-lab-upgrade-docker test-brain-lab-killed-upgrade-docker
 
 test-brain-lab-docker-configuration:
 	BRAIN_LAB_DOCKER_CONFIGURATION_ACCEPTANCE=1 $(PYTEST) -q tests/repo/brain_lab/test_docker_configuration_native.py
@@ -51,6 +51,9 @@ test-brain-lab-current-docker:
 
 test-brain-lab-upgrade-docker:
 	tools/brain-lab/brain-lab --state-dir "$(BRAIN_LAB_STATE_DIR)" --json scenario run --request-json - < tools/brain-lab/scenarios/historical-upgrade.json
+
+test-brain-lab-killed-upgrade-docker:
+	tools/brain-lab/brain-lab --state-dir "$(BRAIN_LAB_STATE_DIR)" --json scenario run --request-json - < tools/brain-lab/scenarios/killed-upgrade.json
 
 lint: lint-docstrings lint-command-docs
 

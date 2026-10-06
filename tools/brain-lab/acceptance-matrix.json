@@ -9,14 +9,16 @@
       "kind": "docker-scenario-group",
       "paths": [
         "scenarios/current-template.json",
-        "scenarios/historical-upgrade.json"
+        "scenarios/historical-upgrade.json",
+        "scenarios/killed-upgrade.json"
       ],
       "covers": [
         "worktree-template-baseline",
         "arbitrary-composition",
         "run-recreation",
         "host-isolation",
-        "worktree-upgrade"
+        "worktree-upgrade",
+        "killed-upgrade-recovery"
       ]
     },
     "test-brain-lab-docker-configuration": {
@@ -90,6 +92,14 @@
       "command": "run start with bridge, run copy-in by source_id, then run exec for the selected source installer, target rehydration and health gates",
       "predicate": "The exact v0.53.5 baseline reaches the target Core and CLI through every pending migration; no unexplained validation finding is added; first-call session readiness, canonical runtime cleanup, machine tidiness, MCP health and path isolation all pass.",
       "evidence": "historical-upgrade scenario result, bounded command receipts and run filesystem evidence",
+      "owner": "automated-docker"
+    },
+    {
+      "id": "killed-upgrade-recovery",
+      "setup": "Prepare the historical baseline run exactly as worktree-upgrade does (same fixture, legacy records, pre-upgrade check and target CLI install).",
+      "command": "run exec for the killed-upgrade acceptance: production brain upgrade killed after the 0.68.0 pre-compile patch's first write; post-kill edits; a dry run; the recovering rerun killed after an undeclared post-compile migration's first artefact write; post-kill edits; a dry run; then a normal rerun",
+      "predicate": "Each kill leaves the old VERSION, no ledger record and a half-applied write whose journalled original differs, in a journal under the machine state home; each dry run reports the pending restore, previews the migrations the restored ledger implies and changes neither the vault nor the journal; each recovery keeps the half-applied write and every post-kill edit byte for byte in the recovery directory the final run names, restores those paths and discards the journal on commit; the final vault and machine then pass the same post-upgrade checks as worktree-upgrade (shared require_upgraded_state).",
+      "evidence": "killed-upgrade scenario result, kill records with half-applied digests, recovery directories, bounded command receipts and run filesystem evidence",
       "owner": "automated-docker"
     },
     {
