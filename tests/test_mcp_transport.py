@@ -104,16 +104,19 @@ def test_ensure_claude_md_normalises_empty_file(project):
 
 
 def test_ensure_claude_md_append_routes_through_safe_write(project, monkeypatch):
+    from _bootstrap import mcp_state
+
     claude_md = project / "CLAUDE.md"
     claude_md.write_text("# My Project\n\nExisting content.\n", encoding="utf-8")
     calls = []
 
-    def fake_safe_write(path, content):
-        calls.append((path, content))
-        path.write_text(content, encoding="utf-8")
+    def fake_safe_write_via(path, writer):
+        with path.open("wb") as handle:
+            writer(handle)
+        calls.append((path, path.read_bytes().decode("utf-8")))
         return str(path.resolve())
 
-    monkeypatch.setattr(mcp_transport, "safe_write", fake_safe_write)
+    monkeypatch.setattr(mcp_state, "safe_write_via", fake_safe_write_via)
 
     mcp_transport.ensure_claude_md(project)
 

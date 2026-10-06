@@ -316,7 +316,7 @@ def read_records(plan, vault: Path | None, home: Path, scope: McpScope):
             raise ValueError(f"Invalid MCP ownership evidence: {path}")
         validate_server(record["server_config"], path)
         if client is McpClient.CLAUDE and target is not None:
-            from _bootstrap.mcp_state import BRAIN_BOOTSTRAP_LINES, build_session_hook_command
+            from _bootstrap.mcp_state import build_session_hook_command, is_owned_bootstrap_line
 
             hook = record.get("hook_command")
             expected_hook = build_session_hook_command(vault, target, python_path=record["server_config"].get("command", ""))
@@ -324,7 +324,7 @@ def read_records(plan, vault: Path | None, home: Path, scope: McpScope):
                 raise ValueError(f"Invalid owned hook evidence; migration/recovery required: {path}")
             # Any line Brain has written is owned; repair converges a retired one on the current line.
             line = record.get("bootstrap_line")
-            if line is not None and (not isinstance(line, str) or line not in BRAIN_BOOTSTRAP_LINES):
+            if line is not None and not is_owned_bootstrap_line(line):
                 raise ValueError(f"Invalid owned bootstrap evidence: {path}")
         identity = _record_id(record)
         if identity in identities:

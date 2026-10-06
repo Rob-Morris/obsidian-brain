@@ -58,9 +58,9 @@ def migration_plan(home: Path, cli_binary: Path, selected: Path | None = None) -
             record = {**raw, "schema": registration.REGISTRATION_SCHEMA, "server_config": expected}
             if client is registration.McpClient.CLAUDE and target is not None:
                 from _bootstrap.mcp_state import (
-                    BRAIN_BOOTSTRAP_LINES,
                     bootstrap_line_for_target,
                     build_session_hook_command,
+                    is_owned_bootstrap_line,
                     is_session_hook_command,
                 )
 
@@ -72,7 +72,7 @@ def migration_plan(home: Path, cli_binary: Path, selected: Path | None = None) -
                     hook_path, command = registration._ensure_hook(plan, target, vault, expected["command"], old_hook)
                     record.update(hook_path=str(hook_path), hook_command=command)
                 old_line = raw.get("bootstrap_line")
-                if old_line is not None and (not isinstance(old_line, str) or old_line not in BRAIN_BOOTSTRAP_LINES):
+                if old_line is not None and not is_owned_bootstrap_line(old_line):
                     raise ValueError(f"Unrecognised bootstrap line ownership requires explicit recovery before migration: {path}")
                 if data["version"] == 1 and old_line not in (None, bootstrap_line_for_target(target)):
                     # A pre-0.70 ledger converges here; a canonical ledger is left to ordinary repair.
