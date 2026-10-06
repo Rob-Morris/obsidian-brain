@@ -19,7 +19,7 @@ from _bootstrap.workspace_binding import (
     read_workspace_manifest,
     resolve_local_brain_vault,
 )
-from _common import is_brain_vault, safe_write, safe_write_json
+from _common import is_brain_vault, safe_write, safe_write_json, safe_write_via
 
 
 BRAIN_SERVER_NAME = "brain"
@@ -81,6 +81,11 @@ BOOTSTRAP_LINE_HISTORY: tuple[BootstrapLineRelease, ...] = (
 BRAIN_BOOTSTRAP_LINES = frozenset(release.line for release in BOOTSTRAP_LINE_HISTORY)
 
 
+def is_owned_bootstrap_line(value: Any) -> bool:
+    """Whether ownership evidence names a line Brain itself has written; an edited copy is the user's."""
+    return isinstance(value, str) and value in BRAIN_BOOTSTRAP_LINES
+
+
 def _text_lines(content: str) -> list[str]:
     """Split on ``\n`` only, keeping each line's own ending, so joining restores every byte."""
     return re.findall(r"[^\n]*\n|[^\n]+\Z", content)
@@ -114,6 +119,38 @@ def converge_bootstrap_text(content: str, line: str) -> str:
         return f"{line}\n"
     separator = "\n" if content.endswith("\n") else "\n\n"
     return f"{content}{separator}{line}\n"
+
+
+BOOTSTRAP_FILE_UNCHANGED = "unchanged"
+BOOTSTRAP_FILE_CREATED = "created"
+BOOTSTRAP_FILE_APPENDED = "appended"
+BOOTSTRAP_FILE_UPDATED = "updated"
+
+
+def converge_bootstrap_file(path: Path, line: str, *, before_write=None) -> str:
+    """Converge the file at ``path`` on ``line`` and say what changed.
+
+    Reads and writes bytes, so ``converge_bootstrap_text``'s promise to keep
+    every other byte (line endings included) holds on disk. Returns one of
+    the ``BOOTSTRAP_FILE_*`` outcomes; ``before_write`` runs once, before a
+    write. ``OSError`` and ``UnicodeDecodeError`` propagate for the caller
+    to classify.
+    """
+    try:
+        existing = path.read_bytes().decode("utf-8")
+    except FileNotFoundError:
+        existing = ""
+    updated = converge_bootstrap_text(existing, line)
+    if updated == existing:
+        return BOOTSTRAP_FILE_UNCHANGED
+    if before_write is not None:
+        before_write()
+    safe_write_via(path, lambda handle: handle.write(updated.encode("utf-8")))
+    if not existing:
+        return BOOTSTRAP_FILE_CREATED
+    if updated.startswith(existing):
+        return BOOTSTRAP_FILE_APPENDED
+    return BOOTSTRAP_FILE_UPDATED
 
 
 def remove_bootstrap_text(content: str) -> str:

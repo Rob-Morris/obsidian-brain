@@ -11,6 +11,10 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 from _bootstrap.mcp_state import (
+    BOOTSTRAP_FILE_APPENDED,
+    BOOTSTRAP_FILE_CREATED,
+    BOOTSTRAP_FILE_UNCHANGED,
+    BOOTSTRAP_FILE_UPDATED,
     BRAIN_SERVER_NAME,
     CLAUDE_LOCAL_MD_FILE,
     CLAUDE_LOCAL_SETTINGS_FILE,
@@ -22,10 +26,10 @@ from _bootstrap.mcp_state import (
     CODEX_CONFIG_REL,
     INIT_STATE_REL,
     bootstrap_line_for_target,
-    converge_bootstrap_text,
     build_mcp_config,
     build_session_hook_command,
     configured_vault_root,
+    converge_bootstrap_file,
     is_session_hook_command,
     matching_records,
     read_toml_server_config,
@@ -38,7 +42,7 @@ from _bootstrap.mcp_state import (
 )
 from _bootstrap.runtime import target_managed_python
 from _bootstrap.workspace_scaffold import GitInspectionError, ensure_brain_ignore_rules
-from _common import join_argv, safe_write, safe_write_json, safe_write_via
+from _common import join_argv, safe_write_json, safe_write_via
 
 
 SUPPORTED_CLIENTS = ("claude", "codex", "grok")
@@ -304,27 +308,19 @@ def claude_project_followup_notes(target_dir: Path) -> List[str]:
     return notes
 
 
+_CLAUDE_MD_OUTCOME_INFO = {
+    BOOTSTRAP_FILE_UNCHANGED: "{} already has bootstrap line",
+    BOOTSTRAP_FILE_CREATED: "Created {} with brain bootstrap",
+    BOOTSTRAP_FILE_APPENDED: "Appended brain bootstrap to {}",
+    BOOTSTRAP_FILE_UPDATED: "Updated brain bootstrap in {}",
+}
+
+
 def ensure_claude_md(target_dir: Path, local: bool = False) -> Path:
-    bootstrap = bootstrap_line_for_target(target_dir)
     rel_path = CLAUDE_LOCAL_MD_FILE if local else CLAUDE_MD_FILE
     claude_md = target_dir / rel_path
-
-    try:
-        existing = claude_md.read_text(encoding="utf-8")
-    except FileNotFoundError:
-        existing = ""
-
-    updated = converge_bootstrap_text(existing, bootstrap)
-    if updated == existing:
-        info(f"{rel_path} already has bootstrap line")
-        return claude_md
-    safe_write(claude_md, updated)
-    if not existing:
-        info(f"Created {rel_path} with brain bootstrap")
-    elif updated.startswith(existing):
-        info(f"Appended brain bootstrap to {rel_path}")
-    else:
-        info(f"Updated brain bootstrap in {rel_path}")
+    outcome = converge_bootstrap_file(claude_md, bootstrap_line_for_target(target_dir))
+    info(_CLAUDE_MD_OUTCOME_INFO[outcome].format(rel_path))
     return claude_md
 
 

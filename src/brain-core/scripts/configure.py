@@ -9,7 +9,15 @@ from pathlib import Path
 import sys
 
 from _bootstrap import agent_skills, mcp_transport
-from _bootstrap.mcp_state import CLAUDE_MD_FILE, bootstrap_line_for_target, converge_bootstrap_text
+from _bootstrap.mcp_state import (
+    BOOTSTRAP_FILE_APPENDED,
+    BOOTSTRAP_FILE_CREATED,
+    BOOTSTRAP_FILE_UNCHANGED,
+    BOOTSTRAP_FILE_UPDATED,
+    CLAUDE_MD_FILE,
+    bootstrap_line_for_target,
+    converge_bootstrap_file,
+)
 from _bootstrap.runtime import (
     handoff_current_script_to_managed_runtime,
     required_modules_for_scope,
@@ -23,7 +31,7 @@ from _bootstrap.workspace_binding import (
     save_workspace_manifest_data,
     with_links,
 )
-from _common import find_root_bootstrap_file, safe_write_via
+from _common import find_root_bootstrap_file
 from _lifecycle_common import (
     emit_lifecycle_result,
     exit_code_for_result,
@@ -197,25 +205,21 @@ def configure_workspace_metadata_action(
         )
 
 
+_BOOTSTRAP_OUTCOME_STEPS = {
+    BOOTSTRAP_FILE_UNCHANGED: ("noop", "{} already includes Brain bootstrap instructions."),
+    BOOTSTRAP_FILE_CREATED: ("changed", "Created {} with Brain bootstrap instructions."),
+    BOOTSTRAP_FILE_APPENDED: ("changed", "Appended Brain bootstrap instructions to {}."),
+    BOOTSTRAP_FILE_UPDATED: ("changed", "Updated the Brain bootstrap instructions in {}."),
+}
+
+
 def _ensure_bootstrap_file(path: Path, bootstrap: str, *, before_write=None) -> tuple[str, str]:
     try:
-        existing = path.read_bytes().decode("utf-8")
-    except FileNotFoundError:
-        existing = ""
+        outcome = converge_bootstrap_file(path, bootstrap, before_write=before_write)
     except (OSError, UnicodeDecodeError) as exc:
-        raise WorkspaceBindingError(f"failed to read {path}: {exc}") from exc
-
-    updated = converge_bootstrap_text(existing, bootstrap)
-    if updated == existing:
-        return "noop", f"{path.name} already includes Brain bootstrap instructions."
-    if before_write is not None:
-        before_write()
-    safe_write_via(path, lambda handle: handle.write(updated.encode("utf-8")))
-    if not existing:
-        return "changed", f"Created {path.name} with Brain bootstrap instructions."
-    if updated.startswith(existing):
-        return "changed", f"Appended Brain bootstrap instructions to {path.name}."
-    return "changed", f"Updated the Brain bootstrap instructions in {path.name}."
+        raise WorkspaceBindingError(f"failed to update {path}: {exc}") from exc
+    status, message = _BOOTSTRAP_OUTCOME_STEPS[outcome]
+    return status, message.format(path.name)
 
 
 def configure_workspace_bootstrap_action(
