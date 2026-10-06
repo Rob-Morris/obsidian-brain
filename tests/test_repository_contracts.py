@@ -1209,15 +1209,44 @@ def test_released_migration_losing_its_default_handler_is_rejected(tmp_path):
 @pytest.mark.parametrize("damage", ["remove", "rename"])
 def test_released_migration_cannot_be_removed_or_renamed(tmp_path, damage):
     _initialise_migration_repo(tmp_path)
+    renamed = RELEASED_MIGRATION.replace("0_9_0", "0_9_1")
     if damage == "remove":
         _git(tmp_path, "rm", "-q", RELEASED_MIGRATION)
     else:
-        _git(tmp_path, "mv", RELEASED_MIGRATION, RELEASED_MIGRATION.replace("0_9_0", "0_9_1"))
+        _git(tmp_path, "mv", RELEASED_MIGRATION, renamed)
 
-    assert _staged_migration_errors(tmp_path) == [
+    assert _staged_migration_errors(tmp_path) == (
+        # The rename's destination is itself a migration added under the released boundary.
+        [f"{renamed}: a migration at or below the released VERSION 1.0.0 cannot be added; ship it above VERSION"]
+        if damage == "rename" else []
+    ) + [
         f"{RELEASED_MIGRATION}: released migration 0.9.0 cannot be removed or renamed; "
         "ship a correction as a new migration"
     ]
+
+
+@pytest.mark.parametrize("version", ["0_9_5", "1_0_0"])
+def test_a_migration_at_or_below_the_released_version_cannot_be_added(tmp_path, version):
+    """It would run on older vaults but never on vaults already at that version."""
+    _initialise_migration_repo(tmp_path)
+    late = f"src/brain-core/scripts/migrations/migrate_to_{version}.py"
+    (tmp_path / late).write_text("def migrate(vault_root):\n    return {'status': 'ok'}\n", encoding="utf-8")
+    _git(tmp_path, "add", late)
+
+    assert _staged_migration_errors(tmp_path) == [
+        f"{late}: a migration at or below the released VERSION 1.0.0 cannot be added; ship it above VERSION"
+    ]
+
+
+def test_a_release_commit_may_add_the_migration_it_releases(tmp_path):
+    """The boundary is HEAD's VERSION: a staged bump to 1.1.0 and its 1.1.0 migration land together."""
+    _initialise_migration_repo(tmp_path)
+    (tmp_path / contracts.VERSION_PATH).write_text("1.1.0\n", encoding="utf-8")
+    released = "src/brain-core/scripts/migrations/migrate_to_1_1_0.py"
+    (tmp_path / released).write_text("def migrate(vault_root):\n    return {'status': 'ok'}\n", encoding="utf-8")
+    _git(tmp_path, "add", "-A")
+
+    assert _staged_migration_errors(tmp_path) == []
 
 
 def test_released_migration_body_may_be_corrected(tmp_path):

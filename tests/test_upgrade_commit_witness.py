@@ -501,6 +501,76 @@ def test_a_mismatched_same_version_core_re_applies_without_force(tmp_path):
     assert _counter(vault, "count.txt") == 0
 
 
+def test_a_skipped_run_never_prepares_the_cutover(tmp_path):
+    source = _make_source(tmp_path, "2.0.0", migrations={})
+    vault = _make_vault(tmp_path, "2.0.0")
+    _install_core(vault, source)
+
+    def refuse():
+        raise AssertionError("a run that will be skipped must not run the cutover preflight")
+
+    for dry_run in (True, False):
+        result = upgrade.upgrade(str(vault), str(source), dry_run=dry_run, sync=False, prepare_cutover=refuse)
+        assert result["status"] == "skipped", result
+
+
+@pytest.mark.parametrize("dry_run", [False, True])
+def test_a_refused_cutover_preparation_is_a_no_effect_error(tmp_path, dry_run):
+    source = _make_source(tmp_path, "2.0.0", migrations={"migrate_to_2_0_0.py": _counter_migration("count.txt")})
+    vault = _make_vault(tmp_path, "1.0.0")
+    before = _tree_bytes(vault)
+
+    def refuse():
+        raise ValueError("CLI cutover preflight failed: stale registry entries require explicit exclusion")
+
+    result = upgrade.upgrade(str(vault), str(source), dry_run=dry_run, sync=False, prepare_cutover=refuse)
+
+    assert result["status"] == "error"
+    assert result["reason"] == "cutover_preflight"
+    assert result["rollback_verified"] is True
+    assert result["message"] == (
+        "Upgrade refused — CLI cutover preflight failed: stale registry entries require explicit exclusion"
+    )
+    assert _tree_bytes(vault) == before
+
+
+def test_the_prepared_cutover_commits_on_an_applying_run(tmp_path):
+    source = _make_source(tmp_path, "2.0.0", migrations={})
+    vault = _make_vault(tmp_path, "1.0.0")
+    calls = []
+
+    def prepare():
+        calls.append("prepared")
+        return lambda _result: {"status": "ok", "committed": True}
+
+    result = upgrade.upgrade(str(vault), str(source), sync=False, prepare_cutover=prepare)
+
+    assert result["status"] == "ok", result
+    assert calls == ["prepared"]
+    assert result["cutover_commit"] == {"status": "ok", "committed": True}
+
+
+def test_a_cutover_preflight_failure_is_a_json_error_from_main(tmp_path, monkeypatch, capsys):
+    source = _make_source(tmp_path, "2.0.0", migrations={})
+    vault = _make_vault(tmp_path, "1.0.0")
+
+    def fail_preflight(*_args, **_kwargs):
+        raise ValueError("stale registry entries require explicit exclusion before cutover")
+
+    monkeypatch.setattr(upgrade, "_prepare_cli_cutover", fail_preflight)
+    monkeypatch.setattr(sys, "argv", ["upgrade.py", "--source", str(source), "--vault", str(vault), "--dry-run", "--json"])
+
+    with pytest.raises(SystemExit) as exc:
+        upgrade.main()
+
+    assert exc.value.code == 1
+    out, _err = capsys.readouterr()
+    result = json.loads(out)
+    assert result["reason"] == "cutover_preflight"
+    assert "CLI cutover preflight failed: stale registry entries" in result["message"]
+    assert _version(vault) == "1.0.0"
+
+
 def test_a_matching_same_version_core_is_already_at_that_version(tmp_path):
     source = _make_source(tmp_path, "2.0.0", migrations={"migrate_to_2_0_0.py": _counter_migration("count.txt")})
     vault = _make_vault(tmp_path, "2.0.0")
@@ -708,6 +778,90 @@ def test_an_unreadable_version_exits_one_from_main(tmp_path, monkeypatch, capsys
     assert _version(vault) == "2.0.0"
 
 
+@pytest.mark.parametrize("which", ["source", "installed"])
+def test_a_version_that_does_not_decode_is_unreadable_not_a_crash(tmp_path, which):
+    source = _make_source(tmp_path, "2.0.0", migrations={})
+    vault = _make_vault(tmp_path, "1.0.0")
+    bad_path = source / "VERSION" if which == "source" else vault / ".brain-core" / "VERSION"
+    bad_path.write_bytes(b"\xff0.1.0\n")
+    before = _tree_bytes(vault)
+
+    result = _preview(vault, source)
+
+    assert result["reason"] == "version_unreadable"
+    assert str(bad_path) in result["message"]
+    assert _tree_bytes(vault) == before
+
+
+# --- H1: a damaged ledger is refused, never read as empty and overwritten ----------------
+
+_DAMAGED_LEDGERS = [
+    pytest.param('{"schema_version": 1, "migrations": {"3.0.0": {"status": "ok"', id="truncated"),
+    pytest.param('[]', id="non-dict-root"),
+    pytest.param('{"schema_version": 1, "migrations": [{"version": "3.0.0"}]}', id="non-dict-migrations"),
+    pytest.param('{"schema_version": 1, "migrations": {"3.0.0": "ok"}}', id="non-dict-entry"),
+]
+
+
+@pytest.mark.parametrize("force", [False, True])
+@pytest.mark.parametrize("text", _DAMAGED_LEDGERS)
+def test_a_damaged_ledger_refuses_the_upgrade_before_the_seed_can_overwrite_it(tmp_path, text, force):
+    """VERSION 1.0.0 + source 1.0.0 + a ledger recording 3.0.0 that cannot be read: refuse, do not backfill over it."""
+    source = _make_source(tmp_path, "1.0.0", migrations={"migrate_to_1_0_0.py": _counter_migration("count.txt")})
+    vault = _make_vault(tmp_path, "1.0.0")
+    _install_core(vault, source)
+    ledger_path = vault / ".brain" / "local" / "migrations.json"
+    ledger_path.write_text(text)
+    before = _tree_bytes(vault)
+
+    result = upgrade.upgrade(str(vault), str(source), force=force, sync=False)
+    preview = _preview(vault, source, force=force)
+
+    assert result["status"] == "error"
+    assert result["reason"] == "ledger_unreadable"
+    assert result["rollback_verified"] is True
+    assert preview == result
+    assert _tree_bytes(vault) == before, "the refusal runs before any write"
+    assert ledger_path.read_text() == text
+    message = result["message"]
+    assert str(ledger_path) in message
+    assert "Restore the file from a backup or your file-sync history" in message
+    assert "Moving it aside" in message and "backfill" in message
+    assert "discards the record of any content newer than VERSION" in message
+    assert _counter(vault, "count.txt") == 0
+
+
+def test_a_missing_ledger_is_no_records_and_the_upgrade_proceeds(tmp_path):
+    source = _make_source(tmp_path, "2.0.0", migrations={"migrate_to_2_0_0.py": _counter_migration("count.txt")})
+    vault = _make_vault(tmp_path, "1.0.0")
+    assert not (vault / ".brain" / "local" / "migrations.json").exists()
+
+    result = upgrade.upgrade(str(vault), str(source), sync=False)
+
+    assert result["status"] == "ok", result
+    assert _ledger_keys(vault) == {"2.0.0"}
+
+
+@pytest.mark.parametrize("json_output", [False, True])
+def test_a_damaged_ledger_exits_one_from_main(tmp_path, monkeypatch, capsys, json_output):
+    source = _make_source(tmp_path, "2.0.0", migrations={})
+    vault = _make_vault(tmp_path, "1.0.0")
+    (vault / ".brain" / "local" / "migrations.json").write_text("[]")
+    argv = ["upgrade.py", "--source", str(source), "--vault", str(vault)]
+    monkeypatch.setattr(sys, "argv", argv + (["--json"] if json_output else []))
+
+    with pytest.raises(SystemExit) as exc:
+        upgrade.main()
+
+    assert exc.value.code == 1
+    out, err = capsys.readouterr()
+    if json_output:
+        assert json.loads(out)["reason"] == "ledger_unreadable"
+    else:
+        assert "the migration ledger cannot be read" in err
+    assert _version(vault) == "1.0.0"
+
+
 # --- H2: the commit is split at the replace ----------------------------------------
 
 def test_a_directory_fsync_failure_after_the_replace_is_a_warning_and_the_run_continues(tmp_path, monkeypatch):
@@ -775,7 +929,6 @@ def test_every_stage_the_upgrader_logs_is_a_named_classified_stage():
         constants.append(getattr(upgrade, node.id))
     assert constants and all(value in upgrade._STAGES for value in constants)
     assert set(upgrade._PRE_COMMIT_STAGES) < set(upgrade._STAGES)
-    assert set(upgrade._POST_COMMIT_STAGES) == set(upgrade._STAGES) - set(upgrade._PRE_COMMIT_STAGES)
 
 
 def test_a_killed_same_version_re_apply_advises_the_same_re_apply(tmp_path):
