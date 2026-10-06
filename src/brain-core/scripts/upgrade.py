@@ -158,14 +158,24 @@ def find_vault_root(vault_arg: Optional[str] = None) -> Path:
 # Version reading
 # ---------------------------------------------------------------------------
 
-def _read_version(path: str) -> Optional[str]:
-    """Read VERSION file, return stripped content or None."""
-    version_file = os.path.join(path, "VERSION")
+def _read_version_bytes(path: str) -> Optional[bytes]:
+    """Read a directory's VERSION file as bytes, or None when it is absent or unreadable."""
     try:
-        with open(version_file, "r", encoding="utf-8") as f:
-            return f.read().strip()
+        with open(os.path.join(path, "VERSION"), "rb") as f:
+            return f.read()
     except OSError:
         return None
+
+
+def _version_text(version_bytes: bytes) -> str:
+    """Decode VERSION bytes without raising; the strict ``X.Y.Z`` check refuses what does not decode."""
+    return version_bytes.decode("utf-8", errors="replace").strip()
+
+
+def _read_version(path: str) -> Optional[str]:
+    """Read VERSION file, return stripped content or None."""
+    version_bytes = _read_version_bytes(path)
+    return None if version_bytes is None else _version_text(version_bytes)
 
 
 def _parse_version(v: str) -> tuple:
@@ -189,23 +199,54 @@ def _strict_version(text: str) -> Optional[tuple[int, int, int]]:
     return tuple(int(part) for part in text.split("."))  # type: ignore[return-value]
 
 
-def _refuse_unreadable_version(
-    path: str, text: str, old_version: Optional[str], new_version: str,
+def _refusal(
+    old_version: Optional[str], new_version: str, message: str, *, reason: Optional[str] = None,
+) -> dict:
+    """A no-effect error result: nothing was written, so rollback is trivially verified."""
+    refusal = {"status": "error", "old_version": old_version, "new_version": new_version}
+    if reason is not None:
+        refusal["reason"] = reason
+    refusal.update({"rollback_verified": True, "message": message})
+    return refusal
+
+
+def _content_guard(
+    vault_root: str, source: str, old_version: Optional[str], new_version: str,
 ) -> Optional[dict]:
-    """Refuse a present VERSION that is not strict ``X.Y.Z``; an absent file is a separate case."""
-    if _strict_version(text) is not None:
-        return None
-    return {
-        "status": "error",
-        "old_version": old_version,
-        "new_version": new_version,
-        "reason": "version_unreadable",
-        "rollback_verified": True,
-        "message": (
-            f"Upgrade refused — {path} holds {text!r}, not a version of the form X.Y.Z, "
-            "so the guard that keeps an older Core off newer content cannot compare it."
-        ),
-    }
+    """Refuse, before any write, what the content guard cannot compare or must not apply.
+
+    Both versions must be strict ``X.Y.Z`` (an absent installed VERSION is a
+    fresh install, not an unreadable one) and the ledger must be readable;
+    only then is an older source compared against the recorded content.
+    Returns the refusal, or None when the run may proceed.
+    """
+    strict = []
+    for path, text in (
+        (os.path.join(source, "VERSION"), new_version),
+        (os.path.join(vault_root, BRAIN_CORE_DIR, "VERSION"), old_version),
+    ):
+        parsed = None if text is None else _strict_version(text)
+        if text is not None and parsed is None:
+            return _refusal(old_version, new_version, reason="version_unreadable", message=(
+                f"Upgrade refused — {path} holds {text!r}, not a version of the form X.Y.Z, "
+                "so the guard that keeps an older Core off newer content cannot compare it."
+            ))
+        strict.append(parsed)
+    source_version, installed_version = strict
+    try:
+        ledger = _load_migration_ledger(vault_root)
+    except MigrationLedgerUnreadable as exc:
+        return _refusal(old_version, new_version, reason="ledger_unreadable", message=(
+            f"Upgrade refused — the migration ledger cannot be read ({exc}), so the guard "
+            "that keeps an older Core off newer content cannot see what it records. "
+            "Restore the file from a backup or your file-sync history and rerun. Moving it "
+            "aside instead lets the upgrade backfill the ledger from .brain-core/VERSION, "
+            "but that discards the record of any content newer than VERSION, which the "
+            "guard can then no longer protect."
+        ))
+    return _refuse_older_source(
+        ledger, old_version, new_version, installed=installed_version, source=source_version,
+    )
 
 
 def _managed_approval_followups(old_version: str | None, new_version: str) -> list[dict]:
@@ -370,9 +411,11 @@ def _commit_version(target: str, version_bytes: bytes) -> Optional[str]:
     """Write VERSION last so it witnesses a complete core and migrations.
 
     The bytes were captured at run start, so the commit cannot pick up a
-    source that changed under the run. A failed read, write or replace
-    raises; once the replace has landed, a failed directory fsync is returned
-    as a message because the commit itself is already in place.
+    source that changed under the run. The read is only an equality probe
+    that skips a write which would change nothing, so an unreadable VERSION
+    is written rather than reported. A failed write or replace raises; once
+    the replace has landed, a failed directory fsync is returned as a message
+    because the commit itself is already in place.
     """
     version_path = os.path.join(target, "VERSION")
     try:
@@ -817,9 +860,10 @@ def _declared_targets(tree: ast.AST, handlers: dict[str, str]) -> frozenset[str]
 def declared_migration_targets(text: str, *, filename: str = "<migration>") -> frozenset[str]:
     """Return the ledger targets a migration's source declares: ``migrate`` and ``TARGET_HANDLERS``.
 
-    The one rule behind every ledger key. The upgrade runner, the repository
-    contract that keeps released migrations' identity and the lab's coverage
-    gate all read it from here, so the key set can never drift between them.
+    The one rule behind every ledger key. The upgrade runner and the
+    repository contract that keeps released migrations' identity read it
+    directly; the lab's coverage gate reads it through the runner's own
+    discovery, so the key set can never drift between them.
     Pure: text in, no imports of the migration, no filesystem.
     """
     try:
@@ -1115,30 +1159,36 @@ def _empty_migration_ledger() -> dict:
     }
 
 
+class MigrationLedgerUnreadable(ValueError):
+    """The ledger file is present but cannot be read as the shape every ledger writer has produced."""
+
+
 def _load_migration_ledger(vault_root: str) -> dict:
-    """Load the local migration ledger, tolerating missing/corrupt files."""
+    """Load the local migration ledger: a missing file is an empty ledger, a damaged one raises.
+
+    Every writer since the ledger shipped has produced a dict root, a dict
+    ``migrations`` and dict entries, so any other shape is damage. The content
+    guard refuses on it before a seed could overwrite the file and lose the
+    records it could not read.
+    """
     ledger_path = os.path.join(vault_root, _MIGRATION_LEDGER_FILE)
     try:
         with open(ledger_path, "r", encoding="utf-8") as f:
             data = json.load(f)
-    except (OSError, json.JSONDecodeError):
+    except FileNotFoundError:
         return _empty_migration_ledger()
+    except (OSError, ValueError) as exc:
+        raise MigrationLedgerUnreadable(f"{ledger_path}: {exc}") from exc
 
-    if not isinstance(data, dict):
-        return _empty_migration_ledger()
-
-    migrations = data.get("migrations")
-    if not isinstance(migrations, dict):
-        migrations = {}
-
-    return {
-        "schema_version": 1,
-        "migrations": {
-            str(version): entry
-            for version, entry in migrations.items()
-            if isinstance(entry, dict)
-        },
-    }
+    migrations = data.get("migrations") if isinstance(data, dict) else None
+    if not isinstance(migrations, dict) or any(
+        not isinstance(entry, dict) for entry in migrations.values()
+    ):
+        raise MigrationLedgerUnreadable(
+            f"{ledger_path}: not a migration ledger "
+            '(expected an object whose "migrations" maps keys to record objects)'
+        )
+    return {"schema_version": 1, "migrations": dict(migrations)}
 
 
 def _write_migration_ledger(vault_root: str, ledger: dict) -> None:
@@ -1234,22 +1284,25 @@ def _recorded_content_versions(ledger: dict) -> dict[str, tuple[int, int, int]]:
 
 
 def _refuse_older_source(
-    vault_root: str, old_version: Optional[str], new_version: str,
+    ledger: dict,
+    old_version: Optional[str],
+    new_version: str,
+    *,
+    installed: Optional[tuple[int, int, int]],
+    source: tuple[int, int, int],
 ) -> Optional[dict]:
     """Refuse a source older than the recorded content, with or without force.
 
-    The content version is the higher of the installed ``VERSION`` and the
-    highest ledger record. Migrations only run forward, so an older Core over
-    content they shaped is undefined. The remedy never names ``brain upgrade``:
-    its upgrader is the installed distribution's, which may be the source
-    being refused.
+    ``installed`` and ``source`` are the strictly parsed versions; the caller
+    has already refused anything that does not parse, so nothing here fails
+    open. The content version is the higher of the installed ``VERSION`` and
+    the highest ledger record. Migrations only run forward, so an older Core
+    over content they shaped is undefined. The remedy never names ``brain
+    upgrade``: its upgrader is the installed distribution's, which may be the
+    source being refused.
     """
-    source = _strict_version(new_version)
-    if source is None:
-        return None
-    recorded = _recorded_content_versions(_load_migration_ledger(vault_root))
+    recorded = _recorded_content_versions(ledger)
     candidates = dict(recorded)
-    installed = _strict_version(old_version) if old_version else None
     if installed is not None:
         candidates[old_version] = installed
     if not candidates:
@@ -1265,20 +1318,13 @@ def _refuse_older_source(
         f" (the migration ledger records {', '.join(above)} above this source)"
         if above else ""
     )
-    return {
-        "status": "error",
-        "old_version": old_version,
-        "new_version": new_version,
-        "reason": "content_ahead",
-        "rollback_verified": True,
-        "message": (
-            f"Upgrade refused — this source is {new_version} but the Brain's content "
-            f"is at {content_str}{recorded_note}. Migrations only run forward, so "
-            "Brain never applies an older Core. Upgrade from a source at or above "
-            f"{content_str}: run install.sh from a current clone, or upgrade.py "
-            "--source <path> with that source."
-        ),
-    }
+    return _refusal(old_version, new_version, reason="content_ahead", message=(
+        f"Upgrade refused — this source is {new_version} but the Brain's content "
+        f"is at {content_str}{recorded_note}. Migrations only run forward, so "
+        "Brain never applies an older Core. Upgrade from a source at or above "
+        f"{content_str}: run install.sh from a current clone, or upgrade.py "
+        "--source <path> with that source."
+    ))
 
 
 # ---------------------------------------------------------------------------
@@ -1437,7 +1483,6 @@ _PRE_COMMIT_STAGES = (
     STAGE_VALIDATE_COMPILE,
     STAGE_POST_COMPILE_MIGRATIONS,
 )
-_POST_COMMIT_STAGES = tuple(stage for stage in _STAGES if stage not in _PRE_COMMIT_STAGES)
 _POST_COMMIT_REPAIRS = "runtime.refresh-router, brain runtime repair or mcp.repair"
 _SAME_VERSION_RE_APPLY = (
     "re-apply the same version (upgrade.py --force, or brain upgrade with \"force\": true)"
@@ -2284,6 +2329,7 @@ def upgrade(
     sync: Optional[bool] = None,
     sync_deps: Optional[bool] = None,
     commit_callback=None,
+    prepare_cutover=None,
 ) -> dict:
     """Upgrade .brain-core/ in a vault from a source directory.
 
@@ -2310,6 +2356,13 @@ def upgrade(
         commit_callback: Optional local cutover callback executed after core,
             compile and migrations validate but before VERSION is written.
             Raising requests a checked core rollback.
+        prepare_cutover: Optional preparation for that cutover, called once
+            the content guard and the same-version skip have passed and before
+            any preview or write. It returns the commit callback for this run
+            (None when there is nothing to commit) and raises OSError or
+            ValueError to refuse the run with no effect. A skipped run never
+            commits a cutover, so it never prepares one. Callers that prepared
+            before calling pass ``commit_callback`` instead.
 
     Returns:
         Dict with status, version info, and file change lists.
@@ -2318,13 +2371,10 @@ def upgrade(
     if not os.path.isdir(source):
         return {"status": "error", "message": f"Source directory not found: {source}"}
 
-    source_version_path = os.path.join(source, "VERSION")
-    try:
-        with open(source_version_path, "rb") as handle:
-            version_bytes = handle.read()
-    except OSError:
+    version_bytes = _read_version_bytes(source)
+    if version_bytes is None:
         return {"status": "error", "message": f"No VERSION file in source: {source}"}
-    new_version = version_bytes.decode("utf-8", errors="replace").strip()
+    new_version = _version_text(version_bytes)
 
     target = os.path.join(vault_root, BRAIN_CORE_DIR)
     old_version = _read_version(target)
@@ -2334,13 +2384,7 @@ def upgrade(
     if interrupted is not None:
         warnings.append(interrupted)
 
-    refusal = _refuse_unreadable_version(source_version_path, new_version, old_version, new_version)
-    if refusal is None and old_version is not None:
-        refusal = _refuse_unreadable_version(
-            os.path.join(target, "VERSION"), old_version, old_version, new_version,
-        )
-    if refusal is None:
-        refusal = _refuse_older_source(vault_root, old_version, new_version)
+    refusal = _content_guard(vault_root, source, old_version, new_version)
     if refusal is not None:
         if warnings:
             refusal["warnings"] = warnings
@@ -2370,6 +2414,15 @@ def upgrade(
                 "are overwritten. Keep customisations outside .brain-core/."
             ),
         })
+
+    if prepare_cutover is not None:
+        try:
+            commit_callback = prepare_cutover()
+        except (OSError, ValueError) as exc:
+            refusal = _refusal(old_version, new_version, f"Upgrade refused — {exc}", reason="cutover_preflight")
+            if warnings:
+                refusal["warnings"] = warnings
+            return refusal
 
     result = {
         "status": "ok",
@@ -2468,13 +2521,10 @@ def upgrade(
             vault_root, old_version, template_layer,
         )
     except (OSError, ValueError, TypeError) as exc:
-        return {
-            "status": "error",
-            "old_version": old_version,
-            "new_version": new_version,
-            "message": f"Upgrade refused — could not capture existing authorisation settings: {exc}",
-            "rollback_verified": True,
-        }
+        return _refusal(
+            old_version, new_version,
+            f"Upgrade refused — could not capture existing authorisation settings: {exc}",
+        )
 
     # --- Backup .brain-core/ before modifying anything ---
     old_core_fingerprint = _tree_fingerprint(target)
@@ -2482,13 +2532,7 @@ def upgrade(
     backup_core = os.path.join(backup_dir, BRAIN_CORE_DIR)
     if _tree_fingerprint(backup_core) != old_core_fingerprint:
         shutil.rmtree(backup_dir, ignore_errors=True)
-        return {
-            "status": "error",
-            "old_version": old_version,
-            "new_version": new_version,
-            "message": "Upgrade refused — Brain Core backup verification failed.",
-            "rollback_verified": True,
-        }
+        return _refusal(old_version, new_version, "Upgrade refused — Brain Core backup verification failed.")
 
     precompile_snapshots: dict[str, dict] = {}
     precompile_snapshot_roots: dict[str, set[str]] = {}
@@ -2984,16 +3028,22 @@ def main() -> None:
             fatal(str(exc))
         print(json.dumps(receipt, indent=2))
         raise SystemExit(0 if receipt["status"] == "ok" else 1)
-    try:
-        cutover = _prepare_cli_cutover(
-            Path(vault_root),
-            Path(source),
-            acknowledge_global_cli_cutover=True,
-            excluded_stale_brain_ids=tuple(args.exclude_stale_brain),
-        )
-    except (OSError, ValueError) as exc:
-        fatal(f"CLI cutover preflight failed: {exc}")
-    if cutover is not None:
+    cutover = None
+
+    def prepare_cutover():
+        """Plan the global CLI cutover for a run that will apply; a skipped run never gets here."""
+        nonlocal cutover
+        try:
+            cutover = _prepare_cli_cutover(
+                Path(vault_root),
+                Path(source),
+                acknowledge_global_cli_cutover=True,
+                excluded_stale_brain_ids=tuple(args.exclude_stale_brain),
+            )
+        except (OSError, ValueError) as exc:
+            raise ValueError(f"CLI cutover preflight failed: {exc}") from exc
+        if cutover is None:
+            return None
         affected = cutover["preflight"].affected_brain_ids
         if affected and not args.acknowledge_global_cli_cutover:
             print(
@@ -3004,13 +3054,15 @@ def main() -> None:
             for brain_id in affected:
                 print(f"  - {brain_id}", file=sys.stderr)
             if args.unattended or not sys.stdin.isatty():
-                fatal(
+                raise ValueError(
                     "rerun with --acknowledge-global-cli-cutover after reviewing "
                     "the affected Brain IDs"
                 )
             response = input("Proceed with this exact global CLI cutover? [y/N]: ")
             if response.casefold() != "y":
-                fatal("global CLI cutover was not acknowledged")
+                raise ValueError("global CLI cutover was not acknowledged")
+        return None if args.dry_run else lambda _result: _commit_cli_cutover(cutover)
+
     result = upgrade(
         str(vault_root),
         source,
@@ -3018,11 +3070,7 @@ def main() -> None:
         dry_run=args.dry_run,
         sync=args.sync,
         sync_deps=args.sync_deps,
-        commit_callback=(
-            None
-            if args.dry_run or cutover is None
-            else lambda _result: _commit_cli_cutover(cutover)
-        ),
+        prepare_cutover=prepare_cutover,
     )
     if cutover is not None:
         result["cutover_preflight"] = asdict(cutover["preflight"])

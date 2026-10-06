@@ -685,8 +685,9 @@ if [ -n "$EXISTING_VERSION" ]; then
             [ -n "$PYTHON" ] || err "Python 3.12+ is required for upgrade. Install it and rerun, or call upgrade.py with a compatible interpreter."
             # A preview never prompts: an unacknowledged cutover is reported, not asked.
             build_upgrade_cmd
+            preview_stderr=$(mktemp)
             set +e
-            preview_json=$("${upgrade_cmd[@]}" --unattended --dry-run --json 2>/dev/null)
+            preview_json=$("${upgrade_cmd[@]}" --unattended --dry-run --json 2>"$preview_stderr")
             preview_rc=$?
             set -e
             preview_status=$(printf '%s' "$preview_json" | "$PYTHON" -c '
@@ -703,8 +704,12 @@ print(data.get("message") or (result.get("message") if isinstance(result, dict) 
             preview_message=$(printf '%s' "$preview_status" | sed -n '2p')
             preview_status=$(printf '%s' "$preview_status" | sed -n '1p')
             if [ "$preview_rc" -ne 0 ]; then
+                cat "$preview_stderr" >&2
+                rm -f "$preview_stderr"
                 err "Upgrade refused: ${preview_message:-upgrade.py --dry-run exited $preview_rc}"
             fi
+            rm -f "$preview_stderr"
+            [ -n "$preview_status" ] || err "upgrade.py preview produced no result"
             if [ "$preview_status" = "skipped" ]; then
                 info "Brain is already at v$SOURCE_VERSION. No core upgrade needed."
                 configure_existing_approvals

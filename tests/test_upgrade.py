@@ -2491,6 +2491,7 @@ class TestUpgradeProgressLogging:
             sync=None,
             sync_deps=None,
             commit_callback=None,
+            prepare_cutover=None,
         ):
             assert commit_callback is None
             result = {
@@ -2547,6 +2548,7 @@ class TestUpgradeProgressLogging:
             sync=None,
             sync_deps=None,
             commit_callback=None,
+            prepare_cutover=None,
         ):
             assert commit_callback is None
             assert sync_deps is None
@@ -2603,6 +2605,7 @@ class TestUpgradeProgressLogging:
             sync=None,
             sync_deps=None,
             commit_callback=None,
+            prepare_cutover=None,
         ):
             assert commit_callback is None
             return {

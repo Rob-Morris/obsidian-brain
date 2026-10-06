@@ -381,7 +381,7 @@ def expected_migration_records(target_source: Path, target_core: str) -> set[str
     scripts = _target_scripts(target_source)
     import upgrade
 
-    core = tuple(int(part) for part in target_core.split("."))
+    core = _version_tuple(target_core)
     migrations_dir = os.path.join(scripts, "migrations")
     records = set()
     for target in upgrade._MIGRATION_TARGETS:
@@ -393,8 +393,8 @@ def expected_migration_records(target_source: Path, target_core: str) -> set[str
     return records
 
 
-def _version_of_record(record: str) -> tuple[int, ...]:
-    return tuple(int(part) for part in record.split("@", 1)[0].split("."))
+def _version_tuple(version: str) -> tuple[int, ...]:
+    return tuple(int(part) for part in version.split("."))
 
 
 def require_ledger_coverage(
@@ -418,14 +418,17 @@ def require_ledger_coverage(
     recorded = ledger.get("migrations") if isinstance(ledger, dict) else None
     if not isinstance(recorded, dict):
         raise AcceptanceFailure("migration ledger is invalid")
+    _target_scripts(target_source)
+    import upgrade  # the target source's own key rule, so a record decodes as it was written
+
     required = REQUIRED_MIGRATION_RECORDS | expected_migration_records(target_source, target_core)
     missing_records = sorted(required - set(recorded))
     if missing_records:
         raise AcceptanceFailure(f"migration ledger is missing required records: {missing_records}")
-    baseline = _version_of_record(historical_version)
-    core = _version_of_record(target_core)
+    baseline = _version_tuple(historical_version)
+    core = _version_tuple(target_core)
     for record in sorted(required):
-        if not baseline < _version_of_record(record) <= core:
+        if not baseline < _version_tuple(upgrade.migration_record_version(record)) <= core:
             continue
         entry = recorded[record]
         origin = entry.get("recorded_from") if isinstance(entry, dict) else None

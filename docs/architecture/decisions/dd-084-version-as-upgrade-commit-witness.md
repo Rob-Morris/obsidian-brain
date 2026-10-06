@@ -45,8 +45,8 @@ POSIX, each directory whose entries changed. `VERSION` is written with the
 safe-write pattern (DD-036) only after both migration stages, skill
 reconciliation and the CLI cutover have succeeded, from the source bytes
 captured at run start, and its directory is then fsynced. Until that write,
-every failure rolls back as before. A failed read, write or replace of
-`VERSION` is a `version_commit` partial outcome whose remedy is to rerun the
+every failure rolls back as before. A failed write or replace of `VERSION`
+is a `version_commit` partial outcome whose remedy is to rerun the
 same upgrade; once the replace has landed, a failed directory fsync is only a
 `version_commit_not_durable` warning and the post-commit stages still run.
 One unconditional router compile follows (the router stamps and tracks
@@ -74,7 +74,15 @@ the ledger. The versions it compares are validated first: a source
 `VERSION`, or a present installed `VERSION`, that is not strict `X.Y.Z` is
 refused as `version_unreadable` rather than compared, because a guard that
 cannot order the versions would otherwise fail open; a ledger key that does
-not parse is ignored. The guard covers an ordinary downgrade and newer content
+not parse is ignored. A missing ledger is no records, but a ledger that is
+present and cannot be read as the shape every ledger writer has produced
+(JSON that does not parse, a root or `migrations` that is not an object, or
+an entry that is not an object) is refused as `ledger_unreadable` rather than
+read as empty, because seeding would otherwise overwrite it and lose the
+records the guard could not see. The remedy is to restore the file from a
+backup or file-sync history; moving it aside lets the next run backfill from
+`VERSION`, at the cost of the record of any newer content, which the guard
+can then no longer protect. The guard covers an ordinary downgrade and newer content
 under an older Core, such as an interrupted newer upgrade. The refusal is a
 no-effect error at every surface that reaches the upgrader (`install.sh`'s own
 version comparison refuses a downgrade locally, before the upgrader, and exits
@@ -91,7 +99,10 @@ Because an interrupted run resumes a migration against a partial application
 of itself, a migration must be restartable as well as idempotent. A
 repository contract protects the identity of every released migration: at or
 below the `HEAD` `VERSION`, its file name and declared target set cannot
-change in a staged commit, while its body may still be corrected. On `dev`
+change in a staged commit, while its body may still be corrected, and no
+migration can be added at or below that version (vaults already there would
+never run it); a release commit that bumps `VERSION` may still add the
+migration it releases, because the boundary is `HEAD`'s version. On `dev`
 and in the lab, an unreleased migration is applied directly, which writes no
 ledger record, so propagation from `src/brain-core` passes the content guard.
 
