@@ -653,7 +653,7 @@ def prune_orphaned_runtimes(
 
 
 def _unreadable_contracts_block(summary: dict[str, Any]) -> str | None:
-    unreadable = summary.get("unreadable_runtime_contracts", ())
+    unreadable = summary["unreadable_runtime_contracts"]
     if not unreadable:
         return None
     names = "; ".join(f"{item['label']} (run `{item['guidance']}`)" for item in unreadable)

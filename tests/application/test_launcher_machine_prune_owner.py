@@ -102,6 +102,7 @@ def _summary(runtime_dir: Path | None = None, *, scan_available=True):
     return {
         "registration_coverage_complete": True,
         "live_process_scan_available": scan_available,
+        "unreadable_runtime_contracts": [],
         "runtimes": runtimes,
     }
 
