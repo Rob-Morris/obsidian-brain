@@ -481,9 +481,9 @@ def _make_pre_contract_vault(root: Path, name: str, *, layout: str = "mcp") -> P
 
 
 @pytest.mark.parametrize(("layout", "detail"), [
-    ("mcp", "no supported runtime resolver: {vault}/.brain-core/scripts/_common/_venv.py"),
-    ("no_semantic", "runtime dependency export is missing: {vault}/.brain-core/brain_mcp/requirements-semantic.txt"),
-    ("crlf", "runtime dependency export has invalid line endings: {vault}/.brain-core/brain_mcp/requirements-semantic.txt"),
+    ("mcp", "RuntimeError: Selected Brain has no supported runtime resolver: {vault}/.brain-core/scripts/_common/_venv.py"),
+    ("no_semantic", "RuntimeContractUnavailable: runtime dependency export is missing: {vault}/.brain-core/brain_mcp/requirements-semantic.txt"),
+    ("crlf", "RuntimeContractUnavailable: runtime dependency export has invalid line endings: {vault}/.brain-core/brain_mcp/requirements-semantic.txt"),
 ])
 def test_classify_brain_runtime_reports_an_unreadable_runtime_contract(tmp_path, fake_home, layout, detail):
     vault = _make_pre_contract_vault(tmp_path, "Old Brain", layout=layout)
@@ -494,21 +494,25 @@ def test_classify_brain_runtime_reports_an_unreadable_runtime_contract(tmp_path,
     assert runtime["healthy_runtime"] is False
     assert (runtime["expected_runtime"], runtime["selected_runtime"], runtime["runnable_runtime"]) == (None, None, None), (
         "no hash is guessed")
-    assert runtime["message"].startswith("The Brain's own runtime contract cannot be read: ")
-    assert detail.format(vault=vault) in runtime["message"]
+    assert runtime["message"].startswith("The Brain's own runtime contract could not be evaluated (")
+    assert f"({detail.format(vault=vault)}" in runtime["message"], "the exception type and text are the diagnosis"
     assert f"upgrade or recover it with `brain --vault '{vault}' upgrade`" in runtime["message"]
     assert runtime["legacy_runtime_present"] is False
 
 
-def test_classify_brain_runtime_judges_an_older_brain_by_its_own_contract(tmp_path, fake_home):
-    """A 0.55-0.68.6 Brain hashes requirements.txt alone; its own rule names its runtime, so it is healthy."""
+def make_single_export_brain(root: Path, name: str, version: str) -> tuple[Path, Path]:
+    """A 0.54.59-0.68.6 Brain: one export, and a resolver hashing it alone.
+
+    Returns the vault and the central runtime python its own contract names,
+    which this Core's rule cannot name (it requires the semantic export).
+    """
     import hashlib
     import re
 
-    vault = tmp_path / "Older Brain"
+    vault = root / name
     exports = vault / ".brain-core" / "brain_mcp"
     exports.mkdir(parents=True)
-    (vault / ".brain-core" / "VERSION").write_text("0.68.6\n")
+    (vault / ".brain-core" / "VERSION").write_text(f"{version}\n")
     (exports / "requirements.txt").write_text("mcp==1.0.0\n")
     single_export_rule = (
         'def requirements_hash(requirements_path: Path) -> str:\n'
@@ -523,6 +527,12 @@ def test_classify_brain_runtime_judges_an_older_brain_by_its_own_contract(tmp_pa
     resolver.write_text(source)
     own_hash = hashlib.sha256((exports / "requirements.txt").read_bytes()).hexdigest()[:16]
     runtime_python = central_venvs_root() / f"{_venv.python_tag(Path(sys.executable))}-{own_hash}" / "bin" / "python"
+    return vault, runtime_python
+
+
+def test_classify_brain_runtime_judges_an_older_brain_by_its_own_contract(tmp_path, fake_home):
+    """A 0.55-0.68.6 Brain hashes requirements.txt alone; its own rule names its runtime, so it is healthy."""
+    vault, runtime_python = make_single_export_brain(tmp_path, "Older Brain", "0.68.6")
     _install_central_runtime(runtime_python)
 
     runtime = classify_brain_runtime(vault, launcher_python=sys.executable)
@@ -649,7 +659,7 @@ def test_legacy_migration_skips_a_pre_contract_brain_and_refuses_it_by_name(tmp_
         f"old-brain ({old}) (run `brain --vault '{old}' upgrade`).")
     assert selected["status"] == "error" and selected["targets"] == []
     message = selected["steps"][0]["message"]
-    assert message.startswith("Selected Brain 'old-brain' cannot be migrated: The Brain's own runtime contract cannot be read")
+    assert message.startswith("Selected Brain 'old-brain' cannot be migrated: The Brain's own runtime contract could not be evaluated")
     assert f"brain --vault '{old}' upgrade" in message
     assert (old / ".venv").is_dir(), "nothing is removed"
 

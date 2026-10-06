@@ -12,9 +12,9 @@ import sys
 
 import check as vault_check
 import doctor_machine
-from _common import RuntimeContractUnavailable, find_runnable_python, legacy_vault_venv_python
+from _common import legacy_vault_venv_python
 from _common._venv import run_managed
-from _machine.topology import upgrade_guidance
+from _machine.topology import RUNTIME_CONTRACT_UNAVAILABLE, classify_brain_runtime
 from _repair_common import build_repair_command
 
 
@@ -142,24 +142,24 @@ def collect_vault_diagnosis(
     if not check_script.is_file():
         return _vault_failure(current_vault, "check.py missing — vault may be on an older brain-core")
 
-    launcher_path = Path(launcher_python) if launcher_python else None
+    # The Brain's own runtime contract names its interpreter, as the machine section judges it.
+    runtime = classify_brain_runtime(vault_path, launcher_python=launcher_python)
     note = None
-    try:
-        runnable_python = find_runnable_python(vault_path, launcher=launcher_path)
-    except RuntimeContractUnavailable as exc:
+    if runtime["status"] == RUNTIME_CONTRACT_UNAVAILABLE:
         # check.py needs only the standard library, so the legacy .venv or the launcher still serves it.
         legacy = legacy_vault_venv_python(vault_path)
+        launcher_path = Path(launcher_python) if launcher_python else None
         if legacy.is_file():
             runnable_python = legacy
         elif launcher_path is not None and launcher_path.exists():
             runnable_python = launcher_path
         else:
-            runnable_python = None
-        if runnable_python is not None:
-            note = (f"{exc}; check.py ran with {runnable_python}. "
-                    f"`{upgrade_guidance(current_vault)}` brings this Brain onto this tooling's runtime contract.")
-    if runnable_python is None:
+            return _vault_failure(current_vault, runtime["message"])
+        note = f"{runtime['message']} check.py ran with {runnable_python}."
+    elif runtime["runnable_runtime"] is None:
         return _vault_failure(current_vault, _no_runnable_python_guidance(current_vault))
+    else:
+        runnable_python = Path(runtime["runnable_runtime"])
 
     argv = [str(runnable_python), str(check_script), "--vault", current_vault, "--json"]
     if actionable:
