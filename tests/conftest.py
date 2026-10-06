@@ -103,6 +103,9 @@ def _isolate_config_home(tmp_path, monkeypatch):
     cfg = tmp_path / ".config"
     cfg.mkdir(parents=True, exist_ok=True)
     monkeypatch.setenv("XDG_CONFIG_HOME", str(cfg))
+    # The upgrade rollback journal lives in the machine state home
+    # (``$XDG_STATE_HOME`` or ``~/.local/state``); keep it off the developer's.
+    monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / ".local" / "state"))
     return cfg
 
 

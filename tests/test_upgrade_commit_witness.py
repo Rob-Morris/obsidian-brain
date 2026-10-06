@@ -82,10 +82,11 @@ def _version(vault: Path) -> str:
 
 
 def _tree_bytes(root: Path) -> dict[str, bytes]:
+    """Every file but lock endpoints: a refused run holds the vault lock while it decides."""
     return {
         path.relative_to(root).as_posix(): path.read_bytes()
         for path in root.rglob("*")
-        if path.is_file()
+        if path.is_file() and path.suffix != ".lock"
     }
 
 
@@ -196,7 +197,7 @@ def test_content_guard_ignores_keys_that_do_not_parse_and_counts_keys_without_a_
 def _skill_failure(monkeypatch):
     import _skill_library
 
-    def fail(_vault_root):
+    def fail(_vault_root, **_kwargs):
         raise RuntimeError("skill reconciliation boom")
 
     monkeypatch.setattr(_skill_library, "reconcile_core_overrides", fail)
@@ -363,16 +364,17 @@ def test_an_interrupted_rollback_has_already_unrecorded_the_migrations(tmp_path,
         "migrate_to_2_0_0.py": _raising_migration("second boom"),
     })
     vault = _make_vault(tmp_path, "1.0.0")
-    ledger_path = str(vault / ".brain" / "local" / "migrations.json")
-    real_restore = upgrade._restore_snapshots
+    from _bootstrap import upgrade_journal
+
+    real_restore = upgrade_journal.restore_snapshots
 
     def kill_during_content_restore(snapshots, **kwargs):
         # The ledger-first pass carries no roots; the content passes do.
-        if "roots" in kwargs:
+        if kwargs.get("roots"):
             raise _Killed()
         return real_restore(snapshots, **kwargs)
 
-    monkeypatch.setattr(upgrade, "_restore_snapshots", kill_during_content_restore)
+    monkeypatch.setattr(upgrade_journal, "restore_snapshots", kill_during_content_restore)
     with pytest.raises(_Killed):
         upgrade.upgrade(str(vault), str(source), sync=False)
 
@@ -380,14 +382,14 @@ def test_an_interrupted_rollback_has_already_unrecorded_the_migrations(tmp_path,
     assert _counter(vault, "first.txt") == 1, "the content restore had not reached the migration's effect"
     assert _version(vault) == "1.0.0"
 
-    monkeypatch.setattr(upgrade, "_restore_snapshots", real_restore)
+    monkeypatch.setattr(upgrade_journal, "restore_snapshots", real_restore)
     (source / "scripts" / "migrations" / "migrate_to_2_0_0.py").write_text(_counter_migration("second.txt"))
     result = upgrade.upgrade(str(vault), str(source), sync=False)
 
     assert result["status"] == "ok", result
-    assert "interrupted_previous_upgrade" in _warning_codes(result)
+    assert "recovered_interrupted_upgrade" in _warning_codes(result), "the journal of the killed rollback is restored first"
     assert [item["version"] for item in result["migrations"]] == ["1.5.0", "2.0.0"]
-    assert _counter(vault, "first.txt") == 2, "the surviving migration restarts and converges"
+    assert _counter(vault, "first.txt") == 1, "the migration reruns from the restored pre-run state"
     assert _counter(vault, "second.txt") == 1
     assert _version(vault) == "2.0.0"
 
@@ -996,7 +998,7 @@ def test_a_failed_ledger_restore_is_recorded_with_a_recovery_path(tmp_path):
 
     result = upgrade.upgrade(str(vault), str(source), sync=False)
 
-    assert result["status"] == "error"
+    assert result["status"] == "error", result
     assert result["rollback_verified"] is False
     assert any(error.startswith("migration ledger: ") for error in result["rollback"]["errors"])
     assert ledger_path in result["recovery_paths"]

@@ -305,12 +305,17 @@ def materialise_core_skill_for_edit(
 
 
 def reconcile_core_overrides(
-    vault_root: str | Path,
+    vault_root: str | Path, *, lock_held: bool = False
 ) -> tuple[CoreReconciliation, ...]:
-    """Archive clean redundant user overrides that now equal immutable core."""
+    """Archive clean redundant user overrides that now equal immutable core.
+
+    ``lock_held`` is for the upgrader, which holds the vault mutation lock
+    across its whole pre-commit span; the lock is not re-entrant.
+    """
     root = Path(vault_root)
     reconciled: list[CoreReconciliation] = []
-    with vault_mutation_lock(root):
+    lock = nullcontext() if lock_held else vault_mutation_lock(root)
+    with lock:
         tracking = load_tracking(root)
         updated = deepcopy(tracking)
         for name, _record, collection, _user, _core in _eligible_core_overrides(

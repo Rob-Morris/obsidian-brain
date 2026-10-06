@@ -17,7 +17,7 @@ if str(CLI_DIR) not in sys.path:
 from launcher_catalogue import LAUNCHER_CATALOGUE
 from _launcher import lifecycle
 from _launcher.context import LauncherContext, ProviderBindings
-from _launcher.contracts import ErrorCode, ReceiptState, WarningCode
+from _launcher.contracts import CommittedEffect, ErrorCode, ReceiptState, WarningCode
 from _launcher.contracts import RecoveryRequiredDetails
 from _launcher.invocation import LauncherInvocation
 from _launcher.lifecycle import (
@@ -943,3 +943,92 @@ def test_upgrade_force_on_a_same_version_vault_runs_the_real_core_and_no_migrati
     assert ledger, "every migration at or below VERSION is seeded"
     assert {entry["status"] for entry in ledger.values()} == {"backfilled"}
     assert {entry["recorded_from"] for entry in ledger.values()} == {f"installed-version:{CORE_VERSION}"}
+
+
+def test_upgrade_journal_unreadable_refusal_is_a_no_effect_conflict(tmp_path, monkeypatch):
+    vault = _vault(tmp_path)
+    _register(monkeypatch, tmp_path, vault)
+    message = "Upgrade refused — the rollback journal of an interrupted upgrade cannot be read (...)"
+    _fake_upgrader(monkeypatch, lambda _kwargs: {
+        "status": "error",
+        "old_version": "0.54.41",
+        "new_version": CORE_VERSION,
+        "reason": "journal_unreadable",
+        "rollback_verified": True,
+        "message": message,
+    })
+
+    result = _invocation(tmp_path, vault=vault).invoke(BrainUpgradeRequest())
+
+    assert result.error.code is ErrorCode.CONFLICT
+    assert result.effects == "none"
+    assert result.error.message == message
+
+
+_RECOVERED = {"stage": "upgrade_start", "code": "recovered_interrupted_upgrade", "message": "A previous upgrade was rolled back from its journal."}
+_RECOVERY = {"action": "restored", "journal": "/state/brain/upgrade-journals/abc", "restored_paths": 3, "preserved_paths": 0, "recovery_directory": None}
+
+
+def test_upgrade_recovery_warning_requires_follow_up_and_the_recovery_is_an_effect(tmp_path, monkeypatch):
+    vault = _vault(tmp_path)
+    _register(monkeypatch, tmp_path, vault)
+    _fake_upgrader(monkeypatch, lambda kwargs: _ok_result(kwargs, warnings=[_RECOVERED], recovery=_RECOVERY))
+
+    result = _invocation(tmp_path, vault=vault).invoke(BrainUpgradeRequest())
+
+    assert result.status == "ok"
+    assert [(w.code, w.message) for w in result.warnings] == [
+        (WarningCode.FOLLOW_UP_REQUIRED, "recovered_interrupted_upgrade: A previous upgrade was rolled back from its journal."),
+    ]
+    assert result.committed_effects[0] == CommittedEffect(BrainUpgradeRequest.COMMAND_ID, "upgrade-recovery:/state/brain/upgrade-journals/abc")
+    assert len(result.committed_effects) == 4
+
+
+def test_a_refusal_after_a_recovery_is_partial_with_the_recovery_as_its_effect(tmp_path, monkeypatch):
+    """A refused run that restored a journal did something; it is never reported as a no-effect error."""
+    vault = _vault(tmp_path)
+    _register(monkeypatch, tmp_path, vault)
+    message = "Upgrade refused — this source is 0.9.0 but the Brain's content is at 1.0.0."
+    _fake_upgrader(monkeypatch, lambda _kwargs: {
+        "status": "error", "old_version": "1.0.0", "new_version": "0.9.0", "reason": "content_ahead",
+        "rollback_verified": True, "message": message, "warnings": [_RECOVERED], "recovery": _RECOVERY,
+    })
+
+    result = _invocation(tmp_path, vault=vault).invoke(BrainUpgradeRequest())
+
+    assert result.status == "partial"
+    assert result.error.code is ErrorCode.CONFLICT and result.error.message == message
+    assert result.committed_effects == (CommittedEffect(BrainUpgradeRequest.COMMAND_ID, "upgrade-recovery:/state/brain/upgrade-journals/abc"),)
+    assert [w.code for w in result.warnings] == [WarningCode.FOLLOW_UP_REQUIRED]
+
+
+def test_a_skip_after_a_recovery_carries_the_recovery_effect(tmp_path, monkeypatch):
+    vault = _vault(tmp_path)
+    _register(monkeypatch, tmp_path, vault)
+    _fake_upgrader(monkeypatch, lambda _kwargs: {
+        "status": "skipped", "old_version": CORE_VERSION, "new_version": CORE_VERSION,
+        "message": f"Already at {CORE_VERSION}.", "warnings": [_RECOVERED], "recovery": _RECOVERY,
+    })
+
+    result = _invocation(tmp_path, vault=vault).invoke(BrainUpgradeRequest())
+
+    assert result.status == "ok" and result.result.status is LifecycleStatus.NOOP
+    assert result.committed_effects == (CommittedEffect(BrainUpgradeRequest.COMMAND_ID, "upgrade-recovery:/state/brain/upgrade-journals/abc"),)
+
+
+def test_a_next_run_restore_that_does_not_verify_is_an_unknown_outcome(tmp_path, monkeypatch):
+    vault = _vault(tmp_path)
+    _register(monkeypatch, tmp_path, vault)
+    journal = "/state/brain/upgrade-journals/abc"
+    _fake_upgrader(monkeypatch, lambda _kwargs: {
+        "status": "error", "old_version": "1.0.0", "new_version": CORE_VERSION,
+        "message": "Upgrade stopped — the interrupted upgrade 1.0.0 → 2.0.0 could not be rolled back.",
+        "rollback_verified": False, "recovery_paths": [journal, "/vault/.brain/notes.txt"],
+        "rollback": {"vault_state": "unverified", "errors": ["x"], "recovery_paths": [journal]},
+    })
+
+    result = _invocation(tmp_path, vault=vault).invoke(BrainUpgradeRequest())
+
+    assert result.status == "error" and result.error.code is ErrorCode.COMMAND_OUTCOME_UNKNOWN
+    assert result.effects == "unknown"
+    assert result.error.details.recovery_paths == ("/state/brain/upgrade-journals/abc", "/vault/.brain/notes.txt")

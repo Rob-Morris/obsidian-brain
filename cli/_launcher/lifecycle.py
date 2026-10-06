@@ -714,6 +714,7 @@ _RECONCILIATION_TABLE: tuple[tuple[str, str, str | None], ...] = (
 _FAILED_OUTCOMES = frozenset({"error", "partial", "unknown"})
 _UPGRADE_WARNING_CODES = {
     "interrupted_previous_upgrade": WarningCode.FOLLOW_UP_REQUIRED,
+    "recovered_interrupted_upgrade": WarningCode.FOLLOW_UP_REQUIRED,
     "core_mismatch": WarningCode.FOLLOW_UP_REQUIRED,
     "version_commit_not_durable": WarningCode.DEGRADED_CAPABILITY,
 }
@@ -827,6 +828,14 @@ def _reconciliation_next_action(result: dict) -> InstructionNextAction | None:
     return None
 
 
+def _recovery_effects(result: dict, request) -> tuple[CommittedEffect, ...]:
+    """The restore or discard of a leftover rollback journal is an effect of its own, whatever the run then did."""
+    recovery = result.get("recovery")
+    if not isinstance(recovery, dict) or not isinstance(recovery.get("journal"), str):
+        return ()
+    return (CommittedEffect(request.COMMAND_ID, f"upgrade-recovery:{recovery['journal']}"),)
+
+
 def _reconciliation_recovery_paths(result: dict) -> tuple[str, ...]:
     direct_paths = result.get("recovery_paths")
     raw_paths = list(direct_paths) if isinstance(direct_paths, (list, tuple)) else []
@@ -932,12 +941,18 @@ def execute_upgrade(context: LauncherContext, request: BrainUpgradeRequest):
                     for path in recovery_paths
                 ),
             )
+        message = result.get("message") or "Brain upgrade was rolled back."
+        recovered = _recovery_effects(result, request)
+        if recovered:
+            return Partial(
+                request.COMMAND_ID,
+                request.COMMAND_VERSION,
+                CommandError(ErrorCode.CONFLICT, message, RequestErrorDetails(None, message)),
+                recovered,
+                _upgrade_warnings(result),
+            )
         return replace(
-            no_effect_error(
-                type(request),
-                ErrorCode.CONFLICT,
-                result.get("message") or "Brain upgrade was rolled back.",
-            ),
+            no_effect_error(type(request), ErrorCode.CONFLICT, message),
             warnings=_upgrade_warnings(result),
         )
     if status not in {"ok", "partial", "skipped"}:
@@ -978,10 +993,9 @@ def execute_upgrade(context: LauncherContext, request: BrainUpgradeRequest):
             for item in result.get("followups", [])
         ),
     )
-    if context.dry_run or status == "skipped":
-        effects = ()
-    else:
-        effects = (
+    effects = _recovery_effects(result, request)
+    if not context.dry_run and status != "skipped":
+        effects += (
             CommittedEffect(request.COMMAND_ID, f"upgrade:{vault}"),
             CommittedEffect(request.COMMAND_ID, f"file:{context.cli_binary}"),
             CommittedEffect(
