@@ -142,3 +142,25 @@ def test_historical_adapter_owns_future_dependency_break_and_generated_template_
 def test_version_parser_rejects_ambiguous_versions(value: str):
     with pytest.raises(ValueError):
         parse_version(value)
+
+
+def test_gate_output_is_judged_and_retried_by_one_rule():
+    from brain_lab.compatibility import GateRetry, HealthGate, gate_output_matches, gate_retry_delay
+
+    gate = HealthGate(
+        gate_id="probe", command=("x",), expected_stdout=None,
+        expected_json={"result.round_trip": "tools/call:{vault}"},
+        retry=GateRetry(3, ("runtime_warming_up",), 2.0),
+    )
+    values = {"vault": "/home/brain/vault"}
+
+    assert gate_output_matches(gate, '{"result": {"round_trip": "tools/call:/home/brain/vault"}}', values)
+    assert not gate_output_matches(gate, '{"result": {}}', values)
+    assert not gate_output_matches(gate, "not json", values)
+    assert gate_retry_delay(gate, "not json") is None
+    assert gate_retry_delay(gate, '{"error": {"retryable": true, "code": "other"}}') is None
+    assert gate_retry_delay(gate, '{"error": {"retryable": true, "code": "runtime_warming_up"}}') == 2.0
+    assert gate_retry_delay(
+        gate, '{"error": {"retryable": true, "code": "runtime_warming_up", "details": {"runtime_status": {"retry_after_ms": 500}}}}',
+    ) == 0.5
+    assert gate_retry_delay(HealthGate("plain", ("x",)), '{"error": {"retryable": true, "code": "runtime_warming_up"}}') is None

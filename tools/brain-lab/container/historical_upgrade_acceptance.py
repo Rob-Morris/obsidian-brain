@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+from dataclasses import dataclass
 import hashlib
 import json
 import os
@@ -16,6 +17,7 @@ import sys
 import threading
 import time
 from typing import Any
+import warnings
 
 
 MAX_CAPTURE_BYTES = 8 * 1024 * 1024
@@ -74,6 +76,7 @@ def _run(
     cwd: Path,
     accepted: frozenset[int] | set[int] = frozenset({0}),
     timeout: float = 1800,
+    env: dict[str, str] | None = None,
 ) -> tuple[subprocess.CompletedProcess[str], dict[str, Any]]:
     try:
         process = subprocess.Popen(
@@ -82,6 +85,7 @@ def _run(
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             start_new_session=True,
+            env=env,
         )
     except OSError as exc:
         raise AcceptanceFailure(f"command could not start: {argv[0]}: {exc}") from exc
@@ -167,8 +171,9 @@ def _run_json(
     cwd: Path,
     accepted: frozenset[int] | set[int] = frozenset({0}),
     timeout: float = 1800,
+    env: dict[str, str] | None = None,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
-    completed, receipt = _run(argv, cwd=cwd, accepted=accepted, timeout=timeout)
+    completed, receipt = _run(argv, cwd=cwd, accepted=accepted, timeout=timeout, env=env)
     try:
         value = json.loads(completed.stdout)
     except json.JSONDecodeError as exc:
@@ -218,8 +223,12 @@ def _yaml_helpers(target_source: Path):
     return dump_yaml_text, load_mapping_file
 
 
-def _prepare_upgrade_fixture(vault: Path, target_source: Path) -> dict[str, str]:
-    """Add representative legacy authority, bootstrap, and user-owned state."""
+def _prepare_upgrade_fixture(vault: Path, target_source: Path) -> tuple[dict[str, str], set[str]]:
+    """Add representative legacy authority, bootstrap, and user-owned state.
+
+    Returns the user-owned content the upgrade must preserve and the built-in
+    profile names the shared file stores before the upgrade.
+    """
 
     dump_yaml_text, load_mapping_file = _yaml_helpers(target_source)
     old_defaults = load_mapping_file(vault / ".brain-core" / "defaults" / "config.yaml")
@@ -263,7 +272,7 @@ def _prepare_upgrade_fixture(vault: Path, target_source: Path) -> dict[str, str]
     return {
         str(memory.relative_to(vault)): memory.read_text(encoding="utf-8"),
         str(user_skill.relative_to(vault)): user_skill.read_text(encoding="utf-8"),
-    }
+    }, set(old_defaults["vault"]["profiles"])
 
 
 def _portable_manifest(vault: Path) -> dict[str, tuple[str, str]]:
@@ -284,23 +293,58 @@ def _portable_manifest(vault: Path) -> dict[str, tuple[str, str]]:
     return manifest
 
 
+def _effective_profiles(vault: Path, target_source: Path) -> dict[str, Any]:
+    """The profiles the target Core resolves: template defaults deep-merged with the shared file."""
+
+    _target_scripts(target_source)
+    import config
+
+    with warnings.catch_warnings(record=True) as recorded:
+        warnings.simplefilter("always")
+        profiles = config.load_config(str(vault))["vault"]["profiles"]
+    if recorded:
+        raise AcceptanceFailure(
+            "the target Core reports configuration issues: "
+            + "; ".join(str(item.message) for item in recorded)
+        )
+    return profiles
+
+
 def _assert_migrated_user_state(
     vault: Path,
     target_source: Path,
     preserved: dict[str, str],
+    stored_builtins: set[str],
 ) -> None:
     _, load_mapping_file = _yaml_helpers(target_source)
     config = load_mapping_file(vault / ".brain" / "config.yaml")
-    profiles = config["vault"]["profiles"]
+    stored_profiles = config["vault"]["profiles"]
     current_defaults = load_mapping_file(
         vault / ".brain-core" / "defaults" / "config.yaml"
     )["vault"]["profiles"]
+    # The vault config zone is a deep merge of the template and the shared
+    # file: a stored built-in is frozen as written, an absent one keeps
+    # receiving the template's grants. Since 0.68.0 the pre-compile conversion
+    # rewrites the stored shipped profiles before 0.55.0 runs, so the built-ins
+    # the historical vault never stored stay absent and track the template.
+    profiles = _effective_profiles(vault, target_source)
     expected_names = set(current_defaults) | {"author"}
     if set(profiles) != expected_names:
-        raise AcceptanceFailure("upgrade did not produce the five built-ins plus the custom profile")
+        raise AcceptanceFailure(
+            "effective profiles are not the current built-ins plus the custom profile: "
+            f"{sorted(profiles)}"
+        )
     for name, expected in current_defaults.items():
         if profiles[name]["allow"] != expected["allow"]:
-            raise AcceptanceFailure(f"upgrade did not migrate built-in profile {name!r} exactly")
+            raise AcceptanceFailure(
+                f"effective built-in profile {name!r} does not carry the template's grants"
+            )
+    stored_now = set(stored_profiles) & set(current_defaults)
+    if stored_now != stored_builtins:
+        raise AcceptanceFailure(
+            "upgrade changed which built-in profiles the shared file stores: "
+            f"{sorted(stored_builtins)} before, {sorted(stored_now)} after"
+        )
     if set(profiles["author"]["allow"]) != EXPECTED_CUSTOM_PROFILE_ALLOW:
         raise AcceptanceFailure("upgrade changed or widened the custom profile unexpectedly")
     if profiles["author"].get("description") != "User-owned read and create authority.":
@@ -438,6 +482,102 @@ def require_ledger_coverage(
             )
 
 
+def require_upgrade_applied(applied: dict[str, Any], vault: Path, target_core: str) -> None:
+    """An effectful ``brain.upgrade`` reports a change with effects and leaves the target VERSION installed."""
+    applied_result = _require_ok_envelope(applied, "brain.upgrade")
+    if applied_result.get("status") != "changed":
+        raise AcceptanceFailure("brain.upgrade did not report a changed result")
+    if not applied.get("committed_effects"):
+        raise AcceptanceFailure("brain.upgrade did not report its committed effects")
+    installed_core = (vault / ".brain-core" / "VERSION").read_text(encoding="utf-8").strip()
+    if installed_core != target_core:
+        raise AcceptanceFailure(f"installed Core {installed_core!r} does not match {target_core!r}")
+
+
+def require_validation_delta(
+    before_findings: list[dict[str, Any]],
+    after_findings: list[dict[str, Any]],
+    inherited: Path,
+    terminal: Path,
+) -> dict[str, list[tuple[str, str, str]]]:
+    """The upgrade adds no finding, keeps the inherited one and resolves the terminal record by key."""
+    delta = finding_delta(before_findings, after_findings)
+    if delta["added"]:
+        raise AcceptanceFailure(f"upgrade introduced unexplained findings: {delta['added']}")
+    if not any(item.get("file") == "Designs/Inherited.md" for item in after_findings):
+        raise AcceptanceFailure("controlled inherited finding was not preserved after upgrade")
+    if any(item.get("file") == "Designs/+Deprecated/Legacy.md" for item in after_findings):
+        raise AcceptanceFailure("terminal-status compatibility finding remains after upgrade")
+    if "key:" not in terminal.read_text(encoding="utf-8"):
+        raise AcceptanceFailure("terminal-status compatibility migration did not add a key")
+    if "key:" in inherited.read_text(encoding="utf-8"):
+        raise AcceptanceFailure("bounded compatibility migration changed the inherited root record")
+    return delta
+
+
+def require_first_session(session: dict[str, Any], target_core: str) -> None:
+    """The first ``session.start`` selects the target Core and still lists the user-owned skill."""
+    session_result = _require_ok_envelope(session, "session.start")
+    if session_result.get("brain_core_version") != target_core:
+        raise AcceptanceFailure("first session.start selected the wrong Brain Core")
+    skill_names = {
+        item.get("name")
+        for item in session_result.get("skills", [])
+        if isinstance(item, dict)
+    }
+    if "upgrade-acceptance-user-skill" not in skill_names:
+        raise AcceptanceFailure("session.start did not preserve the user-owned skill")
+
+
+def target_mcp_gate(target_source: Path, target_core: str):
+    """The MCP read-only health gate the target source's own compatibility adapter declares.
+
+    The MCP tool contract moved with the product (legacy, canonical, then the
+    portable names of 0.64.0), and the adapter manifest already owns which one
+    each Brain speaks, so the gate is read from there rather than restated.
+    """
+    lab = str(target_source / "tools" / "brain-lab")
+    if lab not in sys.path:
+        sys.path.insert(0, lab)
+    from brain_lab.compatibility import CompatibilityManifest
+
+    adapter = CompatibilityManifest(Path(lab) / "compatibility.json").select(target_core)
+    gates = [gate for gate in adapter.health if gate.gate_id == "mcp-read-only"]
+    if len(gates) != 1:
+        raise AcceptanceFailure(f"adapter {adapter.adapter_id} declares no single mcp-read-only gate")
+    return gates[0]
+
+
+def require_mcp_gate(gate, target_source: Path, vault: Path, commands: list[dict[str, Any]]) -> dict[str, Any]:
+    """Run the adapter's MCP gate as baseline preparation does: its rendering, expected output and retry rule."""
+    from brain_lab.compatibility import gate_output_matches, gate_retry_delay
+
+    values = {"container_python": sys.executable, "vault": str(vault)}
+    argv = list(gate.command)
+    attempts = gate.retry.maximum_attempts if gate.retry else 1
+    for attempt in range(1, attempts + 1):
+        completed, receipt = _run(
+            [part.format_map(values) for part in argv],
+            cwd=vault,
+            accepted=frozenset(range(256)),
+            timeout=gate.timeout_seconds,
+        )
+        commands.append(receipt)
+        if completed.returncode == 0 and gate_output_matches(gate, completed.stdout, values):
+            break
+        delay = gate_retry_delay(gate, completed.stdout)
+        if delay is None or attempt == attempts:
+            detail = completed.stderr.strip()[-2000:] or completed.stdout.strip()[-2000:]
+            raise AcceptanceFailure(
+                f"MCP read-only health gate {gate.gate_id} failed (exit {completed.returncode}): {detail}"
+            )
+        time.sleep(delay)
+    mcp = json.loads(completed.stdout)
+    if not mcp.get("tool_count"):
+        raise AcceptanceFailure("MCP read-only health gate listed no tools")
+    return mcp
+
+
 def _target_versions(source: Path) -> tuple[str, str]:
     core = (source / "src" / "brain-core" / "VERSION").read_text(encoding="utf-8").strip()
     launcher = (source / "cli" / "brain").read_text(encoding="utf-8")
@@ -447,13 +587,23 @@ def _target_versions(source: Path) -> tuple[str, str]:
     return core, matched.group(1)
 
 
-def run_acceptance(
-    vault: Path,
-    target_source: Path,
-    historical_version: str,
-) -> dict[str, Any]:
-    vault = vault.resolve()
-    target_source = target_source.resolve()
+@dataclass(frozen=True)
+class Prepared:
+    """The historical vault made ready for an upgrade gate: fixture, pre-upgrade evidence and the target CLI."""
+
+    target_core: str
+    target_cli: str
+    preserved: dict[str, str]
+    stored_builtins: set[str]
+    inherited: Path
+    terminal: Path
+    before_findings: list[dict[str, Any]]
+    upgrade_request: str
+    commands: list[dict[str, Any]]
+
+
+def prepare_acceptance(vault: Path, target_source: Path, historical_version: str) -> Prepared:
+    """Check the exact baseline, add the fixture and legacy records, record the pre-upgrade check and install the target CLI."""
     installed_historical = (
         vault / ".brain-core" / "VERSION"
     ).read_text(encoding="utf-8").strip()
@@ -463,7 +613,7 @@ def run_acceptance(
             f"{historical_version}, found {installed_historical}"
         )
     target_core, target_cli = _target_versions(target_source)
-    preserved = _prepare_upgrade_fixture(vault, target_source)
+    preserved, stored_builtins = _prepare_upgrade_fixture(vault, target_source)
     inherited, terminal = _write_legacy_records(vault)
     commands: list[dict[str, Any]] = []
 
@@ -498,11 +648,144 @@ def run_acceptance(
         cwd=vault,
     )
     commands.append(receipt)
-
     upgrade_request = json.dumps(
         {"acknowledge_global_cli_cutover": True},
         separators=(",", ":"),
     )
+    return Prepared(
+        target_core, target_cli, preserved, stored_builtins, inherited, terminal,
+        before_findings, upgrade_request, commands,
+    )
+
+
+def require_upgraded_state(
+    vault: Path,
+    target_source: Path,
+    historical_version: str,
+    prepared: Prepared,
+) -> dict[str, Any]:
+    """Everything an upgraded vault and its machine must satisfy, whatever route the upgrade took.
+
+    CLI version, migrated and preserved user state, runtime readiness, ledger
+    coverage, the validation delta, first-call ``session.start``, canonical
+    runtime cleanup, Doctor tidiness, the adapter's MCP gate and active-path
+    isolation. Returns the result fields these checks establish.
+    """
+    commands = prepared.commands
+    target_core = prepared.target_core
+    cli_version, receipt = _run(["brain", "--version"], cwd=vault)
+    commands.append(receipt)
+    if cli_version.stdout.strip() != f"brain {prepared.target_cli}":
+        raise AcceptanceFailure("installed CLI version does not match the target source")
+
+    _assert_migrated_user_state(vault, target_source, prepared.preserved, prepared.stored_builtins)
+
+    upgrade_log = json.loads(
+        (vault / ".brain" / "local" / "last-upgrade.json").read_text(encoding="utf-8")
+    )
+    if upgrade_log.get("runtime_readiness", {}).get("outcome") != "ok":
+        raise AcceptanceFailure("upgrade did not record completed runtime readiness")
+    require_ledger_coverage(vault, target_source, historical_version, target_core)
+
+    after, receipt = _run_json(
+        [
+            "brain",
+            "vault",
+            "check",
+            "--vault",
+            str(vault),
+            "--request-json",
+            "{}",
+            "--json",
+        ],
+        cwd=vault,
+    )
+    commands.append(receipt)
+    after_findings = _findings(after)
+    delta = require_validation_delta(
+        prepared.before_findings, after_findings, prepared.inherited, prepared.terminal,
+    )
+
+    session, receipt = _run_json(
+        ["brain", "session", "start", "--request-json", "{}", "--json"],
+        cwd=vault,
+    )
+    commands.append(receipt)
+    require_first_session(session, target_core)
+
+    dry_cleanup, receipt = _run_json(
+        ["brain", "runtime", "remove-orphans", "--dry-run", "--json"],
+        cwd=vault,
+    )
+    commands.append(receipt)
+    _require_ok_envelope(dry_cleanup, "runtime.remove-orphans dry run")
+    cleanup, receipt = _run_json(
+        ["brain", "runtime", "remove-orphans", "--json"],
+        cwd=vault,
+    )
+    commands.append(receipt)
+    _require_ok_envelope(cleanup, "runtime.remove-orphans")
+
+    doctor, receipt = _run_json(
+        [
+            "brain",
+            "doctor",
+            "--vault",
+            str(vault),
+            "--json",
+        ],
+        cwd=vault,
+    )
+    commands.append(receipt)
+    doctor_result = _require_ok_envelope(doctor, "brain.doctor")
+    if doctor_result.get("machine", {}).get("tidy") is not True:
+        raise AcceptanceFailure("machine runtime state is not tidy after canonical cleanup")
+
+    mcp = require_mcp_gate(target_mcp_gate(target_source, target_core), target_source, vault, commands)
+
+    paths, receipt = _run_json(
+        [sys.executable, "/usr/local/lib/brain-lab/active_path_probe.py"],
+        cwd=vault,
+    )
+    commands.append(receipt)
+    if paths.get("safe") is not True:
+        raise AcceptanceFailure("active Brain paths contain host-state leakage")
+
+    return {
+        "historical_core_version": historical_version,
+        "target_core_version": target_core,
+        "target_cli_version": prepared.target_cli,
+        "profiles_migrated": True,
+        "bootstraps_migrated": True,
+        "user_state_preserved": True,
+        "retired_core_skills_absent": list(RETIRED_CORE_SKILLS),
+        "validation": {
+            "before_count": len(prepared.before_findings),
+            "after_count": len(after_findings),
+            "added": [list(item) for item in delta["added"]],
+            "removed": [list(item) for item in delta["removed"]],
+            "retained": [list(item) for item in delta["retained"]],
+        },
+        "first_session_ready": True,
+        "runtime_tidy": True,
+        "mcp_tool_count": mcp["tool_count"],
+        "active_paths_safe": True,
+        "commands": commands,
+    }
+
+
+def run_acceptance(
+    vault: Path,
+    target_source: Path,
+    historical_version: str,
+) -> dict[str, Any]:
+    vault = vault.resolve()
+    target_source = target_source.resolve()
+    prepared = prepare_acceptance(vault, target_source, historical_version)
+    target_core = prepared.target_core
+    upgrade_request = prepared.upgrade_request
+    commands = prepared.commands
+
     portable_before_preview = _portable_manifest(vault)
     preview, receipt = _run_json(
         [
@@ -554,149 +837,13 @@ def run_acceptance(
         timeout=1800,
     )
     commands.append(receipt)
-    applied_result = _require_ok_envelope(applied, "brain.upgrade")
-    if applied_result.get("status") != "changed":
-        raise AcceptanceFailure("brain.upgrade did not report a changed result")
-    if not applied.get("committed_effects"):
-        raise AcceptanceFailure("brain.upgrade did not report its committed effects")
-
-    installed_core = (vault / ".brain-core" / "VERSION").read_text(encoding="utf-8").strip()
-    if installed_core != target_core:
-        raise AcceptanceFailure(f"installed Core {installed_core!r} does not match {target_core!r}")
-    cli_version, receipt = _run(["brain", "--version"], cwd=vault)
-    commands.append(receipt)
-    if cli_version.stdout.strip() != f"brain {target_cli}":
-        raise AcceptanceFailure("installed CLI version does not match the target source")
-
-    _assert_migrated_user_state(vault, target_source, preserved)
-
-    upgrade_log = json.loads(
-        (vault / ".brain" / "local" / "last-upgrade.json").read_text(encoding="utf-8")
-    )
-    if upgrade_log.get("runtime_readiness", {}).get("outcome") != "ok":
-        raise AcceptanceFailure("upgrade did not record completed runtime readiness")
-    require_ledger_coverage(vault, target_source, historical_version, target_core)
-
-    after, receipt = _run_json(
-        [
-            "brain",
-            "vault",
-            "check",
-            "--vault",
-            str(vault),
-            "--request-json",
-            "{}",
-            "--json",
-        ],
-        cwd=vault,
-    )
-    commands.append(receipt)
-    after_findings = _findings(after)
-    delta = finding_delta(before_findings, after_findings)
-    if delta["added"]:
-        raise AcceptanceFailure(f"upgrade introduced unexplained findings: {delta['added']}")
-    if not any(item.get("file") == "Designs/Inherited.md" for item in after_findings):
-        raise AcceptanceFailure("controlled inherited finding was not preserved after upgrade")
-    if any(item.get("file") == "Designs/+Deprecated/Legacy.md" for item in after_findings):
-        raise AcceptanceFailure("terminal-status compatibility finding remains after upgrade")
-    if "key:" not in terminal.read_text(encoding="utf-8"):
-        raise AcceptanceFailure("terminal-status compatibility migration did not add a key")
-    if "key:" in inherited.read_text(encoding="utf-8"):
-        raise AcceptanceFailure("bounded compatibility migration changed the inherited root record")
-
-    session, receipt = _run_json(
-        ["brain", "session", "start", "--request-json", "{}", "--json"],
-        cwd=vault,
-    )
-    commands.append(receipt)
-    session_result = _require_ok_envelope(session, "session.start")
-    if session_result.get("brain_core_version") != target_core:
-        raise AcceptanceFailure("first session.start selected the wrong Brain Core")
-    skill_names = {
-        item.get("name")
-        for item in session_result.get("skills", [])
-        if isinstance(item, dict)
-    }
-    if "upgrade-acceptance-user-skill" not in skill_names:
-        raise AcceptanceFailure("session.start did not preserve the user-owned skill")
-
-    dry_cleanup, receipt = _run_json(
-        ["brain", "runtime", "remove-orphans", "--dry-run", "--json"],
-        cwd=vault,
-    )
-    commands.append(receipt)
-    _require_ok_envelope(dry_cleanup, "runtime.remove-orphans dry run")
-    cleanup, receipt = _run_json(
-        ["brain", "runtime", "remove-orphans", "--json"],
-        cwd=vault,
-    )
-    commands.append(receipt)
-    _require_ok_envelope(cleanup, "runtime.remove-orphans")
-
-    doctor, receipt = _run_json(
-        [
-            "brain",
-            "doctor",
-            "--vault",
-            str(vault),
-            "--json",
-        ],
-        cwd=vault,
-    )
-    commands.append(receipt)
-    doctor_result = _require_ok_envelope(doctor, "brain.doctor")
-    if doctor_result.get("machine", {}).get("tidy") is not True:
-        raise AcceptanceFailure("machine runtime state is not tidy after canonical cleanup")
-
-    mcp, receipt = _run_json(
-        [
-            sys.executable,
-            "/usr/local/lib/brain-lab/mcp_probe.py",
-            "--vault",
-            str(vault),
-            "--contract",
-            "canonical",
-        ],
-        cwd=vault,
-    )
-    commands.append(receipt)
-    if (
-        mcp.get("read_only_round_trip") != "tools/call:command.list"
-        or not mcp.get("tool_count")
-    ):
-        raise AcceptanceFailure("MCP read-only health probe did not pass")
-
-    paths, receipt = _run_json(
-        [sys.executable, "/usr/local/lib/brain-lab/active_path_probe.py"],
-        cwd=vault,
-    )
-    commands.append(receipt)
-    if paths.get("safe") is not True:
-        raise AcceptanceFailure("active Brain paths contain host-state leakage")
+    require_upgrade_applied(applied, vault, target_core)
 
     return {
         "schema": "brain-lab.historical-upgrade-acceptance/1",
-        "historical_core_version": historical_version,
-        "target_core_version": target_core,
-        "target_cli_version": target_cli,
         "upgrade_preview_no_portable_effects": True,
-        "profiles_migrated": True,
-        "bootstraps_migrated": True,
-        "user_state_preserved": True,
-        "retired_core_skills_absent": list(RETIRED_CORE_SKILLS),
         "migration_records": sorted(REQUIRED_MIGRATION_RECORDS),
-        "validation": {
-            "before_count": len(before_findings),
-            "after_count": len(after_findings),
-            "added": [list(item) for item in delta["added"]],
-            "removed": [list(item) for item in delta["removed"]],
-            "retained": [list(item) for item in delta["retained"]],
-        },
-        "first_session_ready": True,
-        "runtime_tidy": True,
-        "mcp_tool_count": mcp["tool_count"],
-        "active_paths_safe": True,
-        "commands": commands,
+        **require_upgraded_state(vault, target_source, historical_version, prepared),
     }
 
 

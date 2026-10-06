@@ -5,6 +5,7 @@ import gzip
 import os
 from pathlib import Path
 import runpy
+import shutil
 import signal
 import subprocess
 import sys
@@ -66,7 +67,7 @@ def test_acceptance_matrix_has_unique_executable_evidence_owners():
     rows = matrix["rows"]
 
     assert matrix["schema"] == "brain-lab.acceptance-matrix/2"
-    assert len({row["id"] for row in rows}) == len(rows) == 18
+    assert len({row["id"] for row in rows}) == len(rows) == 19
     for row in rows:
         assert all(row[field] for field in ("setup", "command", "predicate", "evidence", "owner"))
     targets = matrix["verification_targets"]
@@ -95,6 +96,7 @@ def test_acceptance_matrix_has_unique_executable_evidence_owners():
     assert docker_target["paths"] == [
         "scenarios/current-template.json",
         "scenarios/historical-upgrade.json",
+        "scenarios/killed-upgrade.json",
     ]
     scenarios = [
         json.loads((TOOL_ROOT / path).read_text(encoding="utf-8"))
@@ -134,6 +136,27 @@ def test_acceptance_matrix_has_unique_executable_evidence_owners():
         "7bf6db30efc9e132aa84755bc6f448d575fdf85f"
     )
     assert historical["host_state"] is not False
+    killed = scenarios[2]
+    assert [step["operation"] for step in killed["steps"]] == historical_operations
+    assert killed["steps"][1]["request"] == historical["steps"][1]["request"], (
+        "the killed upgrade starts from the exact historical baseline"
+    )
+    killed_acceptance = next(
+        step
+        for step in killed["steps"]
+        if step["operation"] == "run.exec"
+        and any(
+            argument.endswith("/killed_upgrade_acceptance.py")
+            for argument in step["request"]["argv"]
+        )
+    )
+    assert killed_acceptance["request"]["argv"][0] == CONTAINER_PYTHON
+    assert killed_acceptance["request"]["argv"][-2:] == ["--historical-version", "0.53.5"]
+    assert killed_acceptance["request"]["id"] == "${steps.5.resource.id}"
+    assert killed["host_state"] is not False
+    dockerfile = (TOOL_ROOT / "Dockerfile").read_text(encoding="utf-8")
+    for script in ("historical_upgrade_acceptance.py", "killed_upgrade_acceptance.py"):
+        assert f"COPY container/{script} /usr/local/lib/brain-lab/{script}" in dockerfile
 
 
 def test_historical_upgrade_delta_uses_stable_check_severity_and_path_identity():
@@ -650,3 +673,96 @@ def test_historical_upgrade_gate_rejects_a_backfilled_record_above_the_baseline(
 
     with pytest.raises(helper["AcceptanceFailure"], match="0.62.4 was 'installed-version:0.62.4', not run by the upgrade"):
         helper["require_ledger_coverage"](tmp_path, REPO_ROOT, "0.53.5", version)
+
+
+def test_historical_upgrade_mcp_gate_is_the_target_adapters_own():
+    """The MCP tool contract moved with the product; the gate reads it from the adapter manifest."""
+    helper = _acceptance_helper("historical_upgrade_mcp_gate_test")
+    version = _repo_version()
+    expected = next(
+        gate
+        for gate in CompatibilityManifest(TOOL_ROOT / "compatibility.json").select(version).health
+        if gate.gate_id == "mcp-read-only"
+    )
+
+    gate = helper["target_mcp_gate"](REPO_ROOT, version)
+
+    assert gate == expected
+
+
+def _migrated_vault(tmp_path: Path, stored_profiles: dict) -> Path:
+    from _common._yaml import dump_yaml_text
+
+    vault = tmp_path / "vault"
+    defaults = vault / ".brain-core" / "defaults"
+    defaults.mkdir(parents=True)
+    shutil.copy(REPO_ROOT / "src" / "brain-core" / "defaults" / "config.yaml", defaults / "config.yaml")
+    (vault / ".brain-core" / "skills").mkdir()
+    (vault / ".brain").mkdir()
+    (vault / ".brain" / "config.yaml").write_text(dump_yaml_text({
+        "vault": {"brain_name": "Upgrade Acceptance Brain", "profiles": stored_profiles},
+        "defaults": {"default_profile": "operator"},
+    }), encoding="utf-8")
+    for name in ("AGENTS.md", "CLAUDE.md"):
+        (vault / name).write_text(
+            "ALWAYS DO FIRST: Call MCP `session.start`.\n\nKeep this user-authored bootstrap guidance unchanged.\n",
+            encoding="utf-8",
+        )
+    return vault
+
+
+def _template_profiles() -> dict:
+    from _common._yaml import load_mapping_file
+
+    return load_mapping_file(REPO_ROOT / "src" / "brain-core" / "defaults" / "config.yaml")["vault"]["profiles"]
+
+
+def _stored_historical_profiles(helper) -> dict:
+    template = _template_profiles()
+    stored = {name: json.loads(json.dumps(template[name])) for name in HISTORICAL_BUILTINS}
+    stored["author"] = {
+        "allow": sorted(helper["EXPECTED_CUSTOM_PROFILE_ALLOW"]),
+        "description": "User-owned read and create authority.",
+    }
+    return stored
+
+
+HISTORICAL_BUILTINS = {"reader", "contributor", "operator"}
+
+
+def test_migrated_profiles_are_judged_as_the_target_core_resolves_them(tmp_path):
+    """A historical vault stores three built-ins; the absent two track the template through the merge."""
+    helper = _acceptance_helper("historical_upgrade_profiles_test")
+    vault = _migrated_vault(tmp_path, _stored_historical_profiles(helper))
+
+    helper["_assert_migrated_user_state"](vault, REPO_ROOT, {}, HISTORICAL_BUILTINS)
+
+
+def test_migrated_profiles_reject_a_newly_stored_built_in_copy(tmp_path):
+    helper = _acceptance_helper("historical_upgrade_profiles_copy_test")
+    stored = _stored_historical_profiles(helper)
+    stored["maintainer"] = json.loads(json.dumps(_template_profiles()["maintainer"]))
+    vault = _migrated_vault(tmp_path, stored)
+
+    with pytest.raises(helper["AcceptanceFailure"], match="changed which built-in profiles the shared file stores"):
+        helper["_assert_migrated_user_state"](vault, REPO_ROOT, {}, HISTORICAL_BUILTINS)
+
+
+def test_migrated_profiles_reject_a_frozen_built_in_that_lost_the_templates_grants(tmp_path):
+    helper = _acceptance_helper("historical_upgrade_profiles_frozen_test")
+    stored = _stored_historical_profiles(helper)
+    stored["operator"]["allow"] = [grant for grant in stored["operator"]["allow"] if grant != "workspace.setup"]
+    vault = _migrated_vault(tmp_path, stored)
+
+    with pytest.raises(helper["AcceptanceFailure"], match="effective built-in profile 'operator'"):
+        helper["_assert_migrated_user_state"](vault, REPO_ROOT, {}, HISTORICAL_BUILTINS)
+
+
+def test_migrated_profiles_fail_on_a_configuration_warning(tmp_path):
+    helper = _acceptance_helper("historical_upgrade_profiles_warning_test")
+    stored = _stored_historical_profiles(helper)
+    stored["author"]["allow"].append("no.such-command")
+    vault = _migrated_vault(tmp_path, stored)
+
+    with pytest.raises(helper["AcceptanceFailure"], match="configuration issues"):
+        helper["_assert_migrated_user_state"](vault, REPO_ROOT, {}, HISTORICAL_BUILTINS)

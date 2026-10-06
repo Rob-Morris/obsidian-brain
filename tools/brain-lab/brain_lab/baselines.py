@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any, Mapping, Sequence
 
 from .application import Application, HandlerResult, OperationContext, OperationFailure
+from .compatibility import gate_output_matches, gate_retry_delay, render_expected
 from .container_contract import CONTAINER_PYTHON
 from .docker import IMPORTED_LABEL, DockerClient, DockerError
 from .model import (
@@ -69,25 +70,6 @@ def _container_manifest(context: OperationContext, container: str, scope: str, s
     return read_gzip_json(Path(execution.stdout.path))
 
 
-def _render_expected(value: Any, values: Mapping[str, str]) -> Any:
-    if isinstance(value, str):
-        return value.format_map(values)
-    if isinstance(value, list):
-        return [_render_expected(item, values) for item in value]
-    if isinstance(value, dict):
-        return {key: _render_expected(item, values) for key, item in value.items()}
-    return value
-
-
-def _json_value(payload: Any, path: str) -> Any:
-    value = payload
-    for part in path.split("."):
-        if not isinstance(value, dict) or part not in value:
-            raise KeyError(path)
-        value = value[part]
-    return value
-
-
 def _run_health_gates(
     context: OperationContext,
     container: str,
@@ -121,7 +103,7 @@ def _run_health_gates(
         execution = None
         stdout = ""
         expected = gate.expected_stdout.format_map(values) if gate.expected_stdout else None
-        expected_json = _render_expected(gate.expected_json, values) if gate.expected_json else None
+        expected_json = render_expected(gate.expected_json, values) if gate.expected_json else None
         expected_matched = False
         passed = False
         attempts = 0
@@ -140,39 +122,14 @@ def _run_health_gates(
                 timeout_seconds=gate.timeout_seconds,
             )
             stdout = _stdout(execution) if not execution.stdout.truncated else ""
-            expected_matched = expected is None or stdout.strip() == expected
-            if expected_json is not None:
-                try:
-                    payload = json.loads(stdout)
-                    expected_matched = expected_matched and all(
-                        _json_value(payload, path) == value
-                        for path, value in expected_json.items()
-                    )
-                except (json.JSONDecodeError, KeyError):
-                    expected_matched = False
+            expected_matched = gate_output_matches(gate, stdout, values)
             passed = execution.succeeded and expected_matched
-            if passed or gate.retry is None or attempt == maximum_attempts:
+            if passed or attempt == maximum_attempts:
                 break
-            try:
-                envelope = json.loads(stdout)
-            except json.JSONDecodeError:
+            delay = gate_retry_delay(gate, stdout)
+            if delay is None:
                 break
-            error = envelope.get("error") if isinstance(envelope, dict) else None
-            if (
-                not isinstance(error, dict)
-                or error.get("retryable") is not True
-                or error.get("code") not in gate.retry.retryable_error_codes
-            ):
-                break
-            details = error.get("details")
-            status = details.get("runtime_status") if isinstance(details, dict) else None
-            retry_after_ms = status.get("retry_after_ms") if isinstance(status, dict) else None
-            requested_delay = (
-                float(retry_after_ms) / 1000
-                if isinstance(retry_after_ms, (int, float)) and retry_after_ms >= 0
-                else gate.retry.maximum_delay_seconds
-            )
-            time.sleep(min(requested_delay, gate.retry.maximum_delay_seconds))
+            time.sleep(delay)
         assert execution is not None
         results.append(
             {

@@ -33,6 +33,69 @@ class HealthGate:
     retry: GateRetry | None = None
 
 
+def render_expected(value: Any, values: Mapping[str, str]) -> Any:
+    """Format every string in an expected value with the gate's placeholders."""
+    if isinstance(value, str):
+        return value.format_map(values)
+    if isinstance(value, list):
+        return [render_expected(item, values) for item in value]
+    if isinstance(value, dict):
+        return {key: render_expected(item, values) for key, item in value.items()}
+    return value
+
+
+def json_value(payload: Any, path: str) -> Any:
+    """Look a dotted path up in a JSON payload; KeyError when any step is missing."""
+    value = payload
+    for part in path.split("."):
+        if not isinstance(value, dict) or part not in value:
+            raise KeyError(path)
+        value = value[part]
+    return value
+
+
+def gate_output_matches(gate: HealthGate, stdout: str, values: Mapping[str, str]) -> bool:
+    """Whether a gate command's stdout meets its expected stdout and expected JSON paths."""
+    expected = gate.expected_stdout.format_map(values) if gate.expected_stdout else None
+    matched = expected is None or stdout.strip() == expected
+    if gate.expected_json:
+        expected_json = render_expected(gate.expected_json, values)
+        try:
+            payload = json.loads(stdout)
+            matched = matched and all(
+                json_value(payload, path) == value for path, value in expected_json.items()
+            )
+        except (json.JSONDecodeError, KeyError):
+            matched = False
+    return matched
+
+
+def gate_retry_delay(gate: HealthGate, stdout: str) -> float | None:
+    """Seconds to wait before retrying a failed gate attempt, or None when its error is not retryable."""
+    if gate.retry is None:
+        return None
+    try:
+        envelope = json.loads(stdout)
+    except json.JSONDecodeError:
+        return None
+    error = envelope.get("error") if isinstance(envelope, dict) else None
+    if (
+        not isinstance(error, dict)
+        or error.get("retryable") is not True
+        or error.get("code") not in gate.retry.retryable_error_codes
+    ):
+        return None
+    details = error.get("details")
+    status = details.get("runtime_status") if isinstance(details, dict) else None
+    retry_after_ms = status.get("retry_after_ms") if isinstance(status, dict) else None
+    requested = (
+        float(retry_after_ms) / 1000
+        if isinstance(retry_after_ms, (int, float)) and retry_after_ms >= 0
+        else gate.retry.maximum_delay_seconds
+    )
+    return min(requested, gate.retry.maximum_delay_seconds)
+
+
 @dataclass(frozen=True)
 class CompatibilityAdapter:
     adapter_id: str
