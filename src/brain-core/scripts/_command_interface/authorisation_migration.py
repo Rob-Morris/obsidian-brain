@@ -230,6 +230,12 @@ def plan_authorisation_migration(vault_root, before, *, new_template=None) -> Au
         if updated != original:
             writes.append((path, dump_mapping_text(updated)))
         updated_layers.append(updated)
+    # Local before shared, in the order the migration applies them: the shared
+    # conversion never reads the local layer, and a run killed between the two
+    # writes and resumed without its rollback journal converges on the same
+    # files in this order, whereas a converted shared profile under a legacy
+    # local selection would widen local's initial commands on the rerun.
+    writes.sort(key=lambda write: write[0] != '.brain/local/config.yaml')
     conflicts = _control_conflicts(template, *updated_layers)
     report = {'schema': 'brain.authorisation-migration/1', 'status': 'review-required' if conflicts else 'converted',
               'source_version': before['version'], 'changes': changes,

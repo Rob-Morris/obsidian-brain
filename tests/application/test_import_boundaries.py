@@ -106,6 +106,15 @@ def test_portable_path_contract_stays_stdlib_only_across_planes():
     assert offenders == set()
 
 
+def test_upgrade_journal_and_state_home_stay_stdlib_only_below_bootstrap():
+    """The launcher reads a vault's rollback journal at its own version, and upgrade.py loads it while it replaces the scripts tree."""
+    for relative in ("_bootstrap/upgrade_journal.py", "_bootstrap/paths.py"):
+        path = APPLICATION_ROOT.parent / relative
+        offenders = _imports(path) - set(sys.stdlib_module_names) - {"_bootstrap"}
+
+        assert offenders == set(), relative
+
+
 def test_version_contract_stays_stdlib_only_for_launcher_and_repository_tools():
     """The shared release grammar must remain usable below managed-runtime code."""
     path = REPO_ROOT / "cli" / "_version_contract.py"

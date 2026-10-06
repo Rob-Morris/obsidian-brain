@@ -22,6 +22,11 @@ SHARED_CONFIG = os.path.join(".brain", "config.yaml")
 LOCAL_CONFIG = os.path.join(".brain", "local", "config.yaml")
 
 
+def prospective_effects(vault_root: str) -> list[str]:
+    """Declare the two configuration files the migration may rewrite."""
+    return [os.path.join(vault_root, relative) for relative in (SHARED_CONFIG, LOCAL_CONFIG)]
+
+
 def _without_retired(values):
     """Drop retired string grants; anything else is left for the loader to diagnose."""
     return [value for value in values if not (isinstance(value, str) and value in RETIRED_COMMANDS)]

@@ -30,8 +30,8 @@ STALE_ROUTER_LINE = "Always read [[.brain-core/index]]."
 
 
 def prospective_effects(vault_root):
-    """Declare root bootstrap files that sit outside normal upgrade snapshots."""
-    effects = []
+    """Declare the root bootstrap files and the router line this migration rewrites."""
+    effects = [os.path.join(os.path.realpath(vault_root), "_Config", "router.md")]
     for canonical_name in BOOTSTRAP_VARIANTS:
         path = find_root_bootstrap_file(vault_root, canonical_name)
         if path is not None:

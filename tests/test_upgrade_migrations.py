@@ -15,6 +15,19 @@ import upgrade
 
 
 _REAL_SCRIPTS = Path(__file__).resolve().parents[1] / "src" / "brain-core" / "scripts"
+# A stand-in compiler that leaves the artefact that the real one does: the
+# runner reads the compiled router to bound the rollback scope of a migration
+# that declares no effects, and refuses to run one without it. A router a
+# test wrote beforehand is kept.
+_STUB_COMPILER = (
+    "import json, os, sys\n"
+    "path = os.path.join('.brain', 'local', 'compiled-router.json')\n"
+    "if not os.path.exists(path):\n"
+    "    os.makedirs(os.path.dirname(path), exist_ok=True)\n"
+    "    with open(path, 'w') as handle:\n"
+    "        json.dump({'artefacts': []}, handle)\n"
+    "sys.exit(0)\n"
+)
 
 
 @pytest.fixture(autouse=True)
@@ -55,7 +68,7 @@ def _make_source(
     upgrade_in_source = source / "scripts" / "upgrade.py"
     if upgrade_in_source.exists():
         upgrade_in_source.unlink()
-    (source / "scripts" / "compile_router.py").write_text("import sys; sys.exit(0)\n")
+    (source / "scripts" / "compile_router.py").write_text(_STUB_COMPILER)
 
     migrations_dir = source / "scripts" / "migrations"
     if migrations is not None:

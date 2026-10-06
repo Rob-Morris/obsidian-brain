@@ -1906,28 +1906,31 @@ class TestPrecompileDefinitionRemediation:
             str(second): {"exists": True, "content": b"original-second\n"},
             str(introduced): {"exists": False},
         }
-        real_safe_write = upgrade._safe_write
-        real_remove = upgrade.os.remove
+        from _bootstrap import upgrade_journal
+
+        real_write = upgrade_journal.write_durably
+        real_remove = upgrade_journal.os.remove
 
         def fail_target_restores(path, content):
             if str(path) in {str(first), str(second)}:
                 raise OSError(f"cannot restore {Path(path).name}")
-            return real_safe_write(path, content)
+            return real_write(path, content)
 
         def fail_target_removals(path):
             if str(path) in {str(introduced), str(untracked)}:
                 raise OSError(f"cannot remove {Path(path).name}")
             return real_remove(path)
 
-        monkeypatch.setattr(upgrade, "_safe_write", fail_target_restores)
-        monkeypatch.setattr(upgrade.os, "remove", fail_target_removals)
+        monkeypatch.setattr(upgrade_journal, "write_durably", fail_target_restores)
+        monkeypatch.setattr(upgrade_journal.os, "remove", fail_target_removals)
 
-        report = upgrade._restore_snapshots(
+        report = upgrade_journal.restore_snapshots(
             snapshots,
             roots={str(vault): {str(vault)}},
-            recovery_dir=str(tmp_path / "recovery"),
+            store=upgrade_journal.RecoveryStore(str(tmp_path / "recovery"), str(vault)),
         )
 
+        assert report.verified is False
         assert len(report.errors) == 4
         assert {str(first), str(second), str(introduced), str(untracked)} <= set(
             report.recovery_paths
@@ -1945,26 +1948,22 @@ class TestPrecompileDefinitionRemediation:
         vault = tmp_path / "vault"
         introduced = vault / "introduced"
         introduced.mkdir(parents=True)
-        real_rmdir = upgrade.os.rmdir
+        from _bootstrap import upgrade_journal
+
+        real_rmdir = upgrade_journal.os.rmdir
 
         def fail_introduced_directory(path):
             if str(path) == str(introduced):
                 raise OSError("cannot remove introduced directory")
             return real_rmdir(path)
 
-        monkeypatch.setattr(upgrade.os, "rmdir", fail_introduced_directory)
+        monkeypatch.setattr(upgrade_journal.os, "rmdir", fail_introduced_directory)
 
-        report = upgrade._restore_snapshots(
-            {},
-            roots={str(vault): {str(vault)}},
-            recovery_dir=str(tmp_path / "recovery"),
-        )
+        report = upgrade_journal.restore_snapshots({}, roots={str(vault): {str(vault)}})
 
         assert any(str(introduced) in error for error in report.errors)
         assert str(introduced) in report.recovery_paths
-        assert upgrade._snapshots_verified(
-            {}, roots={str(vault): {str(vault)}}
-        ) is False
+        assert report.verified is False
 
     def test_snapshot_restore_treats_cross_drive_paths_as_outside_root(
         self,
@@ -1978,27 +1977,22 @@ class TestPrecompileDefinitionRemediation:
         snapshots = {
             str(external): {"exists": True, "content": b"original\n"},
         }
-        real_commonpath = upgrade.os.path.commonpath
+        from _bootstrap import upgrade_journal
+
+        real_commonpath = upgrade_journal.os.path.commonpath
 
         def cross_drive_commonpath(paths):
             if str(external) in paths:
                 raise ValueError("Paths are on different drives")
             return real_commonpath(paths)
 
-        monkeypatch.setattr(upgrade.os.path, "commonpath", cross_drive_commonpath)
+        monkeypatch.setattr(upgrade_journal.os.path, "commonpath", cross_drive_commonpath)
 
-        report = upgrade._restore_snapshots(
-            snapshots,
-            roots={str(vault): {str(vault)}},
-            recovery_dir=str(tmp_path / "recovery"),
-        )
+        report = upgrade_journal.restore_snapshots(snapshots, roots={str(vault): {str(vault)}})
 
         assert report.errors == ()
         assert external.read_bytes() == b"original\n"
-        assert upgrade._snapshots_verified(
-            snapshots,
-            roots={str(vault): {str(vault)}},
-        ) is True
+        assert report.verified is True
 
     def test_direct_cutover_projection_retains_cleanup_recovery_paths(
         self, tmp_path, monkeypatch

@@ -320,9 +320,17 @@ approval settings when resolving MCP registration conflicts; they are client pol
 not permission for Brain to replace transport ownership.
 
 `.brain-core/VERSION` is written last, after every migration and the CLI
-cutover, so an interrupted upgrade leaves the old version in place and resumes
-by rerunning the upgrade: recorded migrations are skipped and the interrupted
-one restarts. A same-version run whose installed core differs from the source
+cutover, so an interrupted upgrade leaves the old version in place and is
+finished by rerunning the upgrade. If the run was killed (terminal closed,
+power loss) rather than failing, the rerun first restores the vault from the
+rollback journal the run kept under `~/.local/state/brain/upgrade-journals/`
+(or `$XDG_STATE_HOME`), reports that it did, and then upgrades from that
+state; recorded migrations are skipped and the interrupted one reruns. Anything
+that changed in the journalled paths between the kill and the rerun is kept
+under `~/.local/state/brain/upgrade-recovery/` before the restore replaces it,
+and the report names that folder. If the rerun refuses because that journal
+cannot be read, or belongs to a run the vault has since moved past, its message
+names the journal and the choices. A same-version run whose installed core differs from the source
 re-applies it without `force`, overwriting any local edits under `.brain-core/`;
 keep customisations outside it. **Transitional note:** if the first upgrade
 across this change is interrupted before the CLI cutover, resume it from the

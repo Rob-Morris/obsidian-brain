@@ -2,6 +2,7 @@
 
 **Status:** Proposed
 **Extends:** DD-036, DD-072, DD-083
+**Extended by:** DD-085 (a write-ahead rollback journal makes a kill restore-then-rerun on the same machine; the restartability requirement below is defence in depth for a vault whose journal is unavailable)
 
 ## Context
 
