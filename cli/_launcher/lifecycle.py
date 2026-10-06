@@ -776,7 +776,7 @@ def _reconciliation_steps(result: dict) -> tuple[LifecycleStep, ...]:
         value = result.get(key)
         if value is None:
             continue
-        outcome = value.get("outcome") if isinstance(value, dict) else None
+        outcome = _outcome(result, key)
         if outcome in _FAILED_OUTCOMES:
             status = LifecycleStatus.CHANGED
             message = value.get("message") or f"{name} reconciliation requires recovery."

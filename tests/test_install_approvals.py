@@ -57,6 +57,9 @@ def test_existing_vault_applies_opt_in_after_version_handling(tmp_path, installe
     scripts = source / "src/brain-core/scripts"
     (scripts / "upgrade.py").write_text(
         "import sys\nfrom pathlib import Path\n"
+        "if '--dry-run' in sys.argv:\n"
+        "    print('{\"status\": \"skipped\"}')\n"
+        "    raise SystemExit(0)\n"
         "vault = Path(sys.argv[sys.argv.index('--vault') + 1])\n"
         "(vault / '.brain-core/VERSION').write_text('1.0.1\\n')\n"
     )

@@ -833,6 +833,26 @@ def test_upgrade_version_unreadable_refusal_is_a_no_effect_conflict(tmp_path, mo
     assert result.error.message == message
 
 
+def test_upgrade_ledger_unreadable_refusal_is_a_no_effect_conflict(tmp_path, monkeypatch):
+    vault = _vault(tmp_path)
+    _register(monkeypatch, tmp_path, vault)
+    message = f"Upgrade refused — the migration ledger cannot be read ({vault}/.brain/local/migrations.json: ...)"
+    _fake_upgrader(monkeypatch, lambda _kwargs: {
+        "status": "error",
+        "old_version": "0.54.41",
+        "new_version": CORE_VERSION,
+        "reason": "ledger_unreadable",
+        "rollback_verified": True,
+        "message": message,
+    })
+
+    result = _invocation(tmp_path, vault=vault).invoke(BrainUpgradeRequest())
+
+    assert result.error.code is ErrorCode.CONFLICT
+    assert result.effects == "none"
+    assert result.error.message == message
+
+
 def _ok_result(kwargs, **extra):
     return {
         "status": "ok",

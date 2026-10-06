@@ -649,6 +649,10 @@ def validate_staged_migration_identity(
 ) -> list[str]:
     """Keep every migration released at HEAD's VERSION at its path with its targets.
 
+    A migration path at or below that version which HEAD does not hold is
+    being added under the released boundary: vaults already at that version
+    would never run it, so it is refused. The boundary is HEAD's VERSION, not
+    the staged one, so a release commit may add the migration it releases.
     Nothing is read unless a staged change touches a migration path, so the
     ordinary commit pays nothing for this contract.
     """
@@ -676,7 +680,12 @@ def validate_staged_migration_identity(
         metadata, path = line.split("\t", 1)
         if path in released:
             head_oids[path] = metadata.split()[2]
-    return validate_migration_identity(_read_git_blobs(root, head_oids), view)
+    errors = [
+        f"{path}: a migration at or below the released VERSION {head_version} cannot be "
+        "added; ship it above VERSION"
+        for path in sorted(released - set(head_oids))
+    ]
+    return errors + validate_migration_identity(_read_git_blobs(root, head_oids), view)
 
 
 def staged_predicate_errors(
