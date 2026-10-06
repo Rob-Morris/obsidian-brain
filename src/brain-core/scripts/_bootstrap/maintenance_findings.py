@@ -24,6 +24,43 @@ class Owner(str, Enum):
     MACHINE = "machine"
 
 
+class Identity(str, Enum):
+    """What tells one occurrence of a family-less judgement finding from the next (DD-086).
+
+    A dismissal can only ever reopen through something a re-detection can
+    change: ``SUBJECT`` findings carry a discriminator that fully identifies
+    the condition, so their key is enough; ``EVIDENCE`` findings declare
+    structured evidence the fingerprint follows; a ``KIND_ONLY`` finding has
+    neither, so every occurrence shares one key and one fingerprint and it is
+    claimable but never dismissible. ``admits`` is the one rule for which
+    declared shape honours which identity.
+    """
+
+    SUBJECT = "subject"
+    EVIDENCE = "evidence"
+    KIND_ONLY = "kind_only"
+
+    def admits(self, subject: Mapping[str, object], evidence: Mapping[str, object] | None) -> bool:
+        """Whether a finding with this ``subject`` and ``evidence`` honours this identity.
+
+        A subject counts when any value is declared; evidence counts when the
+        mapping has keys (a value may be None: ``{"key": None}`` says the key
+        is missing). Subject and kind-only findings declare no evidence, so a
+        row cannot drift between the identities unnoticed.
+        """
+        has_subject = any(value is not None for value in subject.values())
+        if self is Identity.SUBJECT:
+            return has_subject and evidence is None
+        if self is Identity.EVIDENCE:
+            return evidence is not None and len(evidence) > 0
+        return not has_subject and evidence is None
+
+    @classmethod
+    def honoured(cls, subject: Mapping[str, object], evidence: Mapping[str, object] | None) -> "Identity":
+        """The identity a shape honours, for findings built in process rather than from a table row."""
+        return next(identity for identity in (cls.EVIDENCE, cls.SUBJECT, cls.KIND_ONLY) if identity.admits(subject, evidence))
+
+
 KEY_LENGTH = 16
 
 
@@ -59,8 +96,11 @@ class MaintenanceFinding:
 
     ``scope`` names the repair family when the finding has one; ``subject`` is
     the declared discriminator the key was minted from; ``evidence`` is the
-    check's declared evidence mapping. A report-only finding has no key: the
-    maintenance surface ignores it, and a check may emit several per file.
+    check's declared evidence mapping. A per-file judgement finding carries
+    the ``identity`` a dismissal may rely on, honoured by its shape; a finding
+    demoted to kind-only because its producer broke the table's promise names
+    the ``breach``. A report-only finding has no key: the maintenance surface
+    ignores it, and a check may emit several per file.
     """
 
     check: str
@@ -74,6 +114,8 @@ class MaintenanceFinding:
     key: str | None = None
     subject: Mapping[str, object] | None = None
     evidence: Mapping[str, object] | None = None
+    identity: Identity | None = None
+    breach: str | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.disposition, Disposition):
@@ -82,6 +124,11 @@ class MaintenanceFinding:
             raise ValueError(f"unknown maintenance owner: {self.owner!r}")
         if self.disposition is not Disposition.REPORT_ONLY and (self.key is None or self.owner is None):
             raise ValueError("counted maintenance findings require a key and an owner")
+        if self.disposition is Disposition.JUDGEMENT and self.scope is None:
+            if not isinstance(self.identity, Identity):
+                raise ValueError("a per-file judgement finding requires an identity")
+            if self.identity is not Identity.KIND_ONLY and not self.identity.admits(self.subject or {}, self.evidence):
+                raise ValueError(f"finding shape does not honour the {self.identity.value} identity")
 
 
 @dataclass(frozen=True, slots=True)
@@ -119,6 +166,24 @@ class FindingGroup:
     @property
     def message(self) -> str:
         return self.members[0].message
+
+    @property
+    def dismissible(self) -> bool:
+        """Whether a dismissal of this group could ever reopen (DD-086).
+
+        A family reopens through its member set, a per-file finding through
+        the identity its shape honours. A kind-only group would stay quiet
+        for the whole retention period whatever happened next, so it is
+        claimable but never dismissible; an automatic group never is.
+        """
+        if self.disposition is not Disposition.JUDGEMENT:
+            return False
+        return self.is_family or self.members[0].identity is not Identity.KIND_ONLY
+
+    @property
+    def breaches(self) -> tuple[str, ...]:
+        """Why members were demoted to kind-only, one entry per breached member."""
+        return tuple(member.breach for member in self.members if member.breach is not None)
 
 
 def group_by_family(findings: tuple[MaintenanceFinding, ...]) -> tuple[FindingGroup, ...]:

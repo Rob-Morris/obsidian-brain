@@ -58,7 +58,8 @@ def execute(context: InvocationContext, request: MaintenanceListRequest):
         else:
             items.append(item)
     last_pass = None if state.last_pass is None else LastPassSummary.from_document(state.last_pass)
-    return Ok(request.COMMAND_ID, request.COMMAND_VERSION, MaintenanceListPayload(tuple(items), hidden, last_pass))
+    return Ok(request.COMMAND_ID, request.COMMAND_VERSION, MaintenanceListPayload(tuple(items), hidden, last_pass),
+              warnings=state.contract_warnings)
 
 
 def decode(payload: Mapping[str, object]) -> MaintenanceListRequest:

@@ -17,7 +17,7 @@ from _bootstrap.maintenance_decisions import (
 from _bootstrap.maintenance_findings import Disposition, FindingGroup, Owner, group_by_family
 from _bootstrap.maintenance_summary import GroupOutcome, MaintenancePaths, brain_paths, read_last_pass
 
-from ..results import ErrorCode, request_error
+from ..results import CommandWarning, ErrorCode, WarningCode, request_error
 from ._detection import DetectionFailed, detect
 
 
@@ -58,6 +58,13 @@ class DetectedState:
     @property
     def brain_groups(self) -> tuple[FindingGroup, ...]:
         return tuple(group for group in self.groups if group.owner is Owner.BRAIN)
+
+    @property
+    def contract_warnings(self) -> tuple[CommandWarning, ...]:
+        """One warning per producer that broke its table promise: its finding can be claimed but never quieted (DD-086)."""
+        return tuple(CommandWarning(WarningCode.DEGRADED_CAPABILITY,
+                                    f"{breach}; the finding is listed as kind-only and cannot be dismissed until Brain Core fixes it")
+                     for group in self.groups for breach in group.breaches)
 
     def group(self, key: str) -> FindingGroup | None:
         return next((group for group in self.brain_groups if group.key == key), None)

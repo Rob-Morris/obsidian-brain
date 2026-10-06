@@ -100,4 +100,4 @@ def _ok(context, request, kind, group: FindingGroup, state: DetectedState, decis
     item = describe(group, decision, vault_root=context.selected_brain.vault_root,
                     last_outcome=last_outcome_for(group, state.last_pass))
     effects = (CommittedEffect(request.COMMAND_ID, DECISIONS_SUBJECT),) if committed else ()
-    return Ok(request.COMMAND_ID, request.COMMAND_VERSION, DecisionPayload(kind, item), effects)
+    return Ok(request.COMMAND_ID, request.COMMAND_VERSION, DecisionPayload(kind, item), effects, state.contract_warnings)

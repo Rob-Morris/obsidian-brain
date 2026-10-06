@@ -457,6 +457,8 @@ def check_living_key_fields(vault_root, router, *, ctx=None):
             "file": rel_path,
             "message": "Living artefact missing a valid key field",
             "fix": "Run `migrate_to_0_31_0.py` (or backfill a canonical key by hand) and recompile the router",
+            # The invalid value is the evidence: a key that breaks differently reopens a dismissal.
+            "evidence": {"key": key},
         })
     return findings
 

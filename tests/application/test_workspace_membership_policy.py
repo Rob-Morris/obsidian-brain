@@ -80,16 +80,25 @@ def test_default_parent_rejects_unscoped_and_other_workspace_ownership(scope):
 
 
 def test_binding_states_are_exact_and_terminal_identity_survives():
+    from _common._workspace import BindingState, InvalidBindingCause
+
     view = router()
-    assert resolve_workspace_binding(view, None)[0] == "unconfigured"
+    assert resolve_workspace_binding(view, None)[0] is BindingState.UNCONFIGURED
     assert resolve_workspace_binding(view, {"slug": "demo", "defaults": {"tags": ["x"]}})[0] == "unconfigured"
-    assert resolve_workspace_binding(view, {"brain": "demo-brain", "slug": "demo"})[0] == "configured_invalid"
+    assert resolve_workspace_binding(view, {"brain": "demo-brain", "slug": "demo"}).cause is InvalidBindingCause.LINK
     assert resolve_workspace_binding(view, {"slug": "demo", "links": "not-a-mapping"})[0] == "configured_invalid"
     assert resolve_workspace_binding(view, {"links": {"workspace": "missing"}})[:2] == ("configured_invalid", "workspace/missing")
+    assert resolve_workspace_binding(view, {"links": {"workspace": "missing"}}).cause is InvalidBindingCause.BRAIN_SLUG
     manifest = {"brain": "demo-brain", "slug": "repo", "links": {"workspace": "demo"}}
+    assert resolve_workspace_binding(view, manifest, brain_binding_error="no").cause is InvalidBindingCause.ALIAS
+    assert resolve_workspace_binding(view, {**manifest, "links": {"workspace": "nope"}}).cause is InvalidBindingCause.HUB
+    assert resolve_workspace_binding(view, {**manifest, "defaults": {"parent": "project/nope"}}).cause is InvalidBindingCause.LOCAL_DEFAULTS
     assert resolve_workspace_binding(view, manifest)[:2] == ("valid", "workspace/demo")
+    assert resolve_workspace_binding(view, manifest).cause is None
     view["artefact_index"]["workspace/demo"]["status"] = "completed"
     assert resolve_workspace_binding(view, manifest)[0] == "terminal_inactive"
+    view["artefact_index"]["workspace/demo"]["default_parent"] = "project/nope"
+    assert resolve_workspace_binding(view, manifest).cause is InvalidBindingCause.HUB_POLICY
 
 
 @pytest.mark.parametrize("field,value", [("workspace", "workspace/demo"), ("status", "completed"),

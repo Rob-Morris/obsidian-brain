@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import ast
+import inspect
 from pathlib import Path
 import sys
 
@@ -18,7 +20,7 @@ from _application.types import DependencyTier, InitialAuthorisationClass, Projec
 from _launcher import machine_maintenance
 from _launcher.owners import LAUNCHER_OWNERS
 from _launcher.projection import resolve_request
-from _repair_common import AUTOMATIC_SCOPES, Disposition, Owner, RECOVERY_SCOPES, REPAIR_SCOPES
+from _repair_common import AUTOMATIC_SCOPES, Disposition, Identity, Owner, RECOVERY_SCOPES, REPAIR_SCOPES
 
 
 def _brain_entry(family):
@@ -157,16 +159,177 @@ def test_dispositions_and_recovery_scopes():
     assert {scope for scope, family in REPAIR_SCOPES.items() if family.exceptional} == {"semantic"}
     for scope in AUTOMATIC_SCOPES:
         assert _brain_entry(REPAIR_SCOPES[scope]).initial_class is InitialAuthorisationClass.OBSERVATION, scope
-    # Errors with no family are judgement by severity; the table lists only deliberate non-errors.
-    assert repair_common.JUDGEMENT_CODES == {
-        ("workspace_registry", "workspace_link_unverifiable"),
-        ("workspace_registry", "workspace_folder_unreachable"),
-        ("workspace_registry", "workspace_links_unverified"),
-        ("workspace_registry", "workspace_registry_unreadable"),
-        ("workspace_registry", "workspace_registry_unparseable"),
+    # Rows that are not the evidence default; the producer scan below keeps the key set honest (DD-086).
+    assert {pair: identity for pair, identity in repair_common.JUDGEMENT_FINDINGS.items()
+            if identity is not Identity.EVIDENCE} == {
+        ("root_files", None): Identity.SUBJECT,
+        ("workspace_contract", "workspace_scan_unreadable"): Identity.KIND_ONLY,
     }
     registry = REPAIR_SCOPES["registry"]
     assert (registry.holdable, registry.clears_embeddings, registry.recovery) == (True, False, True)
+
+
+SCRIPTS_ROOT = Path(__file__).resolve().parents[2] / "src" / "brain-core" / "scripts"
+
+# Functions that build a finding-shaped dict without being a ``run_checks`` producer, with the reason.
+NOT_FINDING_SITES = {
+    ("check.py", "main"): "the CLI's bootstrap-failure envelope, never a run_checks finding",
+    ("_lifecycle/workspace_checks.py", "report"): "the emission owner; it refuses any code outside ERROR_CODES and INFO_CODES",
+}
+
+
+def _literal(node):
+    return node.value if isinstance(node, ast.Constant) else None
+
+
+def _constants_assigned(scope) -> dict[str, set[str]]:
+    """String constants each name is bound to within ``scope`` (plain or conditional); a non-constant binding fails.
+
+    Resolution is per function, so a constant bound to a name in one function
+    never vouches for the same name in another.
+    """
+    assigned: dict[str, set[str]] = {}
+    for node in ast.walk(scope):
+        if isinstance(node, ast.Assign) and len(node.targets) == 1 and isinstance(node.targets[0], ast.Name):
+            values = (node.value.body, node.value.orelse) if isinstance(node.value, ast.IfExp) else (node.value,)
+            constants = {value.value for value in values if isinstance(value, ast.Constant) and isinstance(value.value, str)}
+            name = node.targets[0].id
+            if len(constants) < len(values):
+                assigned[name] = set()  # bound to something that is not a literal: never resolvable
+            elif name not in assigned or assigned[name]:
+                assigned.setdefault(name, set()).update(constants)
+    return assigned
+
+
+def _function_scopes(tree):
+    """Each function definition in ``tree`` paired with the constants its names resolve to."""
+    return [(function, _constants_assigned(function)) for function in ast.walk(tree)
+            if isinstance(function, (ast.FunctionDef, ast.AsyncFunctionDef))]
+
+
+def _enclosing_functions(tree) -> dict[int, str]:
+    """Innermost enclosing function name per node id (inner definitions are walked after outer ones)."""
+    owners: dict[int, str] = {}
+    for function in ast.walk(tree):
+        if isinstance(function, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            for node in ast.walk(function):
+                owners[id(node)] = function.name
+    return owners
+
+
+def _finding_sites() -> dict[tuple[str, str | None], set[str]]:
+    """Every (check, code) a finding-shaped dict literal in the scripts tree can carry, with its severities.
+
+    Fails closed: a finding dict whose ``severity`` is not a literal, an
+    error whose ``check`` or ``code`` is not a literal (or a name bound only
+    to literals), a ``dict(...)`` call or a subscript assignment that sets a
+    severity, all fail the scan unless the enclosing function is listed in
+    ``NOT_FINDING_SITES`` with a reason. A dict handed to
+    ``attach_repair_guidance``, directly or through a name, is a family
+    finding and carries no judgement identity. Scanning the whole tree,
+    rather than the modules ``run_checks`` composes today, means a new
+    collector is seen before it is wired in.
+    """
+    sites: dict[tuple[str, str | None], set[str]] = {}
+    for path in sorted(SCRIPTS_ROOT.rglob("*.py")):
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        rel = str(path.relative_to(SCRIPTS_ROOT))
+        owners = _enclosing_functions(tree)
+        resolvers: dict[int, dict[str, set[str]]] = {}
+        for function, assigned in _function_scopes(tree):
+            for node in ast.walk(function):
+                resolvers[id(node)] = assigned
+        family_names = {node.args[0].id for node in ast.walk(tree)
+                        if isinstance(node, ast.Call) and getattr(node.func, "id", None) == "attach_repair_guidance"
+                        and node.args and isinstance(node.args[0], ast.Name)}
+        family_dicts = {id(node.args[0]) for node in ast.walk(tree)
+                        if isinstance(node, ast.Call) and getattr(node.func, "id", None) == "attach_repair_guidance"
+                        and node.args}
+        family_dicts |= {id(node.value) for node in ast.walk(tree)
+                         if isinstance(node, ast.Assign) and len(node.targets) == 1
+                         and getattr(node.targets[0], "id", None) in family_names}
+        for node in ast.walk(tree):
+            where = f"{rel}:{getattr(node, 'lineno', '?')} in {owners.get(id(node))}"
+            if (rel, owners.get(id(node))) in NOT_FINDING_SITES:
+                continue
+            if isinstance(node, ast.Call) and getattr(node.func, "id", None) == "dict":
+                assert not any(item.arg == "severity" for item in node.keywords), f"finding built with dict(): {where}"
+            if isinstance(node, ast.Assign) and any(
+                    isinstance(target, ast.Subscript) and _literal(target.slice) == "severity" for target in node.targets):
+                raise AssertionError(f"severity set by subscript: {where}")
+            if not isinstance(node, ast.Dict) or id(node) in family_dicts:
+                continue
+            fields = {_literal(key): value for key, value in zip(node.keys, node.values) if key is not None}
+            if "check" not in fields or "severity" not in fields:
+                continue
+            severity = _literal(fields["severity"])
+            assert severity in {"error", "warning", "info"}, f"non-literal severity: {where}"
+            check = _literal(fields["check"])
+            code_node = fields.get("code")
+            if code_node is None:
+                codes = {None}
+            elif isinstance(code_node, ast.Constant):
+                codes = {code_node.value}
+            elif isinstance(code_node, ast.Name):
+                codes = resolvers.get(id(node), {}).get(code_node.id, set())
+            else:
+                codes = set()
+            if severity == "error":
+                assert check is not None and codes, f"error with a non-literal check or code: {where}"
+            elif check is None:
+                continue  # a dynamic warning or info check name can match no table row
+            for code in codes:
+                sites.setdefault((check, code), set()).add(severity)
+    return sites
+
+
+def _workspace_report_sites() -> dict[str, set[str]]:
+    """Every code passed to ``workspace_checks.report`` with its severity; a non-literal code or severity fails."""
+    from _lifecycle import workspace_checks
+
+    tree = ast.parse(inspect.getsource(workspace_checks))
+    resolvers: dict[int, dict[str, set[str]]] = {}
+    for function, assigned in _function_scopes(tree):
+        for node in ast.walk(function):
+            resolvers[id(node)] = assigned
+    binding_codes = {workspace_checks.binding_code(state) for state in workspace_checks._REPORTED_BINDING_STATES}
+    sites: dict[str, set[str]] = {}
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call) or getattr(node.func, "id", None) != "report":
+            continue
+        where = f"workspace_checks.py:{node.lineno}"
+        assert len(node.args) <= 4, f"severity must be passed by keyword: {where}"
+        severity = next((item.value for item in node.keywords if item.arg == "severity"), ast.Constant("error"))
+        assert _literal(severity) in {"error", "info", "warning"}, f"non-literal severity: {where}"
+        target = node.args[0]
+        if isinstance(target, ast.Call) and getattr(target.func, "id", None) == "binding_code":
+            codes = binding_codes
+        elif isinstance(target, ast.Name):
+            codes = resolvers.get(id(node), {}).get(target.id) or set()
+        else:
+            codes = {_literal(target)}
+        assert codes and None not in codes, f"non-literal code: {where}"
+        for code in codes:
+            sites.setdefault(code, set()).add(_literal(severity))
+    return sites
+
+
+def test_every_family_less_error_a_producer_can_emit_is_classified():
+    """A new error code needs a JUDGEMENT_FINDINGS row saying what identifies it (DD-086)."""
+    from _lifecycle import workspace_checks
+
+    report_sites = _workspace_report_sites()
+    assert {code for code, severities in report_sites.items() if "error" in severities} == workspace_checks.ERROR_CODES
+    assert {code for code, severities in report_sites.items() if "info" in severities} == workspace_checks.INFO_CODES
+    sites = _finding_sites()
+    errors = {pair for pair, severities in sites.items() if "error" in severities}
+    errors |= {("workspace_contract", code) for code in workspace_checks.ERROR_CODES}
+    assert {("root_files", None), ("living_key_fields", None)} <= errors, "the scan reads the check functions"
+
+    table = set(repair_common.JUDGEMENT_FINDINGS)
+    assert errors <= table, f"unclassified family-less error codes: {sorted(errors - table, key=str)}"
+    emitted = set(sites) | {("workspace_contract", code) for code in report_sites}
+    assert table <= emitted, f"table rows no producer emits: {sorted(table - emitted, key=str)}"
 
 
 def test_repair_py_offers_only_recovery_scopes(capsys):

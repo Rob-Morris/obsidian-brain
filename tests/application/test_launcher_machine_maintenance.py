@@ -29,7 +29,7 @@ from _launcher.machine_maintenance import (
     detect_machine,
 )
 from _launcher.owners import LAUNCHER_OWNERS
-from _bootstrap.maintenance_findings import Disposition, MaintenanceFinding, Owner, finding_key, group_by_family
+from _bootstrap.maintenance_findings import Disposition, Identity, MaintenanceFinding, Owner, finding_key, group_by_family
 from _bootstrap.maintenance_summary import GroupOutcome
 from _common import config_home
 from _machine import maintenance, topology
@@ -111,7 +111,8 @@ def state_home(tmp_path, monkeypatch):
 def _finding(kind, subject, *, disposition=Disposition.JUDGEMENT, scope=None, evidence=None, code=None, file=None):
     return MaintenanceFinding(kind, "warning", file or json.dumps(subject, sort_keys=True), f"{kind} message", disposition,
                               code=code, scope=scope, owner=Owner.MACHINE, key=finding_key("machine", kind, subject),
-                              subject=subject, evidence=evidence)
+                              subject=subject, evidence=evidence,
+                              identity=None if scope is not None else Identity.honoured(subject, evidence))
 
 
 @pytest.fixture
@@ -459,6 +460,20 @@ def test_machine_decisions_claim_dismiss_release_over_the_machine_file(tmp_path,
     expired = _invoke(tmp_path, MachineMaintenanceRunRequest(), clock=clock)
     assert [item.kind for item in expired.result.groups] == [FAKE_AUTOMATIC], "only a live claim withholds"
     assert expired.result.counts.claim_expired == 1
+
+
+def test_machine_dismiss_refuses_a_finding_with_no_subject_and_no_evidence(tmp_path, state_home, fake_detection):
+    """The one dismissal rule serves both passes (DD-086)."""
+    bare = _finding("scan_failed", {}, file="none")
+    fake_detection["value"] = (bare,)
+    (item,) = _invoke(tmp_path, MachineMaintenanceListRequest()).result.items
+
+    refused = _invoke(tmp_path, MachineMaintenanceDismissRequest(bare.key, item.fingerprint, "x", "rob"))
+    assert refused.status == "error" and refused.error.code is ErrorCode.INVALID_REQUEST
+    assert refused.error.details.field == "key" and refused.effects == "none"
+    assert "could never reopen" in refused.error.message and not (state_home / "decisions.json").exists()
+
+    assert _invoke(tmp_path, MachineMaintenanceClaimRequest(bare.key, "rob")).status == "ok"
 
 
 def test_machine_maintenance_entries_match_the_launcher_contract():

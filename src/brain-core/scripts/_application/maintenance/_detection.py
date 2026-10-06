@@ -12,6 +12,7 @@ from typing import Mapping
 
 from _bootstrap.maintenance_findings import (
     Disposition,
+    Identity,
     MaintenanceFinding,
     Owner,
     family_key,
@@ -28,11 +29,15 @@ def classify(raw_findings) -> tuple[MaintenanceFinding, ...]:
 
     A finding takes its repair family's disposition. Without a family, every
     error is a judgement finding, so none is left only in ``vault.check``; a
-    warning or info finding is one only when ``JUDGEMENT_CODES`` lists it.
+    warning or info finding is one only when ``JUDGEMENT_FINDINGS`` lists it.
     Per-file judgement findings are keyed by ``check:code``, or by ``check``
-    for a check that declares no code.
+    for a check that declares no code, and carry the identity their table
+    row promises (DD-086). A finding whose shape breaks that promise, or an
+    error no row classifies, is demoted to kind-only, so it can never be
+    quieted, and names the breach for the result's warnings; detection
+    itself goes on, so unrelated families and automatic repairs proceed.
     """
-    from _repair_common import JUDGEMENT_CODES, family_for_finding
+    from _repair_common import JUDGEMENT_FINDINGS, family_for_finding
 
     findings = []
     for raw in raw_findings:
@@ -54,19 +59,32 @@ def classify(raw_findings) -> tuple[MaintenanceFinding, ...]:
                 code=code, scope=family.scope, owner=family.owner,
                 key=family_key(NAMESPACE, family.scope), subject=subject, evidence=evidence,
             ))
-        elif raw["severity"] == "error" or (check, code) in JUDGEMENT_CODES:
+        elif raw["severity"] == "error" or (check, code) in JUDGEMENT_FINDINGS:
             subject = {"file": file}
             kind = f"{check}:{code}" if code else check
+            identity, breach = _promised_identity(kind, JUDGEMENT_FINDINGS.get((check, code)), subject, evidence)
             findings.append(MaintenanceFinding(
                 check, raw["severity"], file, raw["message"], Disposition.JUDGEMENT, code=code,
                 owner=Owner.BRAIN, key=finding_key(NAMESPACE, kind, subject),
-                subject=subject, evidence=evidence,
+                subject=subject, evidence=evidence, identity=identity, breach=breach,
             ))
         else:
             findings.append(MaintenanceFinding(
                 check, raw["severity"], file, raw["message"], Disposition.REPORT_ONLY, code=code, evidence=evidence,
             ))
     return tuple(findings)
+
+
+def _promised_identity(kind: str, row: Identity | None, subject: Mapping[str, object],
+                       evidence: Mapping[str, object] | None) -> tuple[Identity, str | None]:
+    """The identity a dismissal of ``kind`` may rely on: its row's, or kind-only with the breach named."""
+    if row is None:
+        return Identity.KIND_ONLY, f"{kind} is an error with no repair family that JUDGEMENT_FINDINGS does not classify"
+    if row.admits(subject, evidence):
+        return row, None
+    declared = ("a file" if any(value is not None for value in subject.values()) else "no file") + " and " + (
+        "no evidence" if evidence is None else "empty evidence" if not evidence else "evidence")
+    return Identity.KIND_ONLY, f"{kind} is classified as {row.value} but declares {declared}"
 
 
 class DetectionFailed(RuntimeError):

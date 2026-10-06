@@ -1,8 +1,48 @@
 """Workspace identity, membership and policy rules shared by domain owners."""
 
+from enum import Enum
+from typing import NamedTuple
+
 from _workspace_contract import WorkspacePolicy
 
 from ._slugs import validate_key
+
+
+class BindingState(str, Enum):
+    """How a workspace manifest's link stands against the selected Brain and its router."""
+
+    UNCONFIGURED = "unconfigured"
+    VALID = "valid"
+    TERMINAL_INACTIVE = "terminal_inactive"
+    CONFIGURED_INVALID = "configured_invalid"
+
+
+class InvalidBindingCause(str, Enum):
+    """Which step of binding resolution a ``CONFIGURED_INVALID`` manifest failed, in resolution order."""
+
+    LINK = "link"
+    BRAIN_SLUG = "brain_slug"
+    ALIAS = "alias"
+    HUB = "hub"
+    HUB_POLICY = "hub_policy"
+    LOCAL_DEFAULTS = "local_defaults"
+
+
+class WorkspaceBinding(NamedTuple):
+    """The resolved binding: state, the canonical hub reference once known, guidance and the failed step."""
+
+    state: BindingState
+    reference: str | None
+    guidance: str | None
+    cause: InvalidBindingCause | None = None
+
+
+class OwnershipRuleError(ValueError):
+    """An ownership edge broke one named rule; ``cause`` is the rule, for checks that declare it."""
+
+    def __init__(self, cause: str, message: str) -> None:
+        super().__init__(message)
+        self.cause = cause
 
 
 def reject_workspace_membership_changes(changes):
@@ -98,9 +138,9 @@ def validate_ownership(reference, entry, index):
         return
     parent = normalize_artefact_key(parent)
     if parent not in index:
-        raise ValueError(f"Missing living parent for {reference}: {entry.get('parent')}")
+        raise OwnershipRuleError("parent_missing", f"Missing living parent for {reference}: {entry.get('parent')}")
     if own_workspace != membership(parent, index[parent]):
-        raise ValueError(f"Parent {parent} and child {reference} must share one workspace")
+        raise OwnershipRuleError("workspace_mismatch", f"Parent {parent} and child {reference} must share one workspace")
 
 
 def is_terminal(router, entry):
@@ -162,25 +202,33 @@ def manifest_workspace_reference(manifest):
 def resolve_workspace_binding(router, manifest, *, brain_binding_error=None):
     """Classify local intent without promoting registry or path evidence to identity."""
     if manifest is None:
-        return "unconfigured", None, None
+        return WorkspaceBinding(BindingState.UNCONFIGURED, None, None)
     from _bootstrap.workspace_binding import states_a_link
 
     if not states_a_link(manifest) and isinstance(manifest.get("links", {}), dict):
         # Neither link field: an unlinked manifest whose defaults wait for the next setup.
-        return "unconfigured", None, None
+        return WorkspaceBinding(BindingState.UNCONFIGURED, None, None)
     reference = None
+    # Each step names itself before it runs, so the failure reports the step rather than its wording.
+    cause = InvalidBindingCause.LINK
     try:
         reference = manifest_workspace_reference(manifest)
+        cause = InvalidBindingCause.BRAIN_SLUG
         if any(not isinstance(manifest.get(field), str) or not manifest[field].strip()
                for field in ("brain", "slug")):
             raise ValueError("Workspace binding requires brain and slug; run brain workspace setup")
+        cause = InvalidBindingCause.ALIAS
         if brain_binding_error:
             raise ValueError(brain_binding_error)
+        cause = InvalidBindingCause.HUB
         entry = require_workspace(router, reference)
+        cause = InvalidBindingCause.HUB_POLICY
         workspace_policy(router, reference, entry)
+        cause = InvalidBindingCause.LOCAL_DEFAULTS
         workspace_policy(router, reference, manifest.get("defaults", {}), local=True)
         if is_terminal(router, entry):
-            return "terminal_inactive", reference, f"Reactivate {reference} before scoped mutation."
-        return "valid", reference, None
+            return WorkspaceBinding(BindingState.TERMINAL_INACTIVE, reference,
+                                    f"Reactivate {reference} before scoped mutation.")
+        return WorkspaceBinding(BindingState.VALID, reference, None)
     except ValueError as exc:
-        return "configured_invalid", reference, str(exc)
+        return WorkspaceBinding(BindingState.CONFIGURED_INVALID, reference, str(exc), cause)
