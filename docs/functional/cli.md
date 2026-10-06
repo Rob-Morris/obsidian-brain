@@ -560,7 +560,18 @@ Of the warning and info findings, `workspace_link_unverifiable` and
 `workspace_folder_unreachable` are one item per linked workspace row, and
 `workspace_registry_unreadable`, `workspace_registry_unparseable` and
 `workspace_links_unverified` are one item for the registry file; every other
-warning or info finding with no repair family is report-only.
+warning or info finding with no repair family is report-only. Each of these
+codes is classified once, beside the Brain repair table, by what identifies
+its condition (DD-086): the key alone (`root_files`), or declared `evidence`
+that the fingerprint follows (every other code: the key value, the workspace
+field, the hub and its type, the broken ownership rule and parent, the
+shared policy fields, the bound hub and the binding step that failed, or the
+reason a registry file cannot be read, so a dismissal reopens when that
+changes while the file stays the same). `workspace_scan_unreadable` names no
+file and declares no evidence, so it is the one that can be claimed but
+never dismissed. A finding whose producer breaks that classification is
+listed as claim-only too, with a `degraded_capability` warning on every
+maintenance result naming it; nothing else is blocked.
 
 ```bash
 brain --brain my-brain maintenance claim --request-json '{"key":"9a4c0e7b12d3f5a8","claimant":"rob"}' --json
@@ -575,8 +586,14 @@ expired claim on a still-detected finding is a review item until it is
 re-claimed, released or dismissed, and the pass never runs it. A dismissal
 records the fingerprint; a finding re-detected with the same fingerprint stays
 quiet for thirty days, changed evidence reopens it, and after retention the
-finding returns for a deliberate re-review. Automatic groups are claimable but
-never dismissible, and `router` is never held because detection depends on
+finding returns for a deliberate re-review. A dismissal is only recorded where
+a re-detection could reopen it: automatic groups are claimable but never
+dismissible, and so is a judgement finding with nothing that identifies a
+change, no subject and no declared evidence, which `dismiss` refuses as a
+no-effect `invalid_request` error on `key` (claim it, or fix it). A dismissal recorded before a finding's producer
+declared evidence reopens once, and a recorded dismissal of a finding that can
+no longer be dismissed is inert until retention prunes it. `router` is never
+held because detection depends on
 it. Claimant and actor names are self-asserted coordination, not access
 control. The decision commands are content class, so under
 `defaults.access.initial.mode: read-only` (or an `explicit` mode that omits

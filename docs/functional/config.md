@@ -482,7 +482,9 @@ per-family outcomes and counts; a cache for the advisory and for `list`,
 never read for correctness), `decisions.json` (schema
 `brain.maintenance-decisions/1`: claims and dismissals, the only persistent
 maintenance state) and `decisions.lock`. The pass only reads the decisions
-file; the decision commands prune and write it under the lock. An unreadable
+file; the decision commands prune and write it under the lock. A dismissal
+whose fingerprint no longer matches, or whose finding can no longer be
+dismissed (DD-086), is inert until retention prunes it. An unreadable
 decisions file blocks the pass, which still writes a blocked summary; move it
 aside to recover. The machine pass keeps the same files under
 `$XDG_STATE_HOME/brain/maintenance/` (`~/.local/state` by default), beside

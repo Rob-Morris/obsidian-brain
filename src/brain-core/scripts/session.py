@@ -235,14 +235,16 @@ def _workspace_summary(workspace_dir, vault_root):
 def _workspace_configuration_summary(
     workspace_summary,
     workspace_binding,
-    resolution=("unconfigured", None, None),
+    resolution=None,
 ):
     """Describe the local CLI workspace-binding capability for agent discovery."""
-    binding_status, canonical_workspace, guidance = resolution
+    from _common._workspace import BindingState, WorkspaceBinding
+
+    binding_status, canonical_workspace, guidance, _cause = resolution or WorkspaceBinding(BindingState.UNCONFIGURED, None, None)
 
     result = {
         "surface": "local CLI",
-        "binding_status": binding_status,
+        "binding_status": BindingState(binding_status).value,
         "canonical_workspace": canonical_workspace,
         "guidance": guidance,
         "purpose": "Configure a local folder as a Brain workspace.",
@@ -324,8 +326,10 @@ def _resolve_workspace_binding(vault_root, router, manifest):
 
 def _resolve_workspace_record(vault_root, workspace, manifest, router=None, *, resolution=None):
     """Expose only a canonical hub selected by the exact manifest link."""
-    state, reference, _guidance = resolution or _resolve_workspace_binding(vault_root, router or {}, manifest)
-    if not workspace or state not in {"valid", "terminal_inactive"}:
+    from _common._workspace import BindingState
+
+    state, reference, _guidance, _cause = resolution or _resolve_workspace_binding(vault_root, router or {}, manifest)
+    if not workspace or state not in {BindingState.VALID, BindingState.TERMINAL_INACTIVE}:
         return None
     entry = router["artefact_index"][reference]
     return {"slug": reference.split("/", 1)[1],
@@ -620,7 +624,9 @@ def build_session_model(
         model["workspace_record"] = workspace_record
     if workspace_defaults:
         model["workspace_defaults"] = workspace_defaults
-    if workspace_resolution[0] in {"valid", "terminal_inactive"}:
+    from _common._workspace import BindingState
+
+    if workspace_resolution.state in {BindingState.VALID, BindingState.TERMINAL_INACTIVE}:
         from dataclasses import asdict
         from _common._workspace import workspace_policy
         reference = workspace_resolution[1]

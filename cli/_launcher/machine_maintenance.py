@@ -40,6 +40,7 @@ from _bootstrap.maintenance_findings import (
     FindingGroup,
     MaintenanceFinding,
     Owner,
+    Identity,
     finding_key,
     group_by_family,
 )
@@ -167,6 +168,7 @@ def _finding(kind: str, subject: Mapping[str, object], message: str, *, disposit
     return MaintenanceFinding(
         kind, severity, file, message, disposition, code=code, scope=scope, owner=Owner.MACHINE,
         key=finding_key(NAMESPACE, identity or kind, subject), subject=subject, evidence=evidence,
+        identity=None if scope is not None else Identity.honoured(subject, evidence),
     )
 
 

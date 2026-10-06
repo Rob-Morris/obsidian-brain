@@ -18,7 +18,7 @@ import shutil
 from types import MappingProxyType
 from typing import Mapping
 
-from _bootstrap.maintenance_findings import Disposition, Owner
+from _bootstrap.maintenance_findings import Disposition, Identity, Owner
 from _bootstrap.runtime import (
     DEFAULT_MANAGED_RUNTIME_LAUNCHER,
     find_launcher_python,
@@ -27,7 +27,7 @@ from _common import join_argv
 
 
 __all__ = [
-    "AUTOMATIC_SCOPES", "Disposition", "JUDGEMENT_CODES", "NEVER_HELD", "Owner", "RECOVERY_SCOPES",
+    "AUTOMATIC_SCOPES", "Disposition", "Identity", "JUDGEMENT_FINDINGS", "NEVER_HELD", "Owner", "RECOVERY_SCOPES",
     "REPAIR_SCOPES", "RepairFamily", "attach_repair_guidance", "build_catalogue_argv",
     "build_catalogue_command", "build_repair_argv", "build_repair_command", "build_repair_metadata",
     "family_for_finding", "find_launcher_binary",
@@ -145,15 +145,32 @@ REPAIR_SCOPES: Mapping[str, RepairFamily] = _table(
     ),
 )
 
-# Warning and info findings with no repair family that a person still decides
-# about, as (check, code) pairs claimable and dismissible per file. Every error
-# with no family is a judgement finding without being listed here.
-JUDGEMENT_CODES = frozenset({
-    ("workspace_registry", "workspace_link_unverifiable"),
-    ("workspace_registry", "workspace_folder_unreachable"),
-    ("workspace_registry", "workspace_links_unverified"),
-    ("workspace_registry", "workspace_registry_unreadable"),
-    ("workspace_registry", "workspace_registry_unparseable"),
+# Every family-less judgement finding the Brain checks emit, as (check, code)
+# with what identifies its condition (DD-086). An error with no family is a
+# judgement finding by severity and must be listed; a warning or info finding
+# is a judgement finding only by being listed. ``SUBJECT`` rows promise a file
+# and no evidence, ``EVIDENCE`` rows promise non-empty declared evidence, and
+# ``KIND_ONLY`` rows promise neither and are claimable but never dismissible.
+# Detection demotes a finding that breaks its row's promise, or an unlisted
+# error, to kind-only and reports the breach; the repair-table test is the gate.
+JUDGEMENT_FINDINGS: Mapping[tuple[str, str | None], Identity] = MappingProxyType({
+    ("root_files", None): Identity.SUBJECT,
+    ("living_key_fields", None): Identity.EVIDENCE,
+    ("workspace_contract", "workspace_scan_unreadable"): Identity.KIND_ONLY,
+    ("workspace_contract", "workspace_reference_malformed"): Identity.EVIDENCE,
+    ("workspace_contract", "workspace_reference_missing"): Identity.EVIDENCE,
+    ("workspace_contract", "workspace_reference_archived"): Identity.EVIDENCE,
+    ("workspace_contract", "workspace_reference_wrong_type"): Identity.EVIDENCE,
+    ("workspace_contract", "workspace_hub_invalid"): Identity.EVIDENCE,
+    ("workspace_contract", "workspace_ownership_invalid"): Identity.EVIDENCE,
+    ("workspace_contract", "workspace_policy_invalid"): Identity.EVIDENCE,
+    ("workspace_contract", "workspace_binding_terminal_inactive"): Identity.EVIDENCE,
+    ("workspace_contract", "workspace_binding_configured_invalid"): Identity.EVIDENCE,
+    ("workspace_registry", "workspace_link_unverifiable"): Identity.EVIDENCE,
+    ("workspace_registry", "workspace_folder_unreachable"): Identity.EVIDENCE,
+    ("workspace_registry", "workspace_links_unverified"): Identity.EVIDENCE,
+    ("workspace_registry", "workspace_registry_unreadable"): Identity.EVIDENCE,
+    ("workspace_registry", "workspace_registry_unparseable"): Identity.EVIDENCE,
 })
 
 RECOVERY_SCOPES = tuple(scope for scope, family in REPAIR_SCOPES.items() if family.recovery)

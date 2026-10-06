@@ -104,7 +104,7 @@ def resolve_mutation_context(context, router, selector, *, parent=None, creation
     """Validate startup intent even for overrides, then resolve one policy snapshot."""
     from _bootstrap.workspace_binding import load_workspace_manifest_state, resolve_selected_workspace_binding, WorkspaceBindingError
     from _common import document_revision_at, resolve_parent_reference
-    from _common._workspace import membership, normalise_tags, require_workspace, workspace_policy
+    from _common._workspace import BindingState, membership, normalise_tags, require_workspace, workspace_policy
     import vault_registry
     from pathlib import Path
 
@@ -119,10 +119,10 @@ def resolve_mutation_context(context, router, selector, *, parent=None, creation
         for path in (state.manifest_path, state.legacy_path):
             sources.append(ObservedResource("workspace-manifest", str(path),
                 content_digest(path.read_bytes()) if path.exists() else None))
-    state, bound_workspace, guidance = resolve_selected_workspace_binding(
+    state, bound_workspace, guidance, _cause = resolve_selected_workspace_binding(
         context.selected_brain.vault_root, router, manifest)
-    if state not in {"valid", "unconfigured"}:
-        raise ValueError(f"Workspace binding is {state}: {guidance}")
+    if state not in {BindingState.VALID, BindingState.UNCONFIGURED}:
+        raise ValueError(f"Workspace binding is {state.value}: {guidance}")
     if manifest is not None:
         registry = Path(vault_registry.registry_path())
         sources.append(ObservedResource("brain-binding", str(registry), content_digest(registry.read_bytes())))
