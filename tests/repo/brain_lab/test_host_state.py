@@ -6,7 +6,14 @@ from pathlib import Path
 
 import pytest
 
+from brain_lab import host_state
 from brain_lab.host_state import capture_host_state
+
+
+def test_the_lab_watches_the_server_name_core_registers():
+    from _bootstrap.mcp_state import BRAIN_SERVER_NAME
+
+    assert host_state.BRAIN_SERVER_NAME == BRAIN_SERVER_NAME, "a drifted name would make the leak gate vacuous"
 
 
 def test_host_state_detects_machine_config_and_vault_changes(tmp_path: Path, monkeypatch):
