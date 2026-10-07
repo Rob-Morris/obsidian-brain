@@ -2,7 +2,7 @@
 
 **Status:** Accepted
 **Extends:** DD-043, DD-061
-**Extended by:** DD-083, DD-086
+**Extended by:** DD-083, DD-086, [DD-087](dd-087-text-files-brain-cannot-read.md)
 
 ## Context
 
