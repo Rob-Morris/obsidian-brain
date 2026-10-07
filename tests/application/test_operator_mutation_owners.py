@@ -16,6 +16,7 @@ from _application.links.fix import LinksFixRequest
 from _application.registry import current_application_catalogue, current_request_resolver
 from _application.results import ErrorCode
 from _application.types import Authority, EffectClass, RetryClass
+from _application.vault.check import VaultCheckRequest
 from command_application import application_for
 
 
@@ -105,6 +106,21 @@ def test_links_check_proposes_and_links_fix_applies(command_vault_clone):
     assert applied.result.substitutions == 1
     assert applied.committed_effects[0].subject == "Wiki/linker.md"
     assert "[[Brain Inbox]]" in referrer.read_text()
+
+
+def test_vault_and_links_check_skip_a_file_that_is_not_utf8(command_vault_clone):
+    root = command_vault_clone.vault_root
+    (root / "Wiki").mkdir(parents=True, exist_ok=True)
+    (root / "Wiki/not-utf8.md").write_bytes(
+        b"---\ntype: living/wiki\ntags: []\n---\n\nbad \xff byte [[nowhere]]\n"
+    )
+    application = application_for(root)
+
+    vault_check = application.invoke(VaultCheckRequest())
+    links_check = application.invoke(LinksCheckRequest())
+
+    assert vault_check.status == "ok"
+    assert links_check.status == "ok"
 
 
 def test_links_fix_context_dry_run_overrides_apply(command_vault_clone):
