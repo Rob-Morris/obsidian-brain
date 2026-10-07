@@ -126,6 +126,7 @@ Each DD captures the reasoning behind an architectural decision at the time it w
 | DD-084 | `VERSION` as the upgrade commit witness and the migration ledger | Accepted | [dd-084](dd-084-version-as-upgrade-commit-witness.md) |
 | DD-085 | A write-ahead rollback journal makes a killed upgrade a failed one | Proposed | [dd-085](dd-085-upgrade-rollback-journal.md) |
 | DD-086 | A dismissal needs something that can reopen it | Proposed | [dd-086](dd-086-dismissals-need-something-to-reopen-them.md) |
+| DD-087 | Text files Brain cannot read | Proposed | [dd-087](dd-087-text-files-brain-cannot-read.md) |
 
 ---
 
