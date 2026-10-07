@@ -37,8 +37,8 @@ def check_broken_wikilinks(vault_root, router, file_index=None, *, ctx=None):
             try:
                 with open(os.path.join(dirpath, fname), encoding="utf-8") as handle:
                     text = handle.read()
-            except OSError:
-                text = ""
+            except (OSError, UnicodeDecodeError):
+                continue
             for table_finding in table_breaking_wikilink_findings(text, rel_path):
                 findings.append({
                     "check": "table_wikilink_alias",
@@ -53,6 +53,7 @@ def check_broken_wikilinks(vault_root, router, file_index=None, *, ctx=None):
                 vault_root, rel_path,
                 file_index=file_index,
                 temporal_prefixes=temporal_prefixes,
+                text=text,
             )
             for finding in file_findings:
                 stem = finding["stem"]
