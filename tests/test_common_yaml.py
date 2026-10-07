@@ -7,6 +7,7 @@ import pytest
 from _common._yaml import (
     YamlError,
     dump_mapping_text,
+    load_mapping_file,
     load_mapping_text,
 )
 
@@ -163,3 +164,22 @@ def test_load_mapping_text_rejects_unsupported_yaml_features(text):
 def test_load_mapping_text_rejects_invalid_root_sequence():
     with pytest.raises(YamlError):
         load_mapping_text("- value\n")
+
+
+def test_load_mapping_text_accepts_one_leading_byte_order_mark():
+    text = "vault:\n  brain_name: rob\n  operators: []\n"
+    assert load_mapping_text("\ufeff" + text) == load_mapping_text(text)
+    assert load_mapping_text("\ufeff" + text) == {"vault": {"brain_name": "rob", "operators": []}}
+
+
+def test_load_mapping_text_strips_only_one_byte_order_mark():
+    assert load_mapping_text("\ufeff\ufeffvault: {}\n") == {"\ufeffvault": {}}
+
+
+def test_load_mapping_file_accepts_one_leading_byte_order_mark(tmp_path):
+    text = "vault:\n  brain_name: rob\n"
+    plain = tmp_path / "plain.yaml"
+    plain.write_text(text, encoding="utf-8")
+    marked = tmp_path / "marked.yaml"
+    marked.write_bytes(b"\xef\xbb\xbf" + text.encode("utf-8"))
+    assert load_mapping_file(marked) == load_mapping_file(plain)

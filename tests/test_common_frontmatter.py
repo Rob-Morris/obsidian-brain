@@ -62,6 +62,19 @@ class TestParseFrontmatter:
         text = "# Title\n\nBody\n"
         assert common.has_leading_frontmatter(text) is False
 
+    def test_byte_order_marked_note_parses_as_its_unmarked_twin(self):
+        text = "---\ntype: living/wiki\ntags: [a, b]\n---\n\n# Title\n"
+        marked = "\ufeff" + text
+        assert common.parse_frontmatter(marked) == common.parse_frontmatter(text)
+        assert common.has_leading_frontmatter(marked) is True
+        assert common.parse_leading_frontmatter(marked) == common.parse_leading_frontmatter(text)
+        assert common.inspect_duplicate_frontmatter_document(marked) is None
+
+    def test_only_one_byte_order_mark_is_accepted(self):
+        text = "\ufeff\ufeff---\ntype: living/wiki\n---\nBody\n"
+        assert common.has_leading_frontmatter(text) is False
+        assert common.parse_frontmatter(text) == ({}, text)
+
     def test_parse_leading_frontmatter_allows_leading_blank_lines_when_requested(self):
         text = "\n\n---\nstatus: active\n---\nBody\n"
         parsed = common.parse_leading_frontmatter(
@@ -256,6 +269,15 @@ class TestReadFrontmatter:
         f.write_text("---\ntype: x\nstatus: active\nno closing delim\n")
         assert common.read_frontmatter(str(f)) == {}
 
+    def test_byte_order_marked_file_reads_as_its_unmarked_twin(self, tmp_path):
+        text = "---\ntype: living/wiki\ntags:\n  - alpha\n---\nBody\n"
+        plain = tmp_path / "plain.md"
+        plain.write_text(text, encoding="utf-8")
+        marked = tmp_path / "marked.md"
+        marked.write_bytes(b"\xef\xbb\xbf" + text.encode("utf-8"))
+        assert common.read_frontmatter(str(marked)) == common.read_frontmatter(str(plain))
+        assert common.read_frontmatter(str(marked)) == {"type": "living/wiki", "tags": ["alpha"]}
+
     def test_agrees_with_parse_frontmatter(self, tmp_path):
         body = "# Title\n\nLorem ipsum dolor sit amet.\n\n## Section\n\nMore text.\n"
         fields_in = {
@@ -325,3 +347,21 @@ class TestReadArtefact:
         fields, body = common.read_artefact(str(f))
         assert fields == fields_in
         assert body == body_in
+
+    def test_rewriting_a_byte_order_marked_note_drops_the_mark(self, tmp_path):
+        text = "---\ntype: living/wiki\nkey: example\n---\n\n# Title\n\nBody\n"
+        plain = tmp_path / "plain.md"
+        plain.write_text(text, encoding="utf-8")
+        marked = tmp_path / "marked.md"
+        marked.write_bytes(b"\xef\xbb\xbf" + text.encode("utf-8"))
+
+        for path in (plain, marked):
+            fields, body = common.read_artefact(str(path))
+            assert fields == {"type": "living/wiki", "key": "example"}
+            path.write_text(common.serialize_frontmatter(fields, body=body), encoding="utf-8")
+
+        raw = marked.read_bytes()
+        assert not raw.startswith(b"\xef\xbb\xbf")
+        assert raw == plain.read_bytes()
+        assert raw.count(b"\n---\n") == 1
+        assert common.inspect_duplicate_frontmatter_document(raw.decode("utf-8")) is None
