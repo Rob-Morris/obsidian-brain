@@ -40,7 +40,7 @@ defaults/config.yaml          # template (shipped with brain-core)
 
 The loader locates the template relative to the script file, so it works both from the dev repo (`src/brain-core/scripts/` → `src/brain-core/defaults/`) and from an installed vault (`.brain-core/scripts/` → `.brain-core/defaults/`).
 
-Brain uses a shared Brain-owned YAML subset for these standalone config/workspace files. It supports the shapes Brain actually uses (mappings, lists, booleans, integers, empty collections, quoted/plain strings) and rejects unsupported general-YAML features such as anchors, merge keys, tags, and block scalars.
+Brain uses a shared Brain-owned YAML subset for these standalone config/workspace files. It supports the shapes Brain actually uses (mappings, lists, booleans, integers, empty collections, quoted/plain strings) and rejects unsupported general-YAML features such as anchors, merge keys, tags, and block scalars. Files are read as UTF-8; one leading byte-order mark (U+FEFF), which some editors add, is accepted and ignored, so a marked `.brain/config.yaml` parses exactly like an unmarked one. Markdown frontmatter is read the same way: one leading mark before the opening `---` is accepted, and a rewrite of the file drops it.
 
 ### Local tool paths
 

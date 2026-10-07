@@ -1012,33 +1012,8 @@ def _parse_memory_triggers(path):
           - a
           - b
     """
-    with open(path, "r", encoding="utf-8") as f:
-        content = f.read()
-
-    # Check for YAML frontmatter
-    if not content.startswith("---"):
-        return []
-
-    fm_end = content.find("---", 3)
-    if fm_end == -1:
-        return []
-    frontmatter = content[3:fm_end]
-
-    # Inline format: triggers: [a, b, c]
-    inline_match = re.search(
-        r"^triggers:\s*\[([^\]]*)\]", frontmatter, re.MULTILINE
-    )
-    if inline_match:
-        return [t.strip().strip("'\"") for t in inline_match.group(1).split(",") if t.strip()]
-
-    # List format: triggers:\n  - a\n  - b
-    list_match = re.search(
-        r"^triggers:\s*\n((?:\s+-\s+.+\n?)+)", frontmatter, re.MULTILINE
-    )
-    if list_match:
-        return re.findall(r"^\s+-\s+(.+)", list_match.group(1), re.MULTILINE)
-
-    return []
+    triggers = read_frontmatter(path).get("triggers")
+    return list(triggers) if isinstance(triggers, list) else []
 
 
 def discover_memories(vault_root):
