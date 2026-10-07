@@ -10,6 +10,9 @@ from typing import Any
 
 _PLAIN_INT_RE = re.compile(r"-?(0|[1-9][0-9]*)$")
 _PLAIN_KEY_RE = re.compile(r"[A-Za-z0-9_.-]+$")
+# YAML 1.2 allows one byte-order mark before the document; without this the
+# mark would become part of the first key and the whole section would be lost.
+_BYTE_ORDER_MARK = "\ufeff"
 
 
 class YamlError(ValueError):
@@ -25,7 +28,7 @@ class _Line:
 
 def load_yaml_text(text: str, *, source: str = "<string>") -> Any:
     """Parse Brain's supported YAML subset from text."""
-    lines = _prepare_lines(text, source=source)
+    lines = _prepare_lines(text.removeprefix(_BYTE_ORDER_MARK), source=source)
     if not lines:
         return {}
     parser = _Parser(lines, source=source)

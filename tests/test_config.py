@@ -151,6 +151,39 @@ def test_load_config_vault_override(vault, monkeypatch):
     assert "operator" in cfg["vault"]["profiles"]
 
 
+def test_load_config_vault_override_survives_byte_order_mark(vault, monkeypatch):
+    """A byte-order mark on .brain/config.yaml must not drop the vault section.
+
+    Before the mark was accepted, the first key parsed as "\\ufeffvault", so the
+    template's `request_policy: allowed` and empty operators silently replaced
+    the vault's own `denied` policy and operator list.
+    """
+    monkeypatch.setattr(config_mod, "_find_template",
+                        lambda: str(vault / ".brain-core" / "defaults" / "config.yaml"))
+
+    vault_data = {
+        "vault": {
+            "brain_name": "rob",
+            "access": {"request_policy": "denied"},
+            "profiles": {"custom": {"allow": ["session.start"]}},
+            "operators": [{"id": "rob", "profile": "reader", "key_hash": "abc"}],
+        },
+    }
+    path = vault / ".brain" / "config.yaml"
+    path.write_bytes(b"\xef\xbb\xbf" + dump_mapping_text(vault_data).encode("utf-8"))
+
+    cfg = config_mod.load_config(str(vault))
+
+    assert cfg["vault"]["brain_name"] == "rob"
+    assert cfg["vault"]["access"]["request_policy"] == "denied"
+    assert cfg["vault"]["operators"] == vault_data["vault"]["operators"]
+    assert cfg["vault"]["profiles"]["custom"] == {"allow": ["session.start"]}
+    assert "\ufeffvault" not in cfg
+
+    _write_vault_config(vault, vault_data)
+    assert config_mod.load_config(str(vault)) == cfg
+
+
 def test_load_config_full_three_layer(vault, monkeypatch):
     """All three layers merge correctly."""
     monkeypatch.setattr(config_mod, "_find_template",
