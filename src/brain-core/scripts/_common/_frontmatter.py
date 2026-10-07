@@ -2,7 +2,13 @@
 
 import re
 
-FM_RE = re.compile(r"\A---\s*\n(.*?)\n---\s*\n?", re.DOTALL)
+# A UTF-8 byte-order mark decodes to U+FEFF, which some editors leave at the
+# start of a file. One leading mark is accepted before the opening ``---`` so
+# the frontmatter is still seen; a rewrite drops it because the serialised
+# block starts at ``---``.
+BYTE_ORDER_MARK = "\ufeff"
+
+FM_RE = re.compile(r"\A\ufeff?---\s*\n(.*?)\n---\s*\n?", re.DOTALL)
 
 
 def _parse_yaml_lines(fm_text):
@@ -156,7 +162,7 @@ def read_frontmatter(path):
     Use :func:`read_artefact` when the body is also needed.
     """
     with open(path, "r", encoding="utf-8") as f:
-        first = f.readline()
+        first = f.readline().removeprefix(BYTE_ORDER_MARK)
         if first.strip() != "---":
             return {}
         lines = []
