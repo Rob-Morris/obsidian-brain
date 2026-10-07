@@ -1119,6 +1119,15 @@ class TestDiscoverMemories:
         memories = cr.discover_memories(str(vault))
         assert memories[0]["triggers"] == []
 
+    def test_byte_order_marked_memory_keeps_its_triggers(self, vault):
+        memories_dir = vault / "_Config" / "Memories"
+        memories_dir.mkdir()
+        (memories_dir / "marked.md").write_bytes(
+            b"\xef\xbb\xbf---\ntriggers: [brain core]\n---\n\nContent.\n"
+        )
+        memories = cr.discover_memories(str(vault))
+        assert memories[0]["triggers"] == ["brain core"]
+
     def test_memories_in_full_compile(self, vault):
         memories_dir = vault / "_Config" / "Memories"
         memories_dir.mkdir()
