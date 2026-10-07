@@ -855,7 +855,7 @@ def check_wikilinks_in_file(
         try:
             with open(fpath, "r", encoding="utf-8") as f:
                 text = f.read()
-        except OSError:
+        except (OSError, UnicodeDecodeError):
             return []
 
     findings = []
