@@ -68,6 +68,31 @@ class TestCheckBrokenWikilinks:
                   and "rust-lifetimes" in f["message"]]
         assert broken == []
 
+    def test_undecodable_file_is_skipped_and_the_rest_still_checked(self, vault):
+        tmp_path, router = vault
+        (tmp_path / "Wiki" / "not-utf8.md").write_bytes(
+            b"---\ntype: living/wiki\n---\nbad \xff\xfe byte [[nowhere]]\n"
+        )
+        (tmp_path / "loose-not-utf8.md").write_bytes(b"bad \xff byte [[nowhere]]\n")
+        write_md(tmp_path / "Wiki" / "still-checked.md",
+                 {"type": "living/wiki", "tags": ["test"]},
+                 "See [[missing-after-bad-file]].")
+
+        findings = check.check_broken_wikilinks(str(tmp_path), router)
+
+        assert not any("not-utf8" in f["file"] for f in findings)
+        assert any("missing-after-bad-file" in f["message"] for f in findings)
+
+    def test_undecodable_file_does_not_stop_the_whole_check(self, vault):
+        tmp_path, router = vault
+        (tmp_path / "Wiki" / "not-utf8.md").write_bytes(
+            b"---\ntype: living/wiki\n---\nbad \xff\xfe byte [[nowhere]]\n"
+        )
+
+        result = check.run_checks(str(tmp_path), router)
+
+        assert "summary" in result
+
     def test_aliased_wikilink_inside_table_warns(self, vault):
         tmp_path, router = vault
         write_md(tmp_path / "Wiki" / "table-alias.md",
