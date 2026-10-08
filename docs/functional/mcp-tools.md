@@ -113,6 +113,8 @@ JSON or silently drops the tail. Metadata-only resource variants remain intact.
 
 Document reads can decode leading UTF-8 marks and BOM-marked UTF-16/32 without rewriting the source. Every converted page includes a `follow_up_required` warning naming the path and diagnosis within the same byte budget. Revisions still identify the original bytes, so an encoding-only source change invalidates a cursor or prepared read. Truncated or ambiguous text returns a named `conflict` with a recovery action. Document edits that accept a lossless conversion write UTF-8 without a leading mark and report the conversion; they refuse lossy conversion.
 
+Encoding recovery actions respect the shared text-check inventory. Files outside that set, including shipped Core and source-managed skills, receive path/diagnosis and restoration instructions rather than a `vault.repair-text` action that cannot repair them. If inventory inspection fails, the refusal names that failure and asks for access to be restored before retrying.
+
 ## Permissions and instance authorisation
 
 Document mutations preflight artefact lifecycle consequences, including derived

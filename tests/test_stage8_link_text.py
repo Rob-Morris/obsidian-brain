@@ -187,3 +187,89 @@ def test_transition_preparation_parses_lossless_text_and_pins_raw_revision(link_
                and item.revision == document_revision(raw) for item in binding.observations)
     assert any(item.kind == 'definition' and item.identity == 'wikis'
                for item in binding.observations)
+
+
+@pytest.fixture
+def reparent_vault(link_vault):
+    from _common import parse_frontmatter
+    from _common._artefacts import living_artefact_index_entry, finalize_living_artefact_index
+    art = {'key': 'wikis', 'type': 'living/wiki', 'frontmatter_type': 'living/wiki',
+           'classification': 'living', 'configured': True, 'path': 'Wiki',
+           'naming': {'pattern': '{Title}.md'}}
+    child = link_vault / 'Wiki/wiki~old/Child.md'
+    child.parent.mkdir()
+    child.write_text('---\ntype: living/wiki\nkey: child\nparent: wiki/old\n'
+                     'tags: [wiki/old]\n---\nChild\n')
+    entries = {}
+    for path in ('Wiki/Old.md', 'Wiki/wiki~old/Child.md'):
+        fields, _ = parse_frontmatter((link_vault / path).read_text())
+        entries['wiki/' + fields['key']] = living_artefact_index_entry(art, path, fields)
+    router = {'artefacts': [art], 'artefact_index': finalize_living_artefact_index(entries)}
+    return link_vault, router
+
+
+def test_reparent_reuses_scan_reads_and_keeps_raw_backlink_pins(reparent_vault, monkeypatch):
+    from collections import Counter
+    from pathlib import Path
+    from types import SimpleNamespace
+    import edit
+    from _common._document_revision import document_revision
+    from _application.artefact.reparent import ArtefactReparentRequest
+    from _application.preparation_transition import transition_binding
+    root, router = reparent_vault
+    raw = 'Café [[Wiki/wiki~old/Child#Heading|child]] Ω\n'.encode('utf-16')
+    (root / 'Wiki/Backlink.md').write_bytes(raw)
+    for i in range(50):
+        (root / f'Wiki/Unrelated-{i}.md').write_text('Unrelated\n')
+    before = snapshot(root)
+    reads = Counter()
+    import builtins
+    from _common import _artefacts
+    original = builtins.open
+
+    def counted(path, mode, *args, **kwargs):
+        if mode == "rb":
+            reads[Path(path).relative_to(root).as_posix()] += 1
+        return original(path, mode, *args, **kwargs)
+
+    with monkeypatch.context() as patch:
+        patch.setattr(_artefacts, "open", counted, raising=False)
+        plan = edit.plan_reparent_children(str(root), router, 'Wiki/Old.md',
+                                           None, to_provided=True)
+    assert all(reads[f'Wiki/Unrelated-{i}.md'] == 1 for i in range(50))
+    assert reads['Wiki/Backlink.md'] == 1
+    assert reads['Wiki/wiki~old/Child.md'] == 1
+    write = next(w for w in plan.movement.links.writes if w.path == 'Wiki/Backlink.md')
+    assert write.before.revision == document_revision(raw)
+    assert write.conversion_code
+    assert write.after == 'Café [[Wiki/Child#Heading|child]] Ω\n'
+    assert ('Wiki/Backlink.md', write.conversion_code) in plan.movement.links.conversions
+    binding = transition_binding(SimpleNamespace(selected_brain=SimpleNamespace(vault_root=root)),
+        ArtefactReparentRequest('Wiki/Old.md', None), plan=plan, router=router)
+    assert any(item.identity == 'Wiki/Backlink.md' and item.kind == 'source'
+               and item.revision == document_revision(raw) for item in binding.observations)
+    assert snapshot(root) == before
+    changed = 'Fresh [[Wiki/wiki~old/Child]]\n'.encode('utf-8')
+    (root / 'Wiki/Backlink.md').write_bytes(changed)
+    fresh = edit.plan_reparent_children(str(root), router, 'Wiki/Old.md', None, to_provided=True)
+    fresh_write = next(w for w in fresh.movement.links.writes if w.path == 'Wiki/Backlink.md')
+    assert fresh_write.before.revision == document_revision(changed)
+    assert fresh_write.conversion_code is None
+    assert fresh_write.after == 'Fresh [[Wiki/Child]]\n'
+
+
+def test_reparent_collects_mixed_root_and_encoded_child_blockers_before_effects(reparent_vault):
+    import edit
+    root, router = reparent_vault
+    child = root / 'Wiki/wiki~old/Child.md'
+    child.write_bytes(child.read_text().encode('utf-16'))
+    (root / 'Wiki/Bad-one.md').write_bytes(b'broken\xe2\x82')
+    temporal = root / '_Temporal/Logs/Bad-two.md'
+    temporal.parent.mkdir(parents=True)
+    temporal.write_bytes(b'legacy\x80 text')
+    before = snapshot(root)
+    with pytest.raises(ValueError) as exc:
+        edit.reparent_children(str(root), router, 'Wiki/Old.md', None, to_provided=True)
+    assert all(path in str(exc.value) for path in (
+        'Wiki/Bad-one.md', '_Temporal/Logs/Bad-two.md', 'Wiki/wiki~old/Child.md'))
+    assert snapshot(root) == before
