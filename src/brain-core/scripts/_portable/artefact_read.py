@@ -46,7 +46,7 @@ def _resolve_config_resource(vault_root, name, file_index=None):
     return None
 
 
-def read_artefact(router, vault_root, name=None):
+def read_artefact(router, vault_root, name=None, *, convert_lossless=False):
     """Read a non-archived artefact by canonical key, path, or basename."""
 
     if not name:
@@ -57,7 +57,7 @@ def read_artefact(router, vault_root, name=None):
         entry = resolve_artefact_key_entry(router, key)
         if not entry:
             return {"error": f"No artefact matching '{name}'"}
-        return read_file_content(vault_root, entry["path"])
+        return read_file_content(vault_root, entry["path"], convert_lossless=convert_lossless)
 
     if "/" in name:
         if is_archived_path(name):
@@ -68,6 +68,7 @@ def read_artefact(router, vault_root, name=None):
         return _check_vault_containment(vault_root, name) or read_file_content(
             vault_root,
             name,
+            convert_lossless=convert_lossless,
         )
 
     try:
@@ -80,11 +81,11 @@ def read_artefact(router, vault_root, name=None):
                 f"Use {resource}.read instead."
             }
         return {"error": str(exc)}
-    return read_file_content(vault_root, resolved)
+    return read_file_content(vault_root, resolved, convert_lossless=convert_lossless)
 
 
-def read_from_vault(vault_root, name):
+def read_from_vault(vault_root, name, *, convert_lossless=False):
     router = load_compiled_router(vault_root)
     if "error" in router:
         return router
-    return read_artefact(router, str(vault_root), name)
+    return read_artefact(router, str(vault_root), name, convert_lossless=convert_lossless)

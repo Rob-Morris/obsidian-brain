@@ -314,11 +314,11 @@ def test_document_mutation_reuses_one_prewrite_snapshot(
     reads = 0
     original = edit.read_exact_file_content
 
-    def count_target_read(path):
+    def count_target_read(path, **kwargs):
         nonlocal reads
         if str(path) == target:
             reads += 1
-        return original(path)
+        return original(path, **kwargs)
 
     monkeypatch.setattr(edit, "read_exact_file_content", count_target_read)
     result = application_for(vault_root).invoke(
