@@ -76,9 +76,9 @@ def execute(context: InvocationContext, request: LinksCheckRequest):
         if request.path is None or finding["file"] == request.path
     )
     plan = (
-        fix_links.scan_file(str(root), request.path)
+        fix_links.scan_file(str(root), request.path, for_mutation=False)
         if request.path is not None
-        else fix_links.scan_and_resolve(str(root), router={})
+        else fix_links.scan_and_resolve(str(root), router={}, for_mutation=False)
     )
     return Ok(
         LinksCheckRequest.COMMAND_ID,

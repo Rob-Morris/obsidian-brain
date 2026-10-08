@@ -32,6 +32,8 @@ from _common import (
     load_compiled_router,
     PartialApplyError,
     read_frontmatter,
+    read_exact_file_content,
+    parse_frontmatter,
     reconcile_fields_for_render,
     render_filename,
     slug_to_title,
@@ -168,10 +170,7 @@ def plan_naming_migration(vault_root, router=None, dry_run=False):
         for rel_path in iter_artefact_paths(vault_root, art):
             filename = os.path.basename(rel_path)
             abs_path = os.path.join(vault_root, rel_path)
-            try:
-                fields = read_frontmatter(abs_path)
-            except (OSError, UnicodeDecodeError):
-                fields = {}
+            fields, _ = parse_frontmatter(read_exact_file_content(abs_path))
 
             new_filename = compute_new_filename(filename, art, fields=fields, abs_path=abs_path)
 

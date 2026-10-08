@@ -57,6 +57,9 @@ def execute(context, request):
 
 
 def registration_error(request, exc, effects):
+    from _common import NonStandardVaultTextError
+    if not effects and isinstance(exc, NonStandardVaultTextError):
+        raise exc
     if effects:
         error = getattr(exc, "error", None) or CommandError(ErrorCode.CONFLICT, str(exc), RequestErrorDetails(None, str(exc)))
         return Partial(request.COMMAND_ID, request.COMMAND_VERSION, error, tuple(effects))

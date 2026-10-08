@@ -1,6 +1,6 @@
 # DD-087: Text files Brain cannot read
 
-**Status:** Proposed
+**Status:** Accepted
 **Extends:** [DD-082](dd-082-check-driven-maintenance.md), [DD-086](dd-086-dismissals-need-something-to-reopen-them.md)
 
 ## Context
@@ -20,13 +20,12 @@ must not be prerequisites for correct parsing.
 [DD-082](dd-082-check-driven-maintenance.md) makes detection authoritative and
 separates unattended derived repairs from repairs requiring judgement.
 [DD-086](dd-086-dismissals-need-something-to-reopen-them.md) defines the identity
-a dismissal may rely on. This proposal extends those rules to text files,
+a dismissal may rely on. This decision extends those rules to text files,
 distinguishing deterministic repairs from conditions whose cause needs investigation.
 
-Stage 1 introduces only the pure classifier and this proposed decision record.
-The checks, command, error handling, builder changes and write enforcement
-below are proposed for later stages; this document does not claim they are
-available. The parser tolerance above is already delivered.
+The rules below cover diagnosis, reporting, explicit repair, named refusals,
+builder skipping and text-write enforcement. Parser tolerance remains
+independent of reporting and repair.
 
 ## Decision
 
@@ -108,7 +107,7 @@ failure gives `Partial`, names the failed file and retains the other effects.
 
 Existing automatic families write derived state and run as observation-class
 commands, including in read-only vaults. Automatic content rewriting would
-introduce a new policy. This proposal keeps text repair on request, as D17
+introduce a new policy. This decision keeps text repair on request, as D17
 requires.
 
 ### D7. Identity follows the condition
@@ -281,7 +280,7 @@ Ordinary reads incur no new classification or caching.
 
 ### D22. Keep existing command versions
 
-The proposal replaces raw codec failures with named refusals and uses existing
+Named refusals replace raw codec failures and uses existing
 `FOLLOW_UP_REQUIRED` warnings and `CONFLICT` refusals. Warnings name the path
 and classifier code; refusals name the reason, paths and next action. No
 previously successful operation becomes a failure. Removing a leading mark
@@ -319,7 +318,7 @@ in `_Assets`.
 
 ## Consequences
 
-The proposed checks name every non-conforming file in the scanned set without
+The checks name every non-conforming file in the scanned set without
 making router availability a prerequisite. Composed readers must also survive
 decode failures: router and lexical caches become stale with reason
 `unreadable`, JSON and TOML readers use their existing parse/read failure paths,
@@ -344,7 +343,7 @@ Brain behaviour of resetting file mode and creation time.
 
 ## Implementation Notes
 
-The stable classifier lands before its I/O consumers. Later stages introduce
+The stable classifier precedes its I/O consumers. Dependency-ordered slices add
 named boundary errors, the shared scan and ambiguous findings, builder skips,
 then the clear check, repair family and command together. Builders only start
 skipping once per-file findings exist. Entry normalisation and document-seam
@@ -360,15 +359,15 @@ widening codec catches.
 Stage 1 verification covers all classifier codes and fixes, repeated marks,
 idempotence, combined damage, the Windows-1252 counter-example, unmarked
 non-ASCII UTF-16, UTF-32 precedence, CRLF preservation and the strip helper.
-Later verification covers scan exclusions and one-read caching, real finding
+Integration verification covers scan exclusions and one-read caching, real finding
 producers and identity pins, check survival with missing router and local MCP
 state, definite config/router errors, subset previews and partial repair,
 changed-file skips, and router-independent repair of a marked taxonomy.
 
-A catalogue-driven sweep must exercise every mutation's target and collateral
+A catalogue-driven sweep exercises every mutation's target and collateral
 roles as UTF-16 and truncated UTF-8: each converts with every path reported or
 refuses by name. Raw codec errors, `internal_error` and unknown outcomes fail
 the sweep. Multi-file refusal, raw-byte revisions, prepared normalised pins,
 strict U+0000 decoding, the write guard and a seeded Brain Lab scenario
-complete the later-stage evidence. Acceptance follows those later stages;
-this classifier-stage record remains Proposed.
+complete the implementation evidence. The scenario checks config access
+settings, clear repair, retained ambiguous bytes and fresh search results.

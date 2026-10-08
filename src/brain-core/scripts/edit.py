@@ -55,6 +55,7 @@ from _common import (
     parse_frontmatter,
     read_exact_file_content,
     read_file_content,
+    iter_artefact_markdown_files,
     replace_artefact_key_references,
     reconcile_fields_for_render,
     render_filename,
@@ -171,6 +172,7 @@ def open_document(
         except FileNotFoundError:
             raise FileNotFoundError(f"File not found: {resolved_path}") from None
         fields, body = parse_frontmatter(content)
+        _require_indexed_encoding(vault_root, router, resolved_path, artefact, fields, content)
         return OpenDocument(
             resource,
             reference,
@@ -1217,7 +1219,7 @@ def _plan_reference_mutation(
         rel_path = ref["path"]
         if rel_path in skip_paths:
             continue
-        content = read_file_content(vault_root, rel_path)
+        content = read_file_content(vault_root, rel_path, convert_lossless=True)
         if isinstance(content, MissingFileResult):
             _raise_stale_index_missing(rel_path, operation)
         fields, body = parse_frontmatter(content)
@@ -1327,6 +1329,7 @@ def _plan_descendant_moves(
             and (op.get("art") or {}).get("classification") == "living"
         )
         if is_living_parent_ref and op["path"] not in indexed_descendant_paths:
+            read_exact_file_content(os.path.join(vault_root, op["path"]))
             _raise_unindexed_parent_reference(op["path"], old_key, operation)
     for entry in indexed_descendants:
         rel_path = entry["path"]
@@ -1335,7 +1338,7 @@ def _plan_descendant_moves(
             fields = op["fields"]
             desc_art = op["art"]
         else:
-            content = read_file_content(vault_root, rel_path)
+            content = read_file_content(vault_root, rel_path, convert_lossless=True)
             if isinstance(content, MissingFileResult):
                 _raise_stale_index_missing(rel_path, operation)
             fields, _body = parse_frontmatter(content)
@@ -1380,7 +1383,7 @@ def _plan_temporal_reference_moves(
             fields = op["fields"]
             art = op.get("art") or {}
         else:
-            content = read_file_content(vault_root, rel_path)
+            content = read_file_content(vault_root, rel_path, convert_lossless=True)
             if isinstance(content, MissingFileResult):
                 _raise_stale_index_missing(rel_path, operation)
             fields, _body = parse_frontmatter(content)
@@ -1940,9 +1943,9 @@ def plan_convert(vault_root, router, path, target_type, parent=None, recursive=F
     if not os.path.isfile(abs_source):
         raise FileNotFoundError(f"File not found: {path}")
 
-    with open(abs_source, "r", encoding="utf-8") as f:
-        content = f.read()
+    content = read_exact_file_content(abs_source, convert_lossless=True)
     fields, body = parse_frontmatter(content)
+    _require_indexed_encoding(vault_root, router, path, source_art, fields, content)
     title = _derive_title_from_path(source_art, fields, path)
 
     source_prefix = artefact_type_prefix(source_art)
@@ -2164,9 +2167,9 @@ def _read_open_path(vault_root, router, path):
     abs_path = os.path.join(vault_root, resolved_path)
     if not os.path.isfile(abs_path):
         raise FileNotFoundError(f"File not found: {resolved_path}")
-    with open(abs_path, "r", encoding="utf-8") as f:
-        content = f.read()
+    content = read_exact_file_content(abs_path, convert_lossless=True)
     fields, body = parse_frontmatter(content)
+    _require_indexed_encoding(vault_root, router, resolved_path, art, fields, content)
     return resolved_path, abs_path, fields, body, art
 
 
@@ -2211,7 +2214,7 @@ def _move_plan_for_reparent(vault_root, router, child_entries, target_parent):
                 continue
             seen.add(key)
             rel_path = entry["path"]
-            content = read_file_content(vault_root, rel_path)
+            content = read_file_content(vault_root, rel_path, convert_lossless=True)
             if isinstance(content, MissingFileResult):
                 _raise_stale_index_missing(rel_path, "reparent")
             fields, body = parse_frontmatter(content)
@@ -2280,6 +2283,29 @@ def plan_reparent_children(vault_root, router, source, to_marker=None, *, to_pro
         "reparent",
     )
 
+    from _common import (NonStandardVaultTextError, UnreadableVaultTextFilesError,
+                         vault_text_failure)
+    from _common._wikilinks import iter_vault_md_files
+    living_paths = set(iter_artefact_markdown_files(
+        vault_root, router, classifications={"living"}, include_status_folders=True))
+    backlink_paths = {os.path.relpath(os.path.join(directory, name), vault_root)
+                      for directory, name in iter_vault_md_files(vault_root)}
+    failures = []
+    for rel_path in sorted(living_paths | backlink_paths):
+        try:
+            child_content = read_exact_file_content(
+                os.path.join(vault_root, rel_path), convert_lossless=True)
+        except (NonStandardVaultTextError, OSError) as exc:
+            failures.append(vault_text_failure(rel_path, exc))
+            continue
+        if rel_path not in living_paths:
+            continue
+        child_fields, _ = parse_frontmatter(child_content)
+        if normalize_artefact_key(child_fields.get("parent")) == source_key and child_content.conversion_code:
+            failures.append(vault_text_failure(
+                rel_path, NonStandardVaultTextError(rel_path, child_content.conversion_code)))
+    if failures:
+        raise UnreadableVaultTextFilesError(failures)
     children = direct_child_entries(router, source_key)
     moves, write_ops = _move_plan_for_reparent(vault_root, router, children, target_parent)
 
@@ -2397,8 +2423,8 @@ def _plan_unarchive_entry(vault_root, router, path):
     abs_path = os.path.join(vault_root, path)
     if not os.path.isfile(abs_path):
         raise FileNotFoundError(f"File not found: {path}")
-    with open(abs_path, "r", encoding="utf-8") as handle:
-        fields, body = parse_frontmatter(handle.read())
+    content = read_exact_file_content(abs_path, convert_lossless=True)
+    fields, body = parse_frontmatter(content)
     art = resolve_type(router, fields.get("type"))
     filename = os.path.basename(path)
     if not _intrinsic_date_prefix(art, fields):
@@ -2447,7 +2473,9 @@ def _archived_living_descendant_paths(vault_root, router, source_plan):
             try:
                 plan = _plan_unarchive_entry(vault_root, router, rel_path)
             except (ValueError, OSError) as exc:
-                uninspected.append({"path": rel_path, "reason": str(exc)})
+                from _common import vault_text_failure
+                uninspected.append({"path": rel_path, "reason": str(exc),
+                                    "code": vault_text_failure(rel_path, exc)[1]})
                 continue
             key = canonical_living_artefact_key(plan["art"], plan["fields"])
             if key:
@@ -2679,6 +2707,14 @@ def main(argv=None):
     else:
         op_label = OPERATION_LABELS[args.operation]
         print(f"{op_label} {result['path']}", file=sys.stderr)
+
+
+def _require_indexed_encoding(vault_root, router, path, artefact, fields, content):
+    """Name encoded sources omitted from the strict compiled identity index."""
+    key = canonical_living_artefact_key(artefact, fields)
+    if content.conversion_code and key and key not in router.get("artefact_index", {}):
+        from _common import NonStandardVaultTextError
+        raise NonStandardVaultTextError(path, content.conversion_code)
 
 
 if __name__ == "__main__":

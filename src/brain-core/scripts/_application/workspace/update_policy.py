@@ -49,17 +49,21 @@ class WorkspaceUpdatePolicyRequest:
 
 def plan_policy(context, request):
     from _common._workspace import workspace_reference, normalise_tags, require_workspace, workspace_policy
-    from _common import parse_frontmatter, serialize_frontmatter
+    from _common import parse_frontmatter, serialize_frontmatter, decode_persisted_document
     from _lifecycle.derived_cache_state import require_fresh_compiled_router
 
     router = require_fresh_compiled_router(str(context.selected_brain.vault_root))
     reference = workspace_reference(request.workspace)
+    if reference not in router.get("artefact_index", {}):
+        from ._registration import require_readable_workspace_identity
+        require_readable_workspace_identity(context.selected_brain.vault_root, router, reference.split("/", 1)[1])
     entry = require_workspace(router, reference, active=True)
     path = context.selected_brain.vault_root / entry["path"]
     if path.is_symlink():
         raise ValueError("Workspace policy refuses a symbolic-link target")
     raw = path.read_bytes()
-    fields, body = parse_frontmatter(raw.decode("utf-8"))
+    content = decode_persisted_document(raw, source_path=path, convert_lossless=True)
+    fields, body = parse_frontmatter(content)
     if request.clear_parent:
         fields.pop("default_parent", None)
     elif request.default_parent is not None:
@@ -77,7 +81,8 @@ def plan_policy(context, request):
             observations.append(ObservedResource("workspace-file", str(parent_path), content_digest(parent_path.read_bytes())))
     binding = bind_operation(request, observations=observations,
         review={"workspace": reference, "default_parent": policy.parent, "default_tags": list(policy.tags)})
-    return path, fields, body, policy, binding, serialize_frontmatter(fields, body=body) != raw.decode("utf-8")
+    changed = bool(content.conversion_code) or serialize_frontmatter(fields, body=body) != content
+    return path, fields, body, policy, binding, changed, content.conversion_code
 
 
 def prepare(context, request, *, frozen_inputs=None):
@@ -90,20 +95,25 @@ def execute(context, request):
     from .._transition_indexes import reconcile_transition_indexes, TransitionIndexesIncomplete
 
     effects = []
+    warnings = ()
     try:
         with vault_mutation_lock(context.selected_brain.vault_root):
-            path, fields, body, policy, binding, changed = plan_policy(context, request)
+            path, fields, body, policy, binding, changed, conversion_code = plan_policy(context, request)
             context.admission.admit(binding)
             if changed and not context.dry_run:
                 fields["modified"] = context.clock.now().isoformat()
                 safe_write_artefact(path, serialize_frontmatter(fields, body=body), bounds=context.selected_brain.vault_root)
-                effects.append(CommittedEffect("workspace.policy-updated", str(path.relative_to(context.selected_brain.vault_root))))
+                relative = str(path.relative_to(context.selected_brain.vault_root))
+                effects.append(CommittedEffect("workspace.policy-updated", relative))
+                from .._text_warnings import conversion_warnings
+                warnings = conversion_warnings(relative, conversion_code)
                 reconcile_transition_indexes(context)
     except (OSError, ValueError, MutationLockError, TransitionIndexesIncomplete) as exc:
-        return registration_error(request, exc, effects)
+        result = registration_error(request, exc, effects)
+        return replace(result, warnings=result.warnings + warnings)
     return Ok(request.COMMAND_ID, request.COMMAND_VERSION, WorkspacePolicyPayload(
         workspace_reference(request.workspace), policy.parent, policy.tags,
-        "planned" if context.dry_run else "changed" if changed else "noop"), committed_effects=tuple(effects))
+        "planned" if context.dry_run else "changed" if changed else "noop"), committed_effects=tuple(effects), warnings=warnings)
 
 
 def decode(payload: Mapping[str, object]):

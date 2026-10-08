@@ -1,0 +1,78 @@
+{
+  "steps": [
+    {
+      "operation": "base.build",
+      "request": {
+        "image": "ubuntu:24.04",
+        "platform": "linux/arm64"
+      }
+    },
+    {
+      "operation": "source.capture",
+      "request": {
+        "kind": "worktree",
+        "path": ".",
+        "platform": "linux/arm64"
+      }
+    },
+    {
+      "operation": "seed.template",
+      "request": {
+        "source_id": "${steps.1.resource.id}"
+      }
+    },
+    {
+      "operation": "baseline.prepare",
+      "request": {
+        "base_id": "${steps.0.resource.id}",
+        "source_id": "${steps.1.resource.id}",
+        "seed_id": "${steps.2.resource.id}",
+        "mode": "template",
+        "timeout_seconds": 1800
+      }
+    },
+    {
+      "operation": "run.start",
+      "request": {
+        "baseline_id": "${steps.3.resource.id}"
+      }
+    },
+    {
+      "operation": "run.copy-in",
+      "request": {
+        "id": "${steps.4.resource.id}",
+        "source_id": "${steps.1.resource.id}",
+        "destination": "/home/brain/copied-source"
+      }
+    },
+    {
+      "operation": "run.exec",
+      "request": {
+        "id": "${steps.4.resource.id}",
+        "argv": [
+          "/usr/bin/python3.12",
+          "/home/brain/copied-source/tools/brain-lab/container/text_encoding_acceptance.py",
+          "--vault",
+          "/home/brain/vault"
+        ],
+        "working_directory": "/home/brain/vault",
+        "environment": {
+          "BRAIN_VAULT_ROOT": "/home/brain/vault"
+        },
+        "timeout_seconds": 1800
+      }
+    },
+    {
+      "operation": "run.discard",
+      "request": {
+        "id": "${steps.4.resource.id}"
+      }
+    }
+  ],
+  "host_state": {
+    "worktrees": [
+      "."
+    ],
+    "vaults": []
+  }
+}

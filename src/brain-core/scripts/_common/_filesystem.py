@@ -176,6 +176,8 @@ def safe_write(path, content, *, encoding="utf-8", bounds=None,
     Writes *content* through ``safe_write_via`` and returns the resolved path
     that was actually written to.
     """
+    from _text_content import require_bom_free_text
+    require_bom_free_text(content)
     return safe_write_via(
         path,
         lambda handle: handle.write(content),

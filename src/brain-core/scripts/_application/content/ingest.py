@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from .._text_warnings import raise_nonstandard_text_error
+
 from ..types import InitialAuthorisationClass
 
 from .._decoding import reject_unexpected
@@ -157,6 +159,7 @@ def execute(context: InvocationContext, request: ContentIngestRequest):
             ),
         )
     except ValueError as exc:
+        raise_nonstandard_text_error(exc)
         return no_effect_error(
             ContentIngestRequest,
             ErrorCode.INVALID_REQUEST,

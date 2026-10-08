@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from .._text_warnings import raise_nonstandard_text_error
+
 from .._decoding import reject_unexpected
 
 from dataclasses import dataclass
@@ -175,6 +177,7 @@ def execute(context: InvocationContext, request: ArtefactCreateRequest):
             retryable=True,
         )
     except ValueError as exc:
+        raise_nonstandard_text_error(exc)
         return no_effect_error(
             ArtefactCreateRequest,
             ErrorCode.INVALID_REQUEST,

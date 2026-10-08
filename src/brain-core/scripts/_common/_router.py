@@ -49,6 +49,7 @@ def resolve_and_validate_folder(vault_root, router, path):
     if key:
         entry = resolve_artefact_key_entry(router, key)
         if not entry:
+            _name_encoded_identity(vault_root, router, key)
             raise ValueError(f"No artefact matching key '{path}'")
         art = validate_artefact_folder(vault_root, router, entry["path"])
         return entry["path"], art
@@ -62,3 +63,19 @@ def resolve_and_validate_folder(vault_root, router, path):
         resolved = resolve_artefact_path(path, vault_root)
         art = validate_artefact_folder(vault_root, router, resolved)
         return resolved, art
+
+
+def _name_encoded_identity(vault_root, router, key):
+    """Diagnose an encoded source omitted from a strict canonical index."""
+    from ._artefacts import (resolve_artefact_definition_for_prefix, iter_artefact_paths,
+                            read_exact_file_content, canonical_living_artefact_key)
+    from ._frontmatter import parse_frontmatter
+    from ._document_revision import NonStandardVaultTextError
+    artefact = resolve_artefact_definition_for_prefix(router, key.split("/", 1)[0])
+    if artefact is None:
+        return
+    for path in iter_artefact_paths(vault_root, artefact, include_status_folders=True):
+        content = read_exact_file_content(os.path.join(vault_root, path), convert_lossless=True)
+        fields, _ = parse_frontmatter(content)
+        if canonical_living_artefact_key(artefact, fields) == key and content.conversion_code:
+            raise NonStandardVaultTextError(path, content.conversion_code)

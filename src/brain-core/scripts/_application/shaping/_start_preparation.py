@@ -9,7 +9,7 @@ from ..workspace_context import resolve_mutation_context, apply_semantic_tags, v
 
 def session_plan(context, request, router, *, frozen_inputs=None):
     from start_shaping_session import plan_shaping_session, render_transcript_template
-    from _common import parse_frontmatter, ensure_parent_tag, canonical_living_artefact_key
+    from _common import parse_frontmatter, ensure_parent_tag, canonical_living_artefact_key, read_exact_file_content
     frozen = dict(frozen_inputs or {})
     frozen.setdefault("effective_at", context.clock.now().isoformat())
     now = datetime.fromisoformat(frozen["effective_at"])
@@ -17,7 +17,7 @@ def session_plan(context, request, router, *, frozen_inputs=None):
     plan = plan_shaping_session(str(root), router, request.target, mode=request.mode.value,
                                _now=now, chosen_transcript=frozen.get("transcript_path"))
     if plan["transcript_exists"]:
-        original, _ = parse_frontmatter((root / plan["transcript_path"]).read_text(encoding="utf-8"))
+        original, _ = parse_frontmatter(read_exact_file_content(root / plan["transcript_path"], convert_lossless=True))
     else:
         source_path = plan["lifecycle"].result["path"] if plan["lifecycle"] else plan["prepared"].resolved_path
         original, _ = parse_frontmatter(render_transcript_template(
@@ -43,7 +43,7 @@ def session_plan(context, request, router, *, frozen_inputs=None):
     target_fields = apply_semantic_tags(lifecycle_fields, effective)
     validate_subject_membership(router, target_fields, reference, target.fields)
     if plan["transcript_exists"]:
-        original, _ = parse_frontmatter((root / plan["transcript_path"]).read_text(encoding="utf-8"))
+        original, _ = parse_frontmatter(read_exact_file_content(root / plan["transcript_path"], convert_lossless=True))
         transcript_fields = apply_semantic_tags(original, effective)
         validate_subject_membership(router, transcript_fields, plan["transcript_path"], original)
     plan.update(target_fields=target_fields, transcript_fields=transcript_fields,
@@ -100,15 +100,17 @@ SHAPING_SESSION = OperationPreparation(prepare_session)
 def session_effect_snapshot(context, plan):
     from ..workspace_transitions import transition_effect_snapshot
     from _portable.maintenance_inputs import file_identity
-    observed = transition_effect_snapshot(context, plan["lifecycle"]) if plan["lifecycle"] else {}
-    paths = set(observed) | {plan["prepared"].resolved_path, plan["transcript_path"]}
-    return {path: file_identity(context.selected_brain.vault_root / path) for path in paths}
+    from ..workspace_transitions import TransitionSnapshot
+    observed = transition_effect_snapshot(context, plan["lifecycle"]) if plan["lifecycle"] else TransitionSnapshot({}, ())
+    paths = set(observed.revisions) | {plan["prepared"].resolved_path, plan["transcript_path"]}
+    return TransitionSnapshot({path: file_identity(context.selected_brain.vault_root / path) for path in paths},
+                              observed.conversions)
 
 
 def committed_session_effects(context, request, plan, before):
     from ..receipts import CommittedEffect
-    after = session_effect_snapshot(context, plan)
-    changed = {path for path, revision in after.items() if revision != before[path]}
+    after = session_effect_snapshot(context, plan).revisions
+    changed = {path for path, revision in after.items() if revision != before.revisions[path]}
     if plan["lifecycle"]:
         for move in plan["lifecycle"].movement.moves:
             if move["source"] in changed and move["dest"] in changed and after[move["source"]] is None:
