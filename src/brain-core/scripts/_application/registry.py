@@ -74,6 +74,7 @@ from .type import create as type_create
 from .type import replace as type_replace
 from .type import status as type_status
 from .type import sync as type_sync
+from .vault import repair_text as vault_repair_text
 from .vault import check as vault_check
 from .vault import read_config as vault_read_config
 from .vault import read_router as vault_read_router
@@ -163,6 +164,7 @@ _COMMAND_OWNERS = (
     type_status,
     type_sync,
     vault_check,
+    vault_repair_text,
     vault_read_config,
     vault_read_router,
     vault_read_file,
