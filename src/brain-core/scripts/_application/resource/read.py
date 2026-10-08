@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from .._text_warnings import raise_nonstandard_text_error
+
 from .._decoding import reject_unexpected
 
 from dataclasses import dataclass, field, replace
@@ -156,9 +158,11 @@ def read_result(context: InvocationContext, request: ResourceReadRequest):
             return _error(ErrorCode.INVALID_REQUEST, "This resource has no document continuation.", "cursor")
         return Ok(request.COMMAND_ID, request.COMMAND_VERSION, result)
     from ..preparation import observe_document_read
+    from .._text_warnings import read_conversion_warnings
 
     bounded = bounded_text_result(ResourceReadRequest, content, result.revision,
         cursor=request.cursor, max_characters=request.max_characters,
+        warnings=read_conversion_warnings(context, content),
         payload=lambda text, window: replace(result, **{field_name: text, "range": window}))
 
     return observe_document_read(context, bounded, content)
@@ -183,7 +187,7 @@ def _read_memory(root, reference):
     from _portable.router_collections import read_memory_exact_from_vault
 
     try:
-        result = read_memory_exact_from_vault(root, reference)
+        result = read_memory_exact_from_vault(root, reference, convert_lossless=True)
     except FileNotFoundError as exc:
         return _error(ErrorCode.CONFLICT, str(exc))
     if isinstance(result, dict):
@@ -204,7 +208,7 @@ def _read_named(root, reference, resource, item_builder):
     from .._named_documents import read_portable
 
     try:
-        result = read_portable(root, resource, reference)
+        result = read_portable(root, resource, reference, convert_lossless=True)
     except FileNotFoundError as exc:
         return _error(ErrorCode.CONFLICT, str(exc))
     if isinstance(result, dict):
@@ -220,8 +224,9 @@ def _read_template(root, reference):
     from _portable.type_definitions import read_template_exact_from_vault
 
     try:
-        result = read_template_exact_from_vault(root, reference)
+        result = read_template_exact_from_vault(root, reference, convert_lossless=True)
     except (FileNotFoundError, ValueError) as exc:
+        raise_nonstandard_text_error(exc)
         return _error(ErrorCode.CONFLICT, str(exc))
     if isinstance(result, dict):
         return _error(ErrorCode.NOT_FOUND, str(result["error"]), "reference")
@@ -248,6 +253,7 @@ def _read_trigger(root, reference):
     except FileNotFoundError as exc:
         return _error(ErrorCode.CONFLICT, str(exc))
     except ValueError as exc:
+        raise_nonstandard_text_error(exc)
         return _error(ErrorCode.CONFLICT, str(exc), "reference")
     if "error" in trigger:
         return _error(ErrorCode.NOT_FOUND, str(trigger["error"]), "reference")
@@ -264,8 +270,9 @@ def _read_type(root, reference):
     from _portable.type_definitions import read_type_exact_from_vault
 
     try:
-        result = read_type_exact_from_vault(root, reference)
+        result = read_type_exact_from_vault(root, reference, convert_lossless=True)
     except (FileNotFoundError, ValueError) as exc:
+        raise_nonstandard_text_error(exc)
         return _error(ErrorCode.CONFLICT, str(exc))
     if isinstance(result, dict):
         return _error(ErrorCode.NOT_FOUND, str(result["error"]), "reference")

@@ -13,14 +13,14 @@ def list_memories(router, query=None):
     return [item for item in memories if folded in item.get("name", "").casefold()]
 
 
-def read_memory_exact(router, vault_root, reference):
+def read_memory_exact(router, vault_root, reference, *, convert_lossless=False):
     match = next(
         (item for item in router.get("memories", ()) if item.get("name") == reference),
         None,
     )
     if match is None:
         return {"error": f"No memory matching '{reference}'"}
-    return dict(match), read_file_content(vault_root, match["memory_doc"])
+    return dict(match), read_file_content(vault_root, match["memory_doc"], convert_lossless=convert_lossless)
 
 
 def list_triggers(router, query=None):
@@ -64,8 +64,8 @@ def list_memories_from_vault(vault_root, query=None):
     return list_memories(_load(vault_root), query)
 
 
-def read_memory_exact_from_vault(vault_root, reference):
-    return read_memory_exact(_load(vault_root), vault_root, reference)
+def read_memory_exact_from_vault(vault_root, reference, *, convert_lossless=False):
+    return read_memory_exact(_load(vault_root), vault_root, reference, convert_lossless=convert_lossless)
 
 
 def list_triggers_from_vault(vault_root, query=None):

@@ -158,6 +158,7 @@ from ._file_lock import (
 from ._document_revision import (
     DocumentRevisionConflict,
     PersistedDocumentContent,
+    NonStandardVaultTextError,
     decode_persisted_document,
     document_revision,
     document_revision_at,

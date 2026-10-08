@@ -94,7 +94,7 @@ class MissingFileResult(str):
         return result
 
 
-def read_file_content(vault_root, rel_path):
+def read_file_content(vault_root, rel_path, *, convert_lossless=False):
     """Read a vault file, inferring Markdown when the supplied path has no suffix."""
     original = rel_path
     if not rel_path.endswith(".md"):
@@ -105,15 +105,15 @@ def read_file_content(vault_root, rel_path):
         rel_path = original
     if not os.path.isfile(abs_path):
         return MissingFileResult(rel_path)
-    return read_exact_file_content(abs_path)
+    return read_exact_file_content(abs_path, convert_lossless=convert_lossless)
 
 
-def read_exact_file_content(path):
+def read_exact_file_content(path, *, convert_lossless=False):
     """Read exact persisted bytes and return decoded text with their revision."""
     resolved = os.path.realpath(path)
     with open(resolved, "rb") as handle:
-        content = decode_persisted_document(handle.read())
-    content.source_path = resolved
+        content = decode_persisted_document(handle.read(), source_path=resolved,
+                                            convert_lossless=convert_lossless)
     return content
 
 

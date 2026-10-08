@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from ._text_warnings import raise_nonstandard_text_error
+
 from dataclasses import dataclass
 from typing import Callable
 
@@ -66,6 +68,7 @@ class BoundAuthorisationAccess:
             value = self.coordinator.prepare(self.context, request, request_id=self.context.invocation_id,
                                              validate_view=self._validate_preparation)
         except ValueError as exc:
+            raise_nonstandard_text_error(exc)
             # Domain planners use ValueError for known pre-entry validation; a planner may name a
             # different no-effect reason (a local read conflict). Uncertain private-owner transport
             # failures have distinct I/O types.

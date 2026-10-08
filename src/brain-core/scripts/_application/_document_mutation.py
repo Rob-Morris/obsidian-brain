@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from ._text_warnings import raise_nonstandard_text_error
+from ._text_warnings import conversion_warnings
+
 from dataclasses import dataclass, replace
 
 from ._mutation_support import (
@@ -273,6 +276,7 @@ def execute_document_mutation(
                     "document mutation outcome could not be classified"
                 ) from exc
             except ValueError as exc:
+                raise_nonstandard_text_error(exc)
                 if materialised is not None:
                     raise MutationOutcomeUncertain(
                         "core skill materialisation committed before the edit failed"
@@ -295,7 +299,9 @@ def execute_document_mutation(
                 raise
     except TransitionIndexesIncomplete as exc:
         return WorkspaceMutationPartial(request.COMMAND_ID, request.COMMAND_VERSION, exc.error,
-                       (CommittedEffect(request.COMMAND_ID, result["path"]),), mutation_context=effective)
+                       (CommittedEffect(request.COMMAND_ID, result["path"]),),
+                       warnings=conversion_warnings(opened.path, opened.conversion_code),
+                       mutation_context=effective)
     except DocumentRevisionConflict as exc:
         return _revision_conflict(type(request), request, str(exc))
     except MutationLockError as exc:
@@ -321,6 +327,7 @@ def execute_document_mutation(
             ),
             (CommittedEffect(request.COMMAND_ID, exc.path),),
             warnings=(
+                *conversion_warnings(opened.path, opened.conversion_code),
                 CommandWarning(
                     WarningCode.FOLLOW_UP_REQUIRED,
                     "The document edit committed, but requested wikilink processing did not complete.",
@@ -332,10 +339,11 @@ def execute_document_mutation(
             type(request), ErrorCode.NOT_FOUND, str(exc), "document"
         )
     except ValueError as exc:
+        raise_nonstandard_text_error(exc)
         return no_effect_error(type(request), ErrorCode.INVALID_REQUEST, str(exc))
 
     payload = replace(_payload(intent, result, staged_handle, staging_warning, fields=plan.fields), mutation_context=effective)
-    warnings = []
+    warnings = list(conversion_warnings(opened.path, opened.conversion_code))
     if staging_warning:
         warnings.append(CommandWarning(WarningCode.FOLLOW_UP_REQUIRED, staging_warning))
     findings = tuple(getattr(payload, "wikilink_warnings", ()))
