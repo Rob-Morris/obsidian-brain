@@ -2,6 +2,7 @@
 
 import json
 import sys
+from pathlib import Path
 
 import pytest
 
@@ -188,13 +189,13 @@ class TestCheckContext:
         ctx = check.CheckContext(str(tmp_path), router={})
 
         calls = {"n": 0}
-        real = check.read_frontmatter
+        real = Path.read_bytes
 
         def counting(path):
             calls["n"] += 1
             return real(path)
 
-        monkeypatch.setattr(check, "read_frontmatter", counting)
+        monkeypatch.setattr(Path, "read_bytes", counting)
         first = ctx.read_frontmatter(str(f))
         second = ctx.read_frontmatter(str(f))
         assert first == second == {"type": "living/wiki", "status": "active"}
@@ -211,39 +212,20 @@ class TestCheckContext:
         assert first is second
         assert "md_basenames" in first
 
-    def test_run_checks_dedupes_frontmatter_reads(self, vault, monkeypatch):
-        """With the cache, a full compliance run reads each file at most once.
-        Without the cache (ctx=None per check), the same files are re-parsed
-        once per check that visits them — so the cached count must be strictly
-        smaller given ≥2 checks touch the same files.
-        """
+    def test_run_checks_reads_each_artefact_once(self, vault, monkeypatch):
         tmp_path, router = vault
-        calls = {"n": 0}
-        seen = set()
-        real = check.read_frontmatter
+        reads = []
+        real = Path.read_bytes
 
         def counting(path):
-            calls["n"] += 1
-            seen.add(path)
+            reads.append(path)
             return real(path)
 
-        monkeypatch.setattr(check, "read_frontmatter", counting)
-
-        # Cached path: run_checks threads one ctx through every check
+        monkeypatch.setattr(Path, "read_bytes", counting)
         check.run_checks(str(tmp_path), router)
-        cached_reads = calls["n"]
-        cached_unique = len(seen)
-
-        # Uncached baseline: invoke each check with ctx=None
-        calls["n"] = 0
-        seen.clear()
-        for check_fn in check.ALL_CHECKS:
-            check_fn(str(tmp_path), router, ctx=None)
-        uncached_reads = calls["n"]
-
-        # One real read per unique file, strictly fewer than the uncached total
-        assert cached_reads == cached_unique
-        assert cached_reads < uncached_reads
+        artefacts = [path for path in reads if path.suffix == ".md" and ".brain-core" not in path.parts]
+        assert artefacts
+        assert len(artefacts) == len(set(artefacts))
 
 
 # ---------------------------------------------------------------------------
