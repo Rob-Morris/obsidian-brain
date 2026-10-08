@@ -84,12 +84,13 @@ class CheckContext:
     object is discarded at exit, so there is no staleness concern.
     """
 
-    __slots__ = ("vault_root", "router", "_text_cache", "_document_cache", "_file_index")
+    __slots__ = ("vault_root", "router", "_text_cache", "_text_paths", "_document_cache", "_file_index")
 
     def __init__(self, vault_root, router):
         self.vault_root = vault_root
         self.router = router
         self._text_cache = {}
+        self._text_paths = None
         self._document_cache = {}
         self._file_index = None
 
@@ -988,7 +989,9 @@ def check_unreadable_files(vault_root, router=None, *, ctx=None):
     ctx = ctx or CheckContext(vault_root, router)
     findings = []
     scan_errors = []
+    text_paths = []
     for rel_path in iter_vault_text_files(vault_root, on_error=lambda path, error: scan_errors.append((path, error))):
+        text_paths.append(rel_path)
         state = ctx.text_state(Path(vault_root) / rel_path)
         error, diagnosis = state["error"], state["diagnosis"]
         if isinstance(error, FileNotFoundError):
@@ -1009,6 +1012,7 @@ def check_unreadable_files(vault_root, router=None, *, ctx=None):
                 "file": rel_path,
                 "message": "Contains NUL bytes: binary content, or damaged/unmarked UTF-16 or UTF-32 text.",
                 "fix": "Convert text to UTF-8 in an editor. Move deliberately kept non-note content into _Assets."})
+    ctx._text_paths = tuple(text_paths)
     for path, error in scan_errors:
         rel_path = Path(path).relative_to(vault_root).as_posix()
         if isinstance(error, OSError):
@@ -1047,6 +1051,34 @@ ALL_CHECKS = [
 ]
 
 
+def check_text_encoding(vault_root, router=None, *, ctx=None):
+    """Report clear byte repairs using the filesystem diagnosis cache."""
+    ctx = ctx or CheckContext(vault_root, router)
+    findings = []
+    if ctx._text_paths is None:
+        check_unreadable_files(vault_root, ctx=ctx)
+    for relative in ctx._text_paths:
+        diagnosis = ctx.text_state(Path(vault_root) / relative)["diagnosis"]
+        if diagnosis is None or diagnosis.fixed_bytes is None:
+            continue
+        if diagnosis.code == "utf8_bom":
+            finding = {"check": "text_encoding", "code": "utf8_bom", "severity": "warning",
+                       "file": relative, "message": "Leading UTF-8 byte-order marks are not part of the vault text standard."}
+        elif diagnosis.code == "utf16_bom":
+            finding = {"check": "text_encoding", "code": "utf16_bom", "severity": "error",
+                       "file": relative, "message": "UTF-16 text with a byte-order mark needs conversion to UTF-8."}
+        elif diagnosis.code == "utf32_bom":
+            finding = {"check": "text_encoding", "code": "utf32_bom", "severity": "error",
+                       "file": relative, "message": "UTF-32 text with a byte-order mark needs conversion to UTF-8."}
+        elif diagnosis.code == "truncated_utf8":
+            finding = {"check": "text_encoding", "code": "truncated_utf8", "severity": "error",
+                       "file": relative, "message": "An incomplete final UTF-8 character can be dropped. Content after the cut may already be lost; the repair only makes the file readable."}
+        else:
+            raise ValueError(f"Unsupported clear text diagnosis: {diagnosis.code}")
+        findings.append(attach_repair_guidance(finding, vault_root, "text_encoding"))
+    return findings
+
+
 def run_checks(vault_root, router=None, *, workspace_dir=None):
     """Run all compliance checks. Returns structured result dict.
 
@@ -1055,6 +1087,7 @@ def run_checks(vault_root, router=None, *, workspace_dir=None):
     inspect_derived_cache = router is None
     ctx = CheckContext(vault_root, router)
     text_findings = check_unreadable_files(vault_root, ctx=ctx)
+    text_findings.extend(check_text_encoding(vault_root, ctx=ctx))
     derived_findings = []
     if router is None:
         router_state = inspect_router_cache(vault_root, verify_content=True, read_bytes=ctx.read_bytes, read_frontmatter=ctx.read_source_frontmatter)

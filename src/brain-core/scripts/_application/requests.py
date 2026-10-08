@@ -79,6 +79,7 @@ from .type.replace import TypeReplaceRequest
 from .type.status import TypeStatusRequest
 from .type.sync import TypeSyncRequest
 from .vault.check import VaultCheckRequest
+from .vault.repair_text import RepairTextRequest
 from .vault.read_config import VaultReadConfigRequest
 from .vault.read_router import VaultReadRouterRequest
 from .vault.read_file import VaultReadFileRequest
@@ -187,6 +188,7 @@ __all__ = (
     "TypeStatusRequest",
     "TypeSyncRequest",
     "VaultCheckRequest",
+    "RepairTextRequest",
     "VaultReadConfigRequest",
     "VaultReadFileRequest",
     "VaultReadRouterRequest",
@@ -572,6 +574,7 @@ CommandRequest = (
     | TypeStatusRequest
     | TypeSyncRequest
     | VaultCheckRequest
+    | RepairTextRequest
     | VaultReadConfigRequest
     | VaultReadRouterRequest
     | VaultReadFileRequest

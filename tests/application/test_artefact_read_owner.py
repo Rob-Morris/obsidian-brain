@@ -91,6 +91,7 @@ FINAL_COMMAND_IDS = (
     "vault.read-config",
     "vault.read-file",
     "vault.read-router",
+    "vault.repair-text",
     "workspace.configure-bootstrap",
     "workspace.ensure-registration",
     "workspace.list",
