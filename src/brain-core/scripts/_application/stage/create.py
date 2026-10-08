@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from _text_content import strip_leading_byte_order_marks
+
 from .._decoding import reject_unexpected
 
 from dataclasses import dataclass
@@ -31,6 +33,7 @@ class StageCreateRequest:
     def __post_init__(self) -> None:
         if not isinstance(self.content, str):
             raise ValueError("stage.create content must be a string")
+        object.__setattr__(self, "content", strip_leading_byte_order_marks(self.content))
 
 
 def execute(context: InvocationContext, request: StageCreateRequest):

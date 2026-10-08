@@ -240,3 +240,46 @@ def test_document_transform_is_planned_once_per_execution(command_vault_clone, m
     monkeypatch.setattr(edit, "_apply_body_operation", record)
     assert execute(context, _document_request(root)).status == "ok"
     assert len(calls) == 1
+
+
+@pytest.mark.parametrize("source", ["inline", "typed-inline", "stage"])
+def test_prepared_content_pins_match_normalised_ingestion(command_vault_clone, source):
+    from _application.registry import current_request_resolver
+    from _application.preparation import content_digest
+    from _staging import stage_body, discard_staged_body
+
+    root = command_vault_clone.vault_root
+    admission = RecordingAdmission()
+    context = replace(application_for(root)._context, admission=admission)
+    body = "\ufeff\ufeffNormalised internal\ufeffmark.\n"
+    content = {"source": "inline", "content": body}
+    if source == "stage":
+        handle = stage_body(root, body)["handle"]
+        content = {"source": "stage", "handle": handle}
+    request = current_request_resolver().resolve("document.write-body", {
+        "document": {"resource": "artefact", "reference": PATH},
+        "expected_revision": document_revision_at(root / PATH),
+        "operation": "replace", "content": content,
+    })
+    if source == "typed-inline":
+        request = replace(_document_request(root), content=InlineContent(body))
+    binding = catalogue_entry().preparation.prepare(context, request)
+    expected = body.lstrip("\ufeff").encode()
+    if source == "stage":
+        assert admission.pins == {"stage:" + handle: expected}
+        assert binding.frozen_inputs["pins"]["stage:" + handle]["sha256"] == content_digest(expected)
+        discard_staged_body(root, handle)
+    else:
+        assert request.content.content.encode() == expected
+        assert admission.pins == {}
+        normalised_request = replace(request, content=InlineContent(expected.decode()))
+        assert catalogue_entry().preparation.prepare(context, normalised_request).digest == binding.digest
+    admission.binding = binding
+    admission.requires_binding = True
+    admission.frozen_inputs = binding.frozen_inputs
+    result = execute(context, request)
+    assert result.status == "ok"
+    written = (root / PATH).read_text()
+    assert "Normalised internal\ufeffmark." in written
+    assert written.count("\ufeff") == 1
+    assert admission.calls[0].digest == binding.digest

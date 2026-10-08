@@ -9,6 +9,7 @@ import time
 from pathlib import Path
 
 from _common import resolve_body_file, safe_write
+from _common._text_encoding import strip_leading_byte_order_marks
 
 
 STAGING_DIR = os.path.join(".brain", "local", "staging")
@@ -42,6 +43,7 @@ def _iter_staged_bodies(directory):
 
 
 def stage_body(vault_root, content):
+    content = strip_leading_byte_order_marks(content)
     encoded_size = len(content.encode("utf-8"))
     if encoded_size > MAX_STAGED_BODY_BYTES:
         raise ValueError(
