@@ -1417,3 +1417,16 @@ class TestSearchResource:
         ) as exc:
             search_resource_mod.search_resource(router, vault, "skill", "vault")
         assert "while searching non-artefact resource text" in str(exc.value)
+
+
+def test_resource_search_skips_undecodable_body_even_when_name_matches(tmp_path):
+    raw = b"\xff\xfe\x00\x00"
+    (tmp_path / "broken.md").write_bytes(raw)
+    (tmp_path / "good.md").write_text("Readable needle body", encoding="utf-8")
+    router = {"skills": [
+        {"name": "needle broken", "skill_doc": "broken.md"},
+        {"name": "good", "skill_doc": "good.md"},
+    ]}
+    results = search_resource_mod.search_resource(router, tmp_path, "skill", "needle")
+    assert [result["path"] for result in results] == ["good.md"]
+    assert (tmp_path / "broken.md").read_bytes() == raw
