@@ -149,6 +149,8 @@ Not every type has status. Wiki and Notes are evergreen; temporal types without 
 
 Use **basename-only** wikilinks: `[[My Page]]`, not `[[Wiki/My Page]]`. Basename links survive folder moves and archiving. Path-qualified links break when files move into subfolders. Avoid aliased wikilinks inside markdown tables (`[[Target|Alias]]`) because the alias separator is also a table column separator; Brain drops those aliases during table-row link rewrites and `check.py` warns on existing table aliases.
 
+Vault Markdown uses UTF-8 without a leading byte-order mark. If Brain names an encoding problem, inspect `vault.check` and preview `vault.repair-text` before applying a repair. Ambiguous encodings require manual inspection; a truncated suffix repair explicitly drops the shown bytes. Reads retain the original byte revision, and accepted lossless write conversions report the affected paths.
+
 Only wikilink to targets that already exist. If the artefact doesn't exist yet, write plain text — create the artefact first, then link. `artefact.create` and the granular artefact mutations warn about broken or resolvable wikilinks, and `links.fix` repairs them one file or vault-wide at a time. Full rules are in the [wikilinks standard](standards/wikilinks.md); resolution mechanics are in the [linking standard](standards/linking.md).
 
 `artefact.create` auto-disambiguates basename collisions across type folders by appending the type key (e.g. `My Page (idea).md`).

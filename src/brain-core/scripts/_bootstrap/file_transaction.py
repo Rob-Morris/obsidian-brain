@@ -59,14 +59,18 @@ class FilePlan:
         content = self.read_bytes(path)
         if content is None:
             return None
-        try:
-            return content.decode("utf-8")
-        except UnicodeDecodeError as exc:
-            raise ValueError(f"MCP state is not UTF-8 text: {path}") from exc
+        from _text_content import decode_bom_free_utf8
+        decoded = decode_bom_free_utf8(content)
+        if decoded is not None:
+            return decoded
+        from _common._document_revision import decode_persisted_document
+        return decode_persisted_document(content, source_path=path)
 
     def write_text(self, path: Path, content: str) -> None:
         if not isinstance(content, str):
             raise TypeError("file transaction content must be text")
+        from _text_content import require_bom_free_text
+        require_bom_free_text(content)
         path = _normalise(path)
         self.read_bytes(path)
         self._after[path] = content.encode("utf-8")

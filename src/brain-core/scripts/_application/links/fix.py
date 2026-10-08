@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from .._text_warnings import raise_nonstandard_text_error
+from .._text_warnings import conversion_warnings as _conversion_warnings
+
 from .._decoding import reject_unexpected
 
 from dataclasses import dataclass
@@ -109,6 +112,7 @@ def execute(context: InvocationContext, request: LinksFixRequest):
     except FileNotFoundError as exc:
         return no_effect_error(LinksFixRequest, ErrorCode.NOT_FOUND, str(exc))
     except ValueError as exc:
+        raise_nonstandard_text_error(exc)
         return no_effect_error(LinksFixRequest, ErrorCode.INVALID_REQUEST, str(exc))
 
     payload = _payload(result, request.path, apply)
@@ -122,6 +126,8 @@ def execute(context: InvocationContext, request: LinksFixRequest):
         request.COMMAND_VERSION,
         payload,
         committed_effects=effects,
+        warnings=tuple(warning for path, code in plan.rewrites.conversions
+            for warning in _conversion_warnings(path, code)) if apply else (),
     )
 
 
@@ -141,12 +147,13 @@ def decode(payload: Mapping[str, object]) -> LinksFixRequest:
 def fix_binding(context, request, *, plan, frozen_inputs=None):
     from ..preparation import ObservedResource, bind_operation, canonical_json, content_digest
 
-    if plan.rewrites.unreadable:
-        raise ValueError("Cannot prepare complete link fixes; some candidates are unreadable")
+    from _common._wikilinks import require_readable_wikilink_plan
+
+    require_readable_wikilink_plan(plan.rewrites)
     observed = [ObservedResource("fix-result", request.path or "vault",
                                 content_digest(canonical_json(plan.result)))]
     for item in plan.rewrites.writes:
-        observed.extend((ObservedResource("source", item.path, content_digest(item.before)),
+        observed.extend((ObservedResource("source", item.path, item.before.revision),
                          ObservedResource("replacement", item.path, content_digest(item.after))))
     if plan.path and not any(item.path == plan.path for item in plan.rewrites.writes):
         observed.append(ObservedResource("source", plan.path,

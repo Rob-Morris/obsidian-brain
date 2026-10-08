@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
-from _common import resolve_and_check_bounds, slug_to_title, substitute_template_vars, title_to_filename
+from _common import read_exact_file_content, resolve_and_check_bounds, slug_to_title, substitute_template_vars, title_to_filename
 
 
 @dataclass(frozen=True, slots=True)
@@ -26,6 +26,7 @@ def plan_render_document(vault_root, params, *, kind, read_template, effective_a
     source_abs = Path(resolve_and_check_bounds(root / source, root))
     if not source_abs.is_file():
         raise FileNotFoundError(f"Source file not found: {source}")
+    read_exact_file_content(source_abs)
     now = effective_at or datetime.now(timezone.utc).astimezone()
     folder = "Presentations" if kind == "presentation" else "Printables"
     path = f"_Temporal/{folder}/{now.strftime('%Y%m%d')}-{kind}~{title_to_filename(slug)}.md"
@@ -40,5 +41,5 @@ def plan_render_document(vault_root, params, *, kind, read_template, effective_a
             "[[source-artefact|Source document]]": f"[[{Path(source).with_suffix('').as_posix()}|{Path(source).name}]]",
         }, _now=now)
     else:
-        content = absolute.read_text(encoding="utf-8")
+        content = read_exact_file_content(absolute)
     return RenderDocumentPlan(source, slug, kind, now.isoformat(), path, content, created)

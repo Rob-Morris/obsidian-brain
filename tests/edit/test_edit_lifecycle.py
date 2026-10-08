@@ -2048,6 +2048,21 @@ class TestReparentChildren:
             "dest": "Ideas/project~custom/Child.md",
         } in result["moves"]
 
+    @pytest.mark.parametrize("other_path", ("Wiki/Bad-two.md", "_Temporal/Logs/Bad-two.md"))
+    def test_reparent_names_every_unreadable_backlink_before_metadata_writes(self, vault, other_path):
+        router = self._write_reparent_tree(vault)
+        (vault / "Wiki" / "Bad-one.md").write_bytes(b"truncated\xe2\x82")
+        other = vault / other_path
+        other.parent.mkdir(parents=True, exist_ok=True)
+        other.write_bytes(b"legacy\x80 text")
+        before = {p.relative_to(vault): p.read_bytes() for p in vault.rglob("*.md")}
+        with pytest.raises(ValueError) as exc:
+            edit.reparent_children(str(vault), router, "Projects/Brain.md",
+                                   "project/custom", to_provided=True)
+        assert "Wiki/Bad-one.md" in str(exc.value)
+        assert other_path in str(exc.value)
+        assert {p.relative_to(vault): p.read_bytes() for p in vault.rglob("*.md")} == before
+
     def test_reparent_to_self_rejected_before_writes(self, vault, router):
         router = self._write_reparent_tree(vault)
         child = vault / "Ideas" / "project~brain" / "Child.md"
