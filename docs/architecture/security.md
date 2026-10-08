@@ -5,6 +5,14 @@ path boundary enforcement, write-guard filtering, privilege-split profiles,
 vault-scoped cross-process mutation serialization, and atomic writes.
 Each layer is independent; all must pass for a write to succeed.
 
+Configuration parsing accepts one leading UTF-8 byte-order mark before the
+first YAML key. Without that tolerance, a marked `.brain/config.yaml` could
+silently lose its `vault` section and fall back to template access settings,
+including changing `request_policy: denied` to `allowed`. Other decode failures
+are named `ConfigError` refusals with a path, diagnosis and manual conversion
+remedy; commands cannot run with undecodable config. See
+[DD-087](decisions/dd-087-text-files-brain-cannot-read.md).
+
 ---
 
 ## Path Boundary Model

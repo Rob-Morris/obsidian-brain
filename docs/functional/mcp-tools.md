@@ -552,3 +552,10 @@ an unconditional rebuild, not a stronger repair algorithm. `vault.check` (still
 version 3) reports a stale lexical index alongside a semantic finding instead of
 suppressing it: the lexical repair is automatic and the semantic repair is a
 separate, heavier decision.
+
+Router compilation refuses an undecodable router, taxonomy or memory source
+with a definite, no-effect `conflict` naming the file and text classifier code.
+Its next action is `vault.repair-text` for clear damage or `vault.check` for an
+ambiguous diagnosis. Undecodable router and lexical caches carry the distinct
+stale reason `unreadable`. A maintenance pass surfaces the failed repair's
+message in a `follow_up_required` warning.
