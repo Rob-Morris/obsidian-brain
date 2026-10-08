@@ -125,6 +125,7 @@ def test_run_checks_survives_undecodable_composed_files(command_vault_clone, fak
     assert diagnostics.local_mcp_state_present(root) is local_mcp
     result = check.run_checks(str(root))
     assert isinstance(result["findings"], list)
+    assert any(f["check"] == "unreadable_file" and f["file"] == "CLAUDE.md" and f["code"] == "not_utf8" for f in result["findings"])
     serialised = json.dumps(result)
     assert "codec can't decode" not in serialised
     if router_state == "present":
