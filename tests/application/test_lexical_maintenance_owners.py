@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+
 import pytest
 
 from _application._lexical_maintenance import LexicalMaintenanceStatus
@@ -85,17 +87,16 @@ def test_lexical_rebuild_dry_run_plans_without_writing(command_vault_clone):
     assert (root / INDEX_PATH).read_bytes() == before
 
 
-def test_lexical_source_failure_is_known_to_have_no_effect(command_vault_clone):
+def test_lexical_rebuild_skips_undecodable_source(command_vault_clone):
     root = command_vault_clone.vault_root
-    before = (root / INDEX_PATH).read_bytes()
     (root / "Projects" / "unreadable.md").write_bytes(b"\xff\xfe\x00\x00")
 
     result = application_for(root).invoke(RetrievalRefreshLexicalRequest(force=True))
 
-    assert result.error.code is ErrorCode.CONFLICT
-    assert result.effects == "none"
-    assert "unreadable retrieval source" in result.error.message
-    assert (root / INDEX_PATH).read_bytes() == before
+    assert result.status == "ok"
+    assert result.result.status is LexicalMaintenanceStatus.CHANGED
+    assert all(doc["path"] != "Projects/unreadable.md" for doc in json.loads((root / INDEX_PATH).read_text())["documents"])
+    assert (root / "Projects" / "unreadable.md").read_bytes() == b"\xff\xfe\x00\x00"
 
 
 def test_lexical_post_commit_failure_is_honestly_unknown(
@@ -131,3 +132,21 @@ def test_lexical_maintenance_transport_is_a_strict_maintainer_command():
     assert entry.retry_class is RetryClass.RECEIPT_REQUIRED
     with pytest.raises(ValueError, match="unexpected fields"):
         current_request_resolver().resolve(command_id, {"rebuild": True})
+
+
+def test_lexical_os_error_is_known_to_have_no_effect(command_vault_clone, monkeypatch):
+    import _search.index as search_index
+
+    root = command_vault_clone.vault_root
+    before = (root / INDEX_PATH).read_bytes()
+
+    def fail(path):
+        raise OSError("read refused")
+
+    monkeypatch.setattr(search_index, "read_artefact", fail)
+    result = application_for(root).invoke(RetrievalRefreshLexicalRequest(force=True))
+    assert result.error.code is ErrorCode.CONFLICT
+    assert result.effects == "none"
+    assert "unreadable retrieval source" in result.error.message
+    assert "read refused" in result.error.message
+    assert (root / INDEX_PATH).read_bytes() == before
