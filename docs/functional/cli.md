@@ -247,6 +247,10 @@ when that trusted adapter context is available; disconnected clones are not scan
 
 ### Unreadable vault text
 
+`vault.repair-text` is a maintainer content command. Preview with `--dry-run`, then invoke it to repair all clear findings or pass `{"paths":["Projects/Encoding.md"]}` to choose a subset. Clear `text_encoding` findings form a judgement family and never run unattended. `utf8_bom` is a warning; `utf16_bom`, `utf32_bom` and `truncated_utf8` are errors.
+
+The preview shows byte counts and, for a truncated final character, the dropped hexadecimal bytes and their Windows-1252 reading. Content after the cut may already be lost. Leave a suspect file out with `paths`, or convert it manually. Apply checks each original digest, skips changed files and writes atomic bytes preserving line endings. Per-file failures retain successful effects as a partial result. Repair needs no router and reconciles derived indexes afterwards. Paths outside the scanned set or without a current clear finding are refused.
+
 Vault text is UTF-8 without a byte-order mark. `vault.check` scans artefact Markdown (including temporal and archived files), `_Config` Markdown except managed skill packages, `_Plugins` Markdown and root bootstrap variants. It excludes symlinks, dot folders, config YAML and derived JSON. The scan runs even when the compiled router is missing.
 
 `unreadable_file` errors have no repair family: `os_error` reports an errno and suggests checking permissions or downloading cloud-only files; `not_utf8` names the first bad byte’s line and byte column; `not_text` reports NUL bytes. Convert legacy text to UTF-8 in an editor, or move deliberately kept non-note content into `_Assets`. Dismissals for the latter two codes follow the file and code; permission errors also follow the errno evidence.
