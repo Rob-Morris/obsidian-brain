@@ -76,10 +76,14 @@ class CommandApplication:
             # positively cancelled reservation. Lost owner replies use I/O errors.
             result = consent_error_result(context, command_id, version, exc)
         except Exception as exc:
-            self._report("execute", command_id, exc)
-            uncertain = control_intent is not None or (
-                admission is not None and (admission.entered or admission.intent_recorded))
-            result = self._unknown_result(entry) if uncertain else internal_error_result(context, command_id, version)
+            from ._text_warnings import is_nonstandard_text_error, text_refusal
+            if is_nonstandard_text_error(exc):
+                result = text_refusal(command_id, version, exc, context.selected_brain.vault_root)
+            else:
+                self._report("execute", command_id, exc)
+                uncertain = control_intent is not None or (
+                    admission is not None and (admission.entered or admission.intent_recorded))
+                result = self._unknown_result(entry) if uncertain else internal_error_result(context, command_id, version)
 
         try:
             if admission is not None:
