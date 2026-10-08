@@ -221,7 +221,7 @@ class WikilinkRewritePlan:
 
 
 def plan_wikilink_rewrites(vault_root, pattern, replacement, *, paths=None,
-                          overrides=None, normalise_paths=()):
+                          overrides=None, normalise_paths=(), read_snapshot=None):
     """Resolve matching rewrites without writing; compose planned metadata first."""
     candidates = paths if paths is not None else (
         os.path.relpath(os.path.join(directory, name), vault_root)
@@ -233,8 +233,9 @@ def plan_wikilink_rewrites(vault_root, pattern, replacement, *, paths=None,
     overrides = overrides or {}
     for path in sorted(set(candidates)):
         try:
-            before = read_exact_file_content(
-                os.path.join(vault_root, path), convert_lossless=True)
+            before = (read_snapshot[path] if read_snapshot is not None and path in read_snapshot
+                      else read_exact_file_content(
+                          os.path.join(vault_root, path), convert_lossless=True))
         except NonStandardVaultTextError as exc:
             unreadable.append(f"{path}: {exc.code}; {exc.remedy}")
             failures.append(vault_text_failure(path, exc))
