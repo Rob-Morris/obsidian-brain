@@ -245,6 +245,15 @@ actual committed subjects, exact context, and any required index repair.
 and adoption-candidate diagnostics. It inspects the caller-local manifest only
 when that trusted adapter context is available; disconnected clones are not scanned.
 
+### Unreadable vault text
+
+Vault text is UTF-8 without a byte-order mark. `vault.check` scans artefact Markdown (including temporal and archived files), `_Config` Markdown except managed skill packages, `_Plugins` Markdown and root bootstrap variants. It excludes symlinks, dot folders, config YAML and derived JSON. The scan runs even when the compiled router is missing.
+
+`unreadable_file` errors have no repair family: `os_error` reports an errno and suggests checking permissions or downloading cloud-only files; `not_utf8` names the first bad byte’s line and byte column; `not_text` reports NUL bytes. Convert legacy text to UTF-8 in an editor, or move deliberately kept non-note content into `_Assets`. Dismissals for the latter two codes follow the file and code; permission errors also follow the errno evidence.
+
+An inaccessible directory is reported as `unreadable_file/os_error` and means that part of the scan is incomplete. If skill tracking metadata cannot establish package ownership, `text_scan/skill_ownership_unavailable` reports the metadata path and `_Config/Skills` is conservatively excluded until tracking is restored; other roots remain inspectable.
+
+
 ### Skill sources and exposure
 
 Selected-Brain commands `skill.list`, `skill.status`, `skill.add-git`,

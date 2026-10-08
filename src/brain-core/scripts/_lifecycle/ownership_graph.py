@@ -82,7 +82,7 @@ class OwnershipGraph:
             seen.add(record.path)
 
 
-def read_ownership_graph(vault_root):
+def read_ownership_graph(vault_root, *, text_reader=None):
     """Scan all artefact source classes without inferring ownership from paths/tags."""
     root = Path(vault_root).resolve()
     records = []
@@ -90,7 +90,8 @@ def read_ownership_graph(vault_root):
         source = root / path
         try:
             source.resolve().relative_to(root)
-            fields, body = parse_frontmatter(source.read_text(encoding="utf-8"))
+            text = text_reader(source) if text_reader else source.read_text(encoding="utf-8")
+            fields, body = parse_frontmatter(text)
         except (OSError, UnicodeError, ValueError) as exc:
             raise ValueError(f"Cannot inspect ownership in {path}: {exc}") from exc
         type_name = fields.get("type", "")

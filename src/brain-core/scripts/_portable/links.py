@@ -35,8 +35,11 @@ def check_broken_wikilinks(vault_root, router, file_index=None, *, ctx=None):
             rel_path = os.path.relpath(os.path.join(dirpath, fname), vault_root)
 
             try:
-                with open(os.path.join(dirpath, fname), encoding="utf-8") as handle:
-                    text = handle.read()
+                if ctx is not None:
+                    text = ctx.read_text(os.path.join(dirpath, fname))
+                else:
+                    with open(os.path.join(dirpath, fname), encoding="utf-8") as handle:
+                        text = handle.read()
             except (OSError, UnicodeDecodeError):
                 continue
             for table_finding in table_breaking_wikilink_findings(text, rel_path):
