@@ -263,20 +263,26 @@ def inspect_lexical_cache(vault_root: str | Path) -> CacheState:
     indexed_paths = {doc["path"] for doc in documents}
     if len(documents) != expected_count or len(indexed_paths) != expected_count:
         return CacheState(True, "invalid-document-count", rel_path)
+    skipped = meta.get("skipped_paths", [])
+    if (not isinstance(skipped, list) or any(not isinstance(path, str) for path in skipped)
+            or len(set(skipped)) != len(skipped) or indexed_paths.intersection(skipped)):
+        return CacheState(True, "invalid-skipped-paths", rel_path, data)
+    source_paths = indexed_paths | set(skipped)
+    expected_sources = len(source_paths)
     count = 0
     for type_info in all_types:
         for rel_path_doc in iter_artefact_paths(str(vault_root), type_info):
             count += 1
-            if rel_path_doc not in indexed_paths:
+            if rel_path_doc not in source_paths:
                 return CacheState(True, "document-path-drift", rel_path, data, rel_path_doc)
-            if count > expected_count:
+            if count > expected_sources:
                 return CacheState(True, "document-count-drift", rel_path, data)
             try:
                 if os.path.getmtime(vault_root / rel_path_doc) > threshold:
                     return CacheState(True, "document-newer-than-index", rel_path, data)
             except OSError:
                 continue
-    if count != expected_count:
+    if count != expected_sources:
         return CacheState(True, "document-count-drift", rel_path, data)
 
     return CacheState(False, "fresh", rel_path, data)

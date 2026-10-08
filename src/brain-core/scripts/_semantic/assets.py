@@ -93,12 +93,14 @@ def _build_doc_corpus(
     """Return document texts and metadata for semantic sidecar generation."""
     doc_texts = []
     doc_meta = []
-    for i, doc in enumerate(documents):
+    for doc in documents:
         embedding_parts = _load_embedding_parts(
             vault_root,
             doc["path"],
             embedding_parts_by_path,
         )
+        if embedding_parts is None:
+            continue
         type_desc = type_desc_by_frontmatter.get(doc["type"], doc["type"])
         parts = [doc["title"], doc["type"], type_desc]
         if embedding_parts.headings:
@@ -108,7 +110,7 @@ def _build_doc_corpus(
         doc_texts.append("\n".join(part for part in parts if part))
         doc_meta.append(
             {
-                "index": i,
+                "index": len(doc_meta),
                 "path": doc["path"],
                 "type": doc["type"],
                 "title": doc["title"],
@@ -208,7 +210,9 @@ def _load_embedding_parts(
     abs_path = os.path.join(str(vault_root), rel_path)
     try:
         _, body = read_artefact(abs_path)
-    except (OSError, UnicodeDecodeError) as exc:
+    except UnicodeDecodeError:
+        return None
+    except OSError as exc:
         raise UnreadableRetrievalSourceError(
             rel_path,
             "building semantic embeddings",

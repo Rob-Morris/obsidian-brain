@@ -101,6 +101,7 @@ def refresh_embeddings_for_loaded_state(
         return None
     if embedding_parts_by_path is None:
         embedding_parts_by_path = _materialise_embedding_parts_by_path(vault_root, documents)
+        documents = [doc for doc in documents if doc["path"] in embedding_parts_by_path]
     return semantic_assets.refresh_embeddings_outputs(
         vault_root,
         router,
@@ -176,7 +177,9 @@ def _materialise_embedding_parts_by_path(
         abs_path = Path(vault_root) / rel_path
         try:
             _, body = read_artefact(str(abs_path))
-        except (OSError, UnicodeDecodeError) as exc:
+        except UnicodeDecodeError:
+            continue
+        except OSError as exc:
             raise UnreadableRetrievalSourceError(
                 rel_path,
                 "building semantic embeddings",
