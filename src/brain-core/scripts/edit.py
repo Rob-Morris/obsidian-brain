@@ -2192,7 +2192,7 @@ def _plan_archive_entry(vault_root, router, path, today):
     }
 
 
-def _move_plan_for_reparent(vault_root, router, child_entries, target_parent):
+def _move_plan_for_reparent(vault_root, router, child_entries, target_parent, *, read_snapshot):
     mutation_router = dict(router)
     artefact_index = {
         key: dict(value)
@@ -2214,9 +2214,11 @@ def _move_plan_for_reparent(vault_root, router, child_entries, target_parent):
                 continue
             seen.add(key)
             rel_path = entry["path"]
-            content = read_file_content(vault_root, rel_path, convert_lossless=True)
-            if isinstance(content, MissingFileResult):
-                _raise_stale_index_missing(rel_path, "reparent")
+            content = read_snapshot.get(rel_path)
+            if content is None:
+                content = read_file_content(vault_root, rel_path, convert_lossless=True)
+                if isinstance(content, MissingFileResult):
+                    _raise_stale_index_missing(rel_path, "reparent")
             fields, body = parse_frontmatter(content)
             _resolved, art = resolve_and_validate_folder(
                 vault_root, router, rel_path
@@ -2291,6 +2293,7 @@ def plan_reparent_children(vault_root, router, source, to_marker=None, *, to_pro
     backlink_paths = {os.path.relpath(os.path.join(directory, name), vault_root)
                       for directory, name in iter_vault_md_files(vault_root)}
     failures = []
+    read_snapshot = {}
     for rel_path in sorted(living_paths | backlink_paths):
         try:
             child_content = read_exact_file_content(
@@ -2298,6 +2301,7 @@ def plan_reparent_children(vault_root, router, source, to_marker=None, *, to_pro
         except (NonStandardVaultTextError, OSError) as exc:
             failures.append(vault_text_failure(rel_path, exc))
             continue
+        read_snapshot[rel_path] = child_content
         if rel_path not in living_paths:
             continue
         child_fields, _ = parse_frontmatter(child_content)
@@ -2307,11 +2311,12 @@ def plan_reparent_children(vault_root, router, source, to_marker=None, *, to_pro
     if failures:
         raise UnreadableVaultTextFilesError(failures)
     children = direct_child_entries(router, source_key)
-    moves, write_ops = _move_plan_for_reparent(vault_root, router, children, target_parent)
+    moves, write_ops = _move_plan_for_reparent(
+        vault_root, router, children, target_parent, read_snapshot=read_snapshot)
 
     return plan_artefact_transition(
         vault_root, router, operation="reparent", writes=write_ops, moves=moves,
-        observations=(source_path,), result={
+        observations=(source_path,), read_snapshot=read_snapshot, result={
             "source": source_path, "to": target_parent,
             "children": [{"key": child["artefact_key"], "old_path": child["path"]} for child in children],
             "moves": moves})
@@ -2339,7 +2344,7 @@ class ArtefactTransitionPlan:
 def plan_artefact_transition(vault_root, router, *, operation, writes, moves,
                              result, observations=(), allow_archive_paths=False,
                              allow_attachment_paths=False, attachment_cleanup_key=None,
-                             attachment_moves=()):
+                             attachment_moves=(), read_snapshot=None):
     """Compose metadata and backlink transforms before any write occurs."""
     from rename import plan_move_and_links
 
@@ -2349,7 +2354,7 @@ def plan_artefact_transition(vault_root, router, *, operation, writes, moves,
         vault_root, [move for move in moves if move["source"] != move["dest"]],
         allow_archive_paths=allow_archive_paths,
         allow_attachment_paths=allow_attachment_paths, prune_router=router,
-        overrides=overrides)
+        overrides=overrides, read_snapshot=read_snapshot)
     return ArtefactTransitionPlan(operation, tuple(writes), movement, result,
                                    tuple(observations), attachment_cleanup_key,
                                    tuple(attachment_moves))
