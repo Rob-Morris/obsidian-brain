@@ -62,6 +62,7 @@ def execute_repair(
 
             frozen = context.admission.frozen_inputs if context.admission else None
             plan, _frozen = plan_repair_request(context, request, frozen_inputs=frozen)
+            require_inspected_repair(context, plan)
             if not plan.error:
                 admit_owner(context, request, repair_binding, plan=plan)
             result = operation(root, context.dry_run, prepared_plan=plan)
@@ -148,8 +149,9 @@ def repair_binding(context, request, *, plan, frozen_inputs=None):
     from .preparation_transition import transition_binding
     from _common import serialize_frontmatter
 
-    if plan.error or plan.uninspected:
-        raise ValueError(plan.error or "Cannot prepare a complete repair; candidates are unreadable")
+    require_inspected_repair(context, plan)
+    if plan.error:
+        raise ValueError(plan.error)
     if plan.scope == "ownership":
         return transition_binding(context, request, plan=plan.movement, router=plan.router,
                                   frozen_inputs=frozen_inputs)
@@ -189,3 +191,18 @@ def _error_message(result: dict) -> str:
         if item.get("status") == "error"
     ]
     return "; ".join(item for item in errors if item) or "Repair did not complete."
+
+
+def require_inspected_repair(context, plan):
+    """Refuse an incomplete text workset before admission or effects."""
+    if plan.uninspected:
+        from _common import read_exact_file_content, UnreadableVaultTextFilesError, vault_text_failure, NonStandardVaultTextError
+        failures = []
+        for path in plan.uninspected:
+            try:
+                read_exact_file_content(context.selected_brain.vault_root / path)
+            except (NonStandardVaultTextError, OSError) as exc:
+                failures.append(vault_text_failure(path, exc))
+        if failures:
+            raise UnreadableVaultTextFilesError(failures)
+        raise ValueError("Cannot prepare a complete repair; unreadable candidates: " + ", ".join(plan.uninspected))

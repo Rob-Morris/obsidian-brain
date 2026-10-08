@@ -14,7 +14,13 @@ import os
 import sys
 from dataclasses import dataclass, field
 
-from _common._wikilinks import (WikilinkRewritePlan, plan_wikilink_rewrites, apply_wikilink_rewrites)
+from _common._wikilinks import (
+    WikilinkRewritePlan, plan_wikilink_rewrites, apply_wikilink_rewrites,
+    require_readable_wikilink_plan,
+)
+
+from _common._artefacts import read_exact_file_content
+from _common._document_revision import NonStandardVaultTextError
 
 import upload_attachment as attachment_upload
 
@@ -428,20 +434,18 @@ def plan_move_and_links(vault_root, moves, *, router=None, allow_archive_paths=F
                         allow_attachment_paths=False, prune_router=None,
                         overrides=None):
     """Resolve file identities and matching backlink writes without effects."""
-    if router is None:
-        planned = preflight_move_set(
-            vault_root,
-            moves,
-            allow_archive_paths=allow_archive_paths,
-            allow_attachment_paths=allow_attachment_paths,
-        )
-    else:
-        planned = preflight_rename_move_set(
-            vault_root,
-            moves,
-            router=router,
-            allow_archive_paths=allow_archive_paths,
-        )
+    planned = preflight_move_set(
+        vault_root, moves, allow_archive_paths=allow_archive_paths,
+        allow_attachment_paths=allow_attachment_paths,
+    )
+    naming_errors = []
+    if router is not None:
+        for move in planned:
+            try:
+                _validate_destination_naming(vault_root, router, move["source"],
+                                             move["dest"], move["abs_source"])
+            except (NonStandardVaultTextError, OSError) as exc:
+                naming_errors.append(f"{move['source']}: {exc}")
     if not planned:
         return MoveLinksPlan((), (), WikilinkRewritePlan(()), prune_router)
     basename_counts = build_md_basename_counts(vault_root)
@@ -458,8 +462,15 @@ def plan_move_and_links(vault_root, moves, *, router=None, allow_archive_paths=F
         return replacer(match)
 
     links = (plan_wikilink_rewrites(vault_root, pattern, replace_and_count,
-                                   overrides=overrides)
+                                   overrides=overrides, normalise_paths={
+                                       move["source"] for move in planned
+                                       if move["source"].endswith(".md")
+                                       and not move["source"].startswith("_Assets/")
+                                       and move["source"] not in (overrides or {})})
              if pattern is not None else WikilinkRewritePlan(()))
+    require_readable_wikilink_plan(links)
+    if naming_errors:
+        raise ValueError("Cannot validate rename sources: " + "; ".join(naming_errors))
     return MoveLinksPlan(tuple(planned), tuple(_ordered_moves_for_apply(planned)),
                          links, prune_router, link_counts,
                          allow_archive_paths, allow_attachment_paths)
@@ -546,19 +557,10 @@ def rename_and_update_links(
         ValueError: If the destination filename violates the target type's
                     naming contract.
     """
-    if router is not None:
-        preflight_rename_move_set(
-            vault_root,
-            [{"source": source, "dest": dest}],
-            router=router,
-            allow_archive_paths=allow_archive_paths,
-        )
-    result = move_and_update_links(
-        vault_root,
-        [{"source": source, "dest": dest}],
-        allow_archive_paths=allow_archive_paths,
-        prune_router=prune_router,
-    )
+    result = apply_move_and_links(vault_root, plan_move_and_links(
+        vault_root, [{"source": source, "dest": dest}], router=router,
+        allow_archive_paths=allow_archive_paths, prune_router=prune_router,
+    ))
     return result["links_updated"]
 
 
@@ -614,13 +616,8 @@ def _validate_destination_naming(vault_root, router, source, dest, abs_source):
         return
     if not os.path.exists(abs_source):
         return
-    try:
-        with open(abs_source, "r", encoding="utf-8") as f:
-            text = f.read()
-    except (OSError, UnicodeDecodeError):
-        fields = {}
-    else:
-        fields, _ = parse_frontmatter(text)
+    text = read_exact_file_content(abs_source, convert_lossless=True)
+    fields, _ = parse_frontmatter(text)
     filename = os.path.basename(dest)
     if not validate_filename(naming, fields or {}, filename):
         raise ValueError(
@@ -633,8 +630,8 @@ def _living_key_for_delete(vault_root, router, path, abs_path):
     if router is None:
         return None
     art = validate_artefact_folder(vault_root, router, path)
-    with open(abs_path, "r", encoding="utf-8") as f:
-        fields, _body = parse_frontmatter(f.read())
+    fields, _body = parse_frontmatter(
+        read_exact_file_content(abs_path))
     return canonical_living_artefact_key(art, fields)
 
 

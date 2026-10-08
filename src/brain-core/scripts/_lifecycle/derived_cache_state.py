@@ -200,6 +200,11 @@ def require_fresh_compiled_router(vault_root: str | Path) -> dict[str, Any]:
     """Read a router using the same authoritative check as explicit repair."""
     state = inspect_router_cache(vault_root, verify_content=True)
     if state.stale:
+        if state.source_path is not None:
+            from _common import read_exact_file_content
+            source = Path(vault_root) / state.source_path
+            if source.is_file():
+                read_exact_file_content(source)
         raise RouterCacheUnavailable(state)
     return dict(state.payload or {})
 

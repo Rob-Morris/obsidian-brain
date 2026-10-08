@@ -5,7 +5,7 @@ from .preparation import ObservedResource, canonical_json, content_digest
 
 def lifecycle_guard_observations(context, router, subjects, *, archiving=False, reassigning=False):
     """Subjects are (path, old reference, new reference, old fields, new fields)."""
-    from _common import normalize_artefact_key, parse_frontmatter
+    from _common import normalize_artefact_key, parse_frontmatter, read_exact_file_content, UnreadableVaultTextFilesError, vault_text_failure
     from _lifecycle.frontmatter_repairs import iter_candidate_artefact_markdown_files
     from _common._workspace import is_terminal, membership
     from _bootstrap.workspace_binding import load_workspace_manifest_state
@@ -33,12 +33,14 @@ def lifecycle_guard_observations(context, router, subjects, *, archiving=False, 
     root = context.selected_brain.vault_root
     paths = set(iter_candidate_artefact_markdown_files(root))
     references = {reference: [] for reference in protected}
+    failures = []
     for path in sorted(paths):
         try:
             (root / path).resolve().relative_to(root.resolve())
-            fields, _ = parse_frontmatter((root / path).read_text(encoding="utf-8"))
+            fields, _ = parse_frontmatter(read_exact_file_content(root / path, convert_lossless=True))
         except (OSError, UnicodeError, ValueError) as exc:
-            raise ValueError(f"Cannot inspect workspace lifecycle references in {path}: {exc}") from exc
+            failures.append(vault_text_failure(path, exc))
+            continue
         workspace = normalize_artefact_key(fields.get("workspace"))
         parent = normalize_artefact_key(fields.get("default_parent")) if fields.get("type") == "living/workspace" else None
         if workspace in protected and protected[workspace][0]:
@@ -48,6 +50,8 @@ def lifecycle_guard_observations(context, router, subjects, *, archiving=False, 
                 references[workspace].append(f"{path}: workspace")
         if parent in protected:
             references[parent].append(f"{path}: default_parent")
+    if failures:
+        raise UnreadableVaultTextFilesError(failures)
     if context.workspace_dir is not None:
         state = load_workspace_manifest_state(context.workspace_dir)
         manifest = state.data or {}

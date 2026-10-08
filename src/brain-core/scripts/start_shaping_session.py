@@ -23,6 +23,7 @@ from _common import (
     PartialApplyError,
     public_mutation_error_message,
     read_file_content,
+    read_exact_file_content,
     reconcile_fields_for_render,
     render_filename_or_default,
     resolve_and_validate_folder,
@@ -162,8 +163,7 @@ def _linked_transcripts(
             abs_path = os.path.join(vault_root, rel_path)
             if not os.path.isfile(abs_path):
                 continue
-            with open(abs_path, "r", encoding="utf-8") as handle:
-                transcript = handle.read()
+            transcript = read_exact_file_content(abs_path)
             if not _transcript_names_source(transcript, source_path, file_index):
                 continue
             matches.append(rel_path)
@@ -196,11 +196,8 @@ def _choose_transcript_path(
         source_counts = {}
         for rel_path in linked:
             transcript_abs = os.path.join(vault_root, rel_path)
-            with open(transcript_abs, "r", encoding="utf-8") as handle:
-                source_counts[rel_path] = _transcript_source_count(
-                    handle.read(),
-                    file_index,
-                )
+            source_counts[rel_path] = _transcript_source_count(
+                read_exact_file_content(transcript_abs), file_index)
         widest_count = max(source_counts.values())
         widest = [
             rel_path
@@ -220,8 +217,7 @@ def _choose_transcript_path(
     candidate = os.path.join(folder, filename)
     candidate_abs = os.path.join(vault_root, candidate)
     if os.path.isfile(candidate_abs):
-        with open(candidate_abs, "r", encoding="utf-8") as handle:
-            existing = handle.read()
+        existing = read_exact_file_content(candidate_abs)
         if _transcript_names_source(existing, source_path, file_index):
             return candidate, True
         filename = unique_filename(os.path.join(vault_root, folder), stem)
@@ -455,8 +451,7 @@ def start_shaping_session(
             f"{now.strftime('%H:%M')}\n"
         )
         if transcript_exists:
-            with open(transcript_abs, "r", encoding="utf-8") as handle:
-                transcript_content = handle.read()
+            transcript_content = read_exact_file_content(transcript_abs)
             if "transcript_fields" in plan:
                 existing_fields, transcript_body = parse_frontmatter(transcript_content)
                 if existing_fields != plan["transcript_fields"]:

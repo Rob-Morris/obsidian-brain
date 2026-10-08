@@ -401,3 +401,26 @@ The complete design traceability table is `acceptance-matrix.json`. Its owners d
 - **Partial evidence** — a stream may have reached its retention limit, authenticated output may have been deliberately discarded, or interactive output may not have been captured. `commands.json` distinguishes truncation from authenticated redaction; `shell.json` records uncaptured interactive output. Raise `--stream-limit` only for truncation.
 - **macOS “access data from other apps” prompt** — Docker Desktop socket access can trigger this prompt for the host app, and some app/process identities may be prompted repeatedly. Use a trusted terminal or host app whose Docker access is approved; Full Disk Access is not a brain-lab prerequisite in itself.
 - **Disk growth** — capture/import records a conservative host-space preflight. Inspect `lab inventory` and `cleanup preview`, review references, sizes and labelled orphans, then destroy exact resources. There is intentionally no broad prune command.
+
+### Text encoding acceptance
+
+`scenarios/text-encoding.json` follows the current-template baseline, captures the
+source worktree and executes `container/text_encoding_acceptance.py` from the
+copied source. It seeds four clear damage cases, ambiguous legacy text, a good
+UTF-8 note and UTF-8 BOM shared configuration in the disposable run. Installed
+CLI commands must retain the custom Brain name and denied access request policy,
+name every damaged file before repair, preview without portable source changes,
+repair exactly the clear set with valid text and CRLF preserved, retain legacy
+bytes and return fresh lexical results containing every good/repaired note only.
+The post-repair check must retain only the legacy text finding and report no stale
+lexical index; the scenario does not explicitly refresh away a repair regression.
+
+For a disposable local template fixture, run the script with `--vault <path>`
+and optionally `--brain <installed-cli>`. `--seed-only` prepares the same bytes
+without invoking Brain. The fixture refuses existing acceptance note paths.
+
+Focused fixture/guard tests are in
+`tests/repo/brain_lab/test_text_encoding_acceptance.py`. They do not establish
+installed CLI or native Docker acceptance. This Stage 8 scenario awaits the
+complete text pipeline, including the Stage 5 IO security fix, before final
+integration certification. It is not included in an existing Make Docker gate.

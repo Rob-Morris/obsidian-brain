@@ -564,4 +564,6 @@ message in a `follow_up_required` warning.
 
 ### Text encoding diagnosis and repair
 
+Read-only `links.check` continues over readable sources without converting them. Non-standard sources remain reported by `vault.check`. Mutation planning for `links.fix`, including dry runs, requires every selected source to be inspectable and refuses by name before effects.
+
 `vault.check` reports clear `text_encoding` findings and ambiguous `unreadable_file` failures before the router gate. `vault_repair-text` accepts one optional `paths` array of vault-relative files, requires maintainer authority and content authorisation, and supports the normal dry-run preview. It fixes UTF-8/UTF-16/UTF-32 byte-order marks and previews a clear truncated final UTF-8 character. It never guesses legacy encodings or repairs content unattended. Results enumerate committed paths; changed candidates are skipped and write failures retain successful effects as partial results.

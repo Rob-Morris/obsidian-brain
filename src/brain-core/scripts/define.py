@@ -9,6 +9,8 @@ pair. All paths are derived from validated slugs inside fixed definition roots.
 
 from __future__ import annotations
 
+from _common import read_exact_file_content
+
 import argparse
 import hashlib
 import json
@@ -111,8 +113,7 @@ def _validate_type_document(content: str, classification: str, name: str) -> dic
 
 def _read_existing(path: str, rel_path: str, label: str) -> tuple[str, str]:
     try:
-        with open(path, "r", encoding="utf-8") as handle:
-            content = handle.read()
+        content = read_exact_file_content(path)
     except FileNotFoundError as exc:
         raise ValueError(f"{label} does not exist at {rel_path}; use create.") from exc
     return content, _sha256(content)
@@ -291,8 +292,7 @@ def plan_write_definition(
 
     before_hash = None
     if exists:
-        with open(abs_path, "r", encoding="utf-8") as handle:
-            before = handle.read()
+        before = read_exact_file_content(abs_path)
         before_hash = _sha256(before)
         _require_hash(before_hash, expected_sha256, rel_path)
     elif expected_sha256:
@@ -350,8 +350,7 @@ def plan_update_trigger(
     rel_path, abs_path = _router_path(vault_root)
     _require_within_vault(vault_root, abs_path, "Router definition")
     try:
-        with open(abs_path, "r", encoding="utf-8") as handle:
-            original = handle.read()
+        original = read_exact_file_content(abs_path)
     except FileNotFoundError as exc:
         raise ValueError(f"Router definition is missing at {rel_path}.") from exc
 

@@ -7,6 +7,8 @@ from pathlib import Path
 
 from _common import (
     inspect_duplicate_frontmatter_document,
+    read_exact_file_content,
+    NonStandardVaultTextError,
     now_iso,
     safe_write_active_or_archived_artefact,
     serialize_frontmatter,
@@ -51,8 +53,8 @@ def detect_duplicate_frontmatter_documents(vault_root: str | Path, *, unreadable
     for rel_path in iter_candidate_artefact_markdown_files(vault_root):
         abs_path = vault_root / rel_path
         try:
-            content = abs_path.read_text(encoding="utf-8")
-        except (OSError, UnicodeDecodeError):
+            content = read_exact_file_content(abs_path)
+        except (OSError, NonStandardVaultTextError):
             if unreadable is not None:
                 unreadable.append(rel_path)
             continue

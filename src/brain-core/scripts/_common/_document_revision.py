@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from _text_content import decode_bom_free_utf8
+
 import hashlib
 from pathlib import Path
 
@@ -19,6 +21,27 @@ class NonStandardVaultTextError(ValueError):
         self.code = code
         self.remedy = "vault.repair-text" if code in {UTF8_BOM, UTF16_BOM, UTF32_BOM, TRUNCATED_UTF8} else "vault.check"
         super().__init__(f"Cannot read '{self.source_path}': {code}; use {self.remedy}.")
+
+
+class UnreadableVaultTextFilesError(NonStandardVaultTextError):
+    """One complete refusal retaining each scan failure's path and diagnosis."""
+
+    def __init__(self, failures):
+        self.failures = tuple(failures)
+        if not self.failures:
+            raise ValueError("a text scan refusal requires at least one failure")
+        self.source_path = "; ".join(path for path, _, _ in self.failures)
+        self.code = "unreadable_vault_text_files"
+        clear = {UTF8_BOM, UTF16_BOM, UTF32_BOM, TRUNCATED_UTF8}
+        self.remedy = "vault.repair-text" if all(code in clear for _, code, _ in self.failures) else "vault.check"
+        ValueError.__init__(self, "Cannot inspect vault text: " + "; ".join(
+            f"{path}: {code}; {message}" for path, code, message in self.failures))
+
+
+def vault_text_failure(path, error):
+    """Retain an encoding diagnosis, or the kind of an inspection failure."""
+    code = getattr(error, "code", "os_error" if isinstance(error, OSError) else "inspection_error")
+    return str(path), code, str(error)
 
 
 class DocumentRevisionConflict(ValueError):
@@ -53,11 +76,8 @@ def decode_persisted_document(raw: bytes, *, source_path: str | Path | None = No
                               convert_lossless: bool = False) -> PersistedDocumentContent:
     """Decode strict UTF-8, optionally converting lossless marked text with provenance."""
     code = None
-    try:
-        content = raw.decode("utf-8")
-    except UnicodeDecodeError:
-        content = None
-    if content is None or content.startswith("\ufeff"):
+    content = decode_bom_free_utf8(raw)
+    if content is None:
         diagnosis = diagnose_text(raw)
         if diagnosis is None:
             raise RuntimeError("non-standard document has no text diagnosis")

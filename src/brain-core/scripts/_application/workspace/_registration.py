@@ -14,6 +14,7 @@ class WorkspaceRegistration:
 
 
 def plan_registration(context, key, title=None, *, frozen_inputs=None):
+    from _common import read_exact_file_content
     from _common._workspace import require_workspace, workspace_policy, workspace_reference
     from _lifecycle.derived_cache_state import require_fresh_compiled_router
     from ..preparation_creation import creation_binding
@@ -31,8 +32,10 @@ def plan_registration(context, key, title=None, *, frozen_inputs=None):
         entry = require_workspace(router, reference, active=True)
         workspace_policy(router, reference, entry)
         path = root / entry["path"]
+        read_exact_file_content(path)
         observations.append(ObservedResource("workspace-file", str(path), content_digest(path.read_bytes())))
         return router, WorkspaceRegistration(reference, entry["path"], "attached"), None, observations, frozen
+    require_readable_workspace_identity(root, router, key)
     choice = frozen.get("registration", {})
     plan = create.plan_artefact_creation(str(root), router, "living/workspace",
         title or key, key=key, frontmatter_overrides={"workspace_mode": "linked"},
@@ -57,3 +60,16 @@ def apply_registration(context, router, registration, plan, effects):
     create.apply_artefact_creation(str(context.selected_brain.vault_root), router, plan)
     effects.append(CommittedEffect("workspace.registered", registration.path))
     reconcile_transition_indexes(context)
+
+
+def require_readable_workspace_identity(root, router, key):
+    """Name an encoded canonical hub omitted from the strict identity index."""
+    from _common import read_exact_file_content, parse_frontmatter, NonStandardVaultTextError, iter_artefact_paths
+    for artefact in router.get("artefacts", ()):
+        if artefact.get("frontmatter_type") != "living/workspace":
+            continue
+        for relative in iter_artefact_paths(str(root), artefact):
+            content = read_exact_file_content(root / relative, convert_lossless=True)
+            fields, _ = parse_frontmatter(content)
+            if fields.get("key") == key and content.conversion_code:
+                raise NonStandardVaultTextError(relative, content.conversion_code)

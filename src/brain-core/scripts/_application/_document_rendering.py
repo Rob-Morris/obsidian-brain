@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from ._text_warnings import raise_nonstandard_text_error
+
 from .types import InitialAuthorisationClass
 
 from pathlib import Path
@@ -75,6 +77,7 @@ def execute_render(
             retryable=True,
         )
     except (FileNotFoundError, ValueError) as exc:
+        raise_nonstandard_text_error(exc)
         return no_effect_error(type(request), ErrorCode.INVALID_REQUEST, str(exc))
 
     if not isinstance(result, Mapping):
