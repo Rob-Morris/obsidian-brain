@@ -122,7 +122,7 @@ def _read_json_safe(path: Path) -> tuple[dict | None, str | None]:
         return None, None
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
-    except (json.JSONDecodeError, OSError) as exc:
+    except (json.JSONDecodeError, UnicodeDecodeError, OSError) as exc:
         return None, str(exc)
     return data if isinstance(data, dict) else None, None
 
@@ -343,11 +343,21 @@ def inspect_mcp(vault_root: Path) -> dict:
         isinstance(codex_command, str) and same_executable_path(codex_command, expected_command)
     )
 
+    bootstrap_reason = None
+    bootstrap_message = None
     try:
         claude_md_text = claude_md_path.read_text(encoding="utf-8")
+    except UnicodeDecodeError:
+        bootstrap_ok = False
+        bootstrap_reason = "unreadable"
+        bootstrap_message = (
+            "Claude bootstrap cannot be inspected because CLAUDE.md is unreadable as UTF-8. "
+            "Run vault.check for per-file text diagnosis."
+        )
     except OSError:
-        claude_md_text = ""
-    bootstrap_ok = expected_bootstrap in claude_md_text
+        bootstrap_ok = False
+    else:
+        bootstrap_ok = expected_bootstrap in claude_md_text
 
     settings, _ = _read_json_safe(claude_settings_path)
     hook_state = _session_hook_state(settings or {}, expected_hook, vault_root, vault_root)
@@ -422,6 +432,8 @@ def inspect_mcp(vault_root: Path) -> dict:
             "command": claude_command,
             "command_ok": claude_command_ok,
             "bootstrap_ok": bootstrap_ok,
+            "bootstrap_reason": bootstrap_reason,
+            "bootstrap_message": bootstrap_message,
             "hook_ok": hook_ok,
             "hook_state": hook_state,
             "record_ok": claude_record_ok,
@@ -632,7 +644,11 @@ def collect_mcp_check_findings(vault_root: str | Path) -> list[dict]:
                 "check": "mcp_registration",
                 "severity": "warning",
                 "file": None,
-                "message": f"{client_labels[client]} Brain MCP project registration state is drifted or incomplete.",
+                "message": (
+                    mcp[client]["bootstrap_message"]
+                    if client == "claude" and mcp[client].get("bootstrap_reason") == "unreadable"
+                    else f"{client_labels[client]} Brain MCP project registration state is drifted or incomplete."
+                ),
             }
             findings.append(attach_repair_guidance(finding, vault_root, "mcp"))
     return findings

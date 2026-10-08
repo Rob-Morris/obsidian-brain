@@ -57,6 +57,8 @@ def inspect_router_cache(
 
     try:
         data = json.loads(router_path.read_text(encoding="utf-8"))
+    except UnicodeDecodeError:
+        return CacheState(True, "unreadable", rel_path)
     except (json.JSONDecodeError, OSError):
         return CacheState(True, "invalid-json", rel_path)
     if not isinstance(data, dict):
@@ -218,6 +220,8 @@ def inspect_lexical_cache(vault_root: str | Path) -> CacheState:
 
     try:
         data = json.loads(index_path.read_text(encoding="utf-8"))
+    except UnicodeDecodeError:
+        return CacheState(True, "unreadable", rel_path)
     except (json.JSONDecodeError, OSError):
         return CacheState(True, "invalid-json", rel_path)
     if not isinstance(data, dict):
