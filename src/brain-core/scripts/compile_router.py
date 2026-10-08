@@ -1139,16 +1139,17 @@ def count_living_artefact_index_entries(vault_root, artefacts):
     return count
 
 
-def living_artefact_source_state(vault_root, artefacts):
+def living_artefact_source_state(vault_root, artefacts, *, read_fm=None):
     """Collect living index count and source fingerprints in one file pass."""
     sources = {}
+    read_fm = read_fm or read_frontmatter
     for artefact in artefacts:
         if artefact.get("classification") != "living":
             continue
         for rel_path in iter_artefact_paths(vault_root, artefact):
             abs_path = os.path.join(vault_root, rel_path)
             try:
-                fields = read_frontmatter(abs_path)
+                fields = read_fm(abs_path)
             except (OSError, UnicodeDecodeError):
                 continue
             if is_valid_key(fields.get("key")):
