@@ -17,6 +17,8 @@ RESOLUTION_RUNTIME_ENTRY = "resolve_brain.py"
 _DEPLOY_FILES: tuple[tuple[str, str], ...] = (
     ("_machine/resolve_brain.py", RESOLUTION_RUNTIME_ENTRY),
     ("_portable_path.py", "_portable_path.py"),
+    ("_text_content.py", "_text_content.py"),
+    ("_common/_text_encoding.py", "_common/_text_encoding.py"),
     ("_bootstrap/workspace_binding.py", "_bootstrap/workspace_binding.py"),
     ("_bootstrap/__init__.py", "_bootstrap/__init__.py"),
     ("_bootstrap/file_lock.py", "_bootstrap/file_lock.py"),

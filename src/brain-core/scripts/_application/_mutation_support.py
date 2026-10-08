@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from _text_content import strip_leading_byte_order_marks
+
 from .types import InitialAuthorisationClass
 
 from dataclasses import dataclass, field
@@ -34,6 +36,7 @@ class InlineContent:
     def __post_init__(self) -> None:
         if not isinstance(self.content, str):
             raise ValueError("inline mutation content must be a string")
+        object.__setattr__(self, "content", strip_leading_byte_order_marks(self.content))
 
 
 @dataclass(frozen=True, slots=True)
