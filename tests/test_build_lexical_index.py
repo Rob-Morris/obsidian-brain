@@ -46,12 +46,13 @@ def test_main_json_mode_prints_index_without_persisting(tmp_path, wrapper_cli):
     assert not (tmp_path / OUTPUT_PATH).exists()
 
 
-def test_main_reports_unreadable_retrieval_sources(tmp_path, wrapper_cli):
+def test_main_skips_undecodable_retrieval_sources(tmp_path, wrapper_cli):
     write_vault(tmp_path)
     (tmp_path / "Wiki" / "broken.md").write_bytes(b"\xff\xfe\x00\x00")
 
     result = wrapper_cli(tmp_path, "build_lexical_index.py")
 
-    assert result.returncode == 1
-    assert "unreadable retrieval source 'Wiki/broken.md'" in result.stderr
-    assert "while building lexical retrieval state" in result.stderr
+    assert result.returncode == 0
+    index = json.loads((tmp_path / OUTPUT_PATH).read_text())
+    assert index["meta"]["document_count"] == 2
+    assert all(doc["path"] != "Wiki/broken.md" for doc in index["documents"])
