@@ -198,6 +198,18 @@ change detected after rebuilding is a partial repair, with an explicit command
 next action through CLI/MCP. `vault.check(check="router")` uses authoritative
 content validation and identifies an affected source path when available.
 
+An undecodable router, taxonomy or memory source stops compilation before
+any router output is written. `runtime.refresh-router` returns a definite
+`conflict` naming the file and classifier code, rather than an unknown outcome.
+Clear encoding damage points to `vault.repair-text`; ambiguous damage points
+to `vault.check`. A maintenance pass retains a failed repair's message as a
+`follow_up_required` warning so the blocking source is visible.
+
+Undecodable router and lexical caches are stale with reason `unreadable`.
+Client JSON/TOML diagnostics use their existing parse/read failure paths;
+an unreadable `CLAUDE.md` has its own bootstrap reason and is not reported as
+missing bootstrap text.
+
 `runtime.status` reports recorded warm-up progress, labelled `recorded-warmup`;
 ready is not a current-cache health assertion. Use its `router_check` action for
 current router diagnosis. Artefact creation and lifecycle-field commands maintain router and lexical

@@ -26,6 +26,7 @@ import hashlib
 from dataclasses import dataclass, field
 
 from _common import hash_key
+from _common._text_encoding import diagnose_text
 from _common._yaml import YamlError, load_mapping_file
 
 # ---------------------------------------------------------------------------
@@ -36,7 +37,7 @@ CONFIG_YAML = os.path.join(".brain", "config.yaml")
 LOCAL_CONFIG_YAML = os.path.join(".brain", "local", "config.yaml")
 
 class ConfigError(ValueError):
-    """Raised when parsed config has an invalid structural shape."""
+    """Raised when config text cannot be decoded or has an invalid structure."""
 
 
 def _load_valid_tools() -> frozenset[str]:
@@ -108,6 +109,12 @@ def _read_yaml(path: str) -> dict:
         return load_mapping_file(path)
     except FileNotFoundError:
         return {}
+    except UnicodeDecodeError as exc:
+        diagnosis = diagnose_text(exc.object)
+        raise ConfigError(
+            f"unreadable config '{path}' ({diagnosis.code}); "
+            "convert the file to UTF-8 in an editor"
+        ) from exc
 
 
 # ---------------------------------------------------------------------------

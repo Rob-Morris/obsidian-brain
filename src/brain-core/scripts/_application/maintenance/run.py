@@ -245,6 +245,11 @@ class _Pass:
             repair_started = time.monotonic()
             result = self.context.maintenance.repair(REPAIR_SCOPES[group.scope], invocation_id=invocation_id)
             outcome, error_code = classify_result(result)
+            if outcome is GroupOutcome.FAILED:
+                self.warnings.append(CommandWarning(
+                    WarningCode.FOLLOW_UP_REQUIRED,
+                    f"{group.scope} repair failed: {result.error.message}",
+                ))
             effects.extend(getattr(result, "committed_effects", ()))
             record_safely(self.context, "maintenance.repair_invoked", family="maintenance", pass_id=self.pass_id,
                           command_id=result.command_id, invocation_id=invocation_id, outcome=outcome.value,
