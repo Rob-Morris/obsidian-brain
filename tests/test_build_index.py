@@ -458,15 +458,15 @@ class TestIncrementalIndex:
         assert parsed is None
         assert index["meta"]["document_count"] == old_count
 
-    def test_build_index_raises_on_unreadable_document(self, vault):
-        (vault / "Wiki" / "broken.md").write_bytes(b"\xff\xfe\x00\x00")
-
-        with pytest.raises(
-            retrieval_errors.UnreadableRetrievalSourceError,
-            match="Wiki/broken.md",
-        ) as exc:
-            build_index(vault)
-        assert "while building lexical retrieval state" in str(exc.value)
+    def test_build_index_skips_undecodable_document(self, vault):
+        path = vault / "Wiki" / "broken.md"
+        raw = b"\xff\xfe\x00\x00"
+        path.write_bytes(raw)
+        result = build_index(vault)
+        assert "Wiki/broken.md" not in result.embedding_parts_by_path
+        assert all(doc["path"] != "Wiki/broken.md" for doc in result.index["documents"])
+        assert result.index["meta"]["document_count"] == 4
+        assert path.read_bytes() == raw
 
     def test_index_update_existing_document(self, vault):
         """index_update should replace an existing document's data."""
@@ -495,16 +495,27 @@ class TestIncrementalIndex:
         assert index["meta"]["document_count"] == old_count + 1
         assert_corpus_stats_match_recompute(index)
 
-    def test_index_update_raises_on_unreadable_existing_document(self, vault):
+    @pytest.mark.parametrize("path", ["Wiki/python-basics.md", "Wiki/new.md"])
+    def test_index_update_skips_undecodable_document(self, vault, path):
         index = built_index(vault)
-        (vault / "Wiki" / "python-basics.md").write_bytes(b"\xff\xfe\x00\x00")
+        before = copy.deepcopy(index)
+        raw = b"\xff\xfe\x00\x00"
+        (vault / path).write_bytes(raw)
+        assert index_update(index, vault, path) is None
+        assert index == before
+        assert (vault / path).read_bytes() == raw
 
-        with pytest.raises(
-            retrieval_errors.UnreadableRetrievalSourceError,
-            match="Wiki/python-basics.md",
-        ) as exc:
-            index_update(index, vault, "Wiki/python-basics.md", type_hint="living/wiki")
-        assert "while building lexical retrieval state" in str(exc.value)
+    @pytest.mark.parametrize("update", [False, True])
+    def test_lexical_reads_retain_named_os_errors(self, vault, monkeypatch, update):
+        index = built_index(vault)
+        def fail(*args, **kwargs):
+            raise OSError("read refused")
+        monkeypatch.setattr(search_index_mod, "read_artefact", fail)
+        with pytest.raises(retrieval_errors.UnreadableRetrievalSourceError, match="while building lexical retrieval state"):
+            if update:
+                index_update(index, vault, "Wiki/python-basics.md")
+            else:
+                build_index(vault)
 
     def test_index_update_drops_zero_df_terms(self, vault):
         """Replacing a doc must remove its now-orphaned terms from df entirely."""
@@ -677,7 +688,8 @@ class TestBuildEmbeddings:
 
 
 class TestEmbeddingsOutputs:
-    def test_build_embeddings_uses_cached_embedding_parts(self, vault, monkeypatch):
+    @pytest.mark.parametrize("undecodable", [False, True])
+    def test_build_embeddings_uses_cached_embedding_parts(self, vault, monkeypatch, undecodable):
         class FakeNumpy:
             @staticmethod
             def zeros(shape):
@@ -704,6 +716,8 @@ class TestEmbeddingsOutputs:
             lambda path, writer, **kwargs: writer(io.BytesIO()),
         )
 
+        if undecodable:
+            (vault / "Wiki" / "broken.md").write_bytes(b"\xff\xfe\x00\x00")
         build_result = build_index(vault)
         index = build_result.index
         monkeypatch.setattr(
@@ -720,6 +734,10 @@ class TestEmbeddingsOutputs:
         )
 
         assert result is not None
+        _, embeddings, meta = result
+        assert len(embeddings) == len(meta["documents"]) == 4
+        assert [doc["index"] for doc in meta["documents"]] == list(range(4))
+        assert all(doc["path"] != "Wiki/broken.md" for doc in meta["documents"])
         assert set(build_result.embedding_parts_by_path) == {
             "Wiki/python-basics.md",
             "Wiki/rust-ownership.md",
@@ -1002,14 +1020,14 @@ class TestBuildIndexCli:
         assert "Built retrieval index:" in result.stderr
         assert "embeddings refreshed" not in result.stderr
 
-    def test_main_reports_unreadable_retrieval_sources(self, vault, wrapper_cli):
+    def test_main_skips_undecodable_retrieval_sources(self, vault, wrapper_cli):
         (vault / "Wiki" / "broken.md").write_bytes(b"\xff\xfe\x00\x00")
 
         result = wrapper_cli(vault, "build_index.py")
 
-        assert result.returncode == 1
-        assert "unreadable retrieval source 'Wiki/broken.md'" in result.stderr
-        assert "while building lexical retrieval state" in result.stderr
+        assert result.returncode == 0
+        index = json.loads((vault / OUTPUT_PATH).read_text())
+        assert index["meta"]["document_count"] == 4
 
     def test_main_reports_retrieval_persistence_failures(self, vault, monkeypatch, capsys):
         build_index_cli = _load_build_index_cli_module()
@@ -1050,3 +1068,82 @@ class TestBuildIndexCli:
         payload = json.loads(result.stdout)
         assert payload["meta"]["document_count"] == 4
         assert not (vault / OUTPUT_PATH).exists()
+
+
+@pytest.mark.parametrize("cached", [False, True])
+def test_semantic_corpus_skips_undecodable_parts_and_aligns_rows(vault, cached):
+    result = build_index(vault)
+    docs = result.index["documents"]
+    broken = docs[0]["path"]
+    raw = b"\xff\xfe\x00\x00"
+    (vault / broken).write_bytes(raw)
+    cache = dict(result.embedding_parts_by_path) if cached else None
+    if cache is not None:
+        cache.pop(broken)
+    texts, meta = semantic_assets._build_doc_corpus(
+        vault, docs, type_desc_by_frontmatter={}, embedding_parts_by_path=cache,
+    )
+    assert len(texts) == len(meta) == len(docs) - 1
+    assert [entry["index"] for entry in meta] == list(range(len(meta)))
+    assert [entry["path"] for entry in meta] == [doc["path"] for doc in docs[1:]]
+    assert (vault / broken).read_bytes() == raw
+
+
+def test_loaded_state_refresh_skips_undecodable_document_without_rereading(vault, monkeypatch):
+    docs = built_index(vault)["documents"]
+    broken = docs[0]["path"]
+    raw = b"\xff\xfe\x00\x00"
+    (vault / broken).write_bytes(raw)
+    reads = []
+    original_read = retrieval_assets.read_artefact
+
+    def read(path):
+        reads.append(path)
+        return original_read(path)
+
+    class FakeNumpy:
+        @staticmethod
+        def zeros(shape):
+            return {"shape": shape}
+
+    class FakeModel:
+        def encode(self, texts, normalize_embeddings=True):
+            return [[float(i)] for i, _ in enumerate(texts)]
+
+    monkeypatch.setattr(retrieval_assets, "read_artefact", read)
+    monkeypatch.setattr(retrieval_assets, "embeddings_should_refresh", lambda *a, **kw: True)
+    monkeypatch.setattr(semantic_assets, "np", FakeNumpy())
+    monkeypatch.setattr(semantic_assets.semantic_model, "load_local_model_with_manifest",
+                        lambda root: (FakeModel(), _model_manifest()))
+    monkeypatch.setattr(semantic_assets, "read_artefact",
+                        lambda *a: pytest.fail("Materialised parts must not be reread"))
+    saved = []
+    monkeypatch.setattr(semantic_assets, "_persist_embeddings_outputs",
+                        lambda *args: saved.append(args))
+
+    result = retrieval_assets.refresh_embeddings_for_loaded_state(
+        vault, {"artefacts": [], "meta": {"source_hash": "sha256:test-source-hash"}}, docs,
+    )
+
+    _, embeddings, meta = result
+    assert len(reads) == len(docs)
+    assert len(embeddings) == len(meta["documents"]) == len(docs) - 1
+    assert [entry["path"] for entry in meta["documents"]] == [doc["path"] for doc in docs[1:]]
+    assert [entry["index"] for entry in meta["documents"]] == list(range(len(embeddings)))
+    assert saved[0][2:] == (embeddings, meta)
+    assert (vault / broken).read_bytes() == raw
+
+
+def test_loaded_state_refresh_retains_named_os_failure(vault, monkeypatch):
+    docs = built_index(vault)["documents"]
+    monkeypatch.setattr(retrieval_assets, "embeddings_should_refresh", lambda *a, **kw: True)
+
+    def fail(path):
+        raise OSError("read refused")
+
+    monkeypatch.setattr(retrieval_assets, "read_artefact", fail)
+    with pytest.raises(retrieval_errors.UnreadableRetrievalSourceError,
+                       match=docs[0]["path"]) as exc:
+        retrieval_assets.refresh_embeddings_for_loaded_state(vault, {}, docs)
+    assert "while building semantic embeddings" in str(exc.value)
+    assert isinstance(exc.value.__cause__, OSError)

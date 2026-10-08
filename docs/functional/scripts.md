@@ -205,6 +205,8 @@ Clear encoding damage points to `vault.repair-text`; ambiguous damage points
 to `vault.check`. A maintenance pass retains a failed repair's message as a
 `follow_up_required` warning so the blocking source is visible.
 
+Artefact document reads used for lexical indexing and semantic embeddings, and named-resource body reads used for search, skip files that fail strict UTF-8 decoding. They continue with readable documents and leave source bytes unchanged. The lexical freshness inventory records skipped paths, so a completed rebuild can be fresh while a later `vault.check` still reports unreadable sources within its text-scan scope. Filesystem errors in these document reads remain named failures; these reads do not convert encodings.
+
 Undecodable router and lexical caches are stale with reason `unreadable`.
 Client JSON/TOML diagnostics use their existing parse/read failure paths;
 an unreadable `CLAUDE.md` has its own bootstrap reason and is not reported as
