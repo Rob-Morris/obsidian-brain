@@ -189,3 +189,20 @@ def test_artefact_create_transport_is_granular_and_locality_safe():
                 "template_vars": {"SOURCE": "legacy"},
             },
         )
+
+
+@pytest.mark.parametrize("source", ["inline", "stage"])
+def test_mutation_ingestion_strips_leading_marks_in_written_body(command_vault_clone, source):
+    root = command_vault_clone.vault_root
+    body = "\ufeff\ufeffBody with an internal\ufeffmark.\n"
+    content = ({"source": "inline", "content": body} if source == "inline" else
+               {"source": "stage", "handle": stage_body(root, body)["handle"]})
+    request = current_request_resolver().resolve("artefact.create", {
+        "type": "ideas", "title": "Normalised Body", "content": content,
+    })
+    result = application_for(root).invoke(request)
+    assert result.status == "ok"
+    written = (root / result.result.path).read_text()
+    assert "\ufeff\ufeff" not in written
+    assert "Body with an internal\ufeffmark." in written
+    assert written.count("\ufeff") == 1

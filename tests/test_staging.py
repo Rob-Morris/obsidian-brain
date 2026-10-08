@@ -151,3 +151,51 @@ def test_stage_cli_waits_for_shared_cross_process_mutation_lock(tmp_path):
     assert process.returncode == 0, stderr
     assert entered_stage.exists()
     assert read_staged_body(str(tmp_path), json.loads(stdout)["handle"]) == "from subprocess"
+
+
+def test_stage_strips_all_leading_marks_before_storage_and_size(tmp_path, monkeypatch):
+    monkeypatch.setattr(_staging, "MAX_STAGED_BODY_BYTES", 4)
+    monkeypatch.setattr(_staging, "MAX_STAGING_BYTES", 4)
+    result = stage_body(tmp_path, "\ufeff\ufeffa\ufeff")
+    assert result["bytes"] == 4
+    assert Path(_staging._handle_path(tmp_path, result["handle"])).read_bytes() == "a\ufeff".encode()
+
+
+@pytest.mark.parametrize("encoding", ["utf-8-sig", "utf-16", "utf-32"])
+def test_stage_cli_body_file_uses_lossless_resolution(tmp_path, monkeypatch, capsys, encoding):
+    monkeypatch.setattr(stage_cli, "find_vault_root", lambda _vault: tmp_path)
+    path = tmp_path / "body.md"
+    raw = "\ufeffCafé\r\nbody".encode(encoding)
+    path.write_bytes(raw)
+    stage_cli.main(["--body-file", str(path), "--json"])
+    result = json.loads(capsys.readouterr().out)
+    assert read_staged_body(tmp_path, result["handle"]) == "Café\nbody"
+    assert path.read_bytes() == raw
+
+
+def test_stage_cli_refuses_truncation_without_storing_body(tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr(stage_cli, "find_vault_root", lambda _vault: tmp_path)
+    path = tmp_path / "body.md"
+    path.write_bytes(b"caf\xc3\xa9\xc3")
+    with pytest.raises(SystemExit) as caught:
+        stage_cli.main(["--body-file", str(path)])
+    assert caught.value.code == 2
+    error = capsys.readouterr().err
+    assert str(path) in error and "truncated_utf8" in error
+    assert not (tmp_path / _staging.STAGING_DIR).exists()
+    assert path.exists()
+
+
+def test_stage_create_preparation_measures_and_hashes_normalised_body(tmp_path, monkeypatch):
+    from _application.stage.create import StageCreateRequest, prepare
+    from _application.preparation import content_digest
+
+    monkeypatch.setattr(_staging, "MAX_STAGED_BODY_BYTES", 4)
+    request = StageCreateRequest("\ufeff\ufeffa\ufeff")
+    binding = prepare(None, request)
+    assert binding.review["bytes"] == 4
+    assert binding.review["sha256"] == content_digest("a\ufeff")
+    assert binding.review["arguments"]["content"] == "a\ufeff"
+    result = stage_body(tmp_path, request.content)
+    assert result["bytes"] == binding.review["bytes"]
+    assert content_digest(read_staged_body(tmp_path, result["handle"])) == binding.review["sha256"]

@@ -51,6 +51,21 @@ A vault registry row that is no longer its own canonical path never selects a Br
 
 `--request-json -` reads the object from standard input. Unknown fields, malformed JSON, unknown launcher entry points and application commands with anything other than one noun and one verb fail as request errors.
 
+### Mutation body normalisation
+
+Inline mutation content (including direct typed Python requests) and newly staged
+bodies lose all leading U+FEFF byte order marks before content pins or staged
+storage are created.
+Marks within the body are preserved. Staging measures the normalised UTF-8 body.
+
+Direct scripts accepting `--body-file`, including `stage.py`, classify the file
+bytes before decoding. Unmarked strict UTF-8 retains the existing text-reading
+semantics (CRLF and CR become LF). Marked UTF-8, UTF-16 and UTF-32 are converted
+only when the classifier identifies a lossless BOM conversion. Ambiguous damage,
+Windows-1252 and truncated UTF-8 are refused with the source path and diagnosis
+code; input files are never repaired in place. Existing path bounds and temporary
+file cleanup policies still apply; `stage.py` leaves its source file intact.
+
 ## Discover commands instead of memorising them
 
 The installed catalogues are authoritative. Use discovery for the exact command set, request schema, version, owner, safety class, dependency tier, authority and current availability:

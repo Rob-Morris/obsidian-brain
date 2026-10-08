@@ -5,10 +5,10 @@ from __future__ import annotations
 
 import argparse
 import json
-from pathlib import Path
 
 from _common import (
     find_vault_root,
+    resolve_body_file,
     MutationLockError,
     public_mutation_error_message,
     vault_mutation_lock,
@@ -24,14 +24,9 @@ def main(argv=None):
     parser.add_argument("--vault")
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args(argv)
-    content = args.body
-    if args.body_file:
-        try:
-            content = Path(args.body_file).read_text(encoding="utf-8")
-        except OSError as exc:
-            parser.error(f"cannot read --body-file: {exc}")
     vault_root = str(find_vault_root(args.vault))
     try:
+        content, _cleanup = resolve_body_file(args.body, args.body_file)
         with vault_mutation_lock(vault_root):
             result = stage_body(vault_root, content)
     except (MutationLockError, OSError, ValueError) as exc:

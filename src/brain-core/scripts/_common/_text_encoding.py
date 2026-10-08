@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import codecs
 from dataclasses import dataclass
+from _text_content import strip_leading_byte_order_marks
 
 
 UTF32_BOM = "utf32_bom"
@@ -29,11 +30,6 @@ class TextDiagnosis:
     dropped_bytes: bytes = b""
     line: int | None = None
     column: int | None = None
-
-
-def strip_leading_byte_order_marks(text: str) -> str:
-    """Remove every leading U+FEFF, preserving the rest of the text."""
-    return text.lstrip("\ufeff")
 
 
 def _not_utf8(data: bytes, start: int) -> TextDiagnosis:
