@@ -12,7 +12,7 @@ from .context import InvocationContext
 from ._managed_preparation import MAINTENANCE, maintenance_binding
 from .preparation import admit_owner
 from .receipts import CommittedEffect
-from .results import CommandError, CommandNextAction, CommandArgument, ErrorCode, Ok, Partial, RequestErrorDetails, router_cache_error
+from .results import CommandError, CommandNextAction, CommandArgument, Error, ErrorCode, Ok, Partial, RequestErrorDetails, router_cache_error
 
 
 class RouterMaintenanceStatus(str, Enum):
@@ -43,6 +43,7 @@ def execute_router_maintenance(
         vault_mutation_lock,
     )
     from _portable.router_maintenance import maintain_router
+    from _lifecycle.router_errors import UnreadableRouterSourceError
 
     root = context.selected_brain.vault_root
     try:
@@ -55,6 +56,15 @@ def execute_router_maintenance(
             ErrorCode.CONFLICT,
             public_mutation_error_message(exc),
             retryable=True,
+        )
+    except UnreadableRouterSourceError as exc:
+        return Error(
+            request.COMMAND_ID, request.COMMAND_VERSION,
+            CommandError(
+                ErrorCode.CONFLICT, str(exc),
+                RequestErrorDetails(None, exc.diagnosis.code),
+                CommandNextAction(exc.next_command),
+            ),
         )
 
     if result.status == "partial":

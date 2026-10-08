@@ -333,7 +333,7 @@ def _load_init_state(vault_root: Path) -> Dict[str, Any]:
         return {"version": INIT_STATE_VERSION, "records": []}
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
-    except (json.JSONDecodeError, OSError):
+    except (json.JSONDecodeError, UnicodeDecodeError, OSError):
         return {"version": INIT_STATE_VERSION, "records": []}
 
     records = data.get("records")
@@ -564,7 +564,7 @@ def read_toml_server_config(config_path: Path) -> Optional[Dict[str, Any]]:
 
     try:
         content = config_path.read_text(encoding="utf-8")
-    except OSError:
+    except (OSError, UnicodeDecodeError):
         return None
 
     import tomllib
