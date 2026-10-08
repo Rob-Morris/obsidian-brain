@@ -43,16 +43,16 @@ def resolve_named_document_path(router, resource, reference):
     return match[doc_field]
 
 
-def read_named_document(router, vault_root, resource, reference):
+def read_named_document(router, vault_root, resource, reference, *, convert_lossless=False):
     """Read one exact named document while preserving the legacy return shape."""
     _router_key, doc_field = _spec(resource)
     match = resolve_named_document(router, resource, reference)
     if "error" in match:
         return match
-    return read_file_content(vault_root, match[doc_field])
+    return read_file_content(vault_root, match[doc_field], convert_lossless=convert_lossless)
 
 
-def read_named_document_from_vault(vault_root, resource, reference):
+def read_named_document_from_vault(vault_root, resource, reference, *, convert_lossless=False):
     """Load router state and return both exact metadata and document content."""
     router = load_compiled_router(vault_root)
     if "error" in router:
@@ -61,7 +61,7 @@ def read_named_document_from_vault(vault_root, resource, reference):
     if "error" in match:
         return match
     _router_key, doc_field = _spec(resource)
-    content = read_file_content(vault_root, match[doc_field])
+    content = read_file_content(vault_root, match[doc_field], convert_lossless=convert_lossless)
     return match, content
 
 

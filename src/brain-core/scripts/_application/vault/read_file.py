@@ -46,7 +46,7 @@ def read_result(context: InvocationContext, request: VaultReadFileRequest):
     from _common import MissingFileResult
     from _portable.vault_files import read_vault_file
 
-    result = read_vault_file(context.selected_brain.vault_root, request.path)
+    result = read_vault_file(context.selected_brain.vault_root, request.path, convert_lossless=True)
     if isinstance(result, MissingFileResult):
         return command_error(
             VaultReadFileRequest,
@@ -62,10 +62,12 @@ def read_result(context: InvocationContext, request: VaultReadFileRequest):
             "path",
         )
     from ..preparation import observe_document_read
+    from .._text_warnings import read_conversion_warnings
 
     bounded = bounded_text_result(
         VaultReadFileRequest, result, result.revision,
         cursor=request.cursor, max_characters=request.max_characters,
+        warnings=read_conversion_warnings(context, result),
         payload=lambda content, window: VaultReadFilePayload(
             request.path, content, result.revision, window,
         ),

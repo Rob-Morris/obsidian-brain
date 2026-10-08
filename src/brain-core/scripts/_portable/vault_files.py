@@ -25,7 +25,7 @@ PUBLIC_BRAIN_CORE_TREES = frozenset(
 )
 
 
-def _read_exact_file(vault_root, path):
+def _read_exact_file(vault_root, path, *, convert_lossless=False):
     try:
         resolved = resolve_and_check_bounds(
             os.path.join(str(vault_root), path),
@@ -35,10 +35,10 @@ def _read_exact_file(vault_root, path):
         return {"error": "Path escapes vault root"}
     if not os.path.isfile(resolved):
         return MissingFileResult(path)
-    return read_exact_file_content(resolved)
+    return read_exact_file_content(resolved, convert_lossless=convert_lossless)
 
 
-def read_vault_file(vault_root, path):
+def read_vault_file(vault_root, path, *, convert_lossless=False):
     if is_archived_path(path):
         return {
             "error": (
@@ -49,7 +49,7 @@ def read_vault_file(vault_root, path):
     public_error = _public_file_error(vault_root, path)
     if public_error is not None:
         return {"error": public_error}
-    return _read_exact_file(vault_root, path)
+    return _read_exact_file(vault_root, path, convert_lossless=convert_lossless)
 
 
 def _public_file_error(vault_root, path):
@@ -82,16 +82,16 @@ def _public_file_error(vault_root, path):
     return None
 
 
-def read_archived_artefact(vault_root, path, *, infer_markdown=False):
+def read_archived_artefact(vault_root, path, *, infer_markdown=False, convert_lossless=False):
     if not is_archived_path(path):
         return {"error": f"'{path}' is not in _Archive/"}
-    result = _read_exact_file(vault_root, path)
+    result = _read_exact_file(vault_root, path, convert_lossless=convert_lossless)
     if not infer_markdown or path.endswith(".md") or not isinstance(
         result, MissingFileResult
     ):
         return result
 
-    markdown_result = _read_exact_file(vault_root, f"{path}.md")
+    markdown_result = _read_exact_file(vault_root, f"{path}.md", convert_lossless=convert_lossless)
     if not isinstance(markdown_result, MissingFileResult):
         return markdown_result
     return markdown_result

@@ -109,6 +109,7 @@ class OpenDocument:
     body: str
     artefact: dict | None
     revision: str
+    conversion_code: str | None = None
 
 _VALID_SCOPES = {
     "body": {
@@ -166,7 +167,7 @@ def open_document(
         check_write_allowed(resolved_path)
         abs_path = os.path.join(vault_root, resolved_path)
         try:
-            content = read_exact_file_content(abs_path)
+            content = read_exact_file_content(abs_path, convert_lossless=True)
         except FileNotFoundError:
             raise FileNotFoundError(f"File not found: {resolved_path}") from None
         fields, body = parse_frontmatter(content)
@@ -179,6 +180,7 @@ def open_document(
             body,
             artefact,
             content.revision,
+            content.conversion_code,
         )
     if resource not in EDITABLE_RESOURCES:
         raise ValueError(
@@ -205,7 +207,7 @@ def open_document(
         check_write_allowed(rel_path)
     abs_path = os.path.join(vault_root, rel_path)
     try:
-        content = read_exact_file_content(abs_path)
+        content = read_exact_file_content(abs_path, convert_lossless=True)
     except FileNotFoundError:
         raise FileNotFoundError(
             f"{resource.capitalize()} '{reference}' not found at {rel_path}"
@@ -220,6 +222,7 @@ def open_document(
         body,
         None,
         content.revision,
+        content.conversion_code,
     )
 
 
