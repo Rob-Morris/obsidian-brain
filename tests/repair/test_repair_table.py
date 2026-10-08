@@ -163,6 +163,8 @@ def test_dispositions_and_recovery_scopes():
     assert {pair: identity for pair, identity in repair_common.JUDGEMENT_FINDINGS.items()
             if identity is not Identity.EVIDENCE} == {
         ("root_files", None): Identity.SUBJECT,
+        ("unreadable_file", "not_utf8"): Identity.SUBJECT,
+        ("unreadable_file", "not_text"): Identity.SUBJECT,
         ("workspace_contract", "workspace_scan_unreadable"): Identity.KIND_ONLY,
     }
     registry = REPAIR_SCOPES["registry"]

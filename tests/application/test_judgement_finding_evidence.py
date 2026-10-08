@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from datetime import timedelta
 import json
+import os
 
 import pytest
 
@@ -243,6 +244,33 @@ def case_root_files(root, local, app):
     return "root_files", "stray.md", None
 
 
+def case_os_error(root, local, app):
+    if os.name == "nt" or (hasattr(os, "geteuid") and os.geteuid() == 0):
+        pytest.skip("permission mode evidence requires non-root POSIX")
+    file = _write(root, "Wiki/Blocked.md", {"type": "living/wiki"})
+    (root / file).chmod(0)
+    return "os_error", file, {"errno": "EACCES"}
+
+
+def case_not_utf8(root, local, app):
+    file = _write(root, "Wiki/Legacy.md", {"type": "living/wiki"})
+    (root / file).write_bytes(b"legacy text\xff")
+    return "not_utf8", file, None
+
+
+def case_not_text(root, local, app):
+    file = _write(root, "Wiki/Binary.md", {"type": "living/wiki"})
+    (root / file).write_bytes(b"text\x00")
+    return "not_text", file, None
+
+
+def case_skill_ownership_unavailable(root, local, app):
+    router = check.load_router(root)
+    file = ".brain/skill-sources.json"
+    (root / file).write_bytes(b"{broken")
+    return "skill_ownership_unavailable", file, {"reason": "TrackingError"}, router
+
+
 CASES = [value for name, value in sorted(globals().items()) if name.startswith("case_")]
 
 
@@ -250,10 +278,17 @@ CASES = [value for name, value in sorted(globals().items()) if name.startswith("
 def test_each_code_declares_exactly_the_evidence_its_row_promises(scoped, case):
     root, local, app, _parents = scoped
     code, file, evidence, *router = case(root, local, app)
-    check_name = code if code in {"living_key_fields", "root_files"} else "workspace_contract"
+    if code in {"living_key_fields", "root_files"}:
+        check_name, finding_code = code, None
+    elif code in {"os_error", "not_utf8", "not_text"}:
+        check_name, finding_code = "unreadable_file", code
+    elif code == "skill_ownership_unavailable":
+        check_name, finding_code = "text_scan", code
+    else:
+        check_name, finding_code = "workspace_contract", code
 
     raw = _finding(_findings(root, workspace_dir=local, router=router[0] if router else None),
-                   None if check_name != "workspace_contract" else code, file, check_name)
+                   finding_code, file, check_name)
 
     assert raw.get("evidence") == evidence and raw["severity"] == "error"
     finding = _classified(raw)
@@ -396,3 +431,23 @@ def test_a_stored_dismissal_of_a_kind_only_finding_is_pruned_at_retention(scoped
     assert _item(root, key).state is ItemState.OPEN
     pruned = _invoke(root, MaintenanceClaimRequest(key, "rob"), clock=_Clock(NOW + DISMISSAL_RETENTION))
     assert pruned.status == "ok" and key not in _read(root)["dismissals"]
+
+
+
+def test_unreadable_subject_dismissal_survives_edits_but_a_new_code_reopens(scoped):
+    root, _local, _app, _parents = scoped
+    file = _write(root, "Wiki/Deliberate.md", {"type": "living/wiki"})
+    path = root / file
+    path.write_bytes(b"legacy\xff")
+    _recompile(root)
+    key = finding_key("brain", "unreadable_file:not_utf8", {"file": file})
+    first = _item(root, key)
+    assert first.fingerprint == key
+    assert _invoke(root, MaintenanceDismissRequest(key, first.fingerprint, "deliberately retained", "rob")).status == "ok"
+    path.write_bytes(b"edited legacy\xfe")
+    _recompile(root)
+    assert _item(root, key).state is ItemState.QUIET
+    path.write_bytes(b"binary\x00")
+    _recompile(root)
+    changed_key = finding_key("brain", "unreadable_file:not_text", {"file": file})
+    assert _item(root, changed_key).state is ItemState.OPEN

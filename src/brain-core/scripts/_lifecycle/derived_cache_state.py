@@ -40,6 +40,8 @@ def inspect_router_cache(
     vault_root: str | Path,
     *,
     verify_content: bool = False,
+    read_bytes=None,
+    read_frontmatter=None,
 ) -> CacheState:
     """Inspect the compiled router cache without mutating it.
 
@@ -96,7 +98,7 @@ def inspect_router_cache(
     if inventory_required and expected_index_source_count is not None:
         current_index_source_count, current_index_sources = (
             compile_router.living_artefact_source_state(
-                str(vault_root), artefacts
+                str(vault_root), artefacts, **({"read_fm": read_frontmatter} if read_frontmatter else {})
             )
         )
         if current_index_source_count != expected_index_source_count:
@@ -114,7 +116,7 @@ def inspect_router_cache(
                 continue
             if current_index_sources is None:
                 _count, current_index_sources = compile_router.living_artefact_source_state(
-                    str(vault_root), artefacts
+                    str(vault_root), artefacts, **({"read_fm": read_frontmatter} if read_frontmatter else {})
                 )
             current_hash = current_index_sources.get(source_rel_path)
             if current_hash is None:
@@ -125,7 +127,11 @@ def inspect_router_cache(
 
         if verify_content:
             try:
-                current_hash = compile_router.hash_file(abs_path)
+                if read_bytes is None:
+                    current_hash = compile_router.hash_file(abs_path)
+                else:
+                    import hashlib
+                    current_hash = "sha256:" + hashlib.sha256(read_bytes(abs_path)).hexdigest()
             except OSError:
                 return CacheState(True, "missing-source", rel_path, data, source_rel_path)
             if current_hash != expected_hash:

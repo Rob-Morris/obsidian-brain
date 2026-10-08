@@ -314,7 +314,7 @@ def _read_claude_project_server(config_path: Path) -> dict | None:
     return server if isinstance(server, dict) else None
 
 
-def inspect_mcp(vault_root: Path) -> dict:
+def inspect_mcp(vault_root: Path, *, read_bytes=None) -> dict:
     """Inspect a vault's project MCP state without mutating user scope."""
     server_config = _expected_project_server_config(vault_root)
     claude_config_path = vault_root / CLAUDE_PROJECT_CONFIG_FILE
@@ -346,7 +346,8 @@ def inspect_mcp(vault_root: Path) -> dict:
     bootstrap_reason = None
     bootstrap_message = None
     try:
-        claude_md_text = claude_md_path.read_text(encoding="utf-8")
+        claude_md_text = (read_bytes(claude_md_path).decode("utf-8") if read_bytes
+                          else claude_md_path.read_text(encoding="utf-8"))
     except UnicodeDecodeError:
         bootstrap_ok = False
         bootstrap_reason = "unreadable"
@@ -571,14 +572,14 @@ def collect_runtime_check_findings(vault_root: str | Path) -> list[dict]:
     return findings
 
 
-def collect_mcp_check_findings(vault_root: str | Path) -> list[dict]:
+def collect_mcp_check_findings(vault_root: str | Path, *, read_bytes=None) -> list[dict]:
     """Return launcher-safe Brain MCP registration findings for one vault."""
     vault_root = Path(vault_root)
     findings: list[dict] = []
     if not local_mcp_state_present(vault_root):
         return findings
 
-    mcp = inspect_mcp(vault_root)
+    mcp = inspect_mcp(vault_root, **({"read_bytes": read_bytes} if read_bytes else {}))
     specifically_reported_clients: set[str] = set()
 
     if mcp["claude"]["command"] is not None and not mcp["claude"]["command_ok"]:
@@ -718,11 +719,11 @@ def collect_temporaries_check_findings(vault_root: str | Path, *, now=None) -> l
     return findings
 
 
-def collect_bootstrap_check_findings(vault_root: str | Path) -> list[dict]:
+def collect_bootstrap_check_findings(vault_root: str | Path, *, read_bytes=None) -> list[dict]:
     """Return launcher-safe repair-oriented compliance findings."""
     findings = collect_registry_check_findings(vault_root)
     findings.extend(collect_runtime_check_findings(vault_root))
-    findings.extend(collect_mcp_check_findings(vault_root))
+    findings.extend(collect_mcp_check_findings(vault_root, **({"read_bytes": read_bytes} if read_bytes else {})))
     findings.extend(collect_mcp_legacy_vault_root_findings(vault_root))
     findings.extend(collect_temporaries_check_findings(vault_root))
     return findings
