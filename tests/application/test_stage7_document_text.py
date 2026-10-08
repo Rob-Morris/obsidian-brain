@@ -7,7 +7,8 @@ from _common import NonStandardVaultTextError, decode_persisted_document, docume
 from _application.artefact.read import ArtefactReadRequest, ArtefactLocation
 from _application.vault.read_file import VaultReadFileRequest
 from _application.resource.read import ReadableResource, ResourceReadRequest
-from _application.results import ErrorCode, WarningCode
+from _application.vault.repair_text import RepairTextRequest
+from _application.results import ErrorCode, InstructionNextAction, WarningCode
 from command_application import application_for
 
 
@@ -86,9 +87,66 @@ def test_read_refusals_have_precise_path_and_recovery(command_vault_clone, kind,
     assert result.status == 'error', result
     assert result.error.code is ErrorCode.CONFLICT
     assert relative in result.error.message and code in result.error.message
+    if kind == 'skill':
+        assert isinstance(result.error.next_action, InstructionNextAction)
+        assert 'Outside the vault text scanned set' in result.error.message
+        assert 'vault.repair-text' not in result.error.message
+        assert path.read_bytes() == raw
+        return
     assert result.error.next_action.command_id == ('vault.repair-text' if code == 'truncated_utf8' else 'vault.check')
     if code == 'truncated_utf8':
         assert result.error.next_action.arguments[0].value == (relative,)
+        repair = application_for(root).invoke(RepairTextRequest(
+            result.error.next_action.arguments[0].value))
+        assert repair.status == 'ok', repair
+        assert path.read_bytes() == raw[:-1]
+
+
+def test_managed_skill_refusal_does_not_offer_scanned_set_repair(command_vault_clone):
+    from _skill_library.tracking import empty_tracking, write_tracking
+    root = command_vault_clone.vault_root
+    tracking = empty_tracking()
+    tracking['managed']['managed'] = {
+        'repository': 'https://example.com/skills.git', 'skill_path': 'managed',
+        'configured_ref': 'main', 'resolved_commit': 'a' * 40,
+        'source_package_sha256': 'b' * 64, 'installed_baseline_sha256': 'b' * 64,
+        'installed_manifest': [], 'installed_at': '2026-10-09T00:00:00Z',
+        'last_checked_at': None,
+    }
+    write_tracking(root, tracking)
+    relative = '_Config/Skills/managed/SKILL.md'
+    path = root / relative
+    path.parent.mkdir(parents=True, exist_ok=True)
+    raw = 'é'.encode() + b'\xc3'
+    path.write_bytes(raw)
+    result = application_for(root).invoke(VaultReadFileRequest(relative))
+    assert result.status == 'error', result
+    assert result.error.code is ErrorCode.CONFLICT
+    assert isinstance(result.error.next_action, InstructionNextAction)
+    assert relative in result.error.message
+    assert 'truncated_utf8' in result.error.message
+    assert 'vault.repair-text' not in result.error.message
+    assert path.read_bytes() == raw
+
+
+def test_refusal_retains_diagnosis_when_inventory_cannot_be_inspected(command_vault_clone):
+    from _skill_library.tracking import TRACKING_REL
+    root = command_vault_clone.vault_root
+    path = root / '_Config/User/preferences-always.md'
+    path.parent.mkdir(parents=True, exist_ok=True)
+    raw = 'é'.encode() + b'\xc3'
+    path.write_bytes(raw)
+    tracking = root / TRACKING_REL
+    tracking.parent.mkdir(parents=True, exist_ok=True)
+    tracking.write_bytes(b'{')
+    result = application_for(root).invoke(VaultReadFileRequest('_Config/User/preferences-always.md'))
+    assert result.status == 'error', result
+    assert result.error.code is ErrorCode.CONFLICT
+    assert isinstance(result.error.next_action, InstructionNextAction)
+    assert 'truncated_utf8' in result.error.message
+    assert 'Cannot determine text-check coverage' in result.error.message
+    assert 'vault.repair-text' not in result.error.message
+    assert path.read_bytes() == raw
 
 
 @pytest.mark.parametrize('encoding,code', [('utf-8-sig','utf8_bom'), ('utf-16','utf16_bom'), ('utf-32','utf32_bom')])

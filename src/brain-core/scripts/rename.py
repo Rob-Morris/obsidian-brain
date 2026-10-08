@@ -432,7 +432,7 @@ class MoveApplyError(PartialApplyError):
 
 def plan_move_and_links(vault_root, moves, *, router=None, allow_archive_paths=False,
                         allow_attachment_paths=False, prune_router=None,
-                        overrides=None):
+                        overrides=None, read_snapshot=None):
     """Resolve file identities and matching backlink writes without effects."""
     planned = preflight_move_set(
         vault_root, moves, allow_archive_paths=allow_archive_paths,
@@ -462,7 +462,7 @@ def plan_move_and_links(vault_root, moves, *, router=None, allow_archive_paths=F
         return replacer(match)
 
     links = (plan_wikilink_rewrites(vault_root, pattern, replace_and_count,
-                                   overrides=overrides, normalise_paths={
+                                   overrides=overrides, read_snapshot=read_snapshot, normalise_paths={
                                        move["source"] for move in planned
                                        if move["source"].endswith(".md")
                                        and not move["source"].startswith("_Assets/")
