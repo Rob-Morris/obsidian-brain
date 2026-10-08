@@ -41,4 +41,4 @@ jobs:
 
       - name: Run native Windows user smoke
         shell: pwsh
-        run: .\.venv\Scripts\python.exe -m pytest -q tests/test_windows_user_smoke.py tests/application/test_mcp_stable_bootstrap.py
+        run: .\.venv\Scripts\python.exe -m pytest -q tests/test_windows_user_smoke.py tests/application/test_mcp_stable_bootstrap.py tests/test_text_repair_io.py

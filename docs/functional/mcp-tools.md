@@ -559,3 +559,7 @@ Its next action is `vault.repair-text` for clear damage or `vault.check` for an
 ambiguous diagnosis. Undecodable router and lexical caches carry the distinct
 stale reason `unreadable`. A maintenance pass surfaces the failed repair's
 message in a `follow_up_required` warning.
+
+### Text encoding diagnosis and repair
+
+`vault.check` reports clear `text_encoding` findings and ambiguous `unreadable_file` failures before the router gate. `vault_repair-text` accepts one optional `paths` array of vault-relative files, requires maintainer authority and content authorisation, and supports the normal dry-run preview. It fixes UTF-8/UTF-16/UTF-32 byte-order marks and previews a clear truncated final UTF-8 character. It never guesses legacy encodings or repairs content unattended. Results enumerate committed paths; changed candidates are skipped and write failures retain successful effects as partial results.

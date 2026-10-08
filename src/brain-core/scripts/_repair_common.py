@@ -99,6 +99,8 @@ def _table(*families: RepairFamily) -> Mapping[str, RepairFamily]:
 
 
 REPAIR_SCOPES: Mapping[str, RepairFamily] = _table(
+    _brain("text_encoding", "vault.repair-text", {}, Disposition.JUDGEMENT,
+           "Repair clear text encoding findings after previewing the byte changes.", recovery=False),
     _brain(
         "router", "runtime.refresh-router", {}, Disposition.AUTOMATIC,
         "Rebuild the compiled router cache.",
