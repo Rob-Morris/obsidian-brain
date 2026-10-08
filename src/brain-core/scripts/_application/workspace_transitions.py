@@ -1,6 +1,6 @@
 """Workspace policy composes with concrete transition plans before admission."""
 
-from dataclasses import replace
+from dataclasses import dataclass, replace
 
 from .preparation import ObservedResource
 from .semantic_mutations import applies_policy_tags
@@ -8,29 +8,57 @@ from .workspace_context import resolve_mutation_context, apply_semantic_tags
 from .workspace_integrity import lifecycle_guard_observations
 
 
+@dataclass(frozen=True, slots=True)
+class TransitionSnapshot:
+    revisions: dict[str, str | None]
+    conversions: tuple[tuple[str, str], ...]
+
+
 def transition_effect_snapshot(context, plan):
-    """Observe concrete targets so a partial never invents an uncommitted subject."""
+    """Observe revisions and conversions in the same concrete-source read."""
     from .preparation import content_digest
+    from _common._text_encoding import diagnose_text
     from rename import DeletePlan
     movement = plan if isinstance(plan, DeletePlan) else plan.movement
     paths = set(getattr(movement, "paths", ()))
-    paths.update(item.path for item in movement.links.writes)
-    paths.update(item["path"] for item in getattr(plan, "writes", ()))
+    text_writes = {item.path for item in movement.links.writes}
+    text_writes.update(item["path"] for item in getattr(plan, "writes", ()))
+    paths.update(text_writes)
     for move in getattr(movement, "moves", ()):
         paths.update((move["source"], move["dest"]))
-    return {path: content_digest((context.selected_brain.vault_root / path).read_bytes())
-            if (context.selected_brain.vault_root / path).is_file() else None for path in paths}
+    revisions, conversions = {}, []
+    for path in sorted(paths):
+        source = context.selected_brain.vault_root / path
+        raw = source.read_bytes() if source.is_file() else None
+        revisions[path] = content_digest(raw) if raw is not None else None
+        if path in text_writes and raw is not None:
+            diagnosis = diagnose_text(raw)
+            if diagnosis is not None and diagnosis.lossless:
+                conversions.append((path, diagnosis.code))
+    return TransitionSnapshot(revisions, tuple(conversions))
 
 
 def committed_transition_effects(context, request, plan, before):
     from .receipts import CommittedEffect
-    after = transition_effect_snapshot(context, plan)
-    changed = {path for path, revision in after.items() if revision != before[path]}
+    after = transition_effect_snapshot(context, plan).revisions
+    changed = {path for path, revision in after.items() if revision != before.revisions[path]}
     movement = getattr(plan, "movement", plan)
     for move in getattr(movement, "moves", ()):
         if move["source"] in changed and move["dest"] in changed and after[move["source"]] is None:
             changed.discard(move["source"])
     return tuple(CommittedEffect(request.COMMAND_ID, path) for path in sorted(changed))
+
+
+def transition_conversion_warnings(plan, before, *, effects=None):
+    """Report only planned converted sources whose content effects committed."""
+    from ._text_warnings import conversion_warnings
+    movement = getattr(plan, "movement", plan)
+    destinations = {move["source"]: move["dest"] for move in getattr(movement, "moves", ())}
+    committed = None if effects is None else {effect.subject for effect in effects}
+    return tuple(warning for path, code in before.conversions
+        if committed is None or path in committed or destinations.get(path) in committed
+        for warning in conversion_warnings(
+            path if destinations.get(path, path) == path else f"{path} → {destinations[path]}", code))
 
 
 def _reference(router, path, fields):
@@ -67,7 +95,7 @@ def prepare_workspace_transition(context, request, router, plan):
     from .workspace_reassignment import WorkspaceReassignmentPlan
     if isinstance(plan, WorkspaceReassignmentPlan):
         return plan.transition, plan.mutation_context
-    from _common import parse_frontmatter, serialize_frontmatter, document_revision_at
+    from _common import parse_frontmatter, read_exact_file_content, serialize_frontmatter, document_revision_at
     from _common._workspace import membership, require_workspace, validate_ownership
     from rename import DeletePlan
 
@@ -78,7 +106,7 @@ def prepare_workspace_transition(context, request, router, plan):
     planned_metadata_paths = set(writes)
     subjects = []
     for path in paths:
-        before, body = parse_frontmatter((root / path).read_text(encoding="utf-8"))
+        before, body = parse_frontmatter(read_exact_file_content(root / path, convert_lossless=True))
         after = None if deleting else dict(writes.get(path, {"fields": before})["fields"])
         if after is not None and before.get("type") == after.get("type") == "living/workspace" and before.get("key") != after.get("key"):
             if "workspace" in after:

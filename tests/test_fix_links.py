@@ -59,9 +59,6 @@ def router():
 # ---------------------------------------------------------------------------
 
 class TestScanAndResolve:
-    def test_uses_portable_broken_link_seam(self):
-        assert fix_links.check_broken_wikilinks.__module__ == "_portable.links"
-
     def test_cli_refuses_stale_compiled_router_before_scanning(
         self, vault, monkeypatch, capsys
     ):
@@ -76,7 +73,7 @@ class TestScanAndResolve:
             "load_fresh_compiled_router",
             lambda _vault_root: {"error": "Compiled router cache is stale or unreadable (artefact-index-count-drift)."},
         )
-        monkeypatch.setattr(fix_links, "check_broken_wikilinks", fail_if_called)
+        monkeypatch.setattr(fix_links, "build_vault_file_index", fail_if_called)
         monkeypatch.setattr(
             sys,
             "argv",

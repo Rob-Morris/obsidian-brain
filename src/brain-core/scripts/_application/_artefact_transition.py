@@ -125,6 +125,7 @@ def execute_transition(
     from ._transition_indexes import combine_transition_errors, transition_error
     from _common import (
         MutationLockError,
+        NonStandardVaultTextError,
         ParentChainError,
         PartialApplyError,
         parent_chain_error_message,
@@ -141,7 +142,7 @@ def execute_transition(
         )
     vault_root = str(context.selected_brain.vault_root)
     from .workspace_transitions import (prepare_workspace_transition,
-        transition_effect_snapshot, committed_transition_effects)
+        transition_effect_snapshot, committed_transition_effects, transition_conversion_warnings)
 
     try:
         with vault_mutation_lock(vault_root):
@@ -154,6 +155,8 @@ def execute_transition(
                 frozen = context.admission.frozen_inputs if context.admission else None
                 plan, _frozen = planner(context, request, router, frozen_inputs=frozen)
                 plan, effective = prepare_workspace_transition(context, request, router, plan)
+                from .preparation_transition import require_inspected_transition
+                require_inspected_transition(plan)
                 admit_owner(context, request, transition_binding, plan=plan, router=router, effective=effective)
                 effects_before = transition_effect_snapshot(context, plan)
                 raw_result = apply_plan(vault_root, plan)
@@ -189,17 +192,19 @@ def execute_transition(
             request.COMMAND_ID,
             request.COMMAND_VERSION,
             transition_error(exc),
-            effects, mutation_context=effective,
+            effects, warnings=transition_conversion_warnings(plan, effects_before, effects=effects), mutation_context=effective,
         )
     except FileNotFoundError as exc:
         return no_effect_error(type(request), ErrorCode.NOT_FOUND, str(exc))
     except FileExistsError as exc:
         return no_effect_error(type(request), ErrorCode.CONFLICT, str(exc))
+    except NonStandardVaultTextError:
+        raise
     except ValueError as exc:
         return no_effect_error(type(request), ErrorCode.INVALID_REQUEST, str(exc))
 
     payload = replace(payload_builder(raw_result), mutation_context=effective)
-    warnings = _warnings(payload)
+    warnings = _warnings(payload) + transition_conversion_warnings(plan, effects_before)
     subject = effect_subject(payload)
     return Ok(
         request.COMMAND_ID,
