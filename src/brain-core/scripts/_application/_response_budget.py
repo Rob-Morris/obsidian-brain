@@ -61,7 +61,7 @@ def decode_text_cursor(value):
 
 
 def bounded_text_result(request_type, content, revision, *, cursor, max_characters, payload,
-                        byte_budget=MODEL_TEXT_BUDGET):
+                        byte_budget=MODEL_TEXT_BUDGET, warnings=()):
     """Return the largest requested prefix that fits, preserving source revision."""
     if cursor is not None and cursor.revision != revision:
         return request_error(request_type, ErrorCode.CONFLICT,
@@ -75,7 +75,7 @@ def bounded_text_result(request_type, content, revision, *, cursor, max_characte
         window = ContentRange(start, end, len(content),
                               TextCursor(revision, end) if end < len(content) else None)
         return Ok(request_type.COMMAND_ID, request_type.COMMAND_VERSION,
-                  payload(content[start:end], window))
+                  payload(content[start:end], window), warnings=warnings)
 
     low, high = start, min(len(content), start + max_characters)
     result = candidate(high)

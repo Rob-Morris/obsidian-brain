@@ -40,13 +40,13 @@ def _find_type_exact(router, type_key):
     return metadata
 
 
-def read_type_exact(router, vault_root, type_key):
+def read_type_exact(router, vault_root, type_key, *, convert_lossless=False):
     metadata = _find_type_exact(router, type_key)
     if isinstance(metadata, dict) and "error" in metadata:
         return metadata
     taxonomy_path = metadata.get("taxonomy_file")
     definition = (
-        read_file_content(vault_root, taxonomy_path) if taxonomy_path else None
+        read_file_content(vault_root, taxonomy_path, convert_lossless=convert_lossless) if taxonomy_path else None
     )
     return metadata, definition
 
@@ -77,14 +77,14 @@ def list_templates(router, query=None, *, resolve_paths=False):
     return resources
 
 
-def read_template_exact(router, vault_root, type_key):
+def read_template_exact(router, vault_root, type_key, *, convert_lossless=False):
     metadata = _find_type_exact(router, type_key)
     if isinstance(metadata, dict) and "error" in metadata:
         return metadata
     template_path = metadata.get("template_file")
     if not template_path:
         return {"error": f"Artefact type '{type_key}' has no template file"}
-    return metadata, read_file_content(vault_root, template_path)
+    return metadata, read_file_content(vault_root, template_path, convert_lossless=convert_lossless)
 
 
 def read_type_compatible(router, type_reference):
@@ -114,13 +114,13 @@ def list_types_from_vault(vault_root, query=None):
     return list_types(_load(vault_root), query)
 
 
-def read_type_exact_from_vault(vault_root, type_key):
-    return read_type_exact(_load(vault_root), vault_root, type_key)
+def read_type_exact_from_vault(vault_root, type_key, *, convert_lossless=False):
+    return read_type_exact(_load(vault_root), vault_root, type_key, convert_lossless=convert_lossless)
 
 
 def list_templates_from_vault(vault_root, query=None):
     return list_templates(_load(vault_root), query, resolve_paths=True)
 
 
-def read_template_exact_from_vault(vault_root, type_key):
-    return read_template_exact(_load(vault_root), vault_root, type_key)
+def read_template_exact_from_vault(vault_root, type_key, *, convert_lossless=False):
+    return read_template_exact(_load(vault_root), vault_root, type_key, convert_lossless=convert_lossless)
