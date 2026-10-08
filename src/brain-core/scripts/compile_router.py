@@ -13,6 +13,7 @@ Usage:
 
 import argparse
 import hashlib
+import io
 import json
 import os
 import re
@@ -48,6 +49,9 @@ from _common import (
     validate_naming_pattern,
 )
 from _common._artefacts import pattern_has_date_tokens
+from _common._frontmatter import _read_frontmatter_stream
+from _common._text_encoding import diagnose_text
+from _lifecycle.router_errors import UnreadableRouterSourceError
 from _repair_common import build_repair_command
 import compile_colours
 import session
@@ -836,10 +840,16 @@ def parse_taxonomy_content(content):
     return result
 
 
+def _read_router_source(path):
+    try:
+        return Path(path).read_text(encoding="utf-8")
+    except UnicodeDecodeError as exc:
+        raise UnreadableRouterSourceError(str(path), diagnose_text(exc.object)) from exc
+
+
 def parse_taxonomy_file(path):
     """Parse a taxonomy file into the compiled artefact-type contract."""
-    with open(path, "r", encoding="utf-8") as f:
-        return parse_taxonomy_content(f.read())
+    return parse_taxonomy_content(_read_router_source(path))
 
 
 def infer_trigger_category(condition):
@@ -858,8 +868,7 @@ def infer_trigger_category(condition):
 
 def parse_router(path):
     """Parse _Config/router.md into always_rules and conditional triggers."""
-    with open(path, "r", encoding="utf-8") as f:
-        content = f.read()
+    content = _read_router_source(path)
 
     always_rules = []
     conditionals = []
@@ -1012,7 +1021,8 @@ def _parse_memory_triggers(path):
           - a
           - b
     """
-    triggers = read_frontmatter(path).get("triggers")
+    fields = _read_frontmatter_stream(io.StringIO(_read_router_source(path)))
+    triggers = fields.get("triggers")
     return list(triggers) if isinstance(triggers, list) else []
 
 

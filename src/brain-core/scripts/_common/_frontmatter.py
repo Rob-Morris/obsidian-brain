@@ -155,22 +155,26 @@ def inspect_duplicate_frontmatter_document(text):
     }
 
 
+def _read_frontmatter_stream(stream):
+    first = stream.readline().removeprefix(BYTE_ORDER_MARK)
+    if first.strip() != "---":
+        return {}
+    lines = []
+    for line in stream:
+        if line.rstrip("\n").strip() == "---":
+            return _parse_yaml_lines("\n".join(lines))
+        lines.append(line.rstrip("\n"))
+    return {}
+
+
 def read_frontmatter(path):
     """Read frontmatter from a markdown file, stopping at the closing ``---``.
 
     Returns a fields dict, or ``{}`` when frontmatter is absent or unterminated.
     Use :func:`read_artefact` when the body is also needed.
     """
-    with open(path, "r", encoding="utf-8") as f:
-        first = f.readline().removeprefix(BYTE_ORDER_MARK)
-        if first.strip() != "---":
-            return {}
-        lines = []
-        for line in f:
-            if line.rstrip("\n").strip() == "---":
-                return _parse_yaml_lines("\n".join(lines))
-            lines.append(line.rstrip("\n"))
-    return {}
+    with open(path, "r", encoding="utf-8") as stream:
+        return _read_frontmatter_stream(stream)
 
 
 def read_artefact(path):

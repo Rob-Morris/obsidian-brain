@@ -81,6 +81,29 @@ def test_load_config_template_only(vault, monkeypatch):
     assert cfg["defaults"]["exclude"]["artefact_sync"] == []
 
 
+@pytest.mark.parametrize("relative", [".brain/config.yaml", ".brain/local/config.yaml"])
+@pytest.mark.parametrize("raw,code", [
+    (b"vault: \xff", "not_utf8"),
+    ("vault: {}\n".encode("utf-16"), "utf16_bom"),
+    ("vault: {}\n".encode("utf-32"), "utf32_bom"),
+    (b"vault: caf\xc3\xa9\xc3", "truncated_utf8"),
+    (b"vault: \x00\xff", "not_text"),
+])
+def test_config_decode_failure_names_its_layer_and_remedy(vault, relative, raw, code):
+    path = vault / relative
+    path.write_bytes(raw)
+
+    with pytest.raises(config_mod.ConfigError) as caught:
+        config_mod.load_config(str(vault))
+
+    message = str(caught.value)
+    assert relative in message
+    assert code in message
+    assert "convert the file to UTF-8 in an editor" in message
+    assert isinstance(caught.value.__cause__, UnicodeDecodeError)
+    assert path.read_bytes() == raw
+
+
 def test_config_input_paths_match_load_layers(vault, monkeypatch):
     """The public input-path helper exposes the exact three load layers."""
     template = str(vault / ".brain-core" / "defaults" / "config.yaml")
