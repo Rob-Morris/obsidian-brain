@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from .._text_warnings import raise_nonstandard_text_error
+
 from dataclasses import dataclass, replace
 from enum import Enum
 from typing import ClassVar, Mapping
@@ -87,6 +89,7 @@ def execute(context: InvocationContext, request: ShapingStartRequest):
             "shaping.start does not support dry-run",
         )
     root = str(context.selected_brain.vault_root)
+    warnings = ()
 
     try:
         with vault_mutation_lock(root):
@@ -109,6 +112,9 @@ def execute(context: InvocationContext, request: ShapingStartRequest):
                 )
             finally:
                 effects = committed_session_effects(context, request, plan, before)
+                if plan["lifecycle"]:
+                    from ..workspace_transitions import transition_conversion_warnings
+                    warnings = transition_conversion_warnings(plan["lifecycle"], before, effects=effects)
                 if context.derived_snapshots is not None:
                     context.derived_snapshots.invalidate()
     except MutationLockError as exc:
@@ -120,7 +126,7 @@ def execute(context: InvocationContext, request: ShapingStartRequest):
         )
     except IndexRefreshIncomplete as exc:
         return WorkspaceMutationPartial(request.COMMAND_ID, request.COMMAND_VERSION, index_refresh_error(exc),
-            effects, mutation_context=plan["mutation_context"])
+            effects, warnings=warnings, mutation_context=plan["mutation_context"])
     except PartialApplyError as exc:
         message = public_mutation_error_message(exc)
         if not effects:
@@ -133,7 +139,7 @@ def execute(context: InvocationContext, request: ShapingStartRequest):
                 message,
                 RequestErrorDetails(None, message),
             ),
-            effects, mutation_context=plan["mutation_context"],
+            effects, warnings=warnings, mutation_context=plan["mutation_context"],
         )
     except FileNotFoundError as exc:
         return no_effect_error(
@@ -143,6 +149,7 @@ def execute(context: InvocationContext, request: ShapingStartRequest):
             "target",
         )
     except ValueError as exc:
+        raise_nonstandard_text_error(exc)
         return no_effect_error(
             ShapingStartRequest,
             ErrorCode.INVALID_REQUEST,
@@ -173,6 +180,7 @@ def execute(context: InvocationContext, request: ShapingStartRequest):
         request.COMMAND_VERSION,
         payload,
         committed_effects=effects,
+        warnings=warnings,
     )
 
 

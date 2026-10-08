@@ -21,7 +21,9 @@ from dataclasses import dataclass
 
 from _common._wikilinks import WikilinkRewritePlan, plan_wikilink_rewrites, apply_wikilink_rewrites
 
-from _portable.links import check_broken_wikilinks
+from _common._artefacts import read_exact_file_content
+from _common._document_revision import NonStandardVaultTextError
+from _common._wikilinks import iter_vault_md_files, require_readable_wikilink_plan
 from _lifecycle.derived_cache_state import (
     inspect_lexical_cache,
     load_fresh_compiled_router,
@@ -35,10 +37,8 @@ from _common import (
     find_vault_root,
     make_wikilink_replacer,
     overlay_file_index_result,
-    replace_wikilinks_in_text,
     replace_wikilinks_in_vault,
     resolve_broken_link,
-    safe_write_artefact,
 )
 
 
@@ -111,8 +111,8 @@ def _attach_wikilink_warnings(vault_root, result, apply_fixes=False, file_index=
     path = result["path"]
     vault_root = str(vault_root)
     try:
-        with open(os.path.join(vault_root, path), "r", encoding="utf-8") as handle:
-            text = handle.read()
+        text = read_exact_file_content(
+            os.path.join(vault_root, path), convert_lossless=True)
     except OSError:
         raise
     if "[[" not in text:
@@ -185,20 +185,15 @@ def apply_fixes_to_file(vault_root, rel_path, fixes, links_filter=None):
     pattern = build_wikilink_pattern(*stem_map.keys())
     replacer = make_wikilink_replacer(stem_map)
 
-    abs_path = os.path.join(vault_root, rel_path)
-    try:
-        with open(abs_path, "r", encoding="utf-8") as f:
-            content = f.read()
-    except OSError:
-        return 0
-    new_content, count = replace_wikilinks_in_text(content, pattern, replacer)
-    if count > 0:
-        safe_write_artefact(abs_path, new_content, bounds=vault_root)
-    return count
+    return apply_wikilink_rewrites(vault_root, plan_wikilink_rewrites(
+        vault_root, pattern, replacer, paths=(rel_path,)))
 
 
-def scan_and_resolve(vault_root, router=None):
+def scan_and_resolve(vault_root, router=None, *, for_mutation=True):
     """Scan for broken wikilinks vault-wide and attempt resolution.
+
+    Read-only callers skip non-standard sources; mutation planning requires a
+    complete readable workset and may consume lossless text for later writes.
 
     Returns a dict with:
         fixed     — list of {target, resolved_to, strategy, ref_count, file_count}
@@ -212,8 +207,27 @@ def scan_and_resolve(vault_root, router=None):
         raise ValueError(router["error"])
 
     file_index = build_vault_file_index(vault_root)
-    findings = check_broken_wikilinks(vault_root, router, file_index=file_index)
-    broken = [f for f in findings if f["check"] == "broken_wikilinks"]
+    broken, unreadable, failure_details = [], [], []
+    temporal_prefixes = discover_temporal_prefixes(file_index["md_basenames"])
+    for directory, name in iter_vault_md_files(vault_root):
+        path = os.path.relpath(os.path.join(directory, name), vault_root)
+        try:
+            text = read_exact_file_content(os.path.join(directory, name),
+                                           convert_lossless=for_mutation)
+        except (NonStandardVaultTextError, OSError) as exc:
+            unreadable.append(f"{path}: {exc}")
+            from _common import vault_text_failure
+            failure_details.append(vault_text_failure(path, exc))
+            continue
+        findings = check_wikilinks_in_file(
+            vault_root, path, file_index=file_index,
+            temporal_prefixes=temporal_prefixes, text=text)
+        broken.extend({**item, "file": path} for item in findings
+                      if not (item["status"] == "ambiguous"
+                              and item["strategy"] == "ambiguous"))
+    if for_mutation:
+        require_readable_wikilink_plan(WikilinkRewritePlan((), tuple(sorted(unreadable)),
+                                                           failure_details=tuple(failure_details)))
 
     # Group broken findings by target stem
     target_refs = {}  # stem → list of source files
@@ -264,7 +278,7 @@ def scan_and_resolve(vault_root, router=None):
     }
 
 
-def scan_file(vault_root, rel_path, router=None):
+def scan_file(vault_root, rel_path, router=None, *, for_mutation=True):
     """Scan a single file and return a result dict mirroring scan_and_resolve.
 
     Uses the vault-wide file index so resolution strategies work identically.
@@ -274,10 +288,18 @@ def scan_file(vault_root, rel_path, router=None):
     file_index = build_vault_file_index(vault_root)
     temporal_prefixes = discover_temporal_prefixes(file_index["md_basenames"])
 
-    findings = check_wikilinks_in_file(
-        vault_root, rel_path,
-        file_index=file_index, temporal_prefixes=temporal_prefixes,
-    )
+    try:
+        text = read_exact_file_content(os.path.join(vault_root, rel_path),
+                                       convert_lossless=for_mutation)
+    except (NonStandardVaultTextError, OSError):
+        if for_mutation:
+            raise
+        findings = []
+    else:
+        findings = check_wikilinks_in_file(
+            vault_root, rel_path, text=text,
+            file_index=file_index, temporal_prefixes=temporal_prefixes,
+        )
 
     fixed = []
     ambiguous = []
@@ -342,6 +364,7 @@ def plan_link_fixes(vault_root, *, path=None, links_filter=(), router=None):
 
 def apply_link_fix_plan(vault_root, plan, *, dry_run=False):
     """Return the planned observation or persist exactly its matching writes."""
+    require_readable_wikilink_plan(plan.rewrites)
     substitutions = 0 if dry_run else apply_wikilink_rewrites(vault_root, plan.rewrites)
     return {**plan.result, "substitutions": substitutions}
 
@@ -386,7 +409,8 @@ def main():
     vault_root = vault_path if vault_path else str(find_vault_root())
 
     try:
-        result = scan_and_resolve(vault_root)
+        plan = plan_link_fixes(vault_root)
+        result = apply_link_fix_plan(vault_root, plan, dry_run=not do_fix)
     except ValueError as exc:
         if json_mode:
             print(json.dumps({"error": str(exc)}))
@@ -394,10 +418,6 @@ def main():
             print(f"Error: {exc}", file=sys.stderr)
         sys.exit(1)
     summary = result["summary"]
-
-    if do_fix and result["fixed"]:
-        total_subs = apply_fixes(vault_root, result["fixed"])
-        result["substitutions"] = total_subs
 
     if json_mode:
         result["vault_root"] = vault_root

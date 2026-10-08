@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from ._text_warnings import raise_nonstandard_text_error
+
 from dataclasses import dataclass
 from ._mutation_support import (
     FrontmatterField,
@@ -98,6 +100,7 @@ def execute_named_create_values(
             retryable=True,
         )
     except ValueError as exc:
+        raise_nonstandard_text_error(exc)
         return no_effect_error(
             type(request),
             ErrorCode.INVALID_REQUEST,

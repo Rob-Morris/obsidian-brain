@@ -13,14 +13,23 @@ def conversion_warnings(path, code):
 
 
 def text_refusal(command_id, version, exc, vault_root):
-    path = Path(exc.source_path)
-    try:
-        path = path.relative_to(Path(vault_root).resolve())
-    except ValueError:
-        pass
-    path = path.as_posix()
-    message = f"Cannot read '{path}': {exc.code}; use {exc.remedy}."
-    arguments = (CommandArgument("paths", (path,)),) if exc.remedy == "vault.repair-text" else ()
+    from _common._document_revision import UnreadableVaultTextFilesError
+    def relative(path):
+        path = Path(path)
+        try:
+            path = path.relative_to(Path(vault_root).resolve())
+        except ValueError:
+            pass
+        return path.as_posix()
+    if isinstance(exc, UnreadableVaultTextFilesError):
+        paths = tuple(relative(path) for path, _, _ in exc.failures)
+        message = "Cannot inspect vault text: " + "; ".join(
+            f"{relative(path)}: {code}; {detail}" for path, code, detail in exc.failures)
+    else:
+        path = relative(exc.source_path)
+        paths = (path,)
+        message = f"Cannot read '{path}': {exc.code}; use {exc.remedy}."
+    arguments = (CommandArgument("paths", paths),) if exc.remedy == "vault.repair-text" else ()
     return Error(command_id, version, CommandError(
         ErrorCode.CONFLICT, message, RequestErrorDetails("paths", message),
         CommandNextAction(exc.remedy, arguments)))

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+
 from .._decoding import decode_empty
 from dataclasses import dataclass
 from typing import ClassVar, Mapping

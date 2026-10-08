@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from ._text_warnings import raise_nonstandard_text_error
+
 from dataclasses import dataclass
 
 from ._mutation_support import (
@@ -122,6 +124,7 @@ def execute_definition(
     except FileNotFoundError as exc:
         return no_effect_error(type(request), ErrorCode.NOT_FOUND, str(exc))
     except ValueError as exc:
+        raise_nonstandard_text_error(exc)
         return no_effect_error(type(request), ErrorCode.INVALID_REQUEST, str(exc))
 
     payload = DefinitionMutationPayload(
@@ -200,6 +203,7 @@ def execute_type_definition(
     except FileNotFoundError as exc:
         return no_effect_error(type(request), ErrorCode.NOT_FOUND, str(exc))
     except ValueError as exc:
+        raise_nonstandard_text_error(exc)
         return no_effect_error(type(request), ErrorCode.INVALID_REQUEST, str(exc))
 
     payload = TypeDefinitionMutationPayload(

@@ -86,6 +86,10 @@ def execute_definition_sync(
             except sync_definitions.UnknownLibraryType as exc:
                 return no_effect_error(type(request), ErrorCode.NOT_FOUND, str(exc), "type_key")
             except (OSError, ValueError) as exc:
+                from _lifecycle.router_errors import UnreadableRouterSourceError
+                if isinstance(exc, UnreadableRouterSourceError):
+                    from _common import NonStandardVaultTextError
+                    raise NonStandardVaultTextError(exc.path, exc.diagnosis.code) from exc
                 return no_effect_error(type(request), ErrorCode.CONFLICT, str(exc))
             if state is TypeDefinitionState.NOT_INSTALLABLE:
                 return no_effect_error(type(request), ErrorCode.CONFLICT, reason)
@@ -219,6 +223,11 @@ def plan_sync_request(context, request, *, frozen_inputs=None):
     plan = sync_definitions.plan_sync_definitions(
         str(context.selected_brain.vault_root), dry_run=context.dry_run,
         force=request.force, types=[request.type_key], preference="ask", effective_at=effective_at)
+    from _common import read_exact_file_content
+    for path in plan.targets:
+        target = context.selected_brain.vault_root / path
+        if target.is_file():
+            read_exact_file_content(target)
     return plan, frozen
 
 
