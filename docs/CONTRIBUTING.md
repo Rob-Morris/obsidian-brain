@@ -111,7 +111,7 @@ Link policy for shipped docs:
 
 ## Versioning
 
-A change under `src/brain-core/`, including a doc-only edit, is versioned when it is promoted to `main`. Development commits on `dev` do not bump `src/brain-core/VERSION`. If it ships in `.brain-core/`, the promotion that includes it gets a version bump — no exceptions. Also bump it for end-user install or upgrade contract changes (`install.sh`, installer docs, upgrade entry-point guidance) even when those files live outside `src/brain-core/`, because they change the released product surface. This repo uses a pre-1.0 [semver](https://semver.org/) policy:
+A change under `src/brain-core/`, including a doc-only edit, is versioned when it is promoted to `main`. Development commits normally defer version declarations to promotion. A coherent proposed Core, CLI or proxy increment may be committed early; it remains unreleased until promotion validates and certifies the bundle. If it ships in `.brain-core/`, the promotion that includes it gets a version bump — no exceptions. Also bump it for end-user install or upgrade contract changes (`install.sh`, installer docs, upgrade entry-point guidance) even when those files live outside `src/brain-core/`, because they change the released product surface. This repo uses a pre-1.0 [semver](https://semver.org/) policy:
 
 | Bump | When |
 |---|---|
@@ -164,7 +164,7 @@ candidate; local pre-commit verification remains a separate policy.
 
 Ordinary work happens on `dev`, or on a short-lived feature branch that is
 merged into `dev` before promotion. Development commits use `WIP:`, `docs:`,
-`test:`, or `chore:` and do not bump `src/brain-core/VERSION`. The pre-commit
+`test:`, or `chore:` and normally defer version declarations to promotion. The pre-commit
 hook on `dev` omits that staged version-bump check. It still runs the other
 repository contracts. Ordinary commits on `main` are rejected.
 
@@ -192,6 +192,27 @@ commit already on `unreleased` whose candidate CI passed. `adopt` aligns a
 loser with that ledger and replays only their extra `dev` commits. A tail
 must be a linear run of ordinary commits. Feature merges belong at or before
 the cut.
+
+Promotion compares the selected cut with the last release, independently of any
+version proposals on its excluded tail. A component still at its released
+version takes the explicitly requested version, or retains its version for an
+unchanged helper. A component already incremented in the cut must agree with
+the requested version; omitted helper versions retain the cut declaration.
+Downgrades, conflicting proposals and incoherent bundles are refused. Core
+must advance. An already-authored Core release retains its changelog entry
+and must match the requested Summary. Preparation synchronises known version
+references; compatibility classification and deciding which components need
+bumps remain contributor judgements, not guesses from changed file counts.
+
+When promotion needs a prerequisite correction, make it a separate coherent
+slice based on the released ledger, certify it as a patch, then replay pending
+work onto that patch before cutting feature releases. Retain old development
+history as provenance and use expected-SHA transitions; do not force-push an
+unreviewed history rewrite. Corrections to an unpublished candidate use the
+same intended version after explicit discard and recreation. A candidate with
+failed CI cannot be finished merely to parent a later fix release. Use a new
+patch after a certified version when the correction is independently
+releasable. Publishing main remains a separate authorised step.
 
 Finish observes CI once and refuses pending or missing results. Use the bounded
 `check_ci.py --wait` command in the post-push standard when monitoring is wanted.

@@ -33,6 +33,33 @@ def require_same_release_facts(root: Path, *revs: str):
     return facts[0]
 
 
+def require_release_intent(
+    root: Path, ledger: str, cut: str, tip: str, *,
+    core_version: str, cli_version: str | None, proxy_version: str | None,
+) -> None:
+    """Validate proposed versions against the ledger and selected cut, not its tail."""
+    previous, source, tail = [release.release_facts(root, rev) for rev in (ledger, cut, tip)]
+    if not all(item.coherent for item in (previous, source, tail)):
+        raise PromotionError("release facts are incoherent at the cut, tip, or ledger")
+    for name, baseline, declared, requested in (
+        ("Core", previous.core, source.core, core_version),
+        ("CLI", previous.cli_unix, source.cli_unix, cli_version or source.cli_unix),
+        ("proxy", previous.proxy, source.proxy, proxy_version or source.proxy),
+    ):
+        if baseline is None or declared is None or requested is None:
+            raise PromotionError(f"{name} version is not uniquely readable")
+        if version_tuple(declared) < version_tuple(baseline):
+            raise PromotionError(f"{name} declaration {declared} is below ledger {baseline}")
+        if version_tuple(requested) < version_tuple(baseline):
+            raise PromotionError(f"{name} request {requested} is below ledger {baseline}")
+        if declared != baseline and requested != declared:
+            raise PromotionError(
+                f"{name} request {requested} conflicts with cut declaration {declared}"
+            )
+    if version_tuple(core_version) <= version_tuple(previous.core):
+        raise PromotionError("candidate version must be greater than its ledger parent")
+
+
 def content_tail(root: Path, cut: str, tail: list[GitCommit]) -> list[GitCommit]:
     """Return content commits, skipping provenance commits whose tree matches their first parent."""
     previous = cut
@@ -165,15 +192,16 @@ def validate_candidate(root: Path, candidate: GitCommit, branch: str | None = No
     ledger = candidate.parents[0]
     if not on_first_parent_line(root, tip, cut) or not on_first_parent_line(root, cut, ledger):
         raise PromotionError("candidate source must follow its ledger on the dev first-parent line")
-    previous = require_same_release_facts(root, ledger, cut, tip)
     facts = release.release_facts(root, candidate.sha)
-    if not facts.coherent or not facts.core or not previous.core:
+    if not facts.coherent or not facts.core:
         raise PromotionError("candidate release facts are incoherent")
+    require_release_intent(
+        root, ledger, cut, tip, core_version=facts.core,
+        cli_version=facts.cli_unix, proxy_version=facts.proxy,
+    )
     expected_branch = promotion_branch(facts.core)
     if branch is not None and branch != expected_branch:
         raise PromotionError(f"candidate version requires {expected_branch}, not {branch}")
-    if version_tuple(facts.core) <= version_tuple(previous.core):
-        raise PromotionError("candidate version must be greater than its ledger parent")
     entry = git.run(root, "show", f"{candidate.sha}:docs/changelog/v{facts.core}.md").stdout
     summary = release.release_summary(entry, facts.core)
     if not summary or candidate.subject != f"{summary} (v{facts.core})":

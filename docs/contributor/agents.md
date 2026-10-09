@@ -153,7 +153,10 @@ Why this matters:
 ## Deterministic repository contracts
 
 Work on `dev`. Development commits use `WIP:`, `docs:`, `test:`, or `chore:`
-and do not bump `src/brain-core/VERSION`. The pre-commit hook passes
+and normally defer version declarations to promotion. Coherent proposed
+increments are permitted; promotion validates them against the released ledger
+and selected cut, rejecting conflicting intent. See CONTRIBUTING.md for
+version proposals and prerequisite patch sequencing. The pre-commit hook passes
 `--policy development` on `dev`, so the staged version-bump predicate is
 omitted there, and it reads `.canaries/pre-commit-development.md`. Ordinary
 commits on `main` are rejected. A version is cut with
