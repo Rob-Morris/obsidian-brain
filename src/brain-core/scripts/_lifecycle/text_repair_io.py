@@ -380,7 +380,6 @@ def repair_candidate(root: str | Path, relative: str, expected_digest: str,
     Post-commit failures carry committed=True; False means no target replacement.
     This is not a compare-and-swap against concurrent edits of the final file.
     """
-    committed = False
     try:
         root, parts = _paths(root, relative)
         if os.name == "posix":
@@ -390,9 +389,7 @@ def repair_candidate(root: str | Path, relative: str, expected_digest: str,
         raise ValueError(f"unsupported platform: {os.name}")
     except TextRepairIOError:
         raise
-    except FileNotFoundError as exc:
-        if committed:
-            raise TextRepairIOError(relative, exc, committed=True) from exc
+    except FileNotFoundError:
         return False
     except (OSError, ValueError) as exc:
-        raise TextRepairIOError(relative, exc, committed=committed) from exc
+        raise TextRepairIOError(relative, exc) from exc

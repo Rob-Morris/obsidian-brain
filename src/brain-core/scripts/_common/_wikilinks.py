@@ -216,8 +216,13 @@ class WikilinkRewritePlan:
 
     writes: tuple[WikilinkRewrite, ...]
     unreadable: tuple[str, ...] = ()
-    conversions: tuple[tuple[str, str], ...] = ()
     failure_details: tuple[tuple[str, str, str], ...] = ()
+
+    @property
+    def conversions(self):
+        """Encoding conversions implied by the planned writes."""
+        return tuple((write.path, write.conversion_code) for write in self.writes
+                     if write.conversion_code)
 
 
 def plan_wikilink_rewrites(vault_root, pattern, replacement, *, paths=None,
@@ -250,8 +255,7 @@ def plan_wikilink_rewrites(vault_root, pattern, replacement, *, paths=None,
             writes.append(WikilinkRewrite(path, before, after, count, before.conversion_code))
     return WikilinkRewritePlan(
         tuple(writes), tuple(unreadable),
-        tuple((write.path, write.conversion_code) for write in writes
-              if write.conversion_code), tuple(failures))
+        failure_details=tuple(failures))
 
 
 def require_readable_wikilink_plan(plan):
