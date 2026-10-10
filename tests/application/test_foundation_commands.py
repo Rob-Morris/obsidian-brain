@@ -105,7 +105,7 @@ def test_command_list_owner_and_availability_filters_are_honest(tmp_path):
     available = application.invoke(
         CommandListRequest(availability=Availability.AVAILABLE)
     )
-    summary_match = application.invoke(CommandListRequest(query="concise"))
+    summary_match = application.invoke(CommandListRequest(query="call names"))
 
     assert launcher.result.entries == ()
     assert summary_match.result.command_ids == ("command.list",)

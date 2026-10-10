@@ -8,8 +8,9 @@ import os
 import shlex
 import re
 import sys
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Literal, Optional, Tuple
 
 from _bootstrap.runtime import find_launcher_python
 from _bootstrap.workspace_binding import (
@@ -18,7 +19,7 @@ from _bootstrap.workspace_binding import (
     read_workspace_manifest,
     resolve_local_brain_vault,
 )
-from _common import is_brain_vault, safe_write, safe_write_json
+from _common import is_brain_vault, safe_write, safe_write_json, safe_write_via
 
 
 BRAIN_SERVER_NAME = "brain"
@@ -41,6 +42,130 @@ INIT_STATE_VERSION = 1
 
 CLAUDE_MD_BOOTSTRAP_VAULT = "ALWAYS DO FIRST: Call MCP `session_start`, else read `.brain-core/index.md` if it exists."
 CLAUDE_MD_BOOTSTRAP_PROJECT = "ALWAYS DO FIRST: Call MCP `session_start`; if MCP is unavailable, run `brain session start --json` from this workspace."
+
+
+@dataclass(frozen=True)
+class BootstrapLineRelease:
+    """One bootstrap line Brain wrote for a target kind, and the releases that wrote it."""
+
+    line: str
+    target: Literal["vault", "project"]
+    first_version: str
+    last_version: str | None  # None while the line is current
+
+
+# Every whole line Brain has written as its agent bootstrap line, oldest first: MCP
+# registration (`CLAUDE.md`, `.claude/CLAUDE.local.md`), workspace bootstrap (`CLAUDE.md`,
+# `AGENTS.md`) and the template vault's `AGENTS.md`. The set is closed: Brain owns exactly
+# these lines, and any other line, including an edited copy, belongs to the user. The looser
+# variants that historical migrations also recognise are deliberately outside it.
+# `target` is the kind a line was written for; `configure.py` also wrote the vault lines into
+# workspace `AGENTS.md` (from 0.44.0) until that file got the workspace line.
+# To change a current line, close its row and append the new one. Ownership records may then
+# hold the closed line: `read_records` accepts any line in the set, and the next repair
+# converges both the file and the record on the new line.
+# Init-state records carry `bootstrap_line` from 0.27.0, so lines retired before then occur
+# only in files.
+BOOTSTRAP_LINE_HISTORY: tuple[BootstrapLineRelease, ...] = (
+    BootstrapLineRelease('If brain MCP tools are available, call brain_read(resource="router") at session start.', "vault", "0.10.0", "0.23.6"),
+    BootstrapLineRelease('If brain MCP tools are available, call brain_read(resource="router") at session start.', "project", "0.10.0", "0.23.6"),
+    BootstrapLineRelease("ALWAYS DO FIRST: Call brain_session. Read [[.brain-core/index]]", "vault", "0.24.0", "0.24.12"),
+    BootstrapLineRelease("ALWAYS DO FIRST: Call brain_session", "project", "0.24.0", "0.48.9"),
+    BootstrapLineRelease("ALWAYS DO FIRST: Call MCP `brain_session`, else read `.brain-core/index.md` if it exists.", "vault", "0.25.1", "0.54.59"),
+    BootstrapLineRelease("ALWAYS DO FIRST: Call MCP `brain_session`; if MCP is unavailable, run `brain session --json` from this workspace.", "project", "0.48.10", "0.54.59"),
+    BootstrapLineRelease("ALWAYS DO FIRST: Call MCP `session.start`, else read `.brain-core/index.md` if it exists.", "vault", "0.55.0", "0.63.0"),
+    BootstrapLineRelease("ALWAYS DO FIRST: Call MCP `session.start`; if MCP is unavailable, run `brain session start --json` from this workspace.", "project", "0.55.0", "0.63.0"),
+    BootstrapLineRelease(CLAUDE_MD_BOOTSTRAP_VAULT, "vault", "0.64.0", None),
+    BootstrapLineRelease(CLAUDE_MD_BOOTSTRAP_PROJECT, "project", "0.64.0", None),
+)
+BRAIN_BOOTSTRAP_LINES = frozenset(release.line for release in BOOTSTRAP_LINE_HISTORY)
+
+
+def is_owned_bootstrap_line(value: Any) -> bool:
+    """Whether ownership evidence names a line Brain itself has written; an edited copy is the user's."""
+    return isinstance(value, str) and value in BRAIN_BOOTSTRAP_LINES
+
+
+def _text_lines(content: str) -> list[str]:
+    """Split on ``\n`` only, keeping each line's own ending, so joining restores every byte."""
+    return re.findall(r"[^\n]*\n|[^\n]+\Z", content)
+
+
+def _brain_line(item: str) -> bool:
+    return item.rstrip("\r\n").strip() in BRAIN_BOOTSTRAP_LINES
+
+
+def converge_bootstrap_text(content: str, line: str) -> str:
+    """Bring a file's Brain bootstrap line to ``line``, keeping every other byte.
+
+    The first line in the closed set becomes ``line`` in place, keeping its
+    indentation and line ending; later ones are dropped. Any other line,
+    including an edited copy, is kept. A file holding no Brain line gets
+    ``line`` appended.
+    """
+    kept: list[str] = []
+    found = False
+    for item in _text_lines(content):
+        if not _brain_line(item):
+            kept.append(item)
+        elif not found:
+            text = item.rstrip("\r\n")
+            indent = text[: len(text) - len(text.lstrip())]
+            kept.append(indent + line + item[len(text):])
+            found = True
+    if found:
+        return "".join(kept)
+    if not content:
+        return f"{line}\n"
+    separator = "\n" if content.endswith("\n") else "\n\n"
+    return f"{content}{separator}{line}\n"
+
+
+BOOTSTRAP_FILE_UNCHANGED = "unchanged"
+BOOTSTRAP_FILE_CREATED = "created"
+BOOTSTRAP_FILE_APPENDED = "appended"
+BOOTSTRAP_FILE_UPDATED = "updated"
+
+
+def converge_bootstrap_file(path: Path, line: str, *, before_write=None) -> str:
+    """Converge the file at ``path`` on ``line`` and say what changed.
+
+    Reads and writes bytes, so ``converge_bootstrap_text``'s promise to keep
+    every other byte (line endings included) holds on disk. Returns one of
+    the ``BOOTSTRAP_FILE_*`` outcomes; ``before_write`` runs once, before a
+    write. ``OSError`` and ``UnicodeDecodeError`` propagate for the caller
+    to classify.
+    """
+    try:
+        existing = path.read_bytes().decode("utf-8")
+    except FileNotFoundError:
+        existing = ""
+    updated = converge_bootstrap_text(existing, line)
+    if updated == existing:
+        return BOOTSTRAP_FILE_UNCHANGED
+    if before_write is not None:
+        before_write()
+    safe_write_via(path, lambda handle: handle.write(updated.encode("utf-8")))
+    if not existing:
+        return BOOTSTRAP_FILE_CREATED
+    if updated.startswith(existing):
+        return BOOTSTRAP_FILE_APPENDED
+    return BOOTSTRAP_FILE_UPDATED
+
+
+def remove_bootstrap_text(content: str) -> str:
+    """Remove every Brain bootstrap line, keeping every other byte.
+
+    Blank lines left at the end of the file (the separator Brain added before
+    its line) are dropped too, so an empty result means nothing else remained.
+    """
+    lines = _text_lines(content)
+    kept = [item for item in lines if not _brain_line(item)]
+    if len(kept) == len(lines):
+        return content
+    while kept and not kept[-1].strip():
+        kept.pop()
+    return "".join(kept)
 
 
 def build_mcp_config(
@@ -98,8 +223,7 @@ def resolved_target_vault_root(server_config: Any) -> Optional[Path]:
     """Resolve the effective target Brain vault for a persisted MCP config.
 
     The authoritative local binding route is the user-home vault registry via
-    ``resolve_local_brain_vault()``. ``brains.json`` is derived machine state
-    and is never consulted here for workspace routing.
+    ``resolve_local_brain_vault()``.
     """
     legacy_root = configured_vault_root(server_config)
     if legacy_root is not None:
@@ -569,7 +693,11 @@ def remove_toml_server(config_path: Path, server_config: Dict[str, Any]) -> bool
 
 
 def migrate_bootstrap_text(content: str) -> str:
-    """Replace only complete Brain-authored bootstrap lines from the dotted epoch."""
+    """Replace only complete Brain-authored bootstrap lines from the dotted epoch.
+
+    Historical: only the frozen 0.64.0 migration uses this. Current writers
+    converge through ``converge_bootstrap_text``.
+    """
     current = (
         CLAUDE_MD_BOOTSTRAP_VAULT,
         CLAUDE_MD_BOOTSTRAP_PROJECT,

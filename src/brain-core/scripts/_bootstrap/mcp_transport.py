@@ -11,6 +11,10 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 from _bootstrap.mcp_state import (
+    BOOTSTRAP_FILE_APPENDED,
+    BOOTSTRAP_FILE_CREATED,
+    BOOTSTRAP_FILE_UNCHANGED,
+    BOOTSTRAP_FILE_UPDATED,
     BRAIN_SERVER_NAME,
     CLAUDE_LOCAL_MD_FILE,
     CLAUDE_LOCAL_SETTINGS_FILE,
@@ -22,27 +26,23 @@ from _bootstrap.mcp_state import (
     CODEX_CONFIG_REL,
     INIT_STATE_REL,
     bootstrap_line_for_target,
-    migrate_bootstrap_text,
     build_mcp_config,
     build_session_hook_command,
     configured_vault_root,
+    converge_bootstrap_file,
     is_session_hook_command,
     matching_records,
     read_toml_server_config,
     record_init_target,
+    remove_bootstrap_text,
     remove_toml_server,
     remove_init_records as _remove_init_records,
     session_hook_python,
     write_toml_config,
 )
 from _bootstrap.runtime import target_managed_python
-from _bootstrap.workspace_binding import (
-    WorkspaceBindingError,
-    converge_workspace_binding,
-    resolve_local_brain_alias,
-)
 from _bootstrap.workspace_scaffold import GitInspectionError, ensure_brain_ignore_rules
-from _common import join_argv, safe_write, safe_write_json
+from _common import join_argv, safe_write_json, safe_write_via
 
 
 SUPPORTED_CLIENTS = ("claude", "codex", "grok")
@@ -308,104 +308,42 @@ def claude_project_followup_notes(target_dir: Path) -> List[str]:
     return notes
 
 
+_CLAUDE_MD_OUTCOME_INFO = {
+    BOOTSTRAP_FILE_UNCHANGED: "{} already has bootstrap line",
+    BOOTSTRAP_FILE_CREATED: "Created {} with brain bootstrap",
+    BOOTSTRAP_FILE_APPENDED: "Appended brain bootstrap to {}",
+    BOOTSTRAP_FILE_UPDATED: "Updated brain bootstrap in {}",
+}
+
+
 def ensure_claude_md(target_dir: Path, local: bool = False) -> Path:
-    bootstrap = bootstrap_line_for_target(target_dir)
     rel_path = CLAUDE_LOCAL_MD_FILE if local else CLAUDE_MD_FILE
     claude_md = target_dir / rel_path
-
-    try:
-        existing = claude_md.read_text(encoding="utf-8")
-    except FileNotFoundError:
-        existing = ""
-
-    if not existing:
-        safe_write(claude_md, f"{bootstrap}\n")
-        info(f"Created {rel_path} with brain bootstrap")
-        return claude_md
-
-    updated = migrate_bootstrap_text(existing)
-    if updated != existing:
-        safe_write(claude_md, updated)
-        existing = updated
-
-    if bootstrap in existing:
-        info(f"{rel_path} already has bootstrap line")
-        return claude_md
-
-    separator = "\n" if existing.endswith("\n") else "\n\n"
-    safe_write(claude_md, f"{existing}{separator}{bootstrap}\n")
-    info(f"Appended brain bootstrap to {rel_path}")
+    outcome = converge_bootstrap_file(claude_md, bootstrap_line_for_target(target_dir))
+    info(_CLAUDE_MD_OUTCOME_INFO[outcome].format(rel_path))
     return claude_md
 
 
-def _remove_bootstrap_line(path: Path, bootstrap: str) -> bool:
+def cleanup_claude_bootstrap(target_dir: Path, *, local: bool = False) -> bool:
+    """Remove every Brain bootstrap line from the target's Claude file (see ``remove_bootstrap_text``)."""
+    path = target_dir / (CLAUDE_LOCAL_MD_FILE if local else CLAUDE_MD_FILE)
     if not path.is_file():
         return False
-
     try:
-        lines = path.read_text(encoding="utf-8").splitlines()
-    except OSError as exc:
+        content = path.read_bytes().decode("utf-8")
+    except (OSError, UnicodeDecodeError) as exc:
         raise InitTransportError(f"failed to read {path}: {exc}") from exc
-
-    matched = any(line.strip() == bootstrap for line in lines)
-    if not matched:
+    updated = remove_bootstrap_text(content)
+    if updated == content:
         return False
-    kept = [line for line in lines if line.strip() != bootstrap]
-    while kept and not kept[-1].strip():
-        kept.pop()
-
     try:
-        if kept:
-            safe_write(path, "\n".join(kept) + "\n")
+        if updated:
+            safe_write_via(path, lambda handle: handle.write(updated.encode("utf-8")))
         else:
             _delete_file_if_exists(path)
     except OSError as exc:
         raise InitTransportError(f"failed to update {path}: {exc}") from exc
     return True
-
-
-def cleanup_claude_bootstrap(
-    target_dir: Path,
-    *,
-    local: bool = False,
-    bootstrap_line: Optional[str] = None,
-) -> bool:
-    rel_path = CLAUDE_LOCAL_MD_FILE if local else CLAUDE_MD_FILE
-    path = target_dir / rel_path
-    if bootstrap_line is not None:
-        return _remove_bootstrap_line(path, bootstrap_line)
-    lines = (
-        bootstrap_line_for_target(target_dir),
-        "ALWAYS DO FIRST: Call MCP `brain_session`, else read `.brain-core/index.md` if it exists.",
-        "ALWAYS DO FIRST: Call MCP `brain_session`; if MCP is unavailable, run `brain session --json` from this workspace.",
-    )
-    changed = False
-    for line in lines:
-        changed = _remove_bootstrap_line(path, line) or changed
-    return changed
-
-
-def _converge_workspace_manifest(
-    target_dir: Path,
-    *,
-    vault_root: Path | None = None,
-    brain_id: str | None = None,
-    allow_rebind: bool = False,
-):
-    resolved_brain = brain_id
-    if resolved_brain is None:
-        if vault_root is None:
-            raise WorkspaceBindingError(
-                "Workspace binding now requires an explicit Brain identity.\n"
-                "Pass vault_root or brain_id when converging the workspace manifest."
-            )
-        resolved_brain = resolve_local_brain_alias(vault_root)
-
-    return converge_workspace_binding(
-        target_dir,
-        brain=resolved_brain,
-        allow_rebind=allow_rebind,
-    )
 
 
 def ensure_session_start_hook(
@@ -675,11 +613,7 @@ def _remove_record(vault_root: Path, record: Dict[str, Any]) -> bool:
         if removed and target_path:
             target_dir = Path(target_path)
             try:
-                cleanup_claude_bootstrap(
-                    target_dir,
-                    local=scope == "local",
-                    bootstrap_line=record.get("bootstrap_line"),
-                )
+                cleanup_claude_bootstrap(target_dir, local=scope == "local")
             except InitTransportError as exc:
                 info(f"Warning: could not clean Claude bootstrap for {target_dir}: {exc}")
             _remove_session_start_hook(

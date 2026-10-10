@@ -129,7 +129,7 @@ class TestCheckRepairHints:
 
         finding = result["findings"][0]
         assert finding["repair"]["scope"] == "router"
-        assert "repair.py router" in finding["repair"]["command"]
+        assert "command.py runtime refresh-router" in finding["repair"]["command"]
 
     def test_registry_drift_adds_registry_repair_guidance(self, repair_vault):
         registry_path = repair_vault / ".brain" / "local" / "workspaces.json"
@@ -139,7 +139,8 @@ class TestCheckRepairHints:
 
         hit = next(f for f in result["findings"] if f["check"] == "workspace_registry")
         assert hit["repair"]["scope"] == "registry"
-        assert "repair.py registry" in hit["repair"]["command"]
+        assert "session run" not in hit["repair"]["command"]
+        assert "workspace repair-registry" in hit["repair"]["command"]
 
     def test_duplicate_frontmatter_adds_frontmatter_repair_guidance(self, repair_vault):
         (repair_vault / "Wiki" / "Broken.md").write_text(
@@ -159,7 +160,8 @@ class TestCheckRepairHints:
 
         hit = next(f for f in result["findings"] if f["check"] == "duplicate_frontmatter")
         assert hit["repair"]["scope"] == "frontmatter"
-        assert "repair.py frontmatter" in hit["repair"]["command"]
+        assert "command.py artefact repair" in hit["repair"]["command"]
+        assert "\"scope\":\"frontmatter\"" in hit["repair"]["command"]
 
     def test_legacy_index_scope_errors_with_rename_hint(self, repair_vault, capsys):
         with pytest.raises(SystemExit) as exc:
@@ -533,7 +535,9 @@ class TestCheckRepairHints:
             "semantic:semantic-sidecars-missing",
         }
         assert all(hit["repair"]["scope"] == "semantic" for hit in semantic_hits)
-        assert all("repair.py semantic" in hit["repair"]["command"] for hit in semantic_hits)
+        # An exceptional-class repair is guided through a session job (DD-082).
+        assert all("session run -- brain" in hit["repair"]["command"] for hit in semantic_hits)
+        assert all(hit["repair"]["command"].endswith("retrieval repair-semantic") for hit in semantic_hits)
 
     @pytest.mark.parametrize(
         ("model_state", "sidecars_present", "meta_payload", "expected_check"),

@@ -154,3 +154,35 @@ def test_unclassifiable_or_pre_cutover_source_versions_refuse(
 
     with pytest.raises(CutoverPreflightError, match=message):
         _preflight(selected, **{field: value})
+
+
+def _drifted(tmp_path, name, version):
+    """A Brain moved with a symlink left at its old path, so its stored row is no longer canonical."""
+    old = tmp_path / name
+    moved = _brain(tmp_path, f"{name}-moved", version)
+    old.symlink_to(moved)
+    return old, moved
+
+
+def test_a_drifted_other_row_is_stale_and_its_refusal_names_its_recovery(tmp_path, monkeypatch):
+    """brain.upgrade v3: a drifted row is stale (needs exclusion), never an unsafe-path refusal."""
+    selected = _brain(tmp_path, "selected", "0.55.0")
+    old, moved = _drifted(tmp_path, "other", "0.55.0")
+    _registry(monkeypatch, tmp_path, [f"selected\tlocal\t{selected}\n", f"other\tlocal\t{old}\n"])
+
+    with pytest.raises(CutoverPreflightError, match="require explicit exclusion") as refused:
+        _preflight(selected)
+    assert str(old) in str(refused.value) and str(moved) in str(refused.value)
+    assert "brain registry remove-stale" in str(refused.value), "the refusal names the recovery"
+
+    report = _preflight(selected, excluded_stale_brain_ids=("other",))
+    assert report.selected_brain_ids == ("selected",)
+
+
+def test_a_drifted_selected_brain_names_its_recovery(tmp_path, monkeypatch):
+    old, moved = _drifted(tmp_path, "selected", "0.55.0")
+    _registry(monkeypatch, tmp_path, [f"selected\tlocal\t{old}\n"])
+
+    with pytest.raises(CutoverPreflightError, match="not present in the complete local registry") as refused:
+        _preflight(moved, excluded_stale_brain_ids=("selected",))
+    assert "stale row" in str(refused.value) and '"brain_id":"selected"' in str(refused.value)

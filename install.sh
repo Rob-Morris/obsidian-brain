@@ -7,7 +7,7 @@
 #
 # From a clone:
 #   bash install.sh ~/my-brain
-#   bash install.sh --skip-mcp ~/my-brain
+#   bash install.sh --skip-mcp ~/my-brain       # skip MCP registration only
 #   bash install.sh --skip-cli ~/my-brain
 #   bash install.sh --system ~/my-brain          # install brain CLI to /usr/local/bin
 #   bash install.sh --enable-semantic ~/my-brain
@@ -21,7 +21,7 @@
 #   1. Clones the repo to a temp directory (or uses existing clone)
 #   2. Copies template-vault to your chosen location
 #   3. Copies brain-core into the vault as .brain-core
-#   4. Installs Python dependencies into the central managed runtime under ~/.brain/venvs/ (unless skipped)
+#   4. Installs Python dependencies into the central managed runtime under ~/.brain/venvs/
 #   5. Registers the Brain MCP server for Claude Code, Codex and Grok (unless skipped)
 #   6. Optionally delegates semantic setup to configure.py
 #   7. Installs the `brain` CLI to ~/.local/bin (or /usr/local/bin with --system) unless --skip-cli
@@ -200,6 +200,31 @@ configure_existing_approvals() {
         --workspace "$VAULT_PATH" --surfaces "${surfaces[@]}"
 }
 
+# upgrade.py argv for this invocation; the same options drive the equal-version
+# preview and the real run, so a preview can never be refused for options the
+# run would have carried.
+build_upgrade_cmd() {
+    upgrade_cmd=(
+        "$PYTHON"
+        "$REPO_DIR/src/brain-core/scripts/upgrade.py"
+        --source "$REPO_DIR/src/brain-core"
+        --vault "$VAULT_PATH"
+    )
+    if [ "$NON_INTERACTIVE" = true ]; then
+        upgrade_cmd+=(--unattended)
+    fi
+    if [ "$ACKNOWLEDGE_GLOBAL_CLI_CUTOVER" = true ]; then
+        upgrade_cmd+=(--acknowledge-global-cli-cutover)
+    fi
+    # Bash 3.2 (the macOS system shell) treats "${empty_array[@]}" as an
+    # unbound variable under `set -u`. The `+` form expands to zero arguments
+    # when no exclusions were supplied while preserving spaces in populated
+    # entries.
+    for stale_brain_id in ${STALE_BRAIN_EXCLUSIONS[@]+"${STALE_BRAIN_EXCLUSIONS[@]}"}; do
+        upgrade_cmd+=(--exclude-stale-brain "$stale_brain_id")
+    done
+}
+
 # Expand ~ and resolve to absolute path
 resolve_path() {
     local p="${1/#\~/$HOME}"
@@ -345,9 +370,8 @@ find_python_for_script() {
 # canonical interpreter the rest of the install/upgrade flow uses. Falls back
 # to any Python that can actually execute `vault_registry.py` (probed via
 # `--list`) because the script is stdlib + `_common`-only; a 3.10/3.11 host
-# doing a scaffold-only install (`install.sh --skip-mcp`) still gets its
-# registry updated even though it lacks the 3.12 floor everything else
-# enforces. The probe matches the actual invocation shape we're about to
+# still gets its registry updated even though it lacks the 3.12 floor
+# everything else enforces. The probe matches the actual invocation shape we're about to
 # make, so we never accept an interpreter that can start but cannot import
 # the script's dependencies.
 #
@@ -362,27 +386,17 @@ registry_update() {
     [ -f "$script" ] || return 0
     local py="${_PY312_PATH:-}"
     if [ -z "$py" ]; then
-        py=$(find_python_for_script "$script") || return 0
+        if ! py=$(find_python_for_script "$script"); then
+            warn "Brain registry update skipped: no Python could run vault_registry.py."
+            info "Register this Brain once a Python 3.12+ interpreter is available:"
+            info "  brain register --request-json '{\"vault_root\":\"$path\"}'"
+            return 0
+        fi
     fi
-    # Thread --id when provided and action is --register (explicit brain ID).
-    # For explicit --id, surface a conflict instead of swallowing it silently.
-    if [ "$action" = "--register" ] && [ -n "${BRAIN_ID:-}" ]; then
-        local _reg_out
-        if _reg_out=$("$py" "$script" "$action" "$path" --id "$BRAIN_ID" 2>&1); then
-            : # registered cleanly — stay silent like the best-effort path
-        else
-            warn "Requested Brain ID '$BRAIN_ID' could not be registered (it may already be in use)."
-            info "$_reg_out"
-            info "This Brain was NOT registered under '$BRAIN_ID'. To resolve, free the id then re-register:"
-            info "  \"$py\" \"$script\" --unregister <path-shown-above>"
-            info "  \"$py\" \"$script\" --register \"$path\" --id \"$BRAIN_ID\""
-        fi
-    else
-        local registry_output
-        if ! registry_output=$("$py" "$script" "$action" "$path" 2>&1); then
-            warn "Brain registry update did not complete."
-            info "$registry_output"
-        fi
+    local registry_output
+    if ! registry_output=$("$py" "$script" "$action" "$path" 2>&1); then
+        warn "Brain registry update did not complete."
+        info "$registry_output"
     fi
 }
 
@@ -547,7 +561,7 @@ if [ -n "$PYTHON" ]; then
 else
     py_version=$(python3 -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")' 2>/dev/null || echo "?")
     printf '  \033[1mgit\033[0m ✓  \033[1mpython %s\033[0m ✓  \033[1mfrontal lobe\033[0m (recommended but not required) ✓\n' "$py_version" >&2
-    printf '  \033[33mNote: Python 3.12+ not found. Vault can still be scaffolded, but upgrade handoff and MCP setup will be unavailable.\033[0m\n' >&2
+    printf '  \033[33mNote: Python 3.12+ not found. Install and upgrade need it (the managed runtime and MCP setup run on it); install it, then rerun.\033[0m\n' >&2
     info "Install later with: brew install python@3.12"
 fi
 
@@ -649,7 +663,10 @@ fi
 # ---------------------------------------------------------------------------
 
 if [ -n "$EXISTING_VERSION" ]; then
-    registry_update --backfill "$VAULT_PATH"
+    if [ -n "$BRAIN_ID" ]; then
+        warn "--id '$BRAIN_ID' is ignored for an existing vault: a registered vault keeps its Brain ID, and an unregistered one is registered under an ID derived from its folder name."
+    fi
+    registry_update --register "$VAULT_PATH"
 
     if is_semver "$EXISTING_VERSION" && is_semver "$SOURCE_VERSION"; then
         if compare_versions "$EXISTING_VERSION" "$SOURCE_VERSION"; then
@@ -658,23 +675,62 @@ if [ -n "$EXISTING_VERSION" ]; then
             version_cmp=$?
         fi
         if [ "$version_cmp" -eq 0 ]; then
+            # upgrade.py owns the same-version outcome: its side-effect-free
+            # preview shares the real run's guards, so "skipped" means the
+            # installed core already matches this source and nothing runs.
             printf '\n' >&2
-            info "Brain is already at v$SOURCE_VERSION. No core upgrade needed."
-            configure_existing_approvals
-            exit 0
+            if [ "$SKIP_CLI" = true ]; then
+                err "--skip-cli cannot be used for the coordinated Brain Core 0.55 / CLI 2 cutover."
+            fi
+            [ -n "$PYTHON" ] || err "Python 3.12+ is required for upgrade. Install it and rerun, or call upgrade.py with a compatible interpreter."
+            # A preview never prompts: an unacknowledged cutover is reported, not asked.
+            build_upgrade_cmd
+            preview_stderr=$(mktemp)
+            set +e
+            preview_json=$("${upgrade_cmd[@]}" --unattended --dry-run --json 2>"$preview_stderr")
+            preview_rc=$?
+            set -e
+            preview_status=$(printf '%s' "$preview_json" | "$PYTHON" -c '
+import json, sys
+try:
+    data = json.load(sys.stdin)
+except ValueError:
+    sys.exit(0)
+result = data.get("result")
+status = result.get("status") if isinstance(result, dict) and "status" in result else data.get("status")
+print({"noop": "skipped", "planned": "ok"}.get(status, status))
+print(data.get("message") or (result.get("message") if isinstance(result, dict) else "") or (data.get("error") or {}).get("message", ""))
+' 2>/dev/null || true)
+            preview_message=$(printf '%s' "$preview_status" | sed -n '2p')
+            preview_status=$(printf '%s' "$preview_status" | sed -n '1p')
+            if [ "$preview_rc" -ne 0 ]; then
+                cat "$preview_stderr" >&2
+                rm -f "$preview_stderr"
+                err "Upgrade refused: ${preview_message:-upgrade.py --dry-run exited $preview_rc}"
+            fi
+            rm -f "$preview_stderr"
+            [ -n "$preview_status" ] || err "upgrade.py preview produced no result"
+            if [ "$preview_status" = "skipped" ]; then
+                info "Brain is already at v$SOURCE_VERSION. No core upgrade needed."
+                configure_existing_approvals
+                exit 0
+            fi
+            info "Brain is at v$SOURCE_VERSION but its installed core differs from this source; re-applying it overwrites any local edits under .brain-core/."
+            UPGRADE_MODE=true
         fi
         if [ "$version_cmp" -eq 1 ]; then
             printf '\n' >&2
             warn "Installed brain is newer than this source copy (v$EXISTING_VERSION > v$SOURCE_VERSION)."
-            info "install.sh does not perform downgrades."
-            info "If you really want to downgrade or re-apply, run:"
-            info "  \"${PYTHON:-python3.12}\" \"$REPO_DIR/src/brain-core/scripts/upgrade.py\" --source \"$REPO_DIR/src/brain-core\" --vault \"$VAULT_PATH\" --force"
+            info "Brain does not downgrade: migrations only run forward."
+            info "Upgrade from a source at or above v$EXISTING_VERSION (a current clone, or a checkout of that version or later)."
             configure_existing_approvals
             exit 0
         fi
     fi
 
-    if [ "$NON_INTERACTIVE" = true ]; then
+    if [ "$UPGRADE_MODE" = true ]; then
+        :
+    elif [ "$NON_INTERACTIVE" = true ]; then
         UPGRADE_MODE=true
         printf '\n  Upgrading v%s → v%s (--non-interactive)\n' "$EXISTING_VERSION" "$SOURCE_VERSION" >&2
     else
@@ -703,28 +759,9 @@ if [ "$UPGRADE_MODE" = true ]; then
     fi
     [ -n "$PYTHON" ] || err "Python 3.12+ is required for upgrade. Install it and rerun, or call upgrade.py with a compatible interpreter."
     step "Upgrading brain-core"
-    upgrade_cmd=(
-        "$PYTHON"
-        "$REPO_DIR/src/brain-core/scripts/upgrade.py"
-        --source "$REPO_DIR/src/brain-core"
-        --vault "$VAULT_PATH"
-    )
-    if [ "$SKIP_MCP" = true ]; then
-        upgrade_cmd+=(--no-sync-deps)
-    fi
-    if [ "$NON_INTERACTIVE" = true ]; then
-        upgrade_cmd+=(--unattended)
-    fi
-    if [ "$ACKNOWLEDGE_GLOBAL_CLI_CUTOVER" = true ]; then
-        upgrade_cmd+=(--acknowledge-global-cli-cutover)
-    fi
-    # Bash 3.2 (the macOS system shell) treats "${empty_array[@]}" as an
-    # unbound variable under `set -u`. The `+` form expands to zero arguments
-    # when no exclusions were supplied while preserving spaces in populated
-    # entries.
-    for stale_brain_id in ${STALE_BRAIN_EXCLUSIONS[@]+"${STALE_BRAIN_EXCLUSIONS[@]}"}; do
-        upgrade_cmd+=(--exclude-stale-brain "$stale_brain_id")
-    done
+    # --skip-mcp skips MCP registration only: an upgrade still syncs the managed runtime.
+    # Run upgrade.py --no-sync-deps directly to defer that sync.
+    build_upgrade_cmd
     "${upgrade_cmd[@]}"
     configure_existing_approvals
     NEW_VERSION=$(cat "$VAULT_PATH/.brain-core/VERSION" 2>/dev/null || echo "unknown")
@@ -765,7 +802,7 @@ else
         else
             printf '    2) Make this your default brain  (user scope)\n' >&2
         fi
-        printf '    3) Skip MCP registration  (scaffold only)\n' >&2
+        printf '    3) Skip MCP registration  (the managed runtime and CLI are still installed)\n' >&2
         printf '\n' >&2
         printf '  Choice [1]: ' >&2
         read -r MCP_SCOPE_CHOICE_RAW

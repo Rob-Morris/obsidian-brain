@@ -27,7 +27,6 @@ forms part of the vaults row format.
 Usage:
     python3 vault_registry.py --register /path/to/vault
     python3 vault_registry.py --register /path/to/vault --id my-brain
-    python3 vault_registry.py --backfill /path/to/vault
     python3 vault_registry.py --unregister /path/to/vault
     python3 vault_registry.py --list [--json]
     python3 vault_registry.py --prune
@@ -47,11 +46,12 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from _common._filesystem import safe_write
+from _common._shell import join_argv
 from _common._file_lock import exclusive_file_lock
 from _common._paths import config_home
 from _common._slugs import title_to_slug
 from _common._templates import random_short_suffix
-from _common._vault import is_vault_root
+from _common._vault import is_brain_vault
 
 
 TYPE_LOCAL = "local"
@@ -117,7 +117,7 @@ def _default_path():
 
 
 def registry_path():
-    """Return the authoritative machine registry path for read-only diagnostics."""
+    """Return the vault registry path (the authoritative list of local Brains) for read-only diagnostics."""
     return _registry_path()
 
 
@@ -168,7 +168,7 @@ def get_default():
 
     Best-effort unlocked read — mirrors load_registry_entries().
     Missing file or empty content returns None.
-    A real OS error is wrapped in RegistryReadError.
+    An OS or decoding error is wrapped in RegistryReadError.
     The returned id is returned as-is; staleness classification belongs in
     Phase 2 resolution.
     """
@@ -179,7 +179,7 @@ def get_default():
         return brain_id if brain_id else None
     except FileNotFoundError:
         return None
-    except OSError as exc:
+    except (OSError, UnicodeDecodeError) as exc:
         raise RegistryReadError(
             f"could not read default Brain pointer at {path}: {exc}"
         ) from exc
@@ -268,7 +268,7 @@ def load_registry_entries():
                 result[entry.brain_id] = entry
     except FileNotFoundError:
         return {}
-    except OSError as exc:
+    except (OSError, UnicodeDecodeError) as exc:
         raise RegistryReadError(f"could not read brain registry at {path}: {exc}") from exc
     if malformed:
         print(
@@ -308,6 +308,182 @@ def _absolute(vault_path):
     return os.path.realpath(path)
 
 
+def is_canonical_value(value):
+    """Whether a stored local path is in the form Brain registration stores: absolute and its own ``realpath``.
+
+    Registration always stores ``realpath``, so a row that no longer resolves
+    to itself (a symlink left or planted at an old path) has drifted. It never
+    matches and is stale, so a symlink can never silently move a Brain's identity.
+    """
+    return os.path.isabs(value) and os.path.realpath(value) == value
+
+
+def row_matches(entry, vault_path):
+    """The one rule for "this local row is the Brain at ``vault_path``": an exact match of the stored
+    value against ``realpath(vault_path)``.
+
+    Every reader that maps a path to a Brain ID uses it (registration, the ID
+    lookup, unregister, direct-command identity and the CLI cutover). A
+    non-canonical row never equals a ``realpath``, so it never matches.
+    """
+    return entry.kind == TYPE_LOCAL and entry.value == _absolute(vault_path)
+
+
+STALE_NOT_CANONICAL = "not_canonical"
+STALE_NOT_A_BRAIN = "not_a_brain"
+
+
+def stale_reason(entry):
+    """Why a local row is stale (``STALE_NOT_CANONICAL`` or ``STALE_NOT_A_BRAIN``), or ``None``."""
+    if not is_canonical_value(entry.value):
+        return STALE_NOT_CANONICAL
+    if not is_brain_vault(entry.value):
+        return STALE_NOT_A_BRAIN
+    return None
+
+
+def alias_owner(entry, entries):
+    """The other ID whose canonical row is this drifted row's ``realpath``, or ``None``.
+
+    Old registries can hold that pair: a row whose path became a symlink and a
+    second ID registered at the target. The target keeps its own row (and its
+    MCP integrations), so the drifted one only needs removing.
+    """
+    target = os.path.realpath(entry.value)
+    return next((other.brain_id for other in _local_entries(entries).values()
+                 if other.brain_id != entry.brain_id and other.value == target), None)
+
+
+MANUAL_RECOVERY = ("This state needs manual recovery: no command recovers it yet, and recovering a moved Brain "
+                   "that holds MCP integrations or approvals is a known follow-up.")
+APPROVAL_RECOVERY = "Recover managed approvals first; brain approvals inspect --json names the remedy."
+
+
+@dataclass(frozen=True)
+class RemovalRefusal:
+    """Why ``brain registry remove-stale`` refuses one stale row, and the remedy for that row."""
+
+    reason: str
+    remedy: str
+
+
+def _removal_refusal(entry, entries):
+    """Why ``brain registry remove-stale`` would refuse to remove this stale row, or ``None``.
+
+    ``prune_action`` enforces exactly this rule, so stale guidance never names
+    a removal the registry would refuse. A row is never dropped while MCP
+    integrations it owns survive: a canonical row's at its path, a drifted
+    row's at its ``realpath`` (a file plan refuses to read through the
+    symlink), and a duplicate row whose target another ID registers owns none.
+    A drifted row also cannot be removed while managed approvals hold records,
+    because their inventory refuses every row that is not its own canonical
+    path, and no row can be removed while the approval state itself needs
+    recovery, because the managed writer then refuses every registry change.
+    """
+    from _bootstrap import machine_cli
+
+    if machine_cli.approval_state_blocks_changes():
+        return RemovalRefusal("the managed client approval state cannot be used (an unreadable approval ledger or "
+                              "an interrupted approval transaction)", APPROVAL_RECOVERY)
+    target = entry.value
+    if not is_canonical_value(entry.value):
+        if machine_cli.approval_records_present():
+            return RemovalRefusal("managed client approvals are recorded on this machine, and their inventory "
+                                  "refuses a row that is not its own canonical path", MANUAL_RECOVERY)
+        if alias_owner(entry, entries) is not None:
+            return None
+        target = os.path.realpath(entry.value)
+    try:
+        _require_no_mcp_integrations(target)
+    except RegistryConflictError as exc:
+        return RemovalRefusal(f"the Brain at {target} still has registered MCP integrations, which removing the row "
+                              f"would orphan ({exc})", MANUAL_RECOVERY)
+    except (OSError, ValueError) as exc:
+        # Listing and Doctor report this row as needing manual recovery rather than fail for the machine.
+        return RemovalRefusal(f"the MCP state of the Brain at {target} could not be inspected ({exc})", MANUAL_RECOVERY)
+    return None
+
+
+def prune_refusals(entries):
+    """Each stale local row that ``brain registry remove-stale`` would refuse, with its ``RemovalRefusal``.
+
+    Remove-stale removes every stale row or none, so one refusal blocks it for
+    every row.
+    """
+    return {brain_id: refusal for brain_id, entry in sorted(_local_entries(entries).items())
+            if stale_reason(entry) is not None and (refusal := _removal_refusal(entry, entries)) is not None}
+
+
+def unregister_guidance(vault_root):
+    """The launcher command that unregisters the Brain row stored at ``vault_root``."""
+    request = json.dumps({"vault_root": str(vault_root)}, separators=(",", ":"), sort_keys=True)
+    return join_argv(["brain", "unregister", "--request-json", request])
+
+
+def stale_guidance(entry, entries, refusals=None):
+    """The one command that recovers a stale row, or ``None`` when it needs manual recovery.
+
+    It names ``brain registry remove-stale`` only when the registry would
+    accept it (``prune_refusals`` is empty). While another row blocks it, a
+    canonical row that is removable on its own is named for ``brain
+    unregister``, which removes it unless managed approvals hold records (their
+    strict inventory then refuses the blocking row first).
+    """
+    from _bootstrap import machine_cli
+
+    refusals = prune_refusals(entries) if refusals is None else refusals
+    if not refusals:
+        return join_argv(["brain", "registry", "remove-stale"])
+    if (entry.brain_id not in refusals and is_canonical_value(entry.value)
+            and not machine_cli.approval_records_present()):
+        return unregister_guidance(entry.value)
+    return None
+
+
+def _default_id():
+    try:
+        return get_default()
+    except RegistryReadError:
+        return None
+
+
+def stale_explanation(entry, entries, refusals=None):
+    """A stale row in words, naming both paths, and how to recover it."""
+    refusals = prune_refusals(entries) if refusals is None else refusals
+    target = os.path.realpath(entry.value)
+    owner = alias_owner(entry, entries)
+    if stale_reason(entry) == STALE_NOT_A_BRAIN:
+        state = f"Brain ID '{entry.brain_id}' points at {entry.value}, which is not an installed Brain"
+    elif owner is not None:
+        state = (f"Brain ID '{entry.brain_id}' is stored at {entry.value}, which is no longer its canonical path: "
+                 f"it resolves to {target}, which is registered as '{owner}'")
+    elif is_brain_vault(target):
+        state = (f"Brain ID '{entry.brain_id}' is stored at {entry.value}, which is no longer its canonical path: "
+                 f"it resolves to {target}")
+    else:
+        state = (f"Brain ID '{entry.brain_id}' is stored at {entry.value}, which is no longer its canonical path: "
+                 f"it resolves to {target}, which is not an installed Brain")
+    own = refusals.get(entry.brain_id)
+    if own is not None:
+        return f"{state}. brain registry remove-stale refuses it: {own.reason}. {own.remedy}"
+    if refusals:
+        blocked = f"{state}. brain registry remove-stale is blocked while the stale row '{next(iter(refusals))}' remains"
+        guidance = stale_guidance(entry, entries, refusals)
+        return f"{blocked}; remove this row on its own with {guidance}" if guidance else blocked
+    recovery = f"{state}; run {stale_guidance(entry, entries, refusals)}"
+    if owner is not None:
+        return f"{recovery} to drop the duplicate row"
+    if stale_reason(entry) == STALE_NOT_CANONICAL and is_brain_vault(target):
+        recovery = (f"{recovery}, then, if {target} is the Brain formerly at {entry.value}, register it again under "
+                    f"the same ID: {register_guidance(target, brain_id=entry.brain_id)}")
+        if _default_id() == entry.brain_id:
+            # remove-stale clears a default it removes; registering again does not restore it.
+            request = json.dumps({"brain_id": entry.brain_id}, separators=(",", ":"), sort_keys=True)
+            recovery += ("; it was the default, so make it the default again: "
+                         + join_argv(["brain", "set-default", "--request-json", request]))
+    return recovery
+
+
 def _local_entries(entries):
     return {
         brain_id: entry
@@ -319,9 +495,28 @@ def _local_entries(entries):
 def _find_local_brain_id_by_path(entries, abs_path):
     """Return the local Brain ID mapping to abs_path, or None."""
     for brain_id, entry in _local_entries(entries).items():
-        if entry.value == abs_path:
+        if row_matches(entry, abs_path):
             return brain_id
     return None
+
+
+def brain_id_for_path(vault_path):
+    """Return the Brain ID registered for vault_path, or None when it is unregistered.
+
+    A read: it takes no lock and creates nothing. It applies registration's own
+    lookup, an exact match of the stored value against ``_absolute(vault_path)``,
+    so it answers "registered" exactly when ``register`` would no-op.
+    """
+    return _find_local_brain_id_by_path(load_registry_entries(), _absolute(vault_path))
+
+
+def register_guidance(vault_root, *, brain_id=None):
+    """The launcher command that registers the Brain at vault_root, under ``brain_id`` when given."""
+    payload = {"vault_root": str(vault_root)}
+    if brain_id is not None:
+        payload["brain_id"] = brain_id
+    request = json.dumps(payload, separators=(",", ":"), sort_keys=True)
+    return join_argv(["brain", "register", "--request-json", request])
 
 
 def _is_valid_brain_id(brain_id):
@@ -330,8 +525,15 @@ def _is_valid_brain_id(brain_id):
 
 
 def _plan_registration(entries, abs_path, brain_id):
-    """Return one registration result after mutating only the provided mapping."""
+    """Return one Brain registration result after mutating only the provided mapping."""
     existing_id = _find_local_brain_id_by_path(entries, abs_path)
+    if existing_id is None:
+        drifted = sorted(entry.brain_id for entry in _local_entries(entries).values()
+                         if not is_canonical_value(entry.value) and os.path.realpath(entry.value) == abs_path)
+        if drifted:
+            # Never give a Brain whose old row now resolves here a second ID, whatever ID is asked for.
+            # A canonical row that already matches (the other half of an old alias pair) still no-ops.
+            raise RegistryConflictError(stale_explanation(entries[drifted[0]], entries))
 
     if brain_id is None:
         if existing_id is not None:
@@ -349,8 +551,10 @@ def _plan_registration(entries, abs_path, brain_id):
 
     existing_entry = entries.get(brain_id)
     if existing_entry is not None:
-        if existing_entry.kind == TYPE_LOCAL and existing_entry.value == abs_path:
+        if row_matches(existing_entry, abs_path):
             return RegistryRegistrationResult(brain_id, False)
+        if existing_entry.kind == TYPE_LOCAL and stale_reason(existing_entry) is not None:
+            raise RegistryConflictError(stale_explanation(existing_entry, entries))
         raise RegistryConflictError(
             f"Brain ID '{brain_id}' is already registered to a different path: "
             f"{existing_entry.value!r}; unregister it first"
@@ -368,9 +572,26 @@ def _plan_registration(entries, abs_path, brain_id):
     return RegistryRegistrationResult(brain_id, True)
 
 
-def preview_register_action(vault_path, brain_id=None):
-    """Plan registration without acquiring a lock or creating filesystem state."""
+class NotABrainError(ValueError):
+    """Brain registration refused: the path is not an installed Brain (no ``.brain-core/VERSION``)."""
+
+
+def _require_installed_brain(abs_path):
+    """Only an installed Brain registers, so a row is never stale on arrival (the narrow predicate)."""
+    if not is_brain_vault(abs_path):
+        raise NotABrainError(f"{abs_path} is not an installed Brain (no .brain-core/VERSION); only an installed "
+                             "local Brain can be registered")
+
+
+def preview_register_action(vault_path, brain_id=None, *, installing=False):
+    """Plan Brain registration without acquiring a lock or creating filesystem state.
+
+    ``installing`` is for an install preview: the path is not a Brain yet, and
+    the install that registers it scaffolds ``.brain-core`` first.
+    """
     abs_path = _absolute(vault_path)
+    if not installing:
+        _require_installed_brain(abs_path)
     if brain_id is not None and not _is_valid_brain_id(brain_id):
         raise ValueError(
             f"invalid Brain ID {brain_id!r}: must match ^[a-z0-9]+(-[a-z0-9]+)*$"
@@ -396,6 +617,7 @@ def register_action(vault_path, brain_id=None, *, dry_run=False):
       (Re-keying is not supported; use Phase-3 rename primitives instead.)
     """
     abs_path = _absolute(vault_path)
+    _require_installed_brain(abs_path)
     if brain_id is not None and not _is_valid_brain_id(brain_id):
         raise ValueError(
             f"invalid Brain ID {brain_id!r}: must match ^[a-z0-9]+(-[a-z0-9]+)*$"
@@ -415,20 +637,6 @@ def register(vault_path, brain_id=None):
     the established public scalar return contract.
     """
     return register_action(vault_path, brain_id=brain_id).brain_id
-
-
-def backfill(vault_path):
-    """Register the vault if absent.
-
-    Equivalent to register() since register already no-ops when the path is
-    already known; kept as a named entry point for upgrade/install intent.
-    """
-    return register(vault_path)
-
-
-def backfill_action(vault_path, *, dry_run=False):
-    """Backfill or plan a local vault and report resolved ID/change state."""
-    return register_action(vault_path, dry_run=dry_run)
 
 
 def _require_no_mcp_integrations(vault_path, plan=None):
@@ -456,14 +664,34 @@ def unregister_action(vault_path, *, dry_run=False, registration_plan=None):
     if registration_plan is not None and not dry_run:
         raise ValueError("A planned MCP removal can only authorise an unregister preview")
     abs_path = _absolute(vault_path)
+    literal = os.path.abspath(os.path.expanduser(os.fspath(vault_path)))
     with registration_lock(Path.home()), _locked():
         entries = load_registry_entries()
         to_remove = [
             brain_id
             for brain_id, entry in _local_entries(entries).items()
-            if entry.value == abs_path
+            if row_matches(entry, abs_path)
         ]
         to_remove.sort()
+        if literal != abs_path:
+            # An ordinary spelling through a symlink (/tmp, /var, a symlinked parent) unregisters the Brain it
+            # resolves to. It is ambiguous only when a drifted row is involved: the literal path is a drifted
+            # row's stored value, or a drifted row also resolves to the same Brain. Then the person may mean
+            # that row, never the healthy Brain, so refuse rather than remove the wrong row.
+            local = _local_entries(entries).values()
+            stored = sorted(entry.brain_id for entry in local if entry.value == literal)
+            if stored:
+                raise RegistryConflictError(
+                    f"{literal} is the stored path of the stale row '{stored[0]}', not a canonical path; "
+                    f"{stale_explanation(entries[stored[0]], entries)}")
+            drifted = sorted(entry.brain_id for entry in local if not is_canonical_value(entry.value)
+                             and os.path.realpath(entry.value) == abs_path)
+            if drifted and to_remove:
+                raise RegistryConflictError(
+                    f"{literal} is not a canonical path: it resolves to {abs_path}, which is registered as "
+                    f"'{to_remove[0]}' and is also where the stale row '{drifted[0]}' resolves; pass {abs_path} "
+                    f"to unregister '{to_remove[0]}', or recover the stale row: "
+                    f"{stale_explanation(entries[drifted[0]], entries)}")
         if not to_remove:
             return RegistryRemovalResult((), False, False)
         _require_no_mcp_integrations(abs_path, registration_plan)
@@ -493,6 +721,25 @@ def unregister(vault_path):
     return unregister_action(vault_path).changed
 
 
+class StaleRowError(ValueError):
+    """A Brain ID names a stale row: it never selects a Brain (DD-083 item 2)."""
+
+
+def require_live(brain_id):
+    """The canonical path of a local Brain ID's row, or ``None`` when there is no such row.
+
+    A stale row raises ``StaleRowError`` with its recovery, so selecting a Brain
+    by ID applies the same rule as matching by path: never follow a drifted row.
+    """
+    entries = load_registry_entries()
+    entry = entries.get(brain_id)
+    if entry is None or entry.kind != TYPE_LOCAL:
+        return None
+    if stale_reason(entry) is not None:
+        raise StaleRowError(stale_explanation(entry, entries))
+    return entry.value
+
+
 def resolve(brain_id):
     """Return the absolute local vault path for a Brain ID, or None."""
     entry = load_registry_entries().get(brain_id)
@@ -509,15 +756,23 @@ def list_entries():
     """
     default_id = get_default()
     rendered = []
-    for brain_id, entry in sorted(load_registry_entries().items()):
+    entries = load_registry_entries()
+    refusals = None
+    for brain_id, entry in sorted(entries.items()):
         is_default = brain_id == default_id
         if entry.kind == TYPE_LOCAL:
+            reason = stale_reason(entry)
+            if reason is not None and refusals is None:
+                refusals = prune_refusals(entries)
             rendered.append(
                 {
                     "alias": brain_id,
                     "kind": entry.kind,
                     "value": entry.value,
-                    "stale": not is_vault_root(entry.value),
+                    "stale": reason is not None,
+                    "stale_reason": reason,
+                    "stale_guidance": stale_guidance(entry, entries, refusals) if reason else None,
+                    "stale_explanation": stale_explanation(entry, entries, refusals) if reason else None,
                     "default": is_default,
                 }
             )
@@ -550,13 +805,16 @@ def prune_action(*, dry_run=False):
         stale = [
             brain_id
             for brain_id, entry in _local_entries(entries).items()
-            if not is_vault_root(entry.value)
+            if stale_reason(entry) is not None
         ]
         stale.sort()
         if not stale:
             return RegistryRemovalResult((), False, False)
-        for brain_id in stale:
-            _require_no_mcp_integrations(entries[brain_id].value)
+        refusals = prune_refusals(entries)
+        if refusals:
+            # One rule with the stale guidance: a row that would orphan state refuses, and nothing is removed.
+            blocker = next(iter(refusals))
+            raise RegistryConflictError(stale_explanation(entries[blocker], entries, refusals))
         current_default = get_default()
         default_cleared = current_default is not None and current_default in stale
         if dry_run:
@@ -591,7 +849,6 @@ def main():
     parser = argparse.ArgumentParser(description="User-home authoritative Brain registry")
     group = parser.add_mutually_exclusive_group(required=True)
     group.add_argument("--register", metavar="PATH")
-    group.add_argument("--backfill", metavar="PATH")
     group.add_argument("--unregister", metavar="PATH")
     group.add_argument("--list", action="store_true")
     group.add_argument("--prune", action="store_true")
@@ -606,14 +863,17 @@ def main():
 
     try:
         from _bootstrap import machine_cli
-        if machine_cli.approvals_present() and any((args.register, args.backfill, args.unregister, args.prune, args.set_default, args.clear_default)):
-            if args.register or args.backfill:
+        if machine_cli.approvals_present() and any((args.register, args.unregister, args.prune, args.set_default, args.clear_default)):
+            if args.register:
                 command, request = "brain.register", {
-                    "vault_root": _absolute(args.register or args.backfill),
-                    "brain_id": args.id if args.register else None,
+                    "vault_root": _absolute(args.register),
+                    "brain_id": args.id,
                 }
             elif args.unregister:
-                command, request = "brain.unregister", {"vault_root": _absolute(args.unregister)}
+                # The literal path, not its realpath: the owner refuses a path through a symlink that would
+                # remove the wrong row, so it must see the path the person passed.
+                command, request = "brain.unregister", {
+                    "vault_root": os.path.abspath(os.path.expanduser(args.unregister))}
             elif args.prune:
                 command, request = "registry.remove-stale", {}
             elif args.set_default:
@@ -625,8 +885,6 @@ def main():
             raise SystemExit(0 if result["status"] == "ok" else 1)
         if args.register:
             print(register(args.register, brain_id=args.id))
-        elif args.backfill:
-            print(backfill(args.backfill))
         elif args.unregister:
             unregister(args.unregister)  # best-effort; always exit 0
         elif args.list:

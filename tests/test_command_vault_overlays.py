@@ -107,29 +107,19 @@ def test_mutation_router_admission_detects_same_stat_frontmatter_drift(
     assert "artefact-index-source-drift" in result["error"]
 
 
-@pytest.mark.parametrize(
-    ("overlay_name", "blocked", "malformed", "stale_count"),
-    [
-        ("registry-blocked", True, False, 0),
-        ("registry-incomplete", False, True, 0),
-        ("registry-stale", False, False, 1),
-    ],
-)
-def test_registry_overlays_use_the_real_machine_registry_contract(
-    command_vault_clone,
-    overlay_name,
-    blocked,
-    malformed,
-    stale_count,
-):
-    apply_command_vault_overlay(command_vault_clone, overlay_name).close()
+def test_registry_stale_overlay_uses_the_real_vault_registry_contract(command_vault_clone):
+    overlay = apply_command_vault_overlay(command_vault_clone, "registry-stale")
+    overlay.close()
 
     with isolated_command_environment(command_vault_clone.environment):
-        state = discovery._load_machine_registry()
+        summary = discovery.discover_brains()
 
-    assert state["blocked"] is blocked
-    assert state["malformed"] is malformed
-    assert len(state["stale_machine_registry_entries"]) == stale_count
+    [entry] = summary["stale_registry_entries"]
+    assert {key: entry[key] for key in ("alias", "path", "reason", "guidance")} == {
+        "alias": "stale", "path": overlay.details["missing_path"], "reason": "not_a_brain",
+        "guidance": "brain registry remove-stale"}
+    assert "is not an installed Brain" in entry["explanation"]
+    assert summary["registry"]["stale"] is True
 
 
 def test_lock_contention_overlay_holds_the_real_vault_mutation_lock(command_vault_clone):

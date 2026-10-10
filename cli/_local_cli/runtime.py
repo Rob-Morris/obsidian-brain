@@ -11,7 +11,7 @@ import sys
 import time
 import uuid
 
-from _launcher.context import LauncherContext, ProviderBindings
+from _launcher.context import LauncherContext, ProviderBindings, launcher_state_home
 from _launcher.contracts import OutcomeReceipt, ReceiptState
 from _distribution import source_versions
 
@@ -180,7 +180,8 @@ def resolve_selected_brain(
     if brain_id is not None:
         import vault_registry
 
-        resolved = vault_registry.resolve(brain_id)
+        # A stale row (drifted or naming no Brain) never selects a Brain, as for selection by path.
+        resolved = vault_registry.require_live(brain_id)
         if resolved is None:
             raise ValueError(f"registered local Brain not found: {brain_id}")
         return SelectedBrain(_require_brain(Path(resolved)), workspace_path, "explicit_brain")
@@ -243,9 +244,7 @@ def compose_launcher_context(
     operator_key: str | None = None,
 ) -> LauncherContext:
     invocation_id = f"cli-{uuid.uuid4()}"
-    state_home = Path(
-        os.environ.get("XDG_STATE_HOME", str(Path.home() / ".local" / "state"))
-    ).expanduser().resolve()
+    state_home = launcher_state_home()
     return LauncherContext(
         profile="local-operator",
         authority=LocalAuthority(),

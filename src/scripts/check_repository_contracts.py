@@ -39,6 +39,12 @@ from _repository_contracts.type_library import (  # noqa: E402
 )
 from _repository_contracts.view import RepositoryView, read as _read  # noqa: E402
 from _repository_contracts.dependencies import validate_dependencies  # noqa: E402
+from _repository_contracts.migrations import (  # noqa: E402
+    MIGRATIONS_ROOT,
+    migration_version,
+    released_migration_paths,
+    validate_migration_identity,
+)
 
 
 VERSION_PATH = "src/brain-core/VERSION"
@@ -636,6 +642,52 @@ def validate_staged_decision_history(
     return errors
 
 
+def validate_staged_migration_identity(
+    root: Path,
+    view: GitIndexView,
+    changes: list[GitChange],
+) -> list[str]:
+    """Keep every migration released at HEAD's VERSION at its path with its targets.
+
+    A migration path at or below that version which HEAD does not hold is
+    being added under the released boundary: vaults already at that version
+    would never run it, so it is refused. The boundary is HEAD's VERSION, not
+    the staged one, so a release commit may add the migration it releases.
+    Nothing is read unless a staged change touches a migration path, so the
+    ordinary commit pays nothing for this contract.
+    """
+    touched = {
+        path
+        for change in changes
+        for path in change.paths
+        if migration_version(path) is not None
+    }
+    if not touched:
+        return []
+    head_version = _head_version(root)
+    if head_version is None:
+        return []
+    if not VERSION_RE.fullmatch(head_version):
+        return [
+            f"{VERSION_PATH}: HEAD version {head_version!r} is not X.Y.Z, so released "
+            "migrations cannot be identified"
+        ]
+    released = released_migration_paths(touched, _version_tuple(head_version))
+    if not released:
+        return []
+    head_oids = {}
+    for line in _git_text(root, "ls-tree", "-r", "HEAD", "--", MIGRATIONS_ROOT).splitlines():
+        metadata, path = line.split("\t", 1)
+        if path in released:
+            head_oids[path] = metadata.split()[2]
+    errors = [
+        f"{path}: a migration at or below the released VERSION {head_version} cannot be "
+        "added; ship it above VERSION"
+        for path in sorted(released - set(head_oids))
+    ]
+    return errors + validate_migration_identity(_read_git_blobs(root, head_oids), view)
+
+
 def staged_predicate_errors(
     root: Path,
     view: GitIndexView,
@@ -643,10 +695,12 @@ def staged_predicate_errors(
     policy: str,
 ) -> list[str]:
     """Apply staged predicates for an explicit policy. Development omits the version bump."""
+    staged_changes = _staged_changes(root) if changes is None else changes
     errors: list[str] = []
     if policy != "development":
-        errors.extend(validate_staged_version_bump(root, view, changes))
-    errors.extend(validate_staged_decision_history(root, changes))
+        errors.extend(validate_staged_version_bump(root, view, staged_changes))
+    errors.extend(validate_staged_decision_history(root, staged_changes))
+    errors.extend(validate_staged_migration_identity(root, view, staged_changes))
     return errors
 
 

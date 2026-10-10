@@ -241,10 +241,10 @@ def type_identity(annotation: object) -> str:
 
 
 def _summary(command_id: str) -> str:
-    descriptions = {'command.list': 'Discover commands with concise summaries, access state and '
-                     'pagination; use command.describe for schemas.',
-     'command.describe': 'Get the complete input and result schemas, permissions and '
-                         'examples for one command.',
+    descriptions = {'command.list': 'Discover Brain commands, call names and access with pagination; '
+                     'use command.describe for schemas, not to refresh host MCP tools.',
+     'command.describe': 'Inspect one Brain command schema, permissions and examples; '
+                         'this does not refresh host MCP tools.',
      'session.start': 'Load Brain instructions, preferences and discovery routes before '
                       'doing vault work.',
      'artefact.read': 'Read an active or archived note by path or reference, including its '

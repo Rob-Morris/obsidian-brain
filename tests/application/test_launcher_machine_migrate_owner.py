@@ -230,7 +230,6 @@ def test_migrate_legacy_installations_uses_typed_selector_and_trusted_current_va
 
     assert result.result.status is LegacyMigrationStatus.NOOP
     assert calls[0][1]["current_vault"] == str(current_vault)
-    assert calls[0][1]["synchronise_registry"] is False
     assert calls[1][1]["selector"] == "legacy-brain"
 
 
@@ -273,8 +272,7 @@ def test_migrate_legacy_installations_success_reports_each_committed_effect(
     legacy_dir = vault / ".venv"
     steps = [
         _step("runtime", "changed", outcome="committed"),
-        _step("mcp", "noop", outcome="none"),
-        _step("registry", "changed", outcome="committed"),
+        _step("mcp", "changed", outcome="committed"),
         _step("legacy_venv", "changed", path=str(legacy_dir)),
         _step("verify", "noop"),
     ]
@@ -288,7 +286,7 @@ def test_migrate_legacy_installations_success_reports_each_committed_effect(
     assert result.result.status is LegacyMigrationStatus.CHANGED
     assert tuple(effect.subject for effect in result.committed_effects) == (
         f"brain-runtime:{vault}",
-        f"brain-registry:{vault}",
+        f"brain-mcp:{vault}",
         f"legacy-runtime:{legacy_dir}",
     )
 
@@ -382,3 +380,89 @@ def test_migrate_legacy_installations_missing_selector_is_known_not_found(
 
     assert result.error.code is ErrorCode.NOT_FOUND
     assert result.effects == "none"
+
+
+def test_executor_injects_the_launcher_repair_runner(tmp_path, monkeypatch):
+    calls = []
+    _patch_action(monkeypatch, _result((tmp_path / "legacy").resolve(), status="noop"), calls)
+
+    _invocation(tmp_path).invoke(BrainMigrateLegacyInstallationsRequest())
+
+    runner = calls[1][1]["repair_runner"]
+    assert callable(runner)
+
+
+def test_nested_repair_runner_targets_the_vault_and_maps_results(tmp_path, monkeypatch):
+    from _launcher import nested_invocation
+    from _launcher.contracts import CommandError, CommittedEffect, Error, Ok, OutcomeReference, OutcomeUnknownDetails, Partial
+    from _launcher.machine import _nested_repair_runner, repair_step_from_result
+    from _launcher.mcp import McpRepairRequest, McpMutationPayload, McpOperation, McpMutationStatus
+    from _bootstrap.mcp_registration import McpScope
+
+    vault = (tmp_path / "Brain Y").resolve()
+    seen = []
+
+    def fake_nested(context, request, *, vault_root, invocation_id):
+        seen.append((type(request).__name__, vault_root, invocation_id, context.dry_run))
+        payload = McpMutationPayload(McpOperation.REPAIR, McpScope.PROJECT, str(vault_root), (), McpMutationStatus.NOOP, ())
+        return Ok(McpRepairRequest.COMMAND_ID, McpRepairRequest.COMMAND_VERSION, payload)
+
+    monkeypatch.setattr(nested_invocation, "invoke_nested", fake_nested)
+    context = _invocation(tmp_path)._context
+    step = _nested_repair_runner(context)(vault, "mcp")
+
+    assert seen[0][:2] == ("McpRepairRequest", vault)
+    assert seen[0][2].startswith("inv-machine-migrate-mcp-")
+    assert step["status"] == "noop" and step["outcome"] == "none"
+    assert step["invocation_id"] == seen[0][2]
+
+    def effect():
+        return (CommittedEffect("mcp.repair", f"file:{vault}/.mcp.json"),)
+
+    ok_effects = Ok("mcp.repair", 4, object(), effect())
+    partial = Partial("mcp.repair", 4, CommandError(ErrorCode.CONFLICT, "half"), effect())
+    reference = OutcomeReference("inv-x")
+    unknown = Error("mcp.repair", 4, CommandError(ErrorCode.COMMAND_OUTCOME_UNKNOWN, "lost",
+                    OutcomeUnknownDetails(reference)), effects="unknown", outcome_reference=reference)
+    failed = Error("mcp.repair", 4, CommandError(ErrorCode.CONFLICT, "busy"))
+    mapped = {
+        name: repair_step_from_result("mcp", result, dry_run=dry, command="c", invocation_id="i")
+        for name, result, dry in (
+            ("planned", ok_effects, True), ("changed", ok_effects, False), ("partial", partial, False),
+            ("unknown", unknown, False), ("failed", failed, False),
+        )
+    }
+    assert {name: (step["status"], step["outcome"]) for name, step in mapped.items()} == {
+        "planned": ("planned", "none"),
+        "changed": ("changed", "committed"),
+        "partial": ("partial", "partial"),
+        "unknown": ("error", "unknown"),
+        "failed": ("error", "none"),
+    }
+    assert "busy" in mapped["failed"]["message"]
+
+    with pytest.raises(ValueError, match="unsupported machine-owned repair scope"):
+        _nested_repair_runner(context)(vault, "registry")
+
+
+def test_migrate_legacy_installations_skips_a_pre_contract_brain_and_refuses_it_by_name(tmp_path, fake_home):
+    """Discovery survives a Brain whose runtime contract this Core cannot read; it is never a migration target."""
+    import vault_registry
+
+    old = (tmp_path / "Old Brain").resolve()
+    (old / ".brain-core" / "mcp").mkdir(parents=True)
+    (old / ".brain-core" / "VERSION").write_text("0.36.0\n")
+    (old / ".brain-core" / "mcp" / "requirements.txt").write_text("mcp==1.0.0\n")
+    (old / ".venv" / "bin").mkdir(parents=True)
+    (old / ".venv" / "bin" / "python").symlink_to(sys.executable)
+    vault_registry.register(str(old))
+
+    unselected = _invocation(tmp_path).invoke(BrainMigrateLegacyInstallationsRequest())
+    selected = _invocation(tmp_path).invoke(BrainMigrateLegacyInstallationsRequest(LegacyBrainIdTarget("old-brain")))
+
+    assert unselected.status == "ok", getattr(unselected, "error", None)
+    assert unselected.result.status is LegacyMigrationStatus.NOOP and unselected.result.targets == ()
+    assert selected.status == "error" and selected.effects == "none"
+    assert "cannot be migrated" in selected.error.message
+    assert f"brain --vault '{old}' upgrade" in selected.error.message
+    assert (old / ".venv").is_dir()

@@ -251,8 +251,10 @@ brain agent-skill configure --vault /path/to/vault --request-json '{"client":"al
 
 `workspace.setup` ensures a canonical workspace hub before saving the local binding.
 Its result reports Brain registration and local binding separately; a local failure
-can be retried after inspecting the reported committed effects. `workspace.bind`
-changes only the local binding. `workspace.configure-bootstrap` and `mcp.configure`
+can be retried after inspecting the reported committed effects; `force` rebinds.
+`workspace.unregister` removes the link from both ends: the Brain's linked workspace registry row,
+then the manifest link fields in the folder that row records, when that folder's
+manifest still names this Brain and the same workspace key. `workspace.configure-bootstrap` and `mcp.configure`
 remain separate bootstrap and transport owners. Use `brain command describe` for
 their exact request contracts.
 
@@ -281,7 +283,7 @@ omission preserves a compatible parent, not a create default. Relationship tags
 never imply adoption. Run `vault.check` afterward; checkpoint and upgrade the
 vault before a bulk rollout, and set a shared default parent only after adoption.
 
-For project scope, registration is not the whole story. Claude still needs the project's `.mcp.json` entry approved via `/mcp`, and Codex still needs the project trusted with the project-scoped `brain` MCP enabled. Once that project-scoped entry is active, it outranks the user-scoped one. Until then, either client may keep routing `mcp__brain__*` calls to a user-scoped `brain`.
+For project scope, MCP registration is not the whole story. Claude still needs the project's `.mcp.json` entry approved via `/mcp`, and Codex still needs the project trusted with the project-scoped `brain` MCP enabled. Once that project-scoped entry is active, it outranks the user-scoped one. Until then, either client may keep routing `mcp__brain__*` calls to a user-scoped `brain`.
 
 The optional shaping adapter is a stable discovery shim, not a copied workflow.
 At invocation time it calls `session.start` and loads the active Brain's
@@ -316,6 +318,18 @@ ends exceptional consent; unchanged code/runtime is a no-op only with a usable
 child. A missing child instead uses same-runtime activation. Unsupported platforms or failed
 preflight may require restarting MCP through the host. These are MCP transport tools; `runtime_status`
 reports application warm-up instead.
+
+Core readiness does not imply host tool discovery is current. Status reports
+`interface.tool_discovery` separately, including `pending_tools` and the
+host-owned recovery operation. For `interface_changed`, the host must call MCP
+`tools/list` and follow all `nextCursor` pages. Use its tool-refresh action if
+available; otherwise ask the user to reconnect Brain MCP. Neither Brain
+`command_list`/`command_describe` nor `brain_proxy_refresh` acknowledges this
+discovery. The stdio-preserving `brain_proxy_restart` is not a host reconnect
+and does not acknowledge host discovery either. Changed discovery tools follow the same refusal rule as other tools;
+`brain_proxy_status({})` remains available independently. Do not retry the stale
+call unchanged. After rediscovery, reformulate with the new contract and verify
+an affected tool call; unchanged calls alone do not prove recovery.
 
 Reachable startup failures expose these same three controls. Repair prerequisites
 externally, then request recovery for the pinned Brain. Unknown or changed target

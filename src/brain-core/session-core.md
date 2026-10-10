@@ -24,6 +24,11 @@ can be denied; `static_disclosure` is metadata, not permission to call it.
 Prefer connected MCP for supported vault operations. CLI is appropriate for
 local-only commands or unavailable MCP, never to bypass a denial.
 
+For `interface_changed`, call `brain_proxy_status({})` and follow its recovery.
+Host `tools/list` refreshes tool contracts; Brain `command_list` does not.
+If the host cannot refresh tools, ask the user to reconnect Brain MCP.
+Use the new contract; if still blocked, report the diagnostic instead of looping.
+
 ## Key Idea
 
 All content in the vault is an **artefact**:

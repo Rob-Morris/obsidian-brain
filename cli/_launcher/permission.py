@@ -3,7 +3,6 @@
 from dataclasses import dataclass
 import json
 from typing import ClassVar, Literal
-import subprocess
 
 from .context import LauncherContext
 from .contracts import (CommandError, CommittedEffect, Error, ErrorCode, Ok,
@@ -64,13 +63,14 @@ def execute(context: LauncherContext, request: PermissionSetProfileRequest):
     if python is None or python.is_symlink() or not python.is_file():
         raise RuntimeError('launcher Python is unavailable for permission administration')
     from _bootstrap.owner_attachment import without_owner_environment
+    from _common._venv import run_managed
     environment = without_owner_environment()
     environment.pop('BRAIN_OPERATOR_KEY', None)
     environment['BRAIN_PERMISSION_ADMIN_KEY'] = context.operator_key
     argv = [str(python), str(helper), '--vault', str(context.current_vault), '--invocation-id', context.invocation_id]
     if context.dry_run:
         argv.append('--dry-run')
-    completed = subprocess.run(argv, input=json.dumps({'operator_id': request.operator_id, 'profile': request.profile,
+    completed = run_managed(argv, input=json.dumps({'operator_id': request.operator_id, 'profile': request.profile,
         'expected_revision': request.expected_revision}), capture_output=True, text=True, check=False, env=environment)
     try:
         value = json.loads(completed.stdout)

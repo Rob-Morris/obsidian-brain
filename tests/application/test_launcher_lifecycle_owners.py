@@ -17,7 +17,7 @@ if str(CLI_DIR) not in sys.path:
 from launcher_catalogue import LAUNCHER_CATALOGUE
 from _launcher import lifecycle
 from _launcher.context import LauncherContext, ProviderBindings
-from _launcher.contracts import ErrorCode, ReceiptState
+from _launcher.contracts import CommittedEffect, ErrorCode, ReceiptState, WarningCode
 from _launcher.contracts import RecoveryRequiredDetails
 from _launcher.invocation import LauncherInvocation
 from _launcher.lifecycle import (
@@ -189,6 +189,9 @@ def test_install_dry_run_validates_registry_and_writes_nothing(tmp_path, monkeyp
     assert result.result.status is LifecycleStatus.PLANNED
     assert result.result.mode is InstallMode.FRESH
     assert result.result.brain_core_version == CORE_VERSION
+    steps = {step.name: step.status for step in result.result.steps}
+    assert steps["managed_runtime"] is LifecycleStatus.PLANNED, "skip skips MCP registration only"
+    assert steps["mcp_transport"] is LifecycleStatus.NOOP, "the preview lists the step execute reports"
     assert result.committed_effects == ()
     assert not target.exists()
     assert not (tmp_path / "config").exists()
@@ -282,6 +285,21 @@ def test_uninstall_removes_only_system_paths_and_preserves_notes(tmp_path, monke
     assert not (vault / ".venv").exists()
     assert not config_path.exists()
     assert any(effect.subject == f"file:{config_path}" for effect in result.committed_effects)
+
+
+def test_uninstall_removes_every_brain_bootstrap_line_and_keeps_the_prose(tmp_path, monkeypatch):
+    from _bootstrap.mcp_state import CLAUDE_MD_BOOTSTRAP_VAULT
+
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
+    vault = _vault(tmp_path)
+    retired = "ALWAYS DO FIRST: Call MCP `session.start`, else read `.brain-core/index.md` if it exists."
+    claude_md = vault / "CLAUDE.md"
+    claude_md.write_bytes(f"# Notes\r\nKeep this.\r\n\r\n{retired}\r\n{CLAUDE_MD_BOOTSTRAP_VAULT}\n".encode())
+
+    result = _invocation(tmp_path, vault=vault).invoke(BrainUninstallRequest())
+
+    assert result.result.status is LifecycleStatus.CHANGED
+    assert claude_md.read_bytes() == b"# Notes\r\nKeep this.\r\n"
 
 
 def test_uninstall_refuses_symlinked_system_state_before_mutation(tmp_path):
@@ -625,3 +643,392 @@ def test_upgrade_partial_carries_typed_cli_cleanup_recovery_paths(
     assert projected.structured_content["error"]["details"][
         "recovery_paths"
     ] == [str(recovery)]
+
+
+def test_a_skip_install_whose_runtime_fails_reports_core_notes(tmp_path, monkeypatch):
+    """On the launcher route (approvals present), the runtime remedy reaches the person."""
+    import install
+
+    target = (tmp_path / "skip").resolve()
+    raw = {"status": "partial", "steps": [
+        {"name": "vault_scaffold", "status": "changed", "message": "Created Brain vault scaffold.", "path": str(target)},
+        {"name": "managed_runtime", "status": "error", "message": "Could not provision managed runtime: no 3.12"},
+        {"name": "mcp_transport", "status": "noop", "message": "MCP registration skipped."},
+    ], "notes": ["Vault scaffold is present, but the managed runtime is not: run brain runtime repair."]}
+    monkeypatch.setattr(install, "install_vault_action", lambda *_args, **_kwargs: raw)
+
+    result = _invocation(tmp_path).invoke(BrainInstallRequest(target, "skip", mcp_scope=InstallMcpScope.SKIP))
+
+    assert result.status == "partial", result
+    assert "no 3.12" in result.error.message and "brain runtime repair" in result.error.message
+
+
+def test_a_clean_install_carries_core_notes_as_follow_ups(tmp_path, monkeypatch):
+    import install
+
+    target = (tmp_path / "skip").resolve()
+    raw = {"status": "ok", "steps": [
+        {"name": "vault_scaffold", "status": "changed", "message": "Created Brain vault scaffold.", "path": str(target)},
+    ], "notes": ["Register MCP later with brain mcp configure."]}
+    monkeypatch.setattr(install, "install_vault_action", lambda *_args, **_kwargs: raw)
+
+    result = _invocation(tmp_path).invoke(BrainInstallRequest(target, "skip", mcp_scope=InstallMcpScope.SKIP))
+
+    assert result.status == "ok", result
+    assert [warning.message for warning in result.warnings] == ["Register MCP later with brain mcp configure."]
+
+
+def _fake_upgrader(monkeypatch, result_factory):
+    calls = []
+
+    def fake_upgrade(*args, **kwargs):
+        calls.append((args, kwargs))
+        return result_factory(kwargs)
+
+    monkeypatch.setattr(
+        lifecycle,
+        "_load_upgrade",
+        lambda _core: type("Upgrade", (), {"upgrade": staticmethod(fake_upgrade)}),
+    )
+    return calls
+
+
+def test_upgrade_content_ahead_refusal_is_a_no_effect_conflict(tmp_path, monkeypatch):
+    """A source older than the recorded content is refused like the preflight's own downgrade refusal (DD-084)."""
+    vault = _vault(tmp_path)
+    _register(monkeypatch, tmp_path, vault)
+    message = (
+        "Upgrade refused — this source is 0.54.41 but the Brain's content is at 0.60.0 "
+        "(the migration ledger records 0.60.0 above this source). Migrations only run forward."
+    )
+    receipts = _Receipts()
+    _fake_upgrader(monkeypatch, lambda _kwargs: {
+        "status": "error",
+        "old_version": "0.54.41",
+        "new_version": CORE_VERSION,
+        "reason": "content_ahead",
+        "rollback_verified": True,
+        "message": message,
+    })
+
+    result = _invocation(tmp_path, vault=vault, receipts=receipts).invoke(BrainUpgradeRequest(force=True))
+
+    assert result.status == "error"
+    assert result.error.code is ErrorCode.CONFLICT
+    assert result.effects == "none"
+    assert result.error.message == message
+    assert receipts.values[-1].state is ReceiptState.NONE
+
+
+def test_upgrade_downgrade_is_refused_by_preflight_before_the_upgrader_loads(tmp_path, monkeypatch):
+    vault = _vault(tmp_path, version="9.9.9")
+    _register(monkeypatch, tmp_path, vault)
+    calls = _fake_upgrader(monkeypatch, lambda _kwargs: {"status": "ok"})
+
+    result = _invocation(tmp_path, vault=vault).invoke(BrainUpgradeRequest(force=True))
+
+    assert result.error.code is ErrorCode.CONFLICT
+    assert "newer than this CLI distribution" in result.error.message
+    assert calls == []
+
+
+def test_upgrade_force_on_a_same_version_vault_projects_no_migrations(tmp_path, monkeypatch):
+    vault = _vault(tmp_path, version=CORE_VERSION)
+    _register(monkeypatch, tmp_path, vault)
+    calls = _fake_upgrader(monkeypatch, lambda kwargs: {
+        "status": "ok",
+        "old_version": CORE_VERSION,
+        "new_version": CORE_VERSION,
+        "files_added": [],
+        "files_modified": [],
+        "files_removed": [],
+        "router_compile": {"outcome": "ok"},
+        "cutover_commit": kwargs["commit_callback"]({}),
+    })
+
+    result = _invocation(tmp_path, vault=vault).invoke(BrainUpgradeRequest(force=True))
+
+    assert result.status == "ok"
+    assert result.result.migrations == ()
+    assert calls[0][1]["force"] is True
+
+
+def _partial_after_commit(extra):
+    def factory(kwargs):
+        return {
+            "status": "partial",
+            "old_version": "0.54.41",
+            "new_version": CORE_VERSION,
+            "files_added": [],
+            "files_modified": ["scripts/upgrade.py"],
+            "files_removed": [],
+            "cutover_commit": kwargs["commit_callback"]({}),
+            **extra,
+        }
+    return factory
+
+
+def test_upgrade_version_commit_failure_is_partial_with_a_rerun_next_action(tmp_path, monkeypatch):
+    vault = _vault(tmp_path)
+    _register(monkeypatch, tmp_path, vault)
+    _fake_upgrader(monkeypatch, _partial_after_commit({
+        "version_commit": {"outcome": "error", "message": "could not write .brain-core/VERSION: disk full"},
+    }))
+
+    result = _invocation(tmp_path, vault=vault).invoke(BrainUpgradeRequest())
+
+    assert result.status == "partial"
+    assert result.error.code is ErrorCode.CONFLICT
+    assert result.error.next_action.instruction.startswith("Rerun the same upgrade")
+    assert result.committed_effects[0].subject == f"upgrade:{vault}"
+    projected = project_launcher_result(result)
+    assert "Rerun the same upgrade" in projected.structured_content["error"]["next_action"]["instruction"]
+
+
+def test_upgrade_router_compile_failure_is_partial_with_refresh_router_next_action(tmp_path, monkeypatch):
+    vault = _vault(tmp_path)
+    _register(monkeypatch, tmp_path, vault)
+    _fake_upgrader(monkeypatch, _partial_after_commit({
+        "router_compile": {"outcome": "error", "message": "Router recompilation failed after the commit: boom"},
+    }))
+
+    result = _invocation(tmp_path, vault=vault).invoke(BrainUpgradeRequest())
+
+    assert result.status == "partial"
+    assert "runtime.refresh-router" in result.error.next_action.instruction
+
+
+def test_upgrade_completion_projects_version_commit_and_router_compile_steps():
+    result = {
+        "version_commit": {"outcome": "error", "message": "could not write VERSION"},
+        "router_compile": {"outcome": "error", "message": "router boom"},
+    }
+
+    steps = {step.name: step for step in lifecycle._reconciliation_steps(result)}
+
+    assert lifecycle._reconciliation_failed(result) is True
+    assert steps["version_commit"].status is LifecycleStatus.CHANGED
+    assert steps["version_commit"].message == "could not write VERSION"
+    assert steps["router_compile"].status is LifecycleStatus.CHANGED
+    assert lifecycle._reconciliation_failed({"router_compile": {"outcome": "ok"}}) is False
+
+
+def test_upgrade_version_unreadable_refusal_is_a_no_effect_conflict(tmp_path, monkeypatch):
+    vault = _vault(tmp_path)
+    _register(monkeypatch, tmp_path, vault)
+    message = f"Upgrade refused — {vault}/.brain-core/VERSION holds '01.0.0', not a version of the form X.Y.Z"
+    _fake_upgrader(monkeypatch, lambda _kwargs: {
+        "status": "error",
+        "old_version": "01.0.0",
+        "new_version": CORE_VERSION,
+        "reason": "version_unreadable",
+        "rollback_verified": True,
+        "message": message,
+    })
+
+    result = _invocation(tmp_path, vault=vault).invoke(BrainUpgradeRequest())
+
+    assert result.error.code is ErrorCode.CONFLICT
+    assert result.effects == "none"
+    assert result.error.message == message
+
+
+def test_upgrade_ledger_unreadable_refusal_is_a_no_effect_conflict(tmp_path, monkeypatch):
+    vault = _vault(tmp_path)
+    _register(monkeypatch, tmp_path, vault)
+    message = f"Upgrade refused — the migration ledger cannot be read ({vault}/.brain/local/migrations.json: ...)"
+    _fake_upgrader(monkeypatch, lambda _kwargs: {
+        "status": "error",
+        "old_version": "0.54.41",
+        "new_version": CORE_VERSION,
+        "reason": "ledger_unreadable",
+        "rollback_verified": True,
+        "message": message,
+    })
+
+    result = _invocation(tmp_path, vault=vault).invoke(BrainUpgradeRequest())
+
+    assert result.error.code is ErrorCode.CONFLICT
+    assert result.effects == "none"
+    assert result.error.message == message
+
+
+def _ok_result(kwargs, **extra):
+    return {
+        "status": "ok",
+        "old_version": "0.54.41",
+        "new_version": CORE_VERSION,
+        "files_added": [],
+        "files_modified": ["scripts/upgrade.py"],
+        "files_removed": [],
+        "router_compile": {"outcome": "ok"},
+        "cutover_commit": kwargs["commit_callback"]({}),
+        **extra,
+    }
+
+
+def test_upgrade_warnings_reach_the_launcher_result_on_ok(tmp_path, monkeypatch):
+    vault = _vault(tmp_path)
+    _register(monkeypatch, tmp_path, vault)
+    _fake_upgrader(monkeypatch, lambda kwargs: _ok_result(kwargs, warnings=[
+        {"stage": "version_guard", "code": "core_mismatch", "message": "The installed Brain Core differs; re-applying it."},
+        {"stage": "upgrade_start", "code": "interrupted_previous_upgrade", "message": "A previous upgrade was interrupted."},
+        {"stage": "post_compile_snapshot_seed", "code": "post_compile_snapshot_seed_unavailable", "message": "no router"},
+    ]))
+
+    result = _invocation(tmp_path, vault=vault).invoke(BrainUpgradeRequest())
+
+    assert result.status == "ok"
+    assert [(w.code, w.message) for w in result.warnings] == [
+        (WarningCode.FOLLOW_UP_REQUIRED, "core_mismatch: The installed Brain Core differs; re-applying it."),
+        (WarningCode.FOLLOW_UP_REQUIRED, "interrupted_previous_upgrade: A previous upgrade was interrupted."),
+        (WarningCode.DEGRADED_CAPABILITY, "post_compile_snapshot_seed_unavailable: no router"),
+    ]
+    projected = project_launcher_result(result)
+    assert projected.structured_content["warnings"][0]["code"] == "follow_up_required"
+
+
+def test_upgrade_warnings_reach_the_launcher_result_on_noop_and_partial(tmp_path, monkeypatch):
+    vault = _vault(tmp_path)
+    _register(monkeypatch, tmp_path, vault)
+    interrupted = {"code": "interrupted_previous_upgrade", "message": "interrupted during dependency_sync"}
+    _fake_upgrader(monkeypatch, lambda _kwargs: {
+        "status": "skipped",
+        "old_version": CORE_VERSION,
+        "new_version": CORE_VERSION,
+        "message": f"Already at {CORE_VERSION}.",
+        "warnings": [interrupted],
+    })
+    skipped = _invocation(tmp_path, vault=vault).invoke(BrainUpgradeRequest())
+    assert skipped.result.status is LifecycleStatus.NOOP
+    assert [w.code for w in skipped.warnings] == [WarningCode.FOLLOW_UP_REQUIRED]
+
+    not_durable = {"code": "version_commit_not_durable", "message": "VERSION is written but not fsynced"}
+    _fake_upgrader(monkeypatch, _partial_after_commit({
+        "router_compile": {"outcome": "error", "message": "boom"},
+        "warnings": [not_durable],
+    }))
+    partial = _invocation(tmp_path, vault=vault).invoke(BrainUpgradeRequest())
+    assert partial.status == "partial"
+    assert [(w.code, w.message) for w in partial.warnings] == [
+        (WarningCode.DEGRADED_CAPABILITY, "version_commit_not_durable: VERSION is written but not fsynced"),
+    ]
+
+
+def test_upgrade_force_on_a_same_version_vault_runs_the_real_core_and_no_migration(tmp_path, monkeypatch, fake_home):
+    """Through the launcher and the real distribution core: force re-applies, migrations are seeded, none run."""
+    import shutil
+
+    from test_upgrade import _make_minimal_upgrade_vault
+
+    vault = _make_minimal_upgrade_vault(tmp_path, version=CORE_VERSION).resolve()
+    shutil.rmtree(vault / ".brain-core")
+    shutil.copytree(
+        REPO_ROOT / "src" / "brain-core", vault / ".brain-core",
+        ignore=shutil.ignore_patterns("__pycache__", "*.pyc", ".DS_Store"),
+    )
+    _register(monkeypatch, tmp_path, vault)
+    (tmp_path / "bin").mkdir()
+
+    result = _invocation(tmp_path, vault=vault).invoke(BrainUpgradeRequest(
+        force=True, definition_sync=UpgradePolicy.DISABLE, dependency_sync=UpgradePolicy.DISABLE,
+    ))
+
+    assert result.status == "ok", getattr(result, "error", None)
+    assert result.result.status is LifecycleStatus.CHANGED
+    assert result.result.old_version == result.result.new_version == CORE_VERSION
+    assert result.result.migrations == ()
+    assert (vault / ".brain-core" / "VERSION").read_text().strip() == CORE_VERSION
+    ledger = json.loads((vault / ".brain" / "local" / "migrations.json").read_text())["migrations"]
+    assert ledger, "every migration at or below VERSION is seeded"
+    assert {entry["status"] for entry in ledger.values()} == {"backfilled"}
+    assert {entry["recorded_from"] for entry in ledger.values()} == {f"installed-version:{CORE_VERSION}"}
+
+
+def test_upgrade_journal_unreadable_refusal_is_a_no_effect_conflict(tmp_path, monkeypatch):
+    vault = _vault(tmp_path)
+    _register(monkeypatch, tmp_path, vault)
+    message = "Upgrade refused — the rollback journal of an interrupted upgrade cannot be read (...)"
+    _fake_upgrader(monkeypatch, lambda _kwargs: {
+        "status": "error",
+        "old_version": "0.54.41",
+        "new_version": CORE_VERSION,
+        "reason": "journal_unreadable",
+        "rollback_verified": True,
+        "message": message,
+    })
+
+    result = _invocation(tmp_path, vault=vault).invoke(BrainUpgradeRequest())
+
+    assert result.error.code is ErrorCode.CONFLICT
+    assert result.effects == "none"
+    assert result.error.message == message
+
+
+_RECOVERED = {"stage": "upgrade_start", "code": "recovered_interrupted_upgrade", "message": "A previous upgrade was rolled back from its journal."}
+_RECOVERY = {"action": "restored", "journal": "/state/brain/upgrade-journals/abc", "restored_paths": 3, "preserved_paths": 0, "recovery_directory": None}
+
+
+def test_upgrade_recovery_warning_requires_follow_up_and_the_recovery_is_an_effect(tmp_path, monkeypatch):
+    vault = _vault(tmp_path)
+    _register(monkeypatch, tmp_path, vault)
+    _fake_upgrader(monkeypatch, lambda kwargs: _ok_result(kwargs, warnings=[_RECOVERED], recovery=_RECOVERY))
+
+    result = _invocation(tmp_path, vault=vault).invoke(BrainUpgradeRequest())
+
+    assert result.status == "ok"
+    assert [(w.code, w.message) for w in result.warnings] == [
+        (WarningCode.FOLLOW_UP_REQUIRED, "recovered_interrupted_upgrade: A previous upgrade was rolled back from its journal."),
+    ]
+    assert result.committed_effects[0] == CommittedEffect(BrainUpgradeRequest.COMMAND_ID, "upgrade-recovery:/state/brain/upgrade-journals/abc")
+    assert len(result.committed_effects) == 4
+
+
+def test_a_refusal_after_a_recovery_is_partial_with_the_recovery_as_its_effect(tmp_path, monkeypatch):
+    """A refused run that restored a journal did something; it is never reported as a no-effect error."""
+    vault = _vault(tmp_path)
+    _register(monkeypatch, tmp_path, vault)
+    message = "Upgrade refused — this source is 0.9.0 but the Brain's content is at 1.0.0."
+    _fake_upgrader(monkeypatch, lambda _kwargs: {
+        "status": "error", "old_version": "1.0.0", "new_version": "0.9.0", "reason": "content_ahead",
+        "rollback_verified": True, "message": message, "warnings": [_RECOVERED], "recovery": _RECOVERY,
+    })
+
+    result = _invocation(tmp_path, vault=vault).invoke(BrainUpgradeRequest())
+
+    assert result.status == "partial"
+    assert result.error.code is ErrorCode.CONFLICT and result.error.message == message
+    assert result.committed_effects == (CommittedEffect(BrainUpgradeRequest.COMMAND_ID, "upgrade-recovery:/state/brain/upgrade-journals/abc"),)
+    assert [w.code for w in result.warnings] == [WarningCode.FOLLOW_UP_REQUIRED]
+
+
+def test_a_skip_after_a_recovery_carries_the_recovery_effect(tmp_path, monkeypatch):
+    vault = _vault(tmp_path)
+    _register(monkeypatch, tmp_path, vault)
+    _fake_upgrader(monkeypatch, lambda _kwargs: {
+        "status": "skipped", "old_version": CORE_VERSION, "new_version": CORE_VERSION,
+        "message": f"Already at {CORE_VERSION}.", "warnings": [_RECOVERED], "recovery": _RECOVERY,
+    })
+
+    result = _invocation(tmp_path, vault=vault).invoke(BrainUpgradeRequest())
+
+    assert result.status == "ok" and result.result.status is LifecycleStatus.NOOP
+    assert result.committed_effects == (CommittedEffect(BrainUpgradeRequest.COMMAND_ID, "upgrade-recovery:/state/brain/upgrade-journals/abc"),)
+
+
+def test_a_next_run_restore_that_does_not_verify_is_an_unknown_outcome(tmp_path, monkeypatch):
+    vault = _vault(tmp_path)
+    _register(monkeypatch, tmp_path, vault)
+    journal = "/state/brain/upgrade-journals/abc"
+    _fake_upgrader(monkeypatch, lambda _kwargs: {
+        "status": "error", "old_version": "1.0.0", "new_version": CORE_VERSION,
+        "message": "Upgrade stopped — the interrupted upgrade 1.0.0 → 2.0.0 could not be rolled back.",
+        "rollback_verified": False, "recovery_paths": [journal, "/vault/.brain/notes.txt"],
+        "rollback": {"vault_state": "unverified", "errors": ["x"], "recovery_paths": [journal]},
+    })
+
+    result = _invocation(tmp_path, vault=vault).invoke(BrainUpgradeRequest())
+
+    assert result.status == "error" and result.error.code is ErrorCode.COMMAND_OUTCOME_UNKNOWN
+    assert result.effects == "unknown"
+    assert result.error.details.recovery_paths == ("/state/brain/upgrade-journals/abc", "/vault/.brain/notes.txt")

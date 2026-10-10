@@ -24,10 +24,31 @@ def test_compatibility_families_are_non_overlapping_and_cover_selected_versions(
     assert manifest.select("0.68.0").adapter_id == "brain-0.64"
     assert manifest.select("0.69.0").adapter_id == "brain-0.64"
     assert manifest.select("0.70.0").adapter_id == "brain-0.70"
+    assert manifest.select("0.70.10").adapter_id == "brain-0.70"
+    assert manifest.select("0.71.0").adapter_id == "brain-0.71"
     with pytest.raises(ValueError, match="no unique"):
         manifest.select("0.50.0")
     with pytest.raises(ValueError, match="no unique"):
-        manifest.select("0.71.0")
+        manifest.select("0.72.0")
+
+
+def test_brain_0_71_changes_only_how_doctor_selects_its_vault():
+    """Released 0.70 CLIs need Doctor's request field; from 0.71 the launcher selection scopes Doctor."""
+    from dataclasses import replace
+
+    manifest = CompatibilityManifest(MANIFEST)
+    released, current = manifest.select("0.70.0"), manifest.select("0.71.0")
+    released_doctor = next(gate for gate in released.health if gate.gate_id == "doctor")
+    current_doctor = next(gate for gate in current.health if gate.gate_id == "doctor")
+
+    assert released_doctor.command == ("brain", "doctor", "--request-json", '{{"current_vault":"{vault}"}}', "--json")
+    assert current_doctor.command == ("brain", "--vault", "{vault}", "doctor", "--json")
+    assert current_doctor.expected_json == released_doctor.expected_json
+    assert (current.revision, current.minimum_version, current.maximum_version_exclusive) == (1, "0.71.0", "0.72.0")
+    assert replace(current, adapter_id=released.adapter_id, minimum_version=released.minimum_version,
+                   maximum_version_exclusive=released.maximum_version_exclusive,
+                   health=tuple(released_doctor if gate is current_doctor else gate for gate in current.health)
+                   ) == released
 
 
 def test_commands_render_argv_without_shell_interpolation():
@@ -121,3 +142,25 @@ def test_historical_adapter_owns_future_dependency_break_and_generated_template_
 def test_version_parser_rejects_ambiguous_versions(value: str):
     with pytest.raises(ValueError):
         parse_version(value)
+
+
+def test_gate_output_is_judged_and_retried_by_one_rule():
+    from brain_lab.compatibility import GateRetry, HealthGate, gate_output_matches, gate_retry_delay
+
+    gate = HealthGate(
+        gate_id="probe", command=("x",), expected_stdout=None,
+        expected_json={"result.round_trip": "tools/call:{vault}"},
+        retry=GateRetry(3, ("runtime_warming_up",), 2.0),
+    )
+    values = {"vault": "/home/brain/vault"}
+
+    assert gate_output_matches(gate, '{"result": {"round_trip": "tools/call:/home/brain/vault"}}', values)
+    assert not gate_output_matches(gate, '{"result": {}}', values)
+    assert not gate_output_matches(gate, "not json", values)
+    assert gate_retry_delay(gate, "not json") is None
+    assert gate_retry_delay(gate, '{"error": {"retryable": true, "code": "other"}}') is None
+    assert gate_retry_delay(gate, '{"error": {"retryable": true, "code": "runtime_warming_up"}}') == 2.0
+    assert gate_retry_delay(
+        gate, '{"error": {"retryable": true, "code": "runtime_warming_up", "details": {"runtime_status": {"retry_after_ms": 500}}}}',
+    ) == 0.5
+    assert gate_retry_delay(HealthGate("plain", ("x",)), '{"error": {"retryable": true, "code": "runtime_warming_up"}}') is None

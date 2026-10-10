@@ -457,6 +457,8 @@ def check_living_key_fields(vault_root, router, *, ctx=None):
             "file": rel_path,
             "message": "Living artefact missing a valid key field",
             "fix": "Run `migrate_to_0_31_0.py` (or backfill a canonical key by hand) and recompile the router",
+            # The invalid value is the evidence: a key that breaks differently reopens a dismissal.
+            "evidence": {"key": key},
         })
     return findings
 
@@ -1007,11 +1009,10 @@ def run_checks(vault_root, router=None, *, workspace_dir=None):
     findings.extend(collect_bootstrap_check_findings(vault_root))
     from _lifecycle.semantic_repairs import collect_managed_check_findings
 
-    semantic_findings = collect_managed_check_findings(vault_root)
-    findings.extend(semantic_findings)
-    if inspect_derived_cache and not any(
-        finding.get("repair", {}).get("scope") == "semantic" for finding in semantic_findings
-    ):
+    findings.extend(collect_managed_check_findings(vault_root))
+    # A semantic finding never suppresses the lexical one: the lexical repair
+    # is automatic and the semantic repair is a separate, heavier decision.
+    if inspect_derived_cache:
         lexical_state = inspect_lexical_cache(vault_root)
         if lexical_state.stale:
             findings.append(_repairable_lexical_finding(vault_root, lexical_state.reason))
@@ -1053,6 +1054,15 @@ def render_human_findings(result, *, actionable=False):
             line += f" → Run `{finding['repair']['command']}`"
         lines.append(line)
     return lines
+
+
+def exit_code_for_summary(summary):
+    """Exit categories for a check result: 0 clean, 1 warnings only, 2 errors."""
+    if summary["errors"] > 0:
+        return 2
+    if summary["warnings"] > 0:
+        return 1
+    return 0
 
 
 def render_human_summary(result):
@@ -1122,13 +1132,7 @@ def main():
             print()
         print(render_human_summary(result))
 
-    # Exit codes: 0 = clean, 1 = warnings only, 2 = errors
-    if result["summary"]["errors"] > 0:
-        sys.exit(2)
-    elif result["summary"]["warnings"] > 0:
-        sys.exit(1)
-    else:
-        sys.exit(0)
+    sys.exit(exit_code_for_summary(result["summary"]))
 
 
 if __name__ == "__main__":

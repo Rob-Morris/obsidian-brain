@@ -253,7 +253,6 @@ def test_upgrade_runner_applies_the_v055_profile_migration(tmp_path):
         str(vault),
         "0.54.59",
         "0.55.0",
-        raise_on_error=True,
     )
 
     assert [(item["version"], item["status"]) for item in results] == [
@@ -304,7 +303,6 @@ def test_upgrade_runner_applies_the_v056_profile_consolidation(tmp_path):
         str(vault),
         "0.55.8",
         "0.56.0",
-        raise_on_error=True,
     )
 
     assert [(item["version"], item["status"]) for item in results] == [
@@ -342,7 +340,6 @@ def test_upgrade_runner_applies_the_v057_access_controls(tmp_path):
         str(vault),
         "0.56.0",
         "0.57.0",
-        raise_on_error=True,
     )
 
     assert [(item["version"], item["status"]) for item in results] == [
@@ -384,7 +381,6 @@ def test_upgrade_runner_applies_the_v059_document_profile_expansion(tmp_path):
         str(vault),
         "0.58.0",
         "0.59.0",
-        raise_on_error=True,
     )
 
     assert [(item["version"], item["status"]) for item in results] == [
@@ -1023,27 +1019,72 @@ class TestAgentSkillUpgradeFollowup:
     def test_managed_approvals_notice_only_crosses_introduction(self, old, new, expected):
         assert bool(upgrade._managed_approval_followups(old, new)) is expected
 
-    def test_adapter_content_update_adds_update_followup(self, tmp_path):
-        vault = tmp_path / "vault"
+    @staticmethod
+    def _managed_copy(home, client, content_hash, *, marker=None):
+        from _bootstrap.agent_skills import CLIENT_SKILLS_DIRS, MARKER_FILE, _marker
+
+        skill_dir = home / CLIENT_SKILLS_DIRS[client] / "shaping"
+        skill_dir.mkdir(parents=True)
+        (skill_dir / "SKILL.md").write_text("managed copy\n")
+        (skill_dir / MARKER_FILE).write_text(json.dumps(_marker(content_hash) if marker is None else marker))
+
+    def test_managed_copy_comparison_is_owned_by_the_adapter_module(self, tmp_path):
+        from _bootstrap.agent_skills import _sha256_text, managed_adapter_copies_outdated
+
+        content = "adapter line one\r\nline two\n"
+        current = _sha256_text(content)
+        assert managed_adapter_copies_outdated(tmp_path, content) is False, "no managed copies"
+        self._managed_copy(tmp_path, "claude", current)
+        assert managed_adapter_copies_outdated(tmp_path, content) is False, "text hash, so CRLF matches"
+        self._managed_copy(tmp_path, "codex", "0" * 64)
+        assert managed_adapter_copies_outdated(tmp_path, content) is True
+        broken = tmp_path / "broken"
+        self._managed_copy(broken, "grok", current, marker={"content_sha256": current})
+        assert managed_adapter_copies_outdated(broken, content) is True, "an unrecognised marker cannot prove currency"
+
+    def test_lagging_managed_copy_adds_update_followup_without_a_diff(self, tmp_path, fake_home):
+        """A resumed or re-applied run has an empty diff; the managed copies decide."""
+        import hashlib
+
+        source = tmp_path / "source"
+        adapter = source / upgrade.AGENT_SKILL_ADAPTER_REL
+        adapter.parent.mkdir(parents=True)
+        adapter.write_text("current adapter\n")
+        current = hashlib.sha256(adapter.read_bytes()).hexdigest()
+        self._managed_copy(fake_home, "claude", current)
+        self._managed_copy(fake_home, "codex", "0" * 64)
+        diff = {"files_added": [], "files_modified": []}
+
+        followups = upgrade._agent_skill_adapter_followups(str(tmp_path / "vault"), str(source), diff)
+
+        assert followups[0]["reason"] == "shaping_adapter_updated"
+        assert followups[0]["command"][-1] == "all"
+
+    def test_matching_managed_copies_need_no_adapter_followup(self, tmp_path, fake_home):
+        import hashlib
+
+        source = tmp_path / "source"
+        adapter = source / upgrade.AGENT_SKILL_ADAPTER_REL
+        adapter.parent.mkdir(parents=True)
+        adapter.write_text("current adapter\n")
+        current = hashlib.sha256(adapter.read_bytes()).hexdigest()
+        self._managed_copy(fake_home, "claude", current)
         diff = {
             "files_added": [],
             "files_modified": [upgrade.AGENT_SKILL_ADAPTER_REL],
         }
 
-        followups = upgrade._agent_skill_adapter_followups(str(vault), diff)
-
-        assert followups[0]["reason"] == "shaping_adapter_updated"
-        assert followups[0]["command"][-1] == "all"
+        assert upgrade._agent_skill_adapter_followups(str(tmp_path), str(source), diff) == []
 
     def test_ordinary_shaping_workflow_update_needs_no_adapter_followup(
-        self, tmp_path
+        self, tmp_path, fake_home
     ):
         diff = {
             "files_added": [],
             "files_modified": [os.path.join("skills", "shaping", "SKILL.md")],
         }
 
-        assert upgrade._agent_skill_adapter_followups(str(tmp_path), diff) == []
+        assert upgrade._agent_skill_adapter_followups(str(tmp_path), str(tmp_path / "source"), diff) == []
 
     def test_human_output_renders_recommended_command(
         self, tmp_path, monkeypatch, capsys
@@ -1237,7 +1278,7 @@ class TestPostUpgradeSync:
         assert "v2" in observed_taxonomies[-1]
         assert len(observed_taxonomies) >= 2
 
-    def test_upgrade_surfaces_post_sync_compile_failure(
+    def test_upgrade_reports_post_commit_compile_failure_as_partial(
         self, source_and_vault, monkeypatch
     ):
         source, vault = source_and_vault
@@ -1261,11 +1302,12 @@ class TestPostUpgradeSync:
 
         result = upgrade.upgrade(str(vault), str(source))
 
-        assert result["status"] == "ok"
-        assert result["sync_compile_error"] == (
-            "Definitions were updated but router recompilation failed: "
-            "new taxonomy is invalid"
-        )
+        assert result["status"] == "partial"
+        assert result["router_compile"] == {
+            "outcome": "error",
+            "message": "Router recompilation failed after the commit: new taxonomy is invalid",
+        }
+        assert (vault / ".brain-core" / "VERSION").read_text().strip() == "2.0.0"
 
     def test_upgrade_with_ask_preference_applies_safe_updates(self, source_and_vault):
         """artefact_sync: ask (default) → safe updates auto-applied."""
@@ -1588,7 +1630,9 @@ class TestPrecompileDefinitionRemediation:
             recovery_paths = (recovery_path,)
 
         def fail_commit(_result):
-            assert (vault / ".brain-core" / "VERSION").read_text().strip() == CORE_VERSION
+            # VERSION is the commit witness: it is still the old version while
+            # the cutover can fail, so a rollback restores a tree it never left.
+            assert (vault / ".brain-core" / "VERSION").read_text().strip() == "0.54.59"
             raise CheckedExternalFailure("injected CLI commit failure")
 
         result = upgrade.upgrade(
@@ -1862,28 +1906,31 @@ class TestPrecompileDefinitionRemediation:
             str(second): {"exists": True, "content": b"original-second\n"},
             str(introduced): {"exists": False},
         }
-        real_safe_write = upgrade._safe_write
-        real_remove = upgrade.os.remove
+        from _bootstrap import upgrade_journal
+
+        real_write = upgrade_journal.write_durably
+        real_remove = upgrade_journal.os.remove
 
         def fail_target_restores(path, content):
             if str(path) in {str(first), str(second)}:
                 raise OSError(f"cannot restore {Path(path).name}")
-            return real_safe_write(path, content)
+            return real_write(path, content)
 
         def fail_target_removals(path):
             if str(path) in {str(introduced), str(untracked)}:
                 raise OSError(f"cannot remove {Path(path).name}")
             return real_remove(path)
 
-        monkeypatch.setattr(upgrade, "_safe_write", fail_target_restores)
-        monkeypatch.setattr(upgrade.os, "remove", fail_target_removals)
+        monkeypatch.setattr(upgrade_journal, "write_durably", fail_target_restores)
+        monkeypatch.setattr(upgrade_journal.os, "remove", fail_target_removals)
 
-        report = upgrade._restore_snapshots(
+        report = upgrade_journal.restore_snapshots(
             snapshots,
             roots={str(vault): {str(vault)}},
-            recovery_dir=str(tmp_path / "recovery"),
+            store=upgrade_journal.RecoveryStore(str(tmp_path / "recovery"), str(vault)),
         )
 
+        assert report.verified is False
         assert len(report.errors) == 4
         assert {str(first), str(second), str(introduced), str(untracked)} <= set(
             report.recovery_paths
@@ -1901,26 +1948,22 @@ class TestPrecompileDefinitionRemediation:
         vault = tmp_path / "vault"
         introduced = vault / "introduced"
         introduced.mkdir(parents=True)
-        real_rmdir = upgrade.os.rmdir
+        from _bootstrap import upgrade_journal
+
+        real_rmdir = upgrade_journal.os.rmdir
 
         def fail_introduced_directory(path):
             if str(path) == str(introduced):
                 raise OSError("cannot remove introduced directory")
             return real_rmdir(path)
 
-        monkeypatch.setattr(upgrade.os, "rmdir", fail_introduced_directory)
+        monkeypatch.setattr(upgrade_journal.os, "rmdir", fail_introduced_directory)
 
-        report = upgrade._restore_snapshots(
-            {},
-            roots={str(vault): {str(vault)}},
-            recovery_dir=str(tmp_path / "recovery"),
-        )
+        report = upgrade_journal.restore_snapshots({}, roots={str(vault): {str(vault)}})
 
         assert any(str(introduced) in error for error in report.errors)
         assert str(introduced) in report.recovery_paths
-        assert upgrade._snapshots_verified(
-            {}, roots={str(vault): {str(vault)}}
-        ) is False
+        assert report.verified is False
 
     def test_snapshot_restore_treats_cross_drive_paths_as_outside_root(
         self,
@@ -1934,27 +1977,22 @@ class TestPrecompileDefinitionRemediation:
         snapshots = {
             str(external): {"exists": True, "content": b"original\n"},
         }
-        real_commonpath = upgrade.os.path.commonpath
+        from _bootstrap import upgrade_journal
+
+        real_commonpath = upgrade_journal.os.path.commonpath
 
         def cross_drive_commonpath(paths):
             if str(external) in paths:
                 raise ValueError("Paths are on different drives")
             return real_commonpath(paths)
 
-        monkeypatch.setattr(upgrade.os.path, "commonpath", cross_drive_commonpath)
+        monkeypatch.setattr(upgrade_journal.os.path, "commonpath", cross_drive_commonpath)
 
-        report = upgrade._restore_snapshots(
-            snapshots,
-            roots={str(vault): {str(vault)}},
-            recovery_dir=str(tmp_path / "recovery"),
-        )
+        report = upgrade_journal.restore_snapshots(snapshots, roots={str(vault): {str(vault)}})
 
         assert report.errors == ()
         assert external.read_bytes() == b"original\n"
-        assert upgrade._snapshots_verified(
-            snapshots,
-            roots={str(vault): {str(vault)}},
-        ) is True
+        assert report.verified is True
 
     def test_direct_cutover_projection_retains_cleanup_recovery_paths(
         self, tmp_path, monkeypatch
@@ -2447,6 +2485,7 @@ class TestUpgradeProgressLogging:
             sync=None,
             sync_deps=None,
             commit_callback=None,
+            prepare_cutover=None,
         ):
             assert commit_callback is None
             result = {
@@ -2503,6 +2542,7 @@ class TestUpgradeProgressLogging:
             sync=None,
             sync_deps=None,
             commit_callback=None,
+            prepare_cutover=None,
         ):
             assert commit_callback is None
             assert sync_deps is None
@@ -2559,6 +2599,7 @@ class TestUpgradeProgressLogging:
             sync=None,
             sync_deps=None,
             commit_callback=None,
+            prepare_cutover=None,
         ):
             assert commit_callback is None
             return {
@@ -2805,14 +2846,26 @@ class TestUpgradeCliCentralRuntime:
         assert "MCP registration reconciliation failed:" in first.stderr
         assert "Created central runtime" in first.stderr
 
-        # Second run: same requirements → reused, not recreated
+        # Second run: a forced same-version re-apply has an empty copy diff and
+        # still ensures the runtime → reused, not recreated (DD-084).
         second = subprocess.run(
-            [sys.executable, str(script), "--source", str(source), "--vault", str(vault), "--sync-deps", "--force"],
+            [sys.executable, str(script), "--source", str(source), "--vault", str(vault), "--force"],
             capture_output=True, text=True, timeout=60, env=env,
         )
         assert second.returncode == 1, second.stderr
         assert "MCP registration reconciliation failed:" in second.stderr
         assert "Reused central runtime" in second.stderr
+
+        # Third run: a resume after a kill before the VERSION write also has an
+        # empty copy diff and still ensures the runtime.
+        (vault / ".brain-core" / "VERSION").write_text("0.28.7\n")
+        third = subprocess.run(
+            [sys.executable, str(script), "--source", str(source), "--vault", str(vault)],
+            capture_output=True, text=True, timeout=60, env=env,
+        )
+        assert third.returncode == 1, third.stderr
+        assert "Reused central runtime" in third.stderr
+        assert (vault / ".brain-core" / "VERSION").read_text().strip() == "0.29.1"
 
 
 class TestSyncRenderers:
@@ -2851,3 +2904,49 @@ class TestSyncRenderers:
         assert upgrade._format_sync_warning(item) == sync_definitions.format_sync_warning(item)
         error = {"type": "t/x", "role": "taxonomy", "error": "boom"}
         assert upgrade._format_sync_error(error) == sync_definitions.format_sync_error(error)
+
+
+class TestCentralRuntimeEnsure:
+    """`_ensure_central_runtime` reaches the real function; the venv helper is a stand-in on disk."""
+
+    @staticmethod
+    def _install_fake_venv_helper(vault, body):
+        helper = vault / ".brain-core" / "scripts" / "_common" / "_venv.py"
+        helper.parent.mkdir(parents=True, exist_ok=True)
+        helper.write_text(
+            "from pathlib import Path\n"
+            "RUNTIME_ERROR = 'error'\n"
+            "RUNTIME_CREATED = 'created'\n"
+            "def central_venvs_root():\n    return Path('/fake/venvs')\n"
+            "def legacy_vault_venv_dir(vault_root):\n    return Path(vault_root) / '.venv-absent'\n"
+            + body
+        )
+
+    def test_a_provisioning_os_error_is_an_informational_runtime_error(self, tmp_path):
+        vault = tmp_path / "vault"
+        self._install_fake_venv_helper(vault, (
+            "def resolve_or_provision_central_venv(vault_root, **kwargs):\n"
+            "    raise PermissionError('venvs root is read-only')\n"
+        ))
+
+        runtime = upgrade._ensure_central_runtime(vault, requirements_changed=False, sync_deps=None)
+
+        assert runtime["outcome"] == upgrade.RUNTIME_ERROR
+        assert runtime["message"] == "PermissionError: venvs root is read-only"
+
+    @pytest.mark.parametrize("sync_deps,full_conformance", [(None, False), (True, True)])
+    def test_full_conformance_is_only_requested_by_sync_deps(self, tmp_path, sync_deps, full_conformance):
+        vault = tmp_path / "vault"
+        record = vault / "provision-kwargs.json"
+        self._install_fake_venv_helper(vault, (
+            "import json\n"
+            "def resolve_or_provision_central_venv(vault_root, **kwargs):\n"
+            f"    Path({str(record)!r}).write_text(json.dumps({{k: v for k, v in kwargs.items() if isinstance(v, (bool, int, str))}}))\n"
+            "    return {'outcome': 'reused', 'venv_dir': '/fake/venvs/py3.12-abc', 'python': '/fake/py',\n"
+            "            'python_tag': 'py3.12', 'hash': 'abc'}\n"
+        ))
+
+        runtime = upgrade._ensure_central_runtime(vault, requirements_changed=False, sync_deps=sync_deps)
+
+        assert runtime["outcome"] == upgrade.RUNTIME_REUSED
+        assert json.loads(record.read_text())["full_conformance"] is full_conformance

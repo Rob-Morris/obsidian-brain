@@ -60,7 +60,8 @@ def test_registry_writes_land_in_the_isolated_home(tmp_path):
     real_before = real_registry.read_text() if real_registry.exists() else None
 
     target = tmp_path / "guard-vault"
-    target.mkdir()
+    (target / ".brain-core").mkdir(parents=True)
+    (target / ".brain-core" / "VERSION").write_text("0.70.10\n")  # only an installed Brain registers
     brain_id = vault_registry.register(str(target))
 
     isolated = Path(os.environ["XDG_CONFIG_HOME"]) / "brain" / "vaults"

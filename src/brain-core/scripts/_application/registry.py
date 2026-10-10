@@ -35,6 +35,11 @@ from .document import write_body as document_write_body
 from .foundation import build_application_catalogue, build_request_resolver
 from .links import check as links_check
 from .links import fix as links_fix
+from .maintenance import claim as maintenance_claim
+from .maintenance import dismiss as maintenance_dismiss
+from .maintenance import list as maintenance_list
+from .maintenance import release as maintenance_release
+from .maintenance import run as maintenance_run
 from .plugin import create as plugin_create
 from .plugin import replace as plugin_replace
 from .resource import create as resource_create
@@ -49,6 +54,7 @@ from .retrieval import rebuild_semantic as retrieval_rebuild_semantic
 from .retrieval import repair_semantic as retrieval_repair_semantic
 from .runtime import refresh_router as runtime_refresh_router
 from .runtime import read_environment as runtime_read_environment
+from .runtime import remove_temporaries as runtime_remove_temporaries
 from .runtime import status as runtime_status
 from .runtime import warmup as runtime_warmup
 from .session import start as session_start
@@ -72,11 +78,9 @@ from .vault import check as vault_check
 from .vault import read_config as vault_read_config
 from .vault import read_router as vault_read_router
 from .vault import read_file as vault_read_file
-from .workspace import bind as workspace_bind
 from .workspace import configure_bootstrap as workspace_configure_bootstrap
 from .workspace import list as workspace_list
 from .workspace import read as workspace_read
-from .workspace import register as workspace_register
 from .workspace import repair_registry as workspace_repair_registry
 from .workspace import setup as workspace_setup
 from .workspace import ensure_registration as workspace_ensure_registration
@@ -119,6 +123,11 @@ _COMMAND_OWNERS = (
     document_write_body,
     links_check,
     links_fix,
+    maintenance_claim,
+    maintenance_dismiss,
+    maintenance_list,
+    maintenance_release,
+    maintenance_run,
     plugin_create,
     plugin_replace,
     resource_create,
@@ -133,6 +142,7 @@ _COMMAND_OWNERS = (
     retrieval_repair_semantic,
     runtime_refresh_router,
     runtime_read_environment,
+    runtime_remove_temporaries,
     runtime_status,
     runtime_warmup,
     session_start,
@@ -156,11 +166,9 @@ _COMMAND_OWNERS = (
     vault_read_config,
     vault_read_router,
     vault_read_file,
-    workspace_bind,
     workspace_configure_bootstrap,
     workspace_list,
     workspace_read,
-    workspace_register,
     workspace_repair_registry,
     workspace_setup,
     workspace_ensure_registration,

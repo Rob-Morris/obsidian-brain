@@ -451,7 +451,7 @@ def test_application_process_invoker_executes_the_selected_brain_command(
     assert argv[argv.index("--workspace") + 1] == str(tmp_path.resolve())
     assert argv[argv.index("--operator-key") + 1] == "amber-river-crown"
     assert "--dry-run" in argv and "--json" in argv
-    assert options == {"capture_output": True, "text": True, "check": False}
+    assert options == {"role": "cli", "capture_output": True, "text": True, "check": False}
     assert result.owner == "application"
     assert result.structured_content == envelope
     assert result.concise_text == "artefact.read: ok"

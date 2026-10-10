@@ -5,6 +5,7 @@ from __future__ import annotations
 import io
 import json
 import os
+import re
 from pathlib import Path
 import shutil
 import subprocess
@@ -79,8 +80,10 @@ def test_runtime_digest_covers_both_exports_but_not_contributor_files(tmp_path):
     semantic.write_text(semantic.read_text() + "different==1\n")
     assert _venv.requirements_hash(base) != original
     semantic.unlink()
-    with pytest.raises(FileNotFoundError):
+    with pytest.raises(_venv.RuntimeContractUnavailable, match=re.escape(f"export is missing: {semantic}")) as raised:
         _venv.requirements_hash(base)
+    assert isinstance(raised.value, OSError) and isinstance(raised.value, ValueError), (
+        "existing handlers of either base still apply")
 
 
 def test_autocrlf_checkout_index_and_archive_have_identical_contract_bytes(tmp_path):

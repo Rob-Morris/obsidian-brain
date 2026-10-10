@@ -106,7 +106,7 @@ if ($SkipMcp) {
         } else {
             Write-Host "  2) Make this your default brain  (user scope)"
         }
-        Write-Host "  3) Skip MCP registration  (scaffold only)"
+        Write-Host "  3) Skip MCP registration  (the managed runtime and CLI are still installed)"
         $choice = Read-Host "Choice [1]"
         switch ($choice) {
             "2" { $McpScope = "user" }

@@ -196,8 +196,8 @@ class TestThroughTheUpgradeRunner:
         shutil.copytree(real_scripts, scripts, ignore=shutil.ignore_patterns("__pycache__"))
         declared = []
         results, ledger = upgrade._run_migrations(
-            str(vault), "0.66.1", "0.67.0", raise_on_error=True,
-            prepare_effects=lambda effects: declared.extend(effects),
+            str(vault), "0.66.1", "0.67.0",
+            prepare=lambda effects: declared.extend(effects),
         )
         assert [item["version"] for item in results] == ["0.67.0"]
         assert results[0]["status"] == "ok"
@@ -207,5 +207,59 @@ class TestThroughTheUpgradeRunner:
         assert os.path.join(str(vault), "Projects", "Brain.md") in declared
         assert os.path.join(str(vault), "_Temporal", "Logs", "20260301-log.md") in declared
         # A second runner pass finds the ledger entry and does not replay.
-        again, _ledger = upgrade._run_migrations(str(vault), "0.66.1", "0.67.0", raise_on_error=True)
+        again, _ledger = upgrade._run_migrations(str(vault), "0.66.1", "0.67.0")
         assert again == []
+
+
+class TestRestartability:
+    def test_resumes_to_convergence_after_an_interruption_between_files(self, vault):
+        """A hard kill runs no rollback, so the migration must finish a partial application of itself."""
+        converged_links = (vault / "Projects" / "Brain.md").read_text().replace("2026-03/", "").replace("2026-04/", "")
+        # Link writes precede moves in the move engine: the kill lands after the
+        # links and the first move, before the second file moved.
+        (vault / "Projects" / "Brain.md").write_text(converged_links)
+        first = vault / "_Temporal" / "Logs" / "2026-03" / "20260301-log.md"
+        first.rename(vault / "_Temporal" / "Logs" / "20260301-log.md")
+        first.parent.rmdir()
+
+        result = migration.migrate(str(vault))
+
+        assert result["status"] == "ok"
+        assert [move["dest"] for move in result["moves"]] == [
+            os.path.join("_Temporal", "Logs", "project~brain", "20260402-log.md"),
+        ]
+        assert (vault / "_Temporal" / "Logs" / "20260301-log.md").is_file()
+        assert (vault / "_Temporal" / "Logs" / "project~brain" / "20260402-log.md").is_file()
+        assert (vault / "Projects" / "Brain.md").read_text() == converged_links
+        assert migration.migrate(str(vault)) == {"status": "skipped", "moves": [], "links_updated": 0}
+
+    @pytest.mark.parametrize("moves_before_kill", [0, 1])
+    def test_resumes_to_convergence_after_a_kill_between_files(self, vault, monkeypatch, moves_before_kill):
+        """A hard kill mid-batch leaves links rewritten and some files moved; the rerun must finish."""
+        import rename
+
+        converged_links = (vault / "Projects" / "Brain.md").read_text().replace("2026-03/", "").replace("2026-04/", "")
+        real_rename = os.rename
+        applied = []
+
+        def kill_after(src, dst):
+            if len(applied) == moves_before_kill:
+                raise OSError("simulated kill between files")
+            real_rename(src, dst)
+            applied.append(dst)
+
+        monkeypatch.setattr(rename.os, "rename", kill_after)
+        with pytest.raises(Exception, match="simulated kill"):
+            migration.migrate(str(vault))
+        monkeypatch.setattr(rename.os, "rename", real_rename)
+        assert (vault / "Projects" / "Brain.md").read_text() == converged_links, "links precede moves"
+        assert len(applied) == moves_before_kill
+
+        result = migration.migrate(str(vault))
+
+        assert result["status"] == "ok"
+        assert len(result["moves"]) == 2 - moves_before_kill
+        assert (vault / "_Temporal" / "Logs" / "20260301-log.md").is_file()
+        assert (vault / "_Temporal" / "Logs" / "project~brain" / "20260402-log.md").is_file()
+        assert (vault / "Projects" / "Brain.md").read_text() == converged_links
+        assert migration.migrate(str(vault)) == {"status": "skipped", "moves": [], "links_updated": 0}

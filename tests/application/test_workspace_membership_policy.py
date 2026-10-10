@@ -80,14 +80,25 @@ def test_default_parent_rejects_unscoped_and_other_workspace_ownership(scope):
 
 
 def test_binding_states_are_exact_and_terminal_identity_survives():
+    from _common._workspace import BindingState, InvalidBindingCause
+
     view = router()
-    assert resolve_workspace_binding(view, None)[0] == "unconfigured"
-    assert resolve_workspace_binding(view, {"slug": "demo"})[0] == "configured_invalid"
+    assert resolve_workspace_binding(view, None)[0] is BindingState.UNCONFIGURED
+    assert resolve_workspace_binding(view, {"slug": "demo", "defaults": {"tags": ["x"]}})[0] == "unconfigured"
+    assert resolve_workspace_binding(view, {"brain": "demo-brain", "slug": "demo"}).cause is InvalidBindingCause.LINK
+    assert resolve_workspace_binding(view, {"slug": "demo", "links": "not-a-mapping"})[0] == "configured_invalid"
     assert resolve_workspace_binding(view, {"links": {"workspace": "missing"}})[:2] == ("configured_invalid", "workspace/missing")
+    assert resolve_workspace_binding(view, {"links": {"workspace": "missing"}}).cause is InvalidBindingCause.BRAIN_SLUG
     manifest = {"brain": "demo-brain", "slug": "repo", "links": {"workspace": "demo"}}
+    assert resolve_workspace_binding(view, manifest, brain_binding_error="no").cause is InvalidBindingCause.ALIAS
+    assert resolve_workspace_binding(view, {**manifest, "links": {"workspace": "nope"}}).cause is InvalidBindingCause.HUB
+    assert resolve_workspace_binding(view, {**manifest, "defaults": {"parent": "project/nope"}}).cause is InvalidBindingCause.LOCAL_DEFAULTS
     assert resolve_workspace_binding(view, manifest)[:2] == ("valid", "workspace/demo")
+    assert resolve_workspace_binding(view, manifest).cause is None
     view["artefact_index"]["workspace/demo"]["status"] = "completed"
     assert resolve_workspace_binding(view, manifest)[0] == "terminal_inactive"
+    view["artefact_index"]["workspace/demo"]["default_parent"] = "project/nope"
+    assert resolve_workspace_binding(view, manifest).cause is InvalidBindingCause.HUB_POLICY
 
 
 @pytest.mark.parametrize("field,value", [("workspace", "workspace/demo"), ("status", "completed"),
@@ -119,7 +130,8 @@ def test_setup_creates_then_attaches_and_keeps_explicit_link(command_vault_clone
     assert "workspace/canonical" in compiled["artefact_index"]
 
 
-def test_setup_one_admission_with_separate_locks_and_known_second_boundary_partial(command_vault_clone, tmp_path, monkeypatch):
+def test_setup_one_admission_with_nested_locks_and_known_second_boundary_partial(command_vault_clone, tmp_path, monkeypatch):
+    """Lock order is vault, then folder: the folder lock is only ever taken inside the vault lock."""
     from contextlib import contextmanager
     import _common
     from _bootstrap import workspace_binding
@@ -131,11 +143,12 @@ def test_setup_one_admission_with_separate_locks_and_known_second_boundary_parti
     context = application(root, workspace)._context
     request = WorkspaceSetupRequest()
     admission = MatchingAdmission(prepare_setup(context, request))
-    held = []
+    held, nested = [], []
     original_lock = _common.vault_mutation_lock
     @contextmanager
     def distinct_locks(path, *args, **kwargs):
-        assert not held or held[-1] == path
+        assert not held or (held == [root] and path == workspace), (held, path)
+        nested.append(tuple(held) + (path,))
         held.append(path)
         try:
             with original_lock(path, *args, **kwargs):
@@ -150,6 +163,7 @@ def test_setup_one_admission_with_separate_locks_and_known_second_boundary_parti
     result = setup(replace(context, admission=admission), request)
     assert result.status == "partial", result
     assert admission.calls == 1
+    assert (root, workspace) in nested, "the manifest is written under the folder lock inside the vault lock"
     assert [effect.kind for effect in result.committed_effects] == ["workspace.registered", "workspace.path-registered"]
     monkeypatch.setattr(workspace_binding, "save_workspace_manifest_data", original_save)
     retry = application(root, workspace).invoke(request)
@@ -188,7 +202,7 @@ def test_setup_preparation_is_read_only_without_machine_registration(command_vau
     context = application(command_vault_clone.vault_root, workspace)._context
     from pathlib import Path
     before = Path(path).read_bytes() if Path(path).exists() else None
-    with pytest.raises(ValueError, match="machine registration"):
+    with pytest.raises(ValueError, match="not registered on this machine"):
         prepare_setup(context, WorkspaceSetupRequest())
     assert (Path(path).read_bytes() if Path(path).exists() else None) == before
 

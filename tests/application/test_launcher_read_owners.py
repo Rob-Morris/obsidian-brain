@@ -105,6 +105,7 @@ def test_launcher_read_owners_match_their_authoritative_catalogue_entries():
         "brain.list",
         "brain.resolve",
         "brain.version",
+        "machine-maintenance.list",
         "operator.generate-key",
         "runtime.inspect",
     ]
@@ -149,8 +150,8 @@ def test_launcher_registry_resolve_distinguishes_absence_from_read_conflict(
     missing = invocation.invoke(BrainResolveRequest("missing-brain"))
     monkeypatch.setattr(
         vault_registry,
-        "resolve",
-        lambda _brain_id: (_ for _ in ()).throw(
+        "load_registry_entries",
+        lambda: (_ for _ in ()).throw(
             vault_registry.RegistryReadError("registry unreadable")
         ),
     )
@@ -169,7 +170,7 @@ def test_launcher_version_returns_static_manifest_identity(tmp_path):
     assert result.result.cli_version == "1.2.0"
     assert result.result.launcher_catalogue_schema == "brain.launcher-catalogue/1"
     assert result.result.launcher_catalogue_fingerprint == LAUNCHER_CATALOGUE.fingerprint
-    assert result.result.launcher_command_count == 27
+    assert result.result.launcher_command_count == 32
 
 
 def test_runtime_inspect_reports_expected_and_selected_runtime_semantics(

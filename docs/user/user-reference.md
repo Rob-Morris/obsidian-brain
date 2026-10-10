@@ -1,6 +1,6 @@
 # Brain Reference
 
-This page is the stable user-facing reference for Brain Core 0.70.11 and CLI 4.0.6. Exact command schemas, examples and availability come from the installed Brain rather than a duplicated hand-maintained inventory.
+This page is the stable user-facing reference for Brain Core 0.71.0 and CLI 5.0.0. Exact command schemas, examples and availability come from the installed Brain rather than a duplicated hand-maintained inventory.
 
 Optional [managed approvals](../functional/approvals.md) cover normal reads/writes
 in selected clients and surfaces. They preserve user overrides and do not change
@@ -75,7 +75,7 @@ the shaping skill selects its mode. It applies the taxonomy's status behaviour:
 ordinary contracts enter `shaping`, while discovery-only preserving contracts
 leave an enduring non-terminal status unchanged and refuse terminal targets.
 
-The MCP server derives registrations, schemas, descriptions and tool hints from the selected Brain's catalogue, within the credential's permissions. Initial authorisation normally includes content work; it can be configured as read-only or an explicit command set. Exceptional operations use `access.prepare` for the exact operation and `access.request` for explicit consent, or request blanket consent for one command using its canonical review from `access.status`. A harness can approve the consent tool manually or automatically. `access.reduce` only narrows authorisation. Consent lasts for this Brain and MCP instance or explicit CLI job; new instances require fresh exceptional consent.
+The MCP server derives tool registrations, schemas, descriptions and tool hints from the selected Brain's catalogue, within the credential's permissions. Initial authorisation normally includes content work; it can be configured as read-only or an explicit command set. Exceptional operations use `access.prepare` for the exact operation and `access.request` for explicit consent, or request blanket consent for one command using its canonical review from `access.status`. A harness can approve the consent tool manually or automatically. `access.reduce` only narrows authorisation. Consent lasts for this Brain and MCP instance or explicit CLI job; new instances require fresh exceptional consent.
 
 Before accepting a command, the proxy checks installed Core drift and refreshes an idle child after validating its replacement. `brain_proxy_status` and `brain_proxy_refresh` are no-argument MCP transport tools available even without a healthy child; they are separate from application `runtime.status`. In-flight work returns busy rather than being interrupted. `brain_proxy_restart` explicitly loads the installed proxy on POSIX while retaining stdio; it ends exceptional consent. Busy output/work is refused. Unchanged code/runtime is a no-op only with a validated child; otherwise restart attempts same-runtime activation, including after external repair of reachable startup failures. Unknown or changed bindings cannot retarget the session. Preparation leaves status/ping responsive. Windows image/runtime replacement requires host restart. Modern subscriptions survive recovery, but stale host tool caches may still need rediscovery or reconnect. A lost dispatched call, including a residual drift race, triggers owned outcome recovery, never automatic replay. `invocation.read` reports execution independently from file effects, including for observations. An absent or incomplete receipt means the outcome remains unknown. Above-permission static command metadata is discoverable, with CLI administration guidance; discovery cannot expand permissions.
 
@@ -204,6 +204,36 @@ folders (folders holding nothing but empty folders and filesystem junk such as
 folder that gains content between the check and the repair is skipped.
 
 `brain doctor` also reports the physical memory footprint of live Brain runtime processes (`machine.memory` in the JSON result) and warns when one process exceeds 512 MB or the total exceeds 2 GB. A session server that has answered semantic queries sits near 200 MB; anything heavier means a corpus encode or a heavyweight runtime is resident in a long-lived process, and restarting that MCP session reclaims it.
+
+Schedule routine maintenance as a plain CLI call with an explicit selector:
+
+```bash
+/usr/local/bin/brain --brain my-brain maintenance run --json
+brain --brain my-brain maintenance list --json
+brain --brain my-brain maintenance claim --request-json '{"key":"…","claimant":"me"}' --json
+# For example, an unplugged drive is reported, not unhealthy (with approvals configured, approval changes and
+# mcp repair still wait for it); dismiss its workspace_folder_unreachable item to quiet it.
+brain --brain my-brain maintenance dismiss --request-json '{"key":"…","expected_fingerprint":"…","reason":"drive unplugged","actor":"me"}' --json
+brain --brain my-brain maintenance release --request-json '{"key":"…","actor":"me"}' --json
+brain machine-maintenance run --json
+```
+
+The pass repairs the derived caches, stranded temporaries and linked
+workspace registry rows whose manifest names another Brain or workspace and lists everything that needs a person; it runs keyless, outside MCP and
+outside a session job. The existing derived-cache commands are also
+schedule-safe on their own: `vault check`, `runtime refresh-router`,
+`retrieval refresh-lexical` and `runtime warmup`. `artefact repair` and
+`links fix` are preview-then-apply content repairs and belong in a schedule
+only after a reviewed dry run; `workspace repair-registry` is schedule-safe
+(it never rebuilds a linked workspace registry whose rows cannot be read unless asked with
+`allow_row_loss`),
+and `retrieval repair-semantic` is an exceptional command that needs a
+`brain session run` job. See [scheduling existing commands](../functional/cli.md#scheduling-existing-commands). Claim a finding to hold it for an hour, dismiss a
+judgement finding at its current evidence for thirty days, or release it; a
+finding with nothing that identifies a change (no file and no declared
+evidence) can be claimed but not dismissed, because nothing could reopen it.
+`session_start` and `runtime_status` carry a coarse advisory from the last
+pass. See [maintenance passes and scheduling](../functional/cli.md#maintenance-passes-and-scheduling).
 
 Run `brain command describe <command-id> --json` before relying on an example here: the installed catalogue is authoritative.
 

@@ -79,7 +79,28 @@ When a change touches the machine-global helpers around brain-core, check their 
 
 When in doubt, check `docs/README.md` — if a doc file is listed there, it's a canonical reference that may need updating.
 
+## Launching managed interpreters
+
+Every launch of a managed-runtime interpreter, in `src/brain-core` and in
+`cli/`, goes through `_common._venv.managed_command` (or `run_managed` where a
+runner is injected: it takes `subprocess.run`'s options plus `role`). The owner decides once whether the
+kernel executes a role-named link (`brain-mcp-python`, `brain-cli-python`) and
+keeps argv canonical; `env` enters only through `managed_command`, and the
+`run`, `popen` and `exec` methods pass argv and environment together, adding
+the executable only when a role file is chosen. Entry points set `BRAIN_RUNTIME_ROLE` explicitly; everything else
+inherits it. `tests/test_managed_launch_contract.py` fails on any
+`subprocess`/`os.exec*`/`asyncio.create_subprocess_*` reference outside the
+owner that is not allowlisted there with a reason, so external tools (git, `ps`,
+client binaries) go on the allowlist and Python launches go through the owner.
+See [DD-081](../architecture/decisions/dd-081-named-runtime-interpreters.md).
+
 ## Testing Workflow
+
+Before writing tests, follow [Writing reliable tests](../CONTRIBUTING.md#writing-reliable-tests):
+choose the boundary being proved, isolate fake executables, preserve bounded
+failure evidence and retain real integration coverage. Prefer in-process
+decision matrices with representative boundary tests over repeated full-stack
+setup; do not suppress failures with retries or timing slack.
 
 Use serial `make test` for the pre-commit routine correctness gate. The
 [verification mapping](../CONTRIBUTING.md#testing) names each suite's purpose
@@ -126,16 +147,16 @@ never runs the remote check automatically.
 
 When a user asks an agent working in this repo to install a Brain vault on their behalf, separate the job into two outcomes:
 
-1. Vault scaffold created at the requested path
-2. MCP setup completed (central managed runtime at `~/.brain/venvs/` + dependency install + registration)
+1. Vault scaffold and the central managed runtime at `~/.brain/venvs/` (dependency install), which every install provisions
+2. MCP registration completed
 
 Do not treat those as all-or-nothing unless the user explicitly requires MCP to be ready immediately.
 
 Preferred command selection:
 
-- Use `bash install.sh --non-interactive --skip-mcp <path>` in restricted, sandboxed, or otherwise uncertain environments.
-- Use `bash install.sh --non-interactive --client all <path>` only when package index access is expected to work; replace `all` with an explicitly selected client when appropriate.
-- If the user explicitly wants a vault only, use `--skip-mcp` even when network access is available.
+- Use `bash install.sh --non-interactive --skip-mcp <path>` in restricted, sandboxed, or otherwise uncertain environments: it skips MCP registration, still attempts the runtime, and reports a failed runtime step (repair later with `brain runtime repair`) without losing the vault.
+- Use `bash install.sh --non-interactive --client all <path>` when the user wants MCP registered; replace `all` with an explicitly selected client when appropriate.
+- If the user explicitly wants no MCP registration, use `--skip-mcp` even when network access is available.
 
 Reporting expectations:
 

@@ -65,6 +65,9 @@ Discovery failures, unsupported
 or ambiguous endpoint settings, daemon changes and invalid credential
 configuration return typed errors. Endpoint discovery diagnostics are kept in
 temporary storage and removed rather than copied into evidence.
+Failed discovery reports the probe, exit status, timeout/cancellation, duration,
+stream byte counts and evidence-completeness flags. It does not include raw
+streams, inherited credentials or paths to the deleted temporary logs.
 
 ## Prerequisites
 
@@ -179,7 +182,7 @@ canonical upgrade path deliberately does not converge into an installed vault; e
 remains content-exact.
 
 - `preserve` installs matching machine state against a disposable template, replaces it with the immutable seed, and performs no repair of the copied vault. Operational failures are evidence, not an invitation to mutate it.
-- `rehydrate` additionally runs only the selected adapter's verified machine/generated-state reconstruction. Imported `.brain/local/`, `.codex/`, and `.claude/` state is cleared, and only the imported `brain` server entry is removed from `.mcp.json`; unrelated MCP servers are preserved. It rejects any change to portable vault content or Brain Core and never uses forced migration replay as reconstruction.
+- `rehydrate` additionally runs only the selected adapter's verified machine/generated-state reconstruction. Imported `.brain/local/`, `.codex/`, and `.claude/` state is cleared, and only the imported `brain` server entry is removed from `.mcp.json`; unrelated MCP servers are preserved. It rejects any change to portable vault content or Brain Core and never re-applies a Core as reconstruction.
   Adapters restore only their declared portable side effects from the immutable seed before the full-tree equality gate; unexpected portable changes still fail preparation.
 
 ```sh
@@ -218,7 +221,9 @@ Every `run exec` records bounded command streams plus before/after run-filesyste
 
 An historical-to-target upgrade is ordinary composition: start the historical baseline with bridge networking, copy in the target `source_id`, run that source's official installer, then run the target adapter's declared rehydration and health commands from `compatibility.json`. `run recreate` remains the authoritative reset to the unchanged historical baseline.
 
-The checked-in `scenarios/historical-upgrade.json` gate automates that path from the exact v0.53.5 product-comparison commit. It installs the target CLI distribution, proves that production `brain upgrade --dry-run` previews the Core replacement and retained migrations without changing portable vault state, then performs the effectful upgrade. The gate migrates representative built-in and custom profiles plus shipped bootstrap instructions, preserves user-authored prose and content, removes retired Core skills, adds one controlled inherited finding and one keyless terminal-status record, and fails on any unexplained post-upgrade finding identity. It also requires the migration completeness marker and key compatibility record, first-call `session.start`, explicit `runtime.remove-orphans` dry-run/removal, tidy machine state, MCP `tools/list`, active-path isolation and unchanged declared host state. Local Git sources may use an exact commit SHA; remote repositories still require a ref advertised by the remote.
+The checked-in `scenarios/historical-upgrade.json` gate automates that path from the exact v0.53.5 product-comparison commit. It installs the target CLI distribution, proves that production `brain upgrade --dry-run` previews the Core replacement and retained migrations without changing portable vault state, then performs the effectful upgrade. The gate migrates representative built-in and custom profiles plus shipped bootstrap instructions, preserves user-authored prose and content, removes retired Core skills, adds one controlled inherited finding and one keyless terminal-status record, and fails on any unexplained post-upgrade finding identity. It also requires the `VERSION` commit with a migration ledger covering every target-source migration at or below it, the key compatibility record, first-call `session.start`, explicit `runtime.remove-orphans` dry-run/removal, tidy machine state, MCP `tools/list`, active-path isolation and unchanged declared host state. Local Git sources may use an exact commit SHA; remote repositories still require a ref advertised by the remote.
+
+The checked-in `scenarios/killed-upgrade.json` gate proves the write-ahead rollback journal (DD-085) on the same baseline and fixture. Its container acceptance runs the production `brain upgrade` with a `sitecustomize` prelude on the inherited `PYTHONPATH` that arms one real migration handler and exits the launcher, without unwinding, straight after that handler's first atomic vault write; production code gains no hook, and the kill point is a fixed migration rather than a timer. The launcher is killed in the 0.68.0 pre-compile patch (the one DD-085 corrected; its local-selection conversion is not reachable from 0.53.5, which predates `defaults.access.initial_profile`), then, on the rerun that restores that journal, in an undeclared post-compile migration that writes a user artefact. After each kill the gate requires the old `VERSION`, a journal under the machine state home (`$XDG_STATE_HOME`, else `~/.local/state`, then `brain/upgrade-journals/`) whose capture differs from the half-applied path, and no ledger record; it then edits an existing note and creates a new one, first checking with the journal that both paths are ones it holds. After each kill a dry run must report the pending restore, preview the migrations the restored ledger implies (after the second kill the on-disk ledger already records the first kill point) and change neither the vault nor the journal. Each recovery must keep the half-applied write and every post-kill edit byte for byte in a recovery directory; the final run must report `recovered_interrupted_upgrade` naming that directory, restore those paths to their journalled state, discard the journal on commit, and then pass the historical gate's own `require_upgraded_state`: migrated profiles, bootstraps, preserved content, ledger coverage, validation delta, first-call `session.start`, canonical runtime cleanup, Doctor tidiness, the adapter's MCP gate and active-path isolation. Both gates share `prepare_acceptance` and `require_upgraded_state`, so "the same state as an uninterrupted upgrade" holds by construction.
 
 Open an interactive shell (the timeout is owned by the user):
 
@@ -303,7 +308,7 @@ tools/brain-lab/brain-lab --json scenario run --request-json - \
   < tools/brain-lab/scenarios/current-template.json
 ```
 
-Scenarios stop on a failed or partial/unknown-effect primitive unless `continue_after_failure` is explicitly true. Declared worktrees and vaults receive before/after host-state fingerprints.
+Scenarios stop on a failed or partial/unknown-effect primitive unless `continue_after_failure` is explicitly true. Declared worktrees and vaults receive before/after host-state fingerprints. The host state also covers the machine Brain configuration, managed runtimes, the `brain` CLI, `~/.codex/config.toml` and the `brain` MCP server entries in `~/.claude.json` (the user entry and each project's). Only those entries are compared, because Claude Code rewrites the rest of that file for its own state while any session runs; a file that cannot be parsed is compared whole.
 
 ## Inspect, export, rebuild, and clean up
 
@@ -367,11 +372,12 @@ optionally `BRAIN_LAB_DOCKER_PLATFORM`. The authenticated case fails rather than
 falling back if either configured operation cannot use those credentials; its
 build forces remote base-image resolution rather than accepting a cached image.
 
-Run either constituent scenario while iterating:
+Run any constituent scenario while iterating:
 
 ```sh
 make test-brain-lab-current-docker
 make test-brain-lab-upgrade-docker
+make test-brain-lab-killed-upgrade-docker
 ```
 
 To exercise the optional live host-fixture bridge check against an explicitly
@@ -384,7 +390,7 @@ BRAIN_LAB_HOST_FIXTURE_STATE_DIR=/path/to/brain-lab-state \
   tests/repo/brain_lab/test_host_fixture.py::test_live_fixture_bridge_lists_active_brain_tools
 ```
 
-The complete design traceability table is `acceptance-matrix.json`. Its owners distinguish checked-in Docker automation from unit coverage and manual live drills. Rows under `test-brain-lab-docker` are exercised by its checked-in current-template and historical-upgrade scenarios; `test-brain-lab-docker-configuration` owns the native configuration boundary. Slow Docker workflows are not part of routine pre-commit tests.
+The complete design traceability table is `acceptance-matrix.json`. Its owners distinguish checked-in Docker automation from unit coverage and manual live drills. Rows under `test-brain-lab-docker` are exercised by its checked-in current-template, historical-upgrade and killed-upgrade scenarios; `test-brain-lab-docker-configuration` owns the native configuration boundary. Slow Docker workflows are not part of routine pre-commit tests.
 
 ## Troubleshooting
 

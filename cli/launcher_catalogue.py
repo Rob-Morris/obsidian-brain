@@ -136,12 +136,13 @@ class LauncherCatalogue:
         return "sha256:" + hashlib.sha256(encoded).hexdigest()
 
 
-def _read(command_id: str, owner_ref: str, *entry_point: str, version: int = 1) -> LauncherEntry:
-    return LauncherEntry(command_id, version, owner_ref, entry_point, "reader", "none", "safe")
+def _read(command_id: str, owner_ref: str, *entry_point: str, version: int = 1, summary: str = "") -> LauncherEntry:
+    return LauncherEntry(command_id, version, owner_ref, entry_point, "reader", "none", "safe", summary=summary)
 
 
 def _mutation(
-    command_id: str, owner_ref: str, *entry_point: str, version: int = 1, approval_transition: str | None = None
+    command_id: str, owner_ref: str, *entry_point: str, version: int = 1, approval_transition: str | None = None,
+    summary: str = "",
 ) -> LauncherEntry:
     return LauncherEntry(
         command_id,
@@ -152,6 +153,7 @@ def _mutation(
         "machine_mutation",
         "receipt_required",
         required_providers=("caller_filesystem",),
+        summary=summary,
         approval_transition=approval_transition,
     )
 
@@ -161,15 +163,12 @@ def _summary(command_id: str) -> str:
     noun_words = noun.replace("-", " ")
     verb_words = verb.replace("-", " ")
     direct = {
-        "backfill": "Backfill the {noun} registry",
-        "approve": "Approve one pending {noun} request",
         "configure": "Configure {noun}",
         "doctor": "Diagnose {noun} state",
         "install": "Install one {noun}",
         "inspect": "Inspect {noun} state",
         "list": "List registered {noun} resources",
         "migrate-legacy-installations": "Migrate legacy {noun} installations",
-        "prune": "Prune stale {noun} records",
         "register": "Register one {noun}",
         "remove-orphans": "Remove orphaned {noun} resources",
         "remove-stale": "Remove stale {noun} records",
@@ -228,7 +227,7 @@ LAUNCHER_CATALOGUE = LauncherCatalogue(
                     "brain",
                     "clear-default",
                 ),
-                _read("brain.doctor", "_launcher.doctor:doctor", "brain", "doctor", version=2),
+                _read("brain.doctor", "_launcher.doctor:doctor", "brain", "doctor", version=3),
                 _read(
                     "brain.get-default",
                     "_launcher.registry:get_default",
@@ -240,22 +239,24 @@ LAUNCHER_CATALOGUE = LauncherCatalogue(
                     "_launcher.lifecycle:install",
                     "brain",
                     "install",
-                    version=4,
+                    version=5,
                     approval_transition="install",
                 ),
-                _read("brain.list", "_launcher.registry:list", "brain", "list"),
+                _read("brain.list", "_launcher.registry:list", "brain", "list", version=2),
                 _mutation(
                     "brain.migrate-legacy-installations",
                     "_launcher.machine:migrate_legacy_installations",
                     "brain",
                     "migrate-legacy-installations",
+                    version=2,
                     approval_transition="inventory",
                 ),
                 _mutation(
-                    "brain.register", "_launcher.registry:register", "brain", "register", approval_transition="add"
+                    "brain.register", "_launcher.registry:register", "brain", "register", version=2,
+                    approval_transition="add",
                 ),
                 _read(
-                    "brain.resolve", "_launcher.registry:resolve", "brain", "resolve"
+                    "brain.resolve", "_launcher.registry:resolve", "brain", "resolve", version=2
                 ),
                 _mutation(
                     "brain.set-default",
@@ -269,7 +270,7 @@ LAUNCHER_CATALOGUE = LauncherCatalogue(
                     "_launcher.lifecycle:uninstall",
                     "brain",
                     "uninstall",
-                    version=2,
+                    version=3,
                     approval_transition="remove",
                 ),
                 _mutation(
@@ -277,11 +278,12 @@ LAUNCHER_CATALOGUE = LauncherCatalogue(
                     "_launcher.registry:unregister",
                     "brain",
                     "unregister",
+                    version=2,
                     approval_transition="remove",
                 ),
                 LauncherEntry(
                     "brain.upgrade",
-                    2,
+                    3,
                     "_launcher.lifecycle:upgrade",
                     ("brain", "upgrade"),
                     "operator",
@@ -297,7 +299,7 @@ LAUNCHER_CATALOGUE = LauncherCatalogue(
                     "brain",
                     "mcp",
                     "configure",
-                    version=3,
+                    version=4,
                     approval_transition="transport",
                 ),
                 _mutation(
@@ -306,10 +308,10 @@ LAUNCHER_CATALOGUE = LauncherCatalogue(
                     "brain",
                     "mcp",
                     "repair",
-                    version=3,
+                    version=4,
                     approval_transition="transport",
                 ),
-                _mutation("mcp.migrate", "_launcher.mcp:migrate", "brain", "mcp", "migrate", approval_transition="transport"),
+                _mutation("mcp.migrate", "_launcher.mcp:migrate", "brain", "mcp", "migrate", version=2, approval_transition="transport"),
                 LauncherEntry(
                     "operator.generate-key",
                     1,
@@ -346,7 +348,48 @@ LAUNCHER_CATALOGUE = LauncherCatalogue(
                     "brain",
                     "registry",
                     "remove-stale",
+                    version=2,
                     approval_transition="prune",
+                ),
+                _mutation(
+                    "machine-maintenance.run",
+                    "_launcher.machine_maintenance:run",
+                    "brain",
+                    "machine-maintenance",
+                    "run",
+                    summary="Run one bounded machine maintenance pass over Doctor's feed.",
+                ),
+                _read(
+                    "machine-maintenance.list",
+                    "_launcher.machine_maintenance:list",
+                    "brain",
+                    "machine-maintenance",
+                    "list",
+                    summary="List machine maintenance findings that need a person, with claim state.",
+                ),
+                _mutation(
+                    "machine-maintenance.claim",
+                    "_launcher.machine_maintenance:claim",
+                    "brain",
+                    "machine-maintenance",
+                    "claim",
+                    summary="Claim a machine maintenance finding for one hour.",
+                ),
+                _mutation(
+                    "machine-maintenance.dismiss",
+                    "_launcher.machine_maintenance:dismiss",
+                    "brain",
+                    "machine-maintenance",
+                    "dismiss",
+                    summary="Dismiss a machine judgement finding at its current evidence.",
+                ),
+                _mutation(
+                    "machine-maintenance.release",
+                    "_launcher.machine_maintenance:release",
+                    "brain",
+                    "machine-maintenance",
+                    "release",
+                    summary="Release a claimed machine maintenance finding.",
                 ),
             ),
             key=lambda entry: entry.command_id,

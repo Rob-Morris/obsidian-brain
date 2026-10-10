@@ -1,6 +1,6 @@
 # Obsidian Brain
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE) ![Version](https://img.shields.io/badge/version-0.70.11-blue) ![Platform](https://img.shields.io/badge/platform-Obsidian-7C3AED) ![Python](https://img.shields.io/badge/python-≥3.12-3776AB?logo=python&logoColor=white) ![MCP](https://img.shields.io/badge/MCP-server-green)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE) ![Version](https://img.shields.io/badge/version-0.71.0-blue) ![Platform](https://img.shields.io/badge/platform-Obsidian-7C3AED) ![Python](https://img.shields.io/badge/python-≥3.12-3776AB?logo=python&logoColor=white) ![MCP](https://img.shields.io/badge/MCP-server-green)
 
 A self-evolving knowledge base for agents and humans working together on what matters.
 
@@ -43,7 +43,7 @@ The [Getting Started guide](docs/user/getting-started.md) walks through all of t
 bash <(curl -fsSL https://raw.githubusercontent.com/rob-morris/obsidian-brain/main/install.sh)
 ```
 
-This downloads the repo, creates the vault in the current directory, and then asks which MCP clients to configure (Claude Code, Codex, Grok, or All supported clients). Pass a path to install elsewhere. If you want the vault scaffold without the managed runtime / MCP setup, pass `--skip-mcp` (or add `--non-interactive` for non-interactive agent installs). From a local clone, use `bash install.sh` instead.
+This downloads the repo, creates the vault in the current directory, and then asks which MCP clients to configure (Claude Code, Codex, Grok, or All supported clients). Pass a path to install elsewhere. If you want the vault without MCP registration, pass `--skip-mcp` (or add `--non-interactive` for non-interactive agent installs); the managed runtime is still provisioned, because CLI commands such as `brain session start` need it. From a local clone, use `bash install.sh` instead.
 
 Optionally let Brain maintain normal read/write approvals for explicitly selected
 Codex or Claude clients: add `--approval-client all --approval-scope user --approvals mcp`,
@@ -92,7 +92,7 @@ For the 0.55.0 cutover itself, or when recovering without the installed CLI, run
 bash install.sh /path/to/brain --acknowledge-global-cli-cutover
 ```
 
-The cutover preflights the complete local Brain registry, requires an exact acknowledgement when other local Brains depend on the global CLI, and commits Brain Core plus the versioned CLI distribution as one checked transaction. Incomplete registries, unacknowledged affected Brains, stale entries without explicit exclusions, unsafe paths, and version mismatches fail before mutation. A failed commit restores the proven old set or retains explicit recovery material rather than claiming rollback without evidence. See [CLI](docs/functional/cli.md) for the complete request contract.
+The cutover preflights the complete vault registry of local Brains, requires an exact acknowledgement when other local Brains depend on the global CLI, and commits Brain Core plus the versioned CLI distribution as one checked transaction. Incomplete registries, unacknowledged affected Brains, stale entries without explicit exclusions, unsafe paths, and version mismatches fail before mutation. A failed commit restores the proven old set or retains explicit recovery material rather than claiming rollback without evidence. See [CLI](docs/functional/cli.md) for the complete request contract.
 
 Upgrading from before 0.70.3 also offers optional [managed approvals](docs/functional/approvals.md)
 setup: inspect first, then explicitly configure if wanted. No approvals are enabled
@@ -122,7 +122,7 @@ see [MCP lifecycle and recovery](docs/functional/cli.md#mcp-registration-and-rep
 `retrieval.repair-semantic` is the semantic equivalent after a vault has been opted in
 with `retrieval.enable`: it repairs the pinned runtime packages,
 the local model snapshot/manifest, and the embeddings sidecars together. The
-other scopes repair generated router/index state or the local workspace
+other scopes repair generated router/index state or the linked workspace
 registry.
 
 If you do not know what is broken, start with:
@@ -132,8 +132,8 @@ brain doctor --vault /path/to/brain --json
 brain vault check --vault /path/to/brain --json
 ```
 
-When `vault.check` detects router, MCP, semantic-runtime, or local
-workspace-registry drift, it returns the exact granular repair command to run.
+When `vault.check` detects router, MCP, semantic-runtime, or linked
+workspace registry drift, it returns the exact granular repair command to run.
 Launcher recovery may start from any compatible Python 3.12+ interpreter, but
 packageful repair converges into the central managed runtime at
 `~/.brain/venvs/py<X.Y>-<sha16>/`; it does not install packages into your
@@ -163,7 +163,7 @@ bash install.sh --non-interactive --skip-mcp /path/to/brain
 bash install.sh --uninstall --non-interactive /path/to/brain
 ```
 
-Skips all prompts. MCP setup requires `--client claude|codex|grok|all`; for example, `bash install.sh --non-interactive --client all /path/to/brain`. Add `--skip-mcp` to scaffold the vault without provisioning the central runtime or registering Claude/Codex/Grok MCP — useful in network-restricted agent sandboxes. Python 3.12+ is still required because the shell launcher now hands scaffold policy to the Python installer core. If MCP dependency install or registration fails, the installer leaves the vault in place and prints manual retry steps instead of aborting the whole install. On uninstall, `--non-interactive` removes system files without prompting and skips the vault-deletion offer entirely. On upgrade, `install.sh` just delegates to `upgrade.py`; it does not own upgrade override semantics or re-run MCP setup. If you need same-version re-apply, downgrade, or migration rerun behaviour, call `upgrade.py --force` directly.
+Skips all prompts. MCP setup requires `--client claude|codex|grok|all`; for example, `bash install.sh --non-interactive --client all /path/to/brain`. Add `--skip-mcp` to skip registering Claude/Codex/Grok MCP. The central managed runtime is still provisioned, because managed CLI commands such as `brain session start` need it; where dependency installation cannot reach the package index, the installer keeps the vault, reports the failed runtime step and prints `brain runtime repair` for later. Python 3.12+ is still required because the shell launcher now hands scaffold policy to the Python installer core. If MCP dependency install or registration fails, the installer leaves the vault in place and prints manual retry steps instead of aborting the whole install. On uninstall, `--non-interactive` removes system files without prompting and skips the vault-deletion offer entirely. On upgrade, `install.sh` just delegates to `upgrade.py`; it does not own upgrade override semantics or re-run MCP setup. To re-apply the same version, call `upgrade.py --force` directly; it never re-runs migrations, and a downgrade is refused because migrations only run forward. An interrupted upgrade resumes by rerunning the upgrade.
 
 > **Full reference:** [Scripts — install.sh](docs/functional/scripts.md#installsh) covers all flags, safety guards, and edge-case behaviour.
 
@@ -194,8 +194,8 @@ When MCP setup is enabled, the installer registers only explicitly selected clie
 brain mcp configure --vault /path/to/brain \
   --request-json '{"scope":"user","client":"all"}' --json
 
-# Bind and configure a specific project for all three clients
-brain workspace bind --vault /path/to/brain --workspace /path/to/project \
+# Link and configure a specific project for all three clients
+brain workspace setup --vault /path/to/brain --workspace /path/to/project \
   --request-json '{}' --json
 brain mcp configure --vault /path/to/brain --workspace /path/to/project \
   --request-json '{"scope":"project","client":"all"}' --json
@@ -209,7 +209,7 @@ brain mcp configure --vault /path/to/brain --workspace /path/to/project \
   --request-json '{"scope":"local","client":"claude"}' --json
 ```
 
-Use `scope: "user"` if you want the Brain everywhere. Bind a project without choosing transport, then run `mcp.configure` only when wanted. Use `scope: "local", client: "claude"` for gitignored Claude-only local configuration. For project scope, registration alone is not enough: approve `brain` via `/mcp` in Claude; trust the project and enable `brain` in Codex.
+Use `scope: "user"` if you want the Brain everywhere. Bind a project without choosing transport, then run `mcp.configure` only when wanted. Use `scope: "local", client: "claude"` for gitignored Claude-only local configuration. For project scope, MCP registration alone is not enough: approve `brain` via `/mcp` in Claude; trust the project and enable `brain` in Codex.
 
 To expose shaping through each client's native skill discovery while keeping the
 workflow version-matched to the active Brain, install the small discovery adapters
@@ -252,7 +252,7 @@ Brain configures Grok natively; Claude compatibility settings are not required.
 Use `brain mcp configure --request-json '{"client":"grok","scope":"project"}'`
 from a bound workspace or vault, or choose `"scope":"user"` for the standard
 user configuration. `"client":"all"` includes Claude, Codex and Grok.
-Grok stores registration in `.grok/config.toml` and receives a small Brain-owned
+Grok stores its MCP registration in `.grok/config.toml` and receives a small Brain-owned
 startup rule at `.grok/rules/brain.md`. Review Grok's folder-trust prompt before
 using project configuration, then verify with `grok inspect` and
 `grok mcp doctor brain`. See [client configuration](docs/functional/config.md#grok-client-configuration)

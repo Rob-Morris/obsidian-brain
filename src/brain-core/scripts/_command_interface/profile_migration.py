@@ -164,6 +164,13 @@ _PROFILE_EXPANSIONS = {
 }
 
 
+# Retired with no replacement (DD-083): each wrote one end of a workspace link,
+# and ``workspace.setup`` replaces neither. Every projection drops the grant
+# rather than mapping it, which can only narrow, so a migration written before
+# the retirement still runs; 0.71.0 drops them from current configurations.
+RETIRED_COMMANDS = frozenset({"workspace.bind", "workspace.register"})
+
+
 _REMOVED_GRANULAR_COMMANDS = {
     **_PREVIOUS_DOCUMENT_COMMANDS,
     **{
@@ -314,6 +321,8 @@ def migrate_profile_allow_lists(
         else:
             command_ids = set()
             for tool in before:
+                if tool in RETIRED_COMMANDS:
+                    continue
                 expansion = _PROFILE_EXPANSIONS.get(tool)
                 if expansion is not None:
                     command_ids.update(expansion)
@@ -379,6 +388,8 @@ def migrate_current_document_command_names(
         before = tuple(before_raw)
         after_list = []
         for tool in before:
+            if tool in RETIRED_COMMANDS:
+                continue
             replacement = _PREVIOUS_DOCUMENT_COMMANDS.get(tool, tool)
             if replacement not in current_tools:
                 raise ProfileMigrationError(
@@ -473,6 +484,8 @@ def _project_tool_set(
 
     projected = set()
     for tool in tools:
+        if tool in RETIRED_COMMANDS:
+            continue
         expansion = _PROFILE_EXPANSIONS.get(tool)
         if expansion is not None:
             projected.update(expansion)

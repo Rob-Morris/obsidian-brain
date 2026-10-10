@@ -19,3 +19,16 @@ def config_home() -> Path:
             return Path(appdata)
     home = os.environ.get("HOME") or str(Path.home())
     return Path(home) / ".config"
+
+
+def state_home() -> Path:
+    """Return the machine-local state root: an absolute ``$XDG_STATE_HOME``, else ``~/.local/state``.
+
+    A relative value is ignored like ``config_home`` ignores one, so state
+    never lands relative to the working directory.
+    """
+    xdg = os.environ.get("XDG_STATE_HOME")
+    if xdg and os.path.isabs(xdg):
+        return Path(xdg)
+    home = os.environ.get("HOME") or str(Path.home())
+    return Path(home) / ".local" / "state"

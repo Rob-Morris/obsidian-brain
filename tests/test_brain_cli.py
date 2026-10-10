@@ -136,10 +136,10 @@ def test_version_and_launcher_discovery_need_no_selected_brain(tmp_path):
     assert len(commands["entries"]) == 25
     by_id = {entry["command_id"]: entry for entry in commands["entries"]}
     assert by_id["brain.version"]["entry_point"] == ["brain", "version"]
-    assert by_id["runtime.inspect"]["entry_point"] == [
+    assert by_id["machine-maintenance.run"]["entry_point"] == [
         "brain",
-        "runtime",
-        "inspect",
+        "machine-maintenance",
+        "run",
     ]
     assert {
         "brain.backfill",
@@ -270,7 +270,7 @@ def test_launcher_description_carries_exact_schema_and_example(tmp_path):
     payload = json.loads(result.stdout)
     assert result.returncode == 0
     assert payload["command_id"] == "brain.upgrade"
-    assert payload["command_version"] == 2
+    assert payload["command_version"] == 3
     schema = json.loads(payload["payload"]["request_schema_json"])
     assert "acknowledge_global_cli_cutover" in schema["properties"]
     assert "excluded_stale_brain_ids" in schema["properties"]

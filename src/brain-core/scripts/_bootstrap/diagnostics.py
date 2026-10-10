@@ -7,6 +7,8 @@ import json
 import os
 import importlib.util
 import sys
+from dataclasses import dataclass, field
+from enum import Enum
 from pathlib import Path
 from typing import Any
 
@@ -28,7 +30,7 @@ from _bootstrap.mcp_state import (
     read_toml_server_config,
     session_hook_python,
 )
-from _common import resolve_vault_venv_python, same_executable_path
+from _common import join_argv, resolve_vault_venv_python, same_executable_path
 from _bootstrap.runtime import probe_python, required_modules_for_scope
 from _repair_common import attach_repair_guidance
 
@@ -125,90 +127,109 @@ def _read_json_safe(path: Path) -> tuple[dict | None, str | None]:
     return data if isinstance(data, dict) else None, None
 
 
-def inspect_registry(vault_root: Path) -> dict:
+class RegistryCondition(str, Enum):
+    """What a linked workspace registry file holds, and whether an automatic rebuild may touch it."""
+
+    ABSENT = "absent"
+    HEALTHY = "healthy"
+    # Every row is kept; only the stored form changes.
+    NORMALISABLE = "normalisable"
+    # Every row it drops names no usable folder (``workspace_registry.salvage_row``).
+    INVALID_ROWS = "invalid_rows"
+    # No row can be read from it, so a rebuild would lose every row it held.
+    UNPARSEABLE = "unparseable"
+    # The file could not be read at all; nothing may rewrite it.
+    UNREADABLE = "unreadable"
+
+
+@dataclass(frozen=True)
+class RegistryInspection:
+    """One read of ``.brain/local/workspaces.json``: its condition and the rows that can be salvaged."""
+
+    path: Path
+    condition: RegistryCondition
+    message: str
+    rows: dict[str, dict] = field(default_factory=dict)
+    # The exact bytes the condition was read from, the base of a compare-and-swap rewrite.
+    content: bytes | None = None
+    # For an unreadable or unparseable file, the structured reason a finding declares as evidence.
+    reason: str | None = None
+
+    @property
+    def present(self) -> bool:
+        return self.condition is not RegistryCondition.ABSENT
+
+    @property
+    def healthy(self) -> bool:
+        return self.condition in {RegistryCondition.ABSENT, RegistryCondition.HEALTHY}
+
+    @property
+    def backup_required(self) -> bool:
+        return self.condition in {RegistryCondition.INVALID_ROWS, RegistryCondition.UNPARSEABLE}
+
+
+def inspect_registry(vault_root: Path) -> RegistryInspection:
     """Inspect .brain/local/workspaces.json without mutating it."""
+    import workspace_registry
+
     path = vault_root / ".brain" / "local" / "workspaces.json"
     if not path.is_file():
-        return {
-            "path": path,
-            "healthy": True,
-            "present": False,
-            "message": "No linked workspace registry is present for this vault.",
-            "canonical": {"workspaces": {}},
-        }
+        return RegistryInspection(path, RegistryCondition.ABSENT,
+                                  "No linked workspace registry is present for this vault.")
+    try:
+        content = path.read_bytes()
+    except OSError as exc:
+        import errno
 
-    raw, error = _read_json_safe(path)
-    if error:
-        return {
-            "path": path,
-            "healthy": False,
-            "present": True,
-            "message": "Registry JSON is unreadable.",
-            "canonical": {"workspaces": {}},
-            "backup_required": True,
-        }
-    if raw is None:
-        return {
-            "path": path,
-            "healthy": False,
-            "present": True,
-            "message": "Registry payload is not a JSON object.",
-            "canonical": {"workspaces": {}},
-            "backup_required": True,
-        }
+        return RegistryInspection(path, RegistryCondition.UNREADABLE, (
+            f"The linked workspace registry could not be read ({exc}); nothing rewrites it. Restore read access "
+            "to the file, then run vault.check again."), reason=errno.errorcode.get(exc.errno, type(exc).__name__))
 
+    def unparseable(reason: str, problem: str) -> RegistryInspection:
+        return RegistryInspection(path, RegistryCondition.UNPARSEABLE, content=content, reason=reason, message=(
+            f"The linked workspace registry {problem}, so none of its rows can be read and it is never rebuilt "
+            "automatically. Restore it from a copy, or rebuild it empty (keeping the file as "
+            f"{path.name}.bak) with `{registry_rebuild_command(vault_root)}` and run brain workspace setup from "
+            "each linked folder."))
+
+    try:
+        raw = json.loads(content.decode("utf-8"))
+    except UnicodeDecodeError:
+        return unparseable("not_utf8", "is not UTF-8")
+    except json.JSONDecodeError as exc:
+        return unparseable("invalid_json", f"is not valid JSON ({exc})")
+    if not isinstance(raw, dict):
+        return unparseable("not_an_object", "is not a JSON object")
     workspaces = raw.get("workspaces", {})
     if not isinstance(workspaces, dict):
-        return {
-            "path": path,
-            "healthy": False,
-            "present": True,
-            "message": "Registry `workspaces` payload is not an object.",
-            "canonical": {"workspaces": {}},
-            "backup_required": True,
-        }
+        return unparseable("workspaces_not_an_object", "has a `workspaces` value that is not an object")
 
-    canonical: dict[str, Any] = {}
-    invalid_slugs: list[str] = []
-    for slug, entry in workspaces.items():
-        if isinstance(entry, str):
-            canonical[slug] = {"path": entry}
-        elif isinstance(entry, dict) and isinstance(entry.get("path"), str):
-            canonical[slug] = entry
+    rows: dict[str, dict] = {}
+    invalid: list[str] = []
+    for key, entry in workspaces.items():
+        row = workspace_registry.salvage_row(key, entry)
+        if row is None:
+            invalid.append(key)
         else:
-            invalid_slugs.append(slug)
+            rows[key] = row
+    if invalid:
+        return RegistryInspection(path, RegistryCondition.INVALID_ROWS, (
+            "The linked workspace registry has rows that name no usable folder (an invalid key, or a path that "
+            "is empty, relative or contains a NUL byte): " + ", ".join(repr(key) for key in sorted(invalid))
+            + ". The repair rebuilds it without them and keeps the file as a backup."), rows, content)
+    if raw != {"workspaces": rows}:
+        return RegistryInspection(path, RegistryCondition.NORMALISABLE,
+                                  "The linked workspace registry needs canonical JSON normalisation.", rows, content)
+    return RegistryInspection(path, RegistryCondition.HEALTHY, "Registry is healthy.", rows, content)
 
-    if invalid_slugs:
-        return {
-            "path": path,
-            "healthy": False,
-            "present": True,
-            "message": (
-                "Registry contains invalid linked-workspace entries: "
-                + ", ".join(sorted(invalid_slugs))
-            ),
-            "canonical": {"workspaces": canonical},
-            "backup_required": True,
-        }
 
-    canonical_payload = {"workspaces": canonical}
-    if raw != canonical_payload:
-        return {
-            "path": path,
-            "healthy": False,
-            "present": True,
-            "message": "Registry needs canonical JSON normalisation.",
-            "canonical": canonical_payload,
-            "backup_required": False,
-        }
+def registry_rebuild_command(vault_root: Path) -> str:
+    """The person's explicit rebuild of a registry whose rows cannot be read: it may lose rows."""
+    from _repair_common import REPAIR_SCOPES, build_catalogue_argv
 
-    return {
-        "path": path,
-        "healthy": True,
-        "present": True,
-        "message": "Registry is healthy.",
-        "canonical": canonical_payload,
-    }
+    family = REPAIR_SCOPES["registry"]
+    return join_argv([*build_catalogue_argv(vault_root, family),
+                      "--request-json", json.dumps({"allow_row_loss": True}, separators=(",", ":"))])
 
 
 def _expected_project_server_config(vault_root: Path) -> dict:
@@ -430,19 +451,91 @@ def local_mcp_state_present(vault_root: Path) -> bool:
     )
 
 
+def _workspace_command(vault_root: Path, verb: str, request: dict, *, workspace: str | None = None) -> str:
+    from _repair_common import find_launcher_binary
+
+    argv = [find_launcher_binary() or "brain", "--vault", str(vault_root), "workspace", verb]
+    if workspace is not None:
+        argv += ["--workspace", workspace]
+    return join_argv([*argv, "--request-json", json.dumps(request, separators=(",", ":"))])
+
+
 def collect_registry_check_findings(vault_root: str | Path) -> list[dict]:
-    """Return launcher-safe linked-workspace registry findings for one vault."""
+    """Return launcher-safe linked-workspace registry findings for one vault.
+
+    The file's condition is one finding; each row whose manifest positively
+    disagrees, cannot be verified or cannot be reached is one finding of its
+    own, keyed by ``.brain/local/workspaces.json#<key>`` so it is claimed,
+    dismissed and reopened alone. The repairable codes and the two codes for a
+    file whose rows cannot be read are warnings; the rest are ``info``. The
+    two unreadable-file codes declare the structured reason as evidence, so a
+    file that breaks differently reopens a dismissal (DD-086).
+    """
+    import workspace_registry
+    from _bootstrap.workspace_binding import LINK_DISAGREEMENT, LinkVerdict, describe_link, link_fields
+
     vault_root = Path(vault_root)
-    findings: list[dict] = []
     registry = inspect_registry(vault_root)
-    if registry["present"] and not registry["healthy"]:
-        finding = {
-            "check": "workspace_registry",
-            "severity": "warning",
-            "file": str(registry["path"].relative_to(vault_root)),
-            "message": registry["message"],
-        }
-        findings.append(attach_repair_guidance(finding, vault_root, "registry"))
+    if not registry.present:
+        return []
+    relative = str(registry.path.relative_to(vault_root))
+    if registry.condition in {RegistryCondition.UNREADABLE, RegistryCondition.UNPARSEABLE}:
+        # No automatic repair: rewriting a file whose rows cannot be read would lose every row.
+        code = ("workspace_registry_unreadable" if registry.condition is RegistryCondition.UNREADABLE
+                else "workspace_registry_unparseable")
+        return [{"check": "workspace_registry", "code": code, "severity": "warning",
+                 "file": relative, "evidence": {"reason": registry.reason}, "message": registry.message}]
+    findings: list[dict] = []
+    if not registry.healthy:
+        findings.append(attach_repair_guidance({
+            "check": "workspace_registry", "code": "workspace_registry_malformed", "severity": "warning",
+            "file": relative, "message": registry.message,
+        }, vault_root, "registry"))
+    verification = workspace_registry.verify_rows(vault_root, registry.rows)
+    if verification.reason is workspace_registry.Unverified.VAULT_REGISTRY_UNREADABLE:
+        remedy = "Restore read access to this machine's vault registry, then run vault.check again."
+        findings.append({
+            "check": "workspace_registry", "code": "workspace_links_unverified", "severity": "info",
+            "file": relative, "evidence": {"reason": verification.reason.value},
+            "message": f"{verification.reason.describe()} {remedy}", "fix": remedy,
+        })
+
+    def unregister(key: str) -> str:
+        return _workspace_command(vault_root, "unregister", {"key": key})
+
+    for row in verification.rows:
+        verdict = row.classification.verdict
+        if verdict is LinkVerdict.MATCHES:
+            continue
+        file = f"{relative}#{row.key}"
+        why = describe_link(row.classification)
+        if verdict in LINK_DISAGREEMENT:
+            manifest_brain, manifest_key = link_fields(row.classification.state.data)
+            findings.append(attach_repair_guidance({
+                "check": "workspace_registry", "code": "workspace_link_disagreement", "severity": "warning",
+                "file": file, "message": (f"Linked workspace {row.key} at {row.path} disagrees with its manifest: "
+                                          f"{why}. The repair removes the row."),
+                "evidence": {"key": row.key, "path": row.path,
+                             "manifest_brain": manifest_brain, "manifest_key": manifest_key},
+            }, vault_root, "registry"))
+            continue
+        if verdict is LinkVerdict.UNREACHABLE:
+            code = "workspace_folder_unreachable"
+            evidence = {"key": row.key, "path": row.path}
+            remedy = (f"Reconnect the folder, run `{_workspace_command(vault_root, 'setup', {})}` from its new "
+                      f"location, run `{unregister(row.key)}` to forget it, or dismiss this while it is away.")
+            message = f"Linked workspace {row.key} is not reachable at {row.path}. {remedy}"
+        else:
+            code = "workspace_link_unverifiable"
+            evidence = {"key": row.key, "path": row.path, "reason": verdict.value}
+            if verdict is LinkVerdict.VAULT_ROOT:
+                remedy = f"Run `{unregister(row.key)}` to forget the row, or dismiss this."
+            else:
+                setup = _workspace_command(vault_root, "setup", {}, workspace=row.path)
+                remedy = f"Run `{setup}` to link it again, `{unregister(row.key)}` to forget it, or dismiss this."
+            message = f"Linked workspace {row.key} at {row.path} cannot be verified: {why}. {remedy}"
+        findings.append({"check": "workspace_registry", "code": code, "severity": "info",
+                         "file": file, "evidence": evidence, "message": message, "fix": remedy})
     return findings
 
 
@@ -590,10 +683,30 @@ def collect_mcp_legacy_vault_root_findings(vault_root: str | Path) -> list[dict]
     return findings
 
 
+def collect_temporaries_check_findings(vault_root: str | Path, *, now=None) -> list[dict]:
+    """Return one finding per stranded atomic-write temporary under .brain/local."""
+    from datetime import datetime, timezone
+
+    from _bootstrap.stranded_temporaries import find_stranded_temporaries
+
+    vault_root = Path(vault_root)
+    findings: list[dict] = []
+    for rel_path in find_stranded_temporaries(vault_root, now or datetime.now(timezone.utc)):
+        finding = {
+            "check": "temporaries",
+            "severity": "info",
+            "file": rel_path,
+            "message": "Stranded atomic-write temporary file; a Brain write did not complete.",
+        }
+        findings.append(attach_repair_guidance(finding, vault_root, "temporaries"))
+    return findings
+
+
 def collect_bootstrap_check_findings(vault_root: str | Path) -> list[dict]:
     """Return launcher-safe repair-oriented compliance findings."""
     findings = collect_registry_check_findings(vault_root)
     findings.extend(collect_runtime_check_findings(vault_root))
     findings.extend(collect_mcp_check_findings(vault_root))
     findings.extend(collect_mcp_legacy_vault_root_findings(vault_root))
+    findings.extend(collect_temporaries_check_findings(vault_root))
     return findings

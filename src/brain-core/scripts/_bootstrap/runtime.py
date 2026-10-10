@@ -67,7 +67,7 @@ def target_managed_python(vault_root: Path, *, launcher: Path | None = None) -> 
     python = resolver(vault_root, launcher=launcher or Path(sys.executable))
     if python is None:
         raise RuntimeError(f"Managed MCP runtime unavailable; run brain runtime repair --vault {vault_root}")
-    probe = subprocess.run([str(python), "-I", "-c", "import mcp"], capture_output=True, timeout=15)
+    probe = _venv_module.run_managed([str(python), "-I", "-c", "import mcp"], capture_output=True, timeout=15)
     if probe.returncode:
         raise RuntimeError(f"Managed MCP runtime unusable; run brain runtime repair --vault {vault_root}")
     return python
@@ -132,7 +132,7 @@ def probe_python(python_path: str, *, modules: tuple[str, ...] = ()) -> dict:
         "print(json.dumps(payload))"
     )
     try:
-        result = subprocess.run(
+        result = _venv_module.run_managed(
             [python_path, "-c", code],
             capture_output=True,
             text=True,
@@ -460,12 +460,12 @@ def exec_managed_runtime(
             with attachment.exec_environment(env) as forwarded_env:
                 if transport_identity is not None:
                     forwarded_env[PROCESS_CONTEXT_ENV] = transport_identity.launch_value(initialise_owner=owner_initialisation_allowed)
-                os.execve(managed_python, argv, forwarded_env)
+                _venv_module.managed_command(argv, env=forwarded_env).exec()
         elif sys.platform == "win32":
-            result = subprocess.run(argv, env=env)
+            result = _venv_module.managed_command(argv, env=env).run()
             sys.exit(result.returncode)
         else:
-            os.execve(managed_python, argv, env)
+            _venv_module.managed_command(argv, env=env).exec()
     finally:
         if owner_attachment is None and attachment is not None:
             attachment.close()

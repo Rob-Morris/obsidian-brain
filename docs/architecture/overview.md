@@ -10,7 +10,7 @@ runtime identity unless their resolution changes a shipped export.
 
 [Managed client approvals](decisions/dd-080-managed-client-approvals.md) compose
 canonical contract facts, native adapters and exact-value ownership under the
-machine registration lifecycle. Host policy remains distinct from Brain authority.
+machine MCP registration lifecycle. Host policy remains distinct from Brain authority.
 
 Obsidian Brain is a filesystem-first knowledge system with one typed command application shared by agents, CLI users, direct automation and Python callers. Markdown and YAML remain the durable source of truth; generated state is disposable and rebuildable.
 
@@ -75,7 +75,7 @@ inheritance is not yet supported.
 
 ### Machine-global launcher
 
-`cli/_launcher/` owns the independent stdlib-safe `brain.launcher-catalogue/1`. Its typed commands cover Brain registry/selection, install/uninstall/upgrade, managed-runtime recovery, MCP and agent-skill configuration, operator key generation and machine maintenance.
+`cli/_launcher/` owns the independent stdlib-safe `brain.launcher-catalogue/1`. Its typed commands cover Brain registration (the vault registry) and selection, install/uninstall/upgrade, managed-runtime recovery, MCP and agent-skill configuration, operator key generation and machine maintenance.
 
 The launcher cannot invent selected-Brain application commands. The outer CLI composes discovery presentation from the two catalogues while preserving owner and provenance; identity collisions fail closed.
 
@@ -173,12 +173,12 @@ Brain and machine worksets without installing unselected clients. A bounded
 migration feeds this canonical model; normal repair does not adopt legacy files.
 The user route runs the checked absolute `brain mcp serve` bootloader using an
 installation-owned base Python, then resolves the selected Core's own managed
-runtime. No dependency provisioning or registration healing occurs at startup.
-Registration changes and CLI capability replacement share a machine lock.
+runtime. No dependency provisioning or MCP registration healing occurs at startup.
+MCP registration changes and CLI capability replacement share a machine lock.
 Destructive maintenance rechecks persisted references, selected runtimes and
 live use. See [DD-078](decisions/dd-078-registration-driven-mcp-lifecycle.md).
 
-Upgrade preflights the complete local Brain registry and classifies every local/remote/stale entry before mutation. Other local Brains affected by the machine-global CLI replacement require exact acknowledgement; stale exclusions are explicit. Brain Core and the CLI distribution commit inside one checked transaction. Failure either proves restoration of the old set or retains recovery material and reports uncertainty honestly.
+Upgrade preflights the complete vault registry of local Brains and classifies every local/remote/stale entry before mutation. Other local Brains affected by the machine-global CLI replacement require exact acknowledgement; stale exclusions are explicit. Brain Core and the CLI distribution commit inside one checked transaction. Failure either proves restoration of the old set or retains recovery material and reports uncertainty honestly.
 
 The current CLI refuses application discovery against a pre-cutover Brain but retains launcher-owned discovery and recovery. Old direct Brain scripts remain available only as recovery material in the old installation; the new release does not ship public compatibility aliases.
 

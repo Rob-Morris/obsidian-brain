@@ -110,6 +110,36 @@ Config freshness is checked before profile enforcement and before `session.start
 
 ---
 
+## Machine and workspace state
+
+Brain keeps a few machine-local and workspace-local files that record which
+Brains exist on this machine, which one is the default, which folders link to
+which Brain, and which MCP routes Brain installed. Each fact has one home. A
+file is either a source of truth or derived from one, and a derived file is
+written by the operation that changes the fact and otherwise re-derived from
+its source by a check with an automatic repair
+([DD-083](../architecture/decisions/dd-083-one-home-per-register.md)). No file
+here is part of the three-layer config merge above. `~/.config` stands for the
+machine config-home, which follows `XDG_CONFIG_HOME` (or the native Windows
+application-data location).
+
+| File | Name | Nature | Written by |
+|---|---|---|---|
+| `~/.config/brain/vaults` | vault registry | Source of truth: the local Brains and their IDs. "Brain registration" means a row here | `vault_registry.py`, reached from `install.py`, the launcher's `brain register`, `brain unregister` and `brain registry remove-stale`, and the direct `vault_registry.py` script |
+| `~/.config/brain/default` | default Brain pointer | Source of truth: the opt-in machine default | `vault_registry.py`, reached from a user-scope install, `brain set-default` and `brain clear-default`, and cleared by `brain unregister`, `brain uninstall` and `brain registry remove-stale` when they remove the default Brain |
+| `~/.config/brain/mcp-registrations.json` and `<vault>/.brain/local/init-state.json` | MCP registration ledger (user claims, and project or local claims) | Source of truth: the MCP routes Brain installed and owns. "MCP registration" means a record here | MCP configuration, repair and migration (see [MCP ownership and migration](#mcp-ownership-and-migration)) |
+| `<workspace>/.brain/local/workspace.yaml` | workspace manifest | Source of truth of the workspace link (`brain` and `links.workspace`), plus the local `slug`, defaults and tags | `workspace.setup` and `workspace.unregister` for the link fields; people for the rest |
+| `<vault>/.brain/local/workspaces.json` | linked workspace registry | Derived: hub key to folder, for the manifests that name this Brain. It is kept because a Brain cannot enumerate manifests | `workspace.setup`, `workspace.unregister`, the automatic `workspace.repair-registry`, and MCP configuration and migration, which record the row a manifest implies |
+| `<vault>/_Workspaces/<key>/` | embedded workspace | The folder is the fact: no manifest and no registry row | nothing; it is resolved by its existence |
+| `<vault>/Workspaces/*.md` | workspace hub (`living/workspace`) | Vault content. "Workspace registration" means creating or attaching this hub | `workspace.ensure-registration` and `workspace.setup` create or attach it; otherwise the vault's artefact lifecycle |
+| `~/.config/brain/brains.json` | derived machine registry (retired) | Nothing reads or writes it. A leftover file is inert and may be deleted once no Brain on this machine runs Brain Core 0.70.10 or earlier, whose `doctor.py`, `doctor_machine.py` and `machine.py` scripts recreate it | nothing |
+
+Where these docs say "registration" without a qualifier, they mean Brain
+registration. A row in the vault registry that is no longer its own canonical
+path (for example, a symlink left at a moved Brain's old path) is stale and
+never selects a Brain; `brain list` and `brain doctor` report each stale row
+with its reason and, where one succeeds, its recovery command.
+
 ## Workspace Manifest
 
 Workspace metadata is intentionally separate from the Brain config system.
@@ -128,10 +158,12 @@ The distinction from Brain config:
 
 - `.brain/config.yaml` is Brain-level shared configuration
 - `.brain/local/workspace.yaml` is workspace-level identity and defaults (machine-local)
-- `.brain/local/workspaces.json` is machine-local binding state for linked workspaces
+- `<vault>/.brain/local/workspaces.json` is the linked workspace registry, derived from the manifests that name this Brain (see [Machine and workspace state](#machine-and-workspace-state))
 
-`workspace.bind` may scaffold `.brain/local/workspace.yaml`, but the file remains human-editable and is expected to evolve over time.
-`workspace.repair-registry` is intentionally narrower: it repairs or normalises `.brain/local/workspaces.json` only, not the human-owned workspace manifest.
+`workspace.setup` writes the link fields of `.brain/local/workspace.yaml` (`brain` and `links.workspace`) together with `slug`, and `workspace.unregister` removes the two link fields; the rest of the file remains human-editable and is expected to evolve over time.
+`workspace.repair-registry` is intentionally narrower: an initially authorised, maintainer-level repair that changes `.brain/local/workspaces.json` only, never the human-owned workspace manifest. It drops a row only when the manifest in the recorded folder names another Brain or workspace, and never adds one. A file that cannot be read is refused with no change. A file whose rows can be read but which holds rows that name no usable folder is rebuilt without them, and its previous content is kept as the one fixed-name backup `.brain/local/workspaces.json.bak`. A file whose rows cannot be read (not UTF-8, not JSON, or the wrong shape) is refused with no change unless the request sets `allow_row_loss: true`, the person's explicit choice to rebuild it empty with the same backup; no extra prompt guards that field. The backup replaces the previous one only after the rebuilt registry has been saved, so a failed repair keeps the earlier backup.
+
+Built-in profile allow-lists that a vault stores in `.brain/config.yaml` are never widened automatically. A grant added to a template profile, such as `workspace.repair-registry` for `maintainer`, reaches new vaults and vaults that keep the template profiles; a vault whose stored profile carries a `label` or other edits keeps it as written until the grant is added by hand.
 
 Canonical `workspace.setup` also ensures a `living/workspace` hub and stores its
 bare key in `links.workspace`. That exact link selects the canonical
@@ -417,9 +449,22 @@ needed by another admitted route without expressing intent to reinstall the
 removed transport. Brain/workspace repair maintains that bootstrap or removes
 it once no surviving route needs it.
 
+The bootstrap lines Brain has written form a closed, versioned set, listed
+with their releases in `BOOTSTRAP_LINE_HISTORY`
+(`scripts/_bootstrap/mcp_state.py`). One rule brings a file's Brain line to the
+current line for its target: the first line in the set is replaced in place,
+keeping its indentation and line ending; later ones are dropped; the current
+line is appended only when the file holds none; and the rest of the file is
+kept byte for byte. MCP configuration, repair and migration, and
+`workspace.configure-bootstrap` for `CLAUDE.md` and `AGENTS.md`, all use it.
+Removal, including uninstall, removes every line in the set. A claim may record
+any line in the set; repair converges the file and the claim on the current
+line. Matching is on the whole line, so an edited or bulleted copy is user
+text, is never rewritten, and gets the current line added beside it.
+
 TOML transport repair compares parsed command, arguments and environment values.
 Equivalent formatting (including an omitted or inline empty environment table)
-does not cause a rewrite or a stale-registration diagnosis after approval setup.
+does not cause a rewrite or a stale MCP registration diagnosis after approval setup.
 Unchanged transport preserves the native text; ownership conflicts still fail
 before writes.
 
@@ -427,6 +472,25 @@ The migration journal is adjacent to the machine ledger as `mcp-migration.json`.
 It contains exact before/after configuration evidence and must be treated with
 the same care as the client configuration itself. Normal repair does not parse
 legacy ledgers as canonical state. See [MCP lifecycle](cli.md#mcp-registration-and-repair).
+
+## Maintenance state
+
+`<vault>/.brain/local/maintenance/` holds the selected Brain's maintenance
+state (DD-082): `pass.lock` (the non-blocking pass lock), `last-pass.json`
+(schema `brain.maintenance-pass/1`: pass ID, host, finish time, outcome,
+per-family outcomes and counts; a cache for the advisory and for `list`,
+never read for correctness), `decisions.json` (schema
+`brain.maintenance-decisions/1`: claims and dismissals, the only persistent
+maintenance state) and `decisions.lock`. The pass only reads the decisions
+file; the decision commands prune and write it under the lock. A dismissal
+whose fingerprint no longer matches, or whose finding can no longer be
+dismissed (DD-086), is inert until retention prunes it. An unreadable
+decisions file blocks the pass, which still writes a blocked summary; move it
+aside to recover. The machine pass keeps the same files under
+`$XDG_STATE_HOME/brain/maintenance/` (`~/.local/state` by default), beside
+the launcher receipts. These are local files, never vault notes, and
+`.brain/local` may be synced between hosts, so run passes for one Brain from
+one host; the pass warns when the host changes.
 
 ## Grok client configuration
 
@@ -448,7 +512,7 @@ folder trust, permission policy or model settings.
 Project MCP registration uses the selected Brain's managed Python and proxy;
 user scope uses the stable installed CLI bootstrap, like the other clients.
 Both follow the same workspace binding. Native configuration takes precedence over inherited
-Claude registrations. Project setup adds only `.grok/config.toml` to Brain's
+Claude MCP registrations. Project setup adds only `.grok/config.toml` to Brain's
 machine-local ignore entries; the portable startup rule remains discoverable.
 Open Grok in the target directory, review its trust prompt and check
 `grok inspect` and `grok mcp doctor brain`.
@@ -464,7 +528,7 @@ state and unsupported TOML layouts fail without overwriting them. Removal
 matches the complete recorded Brain server; added options or changed fields
 are preserved for review. It removes only the exact authored rule and retains
 an ownership record while an edited rule remains, even if the config was
-already removed. An inherited Claude registration can become visible again
+already removed. An inherited Claude MCP registration can become visible again
 when the native Grok entry is removed.
 
 MCP migration/configuration/repair preserve Grok's
@@ -476,7 +540,7 @@ unrecognised server options remain subject to exact ownership checks.
 `brain agent-skill configure --request-json '{"client":"grok"}'` installs the
 active-Brain shaping adapter. `skill.expose` and `skill.unexpose` accept Grok
 for global or project scope and use the existing ownership marker, dry-run and
-backup-on-replacement rules. Upgrade repairs existing project registrations;
+backup-on-replacement rules. Upgrade repairs existing project MCP registrations;
 it does not install new user-global adapters or register an absent client.
 
 These paths describe the standard client home. If Grok is launched with a

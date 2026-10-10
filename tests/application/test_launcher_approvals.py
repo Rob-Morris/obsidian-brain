@@ -713,3 +713,243 @@ def test_new_allowance_follows_committed_contract_and_failed_transition_does_not
         return Ok(req.COMMAND_ID, req.COMMAND_VERSION, SimpleNamespace())
     assert invoke(context, req, "version", succeed).status == "ok"
     assert "mcp__brain__artefact_new" in json.loads((home / ".claude/settings.json").read_text())["permissions"]["allow"]
+
+
+def test_doctor_inspection_reports_an_absent_approval_target_as_unreachable(configured, monkeypatch):
+    """An approval target whose folder is absent is reported, never blocked, and Doctor does not count it (DD-083)."""
+    from _bootstrap.approval_clients import config_root
+
+    invocation, home, _vault = configured
+    gone = (home.parent / "unplugged-workspace").resolve()
+    record = {"client": "claude", "scope": "project", "surface": "mcp", "target": str(gone),
+              "root": str(config_root("claude", "project", home, gone)),
+              "executable": str(invocation._context.cli_binary), "server": "brain", "owned": True}
+    monkeypatch.setattr(manager, "read_records", lambda _plan, _home: {"unplugged": record})
+
+    statuses = manager.inspect_registered(invocation._context)
+
+    assert [item.state for item in statuses] == ["unreachable"]
+    assert statuses[0].path.startswith(str(gone))
+    assert str(gone) in statuses[0].activation
+
+
+def test_doctor_inspection_reports_a_target_of_an_unplugged_brain_as_unreachable(configured):
+    """With a contributing Brain unplugged, inspection cannot judge the target: unreachable, never blocked."""
+    import shutil
+
+    invocation, _home, _vault = configured
+    other = invocation._context.home_dir.parent / "other"
+    (other / ".brain-core").mkdir(parents=True)
+    (other / ".brain-core/VERSION").write_text("0.70.3")
+    (other / ".brain-core/approval-contract.json").write_text(json.dumps(snapshot((
+        CommandFact("artefact.list", 1, "application", "observation", "artefact_list", ("artefact", "list")),
+    ))))
+    vault_registry.register(other, "other")
+    assert invocation.invoke(request()).status == "ok"
+    shutil.rmtree(other)
+
+    states = {item.state for item in manager.inspect_registered(invocation._context)}
+
+    assert states <= {"current", "unreachable"} and "unreachable" in states
+    assert "blocked" not in states
+
+
+def _drifted_project_approvals(configured, monkeypatch, *, integrations=False):
+    """A project approval owned by the vault, then the vault moved with a symlink left at its old path."""
+    from _bootstrap import mcp_registration
+
+    invocation, home, vault = configured
+    # As in production, the launcher's home is the process home, so Core reads the same approval ledger.
+    monkeypatch.setenv("HOME", str(home))
+    project = vault.parent / "project"
+    project.mkdir()
+    (vault / ".brain/local").mkdir(parents=True)
+    (vault / ".brain/local/workspaces.json").write_text(json.dumps({"workspaces": {"project": {"path": str(project)}}}))
+    if integrations:
+        record = mcp_registration._record_for(mcp_registration.McpClient.CLAUDE, mcp_registration.McpScope.PROJECT,
+                                              project, project / ".mcp.json", {"command": "brain", "args": ["mcp", "serve"]})
+        (vault / ".brain/local/init-state.json").write_text(json.dumps({"version": 2, "records": [record]}))
+    context = replace(invocation._context, workspace_dir=project)
+    req = ApprovalsConfigureRequest(ApprovalClient.CLAUDE, ApprovalScope.PROJECT, (ApprovalSurface.MCP,))
+    assert manager.manage(context, req).complete
+    moved = vault.with_name("moved-vault")
+    vault.rename(moved)
+    vault.symlink_to(moved)
+    return replace(context, current_vault=None), home, vault, moved.resolve(), project
+
+
+def test_remove_stale_refuses_a_drifted_row_while_approvals_hold_records(configured, monkeypatch):
+    """The strict approval inventory refuses a drifted row before any change, and names manual recovery."""
+    from _launcher.approval_lifecycle import invoke, transition_path
+    from _launcher.registry import RegistryRemoveStaleRequest, execute_remove_stale
+
+    context, home, old, moved, project = _drifted_project_approvals(configured, monkeypatch)
+    settings = (project / ".claude/settings.json").read_text()
+    records = manager.read_records(manager.FilePlan(), home)
+    [row] = vault_registry.list_entries()
+
+    result = invoke(context, RegistryRemoveStaleRequest(), "prune", execute_remove_stale)
+
+    assert row["stale_guidance"] is None, "remove-stale is never named where it would be refused"
+    assert "managed client approvals are recorded" in row["stale_explanation"]
+    assert result.status == "error" and result.effects == "none", result
+    assert vault_registry.MANUAL_RECOVERY in result.error.message
+    assert str(old) in result.error.message and str(moved) in result.error.message
+    assert (project / ".claude/settings.json").read_text() == settings
+    assert manager.read_records(manager.FilePlan(), home) == records
+    assert not transition_path(home).exists()
+    assert vault_registry.resolve("vault") == str(old)
+
+
+def test_remove_stale_through_approvals_names_the_integrations_when_both_block(configured, monkeypatch):
+    from _launcher.approval_lifecycle import invoke
+    from _launcher.registry import RegistryRemoveStaleRequest, execute_remove_stale
+
+    context, _home, _old, _moved, _project = _drifted_project_approvals(configured, monkeypatch, integrations=True)
+
+    result = invoke(context, RegistryRemoveStaleRequest(), "prune", execute_remove_stale)
+
+    assert result.status == "error" and result.effects == "none", result
+    assert vault_registry.MANUAL_RECOVERY in result.error.message
+
+
+def test_recovery_refuses_while_a_row_is_drifted_and_keeps_the_transition(configured, monkeypatch):
+    from _launcher.approval_lifecycle import active_transitions, recover_transitions, transition_path
+
+    context, home, _old, _moved, _project = _drifted_project_approvals(configured, monkeypatch)
+    transition_path(home).write_text(json.dumps({"schema": "brain.approval-transitions/1", "active": {"gone": 999999}}))
+
+    with pytest.raises(ValueError, match="manual recovery"):
+        recover_transitions(context)
+
+    assert active_transitions(manager.FilePlan(), home) == {"gone": 999999}
+
+
+def test_doctor_reports_approvals_of_a_drifted_brain_as_unreachable(configured, monkeypatch):
+    """A drifted row is never followed; Doctor reports its approvals as unreachable and stays healthy for them."""
+    context, _home, _old, _moved, _project = _drifted_project_approvals(configured, monkeypatch)
+
+    states = {status.state for status in manager.inspect_registered(context)}
+
+    assert states == {"unreachable"}
+
+
+def _drift_without_approvals(configured, monkeypatch):
+    """The configured vault, moved with a symlink left at its old path, and no approval records."""
+    invocation, home, vault = configured
+    monkeypatch.setenv("HOME", str(home))
+    moved = vault.with_name("moved-vault")
+    vault.rename(moved)
+    vault.symlink_to(moved)
+    return replace(invocation._context, current_vault=None), home, vault, moved.resolve()
+
+
+def _write_ledger(home, content):
+    ledger = manager.ledger_path(home)
+    ledger.parent.mkdir(parents=True, exist_ok=True)
+    ledger.write_text(content)
+    return ledger
+
+
+def test_an_empty_approval_ledger_does_not_block_removing_a_drifted_row(configured, monkeypatch):
+    """After the last detach the ledger stays with no records; the writer then reads no inventory."""
+    from _bootstrap import machine_cli
+    from _launcher.approval_lifecycle import invoke
+    from _launcher.registry import RegistryRemoveStaleRequest, execute_remove_stale
+
+    context, home, _old, _moved = _drift_without_approvals(configured, monkeypatch)
+    _write_ledger(home, json.dumps({"schema": manager.LEDGER_SCHEMA, "records": {}}))
+    [row] = vault_registry.list_entries()
+
+    result = invoke(context, RegistryRemoveStaleRequest(), "prune", execute_remove_stale)
+
+    assert machine_cli.approvals_present(), "the ledger file exists, so changes take the managed route"
+    assert row["stale_guidance"] == "brain registry remove-stale"
+    assert result.status == "ok", result
+    assert result.result.removed_brain_ids == ("vault",)
+    assert vault_registry.list_entries() == []
+
+
+@pytest.mark.parametrize("ledger", ["unreadable", "unparseable", "foreign-schema", "pending-journal"])
+def test_unusable_approval_state_blocks_every_row_and_never_fails_the_listing(configured, monkeypatch, ledger):
+    """An approval state the writer refuses blocks remove-stale for every row; listing, discovery and Doctor's
+    machine summary still report the rows instead of failing for the machine."""
+    import os
+    import shutil
+    from _launcher.approval_lifecycle import invoke
+    from _launcher.registry import RegistryRemoveStaleRequest, execute_remove_stale
+    from _machine.discovery import discover_brains
+    from _machine.maintenance import collect_machine_summary
+
+    context, home, _old, _moved = _drift_without_approvals(configured, monkeypatch)
+    vault_registry._save_registry_entries({**vault_registry.load_registry_entries(), "gone": (
+        vault_registry.RegistryEntry("gone", vault_registry.TYPE_LOCAL, str(home.parent / "Gone")))})
+    content = {"unparseable": "not json", "foreign-schema": json.dumps({"schema": "other", "records": {}})}.get(
+        ledger, json.dumps({"schema": manager.LEDGER_SCHEMA, "records": {}}))
+    path = _write_ledger(home, content)
+    if ledger == "pending-journal":
+        manager.journal_path(home).write_text("{}")
+    elif ledger == "unreadable":
+        if sys.platform == "win32" or os.geteuid() == 0:
+            pytest.skip("POSIX permission bits that bind the test user")
+        path.chmod(0)
+    try:
+        rows = {row["alias"]: row for row in vault_registry.list_entries()}
+        stale = {item["alias"]: item for item in discover_brains()["stale_registry_entries"]}
+        summary = collect_machine_summary(current_vault=None, launcher_python=sys.executable)
+    finally:
+        path.chmod(0o644)
+
+    assert set(rows) == set(stale) == {"vault", "gone"}
+    assert {row["stale_guidance"] for row in rows.values()} == {None}
+    assert all("brain approvals inspect --json" in row["stale_explanation"] for row in rows.values())
+    assert {item["alias"] for item in summary["stale_registry_entries"]} == {"vault", "gone"}
+    if ledger != "unreadable":
+        result = invoke(context, RegistryRemoveStaleRequest(), "prune", execute_remove_stale)
+        assert result.status == "error" and result.effects == "none", result
+        assert set(vault_registry.load_registry_entries()) == {"vault", "gone"}, "nothing was removed"
+
+
+@pytest.mark.parametrize("records", [False, True])
+def test_a_row_blocked_by_another_is_named_for_unregister_only_where_it_succeeds(configured, monkeypatch, records):
+    """While another row blocks remove-stale, a canonical row is named for brain unregister without approval
+    records, which removes it; with records the strict inventory refuses, so no command is named."""
+    import shlex
+    from _bootstrap import mcp_registration
+    from _launcher.approval_lifecycle import invoke
+    from _launcher.registry import BrainUnregisterRequest, execute_unregister
+
+    invocation, home, vault = configured
+    monkeypatch.setenv("HOME", str(home))
+    project = vault.parent / "project"
+    project.mkdir()
+    (vault / ".brain/local").mkdir(parents=True)
+    (vault / ".brain/local/workspaces.json").write_text(json.dumps({"workspaces": {"project": {"path": str(project)}}}))
+    record = mcp_registration._record_for(mcp_registration.McpClient.CLAUDE, mcp_registration.McpScope.PROJECT,
+                                          project, project / ".mcp.json", {"command": "brain", "args": ["mcp", "serve"]})
+    (vault / ".brain/local/init-state.json").write_text(json.dumps({"version": 2, "records": [record]}))
+    context = replace(invocation._context, workspace_dir=project)
+    if records:
+        req = ApprovalsConfigureRequest(ApprovalClient.CLAUDE, ApprovalScope.PROJECT, (ApprovalSurface.MCP,))
+        assert manager.manage(context, req).complete
+    (vault / ".brain-core/VERSION").unlink()  # the blocker: a stale row whose integrations survive
+    missing = vault.parent / "Missing"
+    vault_registry._save_registry_entries({**vault_registry.load_registry_entries(), "missing": (
+        vault_registry.RegistryEntry("missing", vault_registry.TYPE_LOCAL, str(missing)))})
+    rows = {row["alias"]: row for row in vault_registry.list_entries()}
+
+    assert "while the stale row 'vault' remains" in rows["missing"]["stale_explanation"]
+    if not records:
+        guidance = rows["missing"]["stale_guidance"]
+        assert guidance == vault_registry.unregister_guidance(missing)
+        request = json.loads(shlex.split(guidance)[3])
+        result = invoke(replace(context, current_vault=None), BrainUnregisterRequest(Path(request["vault_root"])),
+                        "remove", execute_unregister)
+        assert result.status == "ok", result
+        assert set(vault_registry.load_registry_entries()) == {"vault"}
+    else:
+        assert rows["missing"]["stale_guidance"] is None
+        result = invoke(replace(context, current_vault=None), BrainUnregisterRequest(missing), "remove",
+                        execute_unregister)
+        assert result.status == "error" and result.effects == "none", result
+        assert set(vault_registry.load_registry_entries()) == {"vault", "missing"}

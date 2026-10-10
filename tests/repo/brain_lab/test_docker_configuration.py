@@ -17,6 +17,35 @@ from brain_lab.store import StateStore
 from brain_lab.scenarios import register_scenario_handlers
 from brain_lab.cli import _parser, build_application
 from brain_lab.process import ProcessLaunchError
+from brain_lab.process import ProcessExecution, StreamReceipt
+from dataclasses import replace
+from unittest.mock import Mock
+
+
+@pytest.mark.parametrize("changes,expected", [
+    ({"returncode": 9}, "returncode=9"),
+    ({"returncode": -15, "timed_out": True}, "timed_out=True"),
+    ({"returncode": -15, "cancelled": True}, "cancelled=True"),
+    ({"stream_error": "secret diagnostic"}, "stream_error=True"),
+    ({"stdin_error": "secret diagnostic"}, "stdin_error=True"),
+    ({"output_redacted": True}, "evidence_complete=False"),
+])
+def test_discovery_failure_keeps_safe_process_status_after_cleanup(changes, expected):
+    receipt = StreamReceipt("secret-output-path", 4, 4, "digest", False)
+    execution = replace(ProcessExecution(("secret-argv",), 0, False, False, 1.25, receipt, receipt), **changes)
+    runner = Mock(spec=CommandRunner)
+    runner.run.return_value = execution
+    config = DockerConfiguration(runner, "docker", None)
+
+    with pytest.raises(DockerEndpointError) as caught:
+        config._probe(["context", "inspect", "--format", "{{json .}}"], {})
+
+    message = str(caught.value)
+    assert expected in message and "probe=context" in message
+    assert "duration_seconds=1.25" in message and "stderr_bytes=4" in message
+    assert "secret" not in message
+    assert not caught.value.evidence_complete
+    assert not runner.run.call_args.kwargs["evidence_directory"].exists()
 
 
 @pytest.mark.parametrize(("context", "host", "expected"), [
@@ -63,9 +92,15 @@ def test_resolves_before_isolation_and_pins_endpoint(docker, tmp_path, monkeypat
 def test_discovery_fails_closed(docker, tmp_path, monkeypatch, variable, value, error):
     monkeypatch.setenv(variable, value)
     client = DockerClient(CommandRunner(), executable=str(docker))
-    with pytest.raises(error):
+    with pytest.raises(error) as caught:
         client.pull("ubuntu:24.04", "linux/arm64", tmp_path / "evidence")
     assert not (tmp_path / "call.json").exists()
+    if variable == "BAD_CONTEXT":
+        message = str(caught.value)
+        assert "probe=context" in message and "returncode=1" in message
+        assert "timed_out=False" in message and "stderr_bytes=16" in message
+        assert "missing context" not in message
+        assert "brain-lab-discovery-" not in message
 
 
 def test_pin_survives_environment_change_but_daemon_change_is_rejected(docker, tmp_path, monkeypatch):

@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
+import subprocess
 from typing import ClassVar
 
 from .context import LauncherContext
@@ -19,10 +20,10 @@ class DoctorSeverity(str, Enum):
 
 
 class DoctorRegistryState(str, Enum):
+    """The vault registry is current, or stale when rows point at non-Brains."""
+
     CURRENT = "current"
-    DRIFTED = "drifted"
-    MALFORMED = "malformed"
-    BLOCKED = "blocked"
+    STALE = "stale"
 
 
 class DoctorVaultState(str, Enum):
@@ -73,36 +74,58 @@ class DoctorRegistryStatus:
     state: DoctorRegistryState
     path: str
     brains_count: int
-    blocked_reason: str | None
 
     def __post_init__(self) -> None:
         if not isinstance(self.state, DoctorRegistryState):
             raise ValueError("Doctor registry state must be closed and typed")
-        _validate_absolute(self.path, "Doctor machine registry")
+        _validate_absolute(self.path, "Doctor vault registry")
         if self.brains_count < 0:
             raise ValueError("Doctor registry Brain count cannot be negative")
-        _validate_optional_text(self.blocked_reason, "Doctor registry block reason")
 
 
 @dataclass(frozen=True, slots=True)
 class DoctorPathEntry:
     alias: str | None
     path: str
+    # For a stale vault registry row: why it is stale, the one command that recovers it (None: none), and why in words.
+    reason: str | None = None
+    guidance: str | None = None
+    explanation: str | None = None
 
     def __post_init__(self) -> None:
         _validate_optional_text(self.alias, "Doctor path alias")
         _validate_absolute(self.path, "Doctor path entry")
+        _validate_optional_text(self.reason, "Doctor stale reason")
+        _validate_optional_text(self.guidance, "Doctor stale guidance")
+        _validate_optional_text(self.explanation, "Doctor stale explanation")
 
 
 @dataclass(frozen=True, slots=True)
 class DoctorRepairFinding:
-    scope: str
+    """A per-Brain finding and the repair family that owns it, if one does.
+
+    ``check``, ``file`` and ``code`` carry the finding's own identity, so a
+    finding without a repair family (``scope`` and ``command_id`` both
+    ``None``) is still distinguishable from its neighbours. ``scope`` and
+    ``command_id`` are always set or absent together: a scope the repair
+    table does not name is a producer defect, not a finding without a family.
+    """
+
+    check: str
+    scope: str | None
     message: str
     command_id: str | None
+    file: str | None = None
+    code: str | None = None
 
     def __post_init__(self) -> None:
-        if not self.scope.strip() or not self.message.strip():
-            raise ValueError("Doctor repair findings require scope and message")
+        if not self.check.strip() or not self.message.strip():
+            raise ValueError("Doctor repair findings require check and message")
+        _validate_optional_text(self.scope, "Doctor repair scope")
+        _validate_optional_text(self.file, "Doctor repair finding file")
+        _validate_optional_text(self.code, "Doctor repair finding code")
+        if (self.scope is None) != (self.command_id is None):
+            raise ValueError("Doctor repair scope and command must be set or absent together")
         if self.command_id is not None:
             validate_command_id(self.command_id)
 
@@ -115,7 +138,8 @@ class DoctorBrainStatus:
     runtime_status: str
     runtime_message: str
     selected_runtime: str | None
-    expected_runtime: str
+    # None when the Brain's runtime contract cannot be read, so its runtime cannot be named.
+    expected_runtime: str | None
     legacy_runtime_present: bool
     repair_findings: tuple[DoctorRepairFinding, ...]
 
@@ -130,7 +154,8 @@ class DoctorBrainStatus:
             raise ValueError("Doctor Brain runtime status must be complete")
         if self.selected_runtime is not None:
             _validate_absolute(self.selected_runtime, "Doctor selected runtime")
-        _validate_absolute(self.expected_runtime, "Doctor expected runtime")
+        if self.expected_runtime is not None:
+            _validate_absolute(self.expected_runtime, "Doctor expected runtime")
         if not isinstance(self.legacy_runtime_present, bool):
             raise ValueError("Doctor legacy-runtime state must be boolean")
         if any(
@@ -145,7 +170,7 @@ class DoctorMachineCounts:
     brains: int
     repair_findings: int
     stale_vault_registry_entries: int
-    stale_machine_registry_entries: int
+    unregistered_brains: int
     runtimes: int
     orphan_candidates: int
 
@@ -156,7 +181,7 @@ class DoctorMachineCounts:
                 self.brains,
                 self.repair_findings,
                 self.stale_vault_registry_entries,
-                self.stale_machine_registry_entries,
+                self.unregistered_brains,
                 self.runtimes,
                 self.orphan_candidates,
             )
@@ -219,12 +244,16 @@ class DoctorMachineStatus:
     registry: DoctorRegistryStatus
     counts: DoctorMachineCounts
     stale_vault_registry_entries: tuple[DoctorPathEntry, ...]
-    stale_machine_registry_entries: tuple[DoctorPathEntry, ...]
+    unregistered_brains: tuple[str, ...]
     brains: tuple[DoctorBrainStatus, ...]
     orphan_runtime_pythons: tuple[str, ...]
     memory: DoctorMemoryStatus | None
     mcp_registrations: tuple[DoctorMcpRegistration, ...] = ()
     registration_coverage_complete: bool = True
+    # Registered Brain roots and linked folders absent on this machine: reported, never unhealthy.
+    unreachable_locations: tuple[DoctorPathEntry, ...] = ()
+    # Brains whose own runtime contract cannot be read (guidance: the upgrade command); they pause orphan detection.
+    unreadable_runtime_contracts: tuple[DoctorPathEntry, ...] = ()
 
     def __post_init__(self) -> None:
         if self.memory is not None and not isinstance(self.memory, DoctorMemoryStatus):
@@ -243,11 +272,12 @@ class DoctorMachineStatus:
             self.counts,
             DoctorMachineCounts,
         ):
-            raise ValueError("Doctor machine registry and counts must be typed")
+            raise ValueError("Doctor vault registry status and counts must be typed")
         typed_collections = (
             (self.stale_vault_registry_entries, DoctorPathEntry),
-            (self.stale_machine_registry_entries, DoctorPathEntry),
             (self.brains, DoctorBrainStatus),
+            (self.unreachable_locations, DoctorPathEntry),
+            (self.unreadable_runtime_contracts, DoctorPathEntry),
         )
         if any(
             not isinstance(item, expected)
@@ -255,6 +285,8 @@ class DoctorMachineStatus:
             for item in values
         ):
             raise ValueError("Doctor machine collections must be typed")
+        for path in self.unregistered_brains:
+            _validate_absolute(path, "Doctor unregistered Brain")
         for path in self.orphan_runtime_pythons:
             _validate_absolute(path, "Doctor orphan runtime")
         if self.orphan_runtime_pythons != tuple(sorted(set(self.orphan_runtime_pythons))):
@@ -263,11 +295,12 @@ class DoctorMachineStatus:
             self.counts.brains != len(self.brains)
             or self.counts.stale_vault_registry_entries
             != len(self.stale_vault_registry_entries)
-            or self.counts.stale_machine_registry_entries
-            != len(self.stale_machine_registry_entries)
+            or self.counts.unregistered_brains != len(self.unregistered_brains)
             or self.counts.orphan_candidates != len(self.orphan_runtime_pythons)
         ):
             raise ValueError("Doctor machine counts must agree with projected rows")
+        if (self.registry.state is DoctorRegistryState.STALE) != bool(self.stale_vault_registry_entries):
+            raise ValueError("Doctor registry state must agree with the stale vault registry rows")
 
 
 @dataclass(frozen=True, slots=True)
@@ -350,56 +383,40 @@ class BrainDoctorPayload:
 @dataclass(frozen=True, slots=True)
 class BrainDoctorRequest:
     COMMAND_ID: ClassVar[str] = "brain.doctor"
-    COMMAND_VERSION: ClassVar[int] = 2
+    COMMAND_VERSION: ClassVar[int] = 3
     RESULT_TYPE: ClassVar[type] = BrainDoctorPayload
 
-    current_vault: Path | None = None
     actionable: bool = False
     severity: DoctorSeverity | None = None
 
     def __post_init__(self) -> None:
-        if self.current_vault is not None and not self.current_vault.is_absolute():
-            raise ValueError("brain.doctor current_vault must be absolute")
         if not isinstance(self.actionable, bool):
             raise ValueError("brain.doctor actionable must be boolean")
         if self.severity is not None and not isinstance(self.severity, DoctorSeverity):
             raise ValueError("brain.doctor severity must be closed and typed")
 
 
-_REPAIR_COMMANDS = {
-    "empty_folders": "artefact.repair",
-    "frontmatter": "artefact.repair",
-    "lexical": "retrieval.refresh-lexical",
-    "mcp": "mcp.repair",
-    "ownership": "artefact.repair",
-    "registry": "workspace.repair-registry",
-    "router": "runtime.refresh-router",
-    "runtime": "runtime.repair",
-    "semantic": "retrieval.repair-semantic",
-}
+def _table_command_id(scope: str | None) -> str | None:
+    """Look a scope up in the bundled Brain repair table, tolerating unknown scopes."""
+    from _repair_common import REPAIR_SCOPES
+
+    family = REPAIR_SCOPES.get(scope) if scope is not None else None
+    return family.command_id if family is not None else None
 
 
 def _repair_finding(raw: dict) -> DoctorRepairFinding:
-    repair = raw["repair"]
-    scope = repair["scope"]
-    return DoctorRepairFinding(scope, raw["message"], _REPAIR_COMMANDS.get(scope))
+    """A per-Brain finding from the bundled Core: its family comes from the same table, so none is tolerated unknown."""
+    from _repair_common import family_for_finding
+
+    family = family_for_finding(raw)
+    scope = family.scope if family is not None else None
+    command_id = family.command_id if family is not None else None
+    return DoctorRepairFinding(raw["check"], scope, raw["message"], command_id, raw.get("file"), raw.get("code"))
 
 
 def _registry_status(raw: dict) -> DoctorRegistryStatus:
-    if raw["blocked"]:
-        state = DoctorRegistryState.BLOCKED
-    elif raw.get("malformed", False):
-        state = DoctorRegistryState.MALFORMED
-    elif raw.get("drifted", False):
-        state = DoctorRegistryState.DRIFTED
-    else:
-        state = DoctorRegistryState.CURRENT
-    return DoctorRegistryStatus(
-        state,
-        raw["path"],
-        raw["brains_count"],
-        raw.get("blocked_reason"),
-    )
+    state = DoctorRegistryState.STALE if raw["stale"] else DoctorRegistryState.CURRENT
+    return DoctorRegistryStatus(state, raw["path"], raw["brains_count"])
 
 
 def _machine_status(raw: dict) -> DoctorMachineStatus:
@@ -423,23 +440,21 @@ def _machine_status(raw: dict) -> DoctorMachineStatus:
         raw["tidy"],
         raw["live_process_scan_available"],
         raw["venvs_root"],
-        _registry_status(raw["machine_registry"]),
+        _registry_status(raw["registry"]),
         DoctorMachineCounts(
             counts["brains"],
             counts["repair_findings"],
             counts["stale_registry_entries"],
-            counts["stale_machine_registry_entries"],
+            counts["unregistered_brains"],
             counts["runtimes"],
             counts["orphan_candidates"],
         ),
         tuple(
-            DoctorPathEntry(item["alias"], item["path"])
+            DoctorPathEntry(item["alias"], item["path"], item.get("reason"), item.get("guidance"),
+                            item.get("explanation"))
             for item in raw["stale_registry_entries"]
         ),
-        tuple(
-            DoctorPathEntry(item.get("alias"), item["path"])
-            for item in raw["stale_machine_registry_entries"]
-        ),
+        tuple(raw["unregistered_brains"]),
         brains,
         tuple(
             sorted(
@@ -452,6 +467,9 @@ def _machine_status(raw: dict) -> DoctorMachineStatus:
         tuple(DoctorMcpRegistration(item["path"], item["state"], item.get("client"), item.get("scope"), item.get("message"), item["action"])
               for item in raw.get("mcp_registrations", {}).get("registrations", [])),
         raw.get("registration_coverage_complete", True),
+        tuple(DoctorPathEntry(item["label"], item["path"]) for item in raw.get("unreachable_locations", ())),
+        tuple(DoctorPathEntry(item["label"], item["path"], guidance=item["guidance"])
+              for item in raw.get("unreadable_runtime_contracts", ())),
     )
 
 
@@ -473,14 +491,16 @@ def _memory_status(raw: dict | None) -> DoctorMemoryStatus | None:
 
 
 def _vault_finding(raw: dict) -> DoctorVaultFinding:
-    repair = raw.get("repair")
-    scope = repair.get("scope") if isinstance(repair, dict) else None
+    repair = raw.get("repair") if isinstance(raw.get("repair"), dict) else {}
+    # The target's own vault.check names its repair command; the bundled table
+    # only serves the legacy check.py route of a pre-cutover Core.
+    command_id = repair.get("command_id") or _table_command_id(repair.get("scope"))
     return DoctorVaultFinding(
         raw.get("check") or "unspecified",
         DoctorSeverity(raw["severity"]),
         raw["file"],
         raw["message"],
-        _REPAIR_COMMANDS.get(scope),
+        command_id,
     )
 
 
@@ -515,6 +535,88 @@ def _vault_status(raw: dict) -> DoctorVaultStatus:
     )
 
 
+def _check_envelope(vault_root: Path, result: dict, *, actionable: bool) -> dict:
+    """Project a vault.check payload onto the check envelope Doctor renders."""
+    from _common import join_argv
+    from _repair_common import REPAIR_SCOPES, build_catalogue_command
+
+    findings = []
+    for item in result["findings"]:
+        finding = {
+            "check": item["check"],
+            "severity": item["severity"],
+            "file": item.get("file"),
+            "message": item["message"],
+        }
+        if item.get("code") is not None:
+            finding["code"] = item["code"]
+        if actionable and item.get("fix"):
+            finding["fix"] = item["fix"]
+        repair = item.get("repair")
+        if isinstance(repair, dict):
+            family = REPAIR_SCOPES.get(repair["scope"])
+            noun, verb = repair["command_id"].split(".", 1)
+            finding["repair"] = {
+                "scope": repair["scope"],
+                "description": repair["description"],
+                "command_id": repair["command_id"],
+                "command": (
+                    build_catalogue_command(vault_root, family)
+                    if family is not None and family.command_id == repair["command_id"]
+                    else join_argv(["brain", "--vault", str(vault_root), noun, verb])
+                ),
+            }
+        findings.append(finding)
+    return {
+        "summary": {"errors": result["errors"], "warnings": result["warnings"], "info": result["info"]},
+        "findings": findings,
+    }
+
+
+def run_vault_check(vault_root: Path, *, actionable: bool, severity: str | None):
+    """Run the target Brain's own ``vault.check`` through its ``command.py``.
+
+    Returns ``None`` for a pre-cutover target so Doctor falls back to that
+    target's legacy ``check.py``.
+    """
+    import json
+
+    from _common._venv import ROLE_CLI, run_managed
+    from _local_cli.execution import validate_application_envelope
+    from _local_cli.runtime import SelectedBrain, command_python
+
+    selected = SelectedBrain(vault_root, None, "doctor")
+    if not selected.supports_command_interface:
+        return None
+    payload = {"actionable": actionable}
+    if severity is not None:
+        payload["severity"] = severity
+    argv = [
+        str(command_python(selected, "portable")),
+        str(selected.command_script),
+        "vault",
+        "check",
+        "--request-json",
+        json.dumps(payload, separators=(",", ":")),
+        "--vault",
+        str(vault_root),
+        "--json",
+    ]
+    try:
+        completed = run_managed(argv, role=ROLE_CLI, capture_output=True, text=True, timeout=120, check=False)
+    except subprocess.TimeoutExpired as exc:
+        raise RuntimeError(f"vault.check did not finish within {exc.timeout:.0f} seconds") from exc
+    try:
+        envelope = json.loads(completed.stdout)
+    except json.JSONDecodeError as exc:
+        message = completed.stderr.strip() or "vault.check did not produce valid JSON output"
+        raise RuntimeError(message) from exc
+    validate_application_envelope(envelope, "vault.check", completed.returncode)
+    if envelope["status"] != "ok":
+        raise RuntimeError(envelope["error"]["message"])
+    return _check_envelope(vault_root, envelope["result"], actionable=actionable)
+
+
 def execute_doctor(context: LauncherContext, request: BrainDoctorRequest):
     import doctor
     from . import mcp as mcp_owner
@@ -528,8 +630,9 @@ def execute_doctor(context: LauncherContext, request: BrainDoctorRequest):
     launcher_python = (
         str(context.launcher_python) if context.launcher_python is not None else None
     )
+    # The vault section follows the launcher's Brain selection; with none, Doctor is machine-wide.
     current_vault = (
-        str(request.current_vault) if request.current_vault is not None else None
+        str(context.current_vault) if context.current_vault is not None else None
     )
     cli = doctor.collect_cli_diagnosis(
         binary_path=str(context.cli_binary),
@@ -539,7 +642,6 @@ def execute_doctor(context: LauncherContext, request: BrainDoctorRequest):
     machine = doctor.doctor_machine.collect_machine_summary(
         current_vault=current_vault,
         launcher_python=launcher_python,
-        synchronise_registry=False,
         measure_memory=True,
         cli_binary=str(context.cli_binary),
     )
@@ -548,11 +650,12 @@ def execute_doctor(context: LauncherContext, request: BrainDoctorRequest):
         launcher_python=launcher_python,
         actionable=request.actionable,
         severity=request.severity.value if request.severity is not None else None,
+        vault_check_runner=run_vault_check,
     )
     exit_code = doctor.overall_exit_code(cli=cli, machine=machine, vault=vault)
     from .approval_management import inspect_registered
     approvals = inspect_registered(context)
-    if any(item.state not in {"current", "not_managed"} for item in approvals):
+    if any(item.state not in {"current", "not_managed", "unreachable"} for item in approvals):
         exit_code = max(exit_code, 1)
     if not bootstrap_available and any(
         item.get("scope") == "user" and item.get("state") != "absent"

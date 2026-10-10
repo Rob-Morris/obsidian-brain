@@ -12,7 +12,9 @@ import sys
 
 import check as vault_check
 import doctor_machine
-from _common import find_runnable_python
+from _common import legacy_vault_venv_python
+from _common._venv import run_managed
+from _machine.topology import RUNTIME_CONTRACT_UNAVAILABLE, classify_brain_runtime
 from _repair_common import build_repair_command
 
 
@@ -32,7 +34,7 @@ def collect_cli_diagnosis(*, binary_path: str, cli_version: str, launcher_python
     launcher_version = None
     launcher_probe_failed = False
     if launcher_python:
-        completed = subprocess.run(
+        completed = run_managed(
             [launcher_python, "--version"],
             capture_output=True,
             text=True,
@@ -94,27 +96,70 @@ def collect_vault_diagnosis(
     launcher_python: str | None,
     actionable: bool,
     severity: str | None,
+    vault_check_runner=None,
 ) -> dict:
-    """Collect the current-vault Doctor section via that vault's own check.py."""
+    """Collect the current-vault Doctor section.
+
+    ``vault_check_runner(vault_root, *, actionable, severity)`` is the
+    launcher-side route through the target's ``vault.check`` command; it
+    returns a check envelope (``summary`` and ``findings``) or ``None`` when
+    the target predates the command interface, in which case the target's
+    legacy ``check.py`` runs instead (DD-082).
+    """
     if current_vault is None:
         return {
             "in_scope": False,
             "vault_root": None,
             "available": False,
             "exit_code": 0,
-            "message": "none in scope (run inside a vault or pass --vault)",
+            "message": "none in scope (select one with --vault or --brain, or run from a vault or a linked workspace)",
             "result": None,
         }
 
     vault_path = Path(current_vault)
+    if vault_check_runner is not None:
+        try:
+            payload = vault_check_runner(vault_path, actionable=actionable, severity=severity)
+        except (OSError, RuntimeError, ValueError, subprocess.TimeoutExpired) as exc:
+            return _vault_failure(current_vault, f"vault.check failed: {exc}")
+        if payload is not None:
+            if not _supports_composed_doctor_render(payload):
+                return _vault_failure(
+                    current_vault,
+                    "vault.check result is unsupported for composed Doctor output — upgrade the current Brain or the source Brain",
+                )
+            return {
+                "in_scope": True,
+                "vault_root": current_vault,
+                "available": True,
+                "exit_code": vault_check.exit_code_for_summary(payload["summary"]),
+                "message": None,
+                "result": payload,
+                "route": "vault.check",
+            }
+
     check_script = vault_path / ".brain-core" / "scripts" / "check.py"
     if not check_script.is_file():
         return _vault_failure(current_vault, "check.py missing — vault may be on an older brain-core")
 
-    launcher_path = Path(launcher_python) if launcher_python else None
-    runnable_python = find_runnable_python(vault_path, launcher=launcher_path)
-    if runnable_python is None:
+    # The Brain's own runtime contract names its interpreter, as the machine section judges it.
+    runtime = classify_brain_runtime(vault_path, launcher_python=launcher_python)
+    note = None
+    if runtime["status"] == RUNTIME_CONTRACT_UNAVAILABLE:
+        # check.py needs only the standard library, so the legacy .venv or the launcher still serves it.
+        legacy = legacy_vault_venv_python(vault_path)
+        launcher_path = Path(launcher_python) if launcher_python else None
+        if legacy.is_file():
+            runnable_python = legacy
+        elif launcher_path is not None and launcher_path.exists():
+            runnable_python = launcher_path
+        else:
+            return _vault_failure(current_vault, runtime["message"])
+        note = f"{runtime['message']} check.py ran with {runnable_python}."
+    elif runtime["runnable_runtime"] is None:
         return _vault_failure(current_vault, _no_runnable_python_guidance(current_vault))
+    else:
+        runnable_python = Path(runtime["runnable_runtime"])
 
     argv = [str(runnable_python), str(check_script), "--vault", current_vault, "--json"]
     if actionable:
@@ -122,7 +167,7 @@ def collect_vault_diagnosis(
     if severity:
         argv.extend(["--severity", severity])
 
-    completed = subprocess.run(
+    completed = run_managed(
         argv,
         capture_output=True,
         text=True,
@@ -149,6 +194,8 @@ def collect_vault_diagnosis(
         "exit_code": completed.returncode,
         "message": None,
         "result": payload,
+        "route": "legacy-check",
+        "note": note,
     }
 
 
@@ -173,9 +220,11 @@ def _render_cli_lines(cli: dict) -> list[str]:
 
 def _render_vault_lines(vault: dict, *, actionable: bool) -> list[str]:
     if not vault["in_scope"]:
-        return ["  none in scope (run inside a vault or pass --vault)"]
+        return ["  none in scope (select one with --vault or --brain, or run from a vault or a linked workspace)"]
 
     lines = [f"  {vault['vault_root']}"]
+    if vault.get("note"):
+        lines.append(f"  note: {vault['note']}")
     if not vault["available"]:
         lines.append(f"  {vault['message']}")
         return lines
@@ -221,7 +270,6 @@ def build_report(*, args) -> tuple[dict, int]:
     machine = doctor_machine.collect_machine_summary(
         current_vault=args.current_vault,
         launcher_python=args.launcher,
-        synchronise_registry=True,
         measure_memory=True,
     )
     vault = collect_vault_diagnosis(

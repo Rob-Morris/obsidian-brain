@@ -19,7 +19,7 @@ from _application.access_session import AuthorisationSession
 from _application.consent import ConsentError, ConsentIdentity, ConsentService
 from _application.receipts import ReceiptOwnership
 from _bootstrap.consent_state import MemoryStateStore
-from .authorisation_config import resolve_authorisation_config, authorisation_config_signature
+from .authorisation_config import DEFAULT_PRINCIPAL, resolve_authorisation_config, authorisation_config_signature
 from .owner_authentication import OwnerAuthentication
 from .consent_staging import ConsentContentPins
 from _application.types import (
@@ -49,6 +49,51 @@ _LOCAL_PROVIDERS = (
 
 class DirectContextError(RuntimeError):
     """Trusted direct-command context could not be resolved safely."""
+
+
+
+
+class DirectMaintenanceInvoker:
+    """Run one automatic repair family as a fresh sibling of the pass (DD-082, D5).
+
+    Each sibling is composed without this port (depth one), never as a dry
+    run, and goes through the same admission as any direct call. The
+    automatic set is enforced by construction: any family that is not
+    automatic, not in the Brain repair table or not script-eligible is
+    refused as an invalid request.
+    """
+
+    def __init__(self, composer: "DirectContextComposer") -> None:
+        self._composer = composer
+
+    def repair(self, family: "RepairFamily", *, invocation_id: str):
+        import vault_registry
+        from _application.adapter import ApplicationAdapter
+        from _application.maintenance.run import MaintenanceRunRequest
+        from _application.results import CommandError, Error, ErrorCode, RequestErrorDetails
+        from _repair_common import REPAIR_SCOPES, Disposition
+
+        catalogue = self._composer.catalogue
+
+        def failed(code: ErrorCode, message: str, field: str | None):
+            # Refusals carry the pass's identity: the family's command never ran.
+            return Error(MaintenanceRunRequest.COMMAND_ID, MaintenanceRunRequest.COMMAND_VERSION,
+                         CommandError(code, message, RequestErrorDetails(field, message)))
+
+        if REPAIR_SCOPES.get(family.scope) is not family:
+            return failed(ErrorCode.INVALID_REQUEST,
+                          "The maintenance invoker runs only families from the Brain repair table.", "family")
+        if family.disposition is not Disposition.AUTOMATIC:
+            return failed(ErrorCode.INVALID_REQUEST, f"{family.command_id} is not an automatic repair family.", "family")
+        # Every table family is a script-eligible catalogue command; the repair-table test enforces it.
+        try:
+            context = self._composer.compose(command_id=family.command_id, dry_run=False, invocation_id=invocation_id)
+        except (DirectContextError, vault_registry.RegistryReadError, OSError) as exc:
+            # Composition has no effects: the sibling never started, so the group simply failed.
+            return failed(ErrorCode.CONFLICT, f"could not compose the repair's context: {exc}", None)
+        return ApplicationAdapter(catalogue, current_request_resolver()).invoke(
+            context, family.command_id, dict(family.request)
+        ).result
 
 
 @dataclass(frozen=True, slots=True)
@@ -103,6 +148,7 @@ def compose_direct_context(
     transport_identity=None,
     owner_initialisation_allowed: bool = False,
     operation_id: str | None = None,
+    maintenance_invoker: bool = False,
 ):
     """Resolve one fresh direct-process invocation context without hand-off."""
 
@@ -121,6 +167,7 @@ def compose_direct_context(
         dry_run=dry_run,
         invocation_id=invocation_id,
         operation_id=operation_id,
+        maintenance_invoker=maintenance_invoker,
     )
 
 
@@ -266,14 +313,25 @@ class DirectContextComposer:
         dry_run: bool = False,
         invocation_id: str | None = None,
         operation_id: str | None = None,
+        maintenance_invoker: bool = False,
     ):
-        """Compose fresh authority/capability state over cached immutable inputs."""
+        """Compose fresh authority/capability state over cached immutable inputs.
+
+        ``maintenance_invoker`` is the direct script's opt-in; the gate that
+        matters is the context kind and principal: only a standalone, keyless
+        context is given the port (D7), so a ``brain session run`` child
+        (kind ``cli-job``) and the MCP server never are.
+        """
 
         identity = self.identity()
         merged = identity.config
         profile = identity.profile
         allowed_tools = identity.allowed_tools
         authorisation = self._authorisation(identity)
+        maintenance = None
+        if (maintenance_invoker and self._context_kind == "standalone"
+                and identity.principal == DEFAULT_PRINCIPAL):
+            maintenance = DirectMaintenanceInvoker(self)
         workspace = _resolve_workspace(self._root, self._workspace_dir)
         tier = (
             DependencyTier.MANAGED
@@ -324,6 +382,7 @@ class DirectContextComposer:
             clock=self._clock,
             derived_snapshots=self._derived_snapshots,
             session_mirror=self._session_mirror,
+            maintenance=maintenance,
         )
 
     def _brain_id(self) -> str:
@@ -448,12 +507,7 @@ def resolve_direct_brain_id(root: Path) -> str:
         entries = vault_registry.load_registry_entries()
     except vault_registry.RegistryReadError as exc:
         raise DirectContextError(str(exc)) from exc
-    matches = sorted(
-        entry.brain_id
-        for entry in entries.values()
-        if entry.kind == vault_registry.TYPE_LOCAL
-        and Path(entry.value).resolve() == root
-    )
+    matches = sorted(entry.brain_id for entry in entries.values() if vault_registry.row_matches(entry, root))
     if len(matches) > 1:
         raise DirectContextError("selected Brain path has multiple local registry identities")
     if matches:

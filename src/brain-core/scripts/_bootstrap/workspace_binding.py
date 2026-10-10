@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+from contextlib import contextmanager
 from dataclasses import dataclass
+from enum import Enum
 from pathlib import Path
-import logging
+import io
 import os
 import re
 import unicodedata
@@ -12,10 +14,9 @@ from typing import Any
 
 from _common._filesystem import safe_write
 from _common._vault import is_brain_vault
-from _common._yaml import YamlError, dump_mapping_text, load_mapping_file
+from _common._slugs import is_valid_key
+from _common._yaml import YamlError, dump_mapping_text, load_mapping_file, load_mapping_text
 import vault_registry
-
-_log = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
@@ -35,11 +36,17 @@ WORKSPACE_ERROR_FILESYSTEM_ACCESS = "filesystem_access"
 # ---------------------------------------------------------------------------
 
 class WorkspaceBindingError(RuntimeError):
-    """Raised when workspace binding state cannot be converged safely."""
+    """Raised when workspace binding state cannot be converged safely.
 
-    def __init__(self, message: str, *, code: str = WORKSPACE_ERROR_INVALID_BINDING) -> None:
+    ``rung`` names the resolution-ladder rung that failed (a ``BrainTarget.source``
+    value, or ``RUNG_UNRESOLVED``), and is None outside ``resolve_brain_target``.
+    """
+
+    def __init__(self, message: str, *, code: str = WORKSPACE_ERROR_INVALID_BINDING,
+                 rung: str | None = None) -> None:
         super().__init__(message)
         self.code = code
+        self.rung = rung
 
 
 # ---------------------------------------------------------------------------
@@ -62,18 +69,6 @@ class WorkspaceManifestWrite:
     """Result of writing canonical workspace manifest content."""
 
     manifest_path: Path
-    status: str
-    message: str
-    migrated_legacy: bool
-
-
-@dataclass(frozen=True)
-class WorkspaceBindingConvergence:
-    """Result of converging one workspace binding payload."""
-
-    manifest_path: Path
-    brain: str
-    slug: str
     status: str
     message: str
     migrated_legacy: bool
@@ -103,6 +98,30 @@ class BrainTarget:
     vault_root: str
     workspace_dir: str | None
     source: str
+
+
+# The ladder's rungs, in order; ``BrainTarget.source`` names the one that resolved a Brain
+# (``vault_self`` is the first rung's short-circuit) and ``WorkspaceBindingError.rung`` the one that failed.
+RUNG_VAULT_SELF = "vault_self"
+RUNG_WORKSPACE_ENV = "workspace_env"
+RUNG_WORKSPACE_BINDING = "workspace_binding"
+RUNG_VAULT_ROOT_ENV = "vault_root_env"
+RUNG_REGISTRY_DEFAULT = "registry_default"
+# The ladder's last rung: nothing resolved a Brain.
+RUNG_UNRESOLVED = "unresolved"
+# The rungs no caller asserted: the machine default and nothing at all.
+MACHINE_FALLBACK_RUNGS = frozenset({RUNG_REGISTRY_DEFAULT, RUNG_UNRESOLVED})
+
+
+@contextmanager
+def _rung(name: str):
+    """Attribute a resolution failure raised inside one ladder rung to that rung."""
+    try:
+        yield
+    except WorkspaceBindingError as exc:
+        if exc.rung is None:
+            exc.rung = name
+        raise
 
 
 # Binding-state constants used by the classifier helper.
@@ -154,6 +173,9 @@ def _stale_binding_detail(brain: str) -> str:
         registered = None
     if registered is None:
         return f"Brain id '{brain}' is not in the registry"
+    if not vault_registry.is_canonical_value(registered):
+        entries = vault_registry.load_registry_entries()
+        return vault_registry.stale_explanation(entries[brain], entries)
     return f"Brain '{brain}' is registered but its vault at {registered} is missing or moved"
 
 
@@ -196,7 +218,7 @@ def _walk_for_nearest_marker(start_dir: Path) -> BrainTarget | None:
             return BrainTarget(
                 vault_root=str(candidate),
                 workspace_dir=None,
-                source="vault_self",
+                source=RUNG_VAULT_SELF,
             )
 
         # Workspace manifest check.
@@ -209,7 +231,7 @@ def _walk_for_nearest_marker(start_dir: Path) -> BrainTarget | None:
                 return BrainTarget(
                     vault_root=str(vault),
                     workspace_dir=str(candidate),
-                    source="workspace_binding",
+                    source=RUNG_WORKSPACE_BINDING,
                 )
             if binding_state == _STATE_STALE:
                 assert brain is not None
@@ -270,7 +292,7 @@ def resolve_brain_target(
 
     Raises:
         ``WorkspaceBindingError`` on stale bindings, dangling defaults, or when
-        no brain can be resolved at all.
+        no brain can be resolved at all; its ``rung`` names the rung that failed.
     """
     # ------------------------------------------------------------------
     # Rung 1: explicit workspace anchor
@@ -284,15 +306,16 @@ def resolve_brain_target(
             return BrainTarget(
                 vault_root=str(ws_dir),
                 workspace_dir=None,
-                source="vault_self",
+                source=RUNG_VAULT_SELF,
             )
-        state, vault, brain = _classify_workspace_binding(ws_dir)
+        with _rung(RUNG_WORKSPACE_ENV):
+            state, vault, brain = _classify_workspace_binding(ws_dir)
         if state == _STATE_VALID:
             assert vault is not None
             return BrainTarget(
                 vault_root=str(vault),
                 workspace_dir=str(ws_dir),
-                source="workspace_env",
+                source=RUNG_WORKSPACE_ENV,
             )
         if state == _STATE_STALE:
             assert brain is not None
@@ -302,10 +325,11 @@ def resolve_brain_target(
                 f"this workspace (brain workspace setup), or restore the registry "
                 f"entry, before continuing.",
                 code="stale_binding",
+                rung=RUNG_WORKSPACE_ENV,
             )
-        # MISSING — the explicit anchor's binding is absent.  It may still be
-        # repaired from BRAIN_VAULT_ROOT (rung 3, the project-reg case), but it
-        # must NOT fall to the machine default (rung 4): a deliberately-bound
+        # MISSING — the explicit anchor's binding is absent.  It may still
+        # resolve through BRAIN_VAULT_ROOT (rung 3), but it must NOT fall to
+        # the machine default (rung 4): a deliberately-bound
         # workspace whose binding is lost has a specific, now-unknowable intent,
         # and the default could serve a different Brain (Decision #2).
         anchor_missing = True
@@ -314,7 +338,8 @@ def resolve_brain_target(
         # ------------------------------------------------------------------
         # Rung 2: cwd walk (only when workspace_env is unset)
         # ------------------------------------------------------------------
-        target = _walk_for_nearest_marker(start_dir)
+        with _rung(RUNG_WORKSPACE_BINDING):
+            target = _walk_for_nearest_marker(start_dir)
         if target is not None:
             return target
         # target is None → MISSING marker or no marker found; continue to rung 3.
@@ -328,7 +353,7 @@ def resolve_brain_target(
             return BrainTarget(
                 vault_root=str(vault_path.resolve()),
                 workspace_dir=None,
-                source="vault_root_env",
+                source=RUNG_VAULT_ROOT_ENV,
             )
 
     # ------------------------------------------------------------------
@@ -341,9 +366,10 @@ def resolve_brain_target(
         raise WorkspaceBindingError(
             f"BRAIN_WORKSPACE_DIR is set ({workspace_env}) but that workspace "
             f"has no Brain binding and no BRAIN_VAULT_ROOT is available to "
-            f"repair it — re-bind this workspace (brain workspace setup) before "
+            f"resolve it — re-bind this workspace (brain workspace setup) before "
             f"continuing.",
             code="no_brain",
+            rung=RUNG_WORKSPACE_ENV,
         )
 
     # ------------------------------------------------------------------
@@ -355,21 +381,24 @@ def resolve_brain_target(
         raise WorkspaceBindingError(
             f"failed to read Brain registry default: {exc}",
             code=WORKSPACE_ERROR_FILESYSTEM_ACCESS,
+            rung=RUNG_REGISTRY_DEFAULT,
         ) from exc
 
     if default_id:
-        vault = resolve_local_brain_vault(default_id)
+        with _rung(RUNG_REGISTRY_DEFAULT):
+            vault = resolve_local_brain_vault(default_id)
         if vault is not None:
             return BrainTarget(
                 vault_root=str(vault),
                 workspace_dir=None,
-                source="registry_default",
+                source=RUNG_REGISTRY_DEFAULT,
             )
         raise WorkspaceBindingError(
             f"the machine default Brain cannot be resolved: "
             f"{_stale_binding_detail(default_id)} — re-register it or clear the "
-            f"default (vault_registry --clear-default).",
+            f"default (brain clear-default).",
             code="stale_binding",
+            rung=RUNG_REGISTRY_DEFAULT,
         )
 
     # ------------------------------------------------------------------
@@ -378,124 +407,10 @@ def resolve_brain_target(
     raise WorkspaceBindingError(
         "no Brain could be resolved — bind this workspace "
         "(brain workspace setup) or set a machine default "
-        "(vault_registry --set-default).",
+        "(brain set-default --request-json '{\"brain_id\": \"<id>\"}').",
         code="no_brain",
+        rung=RUNG_UNRESOLVED,
     )
-
-
-# ---------------------------------------------------------------------------
-# Self-heal — best-effort, idempotent, missing-only
-# ---------------------------------------------------------------------------
-
-def heal_legacy_config(
-    target: BrainTarget,
-    *,
-    workspace_env: str | None,
-    vault_root_env: str | None,
-) -> None:
-    """Best-effort, idempotent migration of legacy Brain config state.
-
-    Runs AFTER a successful (non-stale) resolution.  Both triggers are
-    INDEPENDENT ``if`` blocks — not ``if/elif`` — so they can co-fire when
-    both conditions hold (e.g. ``vault_self`` source with a legacy
-    ``BRAIN_VAULT_ROOT`` set).
-
-    Trigger (1) — SELF-REGISTER
-        When source is "vault_self", backfill the vault into the registry.
-        This is idempotent: ``vault_registry.backfill`` returns the existing
-        Brain ID when the path is already registered.
-
-    Trigger (2) — LEGACY BRAIN_VAULT_ROOT signals
-        Guarded by ``vault_root_env``.  Inner branches are mutually exclusive
-        on ``workspace_env``:
-
-        PROJECT REG (``workspace_env`` set, source=="vault_root_env")
-            The anchor binding was MISSING (a stale one would have raised at
-            rung 1).  Register the vault and write the workspace binding.
-            ``allow_rebind=False`` ensures we only write when the binding is
-            absent — never overwrite an existing binding.
-
-        USER REG default-seed (``workspace_env`` not set)
-            Seed the machine default from the *env* value, never from
-            ``target.vault_root``.  When cd'd into a different bound vault,
-            ``target.vault_root`` is that other brain; the user-reg default
-            must come from ``vault_root_env``.  Only seeds when no default is
-            already set.
-    """
-    # (1) SELF-REGISTER — independent check; no return after this block.
-    if target.source == "vault_self":
-        try:
-            vault_registry.backfill(target.vault_root)
-        except (vault_registry.RegistryReadError, vault_registry.RegistryConflictError,
-                ValueError, WorkspaceBindingError, OSError) as exc:
-            _log.warning("heal_legacy_config: self-register backfill failed: %s", exc)
-
-    # (2) LEGACY BRAIN_VAULT_ROOT signals — guarded by vault_root_env.
-    if vault_root_env:
-        if workspace_env and target.source == "vault_root_env":
-            # PROJECT REG: the anchor binding was MISSING; write it now.
-            try:
-                brain_id = vault_registry.register(target.vault_root)
-                converge_workspace_binding(
-                    Path(workspace_env),
-                    brain=brain_id,
-                    allow_rebind=False,
-                )
-            except (vault_registry.RegistryReadError, vault_registry.RegistryConflictError,
-                    ValueError, WorkspaceBindingError, OSError) as exc:
-                _log.warning("heal_legacy_config: project-reg binding failed: %s", exc)
-        elif not workspace_env:
-            # USER REG default-seed: seed from vault_root_env, NOT target.vault_root.
-            try:
-                resolved = Path(vault_root_env).resolve()
-                if is_brain_vault(resolved):
-                    brain_id = vault_registry.register(str(resolved))
-                    if vault_registry.get_default() is None:
-                        vault_registry.set_default(brain_id)
-            except (vault_registry.RegistryReadError, vault_registry.RegistryConflictError,
-                    ValueError, WorkspaceBindingError, OSError) as exc:
-                _log.warning("heal_legacy_config: user-reg default-seed failed: %s", exc)
-
-
-def resolve_and_heal(
-    *,
-    workspace_env: str | None,
-    vault_root_env: str | None,
-    start_dir: Path,
-) -> BrainTarget:
-    """Resolve the active Brain target, then run best-effort self-heal.
-
-    Resolution MUST succeed (and is pure/non-mutating) before any heal runs.
-    Because ``resolve_brain_target`` raises on stale or missing bindings,
-    ``heal_legacy_config`` is never reached on the stale path.
-
-    Args:
-        workspace_env:   Value of the ``BRAIN_WORKSPACE_DIR`` env var, or None.
-        vault_root_env:  Value of the ``BRAIN_VAULT_ROOT`` env var, or None.
-        start_dir:       Directory from which to begin the rung-2 upward walk.
-
-    Returns:
-        The resolved ``BrainTarget``.
-
-    Raises:
-        ``WorkspaceBindingError`` on stale bindings, dangling defaults, or when
-        no brain can be resolved at all.  Heal errors are caught and logged;
-        they never propagate.
-    """
-    target = resolve_brain_target(
-        workspace_env=workspace_env,
-        vault_root_env=vault_root_env,
-        start_dir=start_dir,
-    )
-    try:
-        heal_legacy_config(
-            target,
-            workspace_env=workspace_env,
-            vault_root_env=vault_root_env,
-        )
-    except Exception as exc:  # pragma: no cover — heal errors are best-effort
-        _log.warning("resolve_and_heal: heal_legacy_config raised unexpectedly: %s", exc)
-    return target
 
 
 # ---------------------------------------------------------------------------
@@ -617,19 +532,24 @@ def require_workspace_binding(target_dir: Path) -> dict[str, str]:
     return binding
 
 
-def resolve_local_brain_alias(vault_root: Path) -> str:
-    """Return the authoritative local symbolic Brain ID for a vault.
+def resolve_local_brain_alias(vault_root: Path) -> str | None:
+    """Return the vault registry's Brain ID for a vault, or None when it is unregistered.
 
-    This comes from the user-home vault registry, not from the derived
-    machine registry in ``brains.json``.
+    A pure lookup: an unregistered vault stays unregistered.
     """
     try:
-        return vault_registry.backfill(str(vault_root))
-    except (OSError, vault_registry.RegistryReadError) as exc:
+        return vault_registry.brain_id_for_path(str(vault_root))
+    except vault_registry.RegistryReadError as exc:
         raise WorkspaceBindingError(
             f"failed to resolve local Brain ID for {vault_root}: {exc}",
             code=WORKSPACE_ERROR_FILESYSTEM_ACCESS,
         ) from exc
+
+
+def unregistered_brain_message(vault_root: Path) -> str:
+    """Refusal for an operation that needs the Brain ID of an unregistered vault."""
+    return (f"the Brain at {vault_root} is not registered on this machine; "
+            f"run {vault_registry.register_guidance(vault_root)} first")
 
 
 def resolve_local_brain_vault(brain_id: str) -> Path | None:
@@ -641,9 +561,10 @@ def resolve_local_brain_vault(brain_id: str) -> Path | None:
             f"failed to read local Brain registry while resolving Brain ID '{brain_id}': {exc}",
             code=WORKSPACE_ERROR_FILESYSTEM_ACCESS,
         ) from exc
-    if not resolved:
+    # A row that is no longer canonical never resolves: it is stale, not a way to follow a symlink.
+    if not resolved or not vault_registry.is_canonical_value(resolved):
         return None
-    candidate = Path(resolved).resolve()
+    candidate = Path(resolved)
     if not is_brain_vault(candidate):
         return None
     return candidate
@@ -722,22 +643,6 @@ def save_workspace_manifest_data(
     )
 
 
-def converge_workspace_binding(
-    target_dir: Path,
-    *,
-    brain: str,
-    slug: str | None = None,
-    allow_rebind: bool,
-    before_write=None,
-) -> WorkspaceBindingConvergence:
-    """Create or update the canonical workspace binding manifest."""
-    state, payload = plan_workspace_binding(target_dir, brain=brain, slug=slug,
-                                            allow_rebind=allow_rebind)
-    write = save_workspace_manifest_data(target_dir, payload, state=state, before_write=before_write)
-    return WorkspaceBindingConvergence(write.manifest_path, brain, payload["slug"],
-                                       write.status, write.message, write.migrated_legacy)
-
-
 def plan_workspace_binding(target_dir, *, brain, slug=None, allow_rebind=False):
     """Validate and resolve a binding without writing either boundary."""
     # Refuse-guard: a vault root is a Brain, not a workspace of itself.
@@ -780,18 +685,203 @@ def plan_workspace_binding(target_dir, *, brain, slug=None, allow_rebind=False):
     if existing_brain and existing_brain != brain and not allow_rebind:
         raise WorkspaceBindingError(
             f"{WORKSPACE_MANIFEST_REL} already binds this workspace to '{existing_brain}'. "
-            "Use `configure workspace binding` to change it.",
+            "Use `brain workspace setup --request-json '{\"force\": true}'` to change it.",
             code=WORKSPACE_REASON_ALREADY_BOUND,
         )
     if slug is not None and existing_slug and existing_slug != slug and not allow_rebind:
         raise WorkspaceBindingError(
             f"{WORKSPACE_MANIFEST_REL} already records slug '{existing_slug}'. "
-            "Use `configure workspace binding` to change it.",
+            "Use `brain workspace setup --request-json '{\"force\": true}'` to change it.",
             code=WORKSPACE_REASON_ALREADY_BOUND,
         )
 
     payload = _binding_payload(existing, brain=brain, slug=resolved_slug)
     return state, payload
+
+
+# ---------------------------------------------------------------------------
+# The workspace link: the two manifest fields that state it, and one verdict
+# on whether a folder's manifest is the workspace end of a Brain's row.
+# ---------------------------------------------------------------------------
+
+# ``brain`` names the Brain and ``links.workspace`` the hub key. The ``slug``,
+# defaults and other links are local and never part of the link.
+LINK_FIELDS = ("brain", "links.workspace")
+
+
+def link_fields(manifest: dict[str, Any]) -> tuple[Any, Any]:
+    """The manifest's ``brain`` and ``links.workspace`` values, ``None`` where absent."""
+    links = manifest.get("links")
+    return manifest.get("brain"), links.get("workspace") if isinstance(links, dict) else None
+
+
+def states_a_link(manifest: dict[str, Any]) -> bool:
+    """Whether the manifest holds either link field, valid or not."""
+    links = manifest.get("links")
+    return "brain" in manifest or isinstance(links, dict) and "workspace" in links
+
+
+def with_links(manifest: dict[str, Any], links: dict[str, Any]) -> dict[str, Any]:
+    """The manifest with ``links`` replaced, dropping the key when no link remains."""
+    updated = {name: value for name, value in manifest.items() if name != "links"}
+    if links:
+        updated["links"] = links
+    return updated
+
+
+def linked_payload(manifest: dict[str, Any], *, key: str) -> dict[str, Any]:
+    """The manifest with its hub key set; ``brain`` and ``slug`` come from ``plan_workspace_binding``."""
+    links = manifest.get("links", {})
+    if not isinstance(links, dict):
+        raise ValueError("Workspace links must be a mapping")
+    return with_links(manifest, {**links, "workspace": key})
+
+
+def unlinked_payload(manifest: dict[str, Any]) -> dict[str, Any]:
+    """The manifest without either link field, keeping ``slug``, defaults and other links."""
+    links = manifest.get("links", {})
+    remaining = {name: value for name, value in links.items() if name != "workspace"} if isinstance(links, dict) else links
+    return with_links({name: value for name, value in manifest.items() if name != "brain"}, remaining)
+
+
+class LinkVerdict(str, Enum):
+    MATCHES = "matches"
+    UNREACHABLE = "unreachable"
+    VAULT_ROOT = "vault_root"
+    NO_MANIFEST = "no_manifest"
+    UNREADABLE = "unreadable"
+    BRAIN_UNRESOLVED = "brain_unresolved"
+    KEY_MISSING = "key_missing"
+    KEY_INVALID = "key_invalid"
+    OTHER_BRAIN = "other_brain"
+    OTHER_KEY = "other_key"
+
+
+# Only these two verdicts positively contradict a row; every other one proves nothing.
+LINK_DISAGREEMENT = frozenset({LinkVerdict.OTHER_BRAIN, LinkVerdict.OTHER_KEY})
+
+
+@dataclass(frozen=True, eq=False)
+class ManifestSnapshot:
+    """The bytes of a folder's canonical and legacy manifests from one read, ``None`` where a file is absent.
+
+    A read that failed records why in ``failure``, outside the bytes, and
+    confirms nothing: it is never the same as another read, failed or not.
+    """
+
+    canonical: bytes | None
+    legacy: bytes | None
+    failure: str | None = None
+
+    def confirms(self, other: ManifestSnapshot) -> bool:
+        """Whether both reads succeeded and saw exactly the same bytes."""
+        return (self.failure is None and other.failure is None
+                and self.canonical == other.canonical and self.legacy == other.legacy)
+
+
+@dataclass(frozen=True)
+class LinkClassification:
+    verdict: LinkVerdict
+    state: WorkspaceManifestState | None = None
+    detail: str | None = None
+    # The bytes the verdict was read from; ``None`` when no manifest was read.
+    snapshot: ManifestSnapshot | None = None
+
+
+def manifest_snapshot(folder: Path) -> ManifestSnapshot:
+    """One read of the bytes of a folder's canonical and legacy manifests, for an exact change check."""
+    found: list[bytes | None] = []
+    for path in (manifest_path_for(folder), legacy_manifest_path_for(folder)):
+        try:
+            found.append(path.read_bytes())
+        except FileNotFoundError:
+            found.append(None)
+        except OSError as exc:
+            return ManifestSnapshot(None, None, f"{path}: {exc}")
+    return ManifestSnapshot(*found)
+
+
+def _manifest_state_from(folder: Path, snapshot: ManifestSnapshot) -> WorkspaceManifestState:
+    """Parse the manifest a snapshot holds, canonical before legacy as ``load_workspace_manifest_state`` does."""
+    manifest_path, legacy_path = manifest_path_for(folder), legacy_manifest_path_for(folder)
+    for source, rel, content in ((manifest_path, WORKSPACE_MANIFEST_REL, snapshot.canonical),
+                                 (legacy_path, WORKSPACE_MANIFEST_LEGACY_REL, snapshot.legacy)):
+        if content is None:
+            continue
+        try:
+            # Universal newlines, as ``read_text`` gives the file loader, so a CRLF manifest parses the same.
+            text = io.TextIOWrapper(io.BytesIO(content), encoding="utf-8").read()
+            data = load_mapping_text(text, source=str(source))
+        except (UnicodeDecodeError, YamlError) as exc:
+            raise WorkspaceBindingError(f"failed to load {rel}: {exc}") from exc
+        return WorkspaceManifestState(folder, manifest_path, legacy_path, source, data)
+    return WorkspaceManifestState(folder, manifest_path, legacy_path, None, None)
+
+
+def classify_link(vault_root: Path, folder: Path, key: str) -> LinkClassification:
+    """Whether the manifest at ``folder`` is the workspace end of the Brain's row ``key``.
+
+    A read only: it takes no lock and writes nothing, and the verdict comes from
+    the bytes in ``snapshot``, so a caller can confirm a later read saw the same
+    manifest. Absence proves nothing: a ``brain`` ID that does not resolve on
+    this machine is ``BRAIN_UNRESOLVED``, never ``OTHER_BRAIN``, and a hub key
+    that is missing or not a valid key is ``KEY_MISSING`` or ``KEY_INVALID``,
+    never ``OTHER_KEY``. Only the two ``OTHER_*`` verdicts are positive
+    disagreement.
+    """
+    try:
+        if not folder.is_dir():
+            return LinkClassification(LinkVerdict.UNREACHABLE)
+        if is_brain_vault(folder):
+            return LinkClassification(LinkVerdict.VAULT_ROOT)
+    except OSError as exc:
+        return LinkClassification(LinkVerdict.UNREADABLE, detail=str(exc))
+    snapshot = manifest_snapshot(folder)
+    if snapshot.failure is not None:
+        return LinkClassification(LinkVerdict.UNREADABLE, detail=snapshot.failure, snapshot=snapshot)
+    try:
+        state = _manifest_state_from(folder, snapshot)
+    except WorkspaceBindingError as exc:
+        return LinkClassification(LinkVerdict.UNREADABLE, detail=str(exc), snapshot=snapshot)
+    if state.data is None:
+        return LinkClassification(LinkVerdict.NO_MANIFEST, state, snapshot=snapshot)
+    brain, linked_key = link_fields(state.data)
+    if not isinstance(brain, str) or not brain:
+        return LinkClassification(LinkVerdict.BRAIN_UNRESOLVED, state, snapshot=snapshot)
+    try:
+        bound = resolve_local_brain_vault(brain)
+    except WorkspaceBindingError as exc:
+        return LinkClassification(LinkVerdict.BRAIN_UNRESOLVED, state, str(exc), snapshot)
+    if bound is None:
+        return LinkClassification(LinkVerdict.BRAIN_UNRESOLVED, state, snapshot=snapshot)
+    if bound != Path(vault_root).resolve():
+        return LinkClassification(LinkVerdict.OTHER_BRAIN, state, snapshot=snapshot)
+    if linked_key is None:
+        return LinkClassification(LinkVerdict.KEY_MISSING, state, snapshot=snapshot)
+    if not is_valid_key(linked_key):
+        return LinkClassification(LinkVerdict.KEY_INVALID, state, snapshot=snapshot)
+    if linked_key != key:
+        return LinkClassification(LinkVerdict.OTHER_KEY, state, snapshot=snapshot)
+    return LinkClassification(LinkVerdict.MATCHES, state, snapshot=snapshot)
+
+
+def describe_link(classification: LinkClassification) -> str | None:
+    """Why the folder is not the link's workspace end, in words, or ``None`` when it is."""
+    verdict = classification.verdict
+    if verdict is LinkVerdict.MATCHES:
+        return None
+    if verdict is LinkVerdict.UNREADABLE:
+        return f"the folder could not be inspected ({classification.detail})"
+    return {
+        LinkVerdict.UNREACHABLE: "the folder is unreachable",
+        LinkVerdict.VAULT_ROOT: "the folder is a Brain vault root",
+        LinkVerdict.NO_MANIFEST: "the folder has no workspace manifest",
+        LinkVerdict.BRAIN_UNRESOLVED: "its manifest's Brain ID does not resolve on this machine",
+        LinkVerdict.KEY_MISSING: "its manifest names no workspace key",
+        LinkVerdict.KEY_INVALID: "its manifest's workspace key is not a valid key",
+        LinkVerdict.OTHER_BRAIN: "its manifest names another Brain",
+        LinkVerdict.OTHER_KEY: "its manifest names another workspace",
+    }[verdict]
 
 
 def _binding_payload(existing: dict[str, Any], *, brain: str, slug: str) -> dict[str, Any]:

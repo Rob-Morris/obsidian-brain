@@ -9,7 +9,6 @@ from _application.skill.update import SkillUpdateRequest, execute as update_skil
 from _application.skill._preparation import prepare_skill
 from _application.workspace._preparation import prepare_workspace
 from _application.workspace.configure_bootstrap import WorkspaceConfigureBootstrapRequest, execute as configure_bootstrap
-from _application.workspace.register import WorkspaceRegisterRequest, execute as register_workspace
 from _application.workspace.setup import WorkspaceSetupRequest, execute as setup_workspace
 from command_application import application_for
 from test_skill_library import allow_local_git, _source_repo, _advance
@@ -37,17 +36,18 @@ def _workspace_context(root, tmp_path):
     return application_for(root, workspace_dir=workspace)._context, workspace
 
 
-def test_workspace_registration_uses_same_prepared_target_and_admits_once(command_vault_clone, tmp_path):
+def test_workspace_setup_uses_same_prepared_target_and_admits_once(command_vault_clone, tmp_path):
     root = command_vault_clone.vault_root
     context, workspace = _workspace_context(root, tmp_path)
-    request = WorkspaceRegisterRequest("prepared")
+    vault_registry.register(root, "consent-brain")
+    request = WorkspaceSetupRequest()
     binding = prepare_workspace(context, request)
     registry = root / ".brain/local/workspaces.json"
     before = registry.read_bytes() if registry.exists() else None
     admission = MatchingAdmission(binding)
     assert (registry.read_bytes() if registry.exists() else None) == before
-    result = register_workspace(replace(context, admission=admission), request)
-    assert result.status == "ok"
+    result = setup_workspace(replace(context, admission=admission), request)
+    assert result.status == "ok", result
     assert str(workspace) in registry.read_text()
     assert admission.calls == 1
 
@@ -55,16 +55,18 @@ def test_workspace_registration_uses_same_prepared_target_and_admits_once(comman
 def test_workspace_selector_drift_cannot_write_other_workspace_registration(command_vault_clone, tmp_path):
     root = command_vault_clone.vault_root
     context, _workspace = _workspace_context(root, tmp_path)
-    request = WorkspaceRegisterRequest("prepared")
+    vault_registry.register(root, "consent-brain")
+    request = WorkspaceSetupRequest()
     admission = MatchingAdmission(prepare_workspace(context, request))
     other = tmp_path / "other-workspace"
     other.mkdir()
     registry = root / ".brain/local/workspaces.json"
     before = registry.read_bytes() if registry.exists() else None
-    result = register_workspace(replace(context, workspace_dir=other, admission=admission), request)
+    result = setup_workspace(replace(context, workspace_dir=other, admission=admission), request)
     assert result.status == "error"
     assert admission.calls == 0
     assert (registry.read_bytes() if registry.exists() else None) == before
+    assert not (other / ".brain").exists()
 
 
 def test_setup_pins_git_exclude_before_manifest_creation(command_vault_clone, tmp_path):

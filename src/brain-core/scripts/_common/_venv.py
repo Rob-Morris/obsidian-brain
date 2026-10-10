@@ -33,6 +33,7 @@ import hashlib
 import json
 import ntpath
 import os
+import secrets
 import shutil
 import subprocess
 import sys
@@ -91,17 +92,36 @@ def legacy_vault_venv_python(vault_root: Path) -> Path:
     return venv_python(legacy_vault_venv_dir(vault_root))
 
 
+class RuntimeContractUnavailable(OSError, ValueError):
+    """A runtime dependency export cannot be read under this Core's contract.
+
+    A Brain whose Core predates this contract or layout, or whose exports are
+    damaged, raises this rather than a bare I/O error, so a caller that looks
+    across Brains can tell it from a failure of its own. It is both an
+    ``OSError`` and a ``ValueError`` so existing handlers of either still apply.
+    """
+
+
 def requirements_hash(requirements_path: Path) -> str:
     """Hash both shipped exports with stable names and a versioned domain.
 
     Normalise CRLF to LF for installed copies; Git attributes also protect the
     repository inputs. Contributor-only exports never affect runtime identity.
+    Raises ``RuntimeContractUnavailable`` naming the export that is missing,
+    unreadable or has invalid line endings.
     """
     digest = hashlib.sha256(CONTRACT_SCHEMA.encode() + b"\0")
     for name in RUNTIME_EXPORT_NAMES:
-        content = (Path(requirements_path).parent / name).read_bytes().replace(b"\r\n", b"\n")
+        export = Path(requirements_path).parent / name
+        try:
+            content = export.read_bytes().replace(b"\r\n", b"\n")
+        except FileNotFoundError as exc:
+            raise RuntimeContractUnavailable(f"runtime dependency export is missing: {export}") from exc
+        except OSError as exc:
+            raise RuntimeContractUnavailable(
+                f"runtime dependency export cannot be read: {export} ({exc.strerror or exc})") from exc
         if b"\r" in content:
-            raise ValueError(f"invalid dependency line endings: {name}")
+            raise RuntimeContractUnavailable(f"runtime dependency export has invalid line endings: {export}")
         digest.update(name.encode() + b"\0" + str(len(content)).encode() + b"\0" + content)
     return digest.hexdigest()[:_HASH_LEN]
 
@@ -158,10 +178,10 @@ for line in open(sys.argv[1], encoding="utf-8"):
 if errors:
     raise SystemExit("Runtime dependency conformance failed:\\n" + "\\n".join(errors))
 '''
-    subprocess.run([str(python), "-c", code, str(requirements)], check=True,
-                   capture_output=True, text=True, timeout=timeout)
-    subprocess.run([str(python), "-m", "pip", "check"], check=True,
-                   capture_output=True, text=True, timeout=timeout)
+    run_managed([str(python), "-c", code, str(requirements)], check=True,
+                capture_output=True, text=True, timeout=timeout)
+    run_managed([str(python), "-m", "pip", "check"], check=True,
+                capture_output=True, text=True, timeout=timeout)
 
 
 def conform_runtime(python: str | Path, requirements: Path, *, tag: str | None = None,
@@ -191,14 +211,15 @@ def conform_runtime(python: str | Path, requirements: Path, *, tag: str | None =
         except subprocess.CalledProcessError:
             changed = True
     if changed:
-        subprocess.run([str(python), "-m", "pip", "install", "--quiet", "--no-deps",
-                        "--only-binary=:all:", "-r", str(selected)], check=True,
-                       capture_output=True, text=True, timeout=timeout)
+        run_managed([str(python), "-m", "pip", "install", "--quiet", "--no-deps",
+                     "--only-binary=:all:", "-r", str(selected)], check=True,
+                    capture_output=True, text=True, timeout=timeout)
         verify_runtime_versions(python, selected, timeout=timeout)
     if tag is None:
         tag = python_tag(python)
     verified = _readiness(python, requirements, tag, semantic)
     sentinel.write_text(json.dumps(verified), encoding="utf-8")
+    ensure_role_interpreters(python.parent.parent)
     return changed or recorded != verified
 
 
@@ -260,7 +281,219 @@ def resolve_vault_venv_python(vault_root: Path, *, launcher: Optional[Path] = No
     return venv_python(resolve_vault_venv_dir(vault_root, launcher=launcher))
 
 
+# ---------------------------------------------------------------------------
+# Named role interpreters
+#
+# A conformed managed venv publishes two role-named links to its base
+# interpreter. Launching the link with argv[0] still the canonical `bin/python`
+# makes the kernel show `brain-mcp-python` / `brain-cli-python` in Activity
+# Monitor and `top` while `sys.executable`, `sys.prefix` and every persisted
+# path stay canonical. The name is presentation only: a missing, stale or
+# unsupported role file means the launch runs `bin/python` exactly as before.
+# ---------------------------------------------------------------------------
+
+RUNTIME_ROLE_ENV = "BRAIN_RUNTIME_ROLE"
+ROLE_MCP = "mcp"
+ROLE_CLI = "cli"
+ROLE_INTERPRETER_NAMES = {ROLE_MCP: "brain-mcp-python", ROLE_CLI: "brain-cli-python"}
+# Kernel short names: macOS `p_comm` holds 16 characters, Linux `comm` 15.
+_KERNEL_NAME_LIMITS = {"darwin": 16, "linux": 15}
+_ROLE_PROBE_TIMEOUT = 10
+_ROLE_PROBE = """
+import sys
+if sys.platform == "darwin":
+    import ctypes, os
+    buffer = ctypes.create_string_buffer(64)
+    ctypes.CDLL("libproc.dylib").proc_name(os.getpid(), buffer, len(buffer))
+    observed = buffer.value.decode()
+else:
+    observed = open("/proc/self/comm").read().strip()
+raise SystemExit(0 if [sys.executable, sys.prefix, observed] == sys.argv[1:4] else 1)
+"""
+
+
+def is_managed_venv(venv_dir: Path) -> bool:
+    """Role files exist only where the launch owner would use them."""
+    venv_dir = Path(venv_dir)
+    return venv_dir.parent == central_venvs_root() and (venv_dir / "pyvenv.cfg").is_file()
+
+
+def role_interpreter(python: Path, role: str) -> Path:
+    return Path(python).parent / ROLE_INTERPRETER_NAMES[role]
+
+
+def role_interpreter_usable(role_file: Path, python: Path) -> bool:
+    """One rule for both link types: the role file must still be the base interpreter.
+
+    `samefile` follows the venv symlink, so a base interpreter replaced in place
+    (asdf, pyenv, distribution patches) makes a hard link stale at once.
+    """
+    try:
+        return os.path.samefile(role_file, python)
+    except OSError:
+        return False
+
+
+def ensure_role_interpreters(venv_dir: Path) -> None:
+    """Publish usable role files for a managed venv. Presentation only; never raises.
+
+    Each role stages a per-process candidate, probes it once and publishes it
+    with an atomic replace, so concurrent lifecycle runs cannot collide and a
+    failed probe or crash leaves nothing behind for launches to pick up.
+    """
+    # Any failure leaves the role unpublished, which is the complete recovery:
+    # launches fall back to bin/python and the lifecycle result is unaffected.
+    try:
+        venv_dir = Path(os.path.abspath(venv_dir))
+        if sys.platform not in _KERNEL_NAME_LIMITS or not is_managed_venv(venv_dir):
+            return
+        python = venv_python(venv_dir)
+    except Exception:
+        return
+    for role in ROLE_INTERPRETER_NAMES:
+        try:
+            role_file = role_interpreter(python, role)
+            if not role_interpreter_usable(role_file, python):
+                _publish_role_interpreter(python, role_file)
+        except Exception:
+            continue
+
+
+def _publish_role_interpreter(python: Path, role_file: Path) -> None:
+    _remove_dead_staging(role_file)
+    # The kernel names a process after the file it executes, so the candidate
+    # keeps the role name inside a directory unique to this process.
+    staging = role_file.with_name(f".{role_file.name}.{os.getpid()}.{secrets.token_hex(4)}")
+    staging.mkdir()
+    staged = staging / role_file.name
+    try:
+        base = os.path.realpath(python)
+        if sys.platform == "darwin":
+            # macOS names a process after the file it resolves to, so only a
+            # hard link carries the role name.
+            os.link(base, staged)
+        else:
+            # Linux names a process after the execve path itself and refuses
+            # hard links to ordinary users; a symlink also cannot go stale.
+            os.symlink(base, staged)
+        if _role_probe_passes(python, staged, role_file.name):
+            os.replace(staged, role_file)
+    finally:
+        shutil.rmtree(staging, ignore_errors=True)
+
+
+def _remove_dead_staging(role_file: Path) -> None:
+    for candidate in role_file.parent.glob(f".{role_file.name}.*"):
+        owner = candidate.name.split(".")[2]
+        if owner.isdigit() and not _process_alive(int(owner)):
+            shutil.rmtree(candidate, ignore_errors=True)
+
+
+def _process_alive(pid: int) -> bool:
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
+
+
+def _role_probe_passes(python: Path, staged: Path, name: str) -> bool:
+    """Reject identity drift (framework builds) and builds that cannot start from a link.
+
+    `site` is what sets a venv's `sys.prefix`, so the probe runs without `-S`;
+    `-I` keeps the caller's `PYTHON*` variables out of the answer.
+    """
+    expected = [str(python), str(python.parent.parent), name[:_KERNEL_NAME_LIMITS[sys.platform]]]
+    try:
+        completed = subprocess.run([str(python), "-I", "-c", _ROLE_PROBE, *expected],
+                                   executable=str(staged), capture_output=True,
+                                   timeout=_ROLE_PROBE_TIMEOUT)
+    except subprocess.TimeoutExpired:
+        return False
+    return completed.returncode == 0
+
+
+class ManagedCommand:
+    """One launch decision: the file the kernel executes, argv and environment.
+
+    `executable` is the role file only when `argv[0]` is the canonical
+    interpreter of a managed venv and the role's file is usable; otherwise it is
+    `argv[0]` and the launch is the same `subprocess` call as before, apart
+    from the explicit environment.
+
+    A plain class, not a dataclass: lifecycle callers execute a selected Core's
+    copy of this module outside `sys.modules`, where dataclasses cannot resolve
+    the module's string annotations.
+    """
+
+    __slots__ = ("executable", "argv", "env")
+
+    def __init__(self, executable: str, argv: list[str], env: dict[str, str]):
+        self.executable = executable
+        self.argv = argv
+        self.env = env
+
+    def _named(self) -> dict[str, str]:
+        return {"executable": self.executable} if self.executable != self.argv[0] else {}
+
+    def run(self, **options) -> subprocess.CompletedProcess:
+        return subprocess.run(self.argv, env=self.env, **self._named(), **options)
+
+    def popen(self, **options) -> subprocess.Popen:
+        return subprocess.Popen(self.argv, env=self.env, **self._named(), **options)
+
+    def exec(self) -> None:
+        os.execve(self.executable, self.argv, self.env)
+
+
+def managed_command(argv, *, role: str | None = None, env=None) -> ManagedCommand:
+    """The one owner of launching a managed interpreter, in Core and in the CLI.
+
+    `role` defaults to the inherited `BRAIN_RUNTIME_ROLE`; an explicit role is
+    set on the copied environment so children inherit it. `env` enters only here.
+    """
+    argv = [os.fspath(part) for part in argv]
+    environment = dict(os.environ if env is None else env)
+    if role is not None:
+        environment[RUNTIME_ROLE_ENV] = role
+    role = environment.get(RUNTIME_ROLE_ENV)
+    python = Path(argv[0])
+    executable = argv[0]
+    if (role in ROLE_INTERPRETER_NAMES and python.is_absolute()
+            and is_managed_venv(python.parent.parent) and python == venv_python(python.parent.parent)):
+        role_file = role_interpreter(python, role)
+        if role_interpreter_usable(role_file, python):
+            executable = str(role_file)
+    return ManagedCommand(executable, argv, environment)
+
+
+def run_managed(argv, *, role: str | None = None, env=None, **options) -> subprocess.CompletedProcess:
+    """`subprocess.run` through the launch owner, for injected runners."""
+    return managed_command(argv, role=role, env=env).run(**options)
+
+
 _MIN_SUPPORTED_VERSION = (3, 12)
+
+
+def _parse_python_tag(tag: str) -> Optional[tuple[int, int]]:
+    """Parse a ``pyX.Y`` tag into ``(X, Y)``, or ``None`` when it is not one."""
+    if not tag.startswith("py"):
+        return None
+    parts = tag[len("py"):].split(".")
+    try:
+        return (int(parts[0]), int(parts[1])) if len(parts) == 2 else None
+    except ValueError:
+        return None
+
+
+def launcher_floor_error(tag: str, launcher) -> Optional[str]:
+    """Why a launcher cannot build a managed runtime (DD-048's 3.12 floor), or ``None`` when it can."""
+    version = _parse_python_tag(tag)
+    if version is None or version < _MIN_SUPPORTED_VERSION:
+        return f"{launcher} reports {tag}; the managed runtime needs Python 3.12 or newer"
+    return None
 
 
 def _parse_venv_minor(dirname: str, rhash: str) -> Optional[tuple[int, int]]:
@@ -271,16 +504,9 @@ def _parse_venv_minor(dirname: str, rhash: str) -> Optional[tuple[int, int]]:
     ``rhash``. Defensive against junk directories under ``~/.brain/venvs/``.
     """
     suffix = f"-{rhash}"
-    if not dirname.endswith(suffix) or not dirname.startswith("py"):
+    if not dirname.endswith(suffix):
         return None
-    version_str = dirname[len("py"):-len(suffix)]
-    try:
-        parts = version_str.split(".")
-        if len(parts) != 2:
-            return None
-        return (int(parts[0]), int(parts[1]))
-    except ValueError:
-        return None
+    return _parse_python_tag(dirname[:-len(suffix)])
 
 
 def find_existing_central_venv(
@@ -446,6 +672,9 @@ def ensure_central_venv(
 
     tag = python_tag(launcher)
     rhash = requirements_hash(requirements_path)
+    floor_error = launcher_floor_error(tag, launcher)
+    if floor_error is not None:
+        raise RuntimeError(floor_error)
     venv_dir = central_venvs_root() / f"{tag}-{rhash}"
     py = venv_python(venv_dir)
     # Readiness probe: the venv interpreter alone is not a guarantee that the
@@ -548,7 +777,7 @@ def _probe_runtime(python_path: str, *, modules: tuple[str, ...] = ()) -> dict:
         "print(json.dumps(payload))"
     )
     try:
-        result = subprocess.run(
+        result = run_managed(
             [python_path, "-c", code],
             capture_output=True, text=True, timeout=15,
         )
@@ -795,8 +1024,13 @@ def resolve_or_provision_central_venv(
                 "effect_outcome": "committed" if changed else "none",
             }
 
-    # Step 5: no runtime exists — create the exact-tag venv.
+    # Step 5: no runtime exists — create the exact-tag venv, never below the 3.12 floor. The floor is
+    # checked before the dry-run return, so a preview and the real run agree.
     new_tag = python_tag(launcher)
+    floor_error = launcher_floor_error(new_tag, launcher)
+    if floor_error is not None:
+        return {"outcome": RUNTIME_ERROR, "python": None, "venv_dir": None, "effect_outcome": "none",
+                "message": floor_error}
     new_dir = central_venvs_root() / f"{new_tag}-{rhash}"
     new_py = venv_python(new_dir)
     if dry_run:
@@ -871,8 +1105,8 @@ def _main(argv: Optional[list[str]] = None) -> int:
     - `runnable-python --vault X --launcher Y` — print the first existing
       runnable python in the fallback chain: central venv → legacy
       `<vault>/.venv` → launcher. Used by `cli/brain` so dispatched
-      subcommands remain usable in supported no-runtime states (e.g.
-      `bash install.sh --skip-mcp <vault>`). Exits non-zero if no
+      subcommands remain usable in supported no-runtime states (e.g. an
+      install whose runtime step failed offline). Exits non-zero if no
       candidate exists.
     - `ensure --vault X --launcher Y` — create the central venv if missing
       and (re-)run pip when the readiness sentinel is absent. Prints the

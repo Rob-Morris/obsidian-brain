@@ -92,7 +92,7 @@ def test_every_ordinary_command_has_explicit_class_and_preparation():
     for entry in catalogue.entries:
         assert (entry.preparation is None) == (entry.command_id in controls)
     exceptional = {entry.command_id for entry in catalogue.entries if entry.initial_class is InitialAuthorisationClass.EXCEPTIONAL}
-    assert exceptional == {"artefact.delete", "skill.add-git", "skill.update", "type.sync", "retrieval.construct-benchmark", "retrieval.evaluate", "retrieval.rebuild-semantic", "retrieval.repair-semantic", "retrieval.enable", "workspace.bind", "workspace.configure-bootstrap", "workspace.register", "workspace.unregister", "workspace.setup", "workspace.update-metadata", "workspace.repair-registry"}
+    assert exceptional == {"artefact.delete", "skill.add-git", "skill.update", "type.sync", "retrieval.construct-benchmark", "retrieval.evaluate", "retrieval.rebuild-semantic", "retrieval.repair-semantic", "retrieval.enable", "workspace.configure-bootstrap", "workspace.unregister", "workspace.setup", "workspace.update-metadata"}
     by_id = {entry.command_id: entry for entry in catalogue.entries}
     assert by_id["shaping.render"].initial_class is InitialAuthorisationClass.CONTENT
     assert by_id["skill.status"].initial_class is InitialAuthorisationClass.OBSERVATION

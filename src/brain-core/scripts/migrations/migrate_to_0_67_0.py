@@ -102,6 +102,9 @@ def prospective_effects(vault_root: str) -> list[str]:
         for directory, filename in iter_vault_md_files(vault_root)
     }
     paths.update(os.path.join(vault_root, move["dest"]) for move in moves)
+    # The whole temporal tree as a directory effect: the moves create the
+    # kept folders and remove the month folders, which a file list cannot undo.
+    paths.add(os.path.join(vault_root, TEMPORAL_DIR))
     return sorted(os.path.abspath(path) for path in paths)
 
 

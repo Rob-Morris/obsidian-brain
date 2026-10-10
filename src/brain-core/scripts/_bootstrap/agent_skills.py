@@ -152,6 +152,25 @@ def _load_marker(path: Path, skill_name: str = ADAPTER_SKILL) -> dict | None:
     return data
 
 
+def managed_adapter_copies_outdated(home_dir: Path, content: str, skill_name: str = ADAPTER_SKILL) -> bool:
+    """Report whether any client's Brain-managed adapter copy no longer matches ``content``.
+
+    Only Brain-owned copies count: a directory without a valid marker is user
+    content this module never rewrites. An unreadable marker counts as
+    outdated, because the copy cannot be shown to be current.
+    """
+    desired = _sha256_text(content)
+    for client in SUPPORTED_CLIENTS:
+        marker_path = home_dir / CLIENT_SKILLS_DIRS[client] / skill_name / MARKER_FILE
+        try:
+            marker = _load_marker(marker_path, skill_name)
+        except AgentSkillConfigError:
+            return True
+        if marker is not None and marker["content_sha256"] != desired:
+            return True
+    return False
+
+
 def _unexpected_entries(skill_dir: Path, *, marker_present: bool) -> list[str]:
     allowed = {*INCIDENTAL_ENTRIES, "SKILL.md"}
     if marker_present:

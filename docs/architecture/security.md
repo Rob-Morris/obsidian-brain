@@ -179,7 +179,7 @@ need to create and register a new key. It prints the plaintext key (shown once, 
 passed to the agent) and the `sha256:` hash (to be stored in config). No plaintext
 keys are ever stored.
 
-**Config registration example:**
+**Operator registration example (config):**
 
 ```yaml
 vault:
@@ -231,7 +231,12 @@ The new `repair.py` bootstrap path is deliberately narrower: it repairs or
 creates the central managed runtime at `~/.brain/venvs/py<X.Y>-<sha16>/` and
 then hands off into that runtime for packageful work. Brain installs its
 dependencies into that shared local runtime, never into the user's wider
-Python environment. Current-vault repair scopes such as `registry` are scoped
+Python environment. The role-named interpreter links that name Brain processes
+(`bin/brain-mcp-python`, `bin/brain-cli-python`) also live only inside that
+managed venv: they link to its base interpreter, are published only by
+lifecycle commands after a probe confirms canonical identity, and are never
+written into a vault or the user's Python installation. Current-vault repair
+scopes such as `registry` are scoped
 to machine-local files under the vault (`.brain/local/...`) and do not
 broaden into user-home config or cross-vault registries by default. See
 [DD-048: Central managed runtime](decisions/dd-048-central-managed-runtime.md).
@@ -314,7 +319,7 @@ late publication. Modern subscriptions are bounded transport state, not semantic
 requests or grants; only events from the current child/private stream are routed
 to active host stream generations. Their private handoff state contains filters
 and request identifiers, never exceptional consent. No recovery path edits
-registration or client approval policy. See [DD-079](decisions/dd-079-unified-proxy-lifecycle.md).
+MCP registration or client approval policy. See [DD-079](decisions/dd-079-unified-proxy-lifecycle.md).
 
 The MCP proxy/server protocol marker is a local compatibility assertion, not an
 authentication credential. The long-lived proxy sets it only in the child
@@ -428,7 +433,7 @@ Existing fixed-file replacements retain the destination permission mode, so
 self-replacing `brain.upgrade` does not turn the global CLI into a non-executable
 data file.
 
-Canonical registration operations serialize host changes and revalidate target
+Canonical MCP registration operations serialise host changes and revalidate target
 directory identity, binding/registry evidence and exact native configuration at
 admission and write boundaries. Higher repair breadth selects registered
 targets; it does not grant arbitrary filesystem access from stored paths.
@@ -446,14 +451,14 @@ This enables conflict-checked resumption, not cross-repository crash-atomicity.
 Treat journals with the same care as native client configuration: they may
 contain credentials. Retired runtime references remain protected until a normal
 MCP read verifies the persisted command. Pruning also requires complete coverage
-and a live-process scan. Stdio startup cannot provision or heal registrations;
+and a live-process scan. Stdio startup cannot provision or heal MCP registrations;
 it isolates ambient Python/development overrides while retaining supported
 authenticated owner context.
 
 Application-owned `workspace.setup` declares a selected-Brain plus caller-local
 effect. Its single operation binding observes the canonical hub, path registry
 and caller manifest/scaffold targets. It admits once under the Brain lock,
-completes registration, releases that lock, then acquires the caller lock and
+completes workspace registration, releases that lock, then acquires the caller lock and
 rechecks the admitted local observations before binding. The binding includes
 Git-root and Git-directory resolution, including absence, and the selected
 ignore-rule destination; setup revalidates that resolution under the caller

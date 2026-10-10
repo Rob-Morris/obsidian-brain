@@ -19,6 +19,8 @@ from pathlib import Path
 import subprocess
 import sys
 
+from _common._venv import run_managed
+
 
 SCRIPTS_DIR = Path(__file__).resolve().parents[1]
 LIFECYCLE_TARGET_PREFIX = "_lifecycle."
@@ -54,7 +56,7 @@ def run_lifecycle_in_fresh_interpreter(
     target = _target_for(owner)
     request = {"target": target, "vault_root": str(vault_root), "kwargs": kwargs}
     try:
-        completed = subprocess.run(
+        completed = run_managed(
             [
                 str(python_executable or sys.executable),
                 "-c",

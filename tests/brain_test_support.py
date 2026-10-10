@@ -10,6 +10,7 @@ from ``brain_test_support`` directly.
 """
 
 import atexit
+import contextlib
 import functools
 import os
 from pathlib import Path
@@ -19,6 +20,24 @@ import sys
 import tempfile
 
 TEMPLATE_VAULT_COPY_IGNORE = (".venv", ".pytest_cache", "local")
+
+
+def process_diagnostics(completed):
+    """Bounded captured-output context for controlled test subprocesses.
+
+    Accepts CompletedProcess or TimeoutExpired. Do not use for processes whose
+    output can contain real credentials; intentionally excludes argv/env.
+    """
+    def excerpt(value):
+        if value is None:
+            return "<empty>"
+        if isinstance(value, bytes):
+            value = value.decode("utf-8", errors="replace")
+        return value[-4096:] + ("\n<tail only>" if len(value) > 4096 else "")
+
+    return (f"returncode={getattr(completed, 'returncode', None)} "
+            f"timeout={getattr(completed, 'timeout', None)}\n"
+            f"stdout:\n{excerpt(completed.stdout)}\nstderr:\n{excerpt(completed.stderr)}")
 
 
 def write_md(path, frontmatter_fields=None, body=""):
@@ -282,3 +301,74 @@ def build_and_persist_index(vault):
     index = search_index_mod.build_index(vault).index
     search_index_mod.persist_retrieval_index(vault, index)
     return index
+
+
+def folder_tree(folder):
+    """Every path under ``folder``, relative to it, with file bytes (``None`` for a directory); ``{}`` when absent."""
+    folder = Path(folder)
+    if not folder.exists():
+        return {}
+    return {str(path.relative_to(folder)): None if path.is_dir() else path.read_bytes()
+            for path in sorted(folder.rglob("*"))}
+
+
+def register_other_brain(parent, brain_id="other"):
+    """Register a second Brain on this machine, so a manifest naming it positively names another Brain."""
+    import vault_registry
+
+    other = (Path(parent) / f"brain-{brain_id}").resolve()
+    (other / ".brain-core").mkdir(parents=True)
+    (other / ".brain-core" / "VERSION").write_text("1.0.0\n")
+    vault_registry.register(other, brain_id)
+    return other
+
+
+def link_folder(vault, folder, key, manifest=None):
+    """A linked workspace registry row for ``key`` at ``folder`` and, unless ``manifest`` is None, its manifest text."""
+    import workspace_registry
+
+    folder = Path(folder).resolve()
+    folder.mkdir(parents=True, exist_ok=True)
+    workspace_registry.register_workspace(vault, key, folder)
+    if manifest is not None:
+        path = folder / ".brain" / "local" / "workspace.yaml"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(manifest)
+    return folder
+
+
+def manifest_text(key, brain="brain"):
+    """A manifest linking a folder to ``brain`` under the hub key ``key``."""
+    return f"brain: {brain}\nslug: s\nlinks:\n  workspace: {key}\n"
+
+
+@contextlib.contextmanager
+def offline_managed_runtime():
+    """An in-process install whose managed-runtime step is a stand-in that provisions nothing.
+
+    Every install now provisions the runtime whatever its MCP scope, which
+    would run pip and write under the real ``~/.brain/venvs``; this keeps an
+    in-process install offline and leaves no runtime, as a skip install once did.
+    """
+    import install
+
+    real = install._ensure_managed_runtime
+    install._ensure_managed_runtime = lambda _vault_root, _launcher: install._step(
+        "managed_runtime", "noop", "Offline test stand-in: no managed runtime provisioned.")
+    try:
+        yield
+    finally:
+        install._ensure_managed_runtime = real
+
+
+def offline_install_env(env, directory):
+    """Point a subprocess install's runtime provisioning at a launcher stub whose venv and pip are stand-ins.
+
+    The stub delegates ``-c`` probes to this interpreter, so the runtime lands
+    at the path the real launcher would use, under the environment's ``HOME``.
+    """
+    launcher = Path(directory) / "offline-launcher" / "python3.12"
+    if not launcher.exists():
+        write_fake_launcher(launcher, cversion=None, venv="ok")
+    env["BRAIN_VENV_LAUNCHER"] = str(launcher)
+    return env

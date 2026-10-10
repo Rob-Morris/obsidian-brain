@@ -103,7 +103,29 @@ def _isolate_config_home(tmp_path, monkeypatch):
     cfg = tmp_path / ".config"
     cfg.mkdir(parents=True, exist_ok=True)
     monkeypatch.setenv("XDG_CONFIG_HOME", str(cfg))
+    # The upgrade rollback journal lives in the machine state home
+    # (``$XDG_STATE_HOME`` or ``~/.local/state``); keep it off the developer's.
+    monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / ".local" / "state"))
     return cfg
+
+
+@pytest.fixture(autouse=True)
+def _isolate_launcher_binary(monkeypatch):
+    """Repair guidance must not depend on whether this machine has ``brain`` on PATH.
+
+    Without a launcher the guidance names the vault's own ``command.py`` or
+    ``repair.py`` forms; tests of the launcher form patch
+    ``_repair_common.find_launcher_binary`` explicitly.
+    """
+    import _repair_common
+
+    monkeypatch.setattr(_repair_common, "find_launcher_binary", lambda: None)
+
+
+@pytest.fixture(autouse=True)
+def _isolate_runtime_role(monkeypatch):
+    """Launch-owner decisions must not inherit a role from whatever started pytest."""
+    monkeypatch.delenv("BRAIN_RUNTIME_ROLE", raising=False)
 
 
 @pytest.fixture(autouse=True)

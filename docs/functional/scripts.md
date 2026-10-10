@@ -127,14 +127,21 @@ it fails closed and directs callers to `artefact.create` through `brain` or
 test/maintenance seams, not supported semantic routes; do not use them to bypass
 workspace preparation, policy, lifecycle guards, or index completion.
 
+Maintenance is CLI and direct-script only: `command.py maintenance run
+[--dry-run]`, `maintenance list`, `maintenance claim`, `maintenance dismiss`,
+`maintenance release` and `runtime remove-temporaries` take the same request
+objects as the CLI. The pass needs a keyless standalone call; see
+[maintenance passes](cli.md#maintenance-passes-and-scheduling).
+
 Machine-global operations do not run through selected-Brain `command.py`. The versioned CLI distribution owns the separate stdlib-safe launcher catalogue and its install, upgrade, registry, runtime, MCP and diagnostic owners.
 
-The legacy `setup.py workspace` entry point retains its historical local
-binding and ignore-scaffold behavior for compatibility; it does not ensure a
-canonical workspace hub. Use `command.py workspace setup --workspace PATH`
-or `brain workspace setup --workspace PATH` for the compound registration and
-binding contract. This operation is unavailable over MCP because its second
-boundary needs caller filesystem access.
+Use `command.py workspace setup --workspace PATH` or `brain workspace setup
+--workspace PATH` for the compound workspace registration and binding contract; the
+legacy `setup.py workspace` entry point, which wrote only the local binding, is
+retired. This operation is unavailable over MCP because its second boundary
+needs caller filesystem access. `workspace_registry.py` lists and resolves
+workspaces; its `--register` and `--unregister` writers are retired in favour
+of `workspace setup` and `workspace unregister`.
 
 ## Dependency boundaries
 
@@ -152,10 +159,10 @@ Portable `vault.check` inspects semantic metadata locally and verifies model loa
 
 New MCP installation/configuration requires an explicit client. Use
 `install.sh --non-interactive --client all /path/to/brain` (Windows: `-Client all`),
-or choose one client. Scaffold-only installation needs no client selection.
+or choose one client. An install with `--skip-mcp` needs no client selection; it skips MCP registration only and still provisions the managed runtime.
 `configure.py mcp --client ... --user` delegates to the compatible installed
 machine CLI without resolving a Brain; project/local operations share the
-canonical registration planner. `repair.py mcp` remains vault-local and repairs
+canonical MCP registration planner. `repair.py mcp` remains vault-local and repairs
 only recorded vault-self project projections. Cross-root and user repair belongs
 to the [launcher breadth selectors](cli.md#mcp-registration-and-repair).
 
@@ -171,11 +178,10 @@ Crossing 0.70.3 offers optional managed-approval discovery via read-only
 The version-crossing notice is also included in upgrade dry-run previews.
 
 The supported `install.py --client`, `configure.py mcp --client`,
-`configure.py agent-skills --client` and interactive `setup.py` selections
-include `grok`; `all` includes all three clients. Grok supports user and project
-scope, including vault-self registration. The native CLI commands are shown in
+and `configure.py agent-skills --client` selections include `grok`; `all` includes all three clients. Grok supports user and project
+scope, including vault-self MCP registration. The native CLI commands are shown in
 [native Grok setup](cli.md#native-grok-setup). `repair.py mcp` and upgrade
-reconciliation inspect existing Grok project registrations and their owned
+reconciliation inspect existing Grok project MCP registrations and their owned
 startup rules. Standalone workspace bootstrap also accepts `--surface grok`.
 
 Bootstrap and document reads use the same bounded application results in every

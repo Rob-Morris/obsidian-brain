@@ -23,13 +23,16 @@ from .types import (
     Projection,
     ProjectionEligibility,
     RetryClass,
-    validate_slug,
 )
 
 
 MCP_UNSUPPORTED_REASON = (
     "Caller-filesystem workspace mutations are available through local CLI, "
     "direct script and Python adapters only."
+)
+LINK_MCP_UNSUPPORTED_REASON = (
+    "Workspace link commands write a local folder outside the selected Brain and "
+    "are available through local CLI, direct script and Python adapters only."
 )
 
 
@@ -79,7 +82,6 @@ def execute_workspace_lifecycle(
     operation: str,
     invoke,
     effect_subjects,
-    lock_root: Path,
 ):
     from _common import (
         MutationLockError,
@@ -88,7 +90,7 @@ def execute_workspace_lifecycle(
     )
 
     try:
-        with vault_mutation_lock(lock_root):
+        with vault_mutation_lock(context.workspace_dir):
             before_write = workspace_admission(context, request)
             if context.dry_run:
                 before_write()
@@ -165,16 +167,6 @@ def execute_workspace_lifecycle(
     )
 
 
-def lifecycle_effects(default_subject: str, result: Mapping[str, object]):
-    if any(
-        step.get("status") == "changed"
-        for step in result.get("steps") or ()
-        if isinstance(step, Mapping)
-    ):
-        return (default_subject,)
-    return ()
-
-
 def _error_message(result: Mapping[str, object]) -> str:
     messages = [
         str(step.get("message"))
@@ -192,28 +184,10 @@ def require_string(value: object, field: str, *, optional: bool = False):
     return value
 
 
-def validate_workspace_binding_request(request) -> None:
-    require_string(request.brain_id, "brain_id", optional=True)
-    require_string(request.slug, "slug", optional=True)
-    if request.slug is not None:
-        validate_slug(request.slug)
-    if not isinstance(request.force, bool):
-        raise ValueError("force must be a boolean")
-
-
-def decode_workspace_binding(payload: Mapping[str, object], request_type):
-    reject_unexpected(payload, {"brain_id", "slug", "force"})
-    return request_type(
-        require_string(payload.get("brain_id"), "brain_id", optional=True),
-        require_string(payload.get("slug"), "slug", optional=True),
-        optional_bool(payload.get("force"), "force"),
-    )
-
-
 def caller_workspace_entry(request_type, executor):
     from .catalogue import ApplicationEntry
     from .preparation import OperationPreparation
-    from .workspace._preparation import prepare_workspace
+    from .workspace._preparation import prepare_workspace_for_consent
 
     return ApplicationEntry(
         initial_class=InitialAuthorisationClass.EXCEPTIONAL,
@@ -226,13 +200,28 @@ def caller_workspace_entry(request_type, executor):
         authority=Authority.OPERATOR,
         effect_class=EffectClass.CALLER_LOCAL_MUTATION,
         retry_class=RetryClass.RECEIPT_REQUIRED,
-        preparation=OperationPreparation(prepare_workspace),
+        preparation=OperationPreparation(prepare_workspace_for_consent),
         projections=(
             ProjectionEligibility(Projection.MCP, False, MCP_UNSUPPORTED_REASON),
             ProjectionEligibility(Projection.CLI, True),
             ProjectionEligibility(Projection.SCRIPT, True),
             ProjectionEligibility(Projection.PYTHON, True),
         ),
+    )
+
+
+def compound_workspace_entry(request_type, executor):
+    """A link command: the selected Brain's registry, then one local workspace folder."""
+    from dataclasses import replace
+
+    entry = caller_workspace_entry(request_type, executor)
+    return replace(
+        entry,
+        dependency_tier=DependencyTier.PORTABLE,
+        locality=Locality.SELECTED_BRAIN_AND_CALLER_LOCAL,
+        effect_class=EffectClass.SELECTED_BRAIN_AND_CALLER_LOCAL_MUTATION,
+        projections=(ProjectionEligibility(Projection.MCP, False, LINK_MCP_UNSUPPORTED_REASON),
+                     *entry.projections[1:]),
     )
 
 

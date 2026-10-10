@@ -9,7 +9,7 @@ import sys
 
 import pytest
 
-from brain_test_support import copy_install_source
+from brain_test_support import copy_install_source, offline_install_env
 from _bootstrap.mcp_registration import user_ledger_path
 import vault_registry
 
@@ -57,6 +57,9 @@ def test_existing_vault_applies_opt_in_after_version_handling(tmp_path, installe
     scripts = source / "src/brain-core/scripts"
     (scripts / "upgrade.py").write_text(
         "import sys\nfrom pathlib import Path\n"
+        "if '--dry-run' in sys.argv:\n"
+        "    print('{\"status\": \"skipped\"}')\n"
+        "    raise SystemExit(0)\n"
         "vault = Path(sys.argv[sys.argv.index('--vault') + 1])\n"
         "(vault / '.brain-core/VERSION').write_text('1.0.1\\n')\n"
     )
@@ -97,6 +100,7 @@ def test_fresh_install_and_same_version_rerun_apply_managed_cli_approvals(tmp_pa
     claude.write_text("#!/bin/sh\nprintf '99.0.0\\n'\n")
     claude.chmod(0o755)
     monkeypatch.setenv("PATH", str(fake_bin) + os.pathsep + os.environ["PATH"])
+    monkeypatch.setenv("BRAIN_VENV_LAUNCHER", offline_install_env({}, tmp_path)["BRAIN_VENV_LAUNCHER"])
     vault = tmp_path / "vault"
     command = [
         "bash", str(source / "install.sh"), "--non-interactive", "--skip-mcp",
@@ -114,7 +118,7 @@ def test_fresh_install_and_same_version_rerun_apply_managed_cli_approvals(tmp_pa
     assert settings.read_bytes() == before
 
 
-def test_managed_registry_backfill_preserves_existing_identity_and_default(tmp_path, monkeypatch):
+def test_managed_registry_reregistration_preserves_existing_identity_and_default(tmp_path, monkeypatch):
     home = tmp_path / "home"
     binary = home / ".local/bin/brain"
     installed = subprocess.run(
@@ -136,7 +140,7 @@ def test_managed_registry_backfill_preserves_existing_identity_and_default(tmp_p
 
     result = subprocess.run(
         [sys.executable, str(ROOT / "src/brain-core/scripts/vault_registry.py"),
-         "--backfill", str(vault), "--id", "ignored-for-backfill"],
+         "--register", str(vault)],
         cwd=home, capture_output=True, text=True, timeout=60,
     )
     assert result.returncode == 0, result.stderr + result.stdout

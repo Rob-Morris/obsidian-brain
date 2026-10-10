@@ -807,3 +807,25 @@ def test_failed_append_and_stderr_failure_never_raise(tmp_path, monkeypatch):
         error_class="internal",
         exception_type="RuntimeError",
     ) is False
+
+
+def test_maintenance_family_rotates_exports_and_refuses_misrouted_events(tmp_path):
+    vault = _vault(tmp_path)
+    line = b"m" * (oplog.MAX_FILE_BYTES // 2) + b"\n"
+    oplog.append_lines(vault, "maintenance", [line, line, line])
+    directory = oplog.diagnostics_directory(vault)
+    assert (directory / "maintenance.log.1").is_file(), "rotation applies to the maintenance family"
+
+    output = oplog.export_logs(vault, tmp_path / "out")
+    assert "===== maintenance.log =====" in output.read_text(encoding="utf-8")
+
+    logger = _make_logger(tmp_path, process="script")
+    logger.record("maintenance.pass_started", pass_id="abc123", dry_run=False)
+    logger.record("maintenance.pass_started", family="maintenance", pass_id="abc123", dry_run=False)
+    logger.close(exit_code=0)
+    records = [json.loads(line) for line in (directory / "maintenance.log").read_text(encoding="utf-8").splitlines()
+               if line.startswith("{")]
+    assert [record["event"] for record in records if "event" in record] == ["maintenance.pass_started"]
+    assert not (directory / "command.log").exists() or all(
+        record.get("event") != "maintenance.pass_started" for record in _lines(directory / "command.log")
+    ), "an installed logger drops a maintenance event sent to the primary family"

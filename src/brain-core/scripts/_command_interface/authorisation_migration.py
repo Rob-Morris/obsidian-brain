@@ -3,13 +3,18 @@
 from copy import deepcopy
 from dataclasses import dataclass
 import hashlib
+import json
 from pathlib import Path
 
+from _common import safe_write_json
 from _common._yaml import load_mapping_file, load_mapping_text, dump_mapping_text
 from config import ConfigError, _merge_config
 
 
 REPORT_PATH = '.brain/local/authorisation-migration.json'
+TEMPLATE_CAPTURE_PATH = '.brain/local/authorisation-template-before-upgrade.json'
+TEMPLATE_CAPTURE_SCHEMA = 'brain.authorisation-template-before-upgrade/1'
+_TEMPLATE_PATH = '.brain-core/defaults/config.yaml'
 _LEGACY_VAULT = {'elevation_policy', 'default_lease_seconds', 'max_lease_seconds', 'pending_seconds', 'max_use_count'}
 _LEGACY_INITIAL = {'initial_profile', 'initial_commands'}
 
@@ -28,25 +33,87 @@ def _revision(path):
         return None
 
 
-def capture_legacy_authorisation(vault_root, old_version):
-    """Capture only security settings and old shipped profiles before replacing Core."""
+def _authorisation_layer(path):
+    """Read one configuration file down to its authorisation settings and revision."""
+    try:
+        data = path.read_bytes()
+    except FileNotFoundError:
+        data = None
+    raw = load_mapping_text(data.decode('utf-8')) if data is not None else {}
+    revision = hashlib.sha256(data).hexdigest() if data is not None else None
+    vault, defaults = raw.get('vault', {}), raw.get('defaults', {})
+    if not isinstance(vault, dict) or not isinstance(defaults, dict):
+        raise ConfigError('existing authorisation configuration zones must be mappings')
+    layer = {'vault': {key: deepcopy(vault[key]) for key in ('profiles', 'access') if key in vault},
+             'defaults': {key: deepcopy(defaults[key]) for key in ('access', 'default_profile') if key in defaults}}
+    return layer, revision
+
+
+def _load_template_capture(path):
+    """Read the capture: absent is None; stale is returned for the caller to judge; damage raises.
+
+    A damaged capture must not read as absent: re-capturing would take the
+    template the copy has already replaced, which is the fault the capture
+    exists to prevent.
+    """
+    try:
+        text = path.read_text(encoding='utf-8')
+    except FileNotFoundError:
+        return None
+    except (OSError, UnicodeDecodeError) as exc:
+        raise ConfigError(f'pre-upgrade template capture at {path} cannot be read: {exc}') from exc
+    try:
+        data = json.loads(text)
+    except json.JSONDecodeError as exc:
+        raise ConfigError(f'pre-upgrade template capture at {path} is not valid JSON: {exc}') from exc
+    if (not isinstance(data, dict) or data.get('schema') != TEMPLATE_CAPTURE_SCHEMA
+            or not isinstance(data.get('template_layer'), dict)):
+        raise ConfigError(f'pre-upgrade template capture at {path} has an unrecognised shape')
+    return data
+
+
+def load_or_persist_template_capture(vault_root, installed_version):
+    """Keep the installed template's authorisation layer until the upgrade commits.
+
+    The upgrade copy replaces the template before the 0.68.0 conversion reads
+    it, so an interrupted run would otherwise resume against the new profiles.
+    The capture is reused while its version still matches the installed Core,
+    rewritten when it names another version, and discarded at the commit.
+    """
     root = Path(vault_root)
-    paths = (root / '.brain-core/defaults/config.yaml', root / '.brain/config.yaml', root / '.brain/local/config.yaml')
-    layers, revisions = [], []
-    for path in paths:
-        try:
-            data = path.read_bytes()
-        except FileNotFoundError:
-            data = None
-        raw = load_mapping_text(data.decode('utf-8')) if data is not None else {}
-        revisions.append(hashlib.sha256(data).hexdigest() if data is not None else None)
-        vault, defaults = raw.get('vault', {}), raw.get('defaults', {})
-        if not isinstance(vault, dict) or not isinstance(defaults, dict):
-            raise ConfigError('existing authorisation configuration zones must be mappings')
-        layers.append({'vault': {key: deepcopy(vault[key]) for key in ('profiles', 'access') if key in vault},
-                       'defaults': {key: deepcopy(defaults[key]) for key in ('access', 'default_profile') if key in defaults}})
+    path = root / TEMPLATE_CAPTURE_PATH
+    existing = _load_template_capture(path)
+    if existing is not None and existing.get('version') == installed_version:
+        return existing['template_layer']
+    layer, revision = _authorisation_layer(root / _TEMPLATE_PATH)
+    safe_write_json(path, {'schema': TEMPLATE_CAPTURE_SCHEMA, 'version': installed_version,
+                           'template_layer': layer, 'template_revision': revision},
+                    bounds=vault_root, follow_symlinks=False)
+    return layer
+
+
+def discard_template_capture(vault_root):
+    """Remove the capture at the commit; a stale leftover is ignored by its version."""
+    try:
+        (Path(vault_root) / TEMPLATE_CAPTURE_PATH).unlink()
+    except OSError:
+        pass
+
+
+def capture_legacy_authorisation(vault_root, old_version, template_layer):
+    """Capture only security settings and old shipped profiles before replacing Core.
+
+    The template layer comes from the persisted capture; the authored layers
+    are read fresh so a user edit between runs is detected, not inherited.
+    """
+    root = Path(vault_root)
+    layers, revisions = [deepcopy(template_layer)], []
+    for path in (root / '.brain/config.yaml', root / '.brain/local/config.yaml'):
+        layer, revision = _authorisation_layer(path)
+        layers.append(layer)
+        revisions.append(revision)
     return {'schema': 'brain.authorisation-before-upgrade/1', 'version': old_version,
-            'layers': layers, 'authored_revisions': revisions[1:]}
+            'layers': layers, 'authored_revisions': revisions}
 
 
 @dataclass(frozen=True, slots=True)
@@ -163,6 +230,12 @@ def plan_authorisation_migration(vault_root, before, *, new_template=None) -> Au
         if updated != original:
             writes.append((path, dump_mapping_text(updated)))
         updated_layers.append(updated)
+    # Local before shared, in the order the migration applies them: the shared
+    # conversion never reads the local layer, and a run killed between the two
+    # writes and resumed without its rollback journal converges on the same
+    # files in this order, whereas a converted shared profile under a legacy
+    # local selection would widen local's initial commands on the rerun.
+    writes.sort(key=lambda write: write[0] != '.brain/local/config.yaml')
     conflicts = _control_conflicts(template, *updated_layers)
     report = {'schema': 'brain.authorisation-migration/1', 'status': 'review-required' if conflicts else 'converted',
               'source_version': before['version'], 'changes': changes,

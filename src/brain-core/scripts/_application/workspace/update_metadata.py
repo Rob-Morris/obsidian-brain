@@ -9,7 +9,6 @@ from .._caller_workspace import (
     CallerWorkspacePayload,
     caller_workspace_entry,
     execute_workspace_lifecycle,
-    lifecycle_effects,
     optional_bool,
     reject_unexpected,
     require_string,
@@ -92,12 +91,14 @@ def execute(context: InvocationContext, request: WorkspaceUpdateMetadataRequest)
             parent=request.parent,
             clear_parent=request.clear_parent,
         ),
-        effect_subjects=lambda result: lifecycle_effects(
-            "caller-workspace:.brain/local/workspace.yaml",
-            result,
-        ),
-        lock_root=target,
+        effect_subjects=_manifest_effects,
     )
+
+
+def _manifest_effects(result: Mapping[str, object]):
+    if any(step.get("status") == "changed" for step in result.get("steps") or () if isinstance(step, Mapping)):
+        return ("caller-workspace:.brain/local/workspace.yaml",)
+    return ()
 
 
 def decode(payload: Mapping[str, object]) -> WorkspaceUpdateMetadataRequest:

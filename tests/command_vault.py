@@ -21,6 +21,8 @@ import threading
 import time
 from typing import Iterator, Mapping
 
+from brain_test_support import offline_managed_runtime
+
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 COMMAND_VAULT_FIXTURE_ROOT = REPO_ROOT / "tests" / "fixtures" / "command-vault"
@@ -227,12 +229,13 @@ def assemble_command_vault_baseline(
     }
     started = time.perf_counter()
     with isolated_command_environment(environment):
-        install_result = install.install_vault_action(
-            destination,
-            source_root=source_root,
-            mcp_scope="skip",
-            brain_id=cache_key,
-        )
+        with offline_managed_runtime():
+            install_result = install.install_vault_action(
+                destination,
+                source_root=source_root,
+                mcp_scope="skip",
+                brain_id=cache_key,
+            )
         if install_result.get("status") != "ok":
             raise RuntimeError(f"command-vault install failed: {install_result}")
 
@@ -463,23 +466,12 @@ def apply_command_vault_overlay(
         lock.__enter__()
         resources.append(lock)
         details["lock_path"] = str(clone.vault_root / ".brain" / "local" / "mutation.lock")
-    elif name == "registry-blocked":
-        _write_json(machine_brain_dir / "brains.json", {"version": 999, "brains": []})
-    elif name == "registry-incomplete":
-        _write_json(
-            machine_brain_dir / "brains.json",
-            {"version": 1, "brains": [{"alias": "incomplete"}]},
-        )
     elif name == "registry-stale":
         missing = clone.config_home.parent / "missing-brain"
         machine_brain_dir.mkdir(parents=True, exist_ok=True)
         (machine_brain_dir / "vaults").write_text(
             f"# brain registry v2\nstale\tlocal\t{missing}\n",
             encoding="utf-8",
-        )
-        _write_json(
-            machine_brain_dir / "brains.json",
-            {"version": 1, "brains": [{"alias": "stale", "path": str(missing)}]},
         )
         details["missing_path"] = str(missing)
     elif name == "lifecycle-state":

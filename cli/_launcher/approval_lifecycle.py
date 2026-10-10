@@ -62,8 +62,9 @@ def _future(context, request, kind, roots):
         roots.add(target)
         overrides[target] = context.distribution_root / "src/brain-core"
     elif kind == "prune":
-        import vault_registry
-        roots = {root for root in roots if vault_registry.is_vault_root(root)}
+        # The roots that survive remove-stale: vault_registry's stale rule keeps only installed Brains.
+        from _common._vault import is_brain_vault
+        roots = {root for root in roots if is_brain_vault(root)}
     return tuple(sorted(roots, key=str)), overrides
 
 
@@ -149,7 +150,7 @@ def _invoke(context, request, kind, execute):
                 future = tuple(sorted(set(future) | {Path(item["path"]).resolve() for item in selected.targets}, key=str))
                 execute = lambda ctx, req: execute_prepared_legacy_migration(ctx, req, summary)
             active = active_transitions(plan, home)
-            # Do not hold the registration lock across child CLI processes used by upgrade.
+            # Do not hold the MCP registration lock across child CLI processes used by upgrade.
             # The durable marker prevents other writers from widening policy in that gap.
             results = reconcile_records(plan, context, records, future, overrides=overrides, tighten=True,
                                         removed_roots=tuple(root for root in roots if root not in future),

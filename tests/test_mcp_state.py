@@ -294,3 +294,11 @@ def test_record_init_target_replaces_same_identity(bootstrap_vault, project):
     state = _load_init_state(bootstrap_vault)
     assert len(state["records"]) == 1
     assert state["records"][0]["server_config"] == config_b
+
+
+def test_build_mcp_config_never_carries_legacy_vault_root(bootstrap_vault, project):
+    for config in (
+        build_mcp_config("/usr/bin/python3", bootstrap_vault),
+        build_mcp_config("/usr/bin/python3", bootstrap_vault, workspace_dir=project),
+    ):
+        assert "BRAIN_VAULT_ROOT" not in config["env"]

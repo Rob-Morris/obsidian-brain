@@ -42,10 +42,12 @@ The CLI 3 launcher break is deliberate:
 | `brain machine migrate-legacy` | `brain migrate-legacy-installations` | Migrate legacy Brain installations on this machine. |
 | `brain machine prune-runtimes` | `brain runtime remove-orphans` | Remove orphaned managed runtimes. |
 | `brain backfill` | `brain register` | Register an installed Brain; the removed command duplicated this operation. |
-| `brain prune` | `brain registry remove-stale` | Remove stale local Brain registry entries. |
+| `brain prune` | `brain registry remove-stale` | Remove stale vault registry rows (version 2): rows that name no installed Brain, or that are no longer their own canonical path (a symlink left at an old path). It removes every stale row or none, and refuses while any stale row still owns MCP integrations (a drifted row's at the path it resolves to), while managed approvals hold records and a row has drifted, or while the approval state itself needs recovery. `brain list` and `brain doctor` name it as a row's guidance only where it would succeed. While another row blocks it, a canonical row is named for `brain unregister` instead, unless approvals hold records; otherwise the explanation says what blocks it. After removing a moved Brain's drifted row, register the Brain again with `brain register` and its old `brain_id`. |
 | `brain runtime resolve` and `brain runtime resolve-runnable` | `brain runtime inspect` | Report the expected managed runtime and the selected runnable Python source together. |
 
-`brain resolve` remains the direct registry lookup from Brain ID to vault path. These launcher commands are CLI-only; the MCP catalogue is unchanged.
+`brain resolve` remains the direct vault registry lookup from Brain ID to vault path; version 2 refuses a stale row with its recovery. These launcher commands are CLI-only; the MCP catalogue is unchanged.
+
+A vault registry row that is no longer its own canonical path never selects a Brain. `brain register` (version 2) registers only an installed Brain and never gives the Brain a drifted row resolves to a second ID, whatever ID is passed. `brain unregister` (version 2) accepts an ordinary path through a symlink and refuses only when a drifted row makes it ambiguous: the path is a drifted row's stored value, or a drifted row also resolves to the Brain it names. `brain list` (version 2) reports each stale row's `stale_reason`, `stale_guidance` and `stale_explanation`, and `brain doctor` carries the same `reason`, `guidance` and `explanation` for each stale row. The guidance is empty when no command recovers the row; the explanation then says why.
 
 `--request-json -` reads the object from standard input. Unknown fields, malformed JSON, unknown launcher entry points and application commands with anything other than one noun and one verb fail as request errors.
 
@@ -97,12 +99,15 @@ Selection options are global and mutually constrained:
 - With no explicit selector, the CLI uses the canonical local resolution ladder.
 - `--operator-key KEY` authenticates the application command against the selected Brain's profiles.
 
+`brain doctor` (version 3) checks the vault of the Brain this selection names: `--vault`, `--brain`, `--workspace` or `BRAIN_WORKSPACE_DIR`, running inside a vault or a bound workspace folder, or `BRAIN_VAULT_ROOT`. Inside a `brain session run` job, that is the job's Brain. When the ladder reaches only its machine fallbacks (the default Brain, even one that no longer resolves, or nothing at all), Doctor stays machine-wide and reports no vault in scope. A selection that fails before then, such as an unknown `--brain`, a stale workspace binding or a `BRAIN_WORKSPACE_DIR` with no binding, fails Doctor with that selection's own message, as it fails any application command. The ladder passes over a `BRAIN_VAULT_ROOT` that names no installed Brain, for Doctor as for every command; inside a job it is the job's own selection, so it fails there. Its request carries only `actionable` and `severity`; it has no vault field.
+
 Launcher commands may run without a selected Brain when their schema permits it. Application commands always execute through the selected Brain's own `.brain-core/scripts/command.py`; the machine-global CLI does not import or emulate another Brain's application semantics.
 
 ### Workspace registration and policy
 
 `brain workspace setup --workspace /absolute/repo --request-json '{}'`
-converges canonical Brain registration and the caller-local binding. It requires
+converges the workspace registration (its canonical `living/workspace` hub), the
+linked workspace registry row and the caller-local binding. It requires
 an already registered selected Brain and operator authority. Setup has composite
 `selected_brain_and_caller_local` locality and
 `selected_brain_and_caller_local_mutation` effects: it creates or attaches the
@@ -112,10 +117,28 @@ then writes `brain`, `slug` and the bare `links.workspace` key locally.
 An existing `links.workspace` wins over the local slug and any registry path
 match. With no link, this explicit setup operation uses the binding slug and
 persists the link. Terminal workspaces require explicit reactivation. One
-preparation, admission and receipt cover both boundaries; their mutation locks
-are never held together. A local-write failure reports known Brain effects and
+preparation, admission and receipt cover both boundaries. Lock order is vault,
+then folder: the vault lock is held from the registry row write through the
+manifest write, with the folder lock nested inside, and is released before the
+ignore rules. A local-write failure reports known Brain effects and
 can be retried without creating another hub. The success payload separates
-`registration` from `binding`.
+`registration` (the workspace hub) from `binding`. `--request-json '{"force": true}'` rebinds a
+workspace that is already bound to another Brain or slug.
+
+`brain workspace unregister --request-json '{"key": "<key>"}'` (version 2)
+removes a link from both ends. Under the selected Brain's lock it drops the
+linked workspace registry row for `key`, refusing while an MCP integration is
+registered for that folder. Then, holding only that folder's lock, it removes
+`brain` and `links.workspace` from the manifest in the folder the row records,
+keeping `slug`, `defaults` and the other links, so the manifest classifies as
+`unconfigured`. It edits that folder only when it is a reachable directory, is
+not a Brain vault root, and its manifest names this Brain and `key`; otherwise
+it drops the row alone and returns a `follow_up_required` warning naming the
+folder and the reason. The folder is the row's, not the caller's, and the
+result names it. The command has the same locality, effect class and
+projections as setup. `workspace.bind`, `workspace.register`, `setup.py
+workspace`, `configure.py workspace binding` and `workspace_registry.py
+--register/--unregister` are retired: each wrote one end of a link.
 
 `workspace.ensure-registration` accepts `key` and optional `title`, mutates only
 the selected Brain and requires contributor authority. `workspace.update-policy`
@@ -124,12 +147,12 @@ accepts canonical `workspace`, optional `default_parent`, `clear_parent`, and
 local tag/descriptive-link updates and adds `parent` / `clear_parent` for `defaults.parent`.
 `links.workspace` is reserved to setup: metadata cannot set it and `clear_links`
 preserves it. Generic artefact creation and document frontmatter edits reject
-shared `default_parent` / `default_tags`; use the policy owner after registration.
+shared `default_parent` / `default_tags`; use the policy owner after workspace registration.
 Both parent policies require an existing non-terminal living artefact in the
 same workspace; a workspace hub is self-scoped.
 
 Setup and local metadata updates support CLI, direct-script and Python adapters,
-and remain unavailable over MCP. Registration and shared policy support all
+and remain unavailable over MCP. Workspace registration (`workspace.ensure-registration`) and shared policy support all
 application projections. Session bootstrap reports `valid`, `unconfigured`,
 `configured_invalid` or `terminal_inactive` and supplies repair guidance for
 invalid or inactive bindings. A manifest's Brain alias must resolve to the
@@ -323,17 +346,280 @@ Exit categories are stable across CLI and direct script:
 | 3 | Authority or capability unavailable |
 | 4 | Infrastructure failure or unknown mutation outcome |
 
+## Maintenance passes and scheduling
+
+Brain maintenance is check-driven (DD-082): checks produce findings, one
+repair table names each finding's repair and disposition, and a bounded pass
+runs the automatic families and lists the rest. Detection is the source of
+truth, so a repair that fails is simply found again; the only persistent
+state is human decisions (claims and dismissals), and history is a
+`maintenance` family in the operational log.
+
+### Scheduling existing commands
+
+Derived-cache commands are initially authorised, derived-only and suitable for
+a schedule on their own: `vault.check`, `runtime.refresh-router`,
+`retrieval.refresh-lexical`, `runtime.warmup` and `workspace.repair-registry`. `artefact.repair` and
+`links.fix` are preview-then-apply content repairs, initially authorised only
+in `normal` mode (never in `read-only`, nor in an `explicit` mode that omits
+them), and belong in a schedule only after a reviewed dry run. Exceptional
+commands such as `retrieval.repair-semantic` refuse a standalone call and need
+a `brain session run` job.
+
+A scheduled call is an ordinary CLI call: an absolute launcher path, an
+explicit `--brain ID` or `--vault PATH`, `--json`, no operator key anywhere in
+a crontab or process listing, and the same `XDG_*` environment as the
+interactive shell (or none in either). Without a selector a job silently
+resolves to the registered default Brain, because resolution is binding-first
+then default; always pass one.
+
+### The pass
+
+```bash
+/usr/local/bin/brain --brain my-brain maintenance run --json
+/usr/local/bin/brain --vault /path/to/brain maintenance run --dry-run --json
+brain --brain my-brain maintenance list --json
+brain --brain my-brain maintenance list --request-json '{"all":true}' --json
+brain machine-maintenance run --json
+```
+
+One scheduler entry per Brain, keyless, with an absolute launcher path and an
+explicit selector. The same environment that the interactive shell uses must
+reach the job (`XDG_CONFIG_HOME` for the vault registry, `XDG_STATE_HOME` for
+receipts and the machine pass), or neither should set one.
+
+```cron
+# crontab -e: nightly at 03:10, log the envelope
+10 3 * * * /usr/local/bin/brain --brain my-brain maintenance run --json >> "$HOME/.local/state/brain/maintenance-my-brain.log" 2>&1
+```
+
+```xml
+<!-- ~/Library/LaunchAgents/gg.underware.brain.maintenance.my-brain.plist -->
+<plist version="1.0"><dict>
+  <key>Label</key><string>gg.underware.brain.maintenance.my-brain</string>
+  <key>ProgramArguments</key><array>
+    <string>/usr/local/bin/brain</string><string>--brain</string><string>my-brain</string>
+    <string>maintenance</string><string>run</string><string>--json</string>
+  </array>
+  <key>StartCalendarInterval</key><dict><key>Hour</key><integer>3</integer><key>Minute</key><integer>10</integer></dict>
+  <key>StandardOutPath</key><string>/Users/me/.local/state/brain/maintenance-my-brain.log</string>
+  <key>StandardErrorPath</key><string>/Users/me/.local/state/brain/maintenance-my-brain.log</string>
+</dict></plist>
+```
+
+```ini
+# ~/.config/systemd/user/brain-maintenance@.service, enabled as brain-maintenance@my-brain.timer
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/brain --brain %i maintenance run --json
+
+# ~/.config/systemd/user/brain-maintenance@.timer
+[Timer]
+OnCalendar=*-*-* 03:10:00
+Persistent=true
+[Install]
+WantedBy=timers.target
+```
+
+```powershell
+# Windows Task Scheduler: a daily task running the launcher with an explicit selector
+schtasks /Create /SC DAILY /ST 03:10 /TN "Brain maintenance my-brain" `
+  /TR "\"C:\Program Files\Brain\brain.cmd\" --brain my-brain maintenance run --json"
+```
+
+The pass exits 0 when every repair succeeded, 1 after a partial or failed
+group, 3 when the context is refused, and 4 after an unknown sibling outcome
+or a blocked detection, so a scheduler's failure notification follows the
+exit code.
+
+`maintenance.run` takes `.brain/local/maintenance/pass.lock` without waiting
+(an overlapping pass exits 2 with a retryable `conflict`), detects in
+process, invokes each unheld automatic family (`router`, `lexical`,
+`temporaries`, `registry`, in that order) as a fresh sibling invocation through normal
+admission, and writes `last-pass.json`. Every invoked group ends in one of
+`repaired`, `already_clean`, `partial`, `deferred`, `needs_person`, `failed`
+or `unknown`. The pass waits for at most one timed-out vault lock: after the
+first busy conflict every later lock-taking group is `deferred`. A live claim
+withholds a group; an expired claim is listed but no longer holds. The pass
+is `ok` (exit 0) unless a group was `partial` or
+`failed` (exit 1), or `unknown` (exit 4, `command_outcome_unknown` naming the
+sibling). Nothing follows an unknown up: the next pass re-detects. A
+`--dry-run` reports the plan and writes nothing, not even a blocked summary.
+
+The pass runs only from a standalone, keyless call under the default
+principal: `brain … maintenance run` or `command.py maintenance run` without
+`--operator-key`, outside MCP and outside a `brain session run` job. Any
+other context gets `capability_unavailable` (exit 3). A vault with customised
+`vault.profiles` must add `maintenance.*`, `runtime.remove-temporaries` and `workspace.repair-registry` to
+the intended profiles or run `brain permission set-profile`; otherwise the
+pass gets `authority_denied` (exit 3).
+
+Machine-owned findings (`runtime`, `mcp`) are listed as "see the machine
+pass"; `brain machine-maintenance run` mirrors the Brain pass over Doctor's
+feed. It has no automatic family: stale vault registry rows (a row that
+remove-stale would refuse is `stale_vault_registry_blocked`, with no repair
+command, because it needs manual recovery), an unregistered current Brain (listed with its `brain register` command), orphaned runtimes,
+MCP drift, legacy installs and orphaned Brain processes are all judgement
+findings, so a pass detects, lists and writes `last-pass` with no groups. An
+`unknown` machine sibling would be reported the same way as on the Brain
+side: `command_outcome_unknown` naming the sibling. Doctor is read-only and
+reports the vault registry (`~/.config/brain/vaults`) as `current` or
+`stale`. A stale row is reported and listed, never counted against
+`machine.healthy`, because the machine cannot tell an unplugged drive from a
+deleted vault. A per-Brain finding counts against `machine.healthy` only when
+its repair family is automatic or machine-owned, and an unregistered current
+Brain is reported without entering the health rule at all. A registered Brain
+root or linked folder that is absent is listed under `unreachable_locations`
+and never counts either; it pauses orphan-runtime detection, so `tidy` is false
+and `prune-runtimes` refuses with a reason that names each location to
+reconnect or unregister. Each Brain's runtime is named by its own Core's
+runtime contract (`.brain-core/scripts/_common/_venv.py`), the rule its MCP
+launch and runtime repair use, so an older Brain on its own working runtime is
+healthy. A Brain whose own contract cannot be read (a Core older than that
+resolver, or a resolver that fails on a missing, unreadable or damaged export)
+has the runtime status `runtime_contract_unavailable`: no runtime path is
+guessed for it, its message names the cause and
+`brain --vault <path> upgrade`, and it counts against `machine.healthy`. It is also listed under
+`machine.unreadable_runtime_contracts`, each entry with that upgrade command as
+its `guidance`. It pauses orphan-runtime detection in the same way, because its
+runtime cannot be named, and `prune-runtimes` refuses while it is listed,
+naming each Brain's upgrade command. Like a missing runtime, it is not a
+machine-pass item or a legacy-migration target:
+`brain migrate-legacy-installations` names each such Brain with a legacy
+`.venv` as skipped, and refuses it by name when selected. Of the coverage
+causes, only invalid ones (an unsafe
+or malformed ledger, journal or registry, or a folder that is present but
+cannot be inspected) count against `machine.healthy`; MCP registration drift,
+runtime health and automatic or machine-owned findings still count as before.
+Doctor's approval inspection reports an approval target whose folder is absent,
+or which cannot be judged while a registered Brain is unreachable, as
+`unreachable`, which does not count either; approval changes still refuse.
+Every writer of `.brain/local/workspaces.json` (`workspace.setup`,
+`workspace.unregister`, the `registry` repair and MCP reverse registration)
+writes with a compare-and-swap over the bytes it read, so none overwrites a row
+another committed meanwhile; the loser returns a retryable `conflict` with no
+effect.
+
+The `registry` family re-derives the linked workspace registry from the
+manifests in the folders it records. `vault.check` verifies each row and
+reports, keyed by `.brain/local/workspaces.json#<key>`:
+`workspace_link_disagreement` (`warning`, repaired) when the folder's readable
+manifest names another valid hub key or a Brain ID resolving to a different
+vault; `workspace_link_unverifiable` (`info`) when the folder is a vault root,
+has no manifest or an unreadable one, its Brain ID does not resolve on this
+machine, or its hub key is missing or not a valid key; and
+`workspace_folder_unreachable` (`info`) when the folder is not there. The file
+itself is one finding. `workspace_registry_malformed` (`warning`, repaired) is
+a file that needs normalising or holds rows that name no usable folder (an
+invalid key, or a path that is empty, relative or contains a NUL byte); the
+repair rebuilds it without them and keeps the file as
+`workspaces.json.bak`. A file whose rows cannot be read is never rebuilt
+unattended: `workspace_registry_unparseable` (not UTF-8, not JSON, or the wrong
+shape) and `workspace_registry_unreadable` (the file cannot be read) are
+`warning` judgement findings with no automatic repair. Restore the file, or
+rebuild an unparseable one empty with
+`brain workspace repair-registry --request-json '{"allow_row_loss": true}'`
+(the request is admitted like any other `workspace.repair-registry` call, with
+no extra prompt), which keeps the backup, then run `workspace setup` from each
+linked folder. When this machine's vault registry cannot be read,
+`workspace_links_unverified` (`info`) says no row was verified.
+
+The repair drops a row only on disagreement. It classifies the rows outside
+the vault lock; under the lock it reads the registry again and drops a row only
+if the row still records the same folder and the folder's manifest is
+byte-identical and still disagrees. It never adds a row, takes no lock in, and
+writes nothing to, any workspace folder, and names each dropped row with the
+folder it recorded (`dropped`), so `workspace setup` can be run from it. On a
+Brain that is not registered on this machine, a well-formed file verifies
+nothing and the repair is a `noop` saying so. From the workspace end,
+`vault.check` with a workspace reports `workspace_registry_missing` (`info`,
+report-only) when the selected Brain has no row recording that folder for the
+manifest's hub key; `brain workspace setup` from the folder writes it. The
+`workspace_link_unverifiable` and `workspace_folder_unreachable` codes are
+judgement findings, one per row: claim one, dismiss one while a drive is
+unplugged, or run `workspace setup` from the folder's new location. The `info`
+codes keep `vault.check` at exit 0, so Doctor stays healthy; the two
+unreadable-file warnings make Doctor's overall result unhealthy for the
+current vault until the file is restored or rebuilt.
+
+### Claims and dismissals
+
+`maintenance list` shows judgement findings and groups, automatic groups
+whose last outcome was `failed`, `unknown`, `deferred` or `needs_person`, and
+expired claims, each with its `key`, `fingerprint` and claim state. A
+scope-wide judgement family (`frontmatter`, `ownership`, `empty_folders`,
+`semantic`) is one group with one key. Every `error` finding with no repair
+family is one item per file (one for the check when it names no file), keyed
+by its check and, when it declares one, its code: today the `workspace_contract` errors (`workspace_reference_missing`,
+`workspace_reference_archived`, `workspace_reference_wrong_type`,
+`workspace_reference_malformed`, `workspace_hub_invalid`,
+`workspace_ownership_invalid`, `workspace_policy_invalid` and
+`workspace_scan_unreadable`, plus the `workspace_binding_*` errors when the
+command runs from a workspace folder), `root_files` and `living_key_fields`.
+Of the warning and info findings, `workspace_link_unverifiable` and
+`workspace_folder_unreachable` are one item per linked workspace row, and
+`workspace_registry_unreadable`, `workspace_registry_unparseable` and
+`workspace_links_unverified` are one item for the registry file; every other
+warning or info finding with no repair family is report-only. Each of these
+codes is classified once, beside the Brain repair table, by what identifies
+its condition (DD-086): the key alone (`root_files`), or declared `evidence`
+that the fingerprint follows (every other code: the key value, the workspace
+field, the hub and its type, the broken ownership rule and parent, the
+shared policy fields, the bound hub and the binding step that failed, or the
+reason a registry file cannot be read, so a dismissal reopens when that
+changes while the file stays the same). `workspace_scan_unreadable` names no
+file and declares no evidence, so it is the one that can be claimed but
+never dismissed. A finding whose producer breaks that classification is
+listed as claim-only too, with a `degraded_capability` warning on every
+maintenance result naming it; nothing else is blocked.
+
+```bash
+brain --brain my-brain maintenance claim --request-json '{"key":"9a4c0e7b12d3f5a8","claimant":"rob"}' --json
+brain --brain my-brain maintenance dismiss --request-json \
+  '{"key":"c71e2b9d0f4a6e13","expected_fingerprint":"5d…","reason":"intentional link","actor":"rob"}' --json
+brain --brain my-brain maintenance release --request-json '{"key":"9a4c0e7b12d3f5a8","actor":"rob"}' --json
+```
+
+A claim lasts one hour from the last claim or re-claim; re-claiming extends it,
+another claimant is refused while it is live and replaces it after expiry. An
+expired claim on a still-detected finding is a review item until it is
+re-claimed, released or dismissed, and the pass never runs it. A dismissal
+records the fingerprint; a finding re-detected with the same fingerprint stays
+quiet for thirty days, changed evidence reopens it, and after retention the
+finding returns for a deliberate re-review. A dismissal is only recorded where
+a re-detection could reopen it: automatic groups are claimable but never
+dismissible, and so is a judgement finding with nothing that identifies a
+change, no subject and no declared evidence, which `dismiss` refuses as a
+no-effect `invalid_request` error on `key` (claim it, or fix it). A dismissal recorded before a finding's producer
+declared evidence reopens once, and a recorded dismissal of a finding that can
+no longer be dismissed is inert until retention prunes it. `router` is never
+held because detection depends on
+it. Claimant and actor names are self-asserted coordination, not access
+control. The decision commands are content class, so under
+`defaults.access.initial.mode: read-only` (or an `explicit` mode that omits
+them) they need either `normal` mode or a `brain session run` job; they
+detect in process, so the job route works. CLI jobs are verified on macOS only
+and unavailable on native Windows, where operators switch modes.
+
+A real router or lexical rebuild clears the semantic embeddings, so on a
+vault with semantic retrieval configured the pass reports `semantic` as
+needing a person after such a rebuild. Ordinary Brain writes also clear
+embeddings, so `semantic` is almost always advised on semantic vaults until
+`retrieval.repair-semantic` runs.
+
 ## Launcher recovery and old Brains
 
-CLI 3 can identify and recover an installed Brain older than 0.55.0, but it does not translate old grammars. Launcher-owned version, doctor, install and upgrade/recovery commands remain available. Attempting an application command returns structural `upgrade_required`; that Brain's own legacy scripts remain directly invocable until the Brain is upgraded.
+CLI 3 can identify and recover an installed Brain older than 0.55.0, but it does not translate old grammars. Launcher-owned version, doctor, install and upgrade/recovery commands remain available. Doctor and the machine commands keep working beside a Brain whose own runtime contract cannot be read; see `runtime_contract_unavailable` above. Core Doctor runs the current Brain's `check.py` with the interpreter that Brain's own contract names, the same judgement as the machine section, so an older Brain on its own working runtime needs no fallback; for a Brain whose contract cannot be evaluated it falls back to that Brain's legacy `.venv` or the launcher and notes the cause and the upgrade command, and when neither exists it reports that cause rather than a runtime repair. Attempting an application command returns structural `upgrade_required`; that Brain's own legacy scripts remain directly invocable until the Brain is upgraded.
 
-`brain.upgrade` v2 performs a complete-registry preflight and coordinates Brain Core 0.55+, the installed CLI, catalogue, manifest and proxy contracts. Known other pre-cutover Brains require `acknowledge_global_cli_cutover: true`. Stale registry IDs require an exact sorted `excluded_stale_brain_ids` list; unknown registry scope cannot be waived.
+`brain.upgrade` v3 performs a complete-registry preflight and coordinates Brain Core 0.55+, the installed CLI, catalogue, manifest and proxy contracts. Known other pre-cutover Brains require `acknowledge_global_cli_cutover: true`. Stale vault registry IDs, including a row that is no longer its own canonical path (version 3; v2 refused it as an unsafe path), require an exact sorted `excluded_stale_brain_ids` list; unknown registry scope cannot be waived.
 
-After provisioning the target managed runtime, upgrade invokes the compatible machine CLI's ownership migration and Brain-breadth MCP repair. This covers shared user registration even when the vault has no project registration, and the selected Brain's registered external targets. Registration or readiness failure is a known partial outcome with explicit effects and recovery guidance, not a false success. Upgrade then starts or joins the selected Brain's canonical runtime warm-up and waits for a recorded `ready` state. Its read-only machine inspection recommends explicit runtime removal only when both persisted-registration coverage and live-process inspection permit it.
+Version 3 also makes `.brain-core/VERSION` the commit point: it is written after the core copy, both migration stages, skill reconciliation and the CLI cutover, so every earlier failure rolls back and an interrupted run resumes as an ordinary upgrade whose recorded migrations are skipped. `force: true` re-applies only a source whose version and core already match the installed Core; its `migrations` payload is empty, because a recorded migration never re-runs. A same-version source whose core differs re-applies without `force` and reports a `core_mismatch` warning. A run that will be skipped never prepares the global CLI cutover: `upgrade.py` runs that whole-registry preflight only after the content guard and the same-version decision, so a stale registry row cannot turn an "already at" install into a refusal, and a preflight failure or unacknowledged cutover is a no-effect `cutover_preflight` error (JSON under `--json`). `install.sh` shows the preview's diagnostics when it is refused and treats a preview with no result as an error rather than re-applying. A source older than the recorded content (the higher of the installed `VERSION` and the highest migration ledger record) is refused as a no-effect `conflict` error, with or without `force`; the message names a source route at or above the content version and never `brain upgrade`. A source or installed `VERSION` that is not strict `X.Y.Z` is refused the same way (`version_unreadable`), as is a migration ledger that is present but cannot be read (`ledger_unreadable`; the message names the file and the recovery routes), because seeding would otherwise overwrite it; a missing ledger is no records. After the commit, a failed `VERSION` write (`version_commit`) is a partial result whose next action is to rerun the same upgrade; a `VERSION` that is written but whose directory could not be fsynced is a `version_commit_not_durable` warning and the run continues; a failed router compile (`router_compile`) is a partial result whose next action is `runtime.refresh-router`. Before the commit, the original bytes of every vault path the run may change are journalled write-ahead under the machine state home (an absolute `$XDG_STATE_HOME`, else `~/.local/state`, then `brain/upgrade-journals/`), so a killed run is rolled back by the next upgrade from the same journal an in-process failure uses. That restore is an effect of its own: the run reports `recovered_interrupted_upgrade` (`follow_up_required`) and a `recovery` summary, the launcher records an `upgrade-recovery:<journal>` committed effect, and a run that then refuses or skips is a `partial` result rather than a no-effect error. Bytes the restore would replace or remove that differ from the journal (edits made after the kill, or the killed run's own half-applied writes) are first copied to `brain/upgrade-recovery/` under the same state home, with a manifest, and the warning names that directory. A dry run reports that the restore will happen first, previews the migrations the restored ledger will rerun, and writes nothing. A leftover journal is classified by `VERSION`: one whose version-changing run `VERSION` already witnesses is discarded (`upgrade_journal_discarded`); one whose old version is the installed one is restored; any other pairing is a no-effect `journal_stale` refusal. The upgrader takes the vault mutation lock once, before the recovery, and holds it through the guards, the pre-commit span and the commit; a lock it cannot take is a no-effect `vault_busy` refusal, a journal that cannot be read or names another vault is a no-effect `journal_unreadable` refusal whose message names the journal and the recovery choices, and a journal that cannot be opened (or that an earlier run could not remove, `upgrade_journal_not_discarded`) is a no-effect `journal_unavailable` refusal. A refused, busy or skipped run leaves the vault byte-identical, apart from the lock endpoint, when no journal was present. The upgrader's warnings reach the launcher result: `core_mismatch` (local edits under `.brain-core/` are overwritten), `interrupted_previous_upgrade` (a `running` upgrade log with no journal to restore) and `recovered_interrupted_upgrade` as `follow_up_required`, `version_commit_not_durable` and the remaining diagnostics as `degraded_capability`, each message prefixed with the upgrader's own code.
+
+After provisioning the target managed runtime, upgrade invokes the compatible machine CLI's ownership migration and Brain-breadth MCP repair. This covers shared user MCP registration even when the vault has no project MCP registration, and the selected Brain's registered external targets. MCP registration or readiness failure is a known partial outcome with explicit effects and recovery guidance, not a false success. Upgrade then starts or joins the selected Brain's canonical runtime warm-up and waits for a recorded `ready` state. Its read-only machine inspection recommends explicit runtime removal only when both persisted MCP registration coverage and live-process inspection permit it.
 
 ## MCP registration and repair
 
-`mcp.configure` v3 requires `client`: `claude`, `codex`, `grok`, or `all`.
+`mcp.configure` v4 requires `client`: `claude`, `codex`, `grok`, or `all` (v4: a workspace bound to a Brain whose vault registry row is no longer canonical refuses, with that row's recovery).
 Claude supports `project`, `local`, and `user`; Codex and Grok support project
 and user only. `all` with local scope selects Claude and reports the exclusions.
 Configuration never creates a workspace binding or changes the machine default.
@@ -358,16 +644,25 @@ the same admitted workset without writes. Results separate native scope, repair
 breadth, target paths, runtime steps and known file effects.
 
 Repair restores missing owned files but never installs an unselected client.
-Unowned or modified Brain slots, damaged ledgers, unavailable registered targets
-and missing reverse coverage stop admission. Unrelated native client settings
+Unowned or modified Brain slots, damaged ledgers and missing reverse coverage
+stop admission. A registered Brain or linked folder that is absent (unplugged or
+moved) does not: Brain and machine breadth repair everything reachable and name
+each absent location in a `follow_up_required` warning (`mcp.repair` version 4).
+Reconnect it, or unregister it. While approval records exist, the approval
+inventory, which needs every registered location, runs first, so the repair
+still refuses with the same remedy. Uninstall and Brain unregistration need
+every linked folder of the Brain they remove; while approval records exist,
+the approval inventory runs first for them too and needs every registered
+location. MCP migration and approval changes need every registered location.
+Each refuses with that remedy. Unrelated native client settings
 are preserved. Shared Claude hooks/bootstrap survive ordinary scope removal
 while an admitted sibling or user route still needs them.
 
-Brain registry unregister and stale-entry removal refuse surviving canonical
+Brain unregistration (`brain unregister`) and stale-entry removal refuse surviving canonical
 integrations or unowned native Brain slots. Remove those integrations explicitly,
 or use composed Brain uninstall, before dropping their inventory root. CLI
-replacement takes the same machine registration lock as projection mutation, so
-capability checks and cutover cannot race a new shared registration.
+replacement takes the same machine MCP registration lock as projection mutation, so
+capability checks and cutover cannot race a new shared MCP registration.
 
 ### Migration and bootstrap recovery
 
@@ -381,8 +676,11 @@ brain doctor --json
 ```
 
 Migration admits exact recorded legacy claims, recovers known reverse targets,
-and moves shared user claims into the machine ledger. It preserves custom or
-ambiguous state for explicit resolution. Rerun migration to resume a journalled
+and moves shared user claims into the machine ledger. When a record claims a
+Claude bootstrap line from an earlier Brain release, the file's Brain-written
+lines become one current line in place, and the rest of the file is kept. It
+preserves custom or ambiguous state, including an edited recorded line, for
+explicit resolution. Rerun migration to resume a journalled
 interruption; do not delete its before/after evidence. Retired runtime references
 remain protected until the persisted user command completes a normal MCP read
 with the expected Brain identity. An unavailable Brain can therefore leave a
@@ -409,22 +707,31 @@ interpreter (outside a virtual environment):
 /absolute/python3.12 cli/_distribution.py /path/to/source /path/to/prefix/bin/brain --bootstrap-python /absolute/python3.12
 ```
 
+Repair guidance in `vault.check` and Doctor findings names catalogue commands:
+the `brain --vault … <noun> <verb>` form when a launcher is on `PATH`, else the
+vault's own `command.py` form; `brain session run -- brain … retrieval
+repair-semantic` for the exceptional semantic repair; and for the machine-owned
+`runtime` and `mcp` scopes the launcher form or, without a launcher,
+`repair.py <scope>`. `migrate-legacy-installations` runs its `runtime` and
+`mcp` steps through the launcher's own commands, each with its own receipt; the
+linked workspace registry belongs to the Brain and is not part of it.
+
 Use `brain.cmd` at the Windows destination. Doctor reports bootstrap availability
-separately from registration state. Successful repair does not reload an already
+separately from MCP registration state. Successful repair does not reload an already
 running MCP host; reconnect/restart that host as required by the runtime-drift
 diagnostic. CLI replacement refuses to remove stdio capability while persisted
-user registrations still depend on it.
+user MCP registrations still depend on it.
 
 ## Installation
 
 The installer writes a versioned distribution under the selected prefix and a small platform bootloader under `bin/`:
 
-- Unix-like user install: `~/.local/bin/brain` and `~/.local/lib/brain-cli/4.0.6/`.
-- Native Windows user install: `%LOCALAPPDATA%\Programs\Brain\bin\brain.cmd` and the adjacent `lib\brain-cli\4.0.6\` distribution.
+- Unix-like user install: `~/.local/bin/brain` and `~/.local/lib/brain-cli/5.0.0/`.
+- Native Windows user install: `%LOCALAPPDATA%\Programs\Brain\bin\brain.cmd` and the adjacent `lib\brain-cli\5.0.0\` distribution.
 
 The distribution contains the launcher application plus the Brain Core payload needed for install, upgrade and selected-Brain execution. Installation and replacement verify a content manifest and executable identity; failed replacement restores the proven old binary/distribution pair or retains recovery material and reports the outcome as unverified. Failed upgrade results carry every known absolute recovery path in the structural error and durable launcher receipt: residual staging material after a verified rollback is a known partial outcome, while unverified rollback remains outcome-unknown. Standalone human output lists the same paths before the failure message. Once the new pair is verified, failure or interruption while removing an old backup is committed post-upgrade recovery work and never rolls Brain Core back to an older version. Both the launcher result and standalone distribution JSON list the surviving `cleanup_recovery_paths`.
 
-The bootloader requires Python 3.12 or newer. `BRAIN_CLI_VERSION` is `4.0.6`; `BRAIN_INSTALL_REF` is `v0.70.11`.
+The bootloader requires Python 3.12 or newer. `BRAIN_CLI_VERSION` is `5.0.0`; `BRAIN_INSTALL_REF` is `v0.71.0`.
 
 JSON command invocations validate the structural stdout envelope, including
 command identity, version and exit category. Incidental child stderr does not

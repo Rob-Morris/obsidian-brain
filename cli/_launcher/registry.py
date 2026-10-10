@@ -36,6 +36,10 @@ class BrainRegistryEntry:
     stale: bool | None
     is_default: bool
     status: str | None = None
+    # Version 2: why a local row is stale, the one command that recovers it (None: none is named), and why in words.
+    stale_reason: str | None = None
+    stale_guidance: str | None = None
+    stale_explanation: str | None = None
 
     def __post_init__(self) -> None:
         _validate_brain_id(self.brain_id)
@@ -170,14 +174,16 @@ class BrainGetDefaultRequest:
 @dataclass(frozen=True, slots=True)
 class BrainListRequest:
     COMMAND_ID: ClassVar[str] = "brain.list"
-    COMMAND_VERSION: ClassVar[int] = 1
+    # 2: a row that is not its own canonical path, or names no installed Brain, is stale.
+    COMMAND_VERSION: ClassVar[int] = 2
     RESULT_TYPE: ClassVar[type] = BrainListPayload
 
 
 @dataclass(frozen=True, slots=True)
 class BrainResolveRequest:
     COMMAND_ID: ClassVar[str] = "brain.resolve"
-    COMMAND_VERSION: ClassVar[int] = 1
+    # 2: a stale row is a conflict naming its recovery, never an ok path.
+    COMMAND_VERSION: ClassVar[int] = 2
     RESULT_TYPE: ClassVar[type] = BrainResolvePayload
 
     brain_id: str
@@ -189,7 +195,8 @@ class BrainResolveRequest:
 @dataclass(frozen=True, slots=True)
 class BrainRegisterRequest:
     COMMAND_ID: ClassVar[str] = "brain.register"
-    COMMAND_VERSION: ClassVar[int] = 1
+    # 2: only an installed Brain registers, and a Brain a drifted row resolves to is never given a second ID.
+    COMMAND_VERSION: ClassVar[int] = 2
     RESULT_TYPE: ClassVar[type] = BrainRegisterPayload
 
     vault_root: Path
@@ -204,7 +211,8 @@ class BrainRegisterRequest:
 @dataclass(frozen=True, slots=True)
 class BrainUnregisterRequest:
     COMMAND_ID: ClassVar[str] = "brain.unregister"
-    COMMAND_VERSION: ClassVar[int] = 1
+    # 2: a path through a symlink that names a drifted row, or is ambiguous with one, refuses (DD-083 item 2).
+    COMMAND_VERSION: ClassVar[int] = 2
     RESULT_TYPE: ClassVar[type] = BrainUnregisterPayload
 
     vault_root: Path
@@ -235,7 +243,8 @@ class BrainClearDefaultRequest:
 @dataclass(frozen=True, slots=True)
 class RegistryRemoveStaleRequest:
     COMMAND_ID: ClassVar[str] = "registry.remove-stale"
-    COMMAND_VERSION: ClassVar[int] = 1
+    # 2: removes rows that are not their own canonical path or name no installed Brain.
+    COMMAND_VERSION: ClassVar[int] = 2
     RESULT_TYPE: ClassVar[type] = RegistryRemoveStalePayload
 
 
@@ -269,6 +278,9 @@ def execute_list(_context: LauncherContext, request: BrainListRequest):
             item.get("stale"),
             bool(item["default"]),
             item.get("status"),
+            item.get("stale_reason"),
+            item.get("stale_guidance"),
+            item.get("stale_explanation"),
         )
         for item in raw_entries
     )
@@ -279,7 +291,8 @@ def execute_resolve(_context: LauncherContext, request: BrainResolveRequest):
     import vault_registry
 
     try:
-        vault_root = vault_registry.resolve(request.brain_id)
+        # A stale row resolves to nothing usable; the error carries its recovery (version 2).
+        vault_root = vault_registry.require_live(request.brain_id)
     except (vault_registry.RegistryReadError, OSError, ValueError) as exc:
         return no_effect_error(type(request), ErrorCode.CONFLICT, str(exc))
     if vault_root is None:
@@ -346,19 +359,15 @@ def _registry_error(request, exc):
 def execute_register(context: LauncherContext, request: BrainRegisterRequest):
     import vault_registry
 
-    if not vault_registry.is_vault_root(request.vault_root):
-        return no_effect_error(
-            type(request),
-            ErrorCode.INVALID_REQUEST,
-            "vault_root must identify an installed local Brain.",
-            "vault_root",
-        )
     try:
         result = vault_registry.register_action(
             request.vault_root,
             brain_id=request.brain_id,
             dry_run=context.dry_run,
         )
+    except vault_registry.NotABrainError as exc:
+        # The owner's rule: only an installed Brain registers, so a row is never stale on arrival.
+        return no_effect_error(type(request), ErrorCode.INVALID_REQUEST, str(exc), "vault_root")
     except (
         vault_registry.RegistryReadError,
         vault_registry.RegistryConflictError,

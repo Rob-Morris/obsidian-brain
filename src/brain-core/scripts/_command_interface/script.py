@@ -148,6 +148,7 @@ def _run(argv, *, stdin, stdout, stderr, context_factory, script_path, owner_att
             operator_key=args.operator_key,
             workspace_dir=workspace,
             dry_run=args.dry_run,
+            maintenance_invoker=True,
             **({"operation_id": args.operation} if args.operation is not None else {}),
             **({"owner_attachment": owner_attachment} if owner_attachment is not None else {}),
             **({"transport_identity": transport_identity, "owner_initialisation_allowed": owner_initialisation_allowed}

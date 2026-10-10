@@ -20,7 +20,9 @@ from ..results import Error
 @dataclass(frozen=True, slots=True)
 class WorkspaceConfigureBootstrapRequest:
     COMMAND_ID: ClassVar[str] = "workspace.configure-bootstrap"
-    COMMAND_VERSION: ClassVar[int] = 2
+    # 3: adding converges any line Brain has written as a bootstrap line to the current one in place,
+    # removal removes all of them, and a workspace AGENTS.md gets the workspace (project) line.
+    COMMAND_VERSION: ClassVar[int] = 3
     RESULT_TYPE: ClassVar[type] = CallerWorkspacePayload
 
     surface: Literal["all", "agents", "claude", "grok"] = "all"
@@ -65,7 +67,6 @@ def execute(context: InvocationContext, request: WorkspaceConfigureBootstrapRequ
             remove=request.remove,
         ),
         effect_subjects=effects,
-        lock_root=target,
     )
 
 

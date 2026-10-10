@@ -8,12 +8,12 @@ import getpass
 import json
 import os
 from pathlib import Path
-import subprocess
 import sys
 from typing import Mapping
 from types import SimpleNamespace
 from _bootstrap.owner_attachment import OwnerAttachment, ProcessIdentity, PROCESS_CONTEXT_ENV
 from _bootstrap.consent_owner import OwnerConnectionError, OwnerTransportUnavailable
+from _common._venv import ROLE_CLI, managed_command
 
 from launcher_catalogue import LAUNCHER_CATALOGUE
 from _launcher.adapter import LauncherAdapter
@@ -215,19 +215,48 @@ def _trusted_distribution() -> tuple[Path, Path]:
 
 
 def _resolve_optional(common, *, required: bool) -> SelectedBrain | None:
-    explicit = any((common.vault, common.brain_id, common.workspace))
     try:
-        attachment = getattr(common, "owner_attachment", None)
-        inherited_job = attachment is not None and attachment.kind == "cli-job" and not explicit
-        return resolve_selected_brain(
-            vault=os.environ.get("BRAIN_VAULT_ROOT") if inherited_job else common.vault,
-            brain_id=common.brain_id,
-            workspace=os.environ.get("BRAIN_WORKSPACE_DIR") if inherited_job else common.workspace,
-        )
+        return _resolve(common)
     except Exception as exc:
-        if required or explicit:
+        if required or _explicit(common):
             raise CliError(str(exc)) from exc
         return None
+
+
+def _explicit(common) -> bool:
+    return any((common.vault, common.brain_id, common.workspace))
+
+
+def _resolve(common) -> SelectedBrain:
+    attachment = getattr(common, "owner_attachment", None)
+    inherited_job = attachment is not None and attachment.kind == "cli-job" and not _explicit(common)
+    return resolve_selected_brain(
+        vault=os.environ.get("BRAIN_VAULT_ROOT") if inherited_job else common.vault,
+        brain_id=common.brain_id,
+        workspace=os.environ.get("BRAIN_WORKSPACE_DIR") if inherited_job else common.workspace,
+    )
+
+
+def _resolve_doctor_selection(common) -> SelectedBrain | None:
+    """The Brain a caller selected for Doctor's vault section, or None to stay machine-wide.
+
+    Only the machine fallback rungs (the default Brain, even a dangling one, or
+    nothing at all) select no Brain. A selection that fails anywhere else (an
+    explicit selector, ``BRAIN_WORKSPACE_DIR``, a cwd workspace binding, or the
+    registry read that resolves one) fails the command with its own message, as
+    an application command does, rather than reporting nothing in scope.
+    """
+    from _bootstrap.workspace_binding import MACHINE_FALLBACK_RUNGS, WorkspaceBindingError
+
+    try:
+        selected = _resolve(common)
+    except WorkspaceBindingError as exc:
+        if exc.rung in MACHINE_FALLBACK_RUNGS:
+            return None
+        raise CliError(str(exc)) from exc
+    except Exception as exc:
+        raise CliError(str(exc)) from exc
+    return None if selected.source in MACHINE_FALLBACK_RUNGS else selected
 
 
 def _resolve_for_command(common, entry, payload) -> SelectedBrain | None:
@@ -249,6 +278,8 @@ def _resolve_for_command(common, entry, payload) -> SelectedBrain | None:
             )
         except Exception as exc:
             raise CliError(str(exc)) from exc
+    if entry is not None and entry.command_id == "brain.doctor":
+        return _resolve_doctor_selection(common)
     return _resolve_optional(common, required=False)
 
 
@@ -374,7 +405,8 @@ def _initialise_selected_job(selected, owner, common) -> None:
             argv.extend(("--operator-key", common.operator_key))
         if selected.workspace is not None:
             argv.extend(("--workspace", str(selected.workspace)))
-        result = subprocess.run(argv, **options, capture_output=True, text=True, timeout=30)
+        result = managed_command(argv, role=ROLE_CLI, env=options.pop("env")).run(
+            **options, capture_output=True, text=True, timeout=30)
         if result.returncode != 0:
             raise CliError("selected Brain could not initialise the job: " + result.stderr.strip())
         expected = {"schema": "brain.owner-initialised/1", "context_id": owner.identity.context_id}
@@ -415,7 +447,8 @@ def _invoke_application(
         argv.extend(("--operator-key", common.operator_key))
     attachment = getattr(common, "owner_attachment", None)
     options = attachment.forwarded_process() if attachment is not None else {}
-    completed = subprocess.run(argv, capture_output=True, text=True, check=False, **options)
+    completed = managed_command(argv, role=ROLE_CLI, env=options.pop("env", None)).run(
+        capture_output=True, text=True, check=False, **options)
     if completed.returncode not in range(5):
         raise CliError("selected Brain discovery failed its structural process contract")
     try:

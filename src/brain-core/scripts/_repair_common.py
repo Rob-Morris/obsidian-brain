@@ -1,58 +1,190 @@
 #!/usr/bin/env python3
-"""Repair-specific metadata and guidance helpers."""
+"""The Brain repair table and the guidance derived from it (DD-082).
+
+One ``RepairFamily`` type, one table per owner: ``REPAIR_SCOPES`` is the Brain
+table, read by ``vault.check``, Doctor, ``repair.py`` and the maintenance
+pass. The machine table lives beside the machine pass in the launcher.
+
+Bootstrap tier: stdlib plus ``_common`` and ``_bootstrap`` only.
+"""
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+from functools import lru_cache
+import json
 from pathlib import Path
+import shutil
+from types import MappingProxyType
+from typing import Mapping
 
+from _bootstrap.maintenance_findings import Disposition, Identity, Owner
 from _bootstrap.runtime import (
-    BOOTSTRAP_SUMMARY_ENV,
     DEFAULT_MANAGED_RUNTIME_LAUNCHER,
     find_launcher_python,
 )
 from _common import join_argv
 
 
-REPAIR_SCRIPT_REL = Path(".brain-core/scripts/repair.py")
+__all__ = [
+    "AUTOMATIC_SCOPES", "Disposition", "Identity", "JUDGEMENT_FINDINGS", "NEVER_HELD", "Owner", "RECOVERY_SCOPES",
+    "REPAIR_SCOPES", "RepairFamily", "attach_repair_guidance", "build_catalogue_argv",
+    "build_catalogue_command", "build_repair_argv", "build_repair_command", "build_repair_metadata",
+    "family_for_finding", "find_launcher_binary",
+]
 
-REPAIR_SCOPES = {
-    "runtime": {
-        "description": "Repair the central managed Brain runtime and its baseline packages via bootstrap, then verify the result.",
-        "check_message": "Central managed Brain runtime is missing, unusable, or missing required baseline packages.",
-    },
-    "mcp": {
-        "description": "Repair current-vault Claude/Codex MCP registration state against a usable managed runtime.",
-        "check_message": "Brain MCP project registration drift detected for this vault.",
-    },
-    "router": {
-        "description": "Rebuild the compiled router cache.",
-        "check_message": "Compiled router is missing, stale, or unreadable.",
-    },
-    "lexical": {
-        "description": "Rebuild the lexical retrieval index cache.",
-        "check_message": "Lexical retrieval index is missing, stale, or unreadable.",
-    },
-    "registry": {
-        "description": "Repair the current vault's local workspace registry state.",
-        "check_message": "Local workspace registry state is malformed or needs normalisation.",
-    },
-    "frontmatter": {
-        "description": "Repair duplicate artefact frontmatter blocks by merging nested frontmatter into the document frontmatter.",
-        "check_message": "Artefact frontmatter is malformed and needs duplicate-frontmatter normalisation.",
-    },
-    "ownership": {
-        "description": "Reconcile derived owner folders and paths towards valid authoritative parent metadata.",
-        "check_message": "Parent metadata is valid but its derived filesystem projection has drifted.",
-    },
-    "semantic": {
-        "description": "Repair semantic runtime provisioning and embeddings sidecars for this vault.",
-        "check_message": "Semantic retrieval is configured on but the local semantic runtime is unavailable or stale.",
-    },
-    "empty_folders": {
-        "description": "Remove vacated-empty artefact folders (junk-only contents) under type roots and _Archive.",
-        "check_message": "Vacated-empty artefact folders are stranded under type roots or _Archive.",
-    },
-}
+REPAIR_SCRIPT_REL = Path(".brain-core/scripts/repair.py")
+COMMAND_SCRIPT_REL = Path(".brain-core/scripts/command.py")
+
+
+@dataclass(frozen=True, slots=True)
+class RepairFamily:
+    """One repair scope: the command that repairs it and how a pass treats it.
+
+    ``request`` is the static request payload for ``command_id``;
+    ``recovery`` marks a ``repair.py`` bootstrap-recovery scope (DD-043);
+    ``exceptional`` marks a command whose initial authorisation class refuses
+    standalone calls, so guidance names the ``brain session run`` form;
+    ``holdable`` is false for a family detection depends on, which a claim
+    never withholds from the pass; ``clears_embeddings`` marks a cache repair
+    that degrades semantic retrieval until the semantic repair runs. The
+    single-source repair-table test checks the catalogue-facing flags.
+    """
+
+    scope: str
+    command_id: str
+    request: Mapping[str, object]
+    disposition: Disposition
+    owner: Owner
+    recovery: bool
+    description: str
+    exceptional: bool = False
+    holdable: bool = True
+    clears_embeddings: bool = False
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "request", MappingProxyType(dict(self.request)))
+        if not self.scope.strip():
+            raise ValueError("repair family requires a scope")
+        if not self.command_id or "." not in self.command_id:
+            raise ValueError("repair family requires a noun.verb command identifier")
+        if not isinstance(self.disposition, Disposition) or not isinstance(self.owner, Owner):
+            raise ValueError("repair family disposition and owner must be typed")
+        if self.exceptional and self.disposition is Disposition.AUTOMATIC:
+            raise ValueError("an exceptional repair can never be automatic")
+        if not self.description.strip():
+            raise ValueError("repair family requires a description")
+
+    @property
+    def noun(self) -> str:
+        return self.command_id.split(".", 1)[0]
+
+    @property
+    def verb(self) -> str:
+        return self.command_id.split(".", 1)[1]
+
+
+def _brain(scope, command_id, request, disposition, description, *, recovery=True, exceptional=False,
+           holdable=True, clears_embeddings=False):
+    return RepairFamily(scope, command_id, request, disposition, Owner.BRAIN, recovery, description,
+                        exceptional=exceptional, holdable=holdable, clears_embeddings=clears_embeddings)
+
+
+def _machine(scope, command_id, description):
+    return RepairFamily(scope, command_id, {}, Disposition.JUDGEMENT, Owner.MACHINE, True, description)
+
+
+def _table(*families: RepairFamily) -> Mapping[str, RepairFamily]:
+    return MappingProxyType({family.scope: family for family in families})
+
+
+REPAIR_SCOPES: Mapping[str, RepairFamily] = _table(
+    _brain(
+        "router", "runtime.refresh-router", {}, Disposition.AUTOMATIC,
+        "Rebuild the compiled router cache.",
+        holdable=False, clears_embeddings=True,
+    ),
+    _brain(
+        "lexical", "retrieval.refresh-lexical", {}, Disposition.AUTOMATIC,
+        "Rebuild the lexical retrieval index cache.",
+        clears_embeddings=True,
+    ),
+    _brain(
+        "temporaries", "runtime.remove-temporaries", {}, Disposition.AUTOMATIC,
+        "Remove stranded atomic-write temporary files from .brain/local.",
+        recovery=False,
+    ),
+    _brain(
+        "frontmatter", "artefact.repair", {"scope": "frontmatter"}, Disposition.JUDGEMENT,
+        "Repair duplicate artefact frontmatter blocks by merging nested frontmatter into the document frontmatter.",
+    ),
+    _brain(
+        "ownership", "artefact.repair", {"scope": "ownership"}, Disposition.JUDGEMENT,
+        "Reconcile derived owner folders and paths towards valid authoritative parent metadata.",
+    ),
+    _brain(
+        "empty_folders", "artefact.repair", {"scope": "empty_folders"}, Disposition.JUDGEMENT,
+        "Remove vacated-empty artefact folders (junk-only contents) under type roots and _Archive.",
+    ),
+    _brain(
+        "semantic", "retrieval.repair-semantic", {}, Disposition.JUDGEMENT,
+        "Repair semantic runtime provisioning and embeddings sidecars for this vault.",
+        exceptional=True,
+    ),
+    _brain(
+        "registry", "workspace.repair-registry", {}, Disposition.AUTOMATIC,
+        "Rebuild a malformed linked workspace registry without its invalid rows and drop rows whose manifest names another Brain or workspace.",
+    ),
+    _machine(
+        "runtime", "runtime.repair",
+        "Repair the central managed Brain runtime and its baseline packages via bootstrap, then verify the result.",
+    ),
+    _machine(
+        "mcp", "mcp.repair",
+        "Repair current-vault Claude/Codex MCP registration state against a usable managed runtime.",
+    ),
+)
+
+# Every family-less judgement finding the Brain checks emit, as (check, code)
+# with what identifies its condition (DD-086). An error with no family is a
+# judgement finding by severity and must be listed; a warning or info finding
+# is a judgement finding only by being listed. ``SUBJECT`` rows promise a file
+# and no evidence, ``EVIDENCE`` rows promise non-empty declared evidence, and
+# ``KIND_ONLY`` rows promise neither and are claimable but never dismissible.
+# Detection demotes a finding that breaks its row's promise, or an unlisted
+# error, to kind-only and reports the breach; the repair-table test is the gate.
+JUDGEMENT_FINDINGS: Mapping[tuple[str, str | None], Identity] = MappingProxyType({
+    ("root_files", None): Identity.SUBJECT,
+    ("living_key_fields", None): Identity.EVIDENCE,
+    ("workspace_contract", "workspace_scan_unreadable"): Identity.KIND_ONLY,
+    ("workspace_contract", "workspace_reference_malformed"): Identity.EVIDENCE,
+    ("workspace_contract", "workspace_reference_missing"): Identity.EVIDENCE,
+    ("workspace_contract", "workspace_reference_archived"): Identity.EVIDENCE,
+    ("workspace_contract", "workspace_reference_wrong_type"): Identity.EVIDENCE,
+    ("workspace_contract", "workspace_hub_invalid"): Identity.EVIDENCE,
+    ("workspace_contract", "workspace_ownership_invalid"): Identity.EVIDENCE,
+    ("workspace_contract", "workspace_policy_invalid"): Identity.EVIDENCE,
+    ("workspace_contract", "workspace_binding_terminal_inactive"): Identity.EVIDENCE,
+    ("workspace_contract", "workspace_binding_configured_invalid"): Identity.EVIDENCE,
+    ("workspace_registry", "workspace_link_unverifiable"): Identity.EVIDENCE,
+    ("workspace_registry", "workspace_folder_unreachable"): Identity.EVIDENCE,
+    ("workspace_registry", "workspace_links_unverified"): Identity.EVIDENCE,
+    ("workspace_registry", "workspace_registry_unreadable"): Identity.EVIDENCE,
+    ("workspace_registry", "workspace_registry_unparseable"): Identity.EVIDENCE,
+})
+
+RECOVERY_SCOPES = tuple(scope for scope, family in REPAIR_SCOPES.items() if family.recovery)
+AUTOMATIC_SCOPES = tuple(
+    scope for scope, family in REPAIR_SCOPES.items()
+    if family.disposition is Disposition.AUTOMATIC
+)
+NEVER_HELD = frozenset(scope for scope, family in REPAIR_SCOPES.items() if not family.holdable)
+
+
+@lru_cache(maxsize=1)
+def find_launcher_binary() -> str | None:
+    """Locate the machine ``brain`` launcher on PATH once per process; patched by tests."""
+    return shutil.which("brain")
 
 
 def build_repair_argv(
@@ -63,7 +195,7 @@ def build_repair_argv(
     json_mode: bool = False,
     dry_run: bool = False,
 ) -> list[str]:
-    """Return argv for the exact repair.py invocation for one scope."""
+    """Return argv for the exact repair.py invocation for one recovery scope."""
     vault_root = Path(vault_root).resolve()
     script_path = vault_root / REPAIR_SCRIPT_REL
     launcher = launcher or find_launcher_python() or DEFAULT_MANAGED_RUNTIME_LAUNCHER
@@ -89,7 +221,7 @@ def build_repair_command(
     json_mode: bool = False,
     dry_run: bool = False,
 ) -> str:
-    """Return an exact shell-ready repair command for the given scope."""
+    """Return an exact shell-ready repair.py command for one recovery scope."""
     return join_argv(
         build_repair_argv(
             vault_root,
@@ -101,14 +233,68 @@ def build_repair_command(
     )
 
 
+def _request_argv(family: RepairFamily) -> list[str]:
+    if not family.request:
+        return []
+    return ["--request-json", json.dumps(dict(family.request), separators=(",", ":"), sort_keys=True)]
+
+
+def build_catalogue_argv(vault_root: str | Path, family: RepairFamily) -> list[str]:
+    """Return argv naming the catalogue command that repairs ``family``.
+
+    Three forms: a Brain-owned, initially authorised family runs through the
+    launcher when one is on PATH, else through the vault's own ``command.py``;
+    an exceptional Brain-owned family needs a ``brain session run`` job; a
+    machine-owned family runs through the launcher, else through the
+    ``repair.py`` recovery scope, because ``command.py`` dispatches
+    application commands only.
+    """
+    root = Path(vault_root).resolve()
+    launcher = find_launcher_binary()
+    if family.owner is Owner.MACHINE:
+        if launcher is not None:
+            return [launcher, "--vault", str(root), family.noun, family.verb, *_request_argv(family)]
+        return build_repair_argv(root, family.scope)
+    if family.exceptional:
+        binary = launcher or "brain"
+        return [binary, "--vault", str(root), "session", "run", "--",
+                binary, "--vault", str(root), family.noun, family.verb, *_request_argv(family)]
+    if launcher is not None:
+        return [launcher, "--vault", str(root), family.noun, family.verb, *_request_argv(family)]
+    python = find_launcher_python() or DEFAULT_MANAGED_RUNTIME_LAUNCHER
+    return [python, str(root / COMMAND_SCRIPT_REL), family.noun, family.verb,
+            "--vault", str(root), *_request_argv(family)]
+
+
+def build_catalogue_command(vault_root: str | Path, family: RepairFamily) -> str:
+    """Return the shell-ready catalogue command that repairs ``family``."""
+    return join_argv(build_catalogue_argv(vault_root, family))
+
+
 def build_repair_metadata(vault_root: str | Path, scope: str) -> dict:
     """Return structured repair guidance for a compliance finding."""
-    meta = REPAIR_SCOPES[scope]
+    family = REPAIR_SCOPES[scope]
     return {
-        "scope": scope,
-        "description": meta["description"],
-        "command": build_repair_command(vault_root, scope),
+        "scope": family.scope,
+        "description": family.description,
+        "command_id": family.command_id,
+        "command": build_catalogue_command(vault_root, family),
     }
+
+
+def family_for_finding(finding: Mapping) -> RepairFamily | None:
+    """The repair family that owns a finding, or ``None`` when it carries no ``repair``.
+
+    Producers attach ``repair`` only through ``attach_repair_guidance``, so a
+    ``repair`` that is not a mapping, or names a scope this table lacks, is a
+    broken producer and fails loudly: ``ValueError`` and ``KeyError``.
+    """
+    if "repair" not in finding:
+        return None
+    repair = finding["repair"]
+    if not isinstance(repair, Mapping):
+        raise ValueError(f"finding {finding.get('check')!r} carries a non-mapping repair: {repair!r}")
+    return REPAIR_SCOPES[repair["scope"]]
 
 
 def attach_repair_guidance(finding: dict, vault_root: str | Path, scope: str) -> dict:

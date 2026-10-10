@@ -9,8 +9,8 @@ import pytest
 from brain_mcp import proxy
 from brain_mcp._proxy_controls import control_response
 from brain_mcp._proxy_handoff import RawLineReader, read_state
-from test_mcp_proxy import _FakeChild, _make_inprocess_proxy, _write_vault
-from test_mcp_proxy_refresh import drive_lifecycle
+from proxy_test_support import _FakeChild, _make_inprocess_proxy, _write_vault
+from proxy_test_support import drive_lifecycle
 
 
 def test_runtime_drift_blocks_calls_even_with_current_core_and_live_work(tmp_path, monkeypatch):

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum
+import hashlib
 from pathlib import Path
 import re
 from typing import ClassVar
@@ -12,6 +13,7 @@ from .context import LauncherContext
 from .contracts import (
     CommandError,
     CommittedEffect,
+    Error,
     ErrorCode,
     Ok,
     Partial,
@@ -32,7 +34,6 @@ class LegacyMigrationStatus(str, Enum):
 class LegacyMigrationOperation(str, Enum):
     RUNTIME = "runtime"
     MCP = "mcp"
-    REGISTRY = "registry"
     LEGACY_RUNTIME = "legacy-runtime"
     VERIFY = "verify"
 
@@ -122,7 +123,7 @@ class BrainMigrateLegacyInstallationsPayload:
 @dataclass(frozen=True, slots=True)
 class BrainMigrateLegacyInstallationsRequest:
     COMMAND_ID: ClassVar[str] = "brain.migrate-legacy-installations"
-    COMMAND_VERSION: ClassVar[int] = 1
+    COMMAND_VERSION: ClassVar[int] = 2
     RESULT_TYPE: ClassVar[type] = BrainMigrateLegacyInstallationsPayload
 
     target: LegacyMigrationSelector | None = None
@@ -197,7 +198,6 @@ def _legacy_step_operation(name: str) -> LegacyMigrationOperation:
     return {
         "runtime": LegacyMigrationOperation.RUNTIME,
         "mcp": LegacyMigrationOperation.MCP,
-        "registry": LegacyMigrationOperation.REGISTRY,
         "legacy_venv": LegacyMigrationOperation.LEGACY_RUNTIME,
         "verify": LegacyMigrationOperation.VERIFY,
     }[name]
@@ -209,6 +209,53 @@ def _legacy_step_status(status: str) -> LegacyMigrationStepStatus:
         "planned": LegacyMigrationStepStatus.PLANNED,
         "changed": LegacyMigrationStepStatus.CHANGED,
     }[status]
+
+
+def repair_step_from_result(scope: str, result, *, dry_run: bool, command: str, invocation_id: str) -> dict:
+    """Map one nested launcher result onto the migration's step vocabulary.
+
+    The mapping mirrors the delegated ``repair.py`` map so legacy cleanup keeps
+    waiting on anything outside ``planned``, ``noop`` and ``changed``.
+    """
+    from _bootstrap.runtime import step as _step
+
+    common = {"command": command, "invocation_id": invocation_id}
+    if isinstance(result, Ok):
+        if dry_run:
+            return _step(scope, "planned", f"Would run target Brain repair {scope}.", outcome="none", **common)
+        if result.committed_effects:
+            return _step(scope, "changed", f"Ran target Brain repair {scope}.", outcome="committed", **common)
+        return _step(scope, "noop", f"Target Brain repair {scope} is already clean.", outcome="none", **common)
+    if isinstance(result, Partial):
+        return _step(scope, "partial", f"Target Brain repair {scope} completed partially: {result.error.message}",
+                     outcome="partial", **common)
+    if isinstance(result, Error) and (
+        result.effects == "unknown" or result.error.code is ErrorCode.COMMAND_OUTCOME_UNKNOWN
+    ):
+        return _step(scope, "error", f"Target Brain repair {scope} has an unknown outcome: {result.error.message}",
+                     outcome="unknown", **common)
+    return _step(scope, "error", f"Target Brain repair {scope} failed: {result.error.message}", outcome="none", **common)
+
+
+def _nested_repair_runner(context: LauncherContext):
+    """Run machine-owned repair scopes through the launcher's own commands."""
+    from _repair_common import REPAIR_SCOPES, Owner
+
+    from .machine_maintenance import launcher_guidance, launcher_request
+    from .nested_invocation import invoke_nested
+
+    def run(vault_root, scope: str) -> dict:
+        family = REPAIR_SCOPES[scope]
+        if family.owner is not Owner.MACHINE:
+            raise ValueError(f"unsupported machine-owned repair scope: {scope}")
+        root = Path(vault_root).resolve()
+        target = hashlib.sha256(str(root).encode("utf-8")).hexdigest()[:8]
+        invocation_id = f"{context.invocation_id}-{scope}-{target}"
+        result = invoke_nested(context, launcher_request(family), vault_root=root, invocation_id=invocation_id)
+        return repair_step_from_result(scope, result, dry_run=context.dry_run,
+                                       command=launcher_guidance(family, vault_root=root), invocation_id=invocation_id)
+
+    return run
 
 
 def _legacy_target_status(status: str) -> LegacyMigrationStatus:
@@ -258,7 +305,7 @@ def _migration_effects(
                 continue
             if step["name"] == "legacy_venv":
                 subject = f"legacy-runtime:{step['path']}"
-            elif step["name"] in {"runtime", "mcp", "registry"}:
+            elif step["name"] in {"runtime", "mcp"}:
                 subject = f"brain-{step['name']}:{brain_path}"
             else:
                 continue
@@ -292,7 +339,6 @@ def prepare_legacy_migration(context: LauncherContext):
     return maintenance.collect_machine_summary(
         current_vault=str(context.current_vault) if context.current_vault is not None else None,
         launcher_python=str(context.launcher_python) if context.launcher_python is not None else None,
-        synchronise_registry=False,
     )
 
 
@@ -319,6 +365,7 @@ def execute_prepared_legacy_migration(context, request, summary):
         ),
         dry_run=context.dry_run,
         selector=_selector_value(request.target),
+        repair_runner=_nested_repair_runner(context),
     )
     raw_targets = raw.get("targets", [])
     if _migration_has_unknown_outcome(raw_targets):
@@ -408,7 +455,6 @@ def execute_remove_orphans(
                 if context.launcher_python is not None
                 else None
             ),
-            synchronise_registry=False,
         )
     except (vault_registry.RegistryReadError, OSError, ValueError) as exc:
         return no_effect_error(type(request), ErrorCode.CONFLICT, str(exc))

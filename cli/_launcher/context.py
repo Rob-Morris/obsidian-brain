@@ -10,6 +10,13 @@ from typing import Protocol
 from .contracts import ReceiptWriter
 
 
+def launcher_state_home() -> Path:
+    """The machine-local state root, as every Brain-side reader of it resolves it."""
+    from _bootstrap.paths import state_home
+
+    return state_home()
+
+
 class AuthorityEvaluator(Protocol):
     def allows(self, *, command_id: str, required: str, effect: str) -> bool: ...
 

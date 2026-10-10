@@ -3,6 +3,7 @@
 **Status:** Implemented (v0.47.0, refined v0.48.0)
 **Extends:** DD-052, DD-049
 **Extended by:** DD-055
+**Amended by:** DD-083 (self-registration on operation is withdrawn so registration has one explicit owner)
 
 ## Context
 

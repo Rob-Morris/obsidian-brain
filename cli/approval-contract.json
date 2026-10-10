@@ -50,7 +50,7 @@
     },
     {
       "command_id": "brain.doctor",
-      "version": 2,
+      "version": 3,
       "owner": "launcher",
       "classification": "none",
       "mcp": null,
@@ -72,7 +72,7 @@
     },
     {
       "command_id": "brain.install",
-      "version": 4,
+      "version": 5,
       "owner": "launcher",
       "classification": "machine_mutation",
       "mcp": null,
@@ -83,7 +83,7 @@
     },
     {
       "command_id": "brain.list",
-      "version": 1,
+      "version": 2,
       "owner": "launcher",
       "classification": "none",
       "mcp": null,
@@ -94,7 +94,7 @@
     },
     {
       "command_id": "brain.migrate-legacy-installations",
-      "version": 1,
+      "version": 2,
       "owner": "launcher",
       "classification": "machine_mutation",
       "mcp": null,
@@ -105,7 +105,7 @@
     },
     {
       "command_id": "brain.register",
-      "version": 1,
+      "version": 2,
       "owner": "launcher",
       "classification": "machine_mutation",
       "mcp": null,
@@ -116,7 +116,7 @@
     },
     {
       "command_id": "brain.resolve",
-      "version": 1,
+      "version": 2,
       "owner": "launcher",
       "classification": "none",
       "mcp": null,
@@ -138,7 +138,7 @@
     },
     {
       "command_id": "brain.uninstall",
-      "version": 2,
+      "version": 3,
       "owner": "launcher",
       "classification": "machine_mutation",
       "mcp": null,
@@ -149,7 +149,7 @@
     },
     {
       "command_id": "brain.unregister",
-      "version": 1,
+      "version": 2,
       "owner": "launcher",
       "classification": "machine_mutation",
       "mcp": null,
@@ -160,7 +160,7 @@
     },
     {
       "command_id": "brain.upgrade",
-      "version": 2,
+      "version": 3,
       "owner": "launcher",
       "classification": "machine_mutation",
       "mcp": null,
@@ -181,8 +181,68 @@
       "authority": "reader"
     },
     {
+      "command_id": "machine-maintenance.claim",
+      "version": 1,
+      "owner": "launcher",
+      "classification": "machine_mutation",
+      "mcp": null,
+      "cli": [
+        "machine-maintenance",
+        "claim"
+      ],
+      "authority": "operator"
+    },
+    {
+      "command_id": "machine-maintenance.dismiss",
+      "version": 1,
+      "owner": "launcher",
+      "classification": "machine_mutation",
+      "mcp": null,
+      "cli": [
+        "machine-maintenance",
+        "dismiss"
+      ],
+      "authority": "operator"
+    },
+    {
+      "command_id": "machine-maintenance.list",
+      "version": 1,
+      "owner": "launcher",
+      "classification": "none",
+      "mcp": null,
+      "cli": [
+        "machine-maintenance",
+        "list"
+      ],
+      "authority": "reader"
+    },
+    {
+      "command_id": "machine-maintenance.release",
+      "version": 1,
+      "owner": "launcher",
+      "classification": "machine_mutation",
+      "mcp": null,
+      "cli": [
+        "machine-maintenance",
+        "release"
+      ],
+      "authority": "operator"
+    },
+    {
+      "command_id": "machine-maintenance.run",
+      "version": 1,
+      "owner": "launcher",
+      "classification": "machine_mutation",
+      "mcp": null,
+      "cli": [
+        "machine-maintenance",
+        "run"
+      ],
+      "authority": "operator"
+    },
+    {
       "command_id": "mcp.configure",
-      "version": 3,
+      "version": 4,
       "owner": "launcher",
       "classification": "machine_mutation",
       "mcp": null,
@@ -194,7 +254,7 @@
     },
     {
       "command_id": "mcp.migrate",
-      "version": 1,
+      "version": 2,
       "owner": "launcher",
       "classification": "machine_mutation",
       "mcp": null,
@@ -206,7 +266,7 @@
     },
     {
       "command_id": "mcp.repair",
-      "version": 3,
+      "version": 4,
       "owner": "launcher",
       "classification": "machine_mutation",
       "mcp": null,
@@ -242,7 +302,7 @@
     },
     {
       "command_id": "registry.remove-stale",
-      "version": 1,
+      "version": 2,
       "owner": "launcher",
       "classification": "machine_mutation",
       "mcp": null,
@@ -313,5 +373,5 @@
       "authority": "operator"
     }
   ],
-  "fingerprint": "sha256:832a245fc4724c5bd1bb06c45c1e34b9f7ed860ae25349d0590941805a204e37"
+  "fingerprint": "sha256:006f0c5e3fe52ef7ebef0c9b450ecca4e319d61383995e31b899a1aa00f41e80"
 }

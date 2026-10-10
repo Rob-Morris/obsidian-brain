@@ -9,6 +9,23 @@ RESTART_TOOL = "brain_proxy_restart"
 CONTROL_TOOLS = (STATUS_TOOL, REFRESH_TOOL, RESTART_TOOL)
 
 
+def rediscovery_action() -> dict:
+    """Name the host-owned protocol operation, not an application tool."""
+    return {
+        "instruction": "rediscover_tools",
+        "owner": "mcp_host",
+        "method": "tools/list",
+        "params": {},
+        "description": (
+            "Use the host's tool-refresh action (tools/list; follow every nextCursor); "
+            "if unavailable, ask the user to reconnect Brain MCP. "
+            "command_list/command_describe and brain_proxy_refresh/brain_proxy_restart cannot do this. "
+            "Then inspect brain_proxy_status({}), resolve remaining recovery, and use the new contract. "
+            "Do not retry unchanged or repeat rediscovery if still blocked; report the diagnostic."
+        ),
+    }
+
+
 def tool_definitions() -> list[dict]:
     """Describe transport controls independently of the child catalogue."""
     return [
@@ -24,9 +41,9 @@ def tool_definitions() -> list[dict]:
             },
         }
         for name, description in (
-            (STATUS_TOOL, "Inspect loaded/installed Core, proxy and runtime, refresh state and required recovery, even without a server."),
-            (RESTART_TOOL, "Recover this Brain after external repair. Activates idle Core; image/runtime replacement preserves stdio on POSIX and ends exceptional consent. Never installs."),
-            (REFRESH_TOOL, "Refresh idle Core only within the same managed runtime. Runtime changes require MCP restart. Does not install releases; busy work keeps running."),
+            (STATUS_TOOL, "Inspect Core, proxy, runtime and pending host tool rediscovery, with required recovery even without a server."),
+            (RESTART_TOOL, "Recover Core/proxy/runtime, not host tool discovery. Idle POSIX image replacement preserves stdio and ends exceptional consent. Never installs."),
+            (REFRESH_TOOL, "Refresh idle Core within the same runtime, not the host tool catalogue. Inspect returned recovery; runtime changes require restart. Never installs."),
         )
     ]
 

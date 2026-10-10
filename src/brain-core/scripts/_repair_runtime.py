@@ -159,6 +159,15 @@ def repair_lexical(vault_root: Path, dry_run: bool, bootstrap_steps: list[dict] 
     return _finalise_result("lexical", vault_root, dry_run, steps)
 
 
+def _dropped_rows(result) -> str:
+    """The rows a registry repair removed, with the folder each recorded, for the step message."""
+    if not result.dropped:
+        return ""
+    rows = ", ".join(f"{row.key} ({row.path})" for row in result.dropped)
+    verb = "would remove" if result.status == "planned" else "removed"
+    return f"; {verb} rows that disagree with their manifests: {rows}"
+
+
 def repair_registry(vault_root: Path, dry_run: bool, bootstrap_steps: list[dict] | None = None) -> dict:
     from _portable.registry_maintenance import (
         RegistryRepairPartialError,
@@ -167,7 +176,11 @@ def repair_registry(vault_root: Path, dry_run: bool, bootstrap_steps: list[dict]
 
     steps = list(bootstrap_steps or [])
     try:
+        # The repair takes the vault lock itself; workspace.setup writes a row and its manifest under it.
         result = maintain_registry(vault_root, dry_run=dry_run)
+    except MutationLockError as exc:
+        steps.append(_step("registry", "error", mutation_lock_error_message(exc)))
+        return _finalise_result("registry", vault_root, dry_run, steps)
     except RegistryRepairPartialError as exc:
         steps.append(
             _step(
@@ -188,22 +201,16 @@ def repair_registry(vault_root: Path, dry_run: bool, bootstrap_steps: list[dict]
         steps.append(_step("registry", "noop", result.reason))
         return _finalise_result("registry", vault_root, dry_run, steps)
     registry_path = vault_root / workspace_registry.REGISTRY_REL
+    dropped = _dropped_rows(result)
     if result.status == "planned":
-        steps.append(_step("registry", "planned", f"Would repair {registry_path} ({result.reason})."))
+        steps.append(_step("registry", "planned", f"Would repair {registry_path} ({result.reason}){dropped}."))
         return _finalise_result("registry", vault_root, dry_run, steps)
-
     if result.backup_path is not None:
         backup_path = vault_root / result.backup_path
-        steps.append(
-            _step(
-                "registry",
-                "changed",
-                f"Repaired {registry_path} and preserved the malformed copy at {backup_path}.",
-            )
-        )
+        steps.append(_step("registry", "changed",
+                           f"Repaired {registry_path} and preserved the malformed copy at {backup_path}{dropped}."))
         return _finalise_result("registry", vault_root, dry_run, steps)
-
-    steps.append(_step("registry", "changed", f"Normalised {registry_path}."))
+    steps.append(_step("registry", "changed", f"Repaired {registry_path}{dropped}."))
     return _finalise_result("registry", vault_root, dry_run, steps)
 
 

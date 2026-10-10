@@ -7,54 +7,23 @@ import argparse
 import json
 
 from _machine._labels import brain_label
-from _machine.discovery import (
-    DEFAULT_MACHINE_REGISTRY_BLOCK_MESSAGE,
-    MACHINE_REGISTRY_BLOCK_MESSAGES,
-)
 from _machine.maintenance import collect_machine_summary
 from _machine.process_footprint import format_bytes
+from vault_registry import register_guidance
 
 
 def _counted_label(count: int, singular: str, plural: str) -> str:
     return singular if count == 1 else plural
 
 
-def _machine_registry_state_label(registry: dict) -> str:
-    if registry["blocked"]:
-        return "blocked"
-    if registry["changed"]:
-        return "updated"
-    return "current"
-
-
-def _machine_registry_note_lines(summary: dict) -> list[str]:
-    registry = summary["machine_registry"]
-    if registry["blocked"]:
-        return [
-            MACHINE_REGISTRY_BLOCK_MESSAGES.get(
-                registry.get("blocked_reason"),
-                DEFAULT_MACHINE_REGISTRY_BLOCK_MESSAGE,
-            )
-        ]
-    if registry["malformed_rewritten"]:
-        lines = ["rewrote malformed machine-registry state from current discoveries"]
-        if registry.get("backup_path"):
-            lines.append(f"backup: {registry['backup_path']}")
-        lines.append("re-run brain doctor to confirm clean machine-registry state")
-        return lines
-    if summary["stale_machine_registry_entries"]:
-        return [
-            "pruned stale derived machine-registry entries",
-            "re-run brain doctor to confirm clean machine-registry state",
-        ]
-    return []
-
-
 def _render_repair_findings(findings: list[dict]) -> list[str]:
     lines: list[str] = []
     for finding in findings:
-        repair = finding["repair"]
+        repair = finding.get("repair")
         message = finding["message"]
+        if repair is None:
+            lines.append(f"finding: {finding['check']} — {message}")
+            continue
         lines.append(f"repair: {repair['scope']} — {message}")
         lines.append(f"command: {repair['command']}")
     return lines
@@ -95,19 +64,19 @@ def _memory_lines(summary: dict) -> list[str]:
 
 def render_human_lines(summary: dict) -> list[str]:
     counts = summary["counts"]
-    registry = summary["machine_registry"]
+    registry = summary["registry"]
     stale_label = _counted_label(counts["stale_registry_entries"], "entry", "entries")
     orphan_label = _counted_label(counts["orphan_candidates"], "orphan candidate", "orphan candidates")
-    registry_brain_label = _counted_label(registry["brains_count"], "brain", "brains")
-    drifted_label = _counted_label(counts["brains_with_repair_findings"], "Brain with drift", "Brains with drift")
+    findings_label = _counted_label(counts["brains_with_repair_findings"], "Brain with findings", "Brains with findings")
     lines = [
         "brains:    "
         f"{counts['brains']} discovered "
         f"({counts['stale_registry_entries']} stale vault-registry {stale_label}, "
-        f"{counts['brains_with_repair_findings']} {drifted_label})",
+        f"{counts['unregistered_brains']} unregistered, "
+        f"{counts['brains_with_repair_findings']} {findings_label})",
         "registry:  "
         f"{registry['path']} "
-        f"({registry['brains_count']} {registry_brain_label}, {_machine_registry_state_label(registry)})",
+        f"({registry['brains_count']} registered, {'stale' if registry['stale'] else 'current'})",
     ]
     if summary["live_process_scan_available"]:
         lines.append(
@@ -128,18 +97,26 @@ def render_human_lines(summary: dict) -> list[str]:
         lines.append("stale vault registry:")
         for entry in summary["stale_registry_entries"]:
             lines.append(f"  {entry['alias']}: {entry['path']}")
+            if entry.get("explanation"):
+                lines.append(f"    {entry['explanation']}")
 
-    if summary["stale_machine_registry_entries"]:
-        lines.append("stale machine registry:")
-        for entry in summary["stale_machine_registry_entries"]:
-            label = entry["alias"] or "(unaliased)"
-            lines.append(f"  {label}: {entry['path']}")
+    if summary["unregistered_brains"]:
+        lines.append("unregistered brains:")
+        for path in summary["unregistered_brains"]:
+            lines.append(f"  {path}")
+            lines.append(f"    register: {register_guidance(path)}")
 
-    note_lines = _machine_registry_note_lines(summary)
-    if note_lines:
-        lines.append("registry note:")
-        for line in note_lines:
-            lines.append(f"  {line}")
+    if summary.get("unreachable_locations"):
+        # Reported, never unhealthy; orphan detection waits until each is reconnected or unregistered.
+        lines.append("unreachable (orphan detection paused):")
+        for item in summary["unreachable_locations"]:
+            lines.append(f"  {item['label']}: {item['path']}")
+
+    if summary.get("unreadable_runtime_contracts"):
+        # Unhealthy (the Brain's route says why); no runtime can be called an orphan meanwhile.
+        lines.append("unreadable runtime contracts (orphan detection paused):")
+        for item in summary["unreadable_runtime_contracts"]:
+            lines.append(f"  {item['label']}")
 
     if not summary["live_process_scan_available"]:
         lines.extend(["runtime note:", "  ps failed; orphan detection skipped"])
@@ -152,7 +129,7 @@ def render_human_lines(summary: dict) -> list[str]:
             lines.append(f"    route: {runtime['status']} — {runtime['message']}")
             if runtime["selected_runtime"] is not None:
                 lines.append(f"    runtime: {runtime['selected_runtime']}")
-            else:
+            elif runtime["expected_runtime"] is not None:
                 lines.append(f"    expected runtime: {runtime['expected_runtime']}")
             if runtime["legacy_runtime_present"]:
                 lines.append(f"    legacy .venv: {runtime['legacy_runtime_dir']}")
@@ -188,7 +165,6 @@ def main() -> int:
     summary = collect_machine_summary(
         current_vault=args.current_vault,
         launcher_python=args.launcher,
-        synchronise_registry=True,
         measure_memory=True,
     )
     if args.json:

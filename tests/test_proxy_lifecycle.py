@@ -11,8 +11,8 @@ import pytest
 
 from brain_mcp import proxy
 from brain_mcp._proxy_session import SUBSCRIPTION_ID, SubscriptionEvent
-from test_mcp_proxy import _FakeChild, _ReadableFakeChild, _write_vault
-from test_mcp_proxy_refresh import lifecycle_request
+from proxy_test_support import _FakeChild, _ReadableFakeChild, _write_vault
+from proxy_test_support import lifecycle_request
 from types import SimpleNamespace
 
 

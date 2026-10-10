@@ -83,6 +83,15 @@ class OperationalDiagnosticReporter:
                 self.vault_root, self.process, "command.failed", **fields
             )
 
+    def record(self, event: str, *, family: str, **fields: object) -> None:
+        logger = _operational_log.current_logger()
+        if logger is not None:
+            logger.record(event, family=family, **fields)
+        else:
+            _operational_log.append_record(
+                self.vault_root, self.process, event, family=family, **fields
+            )
+
 
 def compose_local_context(
     *,
@@ -107,6 +116,7 @@ def compose_local_context(
     diagnostics: DiagnosticReporter | None = None,
     derived_snapshots=None,
     session_mirror=None,
+    maintenance=None,
 ) -> InvocationContext:
     """Compose trusted state already resolved by a concrete local adapter."""
 
@@ -160,6 +170,7 @@ def compose_local_context(
             if session_mirror is not None
             else SynchronousSessionMirror(root)
         ),
+        maintenance=maintenance,
     )
 
     return replace(context, access=authorisation.bind(context))

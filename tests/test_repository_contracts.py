@@ -1137,3 +1137,175 @@ def _git_output(root: Path, *args: str) -> str:
         capture_output=True,
         text=True,
     ).stdout
+
+
+RELEASED_MIGRATION = "src/brain-core/scripts/migrations/migrate_to_0_9_0.py"
+RELEASED_MIGRATION_BODY = (
+    "TARGET_HANDLERS = {'pre_compile_patch': 'patch'}\n"
+    "\n"
+    "def patch(vault_root, *, context=None):\n"
+    "    return {'status': 'ok'}\n"
+    "\n"
+    "def migrate(vault_root):\n"
+    "    return {'status': 'ok'}\n"
+)
+
+
+def _initialise_migration_repo(root: Path) -> None:
+    _initialise_git_repo(root)
+    version = root / contracts.VERSION_PATH
+    version.parent.mkdir(parents=True)
+    version.write_text("1.0.0\n", encoding="utf-8")
+    migration = root / RELEASED_MIGRATION
+    migration.parent.mkdir(parents=True)
+    migration.write_text(RELEASED_MIGRATION_BODY, encoding="utf-8")
+    _git(root, "add", ".")
+    _git(root, "commit", "-m", "initial")
+
+
+def _staged_migration_errors(root: Path) -> list[str]:
+    return contracts.staged_predicate_errors(root, contracts.GitIndexView(root), None, "development")
+
+
+def test_released_migration_target_change_is_rejected(tmp_path):
+    _initialise_migration_repo(tmp_path)
+    (tmp_path / RELEASED_MIGRATION).write_text(
+        RELEASED_MIGRATION_BODY.replace("TARGET_HANDLERS = {'pre_compile_patch': 'patch'}", "TARGET_HANDLERS = {}"),
+        encoding="utf-8",
+    )
+    _git(tmp_path, "add", RELEASED_MIGRATION)
+
+    assert _staged_migration_errors(tmp_path) == [
+        f"{RELEASED_MIGRATION}: released migration 0.9.0 targets changed from "
+        "['post_compile', 'pre_compile_patch'] to ['post_compile']; "
+        "ship a correction as a new migration"
+    ]
+
+
+def test_released_migration_declaring_an_unknown_target_reports_the_definition_error(tmp_path):
+    _initialise_migration_repo(tmp_path)
+    (tmp_path / RELEASED_MIGRATION).write_text(
+        RELEASED_MIGRATION_BODY.replace("'pre_compile_patch'", "'post_compile_extra'"), encoding="utf-8",
+    )
+    _git(tmp_path, "add", RELEASED_MIGRATION)
+
+    errors = _staged_migration_errors(tmp_path)
+
+    assert len(errors) == 1 and "unknown migration target 'post_compile_extra'" in errors[0]
+
+
+def test_released_migration_losing_its_default_handler_is_rejected(tmp_path):
+    _initialise_migration_repo(tmp_path)
+    (tmp_path / RELEASED_MIGRATION).write_text(
+        RELEASED_MIGRATION_BODY.replace("def migrate(", "def retired("), encoding="utf-8",
+    )
+    _git(tmp_path, "add", RELEASED_MIGRATION)
+
+    errors = _staged_migration_errors(tmp_path)
+
+    assert len(errors) == 1 and "targets changed" in errors[0]
+
+
+@pytest.mark.parametrize("damage", ["remove", "rename"])
+def test_released_migration_cannot_be_removed_or_renamed(tmp_path, damage):
+    _initialise_migration_repo(tmp_path)
+    renamed = RELEASED_MIGRATION.replace("0_9_0", "0_9_1")
+    if damage == "remove":
+        _git(tmp_path, "rm", "-q", RELEASED_MIGRATION)
+    else:
+        _git(tmp_path, "mv", RELEASED_MIGRATION, renamed)
+
+    assert _staged_migration_errors(tmp_path) == (
+        # The rename's destination is itself a migration added under the released boundary.
+        [f"{renamed}: a migration at or below the released VERSION 1.0.0 cannot be added; ship it above VERSION"]
+        if damage == "rename" else []
+    ) + [
+        f"{RELEASED_MIGRATION}: released migration 0.9.0 cannot be removed or renamed; "
+        "ship a correction as a new migration"
+    ]
+
+
+@pytest.mark.parametrize("version", ["0_9_5", "1_0_0"])
+def test_a_migration_at_or_below_the_released_version_cannot_be_added(tmp_path, version):
+    """It would run on older vaults but never on vaults already at that version."""
+    _initialise_migration_repo(tmp_path)
+    late = f"src/brain-core/scripts/migrations/migrate_to_{version}.py"
+    (tmp_path / late).write_text("def migrate(vault_root):\n    return {'status': 'ok'}\n", encoding="utf-8")
+    _git(tmp_path, "add", late)
+
+    assert _staged_migration_errors(tmp_path) == [
+        f"{late}: a migration at or below the released VERSION 1.0.0 cannot be added; ship it above VERSION"
+    ]
+
+
+def test_a_release_commit_may_add_the_migration_it_releases(tmp_path):
+    """The boundary is HEAD's VERSION: a staged bump to 1.1.0 and its 1.1.0 migration land together."""
+    _initialise_migration_repo(tmp_path)
+    (tmp_path / contracts.VERSION_PATH).write_text("1.1.0\n", encoding="utf-8")
+    released = "src/brain-core/scripts/migrations/migrate_to_1_1_0.py"
+    (tmp_path / released).write_text("def migrate(vault_root):\n    return {'status': 'ok'}\n", encoding="utf-8")
+    _git(tmp_path, "add", "-A")
+
+    assert _staged_migration_errors(tmp_path) == []
+
+
+def test_released_migration_body_may_be_corrected(tmp_path):
+    _initialise_migration_repo(tmp_path)
+    (tmp_path / RELEASED_MIGRATION).write_text(
+        RELEASED_MIGRATION_BODY.replace("return {'status': 'ok'}\n", "return {'status': 'skipped'}\n"),
+        encoding="utf-8",
+    )
+    _git(tmp_path, "add", RELEASED_MIGRATION)
+
+    assert _staged_migration_errors(tmp_path) == []
+
+
+def test_migration_above_the_released_version_may_be_added_or_changed(tmp_path):
+    _initialise_migration_repo(tmp_path)
+    unreleased = tmp_path / "src/brain-core/scripts/migrations/migrate_to_1_1_0.py"
+    unreleased.write_text("def migrate(vault_root):\n    return {'status': 'ok'}\n", encoding="utf-8")
+    _git(tmp_path, "add", str(unreleased.relative_to(tmp_path)))
+    _git(tmp_path, "commit", "-q", "-m", "add unreleased migration")
+    unreleased.write_text("TARGET_HANDLERS = {'pre_compile_patch': 'patch'}\n\ndef patch(vault_root, *, context=None):\n    return {'status': 'ok'}\n", encoding="utf-8")
+    _git(tmp_path, "add", str(unreleased.relative_to(tmp_path)))
+
+    assert _staged_migration_errors(tmp_path) == []
+
+
+def test_identity_contract_is_skipped_unless_a_migration_path_is_staged(tmp_path):
+    _initialise_migration_repo(tmp_path)
+    (tmp_path / contracts.VERSION_PATH).write_text("not-a-version\n", encoding="utf-8")
+    _git(tmp_path, "add", "-A")
+    _git(tmp_path, "commit", "-q", "-m", "malformed HEAD version")
+    (tmp_path / "README.md").write_text("docs only\n", encoding="utf-8")
+    _git(tmp_path, "add", "README.md")
+
+    assert _staged_migration_errors(tmp_path) == []
+
+    (tmp_path / RELEASED_MIGRATION).write_text(RELEASED_MIGRATION_BODY + "# touched\n", encoding="utf-8")
+    _git(tmp_path, "add", RELEASED_MIGRATION)
+
+    assert _staged_migration_errors(tmp_path) == [
+        "src/brain-core/VERSION: HEAD version 'not-a-version' is not X.Y.Z, so released "
+        "migrations cannot be identified"
+    ]
+
+
+def test_identity_contract_targets_match_the_upgrade_runner_for_every_real_migration():
+    """The contract and the runner read one rule, so every shipped migration must agree."""
+    import upgrade
+    from _repository_contracts import migrations as policy
+
+    migrations_dir = contracts.REPO_ROOT / "src" / "brain-core" / "scripts" / "migrations"
+    by_runner: dict[str, set[str]] = {}
+    for target in upgrade._MIGRATION_TARGETS:
+        for _version, _label, script_path, _handler in upgrade._discover_target_migrations(
+            str(migrations_dir), target=target
+        ):
+            by_runner.setdefault(Path(script_path).name, set()).add(target)
+    scripts = sorted(migrations_dir.glob("migrate_to_*.py"))
+    assert len(scripts) >= 29
+    for script in scripts:
+        rel = f"{policy.MIGRATIONS_ROOT}/{script.name}"
+        assert policy.migration_version(rel) is not None, script.name
+        assert set(policy.migration_targets(script.read_text(encoding="utf-8"), rel)) == by_runner[script.name], script.name

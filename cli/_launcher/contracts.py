@@ -266,11 +266,14 @@ def no_effect_error(
     code: ErrorCode,
     message: str,
     field: str | None = None,
+    *,
+    retryable: bool = False,
 ) -> Error:
     return Error(
         request_type.COMMAND_ID,
         request_type.COMMAND_VERSION,
         CommandError(code, message, RequestErrorDetails(field, message)),
+        retryable=retryable,
     )
 
 

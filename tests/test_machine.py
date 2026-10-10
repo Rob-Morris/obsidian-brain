@@ -8,14 +8,9 @@ import pytest
 
 import doctor_machine
 import machine
-from _common import _venv, central_venvs_root, resolve_vault_venv_python
+from _common import _venv, central_venvs_root, config_home, resolve_vault_venv_python
 from _machine import maintenance
-from _machine.discovery import (
-    discover_brains,
-    inspect_machine_registry,
-    machine_registry_path,
-    sync_machine_registry,
-)
+from _machine.discovery import discover_brains
 from _machine.maintenance import (
     collect_machine_summary,
     inspect_machine_runtime_state,
@@ -31,7 +26,7 @@ def _fast_machine_process_scan(monkeypatch):
     """Machine-summary tests default to no live runtimes without shelling out to ps."""
     monkeypatch.setattr(
         "_machine.maintenance.find_live_brain_runtime_processes",
-        lambda runtime_pythons: {
+        lambda runtime_pythons, *, scan=None: {
             "available": True,
             "processes": {str(Path(p)): [] for p in runtime_pythons},
         },
@@ -78,7 +73,7 @@ def _make_drifted_vault(root: Path, name: str) -> Path:
     return vault
 
 
-def test_discover_brains_skips_registry_writes_until_sync(monkeypatch, tmp_path, fake_home):
+def test_discover_brains_reads_the_vault_registry_and_the_current_vault(monkeypatch, tmp_path, fake_home):
 
     current = _make_vault(tmp_path, "Current Brain")
     registered = _make_vault(tmp_path, "Registered Brain")
@@ -96,52 +91,77 @@ def test_discover_brains_skips_registry_writes_until_sync(monkeypatch, tmp_path,
     assert summary["brains"][0]["sources"] == ["current"]
     assert summary["brains"][1]["sources"] == ["vault_registry"]
     assert summary["stale_registry_entries"] == [
-        {"alias": "missing", "path": str(stale.resolve())},
+        {"alias": "missing", "path": str(stale.resolve()), "reason": "not_a_brain",
+         "guidance": "brain registry remove-stale",
+         "explanation": f"Brain ID 'missing' points at {stale.resolve()}, which is not an installed Brain; "
+                        "run brain registry remove-stale"},
     ]
-    assert summary["machine_registry_view"]["path"] == str(machine_registry_path())
-    assert not machine_registry_path().exists()
-
-    sync = sync_machine_registry(summary["brains"])
-    assert sync["changed"]
-    assert machine_registry_path().exists()
-
-    registry_state = json.loads(machine_registry_path().read_text())
-    assert registry_state["version"] == 1
-    assert [brain["alias"] for brain in registry_state["brains"]] == [None, "registered-brain"]
-    assert [brain["path"] for brain in registry_state["brains"]] == [
-        str(current.resolve()),
-        str(registered.resolve()),
-    ]
+    assert summary["unregistered_brains"] == [str(current.resolve())]
+    assert summary["registry"] == {
+        "path": str(vault_registry.registry_path()),
+        "brains_count": 1,
+        "stale": True,
+    }
+    assert not (config_home() / "brain" / "brains.json").exists(), "discovery derives nothing to disk"
 
 
-def test_inspect_machine_registry_reports_drift_without_writing(tmp_path, fake_home):
+def test_discover_brains_merges_a_registered_current_vault(tmp_path, fake_home):
     current = _make_vault(tmp_path, "Current Brain")
-    discovery = discover_brains(current_vault=current)
+    vault_registry.register(str(current))
 
-    inspected = inspect_machine_registry(discovery["brains"])
+    summary = discover_brains(current_vault=current)
 
-    assert inspected["drifted"] is True
-    assert inspected["changed"] is False
-    assert inspected["brains_count"] == 0
-    assert not machine_registry_path().exists()
+    assert [brain["sources"] for brain in summary["brains"]] == [["current", "vault_registry"]]
+    assert summary["unregistered_brains"] == []
+    assert summary["registry"] == {
+        "path": str(vault_registry.registry_path()),
+        "brains_count": 1,
+        "stale": False,
+    }
 
 
-def test_machine_summary_can_diagnose_without_registry_synchronisation(
-    tmp_path,
-    fake_home,
-):
+def test_unregistered_current_vault_is_reported_and_healthy(tmp_path, fake_home):
     current = _make_vault(tmp_path, "Current Brain")
+    _install_central_runtime(resolve_vault_venv_python(current, launcher=Path(sys.executable)))
 
     summary = collect_machine_summary(
         current_vault=str(current),
         launcher_python=sys.executable,
-        synchronise_registry=False,
     )
 
-    assert summary["machine_registry"]["drifted"] is True
-    assert summary["machine_registry"]["changed"] is False
-    assert summary["healthy"] is False
-    assert not machine_registry_path().exists()
+    assert summary["unregistered_brains"] == [str(current.resolve())]
+    assert summary["counts"]["unregistered_brains"] == 1
+    assert summary["registry"]["brains_count"] == 0
+    assert summary["healthy"] is True, "registering is a person's choice, not a health failure"
+
+
+def test_machine_health_counts_only_automatic_or_machine_owned_findings(monkeypatch, tmp_path, fake_home):
+    vault = _make_vault(tmp_path, "Active Brain")
+    selected_runtime = resolve_vault_venv_python(vault, launcher=Path(sys.executable))
+    _install_central_runtime(selected_runtime)
+    monkeypatch.setattr(maintenance.bootstrap_diagnostics, "collect_mcp_check_findings", lambda _root: [])
+
+    def summary_with(findings):
+        monkeypatch.setattr(maintenance.bootstrap_diagnostics, "collect_registry_check_findings", lambda _root: list(findings))
+        return collect_machine_summary(current_vault=str(vault), launcher_python=sys.executable)
+
+    judgement = {"check": "duplicate_frontmatter", "message": "duplicate frontmatter", "repair": {"scope": "frontmatter", "command": "x"}}
+    registry = {"check": "workspace_registry", "message": "stale row", "repair": {"scope": "registry", "command": "x"}}
+    unverifiable = {"check": "workspace_registry", "code": "workspace_link_unverifiable", "message": "no manifest"}
+    machine_owned = {"check": "mcp_registration", "message": "drifted", "repair": {"scope": "mcp", "command": "x"}}
+    automatic = {"check": "router", "message": "stale", "repair": {"scope": "router", "command": "x"}}
+
+    listed = summary_with([judgement, unverifiable])
+    assert listed["counts"]["repair_findings"] == 2, "every finding is still listed"
+    assert listed["healthy"] is True
+
+    assert summary_with([machine_owned])["healthy"] is False
+    assert summary_with([automatic])["healthy"] is False
+    assert summary_with([registry])["healthy"] is False, "the registry family is automatic, so it counts"
+
+    lines = doctor_machine.render_human_lines(listed)
+    assert "    finding: workspace_registry — no manifest" in lines, "a family-less finding is rendered by its check"
+    assert "    repair: frontmatter — duplicate frontmatter" in lines and "    command: x" in lines
 
 
 def test_discover_brains_ignores_non_local_authoritative_entries(monkeypatch, tmp_path, fake_home):
@@ -157,130 +177,6 @@ def test_discover_brains_ignores_non_local_authoritative_entries(monkeypatch, tm
     assert summary["stale_registry_entries"] == []
 
 
-def test_discover_brains_uses_machine_registry_as_a_root(monkeypatch, tmp_path, fake_home):
-
-    registered = _make_vault(tmp_path, "Registered Brain")
-
-    first = discover_brains(current_vault=registered)
-    sync = sync_machine_registry(first["brains"])
-    assert sync["changed"]
-
-    second = discover_brains()
-
-    assert [brain["path"] for brain in second["brains"]] == [str(registered.resolve())]
-    assert second["brains"][0]["sources"] == ["machine_registry"]
-    assert second["machine_registry_view"]["version"] == 1
-
-
-def test_discover_brains_reports_stale_machine_registry_entries(monkeypatch, tmp_path, fake_home):
-
-    active = _make_vault(tmp_path, "Active Brain")
-    missing = tmp_path / "Missing Brain"
-    machine_registry_path().parent.mkdir(parents=True, exist_ok=True)
-    machine_registry_path().write_text(
-        json.dumps(
-            {
-                "version": 1,
-                "brains": [
-                    {"alias": "active-brain", "path": str(active)},
-                    {"alias": "missing-brain", "path": str(missing)},
-                ],
-            },
-            indent=2,
-        )
-    )
-
-    summary = discover_brains()
-
-    assert summary["stale_machine_registry_entries"] == [
-        {"alias": "missing-brain", "path": str(missing.resolve())}
-    ]
-
-    sync = sync_machine_registry(summary["brains"])
-    assert sync["changed"]
-    assert sync["stale_machine_registry_entries"] == [
-        {"alias": "missing-brain", "path": str(missing.resolve())}
-    ]
-    registry_state = json.loads(machine_registry_path().read_text())
-    assert registry_state["brains"] == [
-        {"alias": "active-brain", "path": str(active.resolve())}
-    ]
-
-
-def test_sync_machine_registry_rewrites_malformed_v1_state_with_backup(monkeypatch, tmp_path, fake_home):
-
-    active = _make_vault(tmp_path, "Active Brain")
-    machine_registry_path().parent.mkdir(parents=True, exist_ok=True)
-    machine_registry_path().write_text(
-        json.dumps(
-            {
-                "version": 1,
-                "brains": [
-                    {"alias": 7, "path": str(active)},
-                    ["not-a-dict"],
-                ],
-            },
-            indent=2,
-        )
-    )
-
-    summary = discover_brains(current_vault=active)
-    sync = sync_machine_registry(summary["brains"])
-
-    assert sync["changed"]
-    assert sync["malformed_rewritten"]
-    assert sync["backup_path"] is not None
-    assert Path(sync["backup_path"]).is_file()
-    registry_state = json.loads(machine_registry_path().read_text())
-    assert registry_state["version"] == 1
-    assert registry_state["brains"] == [
-        {"alias": None, "path": str(active.resolve())}
-    ]
-
-
-def test_sync_machine_registry_blocks_invalid_json(monkeypatch, tmp_path, fake_home):
-
-    active = _make_vault(tmp_path, "Active Brain")
-    machine_registry_path().parent.mkdir(parents=True, exist_ok=True)
-    machine_registry_path().write_text("{not json\n")
-    original = machine_registry_path().read_text()
-
-    summary = discover_brains(current_vault=active)
-    sync = sync_machine_registry(summary["brains"])
-
-    assert summary["machine_registry_view"]["blocked"]
-    assert summary["machine_registry_view"]["blocked_reason"] == "invalid-json"
-    assert sync["blocked"]
-    assert sync["blocked_reason"] == "invalid-json"
-    assert not sync["changed"]
-    assert machine_registry_path().read_text() == original
-
-
-def test_sync_machine_registry_refuses_newer_schema(monkeypatch, tmp_path, fake_home):
-
-    active = _make_vault(tmp_path, "Active Brain")
-    machine_registry_path().parent.mkdir(parents=True, exist_ok=True)
-    machine_registry_path().write_text(
-        json.dumps(
-            {
-                "version": 2,
-                "brains": [{"alias": "active-brain", "path": str(active)}],
-            },
-            indent=2,
-        )
-    )
-    original = machine_registry_path().read_text()
-
-    summary = discover_brains(current_vault=active)
-    sync = sync_machine_registry(summary["brains"])
-
-    assert summary["machine_registry_view"]["blocked"]
-    assert summary["machine_registry_view"]["blocked_reason"] == "newer-version"
-    assert sync["blocked"]
-    assert not sync["changed"]
-    assert machine_registry_path().read_text() == original
-
-
 def test_inspect_machine_runtime_state_classifies_selected_and_orphan_runtimes(monkeypatch, tmp_path, fake_home):
 
     vault = _make_vault(tmp_path, "Active Brain")
@@ -290,15 +186,13 @@ def test_inspect_machine_runtime_state_classifies_selected_and_orphan_runtimes(m
     _install_central_runtime(orphan_runtime)
 
     discovery = discover_brains(current_vault=vault)
-    machine_registry = sync_machine_registry(discovery["brains"])
     summary = inspect_machine_runtime_state(
         launcher_python=sys.executable,
         discovery=discovery,
-        machine_registry=machine_registry,
     )
 
     assert summary["counts"]["brains"] == 1
-    assert summary["counts"]["machine_registry_brains"] == 1
+    assert summary["counts"]["unregistered_brains"] == 1
     assert summary["brains"][0]["runtime"]["status"] == "central_exact"
     assert summary["brains"][0]["runtime"]["selected_runtime"] == str(selected_runtime)
     assert summary["counts"]["orphan_candidates"] == 1
@@ -310,6 +204,20 @@ def test_inspect_machine_runtime_state_classifies_selected_and_orphan_runtimes(m
     assert not summary["tidy"]
 
 
+def _own_contract(monkeypatch, **resolvers):
+    """Stand in for a Brain's own runtime contract: this Core's resolvers, with the named ones replaced."""
+    from types import SimpleNamespace
+
+    contract = SimpleNamespace(
+        resolve_vault_venv_python=_venv.resolve_vault_venv_python,
+        find_existing_central_venv=_venv.find_existing_central_venv,
+        find_runnable_python=_venv.find_runnable_python,
+    )
+    for name, resolver in resolvers.items():
+        setattr(contract, name, resolver)
+    monkeypatch.setattr("_machine.topology.target_runtime_contract", lambda _vault: contract)
+
+
 def test_classify_brain_runtime_preserves_venv_symlink_boundary(monkeypatch, tmp_path):
     expected = tmp_path / "expected" / "bin" / "python"
     selected = tmp_path / "selected" / "bin" / "python"
@@ -319,9 +227,9 @@ def test_classify_brain_runtime_preserves_venv_symlink_boundary(monkeypatch, tmp
     selected.symlink_to(sys.executable)
     vault = _make_vault(tmp_path, "Active Brain")
 
-    monkeypatch.setattr("_machine.topology.resolve_vault_venv_python", lambda *_args, **_kwargs: expected)
-    monkeypatch.setattr("_machine.topology.find_existing_central_venv", lambda *_args, **_kwargs: selected)
-    monkeypatch.setattr("_machine.topology.find_runnable_python", lambda *_args, **_kwargs: selected)
+    _own_contract(monkeypatch, resolve_vault_venv_python=lambda *_args, **_kwargs: expected,
+                  find_existing_central_venv=lambda *_args, **_kwargs: selected,
+                  find_runnable_python=lambda *_args, **_kwargs: selected)
 
     runtime = classify_brain_runtime(vault, launcher_python=sys.executable)
 
@@ -340,8 +248,7 @@ def test_persisted_alias_protects_stopped_runtime_from_pruning(tmp_path, fake_ho
     alias.symlink_to(retired)
     (Path.home() / ".claude.json").write_text(json.dumps({"mcpServers": {"brain": {"command": str(alias), "args": []}}}))
     discovery = discover_brains(current_vault=vault)
-    summary = inspect_machine_runtime_state(launcher_python=sys.executable, discovery=discovery,
-                                             machine_registry=sync_machine_registry(discovery["brains"]))
+    summary = inspect_machine_runtime_state(launcher_python=sys.executable, discovery=discovery)
     row = next(item for item in summary["runtimes"] if item["python"] == str(retired))
     assert row["persisted_registration_reference"]
     assert not row["orphan_candidate"]
@@ -350,7 +257,7 @@ def test_persisted_alias_protects_stopped_runtime_from_pruning(tmp_path, fake_ho
 def test_prune_revalidates_a_new_persisted_reference(tmp_path, fake_home):
     retired = central_venvs_root() / "py3.12-retired00000000" / "bin" / "python"
     _install_central_runtime(retired)
-    summary = collect_machine_summary(synchronise_registry=False)
+    summary = collect_machine_summary()
     assert any(row["orphan_candidate"] for row in summary["runtimes"])
     (Path.home() / ".claude.json").write_text(json.dumps({"mcpServers": {"brain": {"command": str(retired), "args": []}}}))
     result = prune_orphaned_runtimes(summary, dry_run=False)
@@ -362,10 +269,10 @@ def test_prune_revalidates_a_new_persisted_reference(tmp_path, fake_home):
 def test_prune_revalidates_processes_started_after_inspection(tmp_path, fake_home, monkeypatch):
     retired = central_venvs_root() / "py3.12-retired00000000" / "bin" / "python"
     _install_central_runtime(retired)
-    summary = collect_machine_summary(synchronise_registry=False)
+    summary = collect_machine_summary()
     assert any(row["orphan_candidate"] for row in summary["runtimes"])
     monkeypatch.setattr(maintenance, "find_live_brain_runtime_processes",
-                        lambda paths: {"available": True, "processes": {str(retired): [{"pid": 123, "command": "python"}]}})
+                        lambda paths, *, scan=None: {"available": True, "processes": {str(retired): [{"pid": 123, "command": "python"}]}})
     result = prune_orphaned_runtimes(summary, dry_run=False)
     assert result["status"] in ("error", "partial")
     assert retired.exists()
@@ -389,11 +296,9 @@ def test_inspect_machine_runtime_state_marks_orphans_unknown_when_ps_fails(monke
     )
 
     discovery = discover_brains(current_vault=vault)
-    machine_registry = sync_machine_registry(discovery["brains"])
     summary = inspect_machine_runtime_state(
         launcher_python=sys.executable,
         discovery=discovery,
-        machine_registry=machine_registry,
     )
 
     assert summary["live_process_scan_available"] is False
@@ -414,7 +319,7 @@ def test_find_live_brain_runtime_processes_matches_spaced_python_family_symlinks
 
     def _fake_run(*args, **kwargs):
         command = f"{alias_root / 'bin' / 'python3.12'} -m brain_mcp.server"
-        return subprocess.CompletedProcess(args[0], 0, f"123 {command}\n", "")
+        return subprocess.CompletedProcess(args[0], 0, f"123 1 {command}\n", "")
 
     monkeypatch.setattr("_machine.topology.subprocess.run", _fake_run)
 
@@ -424,6 +329,23 @@ def test_find_live_brain_runtime_processes_matches_spaced_python_family_symlinks
     assert live["processes"][str(runtime_python)] == [
         {"pid": 123, "command": f"{alias_root / 'bin' / 'python3.12'} -m brain_mcp.server"}
     ]
+
+
+def test_find_live_brain_runtime_processes_sees_a_real_long_command_line(tmp_path, monkeypatch):
+    # procps honours COLUMNS even when piped; macOS ps never truncates here.
+    monkeypatch.setenv("COLUMNS", "80")
+    runtime_python = tmp_path / ("deep-" * 20) / "bin" / "python"
+    runtime_python.parent.mkdir(parents=True)
+    runtime_python.symlink_to(sys.executable)
+    process = subprocess.Popen([str(runtime_python), "-c", "import sys; sys.stdin.read()", "x" * 200],
+                               stdin=subprocess.PIPE)
+    try:
+        live = find_live_brain_runtime_processes([runtime_python])
+    finally:
+        process.communicate(timeout=10)
+
+    assert live["available"] is True
+    assert process.pid in {entry["pid"] for entry in live["processes"][str(runtime_python)]}
 
 
 def test_find_live_brain_runtime_processes_matches_python_family_names(monkeypatch, tmp_path):
@@ -436,7 +358,7 @@ def test_find_live_brain_runtime_processes_matches_python_family_names(monkeypat
 
     def _fake_run(*args, **kwargs):
         command = f"{pythonw} -m brain_mcp.server"
-        return subprocess.CompletedProcess(args[0], 0, f"123 {command}\n", "")
+        return subprocess.CompletedProcess(args[0], 0, f"123 1 {command}\n", "")
 
     monkeypatch.setattr("_machine.topology.subprocess.run", _fake_run)
 
@@ -463,10 +385,10 @@ def test_find_live_brain_runtime_processes_caches_parent_realpath(monkeypatch, t
         command = f"{runtime_python} -m brain_mcp.server"
         stdout = "\n".join(
             [
-                "100 /usr/bin/ssh some-host",
-                f"101 {command}",
-                "102 /bin/echo python is only an argument",
-                f"103 {command}",
+                "100 1 /usr/bin/ssh some-host",
+                f"101 1 {command}",
+                "102 1 /bin/echo python is only an argument",
+                f"103 1 {command}",
             ]
         )
         return subprocess.CompletedProcess(args[0], 0, f"{stdout}\n", "")
@@ -508,8 +430,8 @@ def test_list_central_runtimes_uses_platform_venv_python(monkeypatch, tmp_path):
 def test_classify_brain_runtime_reports_launcher_fallback(monkeypatch, tmp_path):
     vault = _make_vault(tmp_path, "Fallback Brain")
 
-    monkeypatch.setattr("_machine.topology.find_existing_central_venv", lambda vault_path, launcher=None: None)
-    monkeypatch.setattr("_machine.topology.find_runnable_python", lambda vault_path, launcher=None: Path(sys.executable))
+    _own_contract(monkeypatch, find_existing_central_venv=lambda vault_path, launcher=None: None,
+                  find_runnable_python=lambda vault_path, launcher=None: Path(sys.executable))
 
     runtime = classify_brain_runtime(vault, launcher_python=sys.executable)
 
@@ -521,8 +443,8 @@ def test_classify_brain_runtime_reports_launcher_fallback(monkeypatch, tmp_path)
 def test_classify_brain_runtime_reports_missing_runtime(monkeypatch, tmp_path):
     vault = _make_vault(tmp_path, "Missing Brain")
 
-    monkeypatch.setattr("_machine.topology.find_existing_central_venv", lambda vault_path, launcher=None: None)
-    monkeypatch.setattr("_machine.topology.find_runnable_python", lambda vault_path, launcher=None: None)
+    _own_contract(monkeypatch, find_existing_central_venv=lambda vault_path, launcher=None: None,
+                  find_runnable_python=lambda vault_path, launcher=None: None)
 
     runtime = classify_brain_runtime(vault, launcher_python=sys.executable)
 
@@ -530,16 +452,243 @@ def test_classify_brain_runtime_reports_missing_runtime(monkeypatch, tmp_path):
     assert "has no central runtime" in runtime["message"]
 
 
+def _make_pre_contract_vault(root: Path, name: str, *, layout: str = "mcp") -> Path:
+    """A Brain whose own runtime contract cannot be read.
+
+    ``mcp`` predates the runtime resolver: its one export lived under
+    ``.brain-core/mcp/`` and it has no ``_common/_venv.py``. ``no_semantic``
+    and ``crlf`` carry this Core's resolver with a missing or damaged export.
+    """
+    vault = root / name
+    (vault / ".brain-core").mkdir(parents=True)
+    (vault / ".brain-core" / "VERSION").write_text("0.36.0\n")
+    if layout == "mcp":
+        (vault / ".brain-core" / "mcp").mkdir()
+        (vault / ".brain-core" / "mcp" / "requirements.txt").write_text("mcp==1.0.0\n")
+        return vault
+    (vault / ".brain-core" / "VERSION").write_text("0.99.0\n")
+    resolver = vault / ".brain-core" / "scripts" / "_common" / "_venv.py"
+    resolver.parent.mkdir(parents=True)
+    resolver.write_text(Path(_venv.__file__).read_text())
+    exports = vault / ".brain-core" / "brain_mcp"
+    exports.mkdir()
+    (exports / "requirements.txt").write_text("mcp==1.0.0\n")
+    if layout == "crlf":
+        (exports / "requirements-semantic.txt").write_bytes(b"mcp==1.0.0\r\nx==1\r")
+    else:
+        assert layout == "no_semantic"
+    return vault
+
+
+@pytest.mark.parametrize(("layout", "detail"), [
+    ("mcp", "RuntimeError: Selected Brain has no supported runtime resolver: {vault}/.brain-core/scripts/_common/_venv.py"),
+    ("no_semantic", "RuntimeContractUnavailable: runtime dependency export is missing: {vault}/.brain-core/brain_mcp/requirements-semantic.txt"),
+    ("crlf", "RuntimeContractUnavailable: runtime dependency export has invalid line endings: {vault}/.brain-core/brain_mcp/requirements-semantic.txt"),
+])
+def test_classify_brain_runtime_reports_an_unreadable_runtime_contract(tmp_path, fake_home, layout, detail):
+    vault = _make_pre_contract_vault(tmp_path, "Old Brain", layout=layout)
+
+    runtime = classify_brain_runtime(vault, launcher_python=sys.executable)
+
+    assert runtime["status"] == "runtime_contract_unavailable"
+    assert runtime["healthy_runtime"] is False
+    assert (runtime["expected_runtime"], runtime["selected_runtime"], runtime["runnable_runtime"]) == (None, None, None), (
+        "no hash is guessed")
+    assert runtime["message"].startswith("The Brain's own runtime contract could not be evaluated (")
+    assert f"({detail.format(vault=vault)}" in runtime["message"], "the exception type and text are the diagnosis"
+    assert f"upgrade or recover it with `brain --vault '{vault}' upgrade`" in runtime["message"]
+    assert runtime["legacy_runtime_present"] is False
+
+
+def make_single_export_brain(root: Path, name: str, version: str) -> tuple[Path, Path]:
+    """A 0.54.59-0.68.6 Brain: one export, and a resolver hashing it alone.
+
+    Returns the vault and the central runtime python its own contract names,
+    which this Core's rule cannot name (it requires the semantic export).
+    """
+    import hashlib
+    import re
+
+    vault = root / name
+    exports = vault / ".brain-core" / "brain_mcp"
+    exports.mkdir(parents=True)
+    (vault / ".brain-core" / "VERSION").write_text(f"{version}\n")
+    (exports / "requirements.txt").write_text("mcp==1.0.0\n")
+    single_export_rule = (
+        'def requirements_hash(requirements_path: Path) -> str:\n'
+        '    """Stable, content-addressed identifier for a requirements file."""\n'
+        '    return hashlib.sha256(Path(requirements_path).read_bytes()).hexdigest()[:_HASH_LEN]\n'
+    )
+    resolver = vault / ".brain-core" / "scripts" / "_common" / "_venv.py"
+    resolver.parent.mkdir(parents=True)
+    source, replaced = re.subn(r"def requirements_hash\(.*?\n(?=\n\n)", lambda _match: single_export_rule,
+                               Path(_venv.__file__).read_text(), count=1, flags=re.S)
+    assert replaced == 1
+    resolver.write_text(source)
+    own_hash = hashlib.sha256((exports / "requirements.txt").read_bytes()).hexdigest()[:16]
+    runtime_python = central_venvs_root() / f"{_venv.python_tag(Path(sys.executable))}-{own_hash}" / "bin" / "python"
+    return vault, runtime_python
+
+
+def test_classify_brain_runtime_judges_an_older_brain_by_its_own_contract(tmp_path, fake_home):
+    """A 0.55-0.68.6 Brain hashes requirements.txt alone; its own rule names its runtime, so it is healthy."""
+    vault, runtime_python = make_single_export_brain(tmp_path, "Older Brain", "0.68.6")
+    _install_central_runtime(runtime_python)
+
+    runtime = classify_brain_runtime(vault, launcher_python=sys.executable)
+
+    assert runtime["status"] == "central_exact", runtime["message"]
+    assert runtime["healthy_runtime"] is True
+    assert runtime["expected_runtime"] == runtime["selected_runtime"] == str(runtime_python)
+    with pytest.raises(_venv.RuntimeContractUnavailable):
+        _venv.resolve_vault_venv_python(vault, launcher=Path(sys.executable))  # this Core's rule cannot name it
+
+
+@pytest.mark.skipif(sys.platform == "win32" or os.geteuid() == 0, reason="needs POSIX permissions enforced")
+def test_classify_brain_runtime_reports_an_unreadable_export(tmp_path, fake_home):
+    vault = _make_pre_contract_vault(tmp_path, "Locked Brain", layout="no_semantic")
+    export = vault / ".brain-core" / "brain_mcp" / "requirements.txt"
+    export.chmod(0)
+    try:
+        runtime = classify_brain_runtime(vault, launcher_python=sys.executable)
+    finally:
+        export.chmod(0o644)
+
+    assert runtime["status"] == "runtime_contract_unavailable"
+    assert f"runtime dependency export cannot be read: {export}" in runtime["message"]
+
+
+def test_unreadable_runtime_contract_outranks_a_legacy_venv(tmp_path, fake_home):
+    """Legacy migration ends by verifying the shared runtime, which this Brain's contract cannot name."""
+    vault = _make_pre_contract_vault(tmp_path, "Old Brain")
+    _install_central_runtime(vault / ".venv" / "bin" / "python")
+
+    runtime = classify_brain_runtime(vault, launcher_python=sys.executable)
+
+    assert runtime["status"] == "runtime_contract_unavailable"
+    assert runtime["legacy_runtime_present"] is True
+    assert runtime["legacy_runtime_dir"] == str(vault / ".venv")
+
+
+def _machine_with_a_pre_contract_brain(tmp_path):
+    """A current Brain on its runtime, beside a registered pre-contract Brain on a runtime this Core cannot name."""
+    import hashlib
+
+    current = _make_vault(tmp_path, "Current Brain")
+    _install_central_runtime(resolve_vault_venv_python(current, launcher=Path(sys.executable)))
+    old = _make_pre_contract_vault(tmp_path, "Old Brain")
+    # The project MCP state such a Brain was installed with: it sends the old Brain through the MCP checks, which
+    # compare against its managed Python, and through the registration inventory, which reads its ledger.
+    legacy = {"command": "/usr/bin/python3", "env": {"BRAIN_VAULT_ROOT": str(old)},
+              "args": [str(old / ".brain-core" / "mcp" / "proxy.py"), "/usr/bin/python3",
+                       str(old / ".brain-core" / "mcp" / "server.py")]}
+    (old / ".mcp.json").write_text(json.dumps({"mcpServers": {"brain": legacy}}))
+    (old / ".brain" / "local").mkdir(parents=True)
+    (old / ".brain" / "local" / "init-state.json").write_text(json.dumps({"version": 1, "records": [{
+        "client": "claude", "scope": "project", "target_path": str(old), "config_path": str(old / ".mcp.json"),
+        "server_name": "brain", "server_config": legacy}]}))
+    _install_central_runtime(old / ".venv" / "bin" / "python")
+    vault_registry.register(str(old))
+    old_rule = hashlib.sha256((old / ".brain-core" / "mcp" / "requirements.txt").read_bytes()).hexdigest()[:16]
+    old_runtime = central_venvs_root() / f"py3.12-{old_rule}" / "bin" / "python"
+    _install_central_runtime(old_runtime)
+    return current, old.resolve(), old_runtime
+
+
+def test_machine_summary_survives_a_pre_contract_brain_and_pauses_orphan_detection(tmp_path, fake_home):
+    current, old, old_runtime = _machine_with_a_pre_contract_brain(tmp_path)
+    no_live_use = {"available": True, "processes": []}
+
+    summary = collect_machine_summary(current_vault=str(current), launcher_python=sys.executable, process_scan=no_live_use)
+
+    routes = {brain["path"]: brain for brain in summary["brains"]}
+    assert routes[str(current.resolve())]["runtime"]["status"] == "central_exact"
+    assert routes[str(old)]["runtime"]["status"] == "runtime_contract_unavailable"
+    assert not any(finding.get("repair", {}).get("scope") == "mcp" for finding in routes[str(old)]["repair_findings"])
+    assert {item["state"] for item in summary["mcp_registrations"]["registrations"] if item["path"] == str(old)} == {
+        "migration_required"}, "the old Brain's ledger is reported, not a crash"
+    assert summary["unreadable_runtime_contracts"] == [
+        {"path": str(old), "label": f"old-brain ({old})", "guidance": f"brain --vault '{old}' upgrade"}]
+    assert summary["counts"]["unreadable_runtime_contracts"] == 1
+    assert not summary["healthy"], "an unreadable runtime contract counts against health"
+    assert not summary["tidy"]
+    assert summary["registration_coverage_complete"] and summary["live_process_scan_available"], (
+        "only the unreadable contract pauses orphan detection here")
+    assert str(old_runtime) in {row["python"] for row in summary["runtimes"]}
+    assert not any(row["orphan_candidate"] for row in summary["runtimes"]), (
+        "the old Brain's runtime is never an orphan because its contract was unreadable")
+    assert summary["counts"]["orphan_candidates"] == 0
+
+    for integration in (old / ".brain" / "local" / "init-state.json", old / ".mcp.json"):
+        integration.unlink()  # unregistration refuses while the Brain holds MCP integrations
+    vault_registry.unregister(str(old))
+    control = collect_machine_summary(current_vault=str(current), launcher_python=sys.executable, process_scan=no_live_use)
+    assert control["unreadable_runtime_contracts"] == []
+    assert [row["python"] for row in control["runtimes"] if row["orphan_candidate"]] == [str(old_runtime)], (
+        "without the unreadable Brain, the same runtime is an orphan candidate")
+
+
+@pytest.mark.parametrize("dry_run", [True, False])
+def test_prune_refuses_while_a_runtime_contract_is_unreadable(tmp_path, fake_home, dry_run):
+    current, old, old_runtime = _machine_with_a_pre_contract_brain(tmp_path)
+    summary = collect_machine_summary(current_vault=str(current), launcher_python=sys.executable)
+    # Even a summary that named the old Brain's runtime an orphan must not reach it.
+    for row in summary["runtimes"]:
+        row["orphan_candidate"] = row["python"] == str(old_runtime)
+
+    result = prune_orphaned_runtimes(summary, dry_run=dry_run)
+
+    assert result["status"] == "error"
+    assert result["targets"] == []
+    assert result["steps"][0]["message"] == (
+        "Cannot prune shared runtimes while a Brain's own runtime contract cannot be read: "
+        f"old-brain ({old}) (run `brain --vault '{old}' upgrade`). Then rerun.")
+    assert old_runtime.is_file()
+
+
+def test_legacy_migration_skips_a_pre_contract_brain_and_refuses_it_by_name(tmp_path, fake_home):
+    current, old, _old_runtime = _machine_with_a_pre_contract_brain(tmp_path)
+    summary = collect_machine_summary(current_vault=str(current), launcher_python=sys.executable)
+
+    unselected = migrate_legacy_brains(summary, launcher_python=sys.executable, dry_run=False)
+    selected = migrate_legacy_brains(summary, launcher_python=sys.executable, dry_run=False, selector="old-brain")
+
+    assert unselected["status"] == "noop" and unselected["targets"] == []
+    assert unselected["steps"][0]["message"] == (
+        "No discovered legacy Brains need migration. Skipped, because their own runtime contract cannot be read: "
+        f"old-brain ({old}) (run `brain --vault '{old}' upgrade`).")
+    assert selected["status"] == "error" and selected["targets"] == []
+    message = selected["steps"][0]["message"]
+    assert message.startswith("Selected Brain 'old-brain' cannot be migrated: The Brain's own runtime contract could not be evaluated")
+    assert f"brain --vault '{old}' upgrade" in message
+    assert (old / ".venv").is_dir(), "nothing is removed"
+
+
+def test_doctor_machine_reports_a_pre_contract_brain_without_crashing(monkeypatch, tmp_path, capsys, fake_home):
+    current, old, _old_runtime = _machine_with_a_pre_contract_brain(tmp_path)
+    argv = ["doctor_machine.py", "--vault", str(current), "--current-vault", str(current), "--launcher", sys.executable]
+
+    monkeypatch.setattr(sys, "argv", argv)
+    assert doctor_machine.main() == 1
+    human = capsys.readouterr().out
+    assert f"  old-brain ({old})\n    route: runtime_contract_unavailable — The Brain's own runtime contract" in human
+    assert "expected runtime: None" not in human
+    assert f"unreadable runtime contracts (orphan detection paused):\n  old-brain ({old})" in human
+
+    monkeypatch.setattr(sys, "argv", [*argv, "--json"])
+    assert doctor_machine.main() == 1
+    payload = json.loads(capsys.readouterr().out)
+    assert [brain["runtime"]["status"] for brain in payload["brains"]] == ["central_exact", "runtime_contract_unavailable"]
+
+
 
 def test_inspect_machine_runtime_state_reports_brain_level_repair_findings(monkeypatch, tmp_path, fake_home):
 
     vault = _make_drifted_vault(tmp_path, "Active Brain")
     discovery = discover_brains(current_vault=vault)
-    machine_registry = sync_machine_registry(discovery["brains"])
     summary = inspect_machine_runtime_state(
         launcher_python=sys.executable,
         discovery=discovery,
-        machine_registry=machine_registry,
     )
 
     brain = summary["brains"][0]
@@ -555,11 +704,9 @@ def test_migrate_legacy_brains_reports_missing_selector(monkeypatch, tmp_path, f
 
     vault = _make_vault(tmp_path, "Active Brain")
     discovery = discover_brains(current_vault=vault)
-    machine_registry = sync_machine_registry(discovery["brains"])
     summary = inspect_machine_runtime_state(
         launcher_python=sys.executable,
         discovery=discovery,
-        machine_registry=machine_registry,
     )
 
     result = migrate_legacy_brains(
@@ -582,11 +729,9 @@ def test_migrate_legacy_brains_reports_non_legacy_selector_as_noop(monkeypatch, 
     selected_runtime = resolve_vault_venv_python(vault, launcher=Path(sys.executable))
     _install_central_runtime(selected_runtime)
     discovery = discover_brains(current_vault=vault)
-    machine_registry = sync_machine_registry(discovery["brains"])
     summary = inspect_machine_runtime_state(
         launcher_python=sys.executable,
         discovery=discovery,
-        machine_registry=machine_registry,
     )
 
     result = migrate_legacy_brains(
@@ -610,14 +755,12 @@ def test_migrate_legacy_brains_dry_run_plans_runtime_and_venv_changes(monkeypatc
     _install_central_runtime(legacy_python)
 
     discovery = discover_brains(current_vault=vault)
-    machine_registry = sync_machine_registry(discovery["brains"])
     summary = inspect_machine_runtime_state(
         launcher_python=sys.executable,
         discovery=discovery,
-        machine_registry=machine_registry,
     )
 
-    def _fake_run(argv, capture_output, text, timeout, check):
+    def _fake_run(argv, *, env, capture_output, text, timeout, check):
         payload = {"scope": argv[2], "status": "planned", "steps": []}
         return subprocess.CompletedProcess(argv, 0, json.dumps(payload), "")
 
@@ -632,8 +775,8 @@ def test_migrate_legacy_brains_dry_run_plans_runtime_and_venv_changes(monkeypatc
     assert result["status"] == "planned"
     assert result["counts"]["targets"] == 1
     target = result["targets"][0]
-    assert [step["status"] for step in target["steps"]] == ["planned", "planned", "planned", "planned"]
-    assert "Would remove the legacy vault-local .venv" in target["steps"][3]["message"]
+    assert [step["status"] for step in target["steps"]] == ["planned", "planned", "planned"]
+    assert "Would remove the legacy vault-local .venv" in target["steps"][2]["message"]
     assert legacy_python.parent.parent.exists()
 
 
@@ -645,16 +788,14 @@ def test_migrate_legacy_brains_delegates_repairs_and_removes_legacy_venv(monkeyp
     _install_central_runtime(legacy_python)
 
     discovery = discover_brains(current_vault=vault)
-    machine_registry = sync_machine_registry(discovery["brains"])
     summary = inspect_machine_runtime_state(
         launcher_python=sys.executable,
         discovery=discovery,
-        machine_registry=machine_registry,
     )
 
     selected_runtime = resolve_vault_venv_python(vault, launcher=Path(sys.executable))
 
-    def _fake_run(argv, capture_output, text, timeout, check):
+    def _fake_run(argv, *, env, capture_output, text, timeout, check):
         scope = argv[2]
         if scope == "runtime":
             _install_central_runtime(selected_runtime)
@@ -669,15 +810,52 @@ def test_migrate_legacy_brains_delegates_repairs_and_removes_legacy_venv(monkeyp
         dry_run=False,
     )
 
+    # The linked workspace registry finding belongs to the Brain pass, so it
+    # neither runs here nor holds back the legacy runtime's removal.
     assert result["status"] == "ok"
     assert result["counts"]["targets"] == 1
     assert not legacy_python.parent.parent.exists()
     assert Path(selected_runtime).is_file()
     target = result["targets"][0]
-    assert [step["name"] for step in target["steps"]] == ["runtime", "mcp", "registry", "legacy_venv", "verify"]
+    assert [step["name"] for step in target["steps"]] == ["runtime", "mcp", "legacy_venv", "verify"]
     assert "repair.py" in target["steps"][0]["command"] and " runtime " in target["steps"][0]["command"] and "--json" in target["steps"][0]["command"]
     assert "repair.py" in target["steps"][1]["command"] and " mcp " in target["steps"][1]["command"] and "--json" in target["steps"][1]["command"]
-    assert "repair.py" in target["steps"][2]["command"] and " registry " in target["steps"][2]["command"] and "--json" in target["steps"][2]["command"]
+    assert target["steps"][2]["status"] == "changed"
+
+
+def test_migrate_legacy_brains_runs_through_an_injected_repair_runner(monkeypatch, tmp_path, fake_home):
+
+    vault = _make_drifted_vault(tmp_path, "Legacy Brain")
+    (vault / ".brain" / "local" / "workspaces.json").unlink()
+    legacy_python = vault / ".venv" / "bin" / "python"
+    _install_central_runtime(legacy_python)
+
+    discovery = discover_brains(current_vault=vault)
+    summary = inspect_machine_runtime_state(
+        launcher_python=sys.executable,
+        discovery=discovery,
+    )
+    selected_runtime = resolve_vault_venv_python(vault, launcher=Path(sys.executable))
+    calls = []
+
+    def runner(vault_root, scope):
+        calls.append((str(vault_root), scope))
+        if scope == "runtime":
+            _install_central_runtime(selected_runtime)
+        return {"name": scope, "status": "changed", "message": f"ran {scope}", "outcome": "committed"}
+
+    monkeypatch.setattr(
+        "_machine.maintenance.subprocess.run",
+        lambda *_args, **_kwargs: pytest.fail("the injected runner must replace repair.py delegation"),
+    )
+
+    result = migrate_legacy_brains(summary, launcher_python=sys.executable, dry_run=False, repair_runner=runner)
+
+    assert calls == [(str(vault), "runtime"), (str(vault), "mcp")]
+    assert result["status"] == "ok"
+    assert not legacy_python.parent.parent.exists()
+    target = result["targets"][0]
+    assert [step["name"] for step in target["steps"]] == ["runtime", "mcp", "legacy_venv", "verify"]
 
 
 def test_prune_orphaned_runtimes_removes_orphans(monkeypatch, tmp_path, fake_home):
@@ -689,11 +867,9 @@ def test_prune_orphaned_runtimes_removes_orphans(monkeypatch, tmp_path, fake_hom
     _install_central_runtime(orphan_runtime)
 
     discovery = discover_brains(current_vault=vault)
-    machine_registry = sync_machine_registry(discovery["brains"])
     summary = inspect_machine_runtime_state(
         launcher_python=sys.executable,
         discovery=discovery,
-        machine_registry=machine_registry,
     )
 
     result = prune_orphaned_runtimes(summary, dry_run=False)
@@ -710,14 +886,12 @@ def test_migrate_legacy_brains_keeps_legacy_venv_on_partial_delegated_repair(mon
     legacy_python = vault / ".venv" / "bin" / "python"
     _install_central_runtime(legacy_python)
     discovery = discover_brains(current_vault=vault)
-    machine_registry = sync_machine_registry(discovery["brains"])
     summary = inspect_machine_runtime_state(
         launcher_python=sys.executable,
         discovery=discovery,
-        machine_registry=machine_registry,
     )
 
-    def _fake_run(argv, capture_output, text, timeout, check):
+    def _fake_run(argv, *, env, capture_output, text, timeout, check):
         scope = argv[2]
         status = "partial" if scope == "mcp" else "ok"
         payload = {"scope": scope, "status": status, "steps": []}
@@ -734,7 +908,7 @@ def test_migrate_legacy_brains_keeps_legacy_venv_on_partial_delegated_repair(mon
     assert result["status"] == "partial"
     target = result["targets"][0]
     assert target["steps"][1]["status"] == "partial"
-    assert target["steps"][3]["status"] == "noop"
+    assert target["steps"][2]["status"] == "noop"
     assert legacy_python.parent.parent.exists()
 
 
@@ -744,15 +918,13 @@ def test_migrate_legacy_brains_keeps_legacy_venv_when_live_process_detected(monk
     legacy_python = vault / ".venv" / "bin" / "python"
     _install_central_runtime(legacy_python)
     discovery = discover_brains(current_vault=vault)
-    machine_registry = sync_machine_registry(discovery["brains"])
     summary = inspect_machine_runtime_state(
         launcher_python=sys.executable,
         discovery=discovery,
-        machine_registry=machine_registry,
     )
     selected_runtime = resolve_vault_venv_python(vault, launcher=Path(sys.executable))
 
-    def _fake_repair_run(argv, capture_output, text, timeout, check):
+    def _fake_repair_run(argv, *, env, capture_output, text, timeout, check):
         if argv[2] == "runtime":
             _install_central_runtime(selected_runtime)
         payload = {"scope": argv[2], "status": "ok", "steps": []}
@@ -761,7 +933,7 @@ def test_migrate_legacy_brains_keeps_legacy_venv_when_live_process_detected(monk
     monkeypatch.setattr("_machine.maintenance.subprocess.run", _fake_repair_run)
     monkeypatch.setattr(
         "_machine.maintenance.find_live_brain_runtime_processes",
-        lambda runtime_pythons: {
+        lambda runtime_pythons, *, scan=None: {
             "available": True,
             "processes": {str(legacy_python): [{"pid": 123, "command": f"{legacy_python} -m brain_mcp.server"}]},
         },
@@ -771,8 +943,8 @@ def test_migrate_legacy_brains_keeps_legacy_venv_when_live_process_detected(monk
 
     assert result["status"] == "partial"
     target = result["targets"][0]
-    assert target["steps"][3]["status"] == "error"
-    assert "still in use by a live process" in target["steps"][3]["message"]
+    assert target["steps"][2]["status"] == "error"
+    assert "still in use by a live process" in target["steps"][2]["message"]
     assert legacy_python.parent.parent.exists()
 
 
@@ -783,15 +955,13 @@ def test_migrate_legacy_brains_keeps_legacy_venv_when_live_scan_unavailable(monk
     legacy_python = vault / ".venv" / "bin" / "python"
     _install_central_runtime(legacy_python)
     discovery = discover_brains(current_vault=vault)
-    machine_registry = sync_machine_registry(discovery["brains"])
     summary = inspect_machine_runtime_state(
         launcher_python=sys.executable,
         discovery=discovery,
-        machine_registry=machine_registry,
     )
     selected_runtime = resolve_vault_venv_python(vault, launcher=Path(sys.executable))
 
-    def _fake_repair_run(argv, capture_output, text, timeout, check):
+    def _fake_repair_run(argv, *, env, capture_output, text, timeout, check):
         if argv[2] == "runtime":
             _install_central_runtime(selected_runtime)
         payload = {"scope": argv[2], "status": "ok", "steps": []}
@@ -800,15 +970,15 @@ def test_migrate_legacy_brains_keeps_legacy_venv_when_live_scan_unavailable(monk
     monkeypatch.setattr("_machine.maintenance.subprocess.run", _fake_repair_run)
     monkeypatch.setattr(
         "_machine.maintenance.find_live_brain_runtime_processes",
-        lambda runtime_pythons: {"available": False, "processes": {str(legacy_python): []}},
+        lambda runtime_pythons, *, scan=None: {"available": False, "processes": {str(legacy_python): []}},
     )
 
     result = migrate_legacy_brains(summary, launcher_python=sys.executable, dry_run=False)
 
     assert result["status"] == "partial"
     target = result["targets"][0]
-    assert target["steps"][3]["status"] == "error"
-    assert "live-process detection is unavailable" in target["steps"][3]["message"]
+    assert target["steps"][2]["status"] == "error"
+    assert "live-process detection is unavailable" in target["steps"][2]["message"]
     assert legacy_python.parent.parent.exists()
 
 
@@ -821,11 +991,11 @@ def test_migrate_legacy_brains_keeps_legacy_venv_when_live_scan_unavailable(monk
             "Could not run target Brain repair scope runtime",
         ),
         (
-            lambda: (lambda argv, capture_output, text, timeout, check: subprocess.CompletedProcess(argv, 0, "not-json", "")),
+            lambda: (lambda argv, *, env, capture_output, text, timeout, check: subprocess.CompletedProcess(argv, 0, "not-json", "")),
             "did not produce valid JSON",
         ),
         (
-            lambda: (lambda argv, capture_output, text, timeout, check: subprocess.CompletedProcess(argv, 0, json.dumps({"scope": argv[2], "status": "mystery"}), "")),
+            lambda: (lambda argv, *, env, capture_output, text, timeout, check: subprocess.CompletedProcess(argv, 0, json.dumps({"scope": argv[2], "status": "mystery"}), "")),
             "returned unknown status 'mystery'",
         ),
     ],
@@ -842,17 +1012,15 @@ def test_migrate_legacy_brains_keeps_legacy_venv_on_repair_scope_errors(
     legacy_python = vault / ".venv" / "bin" / "python"
     _install_central_runtime(legacy_python)
     discovery = discover_brains(current_vault=vault)
-    machine_registry = sync_machine_registry(discovery["brains"])
     summary = inspect_machine_runtime_state(
         launcher_python=sys.executable,
         discovery=discovery,
-        machine_registry=machine_registry,
     )
 
     monkeypatch.setattr("_machine.maintenance.subprocess.run", run_factory())
     monkeypatch.setattr(
         "_machine.maintenance.find_live_brain_runtime_processes",
-        lambda runtime_pythons: {"available": True, "processes": {str(legacy_python): []}},
+        lambda runtime_pythons, *, scan=None: {"available": True, "processes": {str(legacy_python): []}},
     )
 
     result = migrate_legacy_brains(summary, launcher_python=sys.executable, dry_run=False)
@@ -861,7 +1029,7 @@ def test_migrate_legacy_brains_keeps_legacy_venv_on_repair_scope_errors(
     target = result["targets"][0]
     assert target["steps"][0]["status"] == "error"
     assert expected_fragment in target["steps"][0]["message"]
-    assert target["steps"][3]["status"] == "noop"
+    assert target["steps"][2]["status"] == "noop"
     assert legacy_python.parent.parent.exists()
 
 
@@ -873,29 +1041,27 @@ def test_migrate_legacy_brains_dry_run_reports_live_scan_uncertainty(monkeypatch
     _install_central_runtime(legacy_python)
 
     discovery = discover_brains(current_vault=vault)
-    machine_registry = sync_machine_registry(discovery["brains"])
     summary = inspect_machine_runtime_state(
         launcher_python=sys.executable,
         discovery=discovery,
-        machine_registry=machine_registry,
     )
 
-    def _fake_run(argv, capture_output, text, timeout, check):
+    def _fake_run(argv, *, env, capture_output, text, timeout, check):
         payload = {"scope": argv[2], "status": "planned", "steps": []}
         return subprocess.CompletedProcess(argv, 0, json.dumps(payload), "")
 
     monkeypatch.setattr("_machine.maintenance.subprocess.run", _fake_run)
     monkeypatch.setattr(
         "_machine.maintenance.find_live_brain_runtime_processes",
-        lambda runtime_pythons: {"available": False, "processes": {str(legacy_python): []}},
+        lambda runtime_pythons, *, scan=None: {"available": False, "processes": {str(legacy_python): []}},
     )
 
     result = migrate_legacy_brains(summary, launcher_python=sys.executable, dry_run=True)
 
     assert result["status"] == "planned"
     target = result["targets"][0]
-    assert target["steps"][3]["status"] == "planned"
-    assert "proving no live process still uses it" in target["steps"][3]["message"]
+    assert target["steps"][2]["status"] == "planned"
+    assert "proving no live process still uses it" in target["steps"][2]["message"]
 
 
 def test_delegated_repair_timeout_marks_the_child_outcome_unknown(
@@ -954,7 +1120,7 @@ def test_prune_orphaned_runtimes_keeps_live_unclaimed_runtime(monkeypatch, tmp_p
 
     monkeypatch.setattr(
         "_machine.maintenance.find_live_brain_runtime_processes",
-        lambda runtime_pythons: {
+        lambda runtime_pythons, *, scan=None: {
             "available": True,
             "processes": {
                 str(selected_runtime): [],
@@ -964,11 +1130,9 @@ def test_prune_orphaned_runtimes_keeps_live_unclaimed_runtime(monkeypatch, tmp_p
     )
 
     discovery = discover_brains(current_vault=vault)
-    machine_registry = sync_machine_registry(discovery["brains"])
     summary = inspect_machine_runtime_state(
         launcher_python=sys.executable,
         discovery=discovery,
-        machine_registry=machine_registry,
     )
 
     assert summary["counts"]["orphan_candidates"] == 0
@@ -994,11 +1158,9 @@ def test_prune_orphaned_runtimes_reports_rmtree_errors_per_target(monkeypatch, t
     _install_central_runtime(orphan_two)
 
     discovery = discover_brains(current_vault=vault)
-    machine_registry = sync_machine_registry(discovery["brains"])
     summary = inspect_machine_runtime_state(
         launcher_python=sys.executable,
         discovery=discovery,
-        machine_registry=machine_registry,
     )
 
     calls = {"count": 0}
@@ -1029,7 +1191,7 @@ def test_machine_main_renders_migrate_json(monkeypatch, tmp_path, capsys, fake_h
     legacy_python = vault / ".venv" / "bin" / "python"
     _install_central_runtime(legacy_python)
 
-    def _fake_run(argv, capture_output, text, timeout, check):
+    def _fake_run(argv, *, env, capture_output, text, timeout, check):
         payload = {"scope": argv[2], "status": "planned", "steps": []}
         return subprocess.CompletedProcess(argv, 0, json.dumps(payload), "")
 
@@ -1146,8 +1308,9 @@ def test_doctor_machine_main_renders_brain_level_repair_guidance(monkeypatch, tm
     assert "repair: mcp — Claude SessionStart hook for session.start is missing or does not match the canonical command." in human
     assert ".brain-core/scripts/repair.py" in human
     assert "mcp --vault" in human
-    assert "repair: registry — Registry contains invalid linked-workspace entries: bad" in human
-    assert "registry --vault" in human
+    assert "repair: registry — The linked workspace registry has rows that name no usable folder" in human
+    assert "'bad'. The repair rebuilds it without them" in human
+    assert "workspace repair-registry" in human
 
     monkeypatch.setattr(
         sys,
@@ -1168,32 +1331,6 @@ def test_doctor_machine_main_renders_brain_level_repair_guidance(monkeypatch, tm
     assert payload["counts"]["brains_with_repair_findings"] == 1
     assert payload["counts"]["repair_findings"] == 3
     assert {finding["repair"]["scope"] for finding in payload["brains"][0]["repair_findings"]} == {"mcp", "registry"}
-
-
-def test_doctor_machine_main_renders_default_blocked_registry_note(monkeypatch, tmp_path, capsys, fake_home):
-
-    vault = _make_vault(tmp_path, "Active Brain")
-    machine_registry_path().parent.mkdir(parents=True, exist_ok=True)
-    machine_registry_path().write_text("{not json\n")
-
-    monkeypatch.setattr(
-        sys,
-        "argv",
-        [
-            "doctor_machine.py",
-            "--vault",
-            str(vault),
-            "--current-vault",
-            str(vault),
-            "--launcher",
-            sys.executable,
-        ],
-    )
-    assert doctor_machine.main() == 1
-    human = capsys.readouterr().out
-    assert "registry note:" in human
-    assert "machine-registry state could not be safely interpreted; leaving brains.json untouched" in human
-
 
 
 def test_doctor_machine_main_renders_human_and_json(monkeypatch, tmp_path, capsys, fake_home):
@@ -1217,8 +1354,11 @@ def test_doctor_machine_main_renders_human_and_json(monkeypatch, tmp_path, capsy
     assert doctor_machine.main() == 0
     human = capsys.readouterr().out
     assert "brains:" in human
-    assert "registry:" in human
+    assert f"registry:  {vault_registry.registry_path()} (0 registered, current)" in human
+    assert "unregistered brains:" in human
+    assert f"register: brain register --request-json '{{\"vault_root\":\"{vault.resolve()}\"}}'" in human
     assert "brain routes:" in human
+    assert not (config_home() / "brain" / "brains.json").exists(), "Doctor derives nothing to disk"
 
     monkeypatch.setattr(
         sys,
@@ -1239,7 +1379,8 @@ def test_doctor_machine_main_renders_human_and_json(monkeypatch, tmp_path, capsy
     assert payload["counts"]["brains"] == 1
     assert payload["counts"]["brains_with_repair_findings"] == 0
     assert payload["counts"]["repair_findings"] == 0
-    assert payload["machine_registry"]["brains_count"] == 1
+    assert payload["registry"] == {"path": str(vault_registry.registry_path()), "brains_count": 0, "stale": False}
+    assert payload["unregistered_brains"] == [str(vault.resolve())]
     assert payload["brains"][0]["runtime"]["status"] == "central_exact"
     assert payload["brains"][0]["repair_findings"] == []
 
@@ -1251,7 +1392,7 @@ def test_inspect_machine_runtime_state_reports_runtime_memory(monkeypatch, tmp_p
     footprints = {101: 150 * 1024**2, 202: 1650 * 1024**2, 303: None}
     monkeypatch.setattr(
         "_machine.maintenance.find_live_brain_runtime_processes",
-        lambda _pythons: {
+        lambda _pythons, *, scan=None: {
             "available": True,
             "processes": {
                 str(selected_runtime): [
@@ -1264,11 +1405,9 @@ def test_inspect_machine_runtime_state_reports_runtime_memory(monkeypatch, tmp_p
     monkeypatch.setattr("_machine.maintenance.measure_footprint_bytes", footprints.__getitem__)
 
     discovery = discover_brains(current_vault=vault)
-    machine_registry = sync_machine_registry(discovery["brains"])
     summary = inspect_machine_runtime_state(
         launcher_python=sys.executable,
         discovery=discovery,
-        machine_registry=machine_registry,
         measure_memory=True,
     )
 
@@ -1292,7 +1431,7 @@ def test_inspect_machine_runtime_state_skips_footprints_unless_asked(monkeypatch
     _install_central_runtime(selected_runtime)
     monkeypatch.setattr(
         "_machine.maintenance.find_live_brain_runtime_processes",
-        lambda _pythons: {"available": True, "processes": {str(selected_runtime): [{"pid": 7, "command": "x"}]}},
+        lambda _pythons, *, scan=None: {"available": True, "processes": {str(selected_runtime): [{"pid": 7, "command": "x"}]}},
     )
     monkeypatch.setattr(
         "_machine.maintenance.measure_footprint_bytes",
@@ -1303,7 +1442,6 @@ def test_inspect_machine_runtime_state_skips_footprints_unless_asked(monkeypatch
     summary = inspect_machine_runtime_state(
         launcher_python=sys.executable,
         discovery=discovery,
-        machine_registry=sync_machine_registry(discovery["brains"]),
     )
 
     assert "memory" not in summary

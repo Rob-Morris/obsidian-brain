@@ -3,6 +3,7 @@
 import json
 import os
 from pathlib import Path
+import shutil
 import subprocess
 import sys
 import textwrap
@@ -17,6 +18,7 @@ from brain_test_support import (
     copy_install_source as _copy_source_checkout,
     launcher_discovery_path,
     write_executable as _write_executable,
+    offline_install_env,
     write_fake_launcher,
 )
 
@@ -225,6 +227,8 @@ def test_install_can_skip_mcp_setup(tmp_path):
     target = tmp_path / "vault"
     env = os.environ.copy()
     env["PATH"] = f"{fake_bin}{os.pathsep}{launcher_discovery_path()}"
+    env["HOME"] = str(tmp_path / "home")
+    offline_install_env(env, tmp_path)
 
     result = subprocess.run(
         ["bash", "install.sh", "--non-interactive", "--skip-mcp", str(target)],
@@ -241,6 +245,9 @@ def test_install_can_skip_mcp_setup(tmp_path):
     assert not (target / ".mcp.json").exists()
     assert not (target / ".codex" / "config.toml").exists()
     assert "MCP registration skipped." in result.stderr
+    # Skip skips MCP registration only: the managed runtime is still provisioned.
+    venvs = [path for path in (tmp_path / "home" / ".brain" / "venvs").iterdir() if path.is_dir()]
+    assert len(venvs) == 1 and (venvs[0] / "bin" / "python").is_file()
 
 
 def test_install_can_enable_semantic_after_skipping_mcp(tmp_path):
@@ -264,6 +271,8 @@ def test_install_can_enable_semantic_after_skipping_mcp(tmp_path):
     target = tmp_path / "vault"
     env = os.environ.copy()
     env["PATH"] = f"{fake_bin}{os.pathsep}{launcher_discovery_path()}"
+    env["HOME"] = str(tmp_path / "home")
+    offline_install_env(env, tmp_path)
 
     result = subprocess.run(
         ["bash", "install.sh", "--non-interactive", "--skip-mcp", "--enable-semantic", str(target)],
@@ -446,6 +455,8 @@ def test_install_keeps_vault_when_semantic_setup_fails(tmp_path):
     target = tmp_path / "vault"
     env = os.environ.copy()
     env["PATH"] = f"{fake_bin}{os.pathsep}{launcher_discovery_path()}"
+    env["HOME"] = str(tmp_path / "home")
+    offline_install_env(env, tmp_path)
 
     result = subprocess.run(
         ["bash", "install.sh", "--non-interactive", "--skip-mcp", "--enable-semantic", str(target)],
@@ -474,6 +485,8 @@ def test_uninstall_preserves_user_claude_md_content_and_cleans_vault_local_claud
     target = tmp_path / "vault"
     env = os.environ.copy()
     env["PATH"] = f"{fake_bin}{os.pathsep}{launcher_discovery_path()}"
+    env["HOME"] = str(tmp_path / "home")
+    offline_install_env(env, tmp_path)
 
     install_result = subprocess.run(
         ["bash", "install.sh", "--non-interactive", "--skip-mcp", str(target)],
@@ -484,6 +497,7 @@ def test_uninstall_preserves_user_claude_md_content_and_cleans_vault_local_claud
         timeout=60,
     )
     assert install_result.returncode == 0, install_result.stderr
+    assert "Created managed runtime." in install_result.stderr, "the offline stand-in provisioned the runtime"
 
     target.joinpath("CLAUDE.md").write_text(
         "# My Vault\n\n"
@@ -654,7 +668,8 @@ def test_upgrade_non_interactive_does_not_pass_force_to_upgrade_script(tmp_path)
 
     assert result.returncode == 0, result.stderr
     assert "--force" not in (target / "upgrade-args.txt").read_text()
-    assert "--no-sync-deps" in (target / "upgrade-args.txt").read_text()
+    # --skip-mcp skips MCP registration only; the upgrade still syncs the runtime.
+    assert "--no-sync-deps" not in (target / "upgrade-args.txt").read_text()
 
 
 def test_upgrade_wrapper_preserves_repeated_stale_brain_exclusions(tmp_path):
@@ -853,3 +868,283 @@ def test_upgrade_wrapper_does_not_run_semantic_configuration(tmp_path):
     assert (target / "upgrade-ran.txt").is_file()
     assert not (target / "semantic-configured.txt").exists()
     assert "Upgrade mode does not change local capability configuration." in result.stderr
+
+
+_PLANNED_PREVIEW = json.dumps({
+    "status": "ok", "old_version": "1.0.1", "new_version": "1.0.1", "dry_run": True,
+    "warnings": [{"stage": "version_guard", "code": "core_mismatch", "message": "The installed Brain Core differs"}],
+})
+
+
+def _recording_upgrade_script(source, *, preview=_PLANNED_PREVIEW, preview_exit=0):
+    """A stand-in upgrade.py that records its argv and answers the equal-version preview with ``preview``."""
+    (source / "src" / "brain-core" / "scripts" / "upgrade.py").write_text(
+        "import sys\n"
+        "from pathlib import Path\n"
+        "\n"
+        "args = sys.argv[1:]\n"
+        "vault = Path(args[args.index('--vault') + 1])\n"
+        "(vault / 'upgrade-args.txt').write_text(' '.join(args) + '\\n')\n"
+        "if '--dry-run' in args:\n"
+        f"    print({preview!r})\n"
+        f"    sys.exit({preview_exit})\n"
+    )
+
+
+def _installed_vault(tmp_path, version):
+    target = tmp_path / "vault"
+    (target / ".brain-core").mkdir(parents=True)
+    (target / ".brain-core" / "VERSION").write_text(version + "\n")
+    return target
+
+
+def test_install_refuses_a_downgrade_without_a_force_hint(tmp_path):
+    source = tmp_path / "source"
+    source.mkdir()
+    _copy_source_checkout(source)
+    (source / "src" / "brain-core" / "VERSION").write_text("1.0.0\n")
+    _recording_upgrade_script(source)
+    target = _installed_vault(tmp_path, "1.0.1")
+
+    result = subprocess.run(
+        ["bash", "install.sh", "--non-interactive", "--skip-mcp", str(target)],
+        cwd=source, capture_output=True, text=True, timeout=60,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "does not downgrade" in result.stderr
+    assert "migrations only run forward" in result.stderr
+    assert "--force" not in result.stderr
+    assert not (target / "upgrade-args.txt").exists()
+
+
+def test_install_delegates_an_equal_version_to_the_upgrade_script(tmp_path):
+    source = tmp_path / "source"
+    source.mkdir()
+    _copy_source_checkout(source)
+    (source / "src" / "brain-core" / "VERSION").write_text("1.0.1\n")
+    _recording_upgrade_script(source)
+    target = _installed_vault(tmp_path, "1.0.1")
+
+    result = subprocess.run(
+        ["bash", "install.sh", "--non-interactive", "--skip-mcp", str(target)],
+        cwd=source, capture_output=True, text=True, timeout=60,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert "installed core differs from this source" in result.stderr
+    assert "Upgrading v1.0.1 → v1.0.1" not in result.stderr
+    args = (target / "upgrade-args.txt").read_text()
+    assert "--source" in args and "--force" not in args and "--dry-run" not in args
+
+
+@pytest.mark.parametrize(("preview", "preview_exit", "expected"), [
+    pytest.param(json.dumps({"status": "ok", "result": {"status": "noop", "message": "Already at 1.0.1."}}), 0,
+                 "already at v1.0.1. No core upgrade needed", id="launcher-noop"),
+    pytest.param(json.dumps({"status": "ok", "result": {"status": "planned"}}), 0,
+                 "installed core differs from this source", id="launcher-planned"),
+    pytest.param(json.dumps({"status": "error", "error": {"message": "stale registry entries require explicit exclusion"}}), 1,
+                 "Upgrade refused: stale registry entries require explicit exclusion", id="launcher-error"),
+    pytest.param(json.dumps({"status": "error", "reason": "cutover_preflight", "message": "Upgrade refused — CLI cutover preflight failed: boom"}), 1,
+                 "Upgrade refused: Upgrade refused — CLI cutover preflight failed: boom", id="upgrader-error"),
+    pytest.param("", 1, "Upgrade refused: upgrade.py --dry-run exited 1", id="no-output-failure"),
+    pytest.param("", 0, "upgrade.py preview produced no result", id="no-output-success"),
+    pytest.param("not json", 0, "upgrade.py preview produced no result", id="unparseable"),
+])
+def test_install_reads_the_equal_version_preview_in_every_envelope(tmp_path, preview, preview_exit, expected):
+    """The preview may be the upgrader's own result or a launcher envelope; silence is an error, not a re-apply."""
+    source = tmp_path / "source"
+    source.mkdir()
+    _copy_source_checkout(source)
+    (source / "src" / "brain-core" / "VERSION").write_text("1.0.1\n")
+    _recording_upgrade_script(source, preview=preview, preview_exit=preview_exit)
+    target = _installed_vault(tmp_path, "1.0.1")
+
+    result = subprocess.run(
+        ["bash", "install.sh", "--non-interactive", "--skip-mcp", str(target)],
+        cwd=source, capture_output=True, text=True, timeout=60,
+    )
+
+    assert expected in result.stderr, result.stderr
+    re_applied = "--dry-run" not in (target / "upgrade-args.txt").read_text()
+    if expected.startswith("installed core differs"):
+        assert result.returncode == 0 and re_applied
+    else:
+        assert result.returncode == (0 if "already at" in expected else 1)
+        assert not re_applied, "nothing else may fall through to the re-apply"
+
+
+def test_install_shows_the_preview_stderr_when_it_is_refused(tmp_path):
+    source = tmp_path / "source"
+    source.mkdir()
+    _copy_source_checkout(source)
+    (source / "src" / "brain-core" / "VERSION").write_text("1.0.1\n")
+    (source / "src" / "brain-core" / "scripts" / "upgrade.py").write_text(
+        "import sys\n"
+        "print('affected Brain: other-brain', file=sys.stderr)\n"
+        "sys.exit(1)\n"
+    )
+    target = _installed_vault(tmp_path, "1.0.1")
+
+    result = subprocess.run(
+        ["bash", "install.sh", "--non-interactive", "--skip-mcp", str(target)],
+        cwd=source, capture_output=True, text=True, timeout=60,
+    )
+
+    assert result.returncode == 1
+    assert "affected Brain: other-brain" in result.stderr
+    assert "Upgrade refused: upgrade.py --dry-run exited 1" in result.stderr
+
+
+def test_install_reports_already_at_beside_a_stale_registry_row(tmp_path):
+    """A skipped run never commits the CLI cutover, so its whole-registry preflight cannot refuse the preview."""
+    source = tmp_path / "source"
+    source.mkdir()
+    _copy_source_checkout(source)
+    target = tmp_path / "vault"
+    target.mkdir()
+    shutil.copytree(source / "src" / "brain-core", target / ".brain-core")
+    home = Path(os.environ["HOME"])
+    registry = home / ".config" / "brain" / "vaults"
+    registry.parent.mkdir(parents=True)
+    registry.write_text(
+        "# brain registry v2 — one Brain per line, <brain-id>\\t<kind>\\t<value>\n"
+        f"gone\tlocal\t{tmp_path / 'gone'}\n"
+    )
+    _write_executable(home / ".local" / "bin" / "brain", '#!/bin/sh\nBRAIN_CLI_VERSION="2.0.0"\n')
+
+    result = subprocess.run(
+        ["bash", "install.sh", "--non-interactive", "--skip-mcp", str(target)],
+        cwd=source, capture_output=True, text=True, timeout=120,
+    )
+
+    assert result.returncode == 0, result.stderr
+    version = (source / "src" / "brain-core" / "VERSION").read_text().strip()
+    assert f"already at v{version}. No core upgrade needed" in result.stderr
+    assert "Upgrade refused" not in result.stderr
+
+
+def test_install_reports_already_at_for_a_matching_core_at_an_equal_version(tmp_path):
+    source = tmp_path / "source"
+    source.mkdir()
+    _copy_source_checkout(source)
+    target = tmp_path / "vault"
+    target.mkdir()
+    shutil.copytree(source / "src" / "brain-core", target / ".brain-core")
+
+    result = subprocess.run(
+        ["bash", "install.sh", "--non-interactive", "--skip-mcp", str(target)],
+        cwd=source, capture_output=True, text=True, timeout=120,
+    )
+
+    assert result.returncode == 0, result.stderr
+    version = (source / "src" / "brain-core" / "VERSION").read_text().strip()
+    assert f"already at v{version}. No core upgrade needed" in result.stderr
+    assert "Upgraded to" not in result.stderr
+    assert "Upgrading v" not in result.stderr
+    assert "--force" not in result.stderr
+
+
+def test_install_stops_when_the_upgrade_refuses_content_ahead_of_the_source(tmp_path):
+    source = tmp_path / "source"
+    source.mkdir()
+    _copy_source_checkout(source)
+    version = (source / "src" / "brain-core" / "VERSION").read_text().strip()
+    target = _installed_vault(tmp_path, version)
+    (target / ".brain" / "local").mkdir(parents=True)
+    (target / ".brain" / "local" / "migrations.json").write_text(
+        json.dumps({"schema_version": 1, "migrations": {"99.0.0": {"status": "ok"}}})
+    )
+
+    result = subprocess.run(
+        ["bash", "install.sh", "--non-interactive", "--skip-mcp", str(target)],
+        cwd=source, capture_output=True, text=True, timeout=120,
+    )
+
+    assert result.returncode != 0
+    assert "Upgrade refused" in result.stderr
+    assert "records 99.0.0 above this source" in result.stderr
+    assert "brain upgrade" not in result.stderr
+    assert "Upgraded to" not in result.stderr
+
+
+def test_install_rejects_skip_cli_at_an_equal_version(tmp_path):
+    source = tmp_path / "source"
+    source.mkdir()
+    _copy_source_checkout(source)
+    (source / "src" / "brain-core" / "VERSION").write_text("1.0.1\n")
+    _recording_upgrade_script(source)
+    target = _installed_vault(tmp_path, "1.0.1")
+
+    result = subprocess.run(
+        ["bash", "install.sh", "--non-interactive", "--skip-mcp", "--skip-cli", str(target)],
+        cwd=source, capture_output=True, text=True, timeout=60,
+    )
+
+    assert result.returncode != 0
+    assert "--skip-cli cannot be used" in result.stderr
+    assert not (target / "upgrade-args.txt").exists()
+
+
+def test_install_does_not_prompt_for_an_equal_version_re_apply(tmp_path):
+    """Interactive mode: an equal version with a differing core re-applies without the upgrade prompt."""
+    import pty
+
+    source = tmp_path / "source"
+    source.mkdir()
+    _copy_source_checkout(source)
+    (source / "src" / "brain-core" / "VERSION").write_text("1.0.1\n")
+    _recording_upgrade_script(source)
+    target = _installed_vault(tmp_path, "1.0.1")
+    master, slave = pty.openpty()
+    try:
+        os.write(master, b"n\n")  # would decline the prompt if one appeared
+        result = subprocess.run(
+            ["bash", "install.sh", "--skip-mcp", str(target)],
+            cwd=source, stdin=slave, capture_output=True, text=True, timeout=120,
+        )
+    finally:
+        os.close(master)
+        os.close(slave)
+
+    assert result.returncode == 0, result.stderr
+    assert "Upgrade skipped" not in result.stderr
+    assert "Would you like to upgrade" not in result.stderr
+    assert "installed core differs" in result.stderr
+    assert (target / "upgrade-args.txt").exists()
+
+
+def test_equal_version_preview_carries_the_same_options_as_the_run(tmp_path):
+    """The preview is the run's own dry run: acknowledgement and exclusions are not dropped."""
+    source = tmp_path / "source"
+    source.mkdir()
+    _copy_source_checkout(source)
+    (source / "src" / "brain-core" / "VERSION").write_text("1.0.1\n")
+    (source / "src" / "brain-core" / "scripts" / "upgrade.py").write_text(
+        "import json, sys\n"
+        "from pathlib import Path\n"
+        "args = sys.argv[1:]\n"
+        "vault = Path(args[args.index('--vault') + 1])\n"
+        "log = vault / 'upgrade-calls.json'\n"
+        "calls = json.loads(log.read_text()) if log.exists() else []\n"
+        "calls.append(args)\n"
+        "log.write_text(json.dumps(calls))\n"
+        "if '--dry-run' in args:\n"
+        "    print(json.dumps({'status': 'ok', 'dry_run': True}))\n"
+    )
+    target = _installed_vault(tmp_path, "1.0.1")
+
+    result = subprocess.run(
+        [
+            "bash", "install.sh", "--non-interactive", "--skip-mcp",
+            "--acknowledge-global-cli-cutover", "--exclude-stale-brain", "stale-a", str(target),
+        ],
+        cwd=source, capture_output=True, text=True, timeout=60,
+    )
+
+    assert result.returncode == 0, result.stderr
+    preview, run = json.loads((target / "upgrade-calls.json").read_text())
+    assert "--dry-run" in preview and "--json" in preview and "--unattended" in preview
+    assert "--acknowledge-global-cli-cutover" in preview and preview[preview.index("--exclude-stale-brain") + 1] == "stale-a"
+    assert "--dry-run" not in run
+    assert [arg for arg in run if arg not in ("--unattended",)] == [arg for arg in preview if arg not in ("--dry-run", "--json", "--unattended")]

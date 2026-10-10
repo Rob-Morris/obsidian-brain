@@ -23,6 +23,14 @@ _ASCII_ALNUM = _ASCII_LOWER | _ASCII_DIGITS
 _COMMAND_PART_CHARACTERS = _ASCII_ALNUM | {"-"}
 
 
+class InvalidToolCall(ValueError):
+    """Caller-owned request data needs correction, not tool rediscovery."""
+
+    def __init__(self, message: str, *, code: int = -32602) -> None:
+        super().__init__(message)
+        self.code = code
+
+
 @dataclass(frozen=True, slots=True)
 class InterfaceTool:
     command_id: str
@@ -243,14 +251,14 @@ def accept_call(
 
     raw = deepcopy(dict(request))
     if raw.get("jsonrpc") != "2.0" or raw.get("method") != "tools/call":
-        raise ValueError("accepted call must be a JSON-RPC tools/call request")
+        raise InvalidToolCall("accepted call must be a JSON-RPC tools/call request", code=-32600)
     request_id = raw.get("id")
     params = raw.get("params")
     if not isinstance(params, Mapping):
-        raise ValueError("accepted tools/call request requires params")
+        raise InvalidToolCall("accepted tools/call request requires params")
     projected_tool = params.get("name")
     if not isinstance(projected_tool, str):
-        raise ValueError("accepted tools/call request requires a tool name")
+        raise InvalidToolCall("accepted tools/call request requires a tool name")
     mapping = header.tool(projected_tool)
     if mapping is None:
         raise ValueError("projected tool is absent from the accepted interface header")
@@ -274,9 +282,9 @@ def accept_call(
     elif isinstance(raw_meta, Mapping):
         metadata = dict(raw_meta)
     else:
-        raise ValueError("tools/call _meta must be an object")
+        raise InvalidToolCall("tools/call _meta must be an object")
     if any(name in metadata for name in ("brainInvocation", "brainContext", "brainProcessContext", "brainOwner", "brainAuthorisation")):
-        raise ValueError("reserved Brain invocation/context metadata is owned by the proxy")
+        raise InvalidToolCall("reserved Brain invocation/context metadata is owned by the proxy")
     metadata["brainInvocation"] = {"invocationId": invocation_id}
     forwarded_params["_meta"] = metadata
     forwarded["params"] = forwarded_params
