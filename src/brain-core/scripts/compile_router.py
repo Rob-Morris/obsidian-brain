@@ -13,6 +13,7 @@ Usage:
 
 import argparse
 import hashlib
+import io
 import json
 import os
 import re
@@ -48,6 +49,9 @@ from _common import (
     validate_naming_pattern,
 )
 from _common._artefacts import pattern_has_date_tokens
+from _common._frontmatter import _read_frontmatter_stream
+from _common._text_encoding import diagnose_text
+from _lifecycle.router_errors import UnreadableRouterSourceError
 from _repair_common import build_repair_command
 import compile_colours
 import session
@@ -836,10 +840,16 @@ def parse_taxonomy_content(content):
     return result
 
 
+def _read_router_source(path):
+    try:
+        return Path(path).read_text(encoding="utf-8")
+    except UnicodeDecodeError as exc:
+        raise UnreadableRouterSourceError(str(path), diagnose_text(exc.object)) from exc
+
+
 def parse_taxonomy_file(path):
     """Parse a taxonomy file into the compiled artefact-type contract."""
-    with open(path, "r", encoding="utf-8") as f:
-        return parse_taxonomy_content(f.read())
+    return parse_taxonomy_content(_read_router_source(path))
 
 
 def infer_trigger_category(condition):
@@ -858,8 +868,7 @@ def infer_trigger_category(condition):
 
 def parse_router(path):
     """Parse _Config/router.md into always_rules and conditional triggers."""
-    with open(path, "r", encoding="utf-8") as f:
-        content = f.read()
+    content = _read_router_source(path)
 
     always_rules = []
     conditionals = []
@@ -1012,33 +1021,9 @@ def _parse_memory_triggers(path):
           - a
           - b
     """
-    with open(path, "r", encoding="utf-8") as f:
-        content = f.read()
-
-    # Check for YAML frontmatter
-    if not content.startswith("---"):
-        return []
-
-    fm_end = content.find("---", 3)
-    if fm_end == -1:
-        return []
-    frontmatter = content[3:fm_end]
-
-    # Inline format: triggers: [a, b, c]
-    inline_match = re.search(
-        r"^triggers:\s*\[([^\]]*)\]", frontmatter, re.MULTILINE
-    )
-    if inline_match:
-        return [t.strip().strip("'\"") for t in inline_match.group(1).split(",") if t.strip()]
-
-    # List format: triggers:\n  - a\n  - b
-    list_match = re.search(
-        r"^triggers:\s*\n((?:\s+-\s+.+\n?)+)", frontmatter, re.MULTILINE
-    )
-    if list_match:
-        return re.findall(r"^\s+-\s+(.+)", list_match.group(1), re.MULTILINE)
-
-    return []
+    fields = _read_frontmatter_stream(io.StringIO(_read_router_source(path)))
+    triggers = fields.get("triggers")
+    return list(triggers) if isinstance(triggers, list) else []
 
 
 def discover_memories(vault_root):
@@ -1154,16 +1139,17 @@ def count_living_artefact_index_entries(vault_root, artefacts):
     return count
 
 
-def living_artefact_source_state(vault_root, artefacts):
+def living_artefact_source_state(vault_root, artefacts, *, read_fm=None):
     """Collect living index count and source fingerprints in one file pass."""
     sources = {}
+    read_fm = read_fm or read_frontmatter
     for artefact in artefacts:
         if artefact.get("classification") != "living":
             continue
         for rel_path in iter_artefact_paths(vault_root, artefact):
             abs_path = os.path.join(vault_root, rel_path)
             try:
-                fields = read_frontmatter(abs_path)
+                fields = read_fm(abs_path)
             except (OSError, UnicodeDecodeError):
                 continue
             if is_valid_key(fields.get("key")):

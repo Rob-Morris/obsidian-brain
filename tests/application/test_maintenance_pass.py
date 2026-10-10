@@ -1016,3 +1016,17 @@ def test_direct_script_runs_a_keyless_pass_and_refuses_a_keyed_one(command_vault
     assert keyed.returncode == 3, keyed.stderr
     assert json.loads(keyed.stdout)["error"]["code"] == "capability_unavailable"
     assert not (root / ROUTER).exists(), "nothing ran"
+
+
+def test_text_encoding_family_needs_a_person_and_is_not_automatically_repaired(command_vault_clone, young_temporaries_count):
+    import codecs
+    root = command_vault_clone.vault_root
+    path = root / 'Projects/Encoding.md'
+    path.write_bytes(codecs.BOM_UTF8 + b'body')
+    invoker = _Sibling(root)
+    result = _invoke(root, MaintenanceRunRequest(), invoker)
+    assert result.status == 'ok', result
+    item = next(item for item in result.result.attention if item.scope == 'text_encoding')
+    assert item.disposition is Disposition.JUDGEMENT
+    assert all(command != 'vault.repair-text' for command, _ in invoker.calls)
+    assert path.read_bytes() == codecs.BOM_UTF8 + b'body'

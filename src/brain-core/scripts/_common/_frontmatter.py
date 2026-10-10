@@ -2,7 +2,13 @@
 
 import re
 
-FM_RE = re.compile(r"\A---\s*\n(.*?)\n---\s*\n?", re.DOTALL)
+# A UTF-8 byte-order mark decodes to U+FEFF, which some editors leave at the
+# start of a file. One leading mark is accepted before the opening ``---`` so
+# the frontmatter is still seen; a rewrite drops it because the serialised
+# block starts at ``---``.
+BYTE_ORDER_MARK = "\ufeff"
+
+FM_RE = re.compile(r"\A\ufeff?---\s*\n(.*?)\n---\s*\n?", re.DOTALL)
 
 
 def _parse_yaml_lines(fm_text):
@@ -149,22 +155,26 @@ def inspect_duplicate_frontmatter_document(text):
     }
 
 
+def _read_frontmatter_stream(stream):
+    first = stream.readline().removeprefix(BYTE_ORDER_MARK)
+    if first.strip() != "---":
+        return {}
+    lines = []
+    for line in stream:
+        if line.rstrip("\n").strip() == "---":
+            return _parse_yaml_lines("\n".join(lines))
+        lines.append(line.rstrip("\n"))
+    return {}
+
+
 def read_frontmatter(path):
     """Read frontmatter from a markdown file, stopping at the closing ``---``.
 
     Returns a fields dict, or ``{}`` when frontmatter is absent or unterminated.
     Use :func:`read_artefact` when the body is also needed.
     """
-    with open(path, "r", encoding="utf-8") as f:
-        first = f.readline()
-        if first.strip() != "---":
-            return {}
-        lines = []
-        for line in f:
-            if line.rstrip("\n").strip() == "---":
-                return _parse_yaml_lines("\n".join(lines))
-            lines.append(line.rstrip("\n"))
-    return {}
+    with open(path, "r", encoding="utf-8") as stream:
+        return _read_frontmatter_stream(stream)
 
 
 def read_artefact(path):

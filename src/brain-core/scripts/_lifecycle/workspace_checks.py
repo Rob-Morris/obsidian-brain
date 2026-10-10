@@ -66,7 +66,7 @@ def _ownership_failure(graph, record, complete_index):
     return None
 
 
-def workspace_findings(vault_root, router, *, workspace_dir=None):
+def workspace_findings(vault_root, router, *, workspace_dir=None, text_reader=None):
     from _common._workspace import membership, require_workspace, workspace_policy
     from _bootstrap.workspace_binding import load_workspace_manifest_state, resolve_selected_workspace_binding, WorkspaceBindingError
 
@@ -83,9 +83,9 @@ def workspace_findings(vault_root, router, *, workspace_dir=None):
         findings.append(finding)
 
     try:
-        graph = read_ownership_graph(vault_root)
+        graph = read_ownership_graph(vault_root, text_reader=text_reader)
     except ValueError as exc:
-        report("workspace_scan_unreadable", None, str(exc), "Repair the unreadable or out-of-bounds source and retry vault.check")
+        report("workspace_scan_unreadable", None, str(exc), "Repair the blocking source named in this message; consult any matching per-file unreadable_file finding, or check symlinks and bounds, then retry vault.check")
         return findings
     complete_index = {reference: {**items[0].fields, "path": items[0].path}
                       for reference, items in graph.identities.items() if len(items) == 1}

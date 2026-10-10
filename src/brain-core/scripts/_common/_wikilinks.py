@@ -5,8 +5,11 @@ import re
 from collections import namedtuple
 from dataclasses import dataclass
 
+from ._artefacts import read_exact_file_content
+from ._document_revision import NonStandardVaultTextError, UnreadableVaultTextFilesError, vault_text_failure
+
 from ._vault import is_system_dir, TEMPORAL_DIR
-from ._filesystem import safe_write_artefact, validate_artefact_write_target
+from ._filesystem import safe_write_artefact, safe_write_active_or_archived_artefact, validate_artefact_write_target
 from ._markdown import in_any_range, literal_ranges
 from ._slugs import slug_to_title
 
@@ -204,6 +207,7 @@ class WikilinkRewrite:
     before: str
     after: str
     substitutions: int
+    conversion_code: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -212,39 +216,64 @@ class WikilinkRewritePlan:
 
     writes: tuple[WikilinkRewrite, ...]
     unreadable: tuple[str, ...] = ()
+    failure_details: tuple[tuple[str, str, str], ...] = ()
+
+    @property
+    def conversions(self):
+        """Encoding conversions implied by the planned writes."""
+        return tuple((write.path, write.conversion_code) for write in self.writes
+                     if write.conversion_code)
 
 
 def plan_wikilink_rewrites(vault_root, pattern, replacement, *, paths=None,
-                          overrides=None):
+                          overrides=None, normalise_paths=(), read_snapshot=None):
     """Resolve matching rewrites without writing; compose planned metadata first."""
     candidates = paths if paths is not None else (
         os.path.relpath(os.path.join(directory, name), vault_root)
         for directory, name in _iter_vault_md_files(vault_root)
     )
-    writes, unreadable = [], []
+    normalise_paths = set(normalise_paths)
+    candidates = set(candidates) | normalise_paths
+    writes, unreadable, failures = [], [], []
     overrides = overrides or {}
     for path in sorted(set(candidates)):
         try:
-            with open(os.path.join(vault_root, path), encoding="utf-8") as handle:
-                before = handle.read()
-        except (OSError, UnicodeDecodeError):
-            unreadable.append(path)
+            before = (read_snapshot[path] if read_snapshot is not None and path in read_snapshot
+                      else read_exact_file_content(
+                          os.path.join(vault_root, path), convert_lossless=True))
+        except NonStandardVaultTextError as exc:
+            unreadable.append(f"{path}: {exc.code}; {exc.remedy}")
+            failures.append(vault_text_failure(path, exc))
+            continue
+        except OSError as exc:
+            unreadable.append(f"{path}: {exc}")
+            failures.append(vault_text_failure(path, exc))
             continue
         content = overrides.get(path, before)
         after, count = replace_wikilinks_in_text(content, pattern, replacement)
-        if count:
-            writes.append(WikilinkRewrite(path, before, after, count))
-    return WikilinkRewritePlan(tuple(writes), tuple(unreadable))
+        if count or (path in normalise_paths and before.conversion_code):
+            writes.append(WikilinkRewrite(path, before, after, count, before.conversion_code))
+    return WikilinkRewritePlan(
+        tuple(writes), tuple(unreadable),
+        failure_details=tuple(failures))
+
+
+def require_readable_wikilink_plan(plan):
+    """Refuse the complete scan before any planned effect if inspection failed."""
+    if plan.unreadable:
+        failures = plan.failure_details or tuple((path, "inspection_error", "unreadable candidate") for path in plan.unreadable)
+        raise UnreadableVaultTextFilesError(failures)
 
 
 def apply_wikilink_rewrites(vault_root, plan):
     """Persist the already resolved matching transforms."""
+    require_readable_wikilink_plan(plan)
     for write in plan.writes:
         validate_artefact_write_target(
             os.path.join(vault_root, write.path), vault_root
         )
     for write in plan.writes:
-        safe_write_artefact(
+        safe_write_active_or_archived_artefact(
             os.path.join(vault_root, write.path), write.after, bounds=vault_root
         )
     return sum(write.substitutions for write in plan.writes)
@@ -853,10 +882,11 @@ def check_wikilinks_in_file(
     if text is None:
         fpath = os.path.join(vault_root, rel_path)
         try:
-            with open(fpath, "r", encoding="utf-8") as f:
-                text = f.read()
-        except OSError:
+            text = read_exact_file_content(fpath, convert_lossless=True)
+        except FileNotFoundError:
             return []
+        except OSError as exc:
+            raise ValueError(f"Cannot inspect links in {rel_path}: {exc}") from exc
 
     findings = []
     for link in extract_wikilinks(text):

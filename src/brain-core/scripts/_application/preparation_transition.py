@@ -7,17 +7,18 @@ from .preparation import ObservedResource, bind_operation, canonical_json, conte
 
 def transition_binding(context, request, *, plan, router, frozen_inputs=None, effective=None):
     """Bind selected source revisions, moves and matching writes, never the whole vault."""
+    from _common._artefacts import read_exact_file_content
+
     from edit import ArtefactTransitionPlan
     from rename import DeletePlan, MoveLinksPlan
     from _common import serialize_frontmatter, parse_frontmatter
 
     root = context.selected_brain.vault_root
+    require_inspected_transition(plan)
     result, metadata, extra = {}, {}, ()
     if isinstance(plan, ArtefactTransitionPlan):
         movement = plan.movement
         result = plan.result
-        if result.get("uninspected"):
-            raise ValueError("Cannot prepare an exact recursive transition while archived candidates are unreadable")
         metadata = {item["path"]: serialize_frontmatter(item["fields"], body=item["body"])
                     for item in plan.writes}
         extra = plan.observations
@@ -25,9 +26,8 @@ def transition_binding(context, request, *, plan, router, frozen_inputs=None, ef
         movement = plan
     else:
         raise TypeError("transition owner did not supply a concrete domain plan")
-    if movement.links.unreadable:
-        raise ValueError("Cannot prepare complete backlink scope; unreadable candidates: "
-                         + ", ".join(movement.links.unreadable))
+    from _common._wikilinks import require_readable_wikilink_plan
+    require_readable_wikilink_plan(movement.links)
     moves = getattr(movement, "moves", ())
     deleted = getattr(movement, "paths", ())
     sources = set(metadata) | set(deleted) | set(extra) | {item["source"] for item in moves}
@@ -36,12 +36,15 @@ def transition_binding(context, request, *, plan, router, frozen_inputs=None, ef
     types = set()
     for path in sorted(sources):
         source = root / path
-        content = source.read_bytes()
-        observations.append(ObservedResource("source", path, content_digest(content)))
         if path.endswith(".md"):
-            fields, _body = parse_frontmatter(content.decode("utf-8"))
+            content = read_exact_file_content(source, convert_lossless=True)
+            revision = content.revision
+            fields, _body = parse_frontmatter(content)
             if fields.get("type"):
                 types.add(fields["type"])
+        else:
+            revision = content_digest(source.read_bytes())
+        observations.append(ObservedResource("source", path, revision))
         observations.append(ObservedResource("source-identity", path,
                                             source.resolve().relative_to(root.resolve()).as_posix()))
     for path in sorted({item["dest"] for item in moves} - sources):
@@ -94,3 +97,13 @@ def transition_time(context, frozen_inputs):
     frozen = dict(frozen_inputs or {})
     frozen.setdefault("effective_at", context.clock.now().isoformat())
     return frozen["effective_at"], frozen
+
+
+def require_inspected_transition(plan):
+    """Preserve every archived scan refusal before an admitted transition."""
+    from _common import UnreadableVaultTextFilesError
+    result = getattr(plan, "result", {})
+    failures = result.get("uninspected", ())
+    if failures:
+        raise UnreadableVaultTextFilesError((item["path"], item.get("code", "inspection_error"), item["reason"])
+                                           for item in failures)

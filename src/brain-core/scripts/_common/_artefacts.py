@@ -94,7 +94,7 @@ class MissingFileResult(str):
         return result
 
 
-def read_file_content(vault_root, rel_path):
+def read_file_content(vault_root, rel_path, *, convert_lossless=False):
     """Read a vault file, inferring Markdown when the supplied path has no suffix."""
     original = rel_path
     if not rel_path.endswith(".md"):
@@ -105,15 +105,15 @@ def read_file_content(vault_root, rel_path):
         rel_path = original
     if not os.path.isfile(abs_path):
         return MissingFileResult(rel_path)
-    return read_exact_file_content(abs_path)
+    return read_exact_file_content(abs_path, convert_lossless=convert_lossless)
 
 
-def read_exact_file_content(path):
+def read_exact_file_content(path, *, convert_lossless=False):
     """Read exact persisted bytes and return decoded text with their revision."""
     resolved = os.path.realpath(path)
     with open(resolved, "rb") as handle:
-        content = decode_persisted_document(handle.read())
-    content.source_path = resolved
+        content = decode_persisted_document(handle.read(), source_path=resolved,
+                                            convert_lossless=convert_lossless)
     return content
 
 
@@ -824,12 +824,19 @@ def replace_artefact_key_references(fields, old_key, new_key):
 
 def scan_artefact_key_reference_index(vault_root, router):
     """Index frontmatter references by canonical artefact key in one vault pass."""
-    references = {}
+    from ._document_revision import NonStandardVaultTextError, UnreadableVaultTextFilesError, vault_text_failure
+
+    references, unreadable = {}, []
     for rel_path in iter_artefact_markdown_files(
         vault_root, router, classifications={"living", "temporal"}, include_status_folders=True
     ):
-        content = read_file_content(vault_root, rel_path)
+        try:
+            content = read_file_content(vault_root, rel_path, convert_lossless=True)
+        except (NonStandardVaultTextError, OSError) as exc:
+            unreadable.append(vault_text_failure(rel_path, exc))
+            continue
         if isinstance(content, MissingFileResult):
+            unreadable.append((rel_path, "os_error", "file disappeared during reference scan"))
             continue
         fields, _ = parse_frontmatter(content)
         parent_key = normalize_artefact_key(fields.get("parent"))
@@ -848,6 +855,8 @@ def scan_artefact_key_reference_index(vault_root, router):
                 "parent": referenced_key == parent_key,
                 "tags": tags_by_key.get(referenced_key, []),
             })
+    if unreadable:
+        raise UnreadableVaultTextFilesError(sorted(unreadable))
     return references
 
 

@@ -40,6 +40,8 @@ def inspect_router_cache(
     vault_root: str | Path,
     *,
     verify_content: bool = False,
+    read_bytes=None,
+    read_frontmatter=None,
 ) -> CacheState:
     """Inspect the compiled router cache without mutating it.
 
@@ -57,6 +59,8 @@ def inspect_router_cache(
 
     try:
         data = json.loads(router_path.read_text(encoding="utf-8"))
+    except UnicodeDecodeError:
+        return CacheState(True, "unreadable", rel_path)
     except (json.JSONDecodeError, OSError):
         return CacheState(True, "invalid-json", rel_path)
     if not isinstance(data, dict):
@@ -94,7 +98,7 @@ def inspect_router_cache(
     if inventory_required and expected_index_source_count is not None:
         current_index_source_count, current_index_sources = (
             compile_router.living_artefact_source_state(
-                str(vault_root), artefacts
+                str(vault_root), artefacts, **({"read_fm": read_frontmatter} if read_frontmatter else {})
             )
         )
         if current_index_source_count != expected_index_source_count:
@@ -112,7 +116,7 @@ def inspect_router_cache(
                 continue
             if current_index_sources is None:
                 _count, current_index_sources = compile_router.living_artefact_source_state(
-                    str(vault_root), artefacts
+                    str(vault_root), artefacts, **({"read_fm": read_frontmatter} if read_frontmatter else {})
                 )
             current_hash = current_index_sources.get(source_rel_path)
             if current_hash is None:
@@ -123,7 +127,11 @@ def inspect_router_cache(
 
         if verify_content:
             try:
-                current_hash = compile_router.hash_file(abs_path)
+                if read_bytes is None:
+                    current_hash = compile_router.hash_file(abs_path)
+                else:
+                    import hashlib
+                    current_hash = "sha256:" + hashlib.sha256(read_bytes(abs_path)).hexdigest()
             except OSError:
                 return CacheState(True, "missing-source", rel_path, data, source_rel_path)
             if current_hash != expected_hash:
@@ -192,6 +200,11 @@ def require_fresh_compiled_router(vault_root: str | Path) -> dict[str, Any]:
     """Read a router using the same authoritative check as explicit repair."""
     state = inspect_router_cache(vault_root, verify_content=True)
     if state.stale:
+        if state.source_path is not None:
+            from _common import read_exact_file_content
+            source = Path(vault_root) / state.source_path
+            if source.is_file():
+                read_exact_file_content(source)
         raise RouterCacheUnavailable(state)
     return dict(state.payload or {})
 
@@ -218,6 +231,8 @@ def inspect_lexical_cache(vault_root: str | Path) -> CacheState:
 
     try:
         data = json.loads(index_path.read_text(encoding="utf-8"))
+    except UnicodeDecodeError:
+        return CacheState(True, "unreadable", rel_path)
     except (json.JSONDecodeError, OSError):
         return CacheState(True, "invalid-json", rel_path)
     if not isinstance(data, dict):
@@ -253,20 +268,26 @@ def inspect_lexical_cache(vault_root: str | Path) -> CacheState:
     indexed_paths = {doc["path"] for doc in documents}
     if len(documents) != expected_count or len(indexed_paths) != expected_count:
         return CacheState(True, "invalid-document-count", rel_path)
+    skipped = meta.get("skipped_paths", [])
+    if (not isinstance(skipped, list) or any(not isinstance(path, str) for path in skipped)
+            or len(set(skipped)) != len(skipped) or indexed_paths.intersection(skipped)):
+        return CacheState(True, "invalid-skipped-paths", rel_path, data)
+    source_paths = indexed_paths | set(skipped)
+    expected_sources = len(source_paths)
     count = 0
     for type_info in all_types:
         for rel_path_doc in iter_artefact_paths(str(vault_root), type_info):
             count += 1
-            if rel_path_doc not in indexed_paths:
+            if rel_path_doc not in source_paths:
                 return CacheState(True, "document-path-drift", rel_path, data, rel_path_doc)
-            if count > expected_count:
+            if count > expected_sources:
                 return CacheState(True, "document-count-drift", rel_path, data)
             try:
                 if os.path.getmtime(vault_root / rel_path_doc) > threshold:
                     return CacheState(True, "document-newer-than-index", rel_path, data)
             except OSError:
                 continue
-    if count != expected_count:
+    if count != expected_sources:
         return CacheState(True, "document-count-drift", rel_path, data)
 
     return CacheState(False, "fresh", rel_path, data)

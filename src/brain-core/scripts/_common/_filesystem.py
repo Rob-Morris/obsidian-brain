@@ -1,5 +1,6 @@
 """Safe file writes — atomic, symlink-aware, bounds-checked."""
 
+import io
 import json
 import os
 import re
@@ -11,6 +12,8 @@ from _portable_path import (
     validate_portable_relative_path,
     validate_windows_portable_filename_segment,
 )
+
+from ._text_encoding import diagnose_text, UTF8_BOM, UTF16_BOM, UTF32_BOM
 
 _WRITE_ALLOWED_UNDERSCORE = {"_Temporal", "_Config"}
 
@@ -173,6 +176,8 @@ def safe_write(path, content, *, encoding="utf-8", bounds=None,
     Writes *content* through ``safe_write_via`` and returns the resolved path
     that was actually written to.
     """
+    from _text_content import require_bom_free_text
+    require_bom_free_text(content)
     return safe_write_via(
         path,
         lambda handle: handle.write(content),
@@ -354,9 +359,18 @@ def resolve_body_file(body, body_file, *, vault_root=None, cleanup_path=None):
             resolve_and_check_bounds(abs_path, vault_root)
 
     try:
-        with open(abs_path, "r", encoding="utf-8") as f:
-            return f.read(), cleanup_path
-    except FileNotFoundError:
-        raise ValueError(f"body_file not found: {body_file}")
-    except Exception as e:
-        raise ValueError(f"Failed to read body_file: {e}")
+        with open(abs_path, "rb") as f:
+            data = f.read()
+    except FileNotFoundError as exc:
+        raise ValueError(f"body_file not found: {body_file}") from exc
+    except OSError as exc:
+        raise ValueError(f"Failed to read body_file {body_file}: {exc}") from exc
+
+    diagnosis = diagnose_text(data)
+    if diagnosis is not None:
+        if diagnosis.lossless and diagnosis.code in (UTF8_BOM, UTF16_BOM, UTF32_BOM):
+            data = diagnosis.fixed_bytes
+        else:
+            raise ValueError(f"Cannot read body_file {body_file}: {diagnosis.code}")
+    with io.TextIOWrapper(io.BytesIO(data), encoding="utf-8") as reader:
+        return reader.read(), cleanup_path

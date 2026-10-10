@@ -416,6 +416,14 @@ Brain never infers a missing parent field from folder structure. Lifecycle moves
 prune the owner folders they vacate; `vault.check` reports any that remain as
 `info` findings, and the `empty_folders` repair scope clears them.
 
+### Repairing Text Encoding
+
+Brain expects vault text in UTF-8 without a leading byte-order mark. `brain vault check --json` names files it cannot read, even when the router cache is missing. Search and embedding builders continue with readable documents, so a successful rebuild does not mean those files were repaired.
+
+Preview clear findings with `brain vault repair-text --dry-run --json`. A request such as `--request-json '{"paths":["Designs/Example.md"]}'` limits the repair to reviewed files; repeat it without `--dry-run` to apply. Leading UTF-8 marks and marked UTF-16/32 convert without losing text. A truncated UTF-8 suffix is different: the preview names the exact bytes that would be dropped and warns that more content may already be lost. Leave that file out with `paths`, or recover it manually in an editor.
+
+Ambiguous `not_utf8` and `not_text` findings require manual inspection; Brain does not guess a legacy encoding. Run the check again after repair. Ordinary text mutations refuse lossy conversion, and accepted lossless conversions name every converted path in their warnings.
+
 ### Agents Edit Without Losing Concurrent Changes
 
 Agents first read an artefact or editable named resource, then supply that

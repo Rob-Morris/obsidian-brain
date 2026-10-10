@@ -239,22 +239,17 @@ class TestRenameAndUpdateLinks:
     def test_single_rename_uses_move_set_engine(self, vault, monkeypatch):
         calls = []
 
-        def fake_move_and_update_links(
-            vault_root,
-            moves,
-            *,
-            allow_archive_paths=False,
-            prune_router=None,
-        ):
+        def fake_apply_move_and_links(vault_root, plan):
+            moves = [{"source": item["source"], "dest": item["dest"]} for item in plan.moves]
             calls.append({
                 "vault_root": vault_root,
                 "moves": moves,
-                "allow_archive_paths": allow_archive_paths,
-                "prune_router": prune_router,
+                "allow_archive_paths": plan.allow_archive_paths,
+                "prune_router": plan.prune_router,
             })
             return {"moves": moves, "applied": moves, "links_updated": 7}
 
-        monkeypatch.setattr(rename, "move_and_update_links", fake_move_and_update_links)
+        monkeypatch.setattr(rename, "apply_move_and_links", fake_apply_move_and_links)
 
         prune_router = {"artefacts": [], "marker": "prune"}
         count = rename.rename_and_update_links(
@@ -789,7 +784,7 @@ class TestMoveAndUpdateLinks:
         assert "Wiki/first" in message
         assert "Wiki/second" in message
 
-    def test_unreadable_unrelated_note_does_not_abort_interactive_rename(self, vault, monkeypatch):
+    def test_unreadable_note_refuses_interactive_rename(self, vault, monkeypatch):
         links = vault / "Wiki" / "links.md"
         links.write_text("---\ntype: living/wiki\ntags: []\n---\n\n[[Wiki/topic-a]]\n")
         real_open = open
@@ -801,16 +796,14 @@ class TestMoveAndUpdateLinks:
 
         monkeypatch.setattr("builtins.open", flaky_open)
 
-        result = rename.move_and_update_links(
-            str(vault),
-            [{"source": "Wiki/topic-a.md", "dest": "Wiki/topic-a-renamed.md"}],
-        )
-
-        assert result["applied"] == [
-            {"source": "Wiki/topic-a.md", "dest": "Wiki/topic-a-renamed.md"}
-        ]
-        assert not (vault / "Wiki" / "topic-a.md").exists()
-        assert (vault / "Wiki" / "topic-a-renamed.md").is_file()
+        with pytest.raises(ValueError, match="Wiki/links.md.*cloud placeholder"):
+            rename.move_and_update_links(
+                str(vault),
+                [{"source": "Wiki/topic-a.md", "dest": "Wiki/topic-a-renamed.md"}],
+            )
+        assert (vault / "Wiki/topic-a.md").exists()
+        assert not (vault / "Wiki/topic-a-renamed.md").exists()
+        assert "[[Wiki/topic-a|Topic A]]" in (vault / "Wiki/topic-b.md").read_text()
 
     def test_noop_entries_are_reported_but_not_rewritten_or_moved(self, vault, monkeypatch):
         calls = []

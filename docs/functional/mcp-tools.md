@@ -111,6 +111,10 @@ A changed source returns `conflict`: restart without a cursor. These bounds
 apply before MCP, CLI and Python projections, so no transport cuts serialized
 JSON or silently drops the tail. Metadata-only resource variants remain intact.
 
+Document reads can decode leading UTF-8 marks and BOM-marked UTF-16/32 without rewriting the source. Every converted page includes a `follow_up_required` warning naming the path and diagnosis within the same byte budget. Revisions still identify the original bytes, so an encoding-only source change invalidates a cursor or prepared read. Truncated or ambiguous text returns a named `conflict` with a recovery action. Document edits that accept a lossless conversion write UTF-8 without a leading mark and report the conversion; they refuse lossy conversion.
+
+Encoding recovery actions respect the shared text-check inventory. Files outside that set, including shipped Core and source-managed skills, receive path/diagnosis and restoration instructions rather than a `vault.repair-text` action that cannot repair them. If inventory inspection fails, the refusal names that failure and asks for access to be restored before retrying.
+
 ## Permissions and instance authorisation
 
 Document mutations preflight artefact lifecycle consequences, including derived
@@ -552,3 +556,16 @@ an unconditional rebuild, not a stronger repair algorithm. `vault.check` (still
 version 3) reports a stale lexical index alongside a semantic finding instead of
 suppressing it: the lexical repair is automatic and the semantic repair is a
 separate, heavier decision.
+
+Router compilation refuses an undecodable router, taxonomy or memory source
+with a definite, no-effect `conflict` naming the file and text classifier code.
+Its next action is `vault.repair-text` for clear damage or `vault.check` for an
+ambiguous diagnosis. Undecodable router and lexical caches carry the distinct
+stale reason `unreadable`. A maintenance pass surfaces the failed repair's
+message in a `follow_up_required` warning.
+
+### Text encoding diagnosis and repair
+
+Read-only `links.check` continues over readable sources without converting them. Non-standard sources remain reported by `vault.check`. Mutation planning for `links.fix`, including dry runs, requires every selected source to be inspectable and refuses by name before effects.
+
+`vault.check` reports clear `text_encoding` findings and ambiguous `unreadable_file` failures before the router gate. `vault_repair-text` accepts one optional `paths` array of vault-relative files, requires maintainer authority and content authorisation, and supports the normal dry-run preview. It fixes UTF-8/UTF-16/UTF-32 byte-order marks and previews a clear truncated final UTF-8 character. It never guesses legacy encodings or repairs content unattended. Results enumerate committed paths; changed candidates are skipped and write failures retain successful effects as partial results.

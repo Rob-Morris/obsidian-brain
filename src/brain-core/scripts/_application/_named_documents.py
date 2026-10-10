@@ -13,14 +13,14 @@ def _current_router(vault_root):
     return compile_router.compile(str(vault_root))
 
 
-def read_portable(vault_root, resource: str, reference: str):
+def read_portable(vault_root, resource: str, reference: str, *, convert_lossless=False):
     from _portable.named_documents import read_named_document, resolve_named_document
 
     router = _current_router(vault_root)
     metadata = resolve_named_document(router, resource, reference)
     if "error" in metadata:
         return metadata
-    content = read_named_document(router, vault_root, resource, reference)
+    content = read_named_document(router, vault_root, resource, reference, convert_lossless=convert_lossless)
     return metadata, content
 
 

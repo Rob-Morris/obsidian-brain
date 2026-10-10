@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from collections import deque
 from pathlib import Path
 
-from _common import normalize_artefact_key, parse_frontmatter
+from _common import normalize_artefact_key, parse_frontmatter, read_exact_file_content, UnreadableVaultTextFilesError, vault_text_failure
 from .frontmatter_repairs import iter_candidate_artefact_markdown_files
 
 
@@ -82,17 +82,20 @@ class OwnershipGraph:
             seen.add(record.path)
 
 
-def read_ownership_graph(vault_root):
+def read_ownership_graph(vault_root, *, text_reader=None):
     """Scan all artefact source classes without inferring ownership from paths/tags."""
     root = Path(vault_root).resolve()
     records = []
+    failures = []
     for path in sorted(iter_candidate_artefact_markdown_files(root)):
         source = root / path
         try:
             source.resolve().relative_to(root)
-            fields, body = parse_frontmatter(source.read_text(encoding="utf-8"))
+            text = text_reader(source) if text_reader else read_exact_file_content(source, convert_lossless=True)
+            fields, body = parse_frontmatter(text)
         except (OSError, UnicodeError, ValueError) as exc:
-            raise ValueError(f"Cannot inspect ownership in {path}: {exc}") from exc
+            failures.append(vault_text_failure(path, exc))
+            continue
         type_name = fields.get("type", "")
         if not isinstance(type_name, str) or not type_name.startswith(("living/", "temporal/")):
             continue
@@ -100,4 +103,6 @@ def read_ownership_graph(vault_root):
         if type_name.startswith("living/"):
             reference = normalize_artefact_key(type_name.rsplit("/", 1)[-1] + "/" + str(fields.get("key", "")))
         records.append(OwnershipRecord(path, reference, fields, body))
+    if failures:
+        raise UnreadableVaultTextFilesError(failures)
     return OwnershipGraph(records)

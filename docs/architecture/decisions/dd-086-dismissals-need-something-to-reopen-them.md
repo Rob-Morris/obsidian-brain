@@ -2,6 +2,7 @@
 
 **Status:** Proposed
 **Extends:** DD-082
+**Extended by:** [DD-087](dd-087-text-files-brain-cannot-read.md)
 
 ## Context
 

@@ -198,7 +198,33 @@ change detected after rebuilding is a partial repair, with an explicit command
 next action through CLI/MCP. `vault.check(check="router")` uses authoritative
 content validation and identifies an affected source path when available.
 
+An undecodable router, taxonomy or memory source stops compilation before
+any router output is written. `runtime.refresh-router` returns a definite
+`conflict` naming the file and classifier code, rather than an unknown outcome.
+Clear encoding damage points to `vault.repair-text`; ambiguous damage points
+to `vault.check`. A maintenance pass retains a failed repair's message as a
+`follow_up_required` warning so the blocking source is visible.
+
+Artefact document reads used for lexical indexing and semantic embeddings, and named-resource body reads used for search, skip files that fail strict UTF-8 decoding. They continue with readable documents and leave source bytes unchanged. The lexical freshness inventory records skipped paths, so a completed rebuild can be fresh while a later `vault.check` still reports unreadable sources within its text-scan scope. Filesystem errors in these document reads remain named failures; these reads do not convert encodings.
+
+Undecodable router and lexical caches are stale with reason `unreadable`.
+Client JSON/TOML diagnostics use their existing parse/read failure paths;
+an unreadable `CLAUDE.md` has its own bootstrap reason and is not reported as
+missing bootstrap text.
+
 `runtime.status` reports recorded warm-up progress, labelled `recorded-warmup`;
 ready is not a current-cache health assertion. Use its `router_check` action for
 current router diagnosis. Artefact creation and lifecycle-field commands maintain router and lexical
 state before returning success; semantic encoding remains separate.
+
+### Unreadable vault text
+
+Vault text is UTF-8 without a byte-order mark. `vault.check` scans artefact Markdown (including temporal and archived files), `_Config` Markdown except managed skill packages, `_Plugins` Markdown and root bootstrap variants. It excludes symlinks, dot folders, config YAML and derived JSON. The scan runs even when the compiled router is missing.
+
+`unreadable_file` errors have no repair family: `os_error` reports an errno and suggests checking permissions or downloading cloud-only files; `not_utf8` names the first bad byte’s line and byte column; `not_text` reports NUL bytes. Convert legacy text to UTF-8 in an editor, or move deliberately kept non-note content into `_Assets`. Dismissals for the latter two codes follow the file and code; permission errors also follow the errno evidence.
+
+An inaccessible directory is reported as `unreadable_file/os_error` and means that part of the scan is incomplete. If skill tracking metadata cannot establish package ownership, `text_scan/skill_ownership_unavailable` reports the metadata path and `_Config/Skills` is conservatively excluded until tracking is restored; other roots remain inspectable.
+
+### Requested text repair
+
+Use `command.py vault repair-text --dry-run` for a byte-count preview, then apply without the flag. The optional request `paths` selects only current clear `text_encoding` findings; the command does not infer a legacy encoding. It operates without a compiled router, checks source digests, skips changes made after planning, and atomically writes bytes without altering line endings. A failed write can produce a partial result naming each committed path. Truncation previews show the dropped bytes in hexadecimal and Windows-1252, with guidance to exclude that file or convert it manually. The judgement family is not a bootstrap-recovery scope or an automatic repair.

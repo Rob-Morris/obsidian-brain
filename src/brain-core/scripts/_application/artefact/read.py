@@ -58,11 +58,13 @@ def read_result(context: InvocationContext, request: ArtefactReadRequest):
         result = read_archived_artefact(
             context.selected_brain.vault_root,
             request.reference,
+            convert_lossless=True,
         )
     else:
         result = read_from_vault(
             context.selected_brain.vault_root,
             request.reference,
+            convert_lossless=True,
         )
     if isinstance(result, MissingFileResult):
         return _error(ErrorCode.NOT_FOUND, result.message)
@@ -78,10 +80,12 @@ def read_result(context: InvocationContext, request: ArtefactReadRequest):
     if not isinstance(result, PersistedDocumentContent):
         raise TypeError("portable artefact reader returned non-persisted document text")
     from ..preparation import observe_document_read
+    from .._text_warnings import read_conversion_warnings
 
     bounded = bounded_text_result(
         ArtefactReadRequest, result, result.revision,
         cursor=request.cursor, max_characters=request.max_characters,
+        warnings=read_conversion_warnings(context, result),
         payload=lambda content, window: ArtefactReadPayload(
             request.reference, request.location, content, result.revision, window,
         ),

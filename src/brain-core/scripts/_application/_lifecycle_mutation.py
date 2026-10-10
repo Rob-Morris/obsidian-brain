@@ -77,6 +77,7 @@ def execute_lifecycle_mutation(
     from ._transition_indexes import combine_transition_errors, transition_error
     from _common import (
         MutationLockError,
+        NonStandardVaultTextError,
         PartialApplyError,
         public_mutation_error_message,
         vault_mutation_lock,
@@ -84,7 +85,7 @@ def execute_lifecycle_mutation(
     from _lifecycle.derived_cache_state import require_fresh_compiled_router
     import edit
     from .workspace_transitions import (prepare_workspace_transition,
-        transition_effect_snapshot, committed_transition_effects)
+        transition_effect_snapshot, committed_transition_effects, transition_conversion_warnings)
 
     if context.dry_run:
         return no_effect_error(
@@ -145,12 +146,14 @@ def execute_lifecycle_mutation(
         return WorkspaceMutationPartial(
             request.COMMAND_ID, request.COMMAND_VERSION,
             transition_error(exc),
-            effects, mutation_context=effective,
+            effects, warnings=transition_conversion_warnings(plan, effects_before, effects=effects), mutation_context=effective,
         )
     except FileNotFoundError as exc:
         return no_effect_error(
             type(request), ErrorCode.NOT_FOUND, str(exc), "path"
         )
+    except NonStandardVaultTextError:
+        raise
     except ValueError as exc:
         return no_effect_error(type(request), ErrorCode.INVALID_REQUEST, str(exc))
 
@@ -168,6 +171,7 @@ def execute_lifecycle_mutation(
         request.COMMAND_ID,
         request.COMMAND_VERSION,
         payload,
+        warnings=transition_conversion_warnings(plan, effects_before),
         committed_effects=(CommittedEffect(request.COMMAND_ID, payload.path),),
     )
 

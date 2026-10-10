@@ -522,3 +522,86 @@ class TestMakeTempPath:
         finally:
             if os.path.exists(path):
                 os.remove(path)
+
+
+@pytest.mark.parametrize("encoding", ["utf-8", "utf-8-sig", "utf-16", "utf-32", "utf-16-le", "utf-16-be", "utf-32-le", "utf-32-be"])
+def test_body_file_lossless_marked_text_keeps_newline_semantics(tmp_path, encoding):
+    import codecs
+
+    text = "Café\r\nsecond\rthird\ninside\ufeffmark"
+    marks = {"utf-16-le": codecs.BOM_UTF16_LE, "utf-16-be": codecs.BOM_UTF16_BE,
+             "utf-32-le": codecs.BOM_UTF32_LE, "utf-32-be": codecs.BOM_UTF32_BE}
+    raw = marks.get(encoding, b"") + text.encode(encoding)
+    path = tmp_path / "body.md"
+    path.write_bytes(raw)
+
+    body, cleanup = common.resolve_body_file("", str(path))
+
+    assert body == text.replace("\r\n", "\n").replace("\r", "\n")
+    assert cleanup is None
+    assert path.read_bytes() == raw
+
+
+@pytest.mark.parametrize("raw,code", [
+    ("Café €".encode("cp1252"), "not_utf8"),
+    (b"caf\xc3\xa9\xc3", "truncated_utf8"),
+    (b"\xef\xbb\xbfbroken\xff", "not_utf8"),
+    (b"\xff\xfet\x00x", "not_text"),
+    (b"text\x00", "not_text"),
+])
+def test_body_file_refuses_damage_with_path_and_code(tmp_path, raw, code):
+    path = tmp_path / "damaged.md"
+    path.write_bytes(raw)
+
+    with pytest.raises(ValueError) as caught:
+        common.resolve_body_file("", str(path))
+
+    assert str(path) in str(caught.value)
+    assert code in str(caught.value)
+    assert path.read_bytes() == raw
+
+
+def test_body_file_bounds_and_cleanup_under_isolated_temp_roots(tmp_path, monkeypatch):
+    native_temp = tmp_path / "native-temp"
+    native_temp.mkdir()
+    vault = tmp_path / "vault"
+    vault.mkdir()
+    monkeypatch.setattr(_filesystem.sys, "platform", "win32")
+    monkeypatch.setattr(_filesystem.tempfile, "gettempdir", lambda: str(native_temp))
+    body_file = vault / "body.md"
+    body_file.write_bytes("Café\r\n".encode("utf-16"))
+    assert common.resolve_body_file("", str(body_file), vault_root=vault) == ("Café\n", None)
+    outside = tmp_path / "outside.md"
+    outside.write_bytes(b"outside")
+    with pytest.raises(ValueError, match="outside allowed boundary"):
+        common.resolve_body_file("", str(outside), vault_root=vault)
+    temporary = native_temp / "body.md"
+    temporary.write_bytes("Café\r\n".encode("utf-32"))
+    assert common.resolve_body_file("", str(temporary), vault_root=vault) == ("Café\n", str(temporary))
+    assert temporary.exists()
+
+
+@pytest.mark.parametrize("failure", [PermissionError("denied"), OSError("read failed")])
+def test_body_file_read_error_names_path_and_chains_cause(tmp_path, monkeypatch, failure):
+    path = tmp_path / "body.md"
+
+    def fail_read(*args, **kwargs):
+        raise failure
+
+    monkeypatch.setattr(_filesystem, "open", fail_read, raising=False)
+    with pytest.raises(ValueError) as caught:
+        common.resolve_body_file("", str(path))
+    assert str(path) in str(caught.value)
+    assert caught.value.__cause__ is failure
+
+
+def test_body_file_does_not_relabel_programming_failure(tmp_path, monkeypatch):
+    failure = RuntimeError("broken reader")
+
+    def fail_read(*args, **kwargs):
+        raise failure
+
+    monkeypatch.setattr(_filesystem, "open", fail_read, raising=False)
+    with pytest.raises(RuntimeError) as caught:
+        common.resolve_body_file("", str(tmp_path / "body.md"))
+    assert caught.value is failure

@@ -9,6 +9,8 @@ the parser retained here is an internal maintenance and recovery entry point.
 """
 
 import argparse
+import errno
+import io
 import json
 import os
 from pathlib import Path
@@ -25,8 +27,6 @@ from _lifecycle.derived_cache_state import inspect_lexical_cache, inspect_router
 from _portable.links import check_broken_wikilinks as _portable_check_broken_wikilinks
 from _common import (
     AGENT_INSTRUCTION_RE,
-    BOOTSTRAP_VARIANTS,
-    LOCAL_OVERRIDE_VARIANTS,
     STATUS_FOLDER_PREFIX,
     artefact_type_prefix,
     find_vault_root,
@@ -54,6 +54,9 @@ from _common import (
     scan_empty_artefact_folders,
 )
 from _lifecycle.frontmatter_repairs import iter_candidate_artefact_markdown_files
+from _lifecycle.text_files import ROOT_BOOTSTRAP_VARIANTS, iter_vault_text_files
+from _common._text_encoding import diagnose_text
+from _common._frontmatter import _read_frontmatter_stream
 from _repair_common import attach_repair_guidance
 from compile_router import match_convention_rule
 
@@ -62,15 +65,6 @@ from compile_router import match_convention_rule
 # ---------------------------------------------------------------------------
 
 VALID_SEVERITIES = ("error", "warning", "info")
-
-ROOT_BOOTSTRAP_VARIANTS = {
-    variant
-    for variants in (
-        *BOOTSTRAP_VARIANTS.values(),
-        *LOCAL_OVERRIDE_VARIANTS.values(),
-    )
-    for variant in variants
-}
 
 ROOT_ALLOW_OTHER = {
     ".gitignore", ".gitattributes", ".mcp.json",
@@ -90,21 +84,60 @@ class CheckContext:
     object is discarded at exit, so there is no staleness concern.
     """
 
-    __slots__ = ("vault_root", "router", "_document_cache", "_file_index")
+    __slots__ = ("vault_root", "router", "_text_cache", "_text_paths", "_document_cache", "_file_index")
 
     def __init__(self, vault_root, router):
         self.vault_root = vault_root
         self.router = router
+        self._text_cache = {}
+        self._text_paths = None
         self._document_cache = {}
         self._file_index = None
 
+    def text_state(self, path):
+        """Read and diagnose bytes once, retaining failures for later checks."""
+        path = Path(path)
+        if path not in self._text_cache:
+            state = {"diagnosis": None, "error": None, "text": None, "data": None}
+            try:
+                data = path.read_bytes()
+            except OSError as exc:
+                state["error"] = exc
+            else:
+                state["data"] = data
+                state["diagnosis"] = diagnose_text(data)
+                try:
+                    state["text"] = data.decode("utf-8").replace("\r\n", "\n").replace("\r", "\n")
+                except UnicodeDecodeError as exc:
+                    state["error"] = exc
+                if state["diagnosis"] is not None and state["diagnosis"].code == "not_text":
+                    state["error"] = OSError(f"Not text: {path}")
+            self._text_cache[path] = state
+        return self._text_cache[path]
+
+    def read_bytes(self, path):
+        """Reuse original bytes for hashing and strict composed readers."""
+        state = self.text_state(path)
+        if state["data"] is None:
+            raise state["error"]
+        return state["data"]
+
+    def read_text(self, path):
+        """Reuse decoded text or the original cached read/decode failure."""
+        state = self.text_state(path)
+        if isinstance(state["error"], UnicodeDecodeError):
+            raise OSError(f"Cannot read {path}: {state['diagnosis'].code}") from state["error"]
+        if state["error"] is not None:
+            raise state["error"]
+        return state["text"]
+
     def _document_state(self, path):
+        path = Path(path)
         cache = self._document_cache
         if path in cache:
             return cache[path]
-        fields = globals()["read_frontmatter"](path)
-        with open(path, "r", encoding="utf-8") as handle:
-            text = handle.read()
+        text = self.read_text(path)
+        fields = _read_frontmatter_stream(io.StringIO(text))
         duplicate = inspect_duplicate_frontmatter_document(text)
         if duplicate is not None:
             fields = duplicate["merged_fields"]
@@ -115,6 +148,11 @@ class CheckContext:
         }
         cache[path] = state
         return state
+
+    def read_source_frontmatter(self, path):
+        """Return the original first block used by router freshness hashes."""
+        with io.TextIOWrapper(io.BytesIO(self.read_bytes(path)), encoding="utf-8") as stream:
+            return _read_frontmatter_stream(stream)
 
     def read_frontmatter(self, path):
         return self._document_state(path)["fields"]
@@ -943,7 +981,52 @@ def check_broken_wikilinks(vault_root, router, file_index=None, *, ctx=None):
 def check_workspace_contract(vault_root, router, *, ctx=None):
     """Validate durable membership, shared defaults and same-workspace ownership."""
     from _lifecycle.workspace_checks import workspace_findings
-    return workspace_findings(vault_root, router)
+    return workspace_findings(vault_root, router, text_reader=ctx.read_text if ctx else None)
+
+
+def check_unreadable_files(vault_root, router=None, *, ctx=None):
+    """Name ambiguous text failures independently of the compiled router."""
+    ctx = ctx or CheckContext(vault_root, router)
+    findings = []
+    scan_errors = []
+    text_paths = []
+    for rel_path in iter_vault_text_files(vault_root, on_error=lambda path, error: scan_errors.append((path, error))):
+        text_paths.append(rel_path)
+        state = ctx.text_state(Path(vault_root) / rel_path)
+        error, diagnosis = state["error"], state["diagnosis"]
+        if isinstance(error, FileNotFoundError):
+            continue
+        if isinstance(error, OSError) and diagnosis is None:
+            evidence = errno.errorcode.get(error.errno, type(error).__name__)
+            findings.append({"check": "unreadable_file", "code": "os_error", "severity": "error",
+                "file": rel_path, "evidence": {"errno": evidence},
+                "message": f"Cannot read file ({evidence}): {error}",
+                "fix": "Check permissions and ownership. Download an online-only cloud file or restore its connection."})
+        elif diagnosis is not None and diagnosis.code == "not_utf8":
+            findings.append({"check": "unreadable_file", "code": "not_utf8", "severity": "error",
+                "file": rel_path, "line": diagnosis.line, "column": diagnosis.column,
+                "message": f"Not UTF-8 at line {diagnosis.line}, byte column {diagnosis.column}; likely a legacy encoding.",
+                "fix": "Convert to UTF-8 in an editor. Move deliberately kept non-note content into _Assets."})
+        elif diagnosis is not None and diagnosis.code == "not_text":
+            findings.append({"check": "unreadable_file", "code": "not_text", "severity": "error",
+                "file": rel_path,
+                "message": "Contains NUL bytes: binary content, or damaged/unmarked UTF-16 or UTF-32 text.",
+                "fix": "Convert text to UTF-8 in an editor. Move deliberately kept non-note content into _Assets."})
+    ctx._text_paths = tuple(text_paths)
+    for path, error in scan_errors:
+        rel_path = Path(path).relative_to(vault_root).as_posix()
+        if isinstance(error, OSError):
+            evidence = errno.errorcode.get(error.errno, type(error).__name__)
+            findings.append({"check": "unreadable_file", "code": "os_error", "severity": "error",
+                "file": rel_path, "evidence": {"errno": evidence},
+                "message": f"Cannot inspect text scan path ({evidence}): {rel_path}",
+                "fix": "Check directory permissions and ownership, or download cloud-only content; this scan is incomplete."})
+        else:
+            findings.append({"check": "text_scan", "code": "skill_ownership_unavailable", "severity": "error",
+                "file": rel_path, "evidence": {"reason": type(error).__name__},
+                "message": f"Cannot establish skill package ownership from {rel_path}; _Config/Skills was not scanned.",
+                "fix": "Restore valid skill tracking metadata and retry vault.check. Other roots were scanned."})
+    return findings
 
 
 ALL_CHECKS = [
@@ -968,22 +1051,53 @@ ALL_CHECKS = [
 ]
 
 
+def check_text_encoding(vault_root, router=None, *, ctx=None):
+    """Report clear byte repairs using the filesystem diagnosis cache."""
+    ctx = ctx or CheckContext(vault_root, router)
+    findings = []
+    if ctx._text_paths is None:
+        check_unreadable_files(vault_root, ctx=ctx)
+    for relative in ctx._text_paths:
+        diagnosis = ctx.text_state(Path(vault_root) / relative)["diagnosis"]
+        if diagnosis is None or diagnosis.fixed_bytes is None:
+            continue
+        if diagnosis.code == "utf8_bom":
+            finding = {"check": "text_encoding", "code": "utf8_bom", "severity": "warning",
+                       "file": relative, "message": "Leading UTF-8 byte-order marks are not part of the vault text standard."}
+        elif diagnosis.code == "utf16_bom":
+            finding = {"check": "text_encoding", "code": "utf16_bom", "severity": "error",
+                       "file": relative, "message": "UTF-16 text with a byte-order mark needs conversion to UTF-8."}
+        elif diagnosis.code == "utf32_bom":
+            finding = {"check": "text_encoding", "code": "utf32_bom", "severity": "error",
+                       "file": relative, "message": "UTF-32 text with a byte-order mark needs conversion to UTF-8."}
+        elif diagnosis.code == "truncated_utf8":
+            finding = {"check": "text_encoding", "code": "truncated_utf8", "severity": "error",
+                       "file": relative, "message": "An incomplete final UTF-8 character can be dropped. Content after the cut may already be lost; the repair only makes the file readable."}
+        else:
+            raise ValueError(f"Unsupported clear text diagnosis: {diagnosis.code}")
+        findings.append(attach_repair_guidance(finding, vault_root, "text_encoding"))
+    return findings
+
+
 def run_checks(vault_root, router=None, *, workspace_dir=None):
     """Run all compliance checks. Returns structured result dict.
 
     Safe for import — never calls sys.exit().
     """
     inspect_derived_cache = router is None
+    ctx = CheckContext(vault_root, router)
+    text_findings = check_unreadable_files(vault_root, ctx=ctx)
+    text_findings.extend(check_text_encoding(vault_root, ctx=ctx))
     derived_findings = []
     if router is None:
-        router_state = inspect_router_cache(vault_root, verify_content=True)
+        router_state = inspect_router_cache(vault_root, verify_content=True, read_bytes=ctx.read_bytes, read_frontmatter=ctx.read_source_frontmatter)
         if router_state.stale:
             derived_findings.append(_repairable_router_finding(vault_root, router_state))
         if router_state.payload is None:
             return _result_envelope(
                 vault_root,
                 None,
-                derived_findings,
+                text_findings + derived_findings,
             )
         router = router_state.payload
 
@@ -995,18 +1109,18 @@ def run_checks(vault_root, router=None, *, workspace_dir=None):
             "message": router["error"],
         }
         finding = attach_repair_guidance(finding, vault_root, "router")
-        return _result_envelope(vault_root, None, [finding])
+        return _result_envelope(vault_root, None, text_findings + [finding])
 
     version = router.get("meta", {}).get("brain_core_version")
-    ctx = CheckContext(vault_root, router)
-    findings = list(derived_findings)
+    ctx.router = router
+    findings = text_findings + derived_findings
     for check_fn in ALL_CHECKS:
         if check_fn is check_workspace_contract and workspace_dir is not None:
             from _lifecycle.workspace_checks import workspace_findings
-            findings.extend(workspace_findings(vault_root, router, workspace_dir=workspace_dir))
+            findings.extend(workspace_findings(vault_root, router, workspace_dir=workspace_dir, text_reader=ctx.read_text))
         else:
             findings.extend(check_fn(vault_root, router, ctx=ctx))
-    findings.extend(collect_bootstrap_check_findings(vault_root))
+    findings.extend(collect_bootstrap_check_findings(vault_root, read_bytes=ctx.read_bytes))
     from _lifecycle.semantic_repairs import collect_managed_check_findings
 
     findings.extend(collect_managed_check_findings(vault_root))

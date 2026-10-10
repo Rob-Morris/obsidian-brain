@@ -99,6 +99,8 @@ def _table(*families: RepairFamily) -> Mapping[str, RepairFamily]:
 
 
 REPAIR_SCOPES: Mapping[str, RepairFamily] = _table(
+    _brain("text_encoding", "vault.repair-text", {}, Disposition.JUDGEMENT,
+           "Repair clear text encoding findings after previewing the byte changes.", recovery=False),
     _brain(
         "router", "runtime.refresh-router", {}, Disposition.AUTOMATIC,
         "Rebuild the compiled router cache.",
@@ -154,6 +156,10 @@ REPAIR_SCOPES: Mapping[str, RepairFamily] = _table(
 # Detection demotes a finding that breaks its row's promise, or an unlisted
 # error, to kind-only and reports the breach; the repair-table test is the gate.
 JUDGEMENT_FINDINGS: Mapping[tuple[str, str | None], Identity] = MappingProxyType({
+    ("unreadable_file", "os_error"): Identity.EVIDENCE,
+    ("unreadable_file", "not_utf8"): Identity.SUBJECT,
+    ("unreadable_file", "not_text"): Identity.SUBJECT,
+    ("text_scan", "skill_ownership_unavailable"): Identity.EVIDENCE,
     ("root_files", None): Identity.SUBJECT,
     ("living_key_fields", None): Identity.EVIDENCE,
     ("workspace_contract", "workspace_scan_unreadable"): Identity.KIND_ONLY,

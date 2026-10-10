@@ -938,6 +938,18 @@
       "authority": "reader"
     },
     {
+      "command_id": "vault.repair-text",
+      "version": 1,
+      "owner": "application",
+      "classification": "content",
+      "mcp": "vault_repair-text",
+      "cli": [
+        "vault",
+        "repair-text"
+      ],
+      "authority": "maintainer"
+    },
+    {
       "command_id": "workspace.configure-bootstrap",
       "version": 3,
       "owner": "application",
@@ -1073,5 +1085,5 @@
       "authority": "reader"
     }
   ],
-  "fingerprint": "sha256:6e88f9ff9007b275f90a6ea8c9801266650123f449f0652bc11c9455cc617b94"
+  "fingerprint": "sha256:cb54274976d3295911834edbebf6fec950b8d963d8ab4f039dd4a84f3be71ed1"
 }

@@ -51,6 +51,21 @@ A vault registry row that is no longer its own canonical path never selects a Br
 
 `--request-json -` reads the object from standard input. Unknown fields, malformed JSON, unknown launcher entry points and application commands with anything other than one noun and one verb fail as request errors.
 
+### Mutation body normalisation
+
+Inline mutation content (including direct typed Python requests) and newly staged
+bodies lose all leading U+FEFF byte order marks before content pins or staged
+storage are created.
+Marks within the body are preserved. Staging measures the normalised UTF-8 body.
+
+Direct scripts accepting `--body-file`, including `stage.py`, classify the file
+bytes before decoding. Unmarked strict UTF-8 retains the existing text-reading
+semantics (CRLF and CR become LF). Marked UTF-8, UTF-16 and UTF-32 are converted
+only when the classifier identifies a lossless BOM conversion. Ambiguous damage,
+Windows-1252 and truncated UTF-8 are refused with the source path and diagnosis
+code; input files are never repaired in place. Existing path bounds and temporary
+file cleanup policies still apply; `stage.py` leaves its source file intact.
+
 ## Discover commands instead of memorising them
 
 The installed catalogues are authoritative. Use discovery for the exact command set, request schema, version, owner, safety class, dependency tier, authority and current availability:
@@ -244,6 +259,19 @@ actual committed subjects, exact context, and any required index repair.
 `workspace_contract` check, including reference, ownership, policy, local binding,
 and adoption-candidate diagnostics. It inspects the caller-local manifest only
 when that trusted adapter context is available; disconnected clones are not scanned.
+
+### Unreadable vault text
+
+`vault.repair-text` is a maintainer content command. Preview with `--dry-run`, then invoke it to repair all clear findings or pass `{"paths":["Projects/Encoding.md"]}` to choose a subset. Clear `text_encoding` findings form a judgement family and never run unattended. `utf8_bom` is a warning; `utf16_bom`, `utf32_bom` and `truncated_utf8` are errors.
+
+The preview shows byte counts and, for a truncated final character, the dropped hexadecimal bytes and their Windows-1252 reading. Content after the cut may already be lost. Leave a suspect file out with `paths`, or convert it manually. Apply checks each original digest, skips changed files and writes atomic bytes preserving line endings. Per-file failures retain successful effects as a partial result. Repair needs no router and reconciles derived indexes afterwards. Paths outside the scanned set or without a current clear finding are refused.
+
+Vault text is UTF-8 without a byte-order mark. `vault.check` scans artefact Markdown (including temporal and archived files), `_Config` Markdown except managed skill packages, `_Plugins` Markdown and root bootstrap variants. It excludes symlinks, dot folders, config YAML and derived JSON. The scan runs even when the compiled router is missing.
+
+`unreadable_file` errors have no repair family: `os_error` reports an errno and suggests checking permissions or downloading cloud-only files; `not_utf8` names the first bad byte’s line and byte column; `not_text` reports NUL bytes. Convert legacy text to UTF-8 in an editor, or move deliberately kept non-note content into `_Assets`. Dismissals for the latter two codes follow the file and code; permission errors also follow the errno evidence.
+
+An inaccessible directory is reported as `unreadable_file/os_error` and means that part of the scan is incomplete. If skill tracking metadata cannot establish package ownership, `text_scan/skill_ownership_unavailable` reports the metadata path and `_Config/Skills` is conservatively excluded until tracking is restored; other roots remain inspectable.
+
 
 ### Skill sources and exposure
 
@@ -731,7 +759,7 @@ The installer writes a versioned distribution under the selected prefix and a sm
 
 The distribution contains the launcher application plus the Brain Core payload needed for install, upgrade and selected-Brain execution. Installation and replacement verify a content manifest and executable identity; failed replacement restores the proven old binary/distribution pair or retains recovery material and reports the outcome as unverified. Failed upgrade results carry every known absolute recovery path in the structural error and durable launcher receipt: residual staging material after a verified rollback is a known partial outcome, while unverified rollback remains outcome-unknown. Standalone human output lists the same paths before the failure message. Once the new pair is verified, failure or interruption while removing an old backup is committed post-upgrade recovery work and never rolls Brain Core back to an older version. Both the launcher result and standalone distribution JSON list the surviving `cleanup_recovery_paths`.
 
-The bootloader requires Python 3.12 or newer. `BRAIN_CLI_VERSION` is `5.0.0`; `BRAIN_INSTALL_REF` is `v0.71.0`.
+The bootloader requires Python 3.12 or newer. `BRAIN_CLI_VERSION` is `5.0.0`; `BRAIN_INSTALL_REF` is `v0.71.1`.
 
 JSON command invocations validate the structural stdout envelope, including
 command identity, version and exit category. Incidental child stderr does not

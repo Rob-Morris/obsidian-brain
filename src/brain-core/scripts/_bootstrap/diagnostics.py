@@ -122,7 +122,7 @@ def _read_json_safe(path: Path) -> tuple[dict | None, str | None]:
         return None, None
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
-    except (json.JSONDecodeError, OSError) as exc:
+    except (json.JSONDecodeError, UnicodeDecodeError, OSError) as exc:
         return None, str(exc)
     return data if isinstance(data, dict) else None, None
 
@@ -314,7 +314,7 @@ def _read_claude_project_server(config_path: Path) -> dict | None:
     return server if isinstance(server, dict) else None
 
 
-def inspect_mcp(vault_root: Path) -> dict:
+def inspect_mcp(vault_root: Path, *, read_bytes=None) -> dict:
     """Inspect a vault's project MCP state without mutating user scope."""
     server_config = _expected_project_server_config(vault_root)
     claude_config_path = vault_root / CLAUDE_PROJECT_CONFIG_FILE
@@ -343,11 +343,22 @@ def inspect_mcp(vault_root: Path) -> dict:
         isinstance(codex_command, str) and same_executable_path(codex_command, expected_command)
     )
 
+    bootstrap_reason = None
+    bootstrap_message = None
     try:
-        claude_md_text = claude_md_path.read_text(encoding="utf-8")
+        claude_md_text = (read_bytes(claude_md_path).decode("utf-8") if read_bytes
+                          else claude_md_path.read_text(encoding="utf-8"))
+    except UnicodeDecodeError:
+        bootstrap_ok = False
+        bootstrap_reason = "unreadable"
+        bootstrap_message = (
+            "Claude bootstrap cannot be inspected because CLAUDE.md is unreadable as UTF-8. "
+            "Run vault.check for per-file text diagnosis."
+        )
     except OSError:
-        claude_md_text = ""
-    bootstrap_ok = expected_bootstrap in claude_md_text
+        bootstrap_ok = False
+    else:
+        bootstrap_ok = expected_bootstrap in claude_md_text
 
     settings, _ = _read_json_safe(claude_settings_path)
     hook_state = _session_hook_state(settings or {}, expected_hook, vault_root, vault_root)
@@ -422,6 +433,8 @@ def inspect_mcp(vault_root: Path) -> dict:
             "command": claude_command,
             "command_ok": claude_command_ok,
             "bootstrap_ok": bootstrap_ok,
+            "bootstrap_reason": bootstrap_reason,
+            "bootstrap_message": bootstrap_message,
             "hook_ok": hook_ok,
             "hook_state": hook_state,
             "record_ok": claude_record_ok,
@@ -559,14 +572,14 @@ def collect_runtime_check_findings(vault_root: str | Path) -> list[dict]:
     return findings
 
 
-def collect_mcp_check_findings(vault_root: str | Path) -> list[dict]:
+def collect_mcp_check_findings(vault_root: str | Path, *, read_bytes=None) -> list[dict]:
     """Return launcher-safe Brain MCP registration findings for one vault."""
     vault_root = Path(vault_root)
     findings: list[dict] = []
     if not local_mcp_state_present(vault_root):
         return findings
 
-    mcp = inspect_mcp(vault_root)
+    mcp = inspect_mcp(vault_root, **({"read_bytes": read_bytes} if read_bytes else {}))
     specifically_reported_clients: set[str] = set()
 
     if mcp["claude"]["command"] is not None and not mcp["claude"]["command_ok"]:
@@ -632,7 +645,11 @@ def collect_mcp_check_findings(vault_root: str | Path) -> list[dict]:
                 "check": "mcp_registration",
                 "severity": "warning",
                 "file": None,
-                "message": f"{client_labels[client]} Brain MCP project registration state is drifted or incomplete.",
+                "message": (
+                    mcp[client]["bootstrap_message"]
+                    if client == "claude" and mcp[client].get("bootstrap_reason") == "unreadable"
+                    else f"{client_labels[client]} Brain MCP project registration state is drifted or incomplete."
+                ),
             }
             findings.append(attach_repair_guidance(finding, vault_root, "mcp"))
     return findings
@@ -702,11 +719,11 @@ def collect_temporaries_check_findings(vault_root: str | Path, *, now=None) -> l
     return findings
 
 
-def collect_bootstrap_check_findings(vault_root: str | Path) -> list[dict]:
+def collect_bootstrap_check_findings(vault_root: str | Path, *, read_bytes=None) -> list[dict]:
     """Return launcher-safe repair-oriented compliance findings."""
     findings = collect_registry_check_findings(vault_root)
     findings.extend(collect_runtime_check_findings(vault_root))
-    findings.extend(collect_mcp_check_findings(vault_root))
+    findings.extend(collect_mcp_check_findings(vault_root, **({"read_bytes": read_bytes} if read_bytes else {})))
     findings.extend(collect_mcp_legacy_vault_root_findings(vault_root))
     findings.extend(collect_temporaries_check_findings(vault_root))
     return findings

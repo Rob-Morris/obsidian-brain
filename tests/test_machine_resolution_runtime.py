@@ -8,6 +8,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
 from _machine.resolve_brain import RESOLUTION_RUNTIME_VERSION as ENTRY_VERSION
 from _machine.resolve_brain import resolve_payload
 from _machine.resolution_runtime import (
@@ -37,6 +39,8 @@ def test_resolution_runtime_deploys_stdlib_resolver_and_version_stamp(tmp_path, 
     assert deployed_version(runtime_root) == result["version"]
     assert (runtime_root / "resolve_brain.py").is_file()
     assert (runtime_root / "_portable_path.py").is_file()
+    assert (runtime_root / "_text_content.py").is_file()
+    assert (runtime_root / "_common" / "_text_encoding.py").is_file()
     assert (runtime_root / "_bootstrap" / "workspace_binding.py").is_file()
     assert (runtime_root / "_common" / "_vault.py").is_file()
     assert not (runtime_root / "_common" / "__init__.py").exists()
@@ -60,10 +64,11 @@ def test_resolution_runtime_deploys_stdlib_resolver_and_version_stamp(tmp_path, 
     assert payload["session_resolution"]["code"] == "no_brain"
 
 
-def test_resolution_runtime_refuses_partial_deploy_when_source_closure_missing(tmp_path):
+@pytest.mark.parametrize("missing_source", ("_common/_vault.py", "_common/_text_encoding.py", "_text_content.py"))
+def test_resolution_runtime_refuses_partial_deploy_when_source_closure_missing(tmp_path, missing_source):
     scripts = tmp_path / "scripts"
     shutil.copytree(SCRIPTS_DIR, scripts)
-    missing = scripts / "_common" / "_vault.py"
+    missing = scripts / missing_source
     missing.unlink()
     runtime_root = tmp_path / "runtime"
     runtime_root.mkdir()
@@ -73,7 +78,7 @@ def test_resolution_runtime_refuses_partial_deploy_when_source_closure_missing(t
     result = ensure_resolution_runtime(scripts, runtime_root=runtime_root)
 
     assert result["status"] == "error"
-    assert "_common/_vault.py" in result["message"]
+    assert missing_source in result["message"]
     assert result["changed_files"] == []
     assert existing_entry.read_text() == "old runtime\n"
     assert deployed_version(runtime_root) is None

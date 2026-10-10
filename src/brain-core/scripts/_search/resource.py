@@ -29,7 +29,9 @@ def _read_file_body(vault_root, rel_path):
     try:
         with open(abs_path, "r", encoding="utf-8") as handle:
             text = handle.read()
-    except (OSError, UnicodeDecodeError) as exc:
+    except UnicodeDecodeError:
+        return None
+    except OSError as exc:
         raise UnreadableRetrievalSourceError(
             rel_path,
             "searching non-artefact resource text",
@@ -70,6 +72,8 @@ def search_resource(router, vault_root, resource, query, top_k=DEFAULT_TOP_K):
         file_body = ""
         if doc_field and item.get(doc_field):
             file_body = _read_file_body(vault_root, item[doc_field])
+            if file_body is None:
+                continue
             searchable += " " + file_body
 
         score = searchable.lower().count(query_lower)

@@ -72,8 +72,8 @@ def parse_doc(
 ) -> ParsedDocument | None:
     """Parse a single .md file into an index document and embedding text parts.
 
-    Incremental updates may treat a vanished path as a deletion sentinel, but a
-    full rebuild must fail loudly when a discovered retrieval source cannot be read.
+    Incremental updates may treat a vanished path as a deletion sentinel.
+    Undecodable text is skipped; other read failures retain their named error.
     """
     vault_str = str(vault_root)
     abs_path = os.path.join(vault_str, rel_path)
@@ -87,7 +87,9 @@ def parse_doc(
             "building lexical retrieval state",
             exc,
         ) from exc
-    except (OSError, UnicodeDecodeError) as exc:
+    except UnicodeDecodeError:
+        return None
+    except OSError as exc:
         raise UnreadableRetrievalSourceError(
             rel_path,
             "building lexical retrieval state",
@@ -185,6 +187,7 @@ def _build_index_result(vault_root) -> IndexBuildResult:
     all_types = scan_living_types(vault_root) + scan_temporal_types(vault_root)
 
     documents = []
+    skipped_paths = []
     embedding_parts_by_path: dict[str, EmbeddingParts] = {}
     for type_info in all_types:
         for rel_path in iter_artefact_paths(vault_root, type_info):
@@ -193,6 +196,9 @@ def _build_index_result(vault_root) -> IndexBuildResult:
                 rel_path,
                 type_hint=type_info["type"],
             )
+            if parsed is None:
+                skipped_paths.append(rel_path)
+                continue
             documents.append(parsed.doc)
             embedding_parts_by_path[rel_path] = parsed.embedding_parts
 
@@ -202,6 +208,7 @@ def _build_index_result(vault_root) -> IndexBuildResult:
             "index_version": INDEX_VERSION,
             "built_at": "",
             "document_count": 0,
+            "skipped_paths": sorted(skipped_paths),
             "avg_doc_length": 0.0,
         },
         "bm25_params": {
@@ -247,6 +254,9 @@ def index_update(index, vault_root, rel_path, type_hint=None) -> ParsedDocument 
     )
     if parsed is None:
         return None
+    skipped = set(index["meta"].get("skipped_paths", ()))
+    skipped.discard(rel_path)
+    index["meta"]["skipped_paths"] = sorted(skipped)
     doc = parsed.doc
 
     for i, existing in enumerate(index["documents"]):
