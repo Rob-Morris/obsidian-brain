@@ -8,6 +8,7 @@ Never edit past changelog entries. Only add new entries at the top.
 
 | Version | Date | Summary |
 |---|---|---|
+| [v0.71.2](changelog/v0.71.2.md) | 2026-10-10 | Clarify upgrade recovery storage and workspace locking |
 | [v0.71.1](changelog/v0.71.1.md) | 2026-10-10 | Diagnose and repair unreadable Brain text |
 | [v0.71.0](changelog/v0.71.0.md) | 2026-10-10 | Make maintenance explicit and upgrades recoverable |
 | [v0.70.11](changelog/v0.70.11.md) | 2026-10-10 | Validate proposed versions during promotion |
