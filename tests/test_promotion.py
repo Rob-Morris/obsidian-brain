@@ -461,7 +461,7 @@ def test_canary_tasks_are_line_anchored_and_the_receipt_is_shared():
     assert canary_receipt.receipt_problems(brief, "[1] Cut: later\n")
 
 
-def test_prepare_refuses_when_dev_release_facts_differ_from_main(tmp_path):
+def test_prepare_keeps_a_later_proxy_version_on_the_excluded_tail(tmp_path):
     root, shas = _dev_repo(tmp_path)
     proxy = root / release.PROXY_PATH
     proxy.write_text(proxy.read_text(encoding="utf-8").replace("0.3.0", "0.4.0"), encoding="utf-8")
@@ -470,10 +470,86 @@ def test_prepare_refuses_when_dev_release_facts_differ_from_main(tmp_path):
     _git(root, "push", "origin", "dev")
     _receipt(root)
 
-    with pytest.raises(model.PromotionError, match="must still equal the ledger"):
-        promotion.prepare(root, _request(shas["four"]), run_checks=None)
+    sha = promotion.prepare(root, _request(shas["four"]), run_checks=None)
+    assert release.release_facts(root, sha).proxy == "0.3.0"
+    replay = candidates.build_replay(root, git.read_commit(root, sha))
+    assert release.release_facts(root, replay).proxy == "0.4.0"
 
-    assert _git(root, "rev-parse", "--verify", "refs/heads/promotion/v1.1.0", check=False).returncode != 0
+
+@pytest.mark.parametrize("declared,requested,error", [
+    ("0.4.0", None, None),
+    ("0.4.0", "0.4.0", None),
+    ("0.3.0", "0.4.0", None),
+    ("0.4.0", "0.5.0", "conflicts with cut declaration"),
+    ("0.4.0", "0.3.0", "conflicts with cut declaration"),
+    ("0.2.0", None, "declaration .* below ledger"),
+    ("0.3.0", "0.2.0", "request .* below ledger"),
+])
+def test_prepare_resolves_proxy_intent_against_the_cut(tmp_path, declared, requested, error):
+    from dataclasses import replace
+    root, _shas = _dev_repo(tmp_path)
+    _write(root, release.PROXY_PATH, f'PROXY_VERSION = "{declared}"\n')
+    _git(root, "add", release.PROXY_PATH)
+    _git(root, "commit", "--allow-empty", "-m", "WIP: propose proxy version")
+    _git(root, "push", "origin", "dev")
+    _receipt(root)
+    request = replace(_request(None), proxy_version=requested)
+    if error:
+        with pytest.raises(model.PromotionError, match=error):
+            promotion.prepare(root, request, run_checks=None)
+        assert not _git(root, "show-ref", "--verify", "refs/heads/promotion/v1.1.0", check=False).returncode == 0
+    else:
+        sha = promotion.prepare(root, request, run_checks=None)
+        assert release.release_facts(root, sha).proxy == (requested or declared)
+        candidates.validate_candidate(root, git.read_commit(root, sha))
+
+
+def test_prepare_accepts_an_authored_core_release_without_duplicate_entry(tmp_path):
+    root, _shas = _dev_repo(tmp_path)
+    request = _request(None)
+    promotion.apply_release(root, request)
+    authored_entry = (root / "docs/changelog/v1.1.0.md").read_bytes()
+    _git(root, "add", ".")
+    _git(root, "commit", "-m", "WIP: propose Core release")
+    _git(root, "push", "origin", "dev")
+    _receipt(root)
+    sha = promotion.prepare(root, request, run_checks=None)
+    assert release.release_facts(root, sha).core == "1.1.0"
+    assert _git(root, "show", f"{sha}:docs/CHANGELOG.md").stdout.count("[v1.1.0]") == 1
+    assert _git(root, "show", f"{sha}:docs/changelog/v1.1.0.md").stdout.encode() == authored_entry
+
+
+@pytest.mark.parametrize("conflict", ["version", "summary"])
+def test_prepare_refuses_conflicting_authored_core_release(tmp_path, conflict):
+    from dataclasses import replace
+    root, _shas = _dev_repo(tmp_path)
+    promotion.apply_release(root, _request(None))
+    _git(root, "add", ".")
+    _git(root, "commit", "-m", "WIP: propose Core release")
+    _git(root, "push", "origin", "dev")
+    _receipt(root)
+    request = (_request(None, "1.2.0") if conflict == "version" else
+               replace(_request(None), summary="Conflicting release intent"))
+    with pytest.raises(model.PromotionError, match="conflicts|existing Summary differs"):
+        promotion.prepare(root, request, run_checks=None)
+
+
+def test_prepare_accepts_matching_cli_proposal_and_updates_core_pins(tmp_path):
+    from dataclasses import replace
+    root, _shas = _dev_repo(tmp_path)
+    changes = release.prepare_release(
+        root, core_version="1.0.0", cli_version="2.1.0", summary="Existing release",
+        release_date="2026-08-15", release_type="Existing", changes=[], amend=True,
+    )
+    release.apply_release(root, changes)
+    _git(root, "add", ".")
+    _git(root, "commit", "-m", "WIP: propose CLI version")
+    _git(root, "push", "origin", "dev")
+    _receipt(root)
+    sha = promotion.prepare(root, replace(_request(None), cli_version="2.1.0"), run_checks=None)
+    facts = release.release_facts(root, sha)
+    assert facts.coherent and facts.cli_unix == facts.cli_windows == "2.1.0"
+    assert facts.install_ref_unix == facts.install_ref_windows == "1.1.0"
 
 
 def test_prepare_consumes_the_receipt_only_after_the_candidate_push(tmp_path):

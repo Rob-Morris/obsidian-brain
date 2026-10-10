@@ -8,6 +8,7 @@ Never edit past changelog entries. Only add new entries at the top.
 
 | Version | Date | Summary |
 |---|---|---|
+| [v0.70.11](changelog/v0.70.11.md) | 2026-10-10 | Validate proposed versions during promotion |
 | [v0.70.10](changelog/v0.70.10.md) | 2026-09-27 | Expose command.list call names and type lookup synonyms |
 | [v0.70.9](changelog/v0.70.9.md) | 2026-09-26 | Clean promotion remnants with explicit ownership and safe retries |
 | [v0.70.8](changelog/v0.70.8.md) | 2026-09-25 | Preserve calendar dates and preflight document writes |

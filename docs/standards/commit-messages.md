@@ -23,7 +23,7 @@ Non-versioned template: `<prefix> <specific subject>`, where `<prefix>` is `WIP:
 
 - **Short** — under about 70 characters.
 - **Specific** — name the new thing by its identifier, not by category. `safe_write_via kernel` beats `shared atomic write kernel`; the former is greppable, the latter is not.
-- **Versioned** — if the change bumps `src/brain-core/VERSION`, include the new version in parens at the end. Always parenthesised, never `as vX.Y.Z`.
+- **Versioned** — promotion release commits include the new version in parens at the end. Always parenthesised, never `as vX.Y.Z`. A development commit proposing an unreleased version still uses its development prefix; changing a declaration alone does not make it a release commit.
 - **No period** at the end.
 - **Imperative mood** — "Harden embeddings writes", not "Hardened" or "Hardens".
 
@@ -36,7 +36,7 @@ For non-versioned support commits, prefixes are required and narrow by design:
 - `test:` — test-only work
 - `chore:` — repo-only maintenance that does not ship a version
 
-Do not use prefixes on versioned commits. In this repo, shipped code, fixes, features, and any change that bumps `src/brain-core/VERSION` already carry stronger release structure via semver, changelog entries, and the canonical Summary subject. Keep the prefix set small. On `dev`, ordinary work uses `WIP:`; `docs:`, `test:`, and `chore:` remain available when that is the whole change. Version commits are created by `src/scripts/promotion.py`, not by hand. The subject after the prefix should still be short, specific, and imperative.
+Do not use prefixes on versioned commits. Promotion release commits already carry stronger release structure via semver, changelog entries, and the canonical Summary subject. A development version proposal remains unreleased and keeps its development prefix. Keep the prefix set small. On `dev`, ordinary work uses `WIP:`; `docs:`, `test:`, and `chore:` remain available when that is the whole change. Version commits are created by `src/scripts/promotion.py`, not by hand. The subject after the prefix should still be short, specific, and imperative.
 
 Good:
 

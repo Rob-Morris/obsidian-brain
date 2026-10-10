@@ -12,7 +12,7 @@ import check_ci
 from . import git, candidates
 from .recovery_model import github_repository
 from .model import (
-    PromotionError, PromotionRequest, PushUpdate, RemoteHeads, parse_trailers, version_tuple, candidate_message, ref_label, classify_remote, promotion_branch, TIP_TRAILER, ZERO_SHA, SHA_RE, PROMOTION_BRANCH_RE
+    PromotionError, PromotionRequest, PushUpdate, RemoteHeads, parse_trailers, candidate_message, ref_label, classify_remote, promotion_branch, TIP_TRAILER, ZERO_SHA, SHA_RE, PROMOTION_BRANCH_RE
 )
 
 CheckRunner = Callable[[Path], None]
@@ -38,7 +38,9 @@ from pathlib import Path
 root = Path.cwd()
 sys.path.insert(0, str(root / 'src/scripts'))
 import release
-changes = release.prepare_release(root, **json.load(sys.stdin))
+payload = json.load(sys.stdin)
+payload['amend'] = release.release_facts(root, 'worktree').core == payload['core_version']
+changes = release.prepare_release(root, **payload)
 release.apply_release(root, changes)
 print(json.dumps(sorted(changes)))
 """
@@ -154,11 +156,10 @@ def prepare(
         git.require_checkout(root)
         ledger, dev = fetch_matching(root)
         cut, tail = candidates.resolve_cut(root, dev, request.cut)
-        current = candidates.require_same_release_facts(root, ledger, cut, dev)
-        if not current.core or version_tuple(request.core_version) <= version_tuple(current.core):
-            raise PromotionError(
-                f"requested {request.core_version} must be greater than ledger {current.core}"
-            )
+        candidates.require_release_intent(
+            root, ledger, cut, dev, core_version=request.core_version,
+            cli_version=request.cli_version, proxy_version=request.proxy_version,
+        )
         branch = promotion_branch(request.core_version)
         worktree = git.worktree_dir(root, branch)
         if worktree.exists():
