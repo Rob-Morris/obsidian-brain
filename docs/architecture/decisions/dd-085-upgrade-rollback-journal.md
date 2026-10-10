@@ -41,8 +41,10 @@ restore and the durable-write primitive; the upgrader keeps the
 classification against the `VERSION` witness, the refusal and warning
 messages and the scope policy.
 
-The journal lives in machine-local state, outside the vault and so unseen by
-file-sync services: the state home that `_bootstrap/paths.state_home`
+The journal uses machine state home rather than a vault-relative directory.
+That location does not enforce a sync exclusion: configured state home or
+sync policy can still place it in synced storage. Its location is the state
+home that `_bootstrap/paths.state_home`
 resolves for every Brain reader (an absolute `$XDG_STATE_HOME`, else
 `~/.local/state`; a relative value is ignored, as a relative
 `$XDG_CONFIG_HOME` is, so the location never depends on the working
