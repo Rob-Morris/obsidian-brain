@@ -23,15 +23,25 @@ TOOL_ROOT = REPO_ROOT / "tools" / "brain-lab"
 
 
 def test_current_repository_version_has_an_exact_compatibility_owner():
-    # Owner by VERSION only: dev keeps the last release's VERSION, so the worktree's own launcher grammar can
-    # already belong to the next adapter (brain-0.71's Doctor gate), which this owner changes to at the bump.
+    # Dev retains the published VERSION; release-version Lab checks cover new launcher grammar.
     version = (REPO_ROOT / "src" / "brain-core" / "VERSION").read_text().strip()
     adapter = CompatibilityManifest(TOOL_ROOT / "compatibility.json").select(version)
 
-    assert adapter.adapter_id == "brain-0.70"
     assert any(gate.gate_id == "session" for gate in adapter.health)
     session = next(gate for gate in adapter.health if gate.gate_id == "session")
     assert session.command[:3] == ("brain", "session", "start")
+
+
+@pytest.mark.parametrize(("version", "owner"), [
+    ("0.70.11", "brain-0.70"),
+    ("0.71.0", "brain-0.71"),
+    ("0.71.1", "brain-0.71"),
+    ("0.71.2", "brain-0.71"),
+])
+def test_supported_release_versions_select_their_declared_adapter(version, owner):
+    manifest = CompatibilityManifest(TOOL_ROOT / "compatibility.json")
+
+    assert manifest.select(version).adapter_id == owner
 
 
 def test_rehydration_adapters_do_not_use_upgrade_or_definition_sync():

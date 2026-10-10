@@ -29,11 +29,12 @@ import os
 import re
 import shlex
 import shutil
+import stat
 import subprocess
 import sys
 import tempfile
 import time
-from dataclasses import asdict
+from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
@@ -151,13 +152,27 @@ def find_vault_root(vault_arg: Optional[str] = None) -> Path:
 # Version reading
 # ---------------------------------------------------------------------------
 
-def _read_version_bytes(path: str) -> Optional[bytes]:
-    """Read a directory's VERSION file as bytes, or None when it is absent or unreadable."""
+@dataclass(frozen=True)
+class _VersionFile:
+    """Source VERSION contents and permissions captured for the final commit."""
+
+    content: bytes
+    mode: int
+
+
+def _read_version_file(path: str) -> Optional[_VersionFile]:
+    """Capture a directory's VERSION bytes and mode from the same open file."""
     try:
-        with open(os.path.join(path, "VERSION"), "rb") as f:
-            return f.read()
+        with open(os.path.join(path, "VERSION"), "rb") as handle:
+            return _VersionFile(handle.read(), stat.S_IMODE(os.fstat(handle.fileno()).st_mode))
     except OSError:
         return None
+
+
+def _read_version_bytes(path: str) -> Optional[bytes]:
+    """Read VERSION bytes, or None when the file is absent or unreadable."""
+    version = _read_version_file(path)
+    return None if version is None else version.content
 
 
 def _version_text(version_bytes: bytes) -> str:
@@ -373,11 +388,11 @@ def _copy_core_except_version(source: str, target: str, diff: dict) -> tuple[lis
     return copied, changed_dirs
 
 
-def _commit_version(target: str, version_bytes: bytes) -> Optional[str]:
+def _commit_version(target: str, version_file: _VersionFile) -> Optional[str]:
     """Write VERSION last so it witnesses a complete core and migrations.
 
-    The bytes were captured at run start, so the commit cannot pick up a
-    source that changed under the run. The read is only an equality probe
+    The bytes and permissions were captured at run start, so the commit cannot
+    pick up a source that changed under the run. The read is only an equality probe
     that skips a write which would change nothing, so an unreadable VERSION
     is written rather than reported. A failed write or replace raises; once
     the replace has landed, a failed directory fsync is returned as a message
@@ -386,11 +401,14 @@ def _commit_version(target: str, version_bytes: bytes) -> Optional[str]:
     version_path = os.path.join(target, "VERSION")
     try:
         with open(version_path, "rb") as handle:
-            if handle.read() == version_bytes:
+            if (
+                handle.read() == version_file.content
+                and stat.S_IMODE(os.fstat(handle.fileno()).st_mode) == version_file.mode
+            ):
                 return None
     except OSError:
         pass
-    _safe_write(version_path, version_bytes)
+    write_durably(version_path, version_file.content, file_mode=version_file.mode)
     try:
         _fsync_directories((target,))
     except OSError as exc:
@@ -2408,10 +2426,10 @@ def upgrade(
     if not os.path.isdir(source):
         return {"status": "error", "message": f"Source directory not found: {source}"}
 
-    version_bytes = _read_version_bytes(source)
-    if version_bytes is None:
+    version_file = _read_version_file(source)
+    if version_file is None:
         return {"status": "error", "message": f"No VERSION file in source: {source}"}
-    new_version = _version_text(version_bytes)
+    new_version = _version_text(version_file.content)
 
     target = os.path.join(vault_root, BRAIN_CORE_DIR)
     running = _running_upgrade_log(vault_root)
@@ -2429,7 +2447,7 @@ def upgrade(
     # subprocesses, and run after it is released.
     result = _under_vault_lock(
         vault_root, _read_version(target), new_version,
-        lambda: _locked_upgrade(vault_root, source, target, version_bytes, new_version, **plan),
+        lambda: _locked_upgrade(vault_root, source, target, version_file, new_version, **plan),
     )
     if result["status"] != "ok":
         return result
@@ -2619,7 +2637,7 @@ def _locked_upgrade(
     vault_root: str,
     source: str,
     target: str,
-    version_bytes: bytes,
+    version_file: _VersionFile,
     new_version: str,
     *,
     force: bool,
@@ -2649,7 +2667,7 @@ def _locked_upgrade(
     result["dry_run"] = False
     _reported(result, warnings, recovery)
     outcome = _apply_upgrade(
-        vault_root, source, target, version_bytes, result, _progress_writer(vault_root, result),
+        vault_root, source, target, version_file, result, _progress_writer(vault_root, result),
         commit_callback=commit_callback,
     )
     # A refusal or rollback is a fresh result; the upgrade's own already carries them.
@@ -2678,7 +2696,7 @@ def _apply_upgrade(
     vault_root: str,
     source: str,
     target: str,
-    version_bytes: bytes,
+    version_file: _VersionFile,
     result: dict,
     progress,
     *,
@@ -2963,13 +2981,13 @@ def _apply_upgrade(
                 )
             raise
 
-    return _commit(vault_root, target, version_bytes, result, backup_dir, journal, progress)
+    return _commit(vault_root, target, version_file, result, backup_dir, journal, progress)
 
 
 def _commit(
     vault_root: str,
     target: str,
-    version_bytes: bytes,
+    version_file: _VersionFile,
     result: dict,
     backup_dir: str,
     journal: UpgradeJournal,
@@ -2994,7 +3012,7 @@ def _commit(
     if not result["warnings"]:
         del result["warnings"]
     try:
-        not_durable = _commit_version(target, version_bytes)
+        not_durable = _commit_version(target, version_file)
     except OSError as exc:
         # The cutover has committed, so rollback no longer applies; the next
         # run (old < new) has nothing left to migrate and finishes the commit.

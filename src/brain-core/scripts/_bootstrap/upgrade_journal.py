@@ -1,10 +1,10 @@
 """Write-ahead rollback journal of an upgrade, in machine-local state (DD-085).
 
 The original bytes, or absence, of every vault path an upgrade may change are
-durable here, outside the vault, before the path may change, so a killed run
-is restored by the next run from the same material an in-process rollback
-uses. The journal lives under the machine state home so a file-sync service
-never carries it to a machine where its vault is not.
+durable here, under the machine state home, before the path may change, so a
+killed run is restored by the next run from the same material an in-process rollback
+uses. Using machine state home avoids a vault-relative journal location; it
+does not enforce a sync exclusion for the configured state home.
 
 Stdlib only, below ``_bootstrap``: ``upgrade.py`` loads it while it replaces
 the rest of the scripts tree, and the launcher will read a vault's journal at
@@ -72,8 +72,8 @@ class UpgradeJournalUnreadable(ValueError):
 # Durable writes
 # ---------------------------------------------------------------------------
 
-def write_durably(path: str, content: bytes) -> None:
-    """Atomic durable write: tmp, fsync, replace. The parent must exist."""
+def write_durably(path: str, content: bytes, *, file_mode: Optional[int] = None) -> None:
+    """Atomic durable write; an explicit file mode is applied before fsync and replace."""
     target = os.path.realpath(path)
     parent = os.path.dirname(target) or "."
     fd, tmp_path = tempfile.mkstemp(prefix=os.path.basename(target) + ".", suffix=".tmp", dir=parent)
@@ -81,6 +81,8 @@ def write_durably(path: str, content: bytes) -> None:
         with os.fdopen(fd, "wb") as handle:
             handle.write(content)
             handle.flush()
+            if file_mode is not None:
+                os.chmod(tmp_path, file_mode)
             os.fsync(handle.fileno())
         os.replace(tmp_path, target)
     except BaseException:

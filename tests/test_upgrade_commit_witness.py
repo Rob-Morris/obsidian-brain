@@ -893,18 +893,22 @@ def test_a_directory_fsync_failure_after_the_replace_is_a_warning_and_the_run_co
     assert rerun["message"].startswith("Already at 2.0.0")
 
 
-def test_the_commit_writes_the_source_version_bytes_captured_at_run_start(tmp_path):
+def test_the_commit_writes_the_source_version_file_captured_at_run_start(tmp_path):
     source = _make_source(tmp_path, "2.0.0", migrations={})
     vault = _make_vault(tmp_path, "1.0.0")
 
+    source_mode = stat.S_IMODE((source / "VERSION").stat().st_mode)
+
     def rewrite_source_version(_result):
         (source / "VERSION").write_text("9.9.9\n")
+        (source / "VERSION").chmod(0o600)
         return {"status": "ok"}
 
     result = upgrade.upgrade(str(vault), str(source), sync=False, commit_callback=rewrite_source_version)
 
     assert result["status"] == "ok", result
     assert _version(vault) == "2.0.0"
+    assert stat.S_IMODE((vault / ".brain-core" / "VERSION").stat().st_mode) == source_mode
 
 
 # --- M1: every logged stage is classified ---------------------------------------------
@@ -1080,3 +1084,16 @@ def test_recording_anything_but_ok_or_skipped_is_an_invariant_violation(tmp_path
         )
 
     assert ledger["migrations"] == {}
+
+
+def test_committed_version_keeps_the_source_file_permissions(tmp_path):
+    source = _make_source(tmp_path, "2.0.0", migrations={})
+    vault = _make_vault(tmp_path, "1.0.0")
+    (source / "VERSION").chmod(0o644)
+
+    result = upgrade.upgrade(str(vault), str(source), sync=False)
+
+    assert result["status"] == "ok", result
+    installed = vault / ".brain-core" / "VERSION"
+    assert installed.read_bytes() == (source / "VERSION").read_bytes()
+    assert stat.S_IMODE(installed.stat().st_mode) == stat.S_IMODE((source / "VERSION").stat().st_mode)

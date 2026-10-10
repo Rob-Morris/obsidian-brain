@@ -807,10 +807,11 @@ def test_blob_then_blobs_directory_then_entry_line_are_durable_before_the_vault_
         events.append(((info.st_dev, info.st_ino), target.read_bytes()))
         return real_fsync(fd)
 
-    monkeypatch.setattr(upgrade_journal.os, "fsync", spying_fsync)
-    monkeypatch.setattr(upgrade, "_fsync_files", lambda paths: None)
+    with monkeypatch.context() as sync_spy:
+        sync_spy.setattr(upgrade_journal.os, "fsync", spying_fsync)
+        sync_spy.setattr(upgrade, "_fsync_files", lambda paths: None)
 
-    assert upgrade.upgrade(str(vault), str(source), sync=False)["status"] == "ok"
+        assert upgrade.upgrade(str(vault), str(source), sync=False)["status"] == "ok"
 
     import hashlib
 
@@ -821,7 +822,6 @@ def test_blob_then_blobs_directory_then_entry_line_are_durable_before_the_vault_
     pending = [(key, content) for key, content in events if content == b"orig"]
     assert pending, "every fsync of the capture happened before the vault write"
     assert all(content == b"orig" for _key, content in events[:len(pending)])
-    monkeypatch.undo()
     # Replay the capture against a fresh journal to learn which inodes it syncs, in order.
     probe = UpgradeJournal.open(str(vault), "1.0.0", "2.0.0")
     target.write_bytes(b"orig")
@@ -1113,3 +1113,13 @@ def test_0_68_0_converges_when_killed_after_either_write_and_rerun_without_the_j
     assert _authorisation_layers(killed)[".brain/local/config.yaml"]["defaults"]["access"]["initial"]["commands"] == [
         "access.request", "vault.read-file",
     ], "the local selection keeps the old reader's exact command set, never the converted shared profile"
+
+
+@pytest.mark.skipif(os.name != "posix", reason="POSIX permissions are not represented on Windows")
+def test_durable_journal_writes_keep_private_permissions_by_default(tmp_path):
+    path = tmp_path / "journal.json"
+
+    upgrade_journal.write_durably(str(path), b"private snapshot")
+
+    assert path.read_bytes() == b"private snapshot"
+    assert stat.S_IMODE(path.stat().st_mode) == 0o600
