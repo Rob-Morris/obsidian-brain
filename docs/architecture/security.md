@@ -463,11 +463,26 @@ and a live-process scan. Stdio startup cannot provision or heal MCP registration
 it isolates ambient Python/development overrides while retaining supported
 authenticated owner context.
 
+Upgrade recovery is owned by `upgrade.py` and `_bootstrap/upgrade_journal.py`.
+Before a journalled vault write, the journal records the original bytes or
+absence under `<state-home>/brain/upgrade-journals/<vault-path-digest>/`.
+The state home is an absolute `XDG_STATE_HOME`, or `~/.local/state` otherwise.
+Recovery runs under the vault mutation lock. If readable bytes changed since
+journalling, recovery preserves them with a manifest under
+`<state-home>/brain/upgrade-recovery/<vault-path-digest>/`; copies of the
+original bytes can also remain after a failed restore. These stores can contain
+authored content, configuration and credentials. Treat their access, backups
+and sync policy like those of the source files. The state-home location does not enforce a
+sync exclusion; check its configured location and any separate sync policy. See
+[DD-085](decisions/dd-085-upgrade-rollback-journal.md).
+
 Application-owned `workspace.setup` declares a selected-Brain plus caller-local
 effect. Its single operation binding observes the canonical hub, path registry
 and caller manifest/scaffold targets. It admits once under the Brain lock,
-completes workspace registration, releases that lock, then acquires the caller lock and
-rechecks the admitted local observations before binding. The binding includes
+completes workspace registration, then acquires the caller lock while still
+holding the Brain lock. It rechecks the admitted local observations and writes
+the workspace manifest under both locks, then releases the Brain lock before
+writing the ignore-rule scaffold under the caller lock. The binding includes
 Git-root and Git-directory resolution, including absence, and the selected
 ignore-rule destination; setup revalidates that resolution under the caller
 lock and immediately before a scaffold write. Failures after a
