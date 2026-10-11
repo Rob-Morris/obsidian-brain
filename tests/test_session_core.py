@@ -20,10 +20,17 @@ def test_recovery_route_is_small_and_actionable():
     import tiktoken
 
     body = SESSION_CORE_PATH.read_text(encoding="utf-8")
-    route = body.split("For `interface_changed`", 1)[1].split("\n\n", 1)[0]
+    route = "After a known upgrade," + body.split("After a known upgrade,", 1)[1].split("\n\n", 1)[0]
     assert "brain_proxy_status({})" in route
     assert "tools/list" in route and "reconnect" in route
-    assert len(tiktoken.get_encoding("o200k_base").encode("For `interface_changed`" + route)) <= 80
+    assert "listed" in route and "host's callable tools" in route
+    assert "highest-priority" in route and "prerequisites first" in route
+    assert "brain_proxy_refresh" in route and "brain_proxy_restart" in route
+    assert "actually exposed host" in route and "every `nextCursor`" in route
+    assert "command_list`/`command_describe` cannot do this" in route
+    assert "unavailable/unverified" in route
+    assert "do not replay a completed call" in route
+    assert len(tiktoken.get_encoding("o200k_base").encode(route)) <= 240
 
 
 @pytest.fixture(scope="module")

@@ -1,6 +1,6 @@
 # Brain Reference
 
-This page is the stable user-facing reference for Brain Core 0.71.2 and CLI 5.0.0. Exact command schemas, examples and availability come from the installed Brain rather than a duplicated hand-maintained inventory.
+This page is the stable user-facing reference for Brain Core 0.71.2 and CLI 5.0.1. Exact command schemas, examples and availability come from the installed Brain rather than a duplicated hand-maintained inventory.
 
 Optional [managed approvals](../functional/approvals.md) cover normal reads/writes
 in selected clients and surfaces. They preserve user overrides and do not change
@@ -76,6 +76,23 @@ ordinary contracts enter `shaping`, while discovery-only preserving contracts
 leave an enduring non-terminal status unchanged and refuse terminal targets.
 
 The MCP server derives tool registrations, schemas, descriptions and tool hints from the selected Brain's catalogue, within the credential's permissions. Initial authorisation normally includes content work; it can be configured as read-only or an explicit command set. Exceptional operations use `access.prepare` for the exact operation and `access.request` for explicit consent, or request blanket consent for one command using its canonical review from `access.status`. A harness can approve the consent tool manually or automatically. `access.reduce` only narrows authorisation. Consent lasts for this Brain and MCP instance or explicit CLI job; new instances require fresh exceptional consent.
+
+After a known upgrade, a recovery warning or a listed MCP tool absent from the
+host's callable tools, inspect `brain_proxy_status({})` and follow its
+highest-priority action. Repair external prerequisites before eligible Core
+refresh or installed proxy/runtime replacement. Remaining discovery belongs to
+the host's exposed `tools/list` facility (all pages), not Brain
+`command_list`/`command_describe` or proxy refresh/restart. Reconnect if host
+refresh is unavailable/unverified or the diagnostic requires a new connection.
+Inspect the affected declaration and verify only an authorised safe call;
+mutation-only execution remains unverified unless separately requested.
+Do not replay completed calls or use unchanged reads as proof of new-tool availability.
+
+One typed transport warning reaches the first eligible Brain result per
+connection/catalogue generation for pending mappings or observed proxy-code drift;
+subsequent unaffected results stay quiet. Affected refusals and proxy controls
+retain diagnostics/status. The bounded emission-time mapping observation is
+separate from note content and is not full-schema or model-cache certification.
 
 Before accepting a command, the proxy checks installed Core drift and refreshes an idle child after validating its replacement. `brain_proxy_status` and `brain_proxy_refresh` are no-argument MCP transport tools available even without a healthy child; they are separate from application `runtime.status`. In-flight work returns busy rather than being interrupted. `brain_proxy_restart` explicitly loads the installed proxy on POSIX while retaining stdio; it ends exceptional consent. Busy output/work is refused. Unchanged code/runtime is a no-op only with a validated child; otherwise restart attempts same-runtime activation, including after external repair of reachable startup failures. Unknown or changed bindings cannot retarget the session. Preparation leaves status/ping responsive. Windows image/runtime replacement requires host restart. Modern subscriptions survive recovery, but stale host tool caches may still need rediscovery or reconnect. A lost dispatched call, including a residual drift race, triggers owned outcome recovery, never automatic replay. `invocation.read` reports execution independently from file effects, including for observations. An absent or incomplete receipt means the outcome remains unknown. Above-permission static command metadata is discoverable, with CLI administration guidance; discovery cannot expand permissions.
 

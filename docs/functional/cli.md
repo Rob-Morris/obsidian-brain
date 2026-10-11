@@ -745,21 +745,28 @@ repair-semantic` for the exceptional semantic repair; and for the machine-owned
 linked workspace registry belongs to the Brain and is not part of it.
 
 Use `brain.cmd` at the Windows destination. Doctor reports bootstrap availability
-separately from MCP registration state. Successful repair does not reload an already
-running MCP host; reconnect/restart that host as required by the runtime-drift
-diagnostic. CLI replacement refuses to remove stdio capability while persisted
+separately from MCP registration state. Successful repair does not certify a
+running MCP connection. Inspect `brain_proxy_status({})` there and follow its
+highest-priority `next_action`: repair external prerequisites, use eligible
+`brain_proxy_refresh` or supported idle `brain_proxy_restart`, then resolve any
+remaining host discovery through the host's exposed `tools/list` facility and
+all pages. Brain command discovery and proxy recovery cannot refresh host tool
+contracts. Reconnect when host refresh is unavailable/unverified or the diagnostic
+requires a new connection, including incompatible earlier sessions, changed
+targets and unsupported/failed image replacement. Pre-proxy failures require
+external repair and host reconnect. CLI replacement refuses to remove stdio capability while persisted
 user MCP registrations still depend on it.
 
 ## Installation
 
 The installer writes a versioned distribution under the selected prefix and a small platform bootloader under `bin/`:
 
-- Unix-like user install: `~/.local/bin/brain` and `~/.local/lib/brain-cli/5.0.0/`.
-- Native Windows user install: `%LOCALAPPDATA%\Programs\Brain\bin\brain.cmd` and the adjacent `lib\brain-cli\5.0.0\` distribution.
+- Unix-like user install: `~/.local/bin/brain` and `~/.local/lib/brain-cli/5.0.1/`.
+- Native Windows user install: `%LOCALAPPDATA%\Programs\Brain\bin\brain.cmd` and the adjacent `lib\brain-cli\5.0.1\` distribution.
 
 The distribution contains the launcher application plus the Brain Core payload needed for install, upgrade and selected-Brain execution. Installation and replacement verify a content manifest and executable identity; failed replacement restores the proven old binary/distribution pair or retains recovery material and reports the outcome as unverified. Failed upgrade results carry every known absolute recovery path in the structural error and durable launcher receipt: residual staging material after a verified rollback is a known partial outcome, while unverified rollback remains outcome-unknown. Standalone human output lists the same paths before the failure message. Once the new pair is verified, failure or interruption while removing an old backup is committed post-upgrade recovery work and never rolls Brain Core back to an older version. Both the launcher result and standalone distribution JSON list the surviving `cleanup_recovery_paths`.
 
-The bootloader requires Python 3.12 or newer. `BRAIN_CLI_VERSION` is `5.0.0`; `BRAIN_INSTALL_REF` is `v0.71.2`.
+The bootloader requires Python 3.12 or newer. `BRAIN_CLI_VERSION` is `5.0.1`; `BRAIN_INSTALL_REF` is `v0.71.2`.
 
 JSON command invocations validate the structural stdout envelope, including
 command identity, version and exit category. Incidental child stderr does not

@@ -24,10 +24,16 @@ can be denied; `static_disclosure` is metadata, not permission to call it.
 Prefer connected MCP for supported vault operations. CLI is appropriate for
 local-only commands or unavailable MCP, never to bypass a denial.
 
-For `interface_changed`, call `brain_proxy_status({})` and follow its recovery.
-Host `tools/list` refreshes tool contracts; Brain `command_list` does not.
-If the host cannot refresh tools, ask the user to reconnect Brain MCP.
-Use the new contract; if still blocked, report the diagnostic instead of looping.
+After a known upgrade, `interface_changed`, a recovery warning, or a listed
+MCP tool missing from the host's callable tools, call `brain_proxy_status({})`.
+Follow its highest-priority `next_action`: repair external prerequisites first;
+use `brain_proxy_refresh` for eligible Core refresh or `brain_proxy_restart`
+for supported idle installed proxy/runtime replacement. Neither refreshes host tools.
+For pending discovery, use an actually exposed host `tools/list` refresh facility
+and follow every `nextCursor`; Brain `command_list`/`command_describe` cannot do this.
+Ask the user to reconnect Brain MCP if host refresh is unavailable/unverified
+or the diagnostic requires a new connection. Use the current affected contract;
+do not replay a completed call. If still blocked, report the diagnostic instead of looping.
 
 ## Key Idea
 

@@ -2281,7 +2281,13 @@ def _repair_mcp_registration_after_upgrade(vault_root: Path) -> dict:
         effects.extend(getattr(exc, "committed_effects", []))
         return {"scope": "mcp", "outcome": "partial" if effects else "error", "message": str(exc), "committed_effects": effects}
     return {"scope": "mcp", "outcome": "ok", "committed_effects": effects,
-            "message": "Canonical MCP registrations reconciled; client-host reconnect and a normal MCP call remain separate verification."}
+            "message": (
+                "Canonical MCP registrations reconciled; running client sessions remain unverified. "
+                "Inspect brain_proxy_status({}) in each connection and follow its highest-priority next_action. "
+                "Supported proxy refresh/restart and host tools/list discovery are separate recovery steps; "
+                "reconnect only when the diagnostic requires it or host refresh is unavailable/unverified. "
+                "Verify an authorised safe affected call using its current contract, not an unrelated normal call."
+            )}
 
 
 def _deferred_mcp_registration_after_upgrade(vault_root: Path) -> dict:

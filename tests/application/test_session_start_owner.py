@@ -86,6 +86,10 @@ def test_session_start_returns_typed_bootstrap_and_refreshes_mirror(
     assert "## Command Discovery" in rendered
     assert "command_list" in result.result.command_catalogue.list
     assert "command_describe" in result.result.command_catalogue.describe
+    authored = (REPO_ROOT / "src/brain-core/session-core.md").read_text(encoding="utf-8")
+    recovery = "After a known upgrade," + authored.split("After a known upgrade,", 1)[1].split("\n\n", 1)[0]
+    assert recovery in result.result.core_bootstrap
+    assert recovery in rendered
     for guidance in (
         'command_list({"domain":"document"})', "mcp_tool", "cli_argv",
         "availability", "authorisation_required", "permission ceiling",

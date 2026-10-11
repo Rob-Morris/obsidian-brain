@@ -28,8 +28,10 @@ The MCP server name remains `brain`. This projection is global, reversible and
 collision-free under the command grammar. Raw dotted names are not aliases.
 Command IDs in results, discovery arguments, permission profiles and access
 requests remain dotted; CLI commands remain `brain <noun> <verb>`.
-Interface epoch 3 requires clients to reconnect and rediscover tools after
-upgrade. Project MCP registration repair updates exact managed bootstrap lines.
+An existing session on an incompatible earlier interface epoch must reconnect
+and rediscover tools when upgrading to epoch 3. Same-epoch upgrades instead
+follow the selected connection's `brain_proxy_status` recovery action; reconnect
+is conditional. Project MCP registration repair updates exact managed bootstrap lines.
 
 The application catalogue owns the installed command inventory and marks each projection explicitly. A running server exposes only the MCP-eligible commands within the authenticated profile ceiling. Exact catalogue and profile counts are generated and checked from the authoritative catalogue; use MCP discovery or `command.list` for the selected installation rather than treating prose counts as a compatibility contract.
 
@@ -373,14 +375,38 @@ resolve owned receipts; an inconclusive receipt means unknown, not safe to retry
 Status exposes `interface.tool_discovery` independently of Core/runtime readiness:
 `state` is `current`, `required` or `unknown` (no validated comparison), and
 `pending_tools` lists added, changed or removed contract names compared with the
-proxy's connection baseline and subsequent host discovery responses. This is a
-protocol observation, not proof of what the model sees in a host cache. Required
+proxy's connection baseline and subsequent host discovery responses. `current`
+means no mapping difference under command ID/version/mutation class; it does not
+certify full schemas, descriptions, annotations or control definitions. Initial
+private negotiation seeds a compatibility baseline, not a host-listing receipt.
+Observed pages establish only the returned names under the current recorder;
+an isolated terminal page does not prove a complete cursor traversal. Neither
+mapping equality nor observed listings prove model-visible host adoption. Required
 discovery includes a `recovery` descriptor with `owner: mcp_host`,
 `method: tools/list`, empty initial `params`, and instructions to follow every
 `nextCursor`. Once higher-priority runtime/server recovery is resolved,
 `next_action` is `rediscover_tools`, not null. Partial pages acknowledge only the
 tools they contain; removed mappings retire at the end of a listing. Unchanged
 tools remain callable.
+
+The first eligible Brain command result per connection/catalogue generation
+carries one typed transport-owned `follow_up_required` warning when dispatch
+mappings are pending or proxy-code drift has been observed. Subsequent unaffected
+Brain results stay quiet; affected refusals retain their diagnostics and controls
+retain full status. Actual generation advancement rearms the notice; no-op or
+refused recovery does not. Clearing pending mappings suppresses the notice when
+no observed proxy-code drift remains. Partial pages leave other mappings pending.
+Notice delivery is not host acknowledgement.
+
+The warning uses a bounded affected-name summary and directs the agent to
+`brain_proxy_status({})` first for exact scope and prerequisite recovery. It
+describes one consistent in-memory observation at emission, without probing
+installed runtime/filesystem state on the output path or rewriting the completed
+command's status, body, effects or receipt. Assistant JSON, `structuredContent`
+and human text carry the same operational observation. Recovery wording comes
+from transport state, never retrieved note content, and grants no authority or
+consent. A completed command need not be replayed. Notifications, subscription
+frames, listings and arbitrary non-Brain results do not receive this notice.
 
 If the installed Core version is unreadable while the runtime remains usable,
 status instead names `repair_installation`: repair the installation externally,
@@ -396,15 +422,21 @@ repair a missing or incompatible Core interface.
 
 `interface_changed` returns `effects: none`, `retryable: false` and this same
 host-owned recovery action without claiming every refusal happened in flight.
-The agent should use the host's tool-refresh facility, or ask the user to
-reconnect Brain MCP if none is available. Brain `command_list` and
+After a known upgrade, a recovery warning, this refusal, or a listed tool absent
+from the host's callable tools, inspect `brain_proxy_status({})` and follow its
+highest-priority action first. If discovery remains pending, use an actually
+exposed host tool-refresh facility, or ask the user to reconnect Brain MCP if
+refresh is unavailable/unverified. Brain `command_list` and
 `command_describe` inspect application contracts, not host discovery, and may
 themselves require rediscovery after a change. They do not bypass the contract
 guard. Neither `brain_proxy_refresh` nor the stdio-preserving
 `brain_proxy_restart` acknowledges host discovery; proxy replacement is not a
 host reconnect.
 `brain_proxy_status({})` remains independent of the application catalogue.
-After host rediscovery, reformulate and verify an affected call; never treat
+After host rediscovery, inspect the affected host/model-visible declaration,
+reformulate and verify an authorised safe affected call. For mutation-only tools,
+record execution as unverified; do not run a mutation or seek consent solely as
+a discovery probe. Do not replay completed calls; never treat
 Core version equality or an unaffected read as proof that changed tools work.
 If still blocked, report the diagnostic instead of repeating rediscovery.
 Caller-owned envelope faults are rejected before dispatch with a JSON-RPC error,
@@ -460,8 +492,10 @@ refetch notifications cover changes during asynchronous bridge reconfiguration.
 Child pipe writes do not hold the output-publication gate.
 
 Catalogue notification/generation does not guarantee model-visible host cache
-refresh. Rediscover and verify a normal Brain call; reconnect the host if it still
-exposes only recovery controls. Existing degraded proxies need a first host
+refresh. When status requires discovery, use host tools/list and inspect the
+affected declaration; verify a safe affected call rather than an unrelated read.
+If observed refresh still leaves definitions unavailable, report that host boundary
+instead of repeating proxy resets. Existing degraded proxies need a first host
 reconnect after deployment to acquire this lifecycle. Windows supports controls
 and same-runtime activation; image/runtime replacement requires host reconnect.
 The CLI resolves the managed runtime on each invocation and needs no persistent
