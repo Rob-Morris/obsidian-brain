@@ -297,7 +297,15 @@ def test_changed_discovery_commands_recover_through_host_listing(command_vault_c
         # An unaffected call and another Core refresh do not acknowledge discovery.
         unaffected = call("artefact_read", {"reference": "Projects/Command Fixture.md"})
         assert unaffected["isError"] is False, unaffected
+        notice = unaffected["structuredContent"]["warnings"]
+        assert len(notice) == 1 and notice[0]["code"] == "follow_up_required"
+        assert "command_describe, command_list" in notice[0]["message"]
+        assert "Do not replay" in notice[0]["message"]
+        assert json.loads(unaffected["content"][0]["text"]) == unaffected["structuredContent"]
+        quiet = call("artefact_read", {"reference": "Projects/Command Fixture.md"})
+        assert quiet["structuredContent"]["warnings"] == []
         assert call("brain_proxy_refresh")["structuredContent"]["result"]["next_action"] == "rediscover_tools"
+        assert call("artefact_read", {"reference": "Projects/Command Fixture.md"})["structuredContent"]["warnings"] == []
         cursor = None
         while True:
             page = request("tools/list", {"cursor": cursor} if cursor else {})

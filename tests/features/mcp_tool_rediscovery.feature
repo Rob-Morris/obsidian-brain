@@ -17,6 +17,16 @@ Feature: Actionable MCP tool rediscovery after Core refresh
     Then changed tools remain pending and guarded
     And Brain application discovery cannot acknowledge the host catalogue
 
+  Scenario: A stale catalogue has one typed initial notice
+    Given pending dispatch mappings in a connected catalogue generation
+    When an unaffected Brain command result is emitted
+    Then one transport-owned follow_up_required warning names bounded affected tools
+    And the warning directs to proxy status before choosing recovery
+    And the application result and effects remain unchanged and must not be replayed
+    And later unaffected results remain quiet in that generation
+    And no-op or refused recovery does not rearm the notice
+    And actual replacement may rearm it without changing the handoff format
+
   Scenario: Paged host discovery restores the affected calls
     Given added, changed and removed tool contracts
     When the host calls tools/list and follows every nextCursor page

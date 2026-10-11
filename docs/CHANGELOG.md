@@ -8,6 +8,7 @@ Never edit past changelog entries. Only add new entries at the top.
 
 | Version | Date | Summary |
 |---|---|---|
+| [v0.71.3](changelog/v0.71.3.md) | 2026-10-11 | Guide MCP upgrade recovery with brain_proxy_status and one notice |
 | [v0.71.2](changelog/v0.71.2.md) | 2026-10-10 | Clarify upgrade recovery storage and workspace locking |
 | [v0.71.1](changelog/v0.71.1.md) | 2026-10-10 | Diagnose and repair unreadable Brain text |
 | [v0.71.0](changelog/v0.71.0.md) | 2026-10-10 | Make maintenance explicit and upgrades recoverable |

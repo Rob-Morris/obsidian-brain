@@ -110,7 +110,7 @@ class StartupFailure:
 # Constants
 # ---------------------------------------------------------------------------
 
-PROXY_VERSION = "0.10.7"
+PROXY_VERSION = "0.10.8"
 _CHILD_PROTOCOL_VERSION = "2026-07-28"
 
 
@@ -1011,6 +1011,8 @@ class Proxy:
         self._refresh_diagnostic: str | None = None
         self._refresh_header_rejected = False
         self._catalogue_generation = 0
+        # Sole writer owns delivery; actual replacement advances the generation.
+        self._catalogue_notice_generation: int | None = None
 
         # Outbound message queue — all writes to sys.stdout.buffer go through here.
         # A single writer thread drains this queue, ensuring thread-safe writes
@@ -1080,7 +1082,8 @@ class Proxy:
             return False
         installed_version = _read_brain_version_from_disk(self.vault_root)
         child = ChildProcess(self.python_path, self.server_target)
-        self._preparing_child = child
+        with self._interface_lock:
+            self._preparing_child = child
         try:
             with self._launch_lock:
                 try:
@@ -1159,13 +1162,14 @@ class Proxy:
                         if any(entry[0] is previous for entry in self._server_requests.values()):
                             child.kill()
                             return False
-                        self._child = child
-                        self._preparing_child = None
+                        with self._interface_lock:
+                            self._child = child
+                            self._catalogue_generation += 1
+                            self._preparing_child = None
                         if pending is not None:
                             pending["activated"] = True
             self._child_start_time = time.monotonic()
             self._last_launched_version = installed_version
-            self._catalogue_generation += 1
             if previous is not None:
                 previous.kill()
             if self._init_response is not None or self._client_protocol == "modern":
@@ -1335,7 +1339,12 @@ class Proxy:
                     self._subscriptions.delivered(event.key)
                     continue
                 obj = event.frame
-            if self._proxy_drift and self._proxy_version_on_disk:
+            if event is None:
+                obj = self._decorate_catalogue_notice(obj)
+            result = obj.get("result")
+            envelope = result.get("structuredContent") if isinstance(result, dict) else None
+            if (self._proxy_drift and self._proxy_version_on_disk
+                    and not (isinstance(envelope, dict) and envelope.get("schema") == "brain.command-result/1")):
                 obj = _decorate_with_drift_note(obj, PROXY_VERSION, self._proxy_version_on_disk)
             if not _safe_write_line(
                 self._output_stream if self._output_stream is not None else sys.stdout.buffer,
@@ -1347,6 +1356,62 @@ class Proxy:
                 return
             if event:
                 self._subscriptions.delivered(event.key)
+
+    def _pending_tool_names(self) -> list[str] | None:
+        """Compare dispatch mappings under the caller's interface lock, not host schemas."""
+        if self._interface_header is None or self._advertised_tools is None:
+            return None
+        current = dict(self._interface_header.tools)
+        return sorted(name for name in current.keys() | self._advertised_tools.keys()
+                      if current.get(name) != self._advertised_tools.get(name))
+
+    def _decorate_catalogue_notice(self, response: dict) -> dict:
+        """Emit bounded transport guidance once, without probing installed state on output."""
+        result = response.get("result")
+        envelope = result.get("structuredContent") if isinstance(result, dict) else None
+        if ("id" not in response or not isinstance(envelope, dict)
+                or envelope.get("schema") != "brain.command-result/1"):
+            return response
+        # The handoff owner holds publication while waiting for this writer to
+        # drain. Only interface observation may be locked here; preparation's
+        # provisional header is excluded until activation publishes generation.
+        with self._interface_lock:
+            if self._preparing_child is not None:
+                return response
+            generation = self._catalogue_generation
+            if self._catalogue_notice_generation == generation:
+                return response
+            pending = self._pending_tool_names()
+            proxy_drift = self._proxy_drift
+            if not pending and not proxy_drift:
+                return response
+            names = ", ".join(name if len(name) <= 80 else name[:77] + "..."
+                              for name in (pending or [])[:6])
+            remainder = max(0, len(pending or []) - 6)
+            affected = f" Pending dispatch mappings: {names}" if names else ""
+            if remainder:
+                affected += f" (+{remainder} more)"
+            if affected:
+                affected += "."
+            if proxy_drift:
+                affected += " Installed proxy differs from the loaded image."
+            message = (
+                f"Brain MCP transport observation, catalogue generation {generation}.{affected} "
+                f"Call {STATUS_TOOL}({{}}) for all affected names and the next_action; follow that action "
+                "before host discovery. Core refresh and proxy/runtime replacement are separate from "
+                "host tools/list (all pages); reconnect the host only if required or it cannot relist. "
+                "Brain command_list/command_describe do not update host tools. "
+                "This compares dispatch mappings, not model cache or full schemas. "
+                "Do not replay this application call."
+            )
+            updated = {**envelope, "warnings": [*envelope.get("warnings", []),
+                       {"code": "follow_up_required", "message": message}]}
+            content = result.get("content", [])
+            target = _human_text_index(content) if isinstance(content, list) else None
+            concise = content[target].get("text", "") if target is not None else "Brain result"
+            self._catalogue_notice_generation = generation
+            return {**response, "result": {**result, "structuredContent": updated,
+                    "content": result_text_wire(concise + "\n\n" + message, updated)}}
 
     def _read_with_timeout(self, child: ChildProcess, timeout: int) -> dict | None:
         """
@@ -1747,14 +1812,10 @@ class Proxy:
         alive = child is not None and child.poll() is None
         with self._interface_lock:
             header = self._interface_header
-            if header is None or self._advertised_tools is None:
+            pending = self._pending_tool_names()
+            if pending is None:
                 tool_discovery = {"state": "unknown", "pending_tools": []}
             else:
-                current = dict(header.tools)
-                pending = sorted(
-                    name for name in current.keys() | self._advertised_tools.keys()
-                    if current.get(name) != self._advertised_tools.get(name)
-                )
                 tool_discovery = {
                     "state": "required" if pending else "current", "pending_tools": pending,
                 }
@@ -2147,7 +2208,8 @@ class Proxy:
             _op_event("child.refresh", outcome=code or "ok")
             return code
         finally:
-            self._preparing_child = None
+            with self._interface_lock:
+                self._preparing_child = None
 
     def _maybe_begin_version_reset(self) -> bool:
         """

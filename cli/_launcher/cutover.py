@@ -186,8 +186,10 @@ def preflight(
             "public aggregate Python wrappers",
         ),
         (
-            "Restart every MCP client using the upgraded Brain.",
-            "Re-discover tools before the next MCP call.",
+            "Inspect brain_proxy_status({}) in each running Brain MCP connection after upgrade; follow its highest-priority next_action.",
+            "Use brain_proxy_refresh for eligible Core refresh or brain_proxy_restart for supported idle installed proxy/runtime replacement when status requires it; neither refreshes host tool contracts.",
+            "If host discovery remains pending, use the host's tools/list refresh facility and follow every nextCursor; command_list/command_describe are not host rediscovery.",
+            "Reconnect Brain MCP for incompatible earlier interface epochs, changed targets, unsupported or failed replacement, or unavailable/unverified host refresh; pre-proxy startup failures require external repair and reconnect.",
             "Use brain upgrade for each acknowledged pre-cutover Brain.",
             "Use the installed machine CLI for user MCP changes; pre-0.70 direct user-registration writers are unsupported after migration.",
         ),

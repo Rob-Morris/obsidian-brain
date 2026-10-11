@@ -28,16 +28,35 @@ to be within the user's task.
 
 ### Recovering discovery after an upgrade
 
-If a call returns `interface_changed`, inspect `brain_proxy_status({})`.
+The first eligible Brain result per connection/catalogue generation carries a
+typed transport warning for pending dispatch mappings or observed proxy-code
+drift. Later unaffected results stay quiet; affected refusals and proxy controls
+retain diagnostics/status. The warning is not retrieved note content, and does
+not change the completed command's outcome or authorise recovery by itself.
+Its bounded names describe mapping evidence, not complete schemas or proof that
+the host has exposed definitions to the model. Inspect status even after an
+unaffected read succeeds.
+
+After a known upgrade, `interface_changed`, a recovery warning, or a listed MCP
+tool missing from the host's callable tools, inspect `brain_proxy_status({})`.
+Resolve external installation/runtime prerequisites first. Use
+`brain_proxy_refresh` for eligible Core refresh or `brain_proxy_restart` for
+supported idle installed proxy/runtime replacement when status requires it;
+inspect the remaining state after recovery. Changed targets, incompatible
+public sessions, unsupported/failed replacement and failures before proxy entry
+still require host reconnect (and external repair where indicated).
 Core can be current while `interface.tool_discovery.state` is `required`.
 Follow the highest-priority `next_action`; pending discovery names its owner,
 exact MCP `tools/list` request and affected tools. The **host**, not Brain's
 `command_list` or `command_describe`, must fetch that list and all `nextCursor`
 pages. Use the host's tool-refresh action if available; if the agent cannot
-trigger it, ask the user to reconnect Brain MCP. Repeating `brain_proxy_refresh`
+trigger it or cannot verify host refresh, ask the user to reconnect Brain MCP.
+Do not replay a completed call. Repeating `brain_proxy_refresh`
 does not refresh the host catalogue. Changed discovery commands are blocked too,
 but the proxy status control remains callable. After rediscovery, use the new
-contract and verify an affected call instead of retrying blindly. If still
+contract and verify an authorised safe affected call instead of retrying blindly.
+For mutation-only tools, inspect the declaration and record execution as unverified;
+do not run a mutation or seek consent solely to prove discovery. If still
 blocked, report the diagnostic; do not loop through rediscovery. A new proxy
 instance ends exceptional consent; reauthorise only if the intended work needs it.
 

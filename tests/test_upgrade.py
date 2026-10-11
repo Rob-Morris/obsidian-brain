@@ -2320,6 +2320,12 @@ def test_upgrade_always_checks_shared_migration_and_registered_brain_breadth(sou
     monkeypatch.setattr(mcp_transport, "delegate_machine_command", delegated)
     result = upgrade._repair_mcp_registration_after_upgrade(vault)
     assert result["outcome"] == "ok"
+    assert "running client sessions remain unverified" in result["message"]
+    assert "brain_proxy_status({})" in result["message"]
+    assert "highest-priority next_action" in result["message"]
+    assert "host tools/list" in result["message"]
+    assert "reconnect only when" in result["message"]
+    assert "safe affected call" in result["message"]
     assert calls == [("migrate", {}, {"vault_root": vault}), ("repair", {"breadth": "brain"}, {"vault_root": vault})]
 
 

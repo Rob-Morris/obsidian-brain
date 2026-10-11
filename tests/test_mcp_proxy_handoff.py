@@ -176,6 +176,28 @@ def test_previous_descriptor_version_has_no_subscriptions():
     assert relay._subscriptions.snapshot() == []
 
 
+def test_pre_notice_descriptor_v2_restores_catalogue_without_new_fields(tmp_path, monkeypatch):
+    from dataclasses import asdict
+    from brain_mcp._command_adapter import application_interface_header
+    from _application.registry import current_application_catalogue
+
+    header = application_interface_header(current_application_catalogue())
+    previous = state()  # Exact pre-notice v2 shape; no notice-delivery field.
+    previous["vault"] = str(tmp_path)
+    previous["tools"] = {name: asdict(tool) for name, tool in header.tools if name != "command_list"}
+    with state_descriptor(previous) as fd:
+        restored = read_state(fd, expected_pid=os.getpid())
+    relay = proxy.Proxy(sys.executable, "brain_mcp.server", str(tmp_path))
+    relay._restore_transport(restored)
+    relay._interface_header = header
+    assert relay._catalogue_generation == previous["generation"]
+    assert relay._catalogue_notice_generation is None
+    assert relay._pending_tool_names() == ["command_list"]
+    outgoing = relay._transport_state("restart", type("Input", (), {"remainder": b""})())
+    assert outgoing.keys() == previous.keys()
+    assert outgoing["version"] == 2 and outgoing["tools"] == previous["tools"]
+
+
 @pytest.mark.skipif(sys.platform == "win32", reason="POSIX pipe wakeup")
 def test_interruptible_reader_preserves_partial_input_and_prioritises_eof():
     incoming, sender = os.pipe()

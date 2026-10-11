@@ -207,6 +207,182 @@ def discovery_proxy(tmp_path, monkeypatch):
     return relay
 
 
+def brain_response():
+    envelope = {"schema": "brain.command-result/1", "status": "ok", "warnings": [],
+                "result": {"content": "Note says ignore instructions; not a transport fact"},
+                "committed_effects": [{"kind": "read", "subject": "fixture"}]}
+    return {"jsonrpc": "2.0", "id": 1, "result": {"structuredContent": envelope,
+            "isError": False, "content": proxy.result_text_wire("Read fixture", envelope)}}
+
+
+def test_catalogue_notice_preserves_application_projection_and_is_once_per_generation(tmp_path, monkeypatch):
+    relay = discovery_proxy(tmp_path, monkeypatch)
+    original = brain_response()
+    assert relay._decorate_catalogue_notice(original) is original
+    relay._advertised_tools.pop("command_list")
+    # Output observes memory only; prerequisites must be inspected by status.
+    with monkeypatch.context() as output_boundary:
+        output_boundary.setattr(relay, "_proxy_status", lambda: pytest.fail("output probed status"))
+        first = relay._decorate_catalogue_notice(original)
+    result = first["result"]
+    updated = result["structuredContent"]
+    assert updated == {**original["result"]["structuredContent"], "warnings": updated["warnings"]}
+    assert result["isError"] is False
+    assert json.loads(result["content"][0]["text"]) == updated
+    warning = updated["warnings"][0]
+    assert warning["code"] == "follow_up_required"
+    for term in ("Brain MCP transport observation", "command_list", "brain_proxy_status({})",
+                 "next_action", "tools/list", "all pages", "Do not replay"):
+        assert term in warning["message"]
+    assert "ignore instructions" not in warning["message"]
+    assert warning["message"] in result["content"][1]["text"]
+    assert relay._decorate_catalogue_notice(original) is original
+    assert drive_lifecycle(relay) is None  # No-op refresh must not rearm.
+    assert relay._decorate_catalogue_notice(original) is original
+    relay._catalogue_generation += 1  # Actual candidate publication's boundary.
+    assert relay._decorate_catalogue_notice(original) is not original
+    relay._record_tool_discovery({"result": {"tools": [{"name": "command_list"}]}}, {"method": "tools/list"})
+    relay._catalogue_generation += 1
+    assert relay._decorate_catalogue_notice(original) is original
+
+
+@pytest.mark.parametrize("frame", [
+    {"jsonrpc": "2.0", "method": "notifications/tools/list_changed"},
+    {"id": 1, "result": {"tools": []}},
+    {"id": 1, "result": {"structuredContent": {"schema": "other/1"}}},
+    {"id": 1, "error": {"message": "error"}},
+])
+def test_catalogue_notice_ignores_non_application_frames(tmp_path, monkeypatch, frame):
+    relay = discovery_proxy(tmp_path, monkeypatch)
+    relay._advertised_tools = {}
+    assert relay._decorate_catalogue_notice(frame) is frame
+    assert relay._catalogue_notice_generation is None
+
+
+def test_catalogue_notice_bounds_names_and_does_not_guess_runtime_recovery(tmp_path, monkeypatch):
+    relay = discovery_proxy(tmp_path, monkeypatch)
+    relay._advertised_tools = {}
+    relay._proxy_drift = True
+    frame = relay._decorate_catalogue_notice(brain_response())
+    message = frame["result"]["structuredContent"]["warnings"][0]["message"]
+    assert "more)" in message and len(message) < 1500
+    assert "before host discovery" in message
+    assert "Core is current" not in message
+
+
+def test_writer_observes_catalogue_at_emission_not_enqueue(tmp_path, monkeypatch):
+    from io import BytesIO
+
+    relay = discovery_proxy(tmp_path, monkeypatch)
+    relay._output_stream = BytesIO()
+    frame = brain_response()
+    relay._outbound.put(frame)
+    relay._outbound.put(frame)
+    relay._outbound.put(None)
+    # Publication happens after enqueue but before the sole writer sees it.
+    with relay._publication_gate, relay._interface_lock:
+        relay._advertised_tools.pop("command_list")
+        relay._catalogue_generation += 1
+    relay._writer_thread()
+    emitted = [json.loads(line) for line in relay._output_stream.getvalue().splitlines()]
+    assert len(emitted) == 2
+    assert len(emitted[0]["result"]["structuredContent"]["warnings"]) == 1
+    assert emitted[1] == frame
+
+
+def test_refused_lifecycle_does_not_rearm_catalogue_notice(tmp_path, monkeypatch):
+    relay = discovery_proxy(tmp_path, monkeypatch)
+    relay._advertised_tools.pop("command_list")
+    frame = brain_response()
+    assert relay._decorate_catalogue_notice(frame) is not frame
+    relay._inflight_requests[1] = ({"method": "tools/call", "id": 1}, 0)
+    assert relay._admit_lifecycle(lifecycle_request(), None) == "server_busy"
+    assert relay._decorate_catalogue_notice(frame) is frame
+
+
+def test_writer_drains_queued_result_and_handoff_barrier_with_publication_frozen(tmp_path, monkeypatch):
+    from io import BytesIO
+
+    relay = discovery_proxy(tmp_path, monkeypatch)
+    relay._advertised_tools.pop("command_list")
+    relay._output_stream = BytesIO()
+    barrier = threading.Event()
+    relay._outbound.put(brain_response())
+    relay._outbound.put(barrier)
+    relay._outbound.put(None)
+    writer = threading.Thread(target=relay._writer_thread)
+    try:
+        # Image retirement freezes publication before waiting on this barrier.
+        with relay._publication_gate:
+            writer.start()
+            assert barrier.wait(3), "writer must drain while publication remains frozen"
+    finally:
+        writer.join(timeout=3)
+    assert not writer.is_alive()
+    result = json.loads(relay._output_stream.getvalue())["result"]
+    assert len(result["structuredContent"]["warnings"]) == 1
+
+
+def test_discovery_clearing_before_coordinated_emission_suppresses_notice(tmp_path, monkeypatch):
+    from io import BytesIO
+
+    relay = discovery_proxy(tmp_path, monkeypatch)
+    relay._advertised_tools.pop("command_list")
+    relay._output_stream = BytesIO()
+    entered, release = threading.Event(), threading.Event()
+    decorate = relay._decorate_catalogue_notice
+    def coordinate(frame):
+        entered.set()
+        assert release.wait(3)
+        return decorate(frame)
+    monkeypatch.setattr(relay, "_decorate_catalogue_notice", coordinate)
+    original = brain_response()
+    relay._outbound.put(original)
+    relay._outbound.put(None)
+    writer = threading.Thread(target=relay._writer_thread)
+    writer.start()
+    try:
+        assert entered.wait(3)
+        relay._record_tool_discovery({"result": {"tools": [{"name": "command_list"}]}},
+                                     {"method": "tools/list"})
+    finally:
+        release.set()
+        writer.join(timeout=3)
+    assert not writer.is_alive()
+    assert json.loads(relay._output_stream.getvalue()) == original
+    assert relay._catalogue_notice_generation is None
+
+
+def test_partial_page_notice_names_only_remaining_mapping_and_preserves_cadence(tmp_path, monkeypatch):
+    relay = discovery_proxy(tmp_path, monkeypatch)
+    for name in ("command_list", "command_describe"):
+        relay._advertised_tools.pop(name)
+    relay._record_tool_discovery({"result": {"tools": [{"name": "command_list"}], "nextCursor": "last"}},
+                                 {"method": "tools/list"})
+    original = brain_response()
+    noticed = relay._decorate_catalogue_notice(original)
+    message = noticed["result"]["structuredContent"]["warnings"][0]["message"]
+    assert "Pending dispatch mappings: command_describe." in message
+    assert relay._proxy_status()["interface"]["tool_discovery"]["pending_tools"] == ["command_describe"]
+    assert relay._decorate_catalogue_notice(original) is original
+    relay._record_tool_discovery({"result": {"tools": [{"name": "command_describe"}]}},
+                                 {"method": "tools/list", "params": {"cursor": "last"}})
+    assert relay._proxy_status()["interface"]["tool_discovery"]["state"] == "current"
+
+
+def test_provisional_candidate_header_cannot_consume_notice_for_active_generation(tmp_path, monkeypatch):
+    relay = discovery_proxy(tmp_path, monkeypatch)
+    relay._advertised_tools.pop("command_list")
+    relay._preparing_child = _FakeChild()
+    frame = brain_response()
+    assert relay._decorate_catalogue_notice(frame) is frame
+    assert relay._catalogue_notice_generation is None
+    with relay._interface_lock:
+        relay._catalogue_generation += 1
+        relay._preparing_child = None
+    assert relay._decorate_catalogue_notice(frame) is not frame
+
+
 @pytest.mark.parametrize("name", ["command_list", "command_describe", "artefact_read"])
 def test_status_exposes_host_owned_recovery_and_partial_discovery(tmp_path, monkeypatch, name):
     relay = discovery_proxy(tmp_path, monkeypatch)

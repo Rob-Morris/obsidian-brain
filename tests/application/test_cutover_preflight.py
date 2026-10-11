@@ -50,8 +50,9 @@ def _preflight(selected, **kwargs):
     return preflight(**arguments)
 
 
+@pytest.mark.parametrize("interface_epoch", [1, 3])
 def test_known_other_pre_cutover_brain_requires_exact_global_acknowledgement(
-    tmp_path, monkeypatch
+    tmp_path, monkeypatch, interface_epoch
 ):
     selected = _brain(tmp_path, "selected", "0.54.59")
     other = _brain(tmp_path, "other", "0.54.40")
@@ -64,12 +65,20 @@ def test_known_other_pre_cutover_brain_requires_exact_global_acknowledgement(
     with pytest.raises(CutoverPreflightError, match="other"):
         _preflight(selected)
 
-    report = _preflight(selected, acknowledge_global_cli_cutover=True)
+    report = _preflight(selected, acknowledge_global_cli_cutover=True, interface_epoch=interface_epoch)
     assert report.registry_complete is True
     assert report.selected_brain_ids == ("selected",)
     assert report.affected_brain_ids == ("other",)
     assert report.classified_brains[0].requires_recovery_cli is True
-    assert "Restart every MCP client" in report.restart_actions[0]
+    guidance = "\n".join(report.restart_actions)
+    assert "brain_proxy_status({})" in guidance
+    assert "highest-priority next_action" in guidance
+    assert "when status requires it" in guidance
+    assert "tools/list" in guidance and "every nextCursor" in guidance
+    assert "command_list/command_describe are not host rediscovery" in guidance
+    assert "incompatible earlier interface epochs" in guidance
+    assert "pre-proxy startup failures require external repair and reconnect" in guidance
+    assert "Restart every MCP client" not in guidance
 
 
 def test_stale_registry_scope_requires_separate_exact_exclusion(tmp_path, monkeypatch):

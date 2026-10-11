@@ -366,13 +366,28 @@ agent can use `brain_proxy_restart` when idle on supported POSIX systems; if tha
 fails or is unsupported, restart MCP in the host. CLI commands resolve the
 current runtime on each invocation and do not need that session restart.
 
+After upgrade, inspect `brain_proxy_status({})` in each running connection and
+follow its highest-priority `next_action`; registration reconciliation does not
+certify running sessions. Repair external prerequisites before recovery.
+Changed targets, incompatible earlier public sessions and failures before proxy
+entry still require reconnect, with external repair where indicated.
+
 Changed tool contracts can still require **host tool rediscovery** after a
-successful Core refresh. `brain_proxy_status({})` reports pending tools and the
+successful Core refresh. One typed transport warning on the first eligible Brain
+result per connection/catalogue generation reports pending dispatch mappings or
+observed proxy-code drift; later unaffected results remain quiet. Mapping evidence
+does not certify full schemas or model-visible adoption. `brain_proxy_status({})`
+reports pending tools and the
 host-owned MCP `tools/list` operation separately from runtime readiness. Use the
-host's tool-refresh action, or reconnect Brain MCP if it offers none. Brain
-`command_list`/`command_describe` and `brain_proxy_refresh` do not refresh the
-host catalogue. Follow every discovery page, then verify an affected call with
-its new contract; do not retry an `interface_changed` call unchanged.
+host's actually exposed tool-refresh action, or reconnect Brain MCP if refresh
+is unavailable/unverified. Brain `command_list`/`command_describe`,
+`brain_proxy_refresh` and `brain_proxy_restart` do not refresh the host catalogue.
+Follow every discovery page, inspect status and the affected host/model-visible
+declaration, then verify an authorised safe affected call with its new contract.
+Do not replay a completed call or retry an `interface_changed` call unchanged.
+For mutation-only tools, record execution as unverified rather than running a
+mutation solely to prove discovery. A successful unrelated read does not prove
+that a newly added tool is available.
 
 ---
 
