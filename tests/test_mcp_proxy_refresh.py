@@ -538,11 +538,12 @@ def test_discovery_recovery_wire_payload_is_bounded_for_the_current_catalogue(tm
     assert len(json.dumps(error, ensure_ascii=False).encode("utf-8")) < 3500
 
 
-def test_recovery_guidance_token_budget():
+@pytest.mark.parametrize("initialise_request", [None, {"method": "initialize", "params": {"clientInfo": {"name": "codex-mcp-client"}}}])
+def test_recovery_guidance_token_budget(initialise_request):
     import tiktoken
 
     encoding = tiktoken.get_encoding("o200k_base")
-    assert len(encoding.encode(json.dumps(rediscovery_action()))) <= 115
+    assert len(encoding.encode(json.dumps(rediscovery_action(initialise_request)))) <= 115
 
 
 @pytest.mark.parametrize("params", [None, {"name": 42}, {"name": "artefact_read", "_meta": []},
@@ -568,3 +569,44 @@ def test_lifecycle_resume_reports_invalid_params_without_rediscovery(tmp_path, m
     assert sent[0]["error"]["code"] == -32602
     assert "rediscover" not in json.dumps(sent)
     assert relay._pending_lifecycle is None
+
+
+@pytest.mark.parametrize("modern", [False, True])
+@pytest.mark.parametrize("name, target", [
+    ("codex-mcp-client", "Brain MCP in Codex"),
+    ("future-codex-client", "Brain MCP."),
+    ("claude-code", "Brain MCP."),
+    (None, "Brain MCP."),
+])
+def test_reconnect_guidance_depends_on_pending_discovery_and_negotiated_identity(tmp_path, monkeypatch, modern, name, target):
+    relay = discovery_proxy(tmp_path, monkeypatch)
+    info = {"name": name, "title": "Codex", "version": "future"}
+    params = {"_meta": {"io.modelcontextprotocol/clientInfo": info}} if modern else {"clientInfo": info}
+    relay._init_request = {"method": "server/discover" if modern else "initialize", "params": params}
+    original = brain_response()
+    assert relay._proxy_status()["interface"]["tool_discovery"]["state"] == "current"
+    assert relay._decorate_catalogue_notice(original) is original
+    relay._advertised_tools.pop("command_list")
+    relay._advertised_tools.pop("command_describe")
+    action = relay._proxy_status()["interface"]["tool_discovery"]["recovery"]
+    assert target in action["description"]
+    notice = relay._decorate_catalogue_notice(original)
+    assert target in notice["result"]["structuredContent"]["warnings"][0]["message"]
+    relay._record_tool_discovery({"result": {"tools": [{"name": "command_list"}], "nextCursor": "next"}}, {"method": "tools/list"})
+    assert relay._proxy_status()["interface"]["tool_discovery"]["state"] == "required"
+    relay._record_tool_discovery({"result": {"tools": [{"name": "command_describe"}]}}, {"method": "tools/list", "params": {"cursor": "next"}})
+    assert relay._proxy_status()["interface"]["tool_discovery"]["state"] == "current"
+    relay._catalogue_generation += 1
+    assert relay._decorate_catalogue_notice(original) is original
+    relay._proxy_drift = True
+    assert "reconnect" not in relay._decorate_catalogue_notice(original)["result"]["structuredContent"]["warnings"][0]["message"]
+
+
+@pytest.mark.parametrize("method, params, target", [
+    ("initialize", {"clientInfo": {"name": "codex-mcp-client"}, "_meta": {"io.modelcontextprotocol/clientInfo": {"name": "unknown"}}}, "Brain MCP in Codex"),
+    ("tools/list", {"clientInfo": {"name": "codex-mcp-client"}, "_meta": {"io.modelcontextprotocol/clientInfo": {"name": "unknown"}}}, "Brain MCP."),
+    ("server/discover", {"clientInfo": {"name": "unknown"}, "_meta": {"io.modelcontextprotocol/clientInfo": {"name": "codex-mcp-client"}}}, "Brain MCP in Codex"),
+    ("server/discover", {"clientInfo": {"name": "codex-mcp-client"}, "_meta": []}, "Brain MCP."),
+])
+def test_recovery_identity_uses_only_the_negotiated_protocol_field(method, params, target):
+    assert target in rediscovery_action({"method": method, "params": params})["description"]

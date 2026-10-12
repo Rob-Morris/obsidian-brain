@@ -52,7 +52,13 @@ exact MCP `tools/list` request and affected tools. The **host**, not Brain's
 pages. Use the host's tool-refresh action if available; if the agent cannot
 trigger it or cannot verify host refresh, ask the user to reconnect Brain MCP.
 Do not replay a completed call. Repeating `brain_proxy_refresh`
-does not refresh the host catalogue. Changed discovery commands are blocked too,
+does not refresh the host catalogue.
+When negotiated client identity identifies Codex, pending discovery guidance
+names Brain MCP in Codex. This depends on observed pending dispatch mappings,
+not a Codex version: successful host relisting clears the recommendation.
+Unidentified clients receive generic host guidance; these observations do not
+prove model-cache or schema-only freshness.
+Changed discovery commands are blocked too,
 but the proxy status control remains callable. After rediscovery, use the new
 contract and verify an authorised safe affected call instead of retrying blindly.
 For mutation-only tools, inspect the declaration and record execution as unverified;

@@ -88,7 +88,8 @@ from ._interface_protocol import (
 from ._result_content import result_text_wire
 from ._proxy_controls import (
     CONTROL_TOOLS, REFRESH_TOOL, RESTART_TOOL, STATUS_TOOL,
-    add_control_discovery, control_response, rediscovery_action, tool_definitions,
+    add_control_discovery, control_response, modern_identity_request, reconnect_guidance,
+    rediscovery_action, tool_definitions,
 )
 
 from ._proxy_handoff import (
@@ -110,7 +111,7 @@ class StartupFailure:
 # Constants
 # ---------------------------------------------------------------------------
 
-PROXY_VERSION = "0.10.8"
+PROXY_VERSION = "0.10.9"
 _CHILD_PROTOCOL_VERSION = "2026-07-28"
 
 
@@ -350,6 +351,7 @@ def _interface_changed_response(
     reason: str,
     *,
     detail: str | None = None,
+    initialise_request: dict | None = None,
 ) -> dict:
     message = (
         "This attempt was refused against the current Brain command interface. "
@@ -364,7 +366,7 @@ def _interface_changed_response(
             "effects": "none",
             "retryable": False,
             "details": {"reason": reason, "diagnostic": detail},
-            "next_action": rediscovery_action(),
+            "next_action": rediscovery_action(initialise_request),
         },
     }
     return {
@@ -1105,7 +1107,7 @@ class Proxy:
         # Replay initialize only after the first session has completed it
         # (init_response captured) — otherwise the bootstrap request would be
         # sent twice: once here and again by the main loop.
-        if self._init_request is not None and self._init_response is not None:
+        if self._client_protocol == "legacy" and self._init_request is not None and self._init_response is not None:
             try:
                 child.send(self._init_request)
             except Exception as e:
@@ -1399,8 +1401,9 @@ class Proxy:
                 f"Brain MCP transport observation, catalogue generation {generation}.{affected} "
                 f"Call {STATUS_TOOL}({{}}) for all affected names and the next_action; follow that action "
                 "before host discovery. Core refresh and proxy/runtime replacement are separate from "
-                "host tools/list (all pages); reconnect the host only if required or it cannot relist. "
-                "Brain command_list/command_describe do not update host tools. "
+                "host tools/list (all pages). "
+                + (reconnect_guidance(self._init_request) + " " if pending else "")
+                + "Brain command_list/command_describe do not update host tools. "
                 "This compares dispatch mappings, not model cache or full schemas. "
                 "Do not replay this application call."
             )
@@ -1820,7 +1823,7 @@ class Proxy:
                     "state": "required" if pending else "current", "pending_tools": pending,
                 }
                 if pending:
-                    tool_discovery["recovery"] = rediscovery_action()
+                    tool_discovery["recovery"] = rediscovery_action(self._init_request)
         if runtime["restart_required"]:
             state = "runtime_restart_required"
         elif self._restart_in_progress:
@@ -2438,6 +2441,7 @@ class Proxy:
                 request_id,
                 resolved_reason,
                 detail=detail,
+                initialise_request=self._init_request,
             )
         )
         if self._client_protocol != "modern":
@@ -2675,7 +2679,8 @@ class Proxy:
 
                     # Capture initialize response (first time only)
                     if (
-                        self._init_response is None
+                        self._client_protocol == "legacy"
+                        and self._init_response is None
                         and self._init_request is not None
                         and msg_id == self._init_request.get("id")
                         and "result" in obj
@@ -2806,6 +2811,8 @@ class Proxy:
                 raise ValueError("MCP protocol era cannot change within a session")
         elif method == "initialize" and self._client_protocol == "modern":
             raise ValueError("MCP protocol era cannot change within a session")
+        if modern and self._init_request is None:
+            self._init_request = modern_identity_request(obj)
         if modern and self._client_protocol is None:
             self._client_protocol = "modern"
             self._public_session = public_session(negotiated)
