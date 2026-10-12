@@ -516,3 +516,36 @@ def test_windows_idle_blocking_read_does_not_own_publication_gate(tmp_path, monk
         reader.join(3)
     assert not reader.is_alive()
     assert relay._outbound.empty()
+
+
+@pytest.mark.parametrize("method", ["server/discover", "tools/list", "tools/call"])
+def test_modern_discovery_identity_survives_existing_handoff_shape(tmp_path, method):
+    relay = proxy.Proxy(sys.executable, "brain_mcp.server", str(tmp_path))
+    request = {"jsonrpc": "2.0", "id": 1, "method": method, "params": {
+        "_meta": {"io.modelcontextprotocol/protocolVersion": "2026-07-28",
+                   "io.modelcontextprotocol/clientInfo": {"name": "codex-mcp-client"}}}}
+    relay._send_to_client = lambda response: None
+    assert relay._serve_transport_request(request) == (method == "server/discover")
+    assert "Brain MCP in Codex" in proxy.rediscovery_action(relay._init_request)["description"]
+    value = relay._transport_state("restart", type("Input", (), {"remainder": b""})())
+    assert value.keys() == state().keys()
+    with state_descriptor(value) as fd:
+        restored = read_state(fd, expected_pid=os.getpid())
+    replacement = proxy.Proxy(sys.executable, "brain_mcp.server", str(tmp_path))
+    replacement._restore_transport(restored)
+    assert replacement._init_request == relay._init_request
+    assert "Brain MCP in Codex" in proxy.rediscovery_action(replacement._init_request)["description"]
+
+
+def test_large_first_modern_call_does_not_retain_arguments_in_handoff(tmp_path):
+    relay = proxy.Proxy(sys.executable, "brain_mcp.server", str(tmp_path))
+    request = {"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {
+        "name": "attachment_create", "arguments": {"content": "x" * MAX_STATE_BYTES},
+        "_meta": {"io.modelcontextprotocol/protocolVersion": "2026-07-28",
+                  "io.modelcontextprotocol/clientInfo": {"name": "codex-mcp-client", "title": "x" * MAX_STATE_BYTES}}}}
+    assert relay._serve_transport_request(request) is False
+    value = relay._transport_state("restart", type("Input", (), {"remainder": b""})())
+    assert len(json.dumps(value)) < 2000
+    with state_descriptor(value) as fd:
+        restored = read_state(fd, expected_pid=os.getpid())
+    assert "Brain MCP in Codex" in proxy.rediscovery_action(restored["initialise_request"])["description"]

@@ -9,7 +9,39 @@ RESTART_TOOL = "brain_proxy_restart"
 CONTROL_TOOLS = (STATUS_TOOL, REFRESH_TOOL, RESTART_TOOL)
 
 
-def rediscovery_action() -> dict:
+def _is_codex_client(initialise_request: dict | None) -> bool:
+    """Recognise only the authoritative negotiated client name."""
+    params = initialise_request.get("params") if isinstance(initialise_request, dict) else None
+    info = None
+    if isinstance(params, dict):
+        if initialise_request.get("method") == "initialize":
+            info = params.get("clientInfo")
+        else:
+            metadata = params.get("_meta")
+            if isinstance(metadata, dict):
+                info = metadata.get("io.modelcontextprotocol/clientInfo")
+    return isinstance(info, dict) and info.get("name") == "codex-mcp-client"
+
+
+def modern_identity_request(request: dict) -> dict:
+    """Retain recognised identity, never application arguments, across handoff."""
+    metadata = {}
+    if _is_codex_client(request):
+        metadata["io.modelcontextprotocol/clientInfo"] = {"name": "codex-mcp-client"}
+    return {"method": "server/discover", "params": {"_meta": metadata}}
+
+
+def reconnect_guidance(initialise_request: dict | None = None) -> str:
+    """Tailor recovery to negotiated identity, never to a guessed client version."""
+    target = "Brain MCP in Codex" if _is_codex_client(initialise_request) else "Brain MCP"
+    return (
+        "Use host tools/list; follow every nextCursor. "
+        f"If discovery stays pending and host refresh is unavailable/unverified, ask the user to reconnect {target}. "
+        "brain_proxy_restart does not refresh host tools."
+    )
+
+
+def rediscovery_action(initialise_request: dict | None = None) -> dict:
     """Name the host-owned protocol operation, not an application tool."""
     return {
         "instruction": "rediscover_tools",
@@ -17,11 +49,10 @@ def rediscovery_action() -> dict:
         "method": "tools/list",
         "params": {},
         "description": (
-            "Use the host's tool-refresh action (tools/list; follow every nextCursor); "
-            "if unavailable, ask the user to reconnect Brain MCP. "
-            "command_list/command_describe and brain_proxy_refresh/brain_proxy_restart cannot do this. "
-            "Then inspect brain_proxy_status({}), resolve remaining recovery, and use the new contract. "
-            "Do not retry unchanged or repeat rediscovery if still blocked; report the diagnostic."
+            reconnect_guidance(initialise_request) + " "
+            "command_list/command_describe and brain_proxy_refresh cannot do this. "
+            "Then inspect brain_proxy_status({}) and use the new contract. "
+            "Do not retry unchanged or loop rediscovery; report the diagnostic."
         ),
     }
 

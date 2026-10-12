@@ -432,6 +432,12 @@ themselves require rediscovery after a change. They do not bypass the contract
 guard. Neither `brain_proxy_refresh` nor the stdio-preserving
 `brain_proxy_restart` acknowledges host discovery; proxy replacement is not a
 host reconnect.
+When negotiated client identity identifies Codex, pending discovery guidance
+names Brain MCP in Codex. This depends on observed pending dispatch mappings,
+not a Codex version: successful host relisting clears the recommendation.
+Unidentified clients receive generic host guidance; these observations do not
+prove model-cache or schema-only freshness.
+
 `brain_proxy_status({})` remains independent of the application catalogue.
 After host rediscovery, inspect the affected host/model-visible declaration,
 reformulate and verify an authorised safe affected call. For mutation-only tools,

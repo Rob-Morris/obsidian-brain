@@ -31,8 +31,9 @@ use `brain_proxy_refresh` for eligible Core refresh or `brain_proxy_restart`
 for supported idle installed proxy/runtime replacement. Neither refreshes host tools.
 For pending discovery, use an actually exposed host `tools/list` refresh facility
 and follow every `nextCursor`; Brain `command_list`/`command_describe` cannot do this.
-Ask the user to reconnect Brain MCP if host refresh is unavailable/unverified
-or the diagnostic requires a new connection. Use the current affected contract;
+Ask the user to reconnect Brain MCP if discovery remains pending and host refresh
+is unavailable/unverified, or the diagnostic requires a new connection. Codex-specific
+guidance uses negotiated identity and pending dispatch mappings, not a client version. Use the current affected contract;
 do not replay a completed call. If still blocked, report the diagnostic instead of looping.
 
 ## Key Idea
