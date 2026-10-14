@@ -53,6 +53,22 @@ class DirectContextError(RuntimeError):
 
 
 
+class WorkspaceCompatibilityError(DirectContextError):
+    """Known no-effect schema refusal, shared by local and MCP projections."""
+
+    def __init__(self, message, *, folder, detected_version, supported_version, remediation_command):
+        super().__init__(message)
+        from _application.results import WorkspaceCompatibilityDetails
+
+        self.details = WorkspaceCompatibilityDetails("upgrade_required", str(folder), detected_version,
+                                                     supported_version, remediation_command)
+
+    def result(self, entry):
+        from _application.results import CommandError, Error, ErrorCode
+
+        return Error(entry.command_id, entry.command_version, CommandError(ErrorCode.CONFLICT, str(self), self.details))
+
+
 class DirectMaintenanceInvoker:
     """Run one automatic repair family as a fresh sibling of the pass (DD-082, D5).
 
@@ -332,7 +348,11 @@ class DirectContextComposer:
         if (maintenance_invoker and self._context_kind == "standalone"
                 and identity.principal == DEFAULT_PRINCIPAL):
             maintenance = DirectMaintenanceInvoker(self)
-        workspace = _resolve_workspace(self._root, self._workspace_dir)
+        workspace = _resolve_workspace(self._root, self._workspace_dir,
+            require_binding=command_id not in {
+                "workspace.register", "workspace.rebind", "workspace.unregister", "session.start", "command.list", "command.describe",
+                "access.prepare", "access.request", "access.status", "access.reduce",
+            })
         tier = (
             DependencyTier.MANAGED
             if current_process_in_managed_runtime(self._root)
@@ -516,12 +536,15 @@ def resolve_direct_brain_id(root: Path) -> str:
     return f"local-path-{digest}"
 
 
-def _resolve_workspace(root: Path, workspace_dir: Path | None) -> Path | None:
+def _resolve_workspace(root: Path, workspace_dir: Path | None, *, require_binding=True) -> Path | None:
     if workspace_dir is None:
         return None
     if not workspace_dir.is_absolute() or workspace_dir.is_symlink():
         raise DirectContextError("direct workspace must be a regular absolute path")
     workspace = workspace_dir.resolve()
+    if not require_binding:
+        # Registration owns binding validation; bootstrap and consent remain recovery routes.
+        return workspace
     from _bootstrap.workspace_binding import resolve_brain_target
 
     try:
@@ -546,6 +569,20 @@ def _resolve_workspace(root: Path, workspace_dir: Path | None) -> Path | None:
         or target_vault != root
     ):
         raise DirectContextError("direct workspace is not bound to the selected Brain")
+    from _bootstrap.workspace_binding import read_workspace_manifest, require_current_workspace_manifest, WorkspaceBindingError
+
+    manifest = read_workspace_manifest(workspace)
+    try:
+        require_current_workspace_manifest(workspace, manifest)
+    except WorkspaceBindingError as exc:
+        if exc.code == "workspace_upgrade_required":
+            from _bootstrap.workspace_schema import SCHEMA_VERSION
+            from _bootstrap.workspace_binding import workspace_upgrade_command
+
+            raise WorkspaceCompatibilityError(str(exc), folder=workspace,
+                detected_version=manifest.get("schema_version"), supported_version=SCHEMA_VERSION,
+                remediation_command=workspace_upgrade_command(workspace, manifest)) from exc
+        raise DirectContextError(str(exc)) from exc
     return workspace
 
 

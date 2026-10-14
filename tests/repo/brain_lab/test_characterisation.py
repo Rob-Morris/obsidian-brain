@@ -761,7 +761,7 @@ def test_migrated_profiles_reject_a_newly_stored_built_in_copy(tmp_path):
 def test_migrated_profiles_reject_a_frozen_built_in_that_lost_the_templates_grants(tmp_path):
     helper = _acceptance_helper("historical_upgrade_profiles_frozen_test")
     stored = _stored_historical_profiles(helper)
-    stored["operator"]["allow"] = [grant for grant in stored["operator"]["allow"] if grant != "workspace.setup"]
+    stored["operator"]["allow"] = [grant for grant in stored["operator"]["allow"] if grant != "workspace.register"]
     vault = _migrated_vault(tmp_path, stored)
 
     with pytest.raises(helper["AcceptanceFailure"], match="effective built-in profile 'operator'"):

@@ -706,6 +706,7 @@ _RECONCILIATION_TABLE: tuple[tuple[str, str, str | None], ...] = (
         "Run runtime.refresh-router, then retry only after the router compiles.",
     ),
     ("managed_runtime", "central_runtime", None),
+    ("workspace_upgrade", "workspace_upgrade", "Inspect the workspace upgrade child receipt; run the pinned workspace.upgrade command. Core remains committed."),
     ("mcp_registration", "mcp_registration_repair", None),
     ("machine_resolution_runtime", "machine_resolution_runtime", None),
     ("retrieval_assets", "retrieval_asset_repair", None),
@@ -818,7 +819,7 @@ def _reconciliation_failed(result: dict) -> bool:
     ) or isinstance(result.get("sync_error"), str) or any(
         _outcome(result, key) in _FAILED_OUTCOMES
         for _name, key, _next_action in _RECONCILIATION_TABLE
-    ) or _outcome(result, "runtime_orphans") in _FAILED_OUTCOMES
+    ) or _outcome(result, "runtime_orphans") in _FAILED_OUTCOMES or _outcome(result, "workspace_upgrade") == "deferred"
 
 
 def _reconciliation_next_action(result: dict) -> InstructionNextAction | None:
@@ -884,6 +885,10 @@ def execute_upgrade(context: LauncherContext, request: BrainUpgradeRequest):
         installed_distribution = install_from_source(source_root, context.cli_binary)
         return distribution_cutover_commit(installed_distribution)
 
+    def workspace_phase(*, dry_run=False, source_core=None):
+        from .workspace import invoke_upgrade_phase
+        return invoke_upgrade_phase(context, dry_run=dry_run, source_core=source_core)
+
     result = upgrade_script.upgrade(
         str(vault),
         str(core),
@@ -892,6 +897,7 @@ def execute_upgrade(context: LauncherContext, request: BrainUpgradeRequest):
         sync=_policy(request.definition_sync),
         sync_deps=_policy(request.dependency_sync),
         commit_callback=None if context.dry_run else commit_cutover,
+        workspace_callback=workspace_phase,
     )
     status = result.get("status")
     if status == "error":
@@ -961,7 +967,7 @@ def execute_upgrade(context: LauncherContext, request: BrainUpgradeRequest):
         raise RuntimeError(
             "Brain upgrader returned a version that does not match cutover preflight"
         )
-    if not context.dry_run and status in {"ok", "partial"} and installed_distribution is None:
+    if not context.dry_run and status in {"ok", "partial"} and installed_distribution is None and not result.get("core_skipped"):
         raise RuntimeError(
             "Brain upgrader did not execute the coordinated CLI commit callback"
         )
@@ -994,7 +1000,7 @@ def execute_upgrade(context: LauncherContext, request: BrainUpgradeRequest):
         ),
     )
     effects = _recovery_effects(result, request)
-    if not context.dry_run and status != "skipped":
+    if not context.dry_run and status != "skipped" and not result.get("core_skipped"):
         effects += (
             CommittedEffect(request.COMMAND_ID, f"upgrade:{vault}"),
             CommittedEffect(request.COMMAND_ID, f"file:{context.cli_binary}"),
@@ -1003,6 +1009,13 @@ def execute_upgrade(context: LauncherContext, request: BrainUpgradeRequest):
                 f"directory:{installed_distribution.distribution_root}",
             ),
         )
+    workspace_phase = result.get("workspace_upgrade", {})
+    workspace_envelope = workspace_phase.get("result", {}) if isinstance(workspace_phase, dict) else {}
+    workspace_effects = workspace_envelope.get("committed_effects", ())
+    if workspace_envelope.get("status") == "partial":
+        workspace_effects = workspace_envelope.get("result", {}).get("committed_effects", ())
+    if not context.dry_run:
+        effects += tuple(CommittedEffect(request.COMMAND_ID, item["subject"]) for item in workspace_effects)
     if _reconciliation_failed(result):
         message = "The Brain/CLI cutover committed, but post-commit reconciliation requires recovery."
         recovery_paths = _reconciliation_recovery_paths(result)
@@ -1011,6 +1024,15 @@ def execute_upgrade(context: LauncherContext, request: BrainUpgradeRequest):
             if recovery_paths
             else RequestErrorDetails(None, message)
         )
+        if not effects:
+            reference = OutcomeReference(context.invocation_id)
+            return Error(request.COMMAND_ID, request.COMMAND_VERSION,
+                CommandError(ErrorCode.COMMAND_OUTCOME_UNKNOWN,
+                    "Core is already current, but post-commit reconciliation may have changed local state. "
+                    + workspace_phase.get("message", "Inspect the child workspace upgrade receipt."),
+                    OutcomeUnknownDetails(reference, recovery_paths),
+                    InstructionNextAction("Inspect the parent and workspace upgrade child receipts before retrying.")),
+                effects="unknown", outcome_reference=reference)
         return Partial(
             request.COMMAND_ID,
             request.COMMAND_VERSION,

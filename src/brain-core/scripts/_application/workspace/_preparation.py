@@ -27,7 +27,7 @@ def planner_refusals():
 
     ``access.prepare`` maps a ``ValueError`` to its ``consent_reason`` with no
     effects (the planner convention in ``access_session``). A binding refusal
-    (already bound without ``force``, the vault root, a malformed manifest)
+    (already bound without explicit rebind, the vault root, a malformed manifest)
     is ``invalid_request``; a binding read failure (``filesystem_access``), a
     stale or missing router, a broken git checkout, a permission failure and a
     path that cannot be read as a file are ``conflict``.
@@ -46,12 +46,16 @@ def planner_refusals():
     except (PermissionError, IsADirectoryError, NotADirectoryError) as exc:
         raise PlannerRefusal(f"workspace preparation cannot read {exc.filename}: {exc.strerror}",
                              consent_reason="conflict") from exc
+    except ValueError as exc:
+        if isinstance(exc.__cause__, OSError):
+            raise PlannerRefusal(str(exc), consent_reason="conflict") from exc
+        raise
 
 
 def prepare_workspace_for_consent(context, request, *, frozen_inputs=None):
     """The ``access.prepare`` planner for workspace commands: a known refusal is a no-effect consent error.
 
-    Invoke admits through ``prepare_workspace`` and ``plan_setup`` directly, so
+    Invoke admits through ``prepare_workspace`` and ``plan_register`` directly, so
     its errors keep their own mapping (a stale router keeps its cache details
     and the ``runtime.refresh-router`` next action).
     """
@@ -74,34 +78,17 @@ def _observed_or_absent(read):
         return None
 
 
-def _observe_linked_folder(root: Path, key: str) -> tuple[tuple[Path, ...], tuple[ObservedResource, ...]]:
-    """The recorded folder's manifests, its identity and their contents."""
-    from _bootstrap.workspace_binding import legacy_manifest_path_for, manifest_path_for
-    import workspace_registry
-    from .unregister import linked_folder
-
-    folder = linked_folder(root, key)
-    if folder is None:
-        raise ValueError(workspace_registry.missing_row_message(key))
-
-    def identity():
-        stat = folder.stat()
-        return f"{stat.st_dev}:{stat.st_ino}" if folder.is_dir() else None
-
-    manifests = (manifest_path_for(folder), legacy_manifest_path_for(folder))
-    observed = tuple(
-        ObservedResource("linked-manifest", str(path),
-                         _observed_or_absent(lambda path=path: content_digest(path.read_bytes())))
-        for path in manifests
-    )
-    return manifests, (ObservedResource("linked-folder", str(folder), _observed_or_absent(identity)), *observed)
-
-
 def prepare_workspace(context, request, *, frozen_inputs=None):
     """Inspect the exact workspace identity, canonical files and indirect destinations."""
-    if request.COMMAND_ID == "workspace.setup":
-        from .setup import prepare_setup
-        return prepare_setup(context, request, frozen_inputs=frozen_inputs)
+    if request.COMMAND_ID == "workspace.register":
+        from .register import prepare_register
+        return prepare_register(context, request, frozen_inputs=frozen_inputs)
+    if request.COMMAND_ID == "workspace.rebind":
+        from .rebind import prepare
+        return prepare(context, request, frozen_inputs=frozen_inputs)
+    if request.COMMAND_ID == "workspace.unregister":
+        from .unregister import prepare
+        return prepare(context, request, frozen_inputs=frozen_inputs)
     from _bootstrap.workspace_binding import WORKSPACE_MANIFEST_LEGACY_REL, WORKSPACE_MANIFEST_REL
     from _common import find_root_bootstrap_file
     import workspace_registry
@@ -157,11 +144,6 @@ def prepare_workspace(context, request, *, frozen_inputs=None):
             files.add(root / entry["path"])
             if policy.parent:
                 files.add(root / router["artefact_index"][policy.parent]["path"])
-    if command == "workspace.unregister":
-        # The folder this command edits is the row's, never the caller's.
-        manifests, linked_observations = _observe_linked_folder(root, request.key)
-        observations.extend(linked_observations)
-        targets.extend(str(path) for path in manifests)
     if command == "workspace.configure-bootstrap":
         from _bootstrap.mcp_state import GROK_RULE_REL
 

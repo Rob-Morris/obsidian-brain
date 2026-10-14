@@ -457,3 +457,23 @@ def test_control_rejects_even_null_unadvertised_operation_selector(tmp_path):
     mcp, _, _, _ = _registered(tmp_path, ("command.list",))
     result = asyncio.run(mcp.call_tool("command_list", {"brain_operation": None}))
     assert result.structured_content["error"]["code"] == "invalid_request"
+
+
+def test_stale_workspace_context_returns_structured_local_recovery():
+    from _command_interface.direct import WorkspaceCompatibilityError
+
+    catalogue = current_application_catalogue()
+    mcp = MCPServer("workspace-compatibility")
+    def compose(**metadata):
+        raise WorkspaceCompatibilityError("Workspace metadata requires upgrade", folder="/local/folder",
+            detected_version=None, supported_version=1,
+            remediation_command="brain workspace upgrade --brain test-brain --workspace /local/folder")
+    register_application_tools(mcp, catalogue=catalogue, resolver=current_request_resolver(),
+                               context_factory=compose, invocation_guard=lambda: None)
+    response = asyncio.run(mcp.call_tool("runtime_status", {}))
+    assert response.is_error
+    error = response.structured_content["error"]
+    assert error["code"] == "conflict"
+    assert error["details"]["reason"] == "upgrade_required"
+    assert error["details"]["supported_version"] == 1
+    assert "brain workspace upgrade --brain test-brain" in error["details"]["remediation_command"]

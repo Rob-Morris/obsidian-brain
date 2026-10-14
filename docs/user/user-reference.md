@@ -178,18 +178,37 @@ See [Configuration](../functional/config.md).
 `.brain/local/workspace.yaml` belongs to the connecting workspace, not the vault. It records the local Brain identity, workspace slug and filing defaults. Configure it on the agent's machine:
 
 ```bash
-brain workspace setup --vault /path/to/brain \
-  --workspace /absolute/path/to/workspace --request-json '{}' --json
+brain workspace register --vault /path/to/brain \
+  --workspace /absolute/path/to/workspace --request-json '{"brain_id":"<registered-brain-id>","slug":"example"}' --json
 ```
+
+Replace `<registered-brain-id>` with the local registered ID for the selected
+Brain; `--vault` and `brain_id` must identify the same Brain.
 
 MCP cannot configure the connecting agent's local filesystem. Remote-Brain transport and gateway hosting are separate from this local command architecture.
 
-Setup ensures a canonical hub before saving the local binding and reports the two
-outcomes separately. `links.workspace` stores a bare key; artefacts and selectors
-use `workspace/{key}`. Shared `default_parent` / `default_tags` live on the hub;
-local `defaults.parent` overrides the shared create parent and local tags add to
-shared tags only for the locally bound workspace. Generic metadata cannot relink
-the authoritative workspace.
+Create the hub with `workspace.create` (`key` and optional `title`), then
+register the folder with an explicit canonical `slug` and selected `brain_id`.
+A missing hub leaves the folder unchanged and returns its exact creation command.
+Repeat registration can omit the slug to retain a validated binding; changing
+Brain or slug requires `workspace.rebind`. Register/rebind need operator
+permission and exceptional consent in a
+[local CLI job](../functional/cli.md#cli-jobs-and-consent) when not initially
+authorised. MCP consent does not transfer.
+
+The manifest has independent `schema_version: 1`, `brain` and canonical `slug`.
+Two folders may share that identity; path identifies each local registration.
+There is no separate local slug or `links.workspace` field. Shared
+`default_parent` / `default_tags` live on the hub; local defaults apply only to
+the bound workspace. A project, project hub, parent and tags are optional.
+Generic metadata cannot relink identity.
+
+Use local CLI `workspace.upgrade` with explicit folder, Brain or machine scope
+for supported metadata migration, and read-only `workspace.discover` with
+explicit roots for unregistered folders. Neither infers a canonical identity
+from a repo name. Ordinary use of outdated metadata supplies its upgrade command;
+missing hubs require explicit creation and future schemas are never downgraded.
+See [the CLI contract](../functional/cli.md#workspace-registration-and-policy).
 
 `brain artefact set-workspace --request-json '{"path":"project/example","workspace_context":"workspace/example","recursive":true,"clear_parent":true}'`
 explicitly adopts a subtree. Review the root parent choice and follow the

@@ -220,6 +220,8 @@ def _workspace_summary(workspace_dir, vault_root):
     directory = os.path.abspath(os.path.expanduser(str(workspace_dir)))
     if not directory:
         return None
+    if Path(directory).resolve() == Path(vault_root).resolve():
+        return None
     name = os.path.basename(os.path.normpath(directory)) or directory
     embedded_root = os.path.abspath(os.path.join(str(vault_root), "_Workspaces"))
     location = "external"
@@ -236,6 +238,7 @@ def _workspace_configuration_summary(
     workspace_summary,
     workspace_binding,
     resolution=None,
+    manifest=None,
 ):
     """Describe the local CLI workspace-binding capability for agent discovery."""
     from _common._workspace import BindingState, WorkspaceBinding
@@ -249,22 +252,41 @@ def _workspace_configuration_summary(
         "guidance": guidance,
         "purpose": "Configure a local folder as a Brain workspace.",
         "command": (
-            "brain workspace setup --workspace <absolute-local-workspace-path> "
-            "--request-json '{}'"
+            "brain workspace register --brain <registered-local-brain-id> "
+            "--workspace <absolute-local-workspace-path> "
+            "--request-json '{\"slug\":\"<workspace-key>\"}'"
         ),
         "selection": (
-            "Run on the agent's local machine. If the intended Brain is not "
-            "the locally resolved default, add --vault <local-vault-path> or "
-            "--brain <registered-local-brain-id>."
+            "Run on the agent's local machine; select the intended registered Brain "
+            "with --brain, or use --vault <local-vault-path> instead. For a missing hub, "
+            "run the returned workspace.create creation command, then retry. "
+            "Registration needs operator permission and exceptional consent in a local "
+            "brain session run job when not initially authorised; MCP consent does not transfer."
         ),
         "remote_boundary": (
             "MCP cannot configure the connecting agent's local filesystem."
         ),
         "effect": (
-            "Ensures canonical Brain workspace registration, then writes "
+            "Attaches an existing active workspace, then writes "
             f"{WORKSPACE_MANIFEST_REL}; reports each boundary separately."
         ),
     }
+    if workspace_summary and manifest is not None:
+        from _bootstrap.workspace_schema import classify_workspace_manifest, ManifestCompatibility, WorkspaceSchemaError, SCHEMA_VERSION
+        from _bootstrap.workspace_binding import workspace_upgrade_command, workspace_upgrade_guidance
+
+        try:
+            compatibility = classify_workspace_manifest(manifest)
+        except WorkspaceSchemaError:
+            compatibility = None
+        if compatibility is not None and compatibility.linked and compatibility.compatibility is ManifestCompatibility.LEGACY:
+            folder = workspace_summary["directory"]
+            result["metadata_upgrade"] = {
+                "reason": "upgrade_required", "folder": folder,
+                "detected_version": compatibility.source_version, "supported_version": SCHEMA_VERSION,
+                "remediation_command": workspace_upgrade_command(folder, manifest),
+            }
+            result["guidance"] = workspace_upgrade_guidance(folder, manifest)
     if workspace_binding:
         result["current_binding"] = workspace_binding
     return result
@@ -567,7 +589,7 @@ def build_session_model(
     env["obsidian_cli_available"] = obsidian_cli_available
     config_summary = _summarise_config(config)
     workspace_summary = _workspace_summary(workspace_dir, vault_root)
-    workspace_manifest = _load_workspace_manifest(workspace_dir)
+    workspace_manifest = _load_workspace_manifest(workspace_dir) if workspace_summary else None
     workspace_defaults = _extract_workspace_defaults(workspace_manifest)
     workspace_binding = extract_workspace_binding(workspace_manifest)
     workspace_resolution = _resolve_workspace_binding(vault_root, router, workspace_manifest)
@@ -582,6 +604,7 @@ def build_session_model(
         workspace_summary,
         workspace_binding,
         workspace_resolution,
+        manifest=workspace_manifest,
     )
     core_body = _load_session_core_body(vault_root)
     brain_core_version = meta.get("brain_core_version", "")

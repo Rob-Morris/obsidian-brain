@@ -45,7 +45,6 @@ def migration_plan(home: Path, cli_binary: Path, selected: Path | None = None) -
             if target is not None:
                 if not target.is_absolute() or not target.is_dir():
                     raise ValueError(f"Incomplete migration: target unavailable: {target}")
-                registration._validate_target(vault, target)
                 registration.plan_reverse_registration(plan, vault, target)
             destination = registration._config_path(client, scope, target, home).absolute()
             if raw.get("config_path") != str(destination) or not isinstance(raw.get("server_config"), dict):

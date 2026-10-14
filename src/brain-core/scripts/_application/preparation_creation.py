@@ -35,7 +35,7 @@ def plan_artefact_create(context, request, router, body, *, frozen_inputs=None):
         chosen_filename=choice.get("filename"), chosen_key=choice.get("key"),
     )
     if plan.fields["type"] == "living/workspace" and effective.workspace is not None:
-        raise ValueError("Workspace hubs are self-scoped; use workspace.ensure-registration to create one")
+        raise ValueError("Workspace hubs are self-scoped; use workspace.create to create one")
     fields = apply_semantic_tags(plan.fields, effective)
     if effective.workspace is not None:
         fields["workspace"] = effective.workspace
@@ -69,7 +69,7 @@ def creation_binding(context, request, *, plan, file_index=None, frozen_inputs=N
         path = context.selected_brain.vault_root / template
         observations.append(ObservedResource("template", template,
                                               document_revision_at(path) if path.exists() else None))
-    if plan.parent_context is not None:
+    if plan.parent is not None and plan.parent_context is not None:
         observations.append(ObservedResource("parent", plan.parent,
                                               content_digest(canonical_json(plan.parent_context))))
     if file_index is not None:

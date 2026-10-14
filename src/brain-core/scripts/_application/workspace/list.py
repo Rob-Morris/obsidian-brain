@@ -24,7 +24,7 @@ class WorkspaceListPayload:
 @dataclass(frozen=True, slots=True)
 class WorkspaceListRequest:
     COMMAND_ID: ClassVar[str] = "workspace.list"
-    COMMAND_VERSION: ClassVar[int] = 1
+    COMMAND_VERSION: ClassVar[int] = 2
     RESULT_TYPE: ClassVar[type] = WorkspaceListPayload
 
 

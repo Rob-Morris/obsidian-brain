@@ -99,12 +99,12 @@ def _core_guidance(tmp_path, spelling):
 
     start = tmp_path / "start"
     start.mkdir()
-    if spelling.startswith("workspace setup"):
+    if spelling.startswith("workspace rebind"):
         manifest = tmp_path / "ws" / ".brain" / "local" / "workspace.yaml"
         manifest.parent.mkdir(parents=True)
-        manifest.write_text("brain: other\nslug: ws\n")
-        if spelling == "workspace setup":
-            call = lambda: plan_workspace_binding(tmp_path / "ws", brain="brain")
+        manifest.write_text("schema_version: 1\nbrain: other\nslug: ws\n")
+        if spelling == "workspace rebind":
+            call = lambda: plan_workspace_binding(tmp_path / "ws", brain="brain", slug="ws")
         else:
             call = lambda: plan_workspace_binding(tmp_path / "ws", brain="other", slug="different")
     else:
@@ -118,7 +118,7 @@ def _core_guidance(tmp_path, spelling):
     return str(raised.value)
 
 
-@pytest.mark.parametrize("spelling", ["clear-default", "set-default", "workspace setup", "workspace setup slug"])
+@pytest.mark.parametrize("spelling", ["clear-default", "set-default", "workspace rebind", "workspace rebind slug"])
 def test_core_resolution_guidance_decodes_against_the_command_tables(tmp_path, spelling):
     """Core's hand-written launcher commands must parse as the commands they name."""
     import json
@@ -130,13 +130,18 @@ def test_core_resolution_guidance_decodes_against_the_command_tables(tmp_path, s
 
     message = _core_guidance(tmp_path, spelling)
     command_name = spelling.removesuffix(" slug")
-    commands = [shlex.split(text) for text in re.findall(r"[(`](brain [^)`]*)[)`]", message)]
+    if command_name == "workspace rebind":
+        commands = [shlex.split(message.split("; use ", 1)[1])]
+    else:
+        commands = [shlex.split(text) for text in re.findall(r"[(`](brain [^)`]*)[)`]", message)]
     argv = next(command for command in commands if " ".join(command).startswith(f"brain {command_name}"))
     split = argv.index("--request-json") if "--request-json" in argv else len(argv)
     payload = json.loads(argv[split + 1]) if split < len(argv) else {}
-    if command_name == "workspace setup":
-        assert argv[:split] == ["brain", "workspace", "setup"]
-        assert current_request_resolver().resolve("workspace.setup", payload).force is True
+    if command_name == "workspace rebind":
+        assert argv[:3] == ["brain", "workspace", "rebind"]
+        request = current_request_resolver().resolve("workspace.rebind", payload)
+        assert request.slug == ("different" if spelling.endswith(" slug") else "ws")
+        assert "force" not in payload
         return
     entry = next(item for item in LAUNCHER_CATALOGUE.entries if list(item.entry_point) == argv[:split])
     request_type = {"brain.set-default": BrainSetDefaultRequest, "brain.clear-default": BrainClearDefaultRequest}[entry.command_id]

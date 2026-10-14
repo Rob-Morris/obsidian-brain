@@ -30,8 +30,9 @@ OWNERS = {
 REGISTERS = {
     "vault_registry": (WRITER_MODULE, OWNERS),
     "workspace_registry": (SCRIPTS / "workspace_registry.py", {
-        SCRIPTS / "_application/workspace/setup.py": {"register_workspace"},
-        SCRIPTS / "_application/workspace/unregister.py": {"unregister_workspace"},
+        SCRIPTS / "_application/workspace/register.py": {"register_workspace"},
+        SCRIPTS / "_application/workspace/unregister.py": {"replace_registry"},
+        Path("cli/_launcher/workspace.py"): {"stage_link_row"},
         SCRIPTS / "_portable/registry_maintenance.py": {"replace_registry"},
         SCRIPTS / "migrations/migrate_to_0_31_0.py": {"save_registry"},
         # MCP configuration derives the row its manifest implies (DD-083 item 5).
@@ -42,8 +43,10 @@ REGISTERS = {
 # Functions that both name the linked workspace registry's file and write
 # something, accepted because the registry write itself goes elsewhere.
 REGISTRY_PATH_WRITERS = {
-    (SCRIPTS / "_application/workspace/setup.py", "execute"):
+    (SCRIPTS / "_application/workspace/register.py", "execute"):
         "writes the row through register_workspace; the path names the effect subject",
+    (SCRIPTS / "_application/workspace/rebind.py", "plan_rebind"):
+        "stages the path-keyed row transition through registry_bytes and FilePlan",
     (SCRIPTS / "_bootstrap/mcp_migration.py", "resume_migration"):
         "replays a journalled MCP migration whose registry change stage_canonical_rows staged",
     (SCRIPTS / "migrations/migrate_to_0_16_0.py", "migrate"):

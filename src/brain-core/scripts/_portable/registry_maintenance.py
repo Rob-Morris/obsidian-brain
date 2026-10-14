@@ -13,7 +13,7 @@ import workspace_registry
 
 @dataclass(frozen=True, slots=True)
 class DroppedRow:
-    """A row the repair removed, with the folder to run ``workspace setup`` from to link it again."""
+    """A row the repair removed, with the folder to run ``workspace register`` from to link it again."""
 
     key: str
     path: str
@@ -67,7 +67,7 @@ def _still_disagrees(root: Path, rows: dict, planned) -> bool:
 
     if not workspace_registry.row_records(rows.get(planned.key), planned.path):
         return False
-    fresh = classify_link(root, Path(planned.path), planned.key)
+    fresh = classify_link(root, Path(planned.path), rows[planned.key]["slug"])
     return (fresh.verdict in LINK_DISAGREEMENT and fresh.snapshot is not None
             and planned.classification.snapshot is not None
             and fresh.snapshot.confirms(planned.classification.snapshot))
@@ -94,7 +94,7 @@ def repair_registry(
     Rows are classified outside the vault lock. Under it, the registry is read
     again and a row is dropped only if it still records the same folder and a
     second read of that folder's manifest is byte-identical to the one
-    classified and still disagrees. ``workspace.setup`` writes the row and the
+    classified and still disagrees. ``workspace.register`` writes the row and the
     manifest under the same vault lock, so it is never caught between them.
     No lock is taken in, and nothing is written to, any workspace folder.
     The write is a compare-and-swap over the bytes read under the lock, so a
@@ -144,7 +144,7 @@ def repair_registry(
             return RegistryMaintenanceResult("changed", _reason(current), False, len(kept), dropped=dropped)
         backup = _stage_and_save(root, current, kept).relative_to(root).as_posix()
     reason = (f"Rebuilt the unparseable registry empty and kept its previous content as {backup}; run brain "
-              "workspace setup from each linked folder to link it again."
+              "workspace register from each linked folder to link it again."
               if current.condition is RegistryCondition.UNPARSEABLE else _reason(current))
     return RegistryMaintenanceResult("changed", reason, False, len(kept), backup, dropped)
 

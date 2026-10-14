@@ -64,7 +64,7 @@ def update_metadata_links(existing, updates, *, clear=False):
     if not isinstance(existing, dict):
         raise ValueError("Workspace links must be a mapping")
     if any(name.strip() == "workspace" for name in updates):
-        raise ValueError("links.workspace is handler-owned; use brain workspace setup")
+        raise ValueError("links.workspace is handler-owned; use brain workspace register")
     links = dict(existing)
     if clear:
         links = {"workspace": existing["workspace"]} if "workspace" in existing else {}
@@ -156,7 +156,7 @@ def require_workspace(router, reference, *, active=False):
     reference = workspace_reference(reference)
     entry = (router.get("artefact_index") or {}).get(reference)
     if not entry or entry.get("type") != "living/workspace":
-        raise ValueError(f"{reference} does not resolve to a living workspace; run brain workspace setup to repair the binding")
+        raise ValueError(f"{reference} does not resolve to a living workspace; run brain workspace register to repair the binding")
     membership(reference, entry)
     validate_ownership(reference, entry, router.get("artefact_index", {}))
     if active and is_terminal(router, entry):
@@ -190,13 +190,15 @@ def workspace_policy(router, reference, fields, *, local=False):
 
 
 def manifest_workspace_reference(manifest):
-    """Read only the explicit bare manifest link; never infer from paths or tags."""
-    links = manifest.get("links", {})
-    if not isinstance(links, dict):
-        raise ValueError("Workspace links must be a mapping")
-    if "workspace" not in links:
-        raise ValueError("Workspace links.workspace is missing; run brain workspace setup")
-    return workspace_reference(links["workspace"], bare=True)
+    """Current canonical slug is the only local workspace identity."""
+    from _bootstrap.workspace_schema import classify_workspace_manifest, ManifestCompatibility
+
+    classification = classify_workspace_manifest(manifest)
+    if classification.compatibility is not ManifestCompatibility.CURRENT:
+        raise ValueError("Workspace metadata requires workspace.upgrade before scoped use")
+    if not classification.linked:
+        raise ValueError("Workspace is unlinked; run brain workspace register with an explicit slug")
+    return workspace_reference(classification.slug, bare=True)
 
 
 def resolve_workspace_binding(router, manifest, *, brain_binding_error=None):
@@ -209,14 +211,11 @@ def resolve_workspace_binding(router, manifest, *, brain_binding_error=None):
         # Neither link field: an unlinked manifest whose defaults wait for the next setup.
         return WorkspaceBinding(BindingState.UNCONFIGURED, None, None)
     reference = None
+    from _bootstrap.workspace_schema import WorkspaceSchemaError
     # Each step names itself before it runs, so the failure reports the step rather than its wording.
     cause = InvalidBindingCause.LINK
     try:
         reference = manifest_workspace_reference(manifest)
-        cause = InvalidBindingCause.BRAIN_SLUG
-        if any(not isinstance(manifest.get(field), str) or not manifest[field].strip()
-               for field in ("brain", "slug")):
-            raise ValueError("Workspace binding requires brain and slug; run brain workspace setup")
         cause = InvalidBindingCause.ALIAS
         if brain_binding_error:
             raise ValueError(brain_binding_error)
@@ -231,4 +230,6 @@ def resolve_workspace_binding(router, manifest, *, brain_binding_error=None):
                                     f"Reactivate {reference} before scoped mutation.")
         return WorkspaceBinding(BindingState.VALID, reference, None)
     except ValueError as exc:
+        if isinstance(exc, WorkspaceSchemaError) and exc.field in {"brain", "slug"}:
+            cause = InvalidBindingCause.BRAIN_SLUG
         return WorkspaceBinding(BindingState.CONFIGURED_INVALID, reference, str(exc), cause)

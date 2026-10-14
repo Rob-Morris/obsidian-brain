@@ -5,6 +5,43 @@
 **Amends:** DD-051 (§2), DD-053
 **Extended by:** DD-084
 
+## Amendment — 2026-10-14: canonical identity and folder registrations
+
+The approved workspace creation/folder-registration design supersedes the
+historical contracts below for this increment. The earlier record is preserved
+as decision history, including retired command spellings and one-path assumptions.
+
+- `workspace.create` takes explicit `key` and optional `title`; creation is a
+  selected-Brain contributor/content operation. `workspace.register` takes the
+  target `brain_id` and explicit first `slug`, requires an existing active hub,
+  and is operator/exceptional caller-local work. A repeat may retain its validated
+  slug. Missing hubs refuse with an exact Brain-pinned creation command.
+- Brain plus canonical slug identifies the shared workspace; path identifies its
+  local registration. Multiple folders may share that identity. The manifest
+  stores independent `schema_version: 1`, `brain` and canonical `slug`, not a
+  separate local slug or `links.workspace`. The derived inventory has
+  `schema_version: 1` and a `registrations` list of `slug` / `path` pairs.
+- Separate `workspace.rebind` changes only the selected folder to an explicit
+  existing target Brain/slug, preserving other registrations and both hubs.
+  Incompatible defaults/integrations refuse. There is no force-based rebind,
+  callable setup/ensure-registration alias or hidden compatibility wrapper.
+- Projects, project hubs and parent/tag defaults remain optional. Tags and links
+  do not adopt content. Embedded locations remain implicit; vault-self is not a
+  registration. Unregister selects one folder, retains integration guards, and
+  leaves unreadable or differently bound manifests untouched with follow-up.
+- Local CLI `workspace.upgrade` uses explicit folder/Brain/machine scope and
+  preserves verified legacy canonical identity. Read-only `workspace.discover`
+  scans explicit roots without registration. Neither creates missing hubs.
+- Source-version-bound permission migration removes historical register/bind
+  grants before mapping ensure-registration to create and setup to narrower
+  register, preserving restrictions and exact initial classes. No inferred
+  custom rebind grants or consent transfer; conflicting target settings refuse.
+
+Current contracts: [CLI](../../functional/cli.md#workspace-registration-and-policy),
+[configuration](../../functional/config.md#workspace-manifest) and
+[security](../security.md). Historical grant retirement remains version-specific;
+reintroducing a spelling does not revive its old authority.
+
 ## Context
 
 Brain keeps six machine-local or workspace-local files that record which

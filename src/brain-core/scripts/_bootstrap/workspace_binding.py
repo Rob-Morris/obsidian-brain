@@ -149,13 +149,20 @@ def _classify_workspace_binding(ws_dir: Path) -> tuple[str, Path | None, str | N
           resolves to a live vault root.
         - ``(_STATE_STALE, None, <brain_id>)`` — brain key present but cannot be
           resolved to a live vault root.
-        - ``(_STATE_MISSING, None, None)`` — no manifest or no brain key.
+        - ``(_STATE_MISSING, None, None)`` — no manifest or no declared link.
+        A declared link with no usable Brain identity is refused, never defaulted.
     """
     manifest = read_workspace_manifest(ws_dir)
     if not isinstance(manifest, dict):
         return _STATE_MISSING, None, None
     brain = manifest.get("brain")
-    if not isinstance(brain, str) or not brain:
+    if not isinstance(brain, str) or not brain.strip():
+        if states_a_link(manifest):
+            raise WorkspaceBindingError(
+                f"{ws_dir / WORKSPACE_MANIFEST_REL} declares a workspace link but has no valid Brain identity. "
+                "Select the intended Brain explicitly with --brain ID or --vault PATH for workspace registration recovery.",
+                code=WORKSPACE_ERROR_INVALID_BINDING,
+            )
         return _STATE_MISSING, None, None
     vault = resolve_local_brain_vault(brain)
     if vault is None:
@@ -238,7 +245,7 @@ def _walk_for_nearest_marker(start_dir: Path) -> BrainTarget | None:
                 raise WorkspaceBindingError(
                     f"workspace at {candidate} cannot be resolved: "
                     f"{_stale_binding_detail(brain)} — re-bind or repair this "
-                    f"workspace (brain workspace setup), or restore the registry "
+                    f"workspace (brain workspace register), or restore the registry "
                     f"entry, before continuing.",
                     code="stale_binding",
                 )
@@ -322,7 +329,7 @@ def resolve_brain_target(
             raise WorkspaceBindingError(
                 f"BRAIN_WORKSPACE_DIR points to a workspace that cannot be "
                 f"resolved: {_stale_binding_detail(brain)} — re-bind or repair "
-                f"this workspace (brain workspace setup), or restore the registry "
+                f"this workspace (brain workspace register), or restore the registry "
                 f"entry, before continuing.",
                 code="stale_binding",
                 rung=RUNG_WORKSPACE_ENV,
@@ -366,7 +373,7 @@ def resolve_brain_target(
         raise WorkspaceBindingError(
             f"BRAIN_WORKSPACE_DIR is set ({workspace_env}) but that workspace "
             f"has no Brain binding and no BRAIN_VAULT_ROOT is available to "
-            f"resolve it — re-bind this workspace (brain workspace setup) before "
+            f"resolve it — re-bind this workspace (brain workspace register) before "
             f"continuing.",
             code="no_brain",
             rung=RUNG_WORKSPACE_ENV,
@@ -406,7 +413,7 @@ def resolve_brain_target(
     # ------------------------------------------------------------------
     raise WorkspaceBindingError(
         "no Brain could be resolved — bind this workspace "
-        "(brain workspace setup) or set a machine default "
+        "(brain workspace register) or set a machine default "
         "(brain set-default --request-json '{\"brain_id\": \"<id>\"}').",
         code="no_brain",
         rung=RUNG_UNRESOLVED,
@@ -499,16 +506,16 @@ def read_workspace_manifest(target_dir: Path) -> dict[str, Any] | None:
 
 
 def extract_workspace_binding(manifest: Any) -> dict[str, str] | None:
-    """Return the canonical binding payload when the manifest shape is valid."""
-    if not isinstance(manifest, dict):
+    """Expose only a validated current canonical binding."""
+    from _bootstrap.workspace_schema import classify_workspace_manifest, ManifestCompatibility
+
+    try:
+        classification = classify_workspace_manifest(manifest)
+    except ValueError:
         return None
-    brain = manifest.get("brain")
-    slug = manifest.get("slug")
-    if not isinstance(brain, str) or not brain:
+    if classification.compatibility is not ManifestCompatibility.CURRENT or not classification.linked:
         return None
-    if not isinstance(slug, str) or not slug:
-        return None
-    return {"brain": brain, "slug": slug}
+    return {"brain": classification.brain, "slug": classification.slug}
 
 
 def require_workspace_binding(target_dir: Path) -> dict[str, str]:
@@ -518,6 +525,7 @@ def require_workspace_binding(target_dir: Path) -> dict[str, str]:
         raise WorkspaceBindingError(
             f"{target_dir} is not a bound workspace; missing {WORKSPACE_MANIFEST_REL}"
         )
+    require_current_workspace_manifest(target_dir, manifest)
     binding = extract_workspace_binding(manifest)
     if binding is None:
         brain = manifest.get("brain")
@@ -580,9 +588,9 @@ def resolve_selected_workspace_binding(vault_root, router, manifest):
             bound_root = resolve_local_brain_vault(manifest["brain"])
             if bound_root is None or bound_root != Path(vault_root).resolve():
                 error = (f"Workspace Brain alias {manifest['brain']!r} does not resolve to the selected Brain. "
-                         "Select the bound Brain or run brain workspace setup for the selected Brain.")
+                         "Select the bound Brain or run brain workspace register for the selected Brain.")
         except WorkspaceBindingError as exc:
-            error = f"{exc}; repair the Brain registration, then run brain workspace setup."
+            error = f"{exc}; repair the Brain registration, then run brain workspace register."
     return resolve_workspace_binding(router, manifest, brain_binding_error=error)
 
 
@@ -644,59 +652,62 @@ def save_workspace_manifest_data(
 
 
 def plan_workspace_binding(target_dir, *, brain, slug=None, allow_rebind=False):
-    """Validate and resolve a binding without writing either boundary."""
-    # Refuse-guard: a vault root is a Brain, not a workspace of itself.
-    # It resolves by path (vault_self) — binding it would create a circular
-    # reference.  The vault-self MCP mode (apply_mcp_transport_action with
-    # vault_self=True) skips this function intentionally.
+    """Plan explicit canonical identity; a folder name never supplies a slug."""
+    from _bootstrap.workspace_schema import plan_workspace_migration
+
     if is_brain_vault(target_dir):
-        raise WorkspaceBindingError(
-            f"{target_dir} is a Brain vault root, not a workspace of itself. "
-            "It resolves by path — do not bind it as a workspace. "
-            "Use vault-self MCP registration instead.",
-            code="vault_root_not_workspace",
-        )
+        raise WorkspaceBindingError("A Brain vault root is not a workspace of itself", code="vault_root_not_workspace")
     state = load_workspace_manifest_state(target_dir)
-    existing = dict(state.data or {})
-    existing_brain = existing.get("brain")
-    existing_slug = existing.get("slug")
-
-    if allow_rebind and existing_brain and (existing_brain != brain or slug is not None and slug != existing_slug):
-        from _bootstrap import mcp_registration
-        from _bootstrap.file_transaction import FilePlan
-
-        old_vault = resolve_local_brain_vault(existing_brain)
-        if old_vault is not None:
-            try:
-                mcp_registration.require_no_registered_integrations(old_vault, target_dir)
-            except (OSError, ValueError) as exc:
-                raise WorkspaceBindingError(str(exc)) from exc
-        probe = FilePlan()
-        for native_scope in (mcp_registration.McpScope.PROJECT, mcp_registration.McpScope.LOCAL):
-            for client in mcp_registration._clients(mcp_registration.McpClient.ALL, native_scope):
-                path = mcp_registration._config_path(client, native_scope, target_dir, Path.home())
-                if mcp_registration.observed_server(probe, client, path) is not None:
-                    raise WorkspaceBindingError("Remove the existing workspace MCP integrations before rebinding; configuration was preserved")
-
-    resolved_slug = slug or (existing_slug if isinstance(existing_slug, str) and existing_slug else None)
-    if not resolved_slug:
-        resolved_slug = workspace_slug(target_dir.name)
-
-    if existing_brain and existing_brain != brain and not allow_rebind:
-        raise WorkspaceBindingError(
-            f"{WORKSPACE_MANIFEST_REL} already binds this workspace to '{existing_brain}'. "
-            "Use `brain workspace setup --request-json '{\"force\": true}'` to change it.",
-            code=WORKSPACE_REASON_ALREADY_BOUND,
-        )
-    if slug is not None and existing_slug and existing_slug != slug and not allow_rebind:
-        raise WorkspaceBindingError(
-            f"{WORKSPACE_MANIFEST_REL} already records slug '{existing_slug}'. "
-            "Use `brain workspace setup --request-json '{\"force\": true}'` to change it.",
-            code=WORKSPACE_REASON_ALREADY_BOUND,
-        )
-
-    payload = _binding_payload(existing, brain=brain, slug=resolved_slug)
+    try:
+        migration = plan_workspace_migration(state.data)
+    except ValueError as exc:
+        raise WorkspaceBindingError(str(exc)) from exc
+    identity = migration.classification
+    if identity.linked and identity.compatibility.value != "current":
+        raise WorkspaceBindingError(workspace_upgrade_guidance(target_dir, state.data), code="workspace_upgrade_required")
+    resolved_slug = slug or identity.slug
+    if not vault_registry.is_valid_brain_id(brain) or not is_valid_key(resolved_slug):
+        raise WorkspaceBindingError("First registration requires an explicit valid canonical workspace slug")
+    if identity.linked and (identity.brain != brain or identity.slug != resolved_slug) and not allow_rebind:
+        import json
+        import shlex
+        command = (f"brain workspace rebind --brain {shlex.quote(brain)} --workspace {shlex.quote(str(target_dir))} "
+                   f"--request-json {shlex.quote(json.dumps({'brain_id': brain, 'slug': resolved_slug}))}")
+        raise WorkspaceBindingError(f"Folder already binds {identity.brain}/{identity.slug}; use {command}",
+                                    code=WORKSPACE_REASON_ALREADY_BOUND)
+    payload = linked_payload({**(migration.payload or {}), "brain": brain}, key=resolved_slug)
     return state, payload
+
+
+def workspace_upgrade_command(target_dir, manifest):
+    """Return a shell-quoted recovery command pinned to the observed binding."""
+    import shlex
+
+    brain = manifest.get("brain") if isinstance(manifest, dict) else None
+    selection = f" --brain {shlex.quote(brain)}" if isinstance(brain, str) and brain else ""
+    return f"brain workspace upgrade{selection} --workspace {shlex.quote(str(target_dir))}"
+
+
+def workspace_upgrade_guidance(target_dir, manifest):
+    """Describe the observed schema and its explicit migration path."""
+    from _bootstrap.workspace_schema import SCHEMA_VERSION
+
+    declared = manifest.get("schema_version", "legacy") if isinstance(manifest, dict) else "missing"
+    return (f"Workspace metadata schema {declared}; supported schema {SCHEMA_VERSION}. "
+            f"Run {workspace_upgrade_command(target_dir, manifest)} to review and upgrade it.")
+
+
+def require_current_workspace_manifest(target_dir, manifest):
+    """Ordinary bound use refuses old metadata without rewriting it."""
+    from _bootstrap.workspace_schema import classify_workspace_manifest, ManifestCompatibility, WorkspaceSchemaError
+
+    try:
+        classification = classify_workspace_manifest(manifest)
+    except WorkspaceSchemaError as exc:
+        raise WorkspaceBindingError(f"{exc}; affected folder: {target_dir}", code=exc.code) from exc
+    if classification.compatibility is ManifestCompatibility.LEGACY:
+        raise WorkspaceBindingError(workspace_upgrade_guidance(target_dir, manifest), code="workspace_upgrade_required")
+    return classification
 
 
 # ---------------------------------------------------------------------------
@@ -704,21 +715,21 @@ def plan_workspace_binding(target_dir, *, brain, slug=None, allow_rebind=False):
 # on whether a folder's manifest is the workspace end of a Brain's row.
 # ---------------------------------------------------------------------------
 
-# ``brain`` names the Brain and ``links.workspace`` the hub key. The ``slug``,
-# defaults and other links are local and never part of the link.
-LINK_FIELDS = ("brain", "links.workspace")
+LINK_FIELDS = ("brain", "slug")
 
 
 def link_fields(manifest: dict[str, Any]) -> tuple[Any, Any]:
-    """The manifest's ``brain`` and ``links.workspace`` values, ``None`` where absent."""
+    """Read observed identity; only legacy metadata uses links.workspace."""
     links = manifest.get("links")
-    return manifest.get("brain"), links.get("workspace") if isinstance(links, dict) else None
+    key = (links.get("workspace") if isinstance(links, dict) else None) if "schema_version" not in manifest else manifest.get("slug")
+    return manifest.get("brain"), key
 
 
 def states_a_link(manifest: dict[str, Any]) -> bool:
-    """Whether the manifest holds either link field, valid or not."""
+    """Whether metadata declares a binding, including malformed declarations."""
     links = manifest.get("links")
-    return "brain" in manifest or isinstance(links, dict) and "workspace" in links
+    return ("brain" in manifest or isinstance(links, dict) and "workspace" in links
+            or "schema_version" in manifest and "slug" in manifest)
 
 
 def with_links(manifest: dict[str, Any], links: dict[str, Any]) -> dict[str, Any]:
@@ -730,18 +741,25 @@ def with_links(manifest: dict[str, Any], links: dict[str, Any]) -> dict[str, Any
 
 
 def linked_payload(manifest: dict[str, Any], *, key: str) -> dict[str, Any]:
-    """The manifest with its hub key set; ``brain`` and ``slug`` come from ``plan_workspace_binding``."""
+    """Canonical binding without a redundant descriptive identity link."""
+    from _bootstrap.workspace_schema import SCHEMA_VERSION
+
+    if not is_valid_key(key):
+        raise WorkspaceBindingError("Invalid canonical workspace slug")
     links = manifest.get("links", {})
     if not isinstance(links, dict):
-        raise ValueError("Workspace links must be a mapping")
-    return with_links(manifest, {**links, "workspace": key})
+        raise WorkspaceBindingError("Workspace links must be a mapping")
+    return with_links({**manifest, "schema_version": SCHEMA_VERSION, "slug": key},
+                      {name: value for name, value in links.items() if name != "workspace"})
 
 
 def unlinked_payload(manifest: dict[str, Any]) -> dict[str, Any]:
-    """The manifest without either link field, keeping ``slug``, defaults and other links."""
+    """Remove binding identity while retaining version, defaults and descriptive links."""
     links = manifest.get("links", {})
-    remaining = {name: value for name, value in links.items() if name != "workspace"} if isinstance(links, dict) else links
-    return with_links({name: value for name, value in manifest.items() if name != "brain"}, remaining)
+    if not isinstance(links, dict):
+        raise WorkspaceBindingError("Workspace links must be a mapping")
+    return with_links({name: value for name, value in manifest.items() if name not in {"brain", "slug"}},
+                      {name: value for name, value in links.items() if name != "workspace"})
 
 
 class LinkVerdict(str, Enum):
@@ -755,6 +773,7 @@ class LinkVerdict(str, Enum):
     KEY_INVALID = "key_invalid"
     OTHER_BRAIN = "other_brain"
     OTHER_KEY = "other_key"
+    UNSUPPORTED_SCHEMA = "unsupported_schema"
 
 
 # Only these two verdicts positively contradict a row; every other one proves nothing.
@@ -845,6 +864,19 @@ def classify_link(vault_root: Path, folder: Path, key: str) -> LinkClassificatio
         return LinkClassification(LinkVerdict.UNREADABLE, detail=str(exc), snapshot=snapshot)
     if state.data is None:
         return LinkClassification(LinkVerdict.NO_MANIFEST, state, snapshot=snapshot)
+    from _bootstrap.workspace_schema import classify_workspace_manifest, WorkspaceSchemaError
+
+    try:
+        classify_workspace_manifest(state.data)
+    except WorkspaceSchemaError as exc:
+        if exc.code in {"invalid_version", "future_version", "malformed_manifest"}:
+            detail = (f"{exc}. Inspect {state.manifest_path}; preserve its binding while repairing malformed metadata."
+                      if exc.code != "future_version" else
+                      f"{exc}. Install a compatible Brain CLI/runtime before attempting to change this manifest.")
+            return LinkClassification(LinkVerdict.UNSUPPORTED_SCHEMA, state, detail, snapshot)
+        brain, linked_key = link_fields(state.data)
+        if isinstance(brain, str) and brain and is_valid_key(linked_key):
+            return LinkClassification(LinkVerdict.UNREADABLE, state, str(exc), snapshot)
     brain, linked_key = link_fields(state.data)
     if not isinstance(brain, str) or not brain:
         return LinkClassification(LinkVerdict.BRAIN_UNRESOLVED, state, snapshot=snapshot)
@@ -870,6 +902,8 @@ def describe_link(classification: LinkClassification) -> str | None:
     verdict = classification.verdict
     if verdict is LinkVerdict.MATCHES:
         return None
+    if verdict is LinkVerdict.UNSUPPORTED_SCHEMA:
+        return f"its metadata cannot be rewritten ({classification.detail})"
     if verdict is LinkVerdict.UNREADABLE:
         return f"the folder could not be inspected ({classification.detail})"
     return {

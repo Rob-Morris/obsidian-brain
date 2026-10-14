@@ -145,7 +145,7 @@ def configure_workspace_metadata_action(
         state = load_workspace_manifest_state(workspace_dir)
         if state.data is None:
             raise WorkspaceBindingError(
-                "workspace binding is missing; run `brain workspace setup` first."
+                "workspace binding is missing; run `brain workspace register` first."
             )
         manifest = dict(state.data)
 
@@ -354,7 +354,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     metadata.add_argument("--tag", action="append", default=[], help="Add one defaults.tags entry (repeatable).")
     metadata.add_argument("--clear-tags", action="store_true", help="Clear defaults.tags before applying any --tag values.")
     metadata.add_argument("--link", action="append", default=[], help="Set one workspace link as NAME=VALUE (repeatable).")
-    metadata.add_argument("--clear-links", action="store_true", help="Clear descriptive links, preserving setup-owned links.workspace, before applying --link values.")
+    metadata.add_argument("--clear-links", action="store_true", help="Clear descriptive links before applying --link values; binding identity is unchanged.")
     metadata.add_argument("--parent", help="Set defaults.parent to a living artefact in this workspace.")
     metadata.add_argument("--clear-parent", action="store_true", help="Clear the local default parent.")
     metadata.add_argument("--json", action="store_true", help="Emit machine-readable JSON.")

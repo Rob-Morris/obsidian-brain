@@ -685,7 +685,8 @@ class TestRepairScopes:
 
         assert result["status"] == "ok"
         repaired = json.loads(registry_path.read_text())
-        assert repaired == {"workspaces": {"ext": {"path": "/tmp/ext"}}}
+        folder = str(Path("/tmp/ext").resolve())
+        assert repaired == {"schema_version": 1, "registrations": {folder: {"slug": "ext", "path": folder}}}
 
     @staticmethod
     def _disagreeing_row(vault, *, invalid_row=False):
@@ -698,7 +699,7 @@ class TestRepairScopes:
         if invalid_row:
             path = vault / workspace_registry.REGISTRY_REL
             rows = json.loads(path.read_text())
-            rows["workspaces"]["relative"] = "foreign"
+            rows["registrations"]["relative"] = "foreign"
             path.write_text(json.dumps(rows))
         return folder
 
@@ -712,7 +713,7 @@ class TestRepairScopes:
         assert result["status"] == ("planned" if dry_run else "ok")
         message = result["steps"][-1]["message"]
         verb = "would remove" if dry_run else "removed"
-        assert f"{verb} rows that disagree with their manifests: stale ({folder})" in message
+        assert f"{verb} rows that disagree with their manifests: {folder}" in message
         assert ("preserved the malformed copy" in message) is (invalid_row and not dry_run)
 
     def test_registry_repair_never_rebuilds_a_file_whose_rows_cannot_be_read(self, repair_vault):
@@ -740,7 +741,8 @@ class TestRepairScopes:
         step = result["steps"][-1]
         assert step["status"] == "error"
         assert step["message"].startswith("Vault is busy; retry the mutation.")
-        assert "stale" in json.loads((repair_vault / ".brain/local/workspaces.json").read_text())["workspaces"]
+        rows = json.loads((repair_vault / ".brain/local/workspaces.json").read_text())["registrations"]
+        assert any(row["slug"] == "stale" for row in rows.values())
 
     def test_frontmatter_repair_merges_nested_frontmatter_blocks(self, repair_vault, monkeypatch):
         bad = repair_vault / "Wiki" / "Duplicate Frontmatter.md"

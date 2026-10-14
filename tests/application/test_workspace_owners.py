@@ -40,12 +40,12 @@ def test_workspace_read_includes_resolution_and_metadata(
     reading = application.invoke(WorkspaceReadRequest("analysis"))
 
     assert reading.status == "ok"
-    assert reading.result.mode is WorkspaceMode.EMBEDDED
+    assert reading.result.locations[0].mode is WorkspaceMode.EMBEDDED
     assert reading.result.hub_path == "Workspaces/analysis.md"
     assert reading.result.status == "active"
     assert reading.result.tags == ("workspace/analysis",)
     assert reading.result.slug == "analysis"
-    assert reading.result.path == str(
+    assert reading.result.locations[0].path == str(
         command_vault_clone.vault_root / "_Workspaces" / "analysis"
     )
 
@@ -55,6 +55,8 @@ def test_workspace_list_is_sorted_and_embedded_wins_duplicate_registration(
 ):
     _add_embedded_workspace(command_vault_clone, "analysis")
     _add_embedded_workspace(command_vault_clone, "alpha")
+    _add_embedded_workspace(command_vault_clone, "remote")
+    (command_vault_clone.vault_root / "_Workspaces/remote").rmdir()
     registry_path = command_vault_clone.vault_root / ".brain/local/workspaces.json"
     registry_path.parent.mkdir(parents=True, exist_ok=True)
     registry_path.write_text(
@@ -78,7 +80,7 @@ def test_workspace_list_is_sorted_and_embedded_wins_duplicate_registration(
         "remote",
     ]
     analysis = next(item for item in result.result.items if item.slug == "analysis")
-    assert analysis.mode is WorkspaceMode.EMBEDDED
+    assert {item.mode for item in analysis.locations} == {WorkspaceMode.EMBEDDED, WorkspaceMode.LINKED}
 
 
 def test_workspace_commands_fail_closed_on_invalid_identity_and_registry(

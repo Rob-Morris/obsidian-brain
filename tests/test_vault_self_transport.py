@@ -97,7 +97,7 @@ class TestPlanWorkspaceBindingRefuseGuard:
         """A regular workspace (not a vault root) must still be bindable."""
         ws = tmp_path / "myworkspace"
         ws.mkdir()
-        _state, payload = plan_workspace_binding(ws, brain="some-brain", allow_rebind=False)
+        _state, payload = plan_workspace_binding(ws, brain="some-brain", slug="explicit-workspace", allow_rebind=False)
         assert payload["brain"] == "some-brain"
 
     def test_agents_md_only_workspace_is_not_refused(self, tmp_path, vault):
@@ -107,7 +107,7 @@ class TestPlanWorkspaceBindingRefuseGuard:
         ws = tmp_path / "devrepo"
         ws.mkdir()
         (ws / "AGENTS.md").write_text("# bootstrap\n")
-        _state, payload = plan_workspace_binding(ws, brain="some-brain", allow_rebind=False)
+        _state, payload = plan_workspace_binding(ws, brain="some-brain", slug="explicit-workspace", allow_rebind=False)
         assert payload["brain"] == "some-brain"
 
     def test_error_message_mentions_vault_root(self, vault):

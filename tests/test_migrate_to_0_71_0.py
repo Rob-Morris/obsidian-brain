@@ -19,7 +19,7 @@ import migrate_to_0_71_0
 
 RETIRED = ["workspace.bind", "workspace.register"]
 CONFIGURATION_MIGRATIONS = {f"migrate_to_{version}" for version in (
-    "0_55_0", "0_56_0", "0_57_0", "0_59_0", "0_62_9", "0_68_0", "0_71_0")}
+    "0_55_0", "0_56_0", "0_57_0", "0_59_0", "0_62_9", "0_68_0", "0_71_0", "0_72_0")}
 
 
 def _write(path: Path, data: dict) -> None:
@@ -68,9 +68,9 @@ def test_retired_grants_are_removed_from_every_setting_in_both_files(tmp_path, b
         ],
     }
     migrated = load_mapping_file(shared)
-    assert migrated["vault"]["profiles"]["operator"]["allow"] == list(builtins["operator"])
+    assert migrated["vault"]["profiles"]["operator"]["allow"] == [command for command in builtins["operator"] if command not in RETIRED]
     assert migrated["vault"]["profiles"]["administrator"] == {"label": "administrator profile",
-                                                              "allow": list(builtins["administrator"])}
+                                                              "allow": [command for command in builtins["administrator"] if command not in RETIRED]}
     assert migrated["defaults"]["access"] == {"overrides": {"workspace.read": False}}
     # The local vault zone is never merged, so its profiles are left as written.
     assert load_mapping_file(local) == {"vault": {"profiles": local_profiles},

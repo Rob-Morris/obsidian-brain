@@ -105,12 +105,13 @@ ROLES = {
     'type.replace': (Role('existing-definition', '_Config/Taxonomy/Living/widgets.md', 'type'), Role('existing-template', '_Config/Templates/Living/Widgets.md', 'type')),
     'type.sync': (Role('local-definition', '_Config/Taxonomy/Living/journals.md', 'sync'), Role('local-template', '_Config/Templates/Living/Journals.md', 'sync')),
     'vault.repair-text': (Role('selected-text', DESIGN, 'repair-text'),),
-    'workspace.ensure-registration': (Role('existing-hub', 'Workspaces/Sweep.md', 'workspace'),),
+    'workspace.create': (Role('existing-hub', 'Workspaces/Sweep.md', 'workspace'),
+                                      Role('creation-template', '_Config/Templates/Living/Workspaces.md', 'workspace-create', read_only=True)),
     'workspace.update-policy': (Role('canonical-hub', 'Workspaces/Sweep.md', 'workspace'),),
-    # Setup's YAML binding and registry JSON are operational, excluded TEXT;
-    # its canonical hub and consumed creation template remain concrete roles.
-    'workspace.setup': (Role('existing-hub', 'Workspaces/Sweep.md', 'mixed-hub'),
-                        Role('creation-template', '_Config/Templates/Living/Workspaces.md', 'mixed-template', read_only=True)),
+    # Registration's YAML binding and registry JSON are operational, excluded TEXT;
+    # Its canonical hub is read; only explicit workspace creation consumes a template.
+    'workspace.register': (Role('existing-hub', 'Workspaces/Sweep.md', 'mixed-hub'),),
+    'workspace.rebind': (Role('existing-hub', 'Workspaces/Sweep.md', 'mixed-hub'),),
 }
 DOCUMENTS = (
     ('artefact', DESIGN, DESIGN),
@@ -154,7 +155,7 @@ def invoke(root, command, arguments, *, dry_run=False):
         from _command_interface.context import BoundProvider
         options = {'providers': (BoundProvider('document_renderer'),),
                    'capabilities': (Capability('document_renderer', Availability.AVAILABLE),)}
-    if command in {'workspace.setup', 'workspace.unregister'}:
+    if command in {'workspace.register', 'workspace.rebind', 'workspace.unregister'}:
         from _application.context import Capability
         from _application.types import Availability
         from _command_interface.context import BoundProvider
@@ -221,14 +222,13 @@ def setup(root, entry, role):
         caller = root.parent / 'sweep-caller'
         caller.mkdir()
         vault_registry.register(root, 'command-vault')
-        save_workspace_manifest_data(caller, {'brain': 'command-vault', 'slug': 'sweep',
-                                             'links': {'workspace': 'sweep'},
+        save_workspace_manifest_data(caller, {'schema_version': 1, 'brain': 'command-vault', 'slug': 'sweep',
                                              'defaults': {'tags': ['sweep']}})
         if role.scenario == 'mixed-hub':
-            result = invoke(root, 'workspace.ensure-registration', {'key': 'sweep', 'title': 'Sweep'})
+            result = invoke(root, 'workspace.create', {'key': 'sweep', 'title': 'Sweep'})
             assert result.status == 'ok', result
     if role.scenario == 'workspace':
-        result = invoke(root, 'workspace.ensure-registration', {'key': 'sweep', 'title': 'Sweep'})
+        result = invoke(root, 'workspace.create', {'key': 'sweep', 'title': 'Sweep'})
         assert result.status == 'ok', result
     if role.scenario == 'transcript':
         result = invoke(root, 'shaping.start', {'target': 'design/command-fixture-design', 'mode': 'refine'})
@@ -295,9 +295,10 @@ def setup(root, entry, role):
             'vault.repair-text': {'paths': [relative]},
             'shaping.start': {'target': 'design/command-fixture-design', 'mode': 'refine'},
             'shaping.render': {'source': DESIGN, 'slug': 'sweep', 'output': {'kind': 'presentation', 'preview': False}, 'render': False},
-            'workspace.ensure-registration': {'key': 'sweep'},
+            'workspace.create': {'key': 'sweep'},
             'workspace.update-policy': {'workspace': 'workspace/sweep', 'default_tags': ['sweep']},
-            'workspace.setup': {'brain_id': 'command-vault', 'slug': 'sweep'},
+            'workspace.register': {'brain_id': 'command-vault', 'slug': 'sweep'},
+            'workspace.rebind': {'brain_id': 'command-vault', 'slug': 'sweep'},
             'workspace.unregister': {'key': 'sweep'},
         }[command]
     return relative, request
@@ -361,20 +362,20 @@ def verify_success(root, command, role, relative, result):
     elif command == 'type.replace':
         assert MARKER in (root / payload.path).read_text(encoding='utf-8')
         assert MARKER in (root / payload.template_path).read_text(encoding='utf-8')
-    elif command in {'workspace.setup', 'workspace.unregister'}:
+    elif command in {'workspace.register', 'workspace.rebind', 'workspace.unregister'}:
         from _bootstrap.workspace_binding import read_workspace_manifest
         import workspace_registry
         caller = root.parent / 'sweep-caller'
         manifest = read_workspace_manifest(caller)
         registry = workspace_registry.load_registry(root)
-        if command == 'workspace.setup':
+        if command in {'workspace.register', 'workspace.rebind'}:
             assert manifest['brain'] == 'command-vault'
-            assert manifest['links']['workspace'] == 'sweep'
-            assert registry['sweep']['path'] == str(caller)
+            assert manifest['slug'] == 'sweep'
+            assert registry[str(caller)]['path'] == str(caller)
             assert (root / payload.registration.path).is_file()
         else:
             assert 'brain' not in manifest and 'workspace' not in manifest.get('links', {})
-            assert 'sweep' not in registry
+            assert str(caller) not in registry
     elif command == 'shaping.start':
         assert (root / payload.target_path).is_file()
         assert (root / payload.transcript_path).is_file()
@@ -579,10 +580,10 @@ def test_reparent_children_selects_living_children_and_leaves_temporal_plan_unch
 def test_workspace_unregister_leaves_canonical_hub_markdown_unchanged(command_vault_clone):
     """Unregister mutates operational registry/binding state, not canonical TEXT."""
     root = command_vault_clone.vault_root
-    entry = next(e for e in SELECTED if e.command_id == 'workspace.setup')
+    entry = next(e for e in SELECTED if e.command_id == 'workspace.register')
     relative, request = setup(root, entry, next(r for r in ROLES[entry.command_id]
                                               if r.name == 'existing-hub'))
-    registered = invoke(root, 'workspace.setup', request())
+    registered = invoke(root, 'workspace.register', request())
     assert registered.status == 'ok', registered
     before = (root / relative).read_bytes()
     result = invoke(root, 'workspace.unregister', {'key': 'sweep'})

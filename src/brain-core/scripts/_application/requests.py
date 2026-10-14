@@ -87,8 +87,9 @@ from .workspace.configure_bootstrap import WorkspaceConfigureBootstrapRequest
 from .workspace.list import WorkspaceListRequest
 from .workspace.read import WorkspaceReadRequest
 from .workspace.repair_registry import WorkspaceRepairRegistryRequest
-from .workspace.setup import WorkspaceSetupRequest
-from .workspace.ensure_registration import WorkspaceEnsureRegistrationRequest
+from .workspace.register import WorkspaceRegisterRequest
+from .workspace.rebind import WorkspaceRebindRequest
+from .workspace.create import WorkspaceCreateRequest
 from .workspace.update_policy import WorkspaceUpdatePolicyRequest
 from .workspace.unregister import WorkspaceUnregisterRequest
 from .workspace.update_metadata import WorkspaceUpdateMetadataRequest
@@ -196,8 +197,9 @@ __all__ = (
     "WorkspaceListRequest",
     "WorkspaceReadRequest",
     "WorkspaceRepairRegistryRequest",
-    "WorkspaceSetupRequest",
-    "WorkspaceEnsureRegistrationRequest",
+    "WorkspaceRebindRequest",
+    "WorkspaceRegisterRequest",
+    "WorkspaceCreateRequest",
     "WorkspaceUpdatePolicyRequest",
     "WorkspaceUnregisterRequest",
     "WorkspaceUpdateMetadataRequest",
@@ -582,8 +584,9 @@ CommandRequest = (
     | WorkspaceListRequest
     | WorkspaceReadRequest
     | WorkspaceRepairRegistryRequest
-    | WorkspaceSetupRequest
-    | WorkspaceEnsureRegistrationRequest
+    | WorkspaceRegisterRequest
+    | WorkspaceRebindRequest
+    | WorkspaceCreateRequest
     | WorkspaceUpdatePolicyRequest
     | WorkspaceUnregisterRequest
     | WorkspaceUpdateMetadataRequest

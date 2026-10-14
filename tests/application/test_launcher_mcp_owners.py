@@ -194,7 +194,7 @@ def test_composed_repair_repairs_what_is_reachable_and_names_what_is_not(tmp_pat
     vault_registry.register(vault, "one")
     away = (tmp_path / "away").resolve()
     (away / ".brain/local").mkdir(parents=True)
-    (away / ".brain/local/workspace.yaml").write_text("brain: one\nslug: away\nlinks:\n  workspace: away\n")
+    (away / ".brain/local/workspace.yaml").write_text("schema_version: 1\nbrain: one\nslug: away\n")
     workspace_registry.register_workspace(vault, "away", away)
     plan = registration._configure_plan(vault, home, away, McpScope.PROJECT, (McpClient.CLAUDE,),
                                          build_mcp_config(python, vault, workspace_dir=away))

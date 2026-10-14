@@ -17,6 +17,7 @@ from _application.registry import current_application_catalogue, current_request
 
 from .direct import (
     DirectContextError,
+    WorkspaceCompatibilityError,
     compose_direct_context,
     direct_script_command_ids,
     resolve_direct_vault,
@@ -127,6 +128,10 @@ def _run(argv, *, stdin, stdout, stderr, context_factory, script_path, owner_att
         args = build_parser().parse_args(argv)
         if args.operation is not None and (not args.operation.strip() or len(args.operation.encode("utf-8")) > 128):
             raise ScriptUsageError("--operation requires an ID of 1–128 UTF-8 bytes")
+        if args.noun == "workspace" and args.verb in {"setup", "ensure-registration", "bind"}:
+            raise ScriptUsageError(
+                "Retired workspace command; use workspace create, workspace register or workspace rebind"
+            )
         command_id = command_id_from_argv(
             args.noun,
             args.verb,
@@ -154,6 +159,14 @@ def _run(argv, *, stdin, stdout, stderr, context_factory, script_path, owner_att
             **({"transport_identity": transport_identity, "owner_initialisation_allowed": owner_initialisation_allowed}
                if transport_identity is not None else {}),
         )
+    except WorkspaceCompatibilityError as exc:
+        from _application.adapter import project_adapter_result
+
+        entry = next(item for item in catalogue.entries if item.command_id == command_id)
+        projection = project_adapter_result(exc.result(entry))
+        print(projection.json_text if args.json else projection.concise_text,
+              file=stdout if args.json else stderr)
+        return projection.exit_code
     except (DirectContextError, OSError, ValueError) as exc:
         print(f"command.py: infrastructure — {exc}", file=stderr)
         return 4

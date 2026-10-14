@@ -134,10 +134,10 @@ application-data location).
 | `~/.config/brain/vaults` | vault registry | Source of truth: the local Brains and their IDs. "Brain registration" means a row here | `vault_registry.py`, reached from `install.py`, the launcher's `brain register`, `brain unregister` and `brain registry remove-stale`, and the direct `vault_registry.py` script |
 | `~/.config/brain/default` | default Brain pointer | Source of truth: the opt-in machine default | `vault_registry.py`, reached from a user-scope install, `brain set-default` and `brain clear-default`, and cleared by `brain unregister`, `brain uninstall` and `brain registry remove-stale` when they remove the default Brain |
 | `~/.config/brain/mcp-registrations.json` and `<vault>/.brain/local/init-state.json` | MCP registration ledger (user claims, and project or local claims) | Source of truth: the MCP routes Brain installed and owns. "MCP registration" means a record here | MCP configuration, repair and migration (see [MCP ownership and migration](#mcp-ownership-and-migration)) |
-| `<workspace>/.brain/local/workspace.yaml` | workspace manifest | Source of truth of the workspace link (`brain` and `links.workspace`), plus the local `slug`, defaults and tags | `workspace.setup` and `workspace.unregister` for the link fields; people for the rest |
-| `<vault>/.brain/local/workspaces.json` | linked workspace registry | Derived: hub key to folder, for the manifests that name this Brain. It is kept because a Brain cannot enumerate manifests | `workspace.setup`, `workspace.unregister`, the automatic `workspace.repair-registry`, and MCP configuration and migration, which record the row a manifest implies |
-| `<vault>/_Workspaces/<key>/` | embedded workspace | The folder is the fact: no manifest and no registry row | nothing; it is resolved by its existence |
-| `<vault>/Workspaces/*.md` | workspace hub (`living/workspace`) | Vault content. "Workspace registration" means creating or attaching this hub | `workspace.ensure-registration` and `workspace.setup` create or attach it; otherwise the vault's artefact lifecycle |
+| `<workspace>/.brain/local/workspace.yaml` | workspace manifest | Source of truth of the binding (`schema_version: 1`, `brain`, canonical `slug`), plus optional defaults and descriptive links | `workspace.register`, `workspace.rebind`, `workspace.upgrade` and `workspace.unregister` for the binding fields; people for the rest |
+| `<vault>/.brain/local/workspaces.json` | linked workspace registry | Derived: schema-versioned `registrations` mapping keyed by canonical folder path, with canonical `slug` / folder `path` pairs; multiple paths may share a slug. It is kept because a Brain cannot enumerate manifests | `workspace.register`, `workspace.rebind`, `workspace.upgrade`, `workspace.unregister`, the automatic `workspace.repair-registry`, and MCP configuration and migration, which record the row a manifest implies |
+| `<vault>/_Workspaces/<key>/` | embedded workspace | Known implicit location plus existing canonical hub; not an external registry row | Known location is enumerated against its canonical hub; no external-row writer |
+| `<vault>/Workspaces/*.md` | workspace hub (`living/workspace`) | Vault content. Workspace creation explicitly creates this canonical identity | `workspace.create` explicitly creates it idempotently; `workspace.register` requires it; otherwise the vault's artefact lifecycle |
 | `~/.config/brain/brains.json` | derived machine registry (retired) | Nothing reads or writes it. A leftover file is inert and may be deleted once no Brain on this machine runs Brain Core 0.70.10 or earlier, whose `doctor.py`, `doctor_machine.py` and `machine.py` scripts recreate it | nothing |
 
 Where these docs say "registration" without a qualifier, they mean Brain
@@ -166,18 +166,59 @@ The distinction from Brain config:
 - `.brain/local/workspace.yaml` is workspace-level identity and defaults (machine-local)
 - `<vault>/.brain/local/workspaces.json` is the linked workspace registry, derived from the manifests that name this Brain (see [Machine and workspace state](#machine-and-workspace-state))
 
-`workspace.setup` writes the link fields of `.brain/local/workspace.yaml` (`brain` and `links.workspace`) together with `slug`, and `workspace.unregister` removes the two link fields; the rest of the file remains human-editable and is expected to evolve over time.
-`workspace.repair-registry` is intentionally narrower: an initially authorised, maintainer-level repair that changes `.brain/local/workspaces.json` only, never the human-owned workspace manifest. It drops a row only when the manifest in the recorded folder names another Brain or workspace, and never adds one. A file that cannot be read is refused with no change. A file whose rows can be read but which holds rows that name no usable folder is rebuilt without them, and its previous content is kept as the one fixed-name backup `.brain/local/workspaces.json.bak`. A file whose rows cannot be read (not UTF-8, not JSON, or the wrong shape) is refused with no change unless the request sets `allow_row_loss: true`, the person's explicit choice to rebuild it empty with the same backup; no extra prompt guards that field. The backup replaces the previous one only after the rebuilt registry has been saved, so a failed repair keeps the earlier backup.
+The current linked manifest stores `schema_version: 1`, `brain` and canonical
+`slug`. There is no independently editable local slug or `links.workspace`.
+Register requires an existing active hub; first registration requires an
+explicit slug, while an idempotent repeat can retain the validated binding.
+Rebind explicitly changes the selected folder's Brain/slug. Metadata updates
+and descriptive-link clearing cannot change identity.
 
-Built-in profile allow-lists that a vault stores in `.brain/config.yaml` are never widened automatically. A grant added to a template profile, such as `workspace.repair-registry` for `maintainer`, reaches new vaults and vaults that keep the template profiles; a vault whose stored profile carries a `label` or other edits keeps it as written until the grant is added by hand.
+```yaml
+schema_version: 1
+brain: my-brain
+slug: example
+defaults:
+  tags: []
+```
 
-Canonical `workspace.setup` also ensures a `living/workspace` hub and stores its
-bare key in `links.workspace`. That exact link selects the canonical
-`workspace/{key}` identity; the slug, registered path and `workspace/*` tags
-cannot silently choose a replacement. A configured missing or inactive hub is
-reported explicitly by session bootstrap. The manifest's Brain alias must resolve
-to the selected vault. Generic metadata updates cannot set `links.workspace`,
-and clearing descriptive links preserves it; use composite setup for binding.
+The per-Brain derived inventory is versioned and path-based:
+
+```json
+{
+  "schema_version": 1,
+  "registrations": {
+    "/absolute/repo": {"slug": "example", "path": "/absolute/repo"},
+    "/absolute/second-clone": {"slug": "example", "path": "/absolute/second-clone"}
+  }
+}
+```
+
+Paths are unique within a Brain; several paths can share its canonical slug.
+The local Brain registry composes machine coverage; there is no additional
+machine workspace identity database or cached manifest version.
+`workspace.repair-registry` repairs derived rows only, not schema or canonical
+identity. Use explicit `workspace.upgrade` scope for metadata migration and
+read-only `workspace.discover` roots for unregistered folders.
+
+Pre-version linked manifests migrate using verified legacy `links.workspace`,
+even when the old local slug differs; migration removes that redundant field
+and preserves descriptive metadata. Genuinely unlinked metadata has no Brain,
+canonical slug or workspace link and retains permitted global use. Embedded
+locations remain implicit known locations backed by an existing hub. The vault
+itself is not a folder registration and needs no workspace manifest.
+Malformed linkage refuses; unsupported future schemas require a compatible
+runtime and are never downgraded. Missing/unreachable folders remain recorded
+with follow-up guidance. Ordinary commands do not migrate metadata.
+
+Permission cutover is source-version-bound and runs before admission of the new
+register contract. Remove historical register/bind grants before mapping
+ensure-registration to create and setup to the narrower register. Preserve
+allow-list restrictions, exact initial classes, ordering and empty local
+mappings; conflicting target settings refuse instead of being overwritten.
+Do not infer custom grants for rebind, upgrade or discover. Recognised shipped
+built-in profiles use their canonical owner at the same authority ceiling;
+custom profiles retain their restrictions. No active consent is copied,
+renamed or revived, and old force approval cannot authorise rebind.
 
 Shared workspace policy lives on the hub as optional `default_parent` and
 `default_tags`. The local manifest can set `defaults.parent` and additive

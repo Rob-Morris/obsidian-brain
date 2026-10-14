@@ -13,7 +13,6 @@ from .._caller_workspace import (
     compound_workspace_entry,
     reject_unexpected,
     require_string,
-    workspace_admission,
 )
 from .._mutation_support import no_effect_error
 from ..context import InvocationContext
@@ -34,22 +33,53 @@ class WorkspaceUnregisterPayload:
 @dataclass(frozen=True, slots=True)
 class WorkspaceUnregisterRequest:
     COMMAND_ID: ClassVar[str] = "workspace.unregister"
-    COMMAND_VERSION: ClassVar[int] = 2
+    COMMAND_VERSION: ClassVar[int] = 3
     RESULT_TYPE: ClassVar[type] = WorkspaceUnregisterPayload
 
-    key: str
+    key: str | None = None
 
     def __post_init__(self) -> None:
-        validate_slug(self.key)
+        if self.key is not None:
+            validate_slug(self.key)
 
 
-def linked_folder(vault_root: Path, key: str) -> Path | None:
-    """The folder the Brain's registry row records for ``key``, or ``None`` without a row."""
+def selected_row(context, request):
     import workspace_registry
 
-    row = workspace_registry.load_registry_strict(vault_root).get(key)
-    return None if row is None else Path(row["path"])
+    folder = context.workspace_dir
+    if folder is None:
+        raise ValueError("Select the recorded folder with --workspace PATH; a slug cannot select a folder")
+    rows, expected = workspace_registry.read_registry_strict(context.selected_brain.vault_root)
+    path = workspace_registry.canonical_path(folder)
+    row = rows.get(path)
+    if row is None:
+        raise ValueError(f"Folder {path} has no registration in the selected Brain")
+    if request.key is not None and request.key != row["slug"]:
+        raise ValueError("The supplied key does not match the selected folder registration")
+    return Path(path), row["slug"], rows, expected
 
+
+def prepare(context, request, *, frozen_inputs=None):
+    from ..preparation import bind_operation, ObservedResource, content_digest
+    from ._preparation import _observe_file, _observed_or_absent
+    from _bootstrap.workspace_binding import manifest_path_for, legacy_manifest_path_for
+    from _bootstrap.mcp_registration import require_no_registered_integrations
+    import workspace_registry
+
+    root = context.selected_brain.vault_root
+    folder, key, _, _ = selected_row(context, request)
+    require_no_registered_integrations(root, folder)
+    observations = [_observe_file(Path(workspace_registry._registry_path(root)))]
+    for path in (manifest_path_for(folder), legacy_manifest_path_for(folder)):
+        observations.append(ObservedResource("linked-manifest", str(path),
+            _observed_or_absent(lambda path=path: content_digest(path.read_bytes()))))
+    def identity():
+        stat = folder.stat()
+        return f"{stat.st_dev}:{stat.st_ino}" if folder.is_dir() else None
+    observations.append(ObservedResource("linked-folder", str(folder), _observed_or_absent(identity)))
+    return bind_operation(request, observations=observations, frozen_inputs=frozen_inputs,
+                          review={"folder": str(folder), "workspace": "workspace/" + key,
+                                  "binding": _refusal(root, folder, key) or "matching"})
 
 def _refusal(vault_root: Path, folder: Path, key: str) -> str | None:
     """Why the folder is not this link's other end, in words, or ``None`` when it is."""
@@ -61,22 +91,31 @@ def _refusal(vault_root: Path, folder: Path, key: str) -> str | None:
 def _unlink(vault_root: Path, folder: Path, key: str) -> str | None:
     """Unlink the manifest under the folder's own lock; return a refusal if it is no longer this link."""
     from _common import vault_mutation_lock
-    from _bootstrap.workspace_binding import load_workspace_manifest_state, save_workspace_manifest_data, unlinked_payload
+    from _bootstrap.workspace_binding import load_workspace_manifest_state, unlinked_payload
+    from _bootstrap.file_transaction import FilePlan, apply_file_changes
+    from .register import stage_manifest
     import workspace_registry
 
+    from _bootstrap.mcp_registration import registration_lock, require_no_registered_integrations
     with ExitStack() as stack:
+        stack.enter_context(registration_lock(Path.home()))
+        stack.enter_context(vault_mutation_lock(vault_root))
+        require_no_registered_integrations(vault_root, folder)
         try:
-            # Never recreate a folder that has gone: only .brain/local may be made, under an existing .brain.
+            # The existing .brain parent is required; never recreate a vanished folder.
             (folder / ".brain" / "local").mkdir(exist_ok=True)
             stack.enter_context(vault_mutation_lock(folder, create_parent=False))
         except FileNotFoundError:
             return "the folder is unreachable"
         refusal = _refusal(vault_root, folder, key)
-        if refusal is None and key in workspace_registry.load_registry(vault_root):
+        if refusal is None and workspace_registry.canonical_path(folder) in workspace_registry.load_registry_strict(vault_root):
             refusal = f"a registry row for {key} was written again while unregistering"
         if refusal is None:
             state = load_workspace_manifest_state(folder)
-            save_workspace_manifest_data(folder, unlinked_payload(state.data), state=state)
+            plan = FilePlan()
+            stage_manifest(plan, state, unlinked_payload(state.data))
+            plan.validate()
+            apply_file_changes(plan.changes(), before_write=plan.validate_dependencies)
         return refusal
 
 
@@ -85,18 +124,17 @@ def execute(context: InvocationContext, request: WorkspaceUnregisterRequest):
     from _bootstrap.workspace_binding import WorkspaceBindingError, manifest_path_for, manifest_snapshot
     import workspace_registry
 
+    from _bootstrap.mcp_registration import registration_lock, require_no_registered_integrations
+    from _bootstrap.file_transaction import FileTransactionError
     root = context.selected_brain.vault_root
-    key = request.key
     try:
-        with vault_mutation_lock(root):
-            folder = linked_folder(root, key)
-            if folder is None:
-                return no_effect_error(type(request), ErrorCode.INVALID_REQUEST, workspace_registry.missing_row_message(key))
-            before_write = workspace_admission(context, request)
-            if context.dry_run:
-                before_write()
-            else:
-                workspace_registry.unregister_workspace(root, key, before_write=before_write)
+        with registration_lock(Path.home()), vault_mutation_lock(root):
+            folder, key, rows, expected = selected_row(context, request)
+            require_no_registered_integrations(root, folder)
+            context.admission.admit(prepare(context, request, frozen_inputs=context.admission.frozen_inputs))
+            if not context.dry_run:
+                del rows[workspace_registry.canonical_path(folder)]
+                workspace_registry.replace_registry(root, rows, expected=expected)
     except MutationLockError as exc:
         return no_effect_error(type(request), ErrorCode.CONFLICT, public_mutation_error_message(exc), retryable=True)
     except workspace_registry.RegistryChangedError as exc:
@@ -108,7 +146,7 @@ def execute(context: InvocationContext, request: WorkspaceUnregisterRequest):
     steps = [CallerWorkspaceStep(
         "workspace_registry", "planned" if planned else "changed",
         f"{'Would remove' if planned else 'Removed'} linked workspace {key} from the registry.")]
-    effects = [] if planned else [CommittedEffect(request.COMMAND_ID, f"caller-workspace-registration:{key}")]
+    effects = [] if planned else [CommittedEffect(request.COMMAND_ID, f"caller-workspace-registration:{folder}")]
     manifest = manifest_path_for(folder)
     # Lock order is vault, then folder, never the reverse; here the folder is locked only after
     # the vault lock is released, so the two are never held together.
@@ -117,17 +155,24 @@ def execute(context: InvocationContext, request: WorkspaceUnregisterRequest):
         before = manifest_snapshot(folder)
         try:
             refusal = _unlink(root, folder, key)
-        except (MutationLockError, OSError, ValueError, WorkspaceBindingError) as exc:
-            if not manifest_snapshot(folder).confirms(before):
+        except (MutationLockError, OSError, ValueError, WorkspaceBindingError, FileTransactionError) as exc:
+            if isinstance(exc, FileTransactionError):
+                effects.extend(CommittedEffect("workspace.unbound", str(path)) for path in exc.surviving_paths)
+            elif not manifest_snapshot(folder).confirms(before):
                 effects.append(CommittedEffect("workspace.unbound", str(manifest)))
             message = (f"Removed linked workspace {key} from the registry, but {manifest} still links it ({exc}): "
-                       "remove its brain and links.workspace fields, or run `brain workspace setup` from that "
+                       "remove its brain and slug fields, or run `brain workspace register` from that "
                        "folder to link it again.")
             return Partial(request.COMMAND_ID, request.COMMAND_VERSION,
                            CommandError(ErrorCode.CONFLICT, message, RequestErrorDetails(None, message)),
                            tuple(effects))
         if refusal is None:
             effects.append(CommittedEffect("workspace.unbound", str(manifest)))
+    import json
+    import shlex
+    recovery = (f"brain workspace register --vault {shlex.quote(str(root))} "
+                f"--workspace {shlex.quote(str(folder))} "
+                f"--request-json {shlex.quote(json.dumps({"slug": key}))}")
     warnings = ()
     if refusal is None:
         steps.append(CallerWorkspaceStep(
@@ -138,7 +183,9 @@ def execute(context: InvocationContext, request: WorkspaceUnregisterRequest):
             "workspace_binding", "noop", f"Left the folder {folder} untouched: {refusal}."))
         warnings = (CommandWarning(
             WarningCode.FOLLOW_UP_REQUIRED,
-            f"The workspace manifest in {folder} was not changed because {refusal}."),)
+            f"The workspace manifest in {folder} was not changed because {refusal}. "
+            f"Check or restore that folder and its metadata, then reconcile explicitly with: {recovery}. "
+            "If metadata is outdated, run workspace upgrade first; a different binding requires explicit rebind."),)
     status = CallerWorkspaceStatus.PLANNED if planned else CallerWorkspaceStatus.CHANGED
     payload = WorkspaceUnregisterPayload(key, str(folder), status, planned, tuple(steps))
     return Ok(request.COMMAND_ID, request.COMMAND_VERSION, payload,
@@ -147,7 +194,7 @@ def execute(context: InvocationContext, request: WorkspaceUnregisterRequest):
 
 def decode(payload: Mapping[str, object]) -> WorkspaceUnregisterRequest:
     reject_unexpected(payload, {"key"})
-    return WorkspaceUnregisterRequest(require_string(payload.get("key"), "key"))
+    return WorkspaceUnregisterRequest(require_string(payload.get("key"), "key", optional=True))
 
 
 def catalogue_entry():

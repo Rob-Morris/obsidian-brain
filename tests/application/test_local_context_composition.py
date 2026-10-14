@@ -158,8 +158,8 @@ def test_built_in_profiles_derive_cumulative_exact_application_commands():
         "reader": 30,
         "contributor": 61,
         "maintainer": 81,
-        "operator": 87,
-        "administrator": 88,
+        "operator": 88,
+        "administrator": 89,
     }
     assert (
         set(profiles["reader"])
@@ -173,8 +173,8 @@ def test_built_in_profiles_derive_cumulative_exact_application_commands():
     assert "artefact.delete" in profiles["administrator"]
     assert "artefact.delete" not in profiles["operator"]
     assert "retrieval.construct-benchmark" in profiles["maintainer"]
-    assert "workspace.setup" in profiles["operator"]
-    assert "workspace.setup" not in profiles["maintainer"]
+    assert "workspace.register" in profiles["operator"]
+    assert "workspace.register" not in profiles["maintainer"]
     assert "workspace.repair-registry" in profiles["maintainer"]
     assert not set(profiles["administrator"]) & {
         "brain_action",
@@ -202,7 +202,7 @@ def test_every_application_command_has_the_exact_five_profile_authority_matrix()
         "administrator": 4,
     }
 
-    assert len(catalogue.entries) == 88
+    assert len(catalogue.entries) == 89
     for profile, maximum in profile_rank.items():
         allowed = set(profiles[profile])
         for entry in catalogue.entries:

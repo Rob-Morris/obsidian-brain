@@ -120,58 +120,96 @@ Launcher commands may run without a selected Brain when their schema permits it.
 
 ### Workspace registration and policy
 
-`brain workspace setup --workspace /absolute/repo --request-json '{}'`
-converges the workspace registration (its canonical `living/workspace` hub), the
-linked workspace registry row and the caller-local binding. It requires
-an already registered selected Brain and operator authority. Setup has composite
-`selected_brain_and_caller_local` locality and
-`selected_brain_and_caller_local_mutation` effects: it creates or attaches the
-exact `living/workspace` hub, registers the local path in the selected Brain,
-then writes `brain`, `slug` and the bare `links.workspace` key locally.
+Create the canonical workspace, then register a folder against it:
 
-An existing `links.workspace` wins over the local slug and any registry path
-match. With no link, this explicit setup operation uses the binding slug and
-persists the link. Terminal workspaces require explicit reactivation. One
-preparation, admission and receipt cover both boundaries. Lock order is vault,
-then folder: the vault lock is held from the registry row write through the
-manifest write, with the folder lock nested inside, and is released before the
-ignore rules. A local-write failure reports known Brain effects and
-can be retried without creating another hub. The success payload separates
-`registration` (the workspace hub) from `binding`. `--request-json '{"force": true}'` rebinds a
-workspace that is already bound to another Brain or slug.
+```bash
+brain workspace create --brain my-brain --request-json '{"key":"example","title":"Example Workspace"}' --json
+brain workspace register --brain my-brain --workspace /absolute/repo --request-json '{"brain_id":"my-brain","slug":"example"}' --json
+```
 
-`brain workspace unregister --request-json '{"key": "<key>"}'` (version 2)
-removes a link from both ends. Under the selected Brain's lock it drops the
-linked workspace registry row for `key`, refusing while an MCP integration is
-registered for that folder. Then, holding only that folder's lock, it removes
-`brain` and `links.workspace` from the manifest in the folder the row records,
-keeping `slug`, `defaults` and the other links, so the manifest classifies as
-`unconfigured`. It edits that folder only when it is a reachable directory, is
-not a Brain vault root, and its manifest names this Brain and `key`; otherwise
-it drops the row alone and returns a `follow_up_required` warning naming the
-folder and the reason. The folder is the row's, not the caller's, and the
-result names it. The command has the same locality, effect class and
-projections as setup. `workspace.bind`, `workspace.register`, `setup.py
-workspace`, `configure.py workspace binding` and `workspace_registry.py
---register/--unregister` are retired: each wrote one end of a link.
+`workspace.create` accepts an explicit `key` and optional `title`; it is an
+idempotent contributor/content operation in the selected Brain. Registration
+requires an existing active workspace and never creates one. A missing hub
+returns no effects and an exact creation command pinned to the selected Brain.
+Projects, project hubs, default parents and default tags are optional.
 
-`workspace.ensure-registration` accepts `key` and optional `title`, mutates only
-the selected Brain and requires contributor authority. `workspace.update-policy`
-accepts canonical `workspace`, optional `default_parent`, `clear_parent`, and
-`default_tags` (an empty list clears tags). `workspace.update-metadata` retains
-local tag/descriptive-link updates and adds `parent` / `clear_parent` for `defaults.parent`.
-`links.workspace` is reserved to setup: metadata cannot set it and `clear_links`
-preserves it. Generic artefact creation and document frontmatter edits reject
-shared `default_parent` / `default_tags`; use the policy owner after workspace registration.
-Both parent policies require an existing non-terminal living artefact in the
-same workspace; a workspace hub is self-scoped.
+`--workspace` selects a local folder; `brain_id` and `slug` identify its target.
+First registration requires an explicit slug. Repeat registration may omit the
+slug and retain a validated existing binding. Registering the same binding is
+idempotent; a different binding refuses and supplies a `workspace.rebind`
+command. Rebind requires the target Brain and slug, preserves both canonical
+hubs and other folders, and refuses incompatible defaults or owned integrations.
+There is no force-based rebind or compatibility alias.
 
-Setup and local metadata updates support CLI, direct-script and Python adapters,
-and remain unavailable over MCP. Workspace registration (`workspace.ensure-registration`) and shared policy support all
-application projections. Session bootstrap reports `valid`, `unconfigured`,
-`configured_invalid` or `terminal_inactive` and supplies repair guidance for
-invalid or inactive bindings. A manifest's Brain alias must resolve to the
-selected vault; an explicit selection of another Brain fails closed.
+Two folders may share one Brain/slug. The manifest stores `schema_version: 1`,
+`brain` and canonical `slug`; the derived registry records each folder path.
+Folder operations select an explicit path or validated current folder context,
+never an arbitrary path from a shared slug. Moving a folder requires explicit
+registration at its new path and cleanup of the old registration.
+
+Register and rebind require operator permission and exceptional consent. When
+not initially authorised, start one local CLI job, inspect the prepared review,
+request its exact consent, and invoke the operation in that same job:
+
+```bash
+brain --brain my-brain session run -- sh
+brain access prepare --workspace /absolute/repo --request-json '{"preparation":{"kind":"operation","command_id":"workspace.register","arguments":{"brain_id":"my-brain","slug":"example"}}}' --json
+brain access request --workspace /absolute/repo --request-json '{"consent":{"scope":"operation","operation_id":"<returned ID>","digest":"<returned digest>","review":"<exact returned review>"}}' --json
+brain workspace register --workspace /absolute/repo --request-json '{"brain_id":"my-brain","slug":"example"}' --operation '<returned ID>' --json
+exit
+```
+
+Continue only after an authorised decision. JSON-encode returned review values;
+MCP consent does not transfer to a CLI job and cannot raise its permission
+ceiling. Discovery and access controls remain available for unbound or outdated
+folders. Invalid declared linkage refuses rather than falling back to a default
+Brain. An explicit selection must agree with the registration target.
+
+Ordinary use of supported legacy metadata returns a no-effect `conflict` with
+`details.reason: upgrade_required`, the affected folder, detected/supported
+schema versions and an exact Brain-pinned `remediation_command`. Bootstrap
+remains available and includes the same local recovery guidance; reads do not
+upgrade a manifest.
+
+Observed plans, admission and receipts cover the registry and folder boundaries.
+Registration locks the Brain before the folder; cross-Brain rebind locks Brains
+in deterministic canonical-path order, then the folder. Partial completion names
+committed effects and recovery; inspect it before retrying.
+
+`workspace.unregister` selects one folder registration, optionally checking its
+slug, and retains integration guards. A matching reachable manifest loses only
+`brain` and canonical `slug`; schema version, defaults and descriptive links
+remain. Missing, unreadable, malformed or differently bound manifests are not
+rewritten: remove only the explicitly selected stale row and report
+`follow_up_required`. Unverifiable integration guards refuse without effects.
+An actual write failure after a committed boundary reports partial completion.
+Other folders, the shared hub and implicit embedded location remain intact.
+
+`workspace.upgrade` is a caller-local CLI operation with explicit folder,
+selected-Brain or machine scope. Preview is read-only; apply requires operator
+permission and exceptional consent. It preserves verified legacy canonical
+identity, can recover a missing derived row for an explicitly selected folder,
+and never creates a missing hub or downgrades a future schema. Ordinary bound
+use of outdated metadata returns an exact local upgrade command instead of
+rewriting it. Machine scope covers registered locations in compatible Brains;
+unreachable or unverifiable coverage is reported as follow-up, not success.
+
+`workspace.discover` is a read-only local CLI scan of explicitly selected roots.
+It does not follow directory symlinks, register folders or infer workspace keys
+from repo names. Use its evidence-supported registration/upgrade guidance.
+Use `brain command describe workspace.upgrade` or `workspace.discover` for the
+exact scope fields and preview/apply contract.
+
+`workspace.update-policy` owns optional shared parent/tag defaults;
+`workspace.update-metadata` owns local defaults and descriptive links, never
+binding identity. Parents must be non-terminal living artefacts in the same
+workspace. Tags and links express association without adoption.
+
+Create and shared policy support MCP, CLI, script and Python projections.
+Register, rebind, unregister and local metadata require local filesystem access
+and have no MCP projection. MCP list/read return canonical metadata and zero,
+one or many known registrations without arbitrary caller-supplied folder
+selectors; known paths are inventory, not authority to access them.
 
 ### Effective workspace context for content mutations
 
@@ -522,7 +560,7 @@ runtime health and automatic or machine-owned findings still count as before.
 Doctor's approval inspection reports an approval target whose folder is absent,
 or which cannot be judged while a registered Brain is unreachable, as
 `unreachable`, which does not count either; approval changes still refuse.
-Every writer of `.brain/local/workspaces.json` (`workspace.setup`,
+Every writer of `.brain/local/workspaces.json` (`workspace.register`, `workspace.rebind`, `workspace.upgrade`,
 `workspace.unregister`, the `registry` repair and MCP reverse registration)
 writes with a compare-and-swap over the bytes it read, so none overwrites a row
 another committed meanwhile; the loser returns a retryable `conflict` with no
@@ -548,7 +586,7 @@ shape) and `workspace_registry_unreadable` (the file cannot be read) are
 rebuild an unparseable one empty with
 `brain workspace repair-registry --request-json '{"allow_row_loss": true}'`
 (the request is admitted like any other `workspace.repair-registry` call, with
-no extra prompt), which keeps the backup, then run `workspace setup` from each
+no extra prompt), which keeps the backup, then run `workspace register` from each
 linked folder. When this machine's vault registry cannot be read,
 `workspace_links_unverified` (`info`) says no row was verified.
 
@@ -557,15 +595,15 @@ the vault lock; under the lock it reads the registry again and drops a row only
 if the row still records the same folder and the folder's manifest is
 byte-identical and still disagrees. It never adds a row, takes no lock in, and
 writes nothing to, any workspace folder, and names each dropped row with the
-folder it recorded (`dropped`), so `workspace setup` can be run from it. On a
+folder it recorded (`dropped`), so `workspace register` can be run from it. On a
 Brain that is not registered on this machine, a well-formed file verifies
 nothing and the repair is a `noop` saying so. From the workspace end,
 `vault.check` with a workspace reports `workspace_registry_missing` (`info`,
 report-only) when the selected Brain has no row recording that folder for the
-manifest's hub key; `brain workspace setup` from the folder writes it. The
+manifest's hub key; `brain workspace register` from the folder writes it. The
 `workspace_link_unverifiable` and `workspace_folder_unreachable` codes are
 judgement findings, one per row: claim one, dismiss one while a drive is
-unplugged, or run `workspace setup` from the folder's new location. The `info`
+unplugged, or run `workspace register` from the folder's new location. The `info`
 codes keep `vault.check` at exit 0, so Doctor stays healthy; the two
 unreadable-file warnings make Doctor's overall result unhealthy for the
 current vault until the file is restored or rebuilt.
@@ -789,3 +827,15 @@ brain agent-skill configure --request-json '{"client":"grok"}' --json
 brain skill expose --request-json '{"name":"shaping","client":"grok","scope":"project"}' --json
 brain mcp configure --request-json '{"client":"grok","scope":"project","action":"remove"}' --json
 ```
+
+### Registered-folder metadata during upgrades
+
+After compatible runtime provisioning, normal upgrade runs selected-Brain
+registered-folder migration as a separately admitted local phase. Its external
+folder effects and recovery are distinct from the vault-only journal and Core
+VERSION commit. A folder failure does not roll back a committed Core upgrade;
+inspect its partial/follow-up results and exact remediation. Direct machine
+scope can cover all compatible registered Brains without upgrading their Core
+installations. Unreachable or incompatible Brains leave explicit incomplete
+coverage. Discovery scans only explicit roots and reports unknown registration
+status when inventory coverage is incomplete; it never silently registers.

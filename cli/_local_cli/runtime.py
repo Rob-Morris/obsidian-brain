@@ -200,14 +200,14 @@ def resolve_selected_brain(
     )
 
 
-def resolve_project_exposure_brain(
+def resolve_folder_brain(
     *,
     vault: str | None,
     brain_id: str | None,
     workspace: str | None,
     start_dir: Path | None = None,
 ) -> SelectedBrain:
-    """Resolve binding-first/default-second while retaining the project root."""
+    """Select a Brain for a local folder without requiring an existing binding."""
 
     start = (start_dir or Path.cwd()).resolve()
     project_value = workspace or os.environ.get("BRAIN_WORKSPACE_DIR")

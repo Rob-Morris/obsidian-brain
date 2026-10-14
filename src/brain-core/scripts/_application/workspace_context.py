@@ -110,11 +110,12 @@ def resolve_mutation_context(context, router, selector, *, parent=None, creation
 
     sources = []
     manifest = None
-    if context.workspace_dir is not None:
+    if (context.workspace_dir is not None
+            and context.workspace_dir.resolve() != context.selected_brain.vault_root.resolve()):
         try:
             state = load_workspace_manifest_state(context.workspace_dir)
         except WorkspaceBindingError as exc:
-            raise ValueError(f"Invalid workspace binding: {exc}; run brain workspace setup") from exc
+            raise ValueError(f"Invalid workspace binding: {exc}; run brain workspace register") from exc
         manifest = state.data
         for path in (state.manifest_path, state.legacy_path):
             sources.append(ObservedResource("workspace-manifest", str(path),

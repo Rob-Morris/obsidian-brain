@@ -371,7 +371,31 @@
         "unexpose"
       ],
       "authority": "operator"
+    },
+    {
+      "command_id": "workspace.discover",
+      "version": 1,
+      "owner": "launcher",
+      "classification": "none",
+      "mcp": null,
+      "cli": [
+        "workspace",
+        "discover"
+      ],
+      "authority": "reader"
+    },
+    {
+      "command_id": "workspace.upgrade",
+      "version": 1,
+      "owner": "launcher",
+      "classification": "machine_mutation",
+      "mcp": null,
+      "cli": [
+        "workspace",
+        "upgrade"
+      ],
+      "authority": "operator"
     }
   ],
-  "fingerprint": "sha256:006f0c5e3fe52ef7ebef0c9b450ecca4e319d61383995e31b899a1aa00f41e80"
+  "fingerprint": "sha256:d080cfe7bcda597f537b58c122beb744a6e635a0ce5dd3d0caa4b5683ee24506"
 }

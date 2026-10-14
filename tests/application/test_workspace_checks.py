@@ -1,5 +1,7 @@
 """Discoverable workspace failures and historical membership diagnostics."""
 
+import json
+
 import pytest
 from brain_test_support import link_folder, register_other_brain
 from _common import parse_frontmatter, serialize_frontmatter
@@ -15,11 +17,11 @@ from test_workspace_mutation_context import scoped
 def test_archived_hub_self_membership_is_valid_but_member_reference_is_not(scoped, explicit):
     from _application.artefact.archive import ArtefactArchiveRequest
     from _application.artefact.set_workspace import ArtefactSetWorkspaceRequest
-    from _application.workspace.ensure_registration import WorkspaceEnsureRegistrationRequest
+    from _application.workspace.create import WorkspaceCreateRequest
     from _application.workspace_context import WorkspaceSelector
 
     root, _local, app, _parents = scoped
-    assert app.invoke(WorkspaceEnsureRegistrationRequest("history")).status == "ok"
+    assert app.invoke(WorkspaceCreateRequest("history")).status == "ok"
     if explicit:
         assigned = app.invoke(ArtefactSetWorkspaceRequest("workspace/history",
             workspace_context=WorkspaceSelector("workspace/history")))
@@ -141,32 +143,43 @@ def _unverifiable(reason):
 ])
 def test_each_row_is_verified_against_the_manifest_in_its_folder(linked_root, tmp_path, manifest, expected):
     folder = _link(linked_root, tmp_path, "key", manifest)
-    before = sorted(str(path) for path in folder.rglob("*"))
+    before = {str(path): path.read_bytes() if path.is_file() else None for path in folder.rglob("*")}
 
     findings = _registry_findings(linked_root)
 
-    row = findings.get(".brain/local/workspaces.json#key")
+    row = findings.get(f".brain/local/workspaces.json#{folder}")
     if expected is None:
         assert findings == {}, "an agreeing row is quiet even when the slug differs from the key"
     else:
         assert (row["code"], row["severity"], "repair" in row) == expected[:3]
-        assert row["evidence"]["key"] == "key" and row["evidence"]["path"] == str(folder)
+        assert row["evidence"]["key"] == str(folder) and row["evidence"]["path"] == str(folder)
         if len(expected) == 4:
             assert row["evidence"]["reason"] == expected[3]
             assert expected[3] not in row["message"], "the message is prose, not the verdict token"
             assert row["fix"] in row["message"]
-    assert sorted(str(path) for path in folder.rglob("*")) == before, "verification writes nothing in the folder"
+    assert {str(path): path.read_bytes() if path.is_file() else None
+            for path in folder.rglob("*")} == before, "verification writes nothing in the folder"
 
 
-def test_a_row_recording_a_vault_root_is_unverifiable_and_not_sent_to_setup(linked_root):
+def test_a_row_recording_a_vault_root_is_invalid_and_not_sent_to_register(linked_root):
     import workspace_registry
 
-    workspace_registry.register_workspace(linked_root, "itself", linked_root)
+    path = workspace_registry.canonical_path(linked_root)
+    (linked_root / workspace_registry.REGISTRY_REL).write_text(json.dumps({
+        "schema_version": 1, "registrations": {path: {"slug": "itself", "path": path}}}))
 
-    row = _registry_findings(linked_root)[".brain/local/workspaces.json#itself"]
-
-    assert (row["code"], row["evidence"]["reason"]) == ("workspace_link_unverifiable", "vault_root")
-    assert "workspace setup" not in row["fix"] and "workspace unregister" in row["fix"]
+    registry_path = linked_root / workspace_registry.REGISTRY_REL
+    before = registry_path.read_bytes()
+    findings = _registry_findings(linked_root)
+    row = findings[workspace_registry.REGISTRY_REL]
+    assert (row["code"], row["severity"], row["repair"]["scope"]) == (
+        "workspace_registry_malformed", "warning", "registry")
+    assert "workspace register" not in row.get("fix", "")
+    verification = workspace_registry.verify_rows(linked_root, {
+        path: {"slug": "itself", "path": path}})
+    assert len(verification.rows) == 1
+    assert verification.rows[0].classification.verdict.value == "vault_root"
+    assert registry_path.read_bytes() == before
 
 
 def test_an_unreachable_folder_and_a_malformed_file_are_reported_with_their_own_identity(linked_root, tmp_path):
@@ -175,9 +188,9 @@ def test_an_unreachable_folder_and_a_malformed_file_are_reported_with_their_own_
     folder = _link(linked_root, tmp_path, "gone", "brain: brain\nlinks:\n  workspace: gone\n")
     shutil.rmtree(folder)
     findings = _registry_findings(linked_root)
-    assert findings[".brain/local/workspaces.json#gone"]["code"] == "workspace_folder_unreachable"
-    assert findings[".brain/local/workspaces.json#gone"]["severity"] == "info"
-    assert findings[".brain/local/workspaces.json#gone"]["evidence"] == {"key": "gone", "path": str(folder)}
+    assert findings[f".brain/local/workspaces.json#{folder}"]["code"] == "workspace_folder_unreachable"
+    assert findings[f".brain/local/workspaces.json#{folder}"]["severity"] == "info"
+    assert findings[f".brain/local/workspaces.json#{folder}"]["evidence"] == {"key": str(folder), "path": str(folder)}
 
     (linked_root / ".brain/local/workspaces.json").write_text('{"workspaces": {"relative": "foreign"}}\n')
     malformed = _registry_findings(linked_root)[".brain/local/workspaces.json"]
@@ -186,7 +199,7 @@ def test_an_unreachable_folder_and_a_malformed_file_are_reported_with_their_own_
 
 
 @pytest.mark.parametrize("content, reason", [("{broken\n", "invalid_json"), ("[]\n", "not_an_object"),
-                                             ('{"workspaces": [1]}\n', "workspaces_not_an_object"),
+                                             ('{"workspaces": [1]}\n', "invalid_registrations"),
                                              (b"\xff{}", "not_utf8")])
 def test_a_registry_whose_rows_cannot_be_read_is_a_judgement_finding_with_no_repair(linked_root, content, reason):
     from _repair_common import JUDGEMENT_FINDINGS
@@ -285,7 +298,7 @@ def test_the_workspace_end_reports_a_missing_row_as_information(scoped, row):
     result = app.invoke(VaultCheckRequest(check="workspace_contract"))
 
     missing = [item for item in result.result.findings if item.code == "workspace_registry_missing"]
-    if row not in {"absent", "other-path"}:
+    if row not in {"absent", "other-path", "embedded"}:
         assert missing == []
     else:
         assert [(item.severity, item.file) for item in missing] == [("info", str(local / ".brain/local/workspace.yaml"))]

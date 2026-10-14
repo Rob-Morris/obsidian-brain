@@ -1308,8 +1308,9 @@ def test_doctor_machine_main_renders_brain_level_repair_guidance(monkeypatch, tm
     assert "repair: mcp — Claude SessionStart hook for session.start is missing or does not match the canonical command." in human
     assert ".brain-core/scripts/repair.py" in human
     assert "mcp --vault" in human
-    assert "repair: registry — The linked workspace registry has rows that name no usable folder" in human
-    assert "'bad'. The repair rebuilds it without them" in human
+    assert "repair: registry — Workspace registry has invalid rows" in human
+    assert "['bad']" in human
+    assert "explicit repair preserves a backup and keeps every usable row" in human
     assert "workspace repair-registry" in human
 
     monkeypatch.setattr(

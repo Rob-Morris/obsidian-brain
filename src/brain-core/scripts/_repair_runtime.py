@@ -163,7 +163,7 @@ def _dropped_rows(result) -> str:
     """The rows a registry repair removed, with the folder each recorded, for the step message."""
     if not result.dropped:
         return ""
-    rows = ", ".join(f"{row.key} ({row.path})" for row in result.dropped)
+    rows = ", ".join(row.path for row in result.dropped)
     verb = "would remove" if result.status == "planned" else "removed"
     return f"; {verb} rows that disagree with their manifests: {rows}"
 
@@ -176,7 +176,7 @@ def repair_registry(vault_root: Path, dry_run: bool, bootstrap_steps: list[dict]
 
     steps = list(bootstrap_steps or [])
     try:
-        # The repair takes the vault lock itself; workspace.setup writes a row and its manifest under it.
+        # The repair takes the vault lock itself; workspace.register writes a row and its manifest under it.
         result = maintain_registry(vault_root, dry_run=dry_run)
     except MutationLockError as exc:
         steps.append(_step("registry", "error", mutation_lock_error_message(exc)))

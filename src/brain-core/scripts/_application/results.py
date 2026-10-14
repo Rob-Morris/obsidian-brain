@@ -95,6 +95,17 @@ class RequestErrorDetails:
 
 
 @dataclass(frozen=True, slots=True)
+class WorkspaceCompatibilityDetails:
+    """Observed local metadata and its exact caller-local recovery command."""
+
+    reason: str
+    folder: str
+    detected_version: int | None
+    supported_version: int
+    remediation_command: str
+
+
+@dataclass(frozen=True, slots=True)
 class CacheErrorDetails:
     cache: str
     reason: str
@@ -151,6 +162,7 @@ class OutcomeUnknownDetails:
 ErrorDetails = (
     RequestErrorDetails
     | CacheErrorDetails
+    | WorkspaceCompatibilityDetails
     | CapabilityUnavailableDetails
     | AuthorityDeniedDetails
     | InternalErrorDetails

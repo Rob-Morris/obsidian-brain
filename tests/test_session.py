@@ -164,19 +164,22 @@ class TestBuildSessionModel:
             "guidance": None,
             "purpose": "Configure a local folder as a Brain workspace.",
             "command": (
-                "brain workspace setup --workspace <absolute-local-workspace-path> "
-                "--request-json '{}'"
+                "brain workspace register --brain <registered-local-brain-id> "
+                "--workspace <absolute-local-workspace-path> "
+                "--request-json '{\"slug\":\"<workspace-key>\"}'"
             ),
             "selection": (
-                "Run on the agent's local machine. If the intended Brain is "
-                "not the locally resolved default, add --vault "
-                "<local-vault-path> or --brain <registered-local-brain-id>."
+                "Run on the agent's local machine; select the intended registered Brain "
+                "with --brain, or use --vault <local-vault-path> instead. For a missing hub, "
+                "run the returned workspace.create creation command, then retry. "
+                "Registration needs operator permission and exceptional consent in a local "
+                "brain session run job when not initially authorised; MCP consent does not transfer."
             ),
             "remote_boundary": (
                 "MCP cannot configure the connecting agent's local filesystem."
             ),
             "effect": (
-                "Ensures canonical Brain workspace registration, then writes "
+                "Attaches an existing active workspace, then writes "
                 ".brain/local/workspace.yaml; reports each boundary separately."
             ),
         }
@@ -193,8 +196,9 @@ class TestBuildSessionModel:
         )
         assert model["workspace_configuration"]["surface"] == "local CLI"
         assert model["workspace_configuration"]["command"] == (
-            "brain workspace setup --workspace <absolute-local-workspace-path> "
-            "--request-json '{}'"
+            "brain workspace register --brain <registered-local-brain-id> "
+            "--workspace <absolute-local-workspace-path> "
+            "--request-json '{\"slug\":\"<workspace-key>\"}'"
         )
 
     def test_workspace_configuration_does_not_embed_server_paths(self, tmp_path):
@@ -209,8 +213,9 @@ class TestBuildSessionModel:
         )
 
         assert model["workspace_configuration"]["command"] == (
-            "brain workspace setup --workspace <absolute-local-workspace-path> "
-            "--request-json '{}'"
+            "brain workspace register --brain <registered-local-brain-id> "
+            "--workspace <absolute-local-workspace-path> "
+            "--request-json '{\"slug\":\"<workspace-key>\"}'"
         )
         assert str(vault_root) not in model["workspace_configuration"]["command"]
         assert str(workspace_dir) not in model["workspace_configuration"]["command"]
@@ -237,7 +242,7 @@ class TestBuildSessionModel:
 
         assert "workspace_record" not in model
         assert model["workspace_configuration"]["binding_status"] == "configured_invalid"
-        assert model["workspace_configuration"]["canonical_workspace"] == "workspace/brain-demo"
+        assert model["workspace_configuration"]["canonical_workspace"] is None
         assert model["workspace_defaults"] == {
             "tags": ["workspace/brain-demo", "project/brain"],
         }
@@ -372,8 +377,9 @@ class TestSessionCli:
         assert "## Workspace Configuration" in content
         assert "`surface`: `local CLI`" in content
         assert (
-            "brain workspace setup --workspace <absolute-local-workspace-path> "
-            "--request-json '{}'"
+            "brain workspace register --brain <registered-local-brain-id> "
+            "--workspace <absolute-local-workspace-path> "
+            "--request-json '{\"slug\":\"<workspace-key>\"}'"
         ) in content
 
     def test_main_includes_workspace_defaults_when_manifest_present(
@@ -620,6 +626,7 @@ def test_includes_workspace_binding_when_manifest_declares_brain(tmp_path):
     workspace_dir = tmp_path / "demo-workspace"
     (workspace_dir / ".brain" / "local").mkdir(parents=True)
     (workspace_dir / ".brain" / "local" / "workspace.yaml").write_text(
+        "schema_version: 1\n"
         "brain: brain\n"
         "slug: demo-workspace\n",
         encoding="utf-8",
@@ -659,3 +666,15 @@ def test_omits_workspace_binding_when_manifest_binding_is_incomplete(tmp_path):
     )
 
     assert "workspace_binding" not in model
+
+
+def test_vault_self_ignores_workspace_metadata(tmp_path):
+    manifest = tmp_path / ".brain/local/workspace.yaml"
+    manifest.parent.mkdir(parents=True)
+    manifest.write_text("links: [malformed\n")
+    model = session.build_session_model(_minimal_router(tmp_path), str(tmp_path),
+                                       workspace_dir=str(tmp_path), load_config_if_missing=False)
+    assert "workspace" not in model
+    assert "workspace_binding" not in model
+    assert model["workspace_configuration"]["binding_status"] == "unconfigured"
+    assert manifest.read_text() == "links: [malformed\n"

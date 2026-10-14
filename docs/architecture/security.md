@@ -476,19 +476,28 @@ and sync policy like those of the source files. The state-home location does not
 sync exclusion; check its configured location and any separate sync policy. See
 [DD-085](decisions/dd-085-upgrade-rollback-journal.md).
 
-Application-owned `workspace.setup` declares a selected-Brain plus caller-local
-effect. Its single operation binding observes the canonical hub, path registry
-and caller manifest/scaffold targets. It admits once under the Brain lock,
-completes workspace registration, then acquires the caller lock while still
-holding the Brain lock. It rechecks the admitted local observations and writes
-the workspace manifest under both locks, then releases the Brain lock before
-writing the ignore-rule scaffold under the caller lock. The binding includes
-Git-root and Git-directory resolution, including absence, and the selected
-ignore-rule destination; setup revalidates that resolution under the caller
-lock and immediately before a scaffold write. Failures after a
-committed boundary return known partial effects. MCP cannot invoke this owner;
-the selected-Brain `workspace.ensure-registration` and `workspace.update-policy`
-owners require contributor authority and never write caller files.
+Application-owned `workspace.register` observes the existing active canonical
+hub, selected path registry and caller manifest/scaffold before admission.
+It needs operator permission and exceptional caller-local consent, and never
+creates a missing hub. Same-binding registration is idempotent; a changed
+identity requires separate `workspace.rebind` with fresh consent. Registration
+locks the Brain then folder; cross-Brain rebind orders Brain locks by canonical
+path before the folder. Observations are revalidated before writing and partial
+effects are reported through existing receipts/recovery owners.
+
+Multiple folders may share one Brain/slug; folder operations select a path or
+validated current context. MCP cannot invoke caller-local register/rebind or
+supply arbitrary folder selectors to list/read. Canonical creation and shared
+policy remain contributor/content operations in the selected Brain.
+Unregister retains integration guards and never rewrites a missing, malformed
+or differently bound manifest. Schema upgrade is separately admitted locally;
+read-only discovery never registers or creates identities.
+
+Permission migration removes historical register/bind grants before narrowed
+replacement mappings and preserves restrictive settings. Command versioning
+alone cannot distinguish stored command-ID grants. No old consent or force
+approval is transferred to rebind; managed host approvals continue exact-contract
+reconciliation. A current registered path is inventory, not filesystem authority.
 
 Workspace-aware create, lifecycle and semantic document owners accept only a symbolic
 `workspace_context` (`workspace/{key}` or `global`). The trusted adapter's
