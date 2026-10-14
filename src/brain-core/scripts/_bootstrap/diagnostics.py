@@ -189,37 +189,36 @@ def inspect_registry(vault_root: Path) -> RegistryInspection:
         return RegistryInspection(path, RegistryCondition.UNPARSEABLE, content=content, reason=reason, message=(
             f"The linked workspace registry {problem}, so none of its rows can be read and it is never rebuilt "
             "automatically. Restore it from a copy, or rebuild it empty (keeping the file as "
-            f"{path.name}.bak) with `{registry_rebuild_command(vault_root)}` and run brain workspace setup from "
+            f"{path.name}.bak) with `{registry_rebuild_command(vault_root)}` and run brain workspace register from "
             "each linked folder."))
 
     try:
-        raw = json.loads(content.decode("utf-8"))
+        raw = json.loads(content.decode("utf-8"), object_pairs_hook=workspace_registry._unique_object)
     except UnicodeDecodeError:
         return unparseable("not_utf8", "is not UTF-8")
-    except json.JSONDecodeError as exc:
-        return unparseable("invalid_json", f"is not valid JSON ({exc})")
+    except (json.JSONDecodeError, ValueError) as exc:
+        return unparseable("invalid_json", f"is not valid unambiguous JSON ({exc})")
     if not isinstance(raw, dict):
         return unparseable("not_an_object", "is not a JSON object")
-    workspaces = raw.get("workspaces", {})
-    if not isinstance(workspaces, dict):
-        return unparseable("workspaces_not_an_object", "has a `workspaces` value that is not an object")
-
-    rows: dict[str, dict] = {}
-    invalid: list[str] = []
-    for key, entry in workspaces.items():
-        row = workspace_registry.salvage_row(key, entry)
-        if row is None:
-            invalid.append(key)
-        else:
-            rows[key] = row
+    if "schema_version" in raw and (type(raw["schema_version"]) is not int or raw["schema_version"] != 1):
+        return RegistryInspection(path, RegistryCondition.UNREADABLE,
+                                  "Unsupported workspace registry schema; use a compatible runtime, never rebuild or downgrade it.",
+                                  content=content, reason="unsupported_schema")
+    try:
+        rows, invalid = workspace_registry.inspect_registry_rows(raw)
+    except ValueError as exc:
+        return unparseable("invalid_registrations", str(exc))
+    vault_path = workspace_registry.canonical_path(vault_root)
+    if vault_path in rows:
+        invalid.append(vault_path)
+        del rows[vault_path]
     if invalid:
-        return RegistryInspection(path, RegistryCondition.INVALID_ROWS, (
-            "The linked workspace registry has rows that name no usable folder (an invalid key, or a path that "
-            "is empty, relative or contains a NUL byte): " + ", ".join(repr(key) for key in sorted(invalid))
-            + ". The repair rebuilds it without them and keeps the file as a backup."), rows, content)
-    if raw != {"workspaces": rows}:
+        return RegistryInspection(path, RegistryCondition.INVALID_ROWS,
+                                  f"Workspace registry has invalid rows {invalid!r}; explicit repair preserves a backup and keeps every usable row.",
+                                  rows, content)
+    if content != workspace_registry.registry_bytes(rows):
         return RegistryInspection(path, RegistryCondition.NORMALISABLE,
-                                  "The linked workspace registry needs canonical JSON normalisation.", rows, content)
+                                  "The linked workspace registry needs lossless schema normalisation.", rows, content)
     return RegistryInspection(path, RegistryCondition.HEALTHY, "Registry is healthy.", rows, content)
 
 
@@ -513,8 +512,8 @@ def collect_registry_check_findings(vault_root: str | Path) -> list[dict]:
             "message": f"{verification.reason.describe()} {remedy}", "fix": remedy,
         })
 
-    def unregister(key: str) -> str:
-        return _workspace_command(vault_root, "unregister", {"key": key})
+    def unregister(path: str) -> str:
+        return _workspace_command(vault_root, "unregister", {}, workspace=path)
 
     for row in verification.rows:
         verdict = row.classification.verdict
@@ -535,7 +534,7 @@ def collect_registry_check_findings(vault_root: str | Path) -> list[dict]:
         if verdict is LinkVerdict.UNREACHABLE:
             code = "workspace_folder_unreachable"
             evidence = {"key": row.key, "path": row.path}
-            remedy = (f"Reconnect the folder, run `{_workspace_command(vault_root, 'setup', {})}` from its new "
+            remedy = (f"Reconnect the folder, run `{_workspace_command(vault_root, 'register', {'slug': registry.rows[row.key]['slug']})}` from its new "
                       f"location, run `{unregister(row.key)}` to forget it, or dismiss this while it is away.")
             message = f"Linked workspace {row.key} is not reachable at {row.path}. {remedy}"
         else:
@@ -544,8 +543,13 @@ def collect_registry_check_findings(vault_root: str | Path) -> list[dict]:
             if verdict is LinkVerdict.VAULT_ROOT:
                 remedy = f"Run `{unregister(row.key)}` to forget the row, or dismiss this."
             else:
-                setup = _workspace_command(vault_root, "setup", {}, workspace=row.path)
-                remedy = f"Run `{setup}` to link it again, `{unregister(row.key)}` to forget it, or dismiss this."
+                if verdict is LinkVerdict.NO_MANIFEST:
+                    command = _workspace_command(vault_root, "register", {"slug": registry.rows[row.key]["slug"]}, workspace=row.path)
+                    remedy = f"Run `{command}` to register it explicitly, `{unregister(row.key)}` to forget the row, or dismiss this."
+                else:
+                    command = _workspace_command(vault_root, "upgrade", {}, workspace=row.path)
+                    remedy = f"Resolve the reported manifest/Brain problem, then run `{command}` for compatible metadata; " \
+                             f"run `{unregister(row.key)}` to forget the row, or dismiss this."
             message = f"Linked workspace {row.key} at {row.path} cannot be verified: {why}. {remedy}"
         findings.append({"check": "workspace_registry", "code": code, "severity": "info",
                          "file": file, "evidence": evidence, "message": message, "fix": remedy})

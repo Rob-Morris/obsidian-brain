@@ -16,6 +16,7 @@ from __future__ import annotations
 
 from pathlib import Path
 import re
+import sys
 
 import pytest
 import yaml
@@ -56,6 +57,7 @@ NON_COMMAND_NAMESPACES = frozenset(
 # Dotted tokens that look like `<noun>.<verb>` but are not application commands.
 # Keep this list short and justified — every entry weakens the catalogue check.
 KNOWN_NON_COMMANDS = {
+    "links.workspace": "legacy workspace manifest field, not a command",
     "mcp.configure": "launcher-owned setup command (configure.py), outside the application catalogue",
 }
 
@@ -133,7 +135,11 @@ def _all_type_dirs() -> list[Path]:
 
 @pytest.fixture(scope="module")
 def command_ids() -> frozenset[str]:
-    return frozenset(e.command_id for e in current_application_catalogue().entries)
+    sys.path.insert(0, str(REPO / "cli"))
+    from launcher_catalogue import LAUNCHER_CATALOGUE
+
+    return frozenset(e.command_id for e in current_application_catalogue().entries) | frozenset(
+        e.command_id for e in LAUNCHER_CATALOGUE.entries)
 
 
 class TestBootstrapRouting:

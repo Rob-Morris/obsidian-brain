@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 
 import migrate_to_0_62_9
-from _command_interface.profile_migration import ProfileMigrationError
+from _command_interface.profile_migration import ProfileMigrationError, RETIRED_COMMANDS
 from _common._yaml import dump_yaml_text, load_mapping_file
 
 
@@ -51,7 +51,10 @@ def test_migrates_v0_62_8_builtins_to_current_defaults(tmp_path: Path) -> None:
         "profiles": changed_profiles,
         "strategies": {profile: "rename" for profile in changed_profiles},
     }
-    assert load_mapping_file(config_path)["vault"]["profiles"] == current_profiles
+    expected_profiles = copy.deepcopy(current_profiles)
+    for definition in expected_profiles.values():
+        definition["allow"] = [tool for tool in definition["allow"] if tool not in RETIRED_COMMANDS]
+    assert load_mapping_file(config_path)["vault"]["profiles"] == expected_profiles
     assert migrate_to_0_62_9.migrate(str(tmp_path)) == {
         "status": "skipped",
         "profiles": [],

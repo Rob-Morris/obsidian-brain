@@ -140,25 +140,20 @@ def workspace_paths(plan: FilePlan, vault: Path, *, unreachable: list[Unreachabl
     import workspace_registry
 
     path = vault / ".brain/local/workspaces.json"
-    data = registration._json_object(plan, path)
-    raw = data.get("workspaces", {})
-    if not isinstance(raw, dict):
-        raise ValueError(f"Invalid workspace registry: {path}")
+    content = plan.read_bytes(path)
+    rows = {} if content is None else workspace_registry.decode_registry(content)
+    if workspace_registry.canonical_path(vault) in rows:
+        raise ValueError("Vault-self is not a workspace registration; remove its stale row explicitly")
     roots = {vault}
-    for slug, value in raw.items():
-        # The registry's one row rule: a row that names no usable folder is invalid, never absent.
-        row = workspace_registry.salvage_row(slug, value)
-        if row is None:
-            raise ValueError(f"Workspace registry row {slug!r} names no usable folder; run brain workspace "
-                             f"repair-registry: {path}")
+    for row in rows.values():
+        slug = row["slug"]
         root = Path(row["path"])
         if not root.is_dir():
             _record_or_refuse(unreachable, UnreachableLocation(root, f"linked workspace {slug} of {vault}"))
             continue
         roots.add(root.resolve())
-    embedded = vault / "_Workspaces"
-    if embedded.exists():
-        roots.update(path.resolve() for path in embedded.iterdir() if path.is_dir())
+    for workspace in workspace_registry.list_workspaces(vault, registry=rows):
+        roots.update(Path(row["path"]) for row in workspace["locations"] if row["mode"] == "embedded")
     return roots
 
 

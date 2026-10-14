@@ -962,7 +962,7 @@ def test_a_legacy_post_commit_stage_name_is_classified_as_committed(tmp_path):
 
     message = result["warnings"][0]["message"]
     assert "Its Core is committed" in message
-    assert "runtime.refresh-router, brain runtime repair or mcp.repair" in message
+    assert "runtime.refresh-router, brain runtime repair, workspace.upgrade or mcp.repair" in message
 
 
 # --- M6: a damaged template capture refuses the run ---------------------------------

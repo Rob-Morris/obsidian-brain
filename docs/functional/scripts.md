@@ -135,13 +135,27 @@ objects as the CLI. The pass needs a keyless standalone call; see
 
 Machine-global operations do not run through selected-Brain `command.py`. The versioned CLI distribution owns the separate stdlib-safe launcher catalogue and its install, upgrade, registry, runtime, MCP and diagnostic owners.
 
-Use `command.py workspace setup --workspace PATH` or `brain workspace setup
---workspace PATH` for the compound workspace registration and binding contract; the
-legacy `setup.py workspace` entry point, which wrote only the local binding, is
-retired. This operation is unavailable over MCP because its second boundary
-needs caller filesystem access. `workspace_registry.py` lists and resolves
-workspaces; its `--register` and `--unregister` writers are retired in favour
-of `workspace setup` and `workspace unregister`.
+Use `command.py workspace register --vault VAULT --workspace PATH` or
+`brain workspace register --brain ID --workspace PATH` with explicit
+`brain_id` and first-registration `slug` semantic fields. Create the canonical
+workspace separately with `workspace.create` (`key` and optional `title`).
+Register refuses a missing active workspace without writes and returns its
+Brain-pinned creation command. An idempotent repeat may retain the validated
+slug; a changed identity requires explicit `workspace.rebind`, not force.
+Discovery and consent controls remain available before binding; ordinary
+commands still validate linkage. Use a local CLI job for exceptional consent.
+
+Create supports MCP, CLI, direct script and Python. Register/rebind/unregister
+need caller-local filesystem access and have no MCP projection. Local CLI
+`workspace.upgrade` selects explicit folder, Brain or machine scope;
+`workspace.discover` scans explicit roots read-only. Discover never registers,
+and upgrade never creates missing hubs. Inspect command discovery for their
+exact scope and preview/apply fields.
+
+The former ensure-registration/setup commands have no compatibility aliases.
+The old `setup.py workspace`, `configure.py workspace binding` and
+`workspace_registry.py --register/--unregister` one-ended writers remain retired;
+use the canonical owners rather than editing only one end of a binding.
 
 ## Dependency boundaries
 
@@ -228,3 +242,15 @@ An inaccessible directory is reported as `unreadable_file/os_error` and means th
 ### Requested text repair
 
 Use `command.py vault repair-text --dry-run` for a byte-count preview, then apply without the flag. The optional request `paths` selects only current clear `text_encoding` findings; the command does not infer a legacy encoding. It operates without a compiled router, checks source digests, skips changes made after planning, and atomically writes bytes without altering line endings. A failed write can produce a partial result naming each committed path. Truncation previews show the dropped bytes in hexadecimal and Windows-1252, with guidance to exclude that file or convert it manually. The judgement family is not a bootstrap-recovery scope or an automatic repair.
+
+### Registered-folder metadata during upgrades
+
+After compatible runtime provisioning, normal upgrade runs selected-Brain
+registered-folder migration as a separately admitted local phase. Its external
+folder effects and recovery are distinct from the vault-only journal and Core
+VERSION commit. A folder failure does not roll back a committed Core upgrade;
+inspect its partial/follow-up results and exact remediation. Direct machine
+scope can cover all compatible registered Brains without upgrading their Core
+installations. Unreachable or incompatible Brains leave explicit incomplete
+coverage. Discovery scans only explicit roots and reports unknown registration
+status when inventory coverage is incomplete; it never silently registers.

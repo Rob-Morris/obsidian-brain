@@ -10,8 +10,8 @@ from _common._workspace import (membership, resolve_workspace_binding, validate_
                                workspace_policy, workspace_reference)
 from _application.context import Capability
 from _application.types import Availability, DependencyTier
-from _application.workspace.setup import WorkspaceSetupRequest, execute as setup, prepare_setup
-from _application.workspace.ensure_registration import WorkspaceEnsureRegistrationRequest
+from _application.workspace.register import WorkspaceRegisterRequest, execute as setup, prepare_register
+from _application.workspace.create import WorkspaceCreateRequest
 from _application.workspace.update_policy import WorkspaceUpdatePolicyRequest
 from _application.workspace.update_metadata import WorkspaceUpdateMetadataRequest
 from command_application import application_for
@@ -85,13 +85,10 @@ def test_binding_states_are_exact_and_terminal_identity_survives():
     view = router()
     assert resolve_workspace_binding(view, None)[0] is BindingState.UNCONFIGURED
     assert resolve_workspace_binding(view, {"slug": "demo", "defaults": {"tags": ["x"]}})[0] == "unconfigured"
-    assert resolve_workspace_binding(view, {"brain": "demo-brain", "slug": "demo"}).cause is InvalidBindingCause.LINK
-    assert resolve_workspace_binding(view, {"slug": "demo", "links": "not-a-mapping"})[0] == "configured_invalid"
-    assert resolve_workspace_binding(view, {"links": {"workspace": "missing"}})[:2] == ("configured_invalid", "workspace/missing")
-    assert resolve_workspace_binding(view, {"links": {"workspace": "missing"}}).cause is InvalidBindingCause.BRAIN_SLUG
-    manifest = {"brain": "demo-brain", "slug": "repo", "links": {"workspace": "demo"}}
+    manifest = {"schema_version": 1, "brain": "demo-brain", "slug": "demo"}
+    assert resolve_workspace_binding(view, {"links": "not-a-mapping"})[0] == "configured_invalid"
     assert resolve_workspace_binding(view, manifest, brain_binding_error="no").cause is InvalidBindingCause.ALIAS
-    assert resolve_workspace_binding(view, {**manifest, "links": {"workspace": "nope"}}).cause is InvalidBindingCause.HUB
+    assert resolve_workspace_binding(view, {**manifest, "slug": "nope"}).cause is InvalidBindingCause.HUB
     assert resolve_workspace_binding(view, {**manifest, "defaults": {"parent": "project/nope"}}).cause is InvalidBindingCause.LOCAL_DEFAULTS
     assert resolve_workspace_binding(view, manifest)[:2] == ("valid", "workspace/demo")
     assert resolve_workspace_binding(view, manifest).cause is None
@@ -109,20 +106,22 @@ def test_index_source_fingerprint_tracks_membership_lifecycle_and_policy(field, 
     assert _hash_index_payload({**fields, "body": "irrelevant"}) == _hash_index_payload(fields)
 
 
-def test_setup_creates_then_attaches_and_keeps_explicit_link(command_vault_clone, tmp_path):
+def test_setup_attaches_and_keeps_explicit_link(command_vault_clone, tmp_path):
     root = command_vault_clone.vault_root
     workspace = tmp_path / "repo"
     workspace.mkdir()
     vault_registry.register(root, "demo-brain")
-    save_workspace_manifest_data(workspace, {"brain": "demo-brain", "slug": "repo", "links": {"workspace": "canonical"}, "defaults": {"tags": ["local"]}})
+    save_workspace_manifest_data(workspace, {"schema_version": 1, "brain": "demo-brain", "slug": "canonical", "defaults": {"tags": ["local"]}})
     app = application(root, workspace)
-    result = app.invoke(WorkspaceSetupRequest())
+    created = app.invoke(WorkspaceCreateRequest("canonical"))
+    assert created.status == "ok", created
+    result = app.invoke(WorkspaceRegisterRequest())
     assert result.status == "ok", result
     assert result.result.registration.reference == "workspace/canonical"
-    assert result.result.registration.status == "created"
-    assert result.result.binding.slug == "repo"
+    assert result.result.registration.status == "attached"
+    assert result.result.binding.slug == "canonical"
     assert read_workspace_manifest(workspace)["defaults"] == {"tags": ["local"]}
-    again = app.invoke(WorkspaceSetupRequest())
+    again = app.invoke(WorkspaceRegisterRequest())
     assert again.status == "ok", again
     assert again.result.registration.status == "attached"
     assert again.committed_effects == ()
@@ -140,9 +139,11 @@ def test_setup_one_admission_with_nested_locks_and_known_second_boundary_partial
     workspace = tmp_path / "repo"
     workspace.mkdir()
     vault_registry.register(root, "demo-brain")
-    context = application(root, workspace)._context
-    request = WorkspaceSetupRequest()
-    admission = MatchingAdmission(prepare_setup(context, request))
+    app = application(root, workspace)
+    assert app.invoke(WorkspaceCreateRequest("repo")).status == "ok"
+    context = app._context
+    request = WorkspaceRegisterRequest(slug="repo")
+    admission = MatchingAdmission(prepare_register(context, request))
     held, nested = [], []
     original_lock = _common.vault_mutation_lock
     @contextmanager
@@ -156,16 +157,19 @@ def test_setup_one_admission_with_nested_locks_and_known_second_boundary_partial
         finally:
             held.pop()
     monkeypatch.setattr(_common, "vault_mutation_lock", distinct_locks)
-    original_save = workspace_binding.save_workspace_manifest_data
-    def fail(*args, **kwargs):
-        raise OSError("local disk refused write")
-    monkeypatch.setattr(workspace_binding, "save_workspace_manifest_data", fail)
+    from _bootstrap import file_transaction
+    original_save = file_transaction.apply_file_changes
+    def fail(changes, **kwargs):
+        if any(change.path.name == "workspace.yaml" for change in changes):
+            raise OSError("local disk refused write")
+        return original_save(changes, **kwargs)
+    monkeypatch.setattr(file_transaction, "apply_file_changes", fail)
     result = setup(replace(context, admission=admission), request)
     assert result.status == "partial", result
     assert admission.calls == 1
     assert (root, workspace) in nested, "the manifest is written under the folder lock inside the vault lock"
-    assert [effect.kind for effect in result.committed_effects] == ["workspace.registered", "workspace.path-registered"]
-    monkeypatch.setattr(workspace_binding, "save_workspace_manifest_data", original_save)
+    assert [effect.kind for effect in result.committed_effects] == ["workspace.path-registered"]
+    monkeypatch.setattr(file_transaction, "apply_file_changes", original_save)
     retry = application(root, workspace).invoke(request)
     assert retry.status == "ok", retry
     assert retry.result.registration.status == "attached"
@@ -177,9 +181,9 @@ def test_policy_update_validates_default_parent_and_local_clear(command_vault_cl
     workspace.mkdir()
     vault_registry.register(root, "demo-brain")
     app = application(root, workspace)
-    created = app.invoke(WorkspaceEnsureRegistrationRequest("demo"))
+    created = app.invoke(WorkspaceCreateRequest("demo"))
     assert created.status == "ok", created
-    save_workspace_manifest_data(workspace, {"brain": "demo-brain", "slug": "repo", "links": {"workspace": "demo"}, "defaults": {"tags": ["local"]}})
+    save_workspace_manifest_data(workspace, {"schema_version": 1, "brain": "demo-brain", "slug": "demo", "defaults": {"tags": ["local"]}})
     # A hub is a living, self-scoped eligible default parent.
     policy = app.invoke(WorkspaceUpdatePolicyRequest("workspace/demo", "workspace/demo", default_tags=("shared", "shared")))
     assert policy.status == "ok", policy
@@ -203,7 +207,7 @@ def test_setup_preparation_is_read_only_without_machine_registration(command_vau
     from pathlib import Path
     before = Path(path).read_bytes() if Path(path).exists() else None
     with pytest.raises(ValueError, match="not registered on this machine"):
-        prepare_setup(context, WorkspaceSetupRequest())
+        prepare_register(context, WorkspaceRegisterRequest(slug="repo"))
     assert (Path(path).read_bytes() if Path(path).exists() else None) == before
 
 
@@ -212,7 +216,7 @@ def test_shared_policy_preparation_rejects_live_hub_revision_drift(command_vault
 
     root = command_vault_clone.vault_root
     app = application(root)
-    created = app.invoke(WorkspaceEnsureRegistrationRequest("demo"))
+    created = app.invoke(WorkspaceCreateRequest("demo"))
     assert created.status == "ok", created
     request = WorkspaceUpdatePolicyRequest("workspace/demo", default_tags=("shared",))
     context = app._context
@@ -238,8 +242,8 @@ def test_generic_writers_cannot_bypass_workspace_policy(command_vault_clone, ter
 
     root = command_vault_clone.vault_root
     app = application(root)
-    hub = app.invoke(WorkspaceEnsureRegistrationRequest("demo"))
-    other = app.invoke(WorkspaceEnsureRegistrationRequest("other"))
+    hub = app.invoke(WorkspaceCreateRequest("demo"))
+    other = app.invoke(WorkspaceCreateRequest("other"))
     assert hub.status == other.status == "ok"
     if terminal:
         closed = app.invoke(ArtefactSetStatusRequest("workspace/other", "completed"))
@@ -283,7 +287,8 @@ def test_metadata_cannot_relink_and_clear_preserves_binding_registry(command_vau
     workspace.mkdir()
     vault_registry.register(root, "demo-brain")
     app = application(root, workspace)
-    assert app.invoke(WorkspaceSetupRequest()).status == "ok"
+    assert app.invoke(WorkspaceCreateRequest("repo")).status == "ok"
+    assert app.invoke(WorkspaceRegisterRequest(slug="repo")).status == "ok"
     original = read_workspace_manifest(workspace)
     registry = workspace_registry.load_registry(root)
     for name in ("workspace", " workspace "):
@@ -298,7 +303,7 @@ def test_metadata_cannot_relink_and_clear_preserves_binding_registry(command_vau
     assert app.invoke(WorkspaceUpdateMetadataRequest(clear_links=True)).status == "ok"
     assert read_workspace_manifest(workspace) == original
     assert workspace_registry.load_registry(root) == registry
-    retry = app.invoke(WorkspaceSetupRequest())
+    retry = app.invoke(WorkspaceRegisterRequest(slug="repo"))
     assert retry.status == "ok" and retry.committed_effects == ()
 
 
@@ -308,7 +313,7 @@ def test_session_rejects_manifest_bound_to_another_or_missing_brain(command_vaul
     from _lifecycle.derived_cache_state import require_fresh_compiled_router
 
     root = command_vault_clone.vault_root
-    assert application(root).invoke(WorkspaceEnsureRegistrationRequest("same-key")).status == "ok"
+    assert application(root).invoke(WorkspaceCreateRequest("same-key")).status == "ok"
     other = tmp_path / "other-brain"
     (other / ".brain-core").mkdir(parents=True)
     (other / ".brain-core/VERSION").write_text("0.1.0\n")
@@ -316,7 +321,7 @@ def test_session_rejects_manifest_bound_to_another_or_missing_brain(command_vaul
     vault_registry.register(other, "brain-b")
     workspace = tmp_path / "repo"
     workspace.mkdir()
-    manifest = {"brain": alias, "slug": "repo", "links": {"workspace": "same-key"}}
+    manifest = {"schema_version": 1, "brain": alias, "slug": "same-key"}
     save_workspace_manifest_data(workspace, manifest)
     view = require_fresh_compiled_router(str(root))
     model = build_session_model(view, str(root), workspace_dir=str(workspace))

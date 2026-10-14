@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 
 from brain_test_support import link_folder, manifest_text
+import workspace_registry
 
 from _application.registry import current_application_catalogue, current_request_resolver
 from _application.results import ErrorCode
@@ -36,7 +37,8 @@ def test_workspace_registry_repair_is_noop_when_registry_is_canonical(
 ):
     root = command_vault_clone.vault_root
     path = _registry(root)
-    path.write_text('{"workspaces": {}}\n')
+    path.write_bytes(workspace_registry.registry_bytes({}))
+    before = path.read_bytes()
 
     result = application_for(root).invoke(WorkspaceRepairRegistryRequest())
 
@@ -45,6 +47,7 @@ def test_workspace_registry_repair_is_noop_when_registry_is_canonical(
     assert result.result.entry_count == 0
     assert result.result.backup_path is None
     assert result.committed_effects == ()
+    assert path.read_bytes() == before
 
 
 def test_workspace_registry_repair_normalises_legacy_entries(command_vault_clone):
@@ -60,7 +63,9 @@ def test_workspace_registry_repair_normalises_legacy_entries(command_vault_clone
     assert result.result.backup_path is None
     assert result.committed_effects[0].subject == REGISTRY_PATH
     assert json.loads(path.read_text()) == {
-        "workspaces": {"external": {"path": "/tmp/external"}}
+        "schema_version": 1,
+        "registrations": {workspace_registry.canonical_path("/tmp/external"): {
+            "slug": "external", "path": workspace_registry.canonical_path("/tmp/external")}}
     }
 
 
@@ -75,7 +80,7 @@ def test_workspace_registry_repair_preserves_malformed_input(command_vault_clone
     assert result.status == "ok"
     assert result.result.status is RegistryRepairStatus.CHANGED
     assert result.result.backup_path == ".brain/local/workspaces.json.bak"
-    assert json.loads(path.read_text()) == {"workspaces": {}}
+    assert json.loads(path.read_text()) == {"schema_version": 1, "registrations": {}}
     backup = root / result.result.backup_path
     assert backup.read_text() == malformed
     assert tuple(effect.subject for effect in result.committed_effects) == (
@@ -148,7 +153,7 @@ def test_workspace_registry_backup_failure_after_the_save_is_known_partial(
     assert result.error.code is ErrorCode.CONFLICT
     staged = root / result.committed_effects[0].subject
     assert staged.read_text() == malformed
-    assert json.loads(path.read_text()) == {"workspaces": {}}
+    assert json.loads(path.read_text()) == {"schema_version": 1, "registrations": {}}
 
 
 def test_workspace_registry_repair_refuses_an_unreadable_file_without_effect(command_vault_clone):
@@ -159,7 +164,7 @@ def test_workspace_registry_repair_refuses_an_unreadable_file_without_effect(com
         pytest.skip("POSIX permission bits that bind the test user")
     root = command_vault_clone.vault_root
     path = _registry(root)
-    path.write_text(json.dumps({"workspaces": {"kept": {"path": "/tmp/kept"}}}))
+    path.write_text(json.dumps({"schema_version": 1, "registrations": {workspace_registry.canonical_path("/tmp/kept"): {"slug": "kept", "path": workspace_registry.canonical_path("/tmp/kept")}}}))
     before = path.read_bytes()
     path.chmod(0)
     try:
@@ -261,7 +266,7 @@ def test_invalid_rows_are_dropped_unattended_and_the_file_is_backed_up(command_v
     assert result.status == "ok"
     assert result.result.status is RegistryRepairStatus.CHANGED
     assert result.result.dropped == ()
-    assert json.loads(path.read_text()) == {"workspaces": {"kept": {"path": "/tmp/kept"}}}
+    assert json.loads(path.read_text()) == {"schema_version": 1, "registrations": {workspace_registry.canonical_path("/tmp/kept"): {"slug": "kept", "path": workspace_registry.canonical_path("/tmp/kept")}}}
     assert (root / result.result.backup_path).read_text() == original
 
 
@@ -280,7 +285,7 @@ def test_a_dropped_row_names_its_key_and_the_folder_it_recorded(command_vault_cl
 
     assert result.status == "ok", result
     assert result.result.status is (RegistryRepairStatus.PLANNED if dry_run else RegistryRepairStatus.CHANGED)
-    assert result.result.dropped == (RegistryDroppedRow("stale", str(folder)),)
+    assert result.result.dropped == (RegistryDroppedRow(str(folder), str(folder)),)
     assert result.result.backup_path is None, "a well-formed file is not backed up; `dropped` is the record"
     if dry_run:
         assert _registry(root).read_bytes() == before
@@ -314,7 +319,7 @@ def test_a_row_mcp_commits_inside_the_repairs_locked_window_survives(command_vau
 
     assert result.status == "error" and result.effects == "none" and result.retryable
     assert result.error.code is ErrorCode.CONFLICT
-    assert set(workspace_registry.load_registry(root)) == {"stale", "by-mcp"}, "MCP's row survives; the next pass re-detects"
+    assert set(workspace_registry.load_registry(root)) == {str((tmp_path / "stale").resolve()), str(mcp_folder)}, "MCP's row survives; the next pass re-detects"
 
 
 @pytest.mark.parametrize("allow_row_loss", [False, True])
@@ -352,7 +357,7 @@ def test_the_lossy_rebuild_names_its_backup_and_the_way_back(command_vault_clone
     result = application_for(root).invoke(LOSSY)
 
     assert result.result.status is RegistryRepairStatus.CHANGED
-    assert "workspaces.json.bak" in result.result.reason and "workspace setup" in result.result.reason
+    assert "workspaces.json.bak" in result.result.reason and "workspace register" in result.result.reason
     assert "never rebuilt automatically" not in result.result.reason
 
 
@@ -369,4 +374,4 @@ def test_a_tilde_row_is_normalised_to_its_canonical_path(command_vault_clone, tm
     result = application_for(root).invoke(WorkspaceRepairRegistryRequest())
 
     assert result.result.status is RegistryRepairStatus.CHANGED and result.result.backup_path is None
-    assert workspace_registry.load_registry(root) == {"home": {"path": str(tmp_path / "linked")}}
+    assert workspace_registry.load_registry(root) == {str(tmp_path / "linked"): {"slug": "home", "path": str(tmp_path / "linked")}}

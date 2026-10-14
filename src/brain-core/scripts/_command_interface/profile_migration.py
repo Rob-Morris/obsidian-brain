@@ -170,6 +170,11 @@ _PROFILE_EXPANSIONS = {
 # the retirement still runs; 0.71.0 drops them from current configurations.
 RETIRED_COMMANDS = frozenset({"workspace.bind", "workspace.register"})
 
+# Historical profile migrations precede the source-bound 0.72 workspace
+# projection. Preserve these intermediate grants for that later migration;
+# they are not aliases or valid commands in active configuration loading.
+_PRE_CUTOVER_WORKSPACE_COMMANDS = frozenset({'workspace.setup', 'workspace.ensure-registration'})
+
 
 _REMOVED_GRANULAR_COMMANDS = {
     **_PREVIOUS_DOCUMENT_COMMANDS,
@@ -323,6 +328,9 @@ def migrate_profile_allow_lists(
             for tool in before:
                 if tool in RETIRED_COMMANDS:
                     continue
+                if tool in _PRE_CUTOVER_WORKSPACE_COMMANDS:
+                    command_ids.add(tool)
+                    continue
                 expansion = _PROFILE_EXPANSIONS.get(tool)
                 if expansion is not None:
                     command_ids.update(expansion)
@@ -341,7 +349,7 @@ def migrate_profile_allow_lists(
                     )
                 command_ids.update(replacements)
             if any(
-                entries_by_command[command_id].retry_class
+                command_id in entries_by_command and entries_by_command[command_id].retry_class
                 is RetryClass.RECEIPT_REQUIRED
                 for command_id in command_ids
             ):
@@ -391,7 +399,7 @@ def migrate_current_document_command_names(
             if tool in RETIRED_COMMANDS:
                 continue
             replacement = _PREVIOUS_DOCUMENT_COMMANDS.get(tool, tool)
-            if replacement not in current_tools:
+            if replacement not in current_tools and replacement not in _PRE_CUTOVER_WORKSPACE_COMMANDS:
                 raise ProfileMigrationError(
                     f"profile '{profile}' contains unknown tool '{tool}'"
                 )
@@ -468,7 +476,7 @@ def _contains_exact_previous_granular_builtins(
                 projected = _project_tool_set(allow, granular_entries)
             except ProfileMigrationError:
                 return False
-            if projected != set(expected) - additions:
+            if projected != set(expected) - additions - RETIRED_COMMANDS:
                 matches = False
                 break
         if matches:
@@ -490,7 +498,7 @@ def _project_tool_set(
         if expansion is not None:
             projected.update(expansion)
             continue
-        if tool in granular_entries:
+        if tool in granular_entries or tool in _PRE_CUTOVER_WORKSPACE_COMMANDS:
             projected.add(tool)
             continue
         consolidated = _REMOVED_GRANULAR_COMMANDS.get(tool)

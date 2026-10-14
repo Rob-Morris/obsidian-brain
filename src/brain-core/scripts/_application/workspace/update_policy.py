@@ -8,7 +8,7 @@ from .._mutation_support import contributor_mutation_entry
 from ..preparation import ObservedResource, OperationPreparation, bind_operation, content_digest, canonical_json
 from ..receipts import CommittedEffect
 from ..results import Ok
-from .ensure_registration import registration_error
+from .create import registration_error
 
 
 @dataclass(frozen=True, slots=True)

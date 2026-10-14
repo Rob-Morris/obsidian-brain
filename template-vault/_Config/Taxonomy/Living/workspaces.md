@@ -35,15 +35,55 @@ default_tags: []
 
 **Optional:** `status`, `workspace_mode`, `default_parent`, `default_tags`
 
-`key` is the canonical identifier (see [[.brain-core/standards/keys]]). The platform generates it at create time.
+`key` is the canonical identifier (see [[.brain-core/standards/keys]]). Generic artefact creation can generate it; `workspace.create` requires an explicit key.
 
 Relationship tags such as `workspace/yearly-taxes-2026` remain useful for queries but do not assign membership. Adopt existing content explicitly with `artefact.set-workspace`; use recursive intent when it owns descendants. Ownership edges must stay wholly within one workspace or wholly unscoped.
 
 `default_parent` is a canonical non-terminal living artefact in this workspace. It supplies the create parent after any explicit or applicable local override. `default_tags` is an additive list applied to surviving semantic mutation subjects, not incidental link rewrites or maintenance. Change shared policy with `workspace.update-policy`, not generic frontmatter editing.
 
-Caller-local `.brain/local/workspace.yaml` stores the bare workspace key inside `links` and may supply a `parent` and additive `tags` inside `defaults`. Local overrides apply only when selecting that bound workspace; selecting another workspace uses its shared policy. Symbolic `workspace_context` selects a canonical workspace or `global`; filesystem paths are never semantic selectors.
+Caller-local `.brain/local/workspace.yaml` stores `schema_version: 1`, `brain` and the canonical workspace key in `slug` and may supply a `parent` and additive `tags` inside `defaults`. Local overrides apply only when selecting that bound workspace; selecting another workspace uses its shared policy. Symbolic `workspace_context` selects a canonical workspace or `global`; filesystem paths are never semantic selectors.
 
 `workspace_mode` is `embedded` (data in `_Workspaces/`) or `linked` (data in an external folder connected via `.brain/local/workspaces.json`).
+
+## Repo for an Existing Project
+
+The workspace needs no project, default parent or default tags. The hub is
+self-scoped; do not parent it to an unscoped project. If you want project-owned
+filing defaults, explicitly adopt the project into the workspace first, then
+set the hub's `default_parent` to that project. Review and checkpoint the
+ownership tree before recursive adoption. Older hubs with cross-workspace parent
+edges are invalid examples; review their intended membership before changing them.
+
+Create a hub in the intended Brain, then register the local repo against it:
+
+```bash
+brain workspace create --brain my-brain --request-json '{"key":"example"}'
+brain workspace register --brain my-brain --workspace /absolute/repo --request-json '{"brain_id":"my-brain","slug":"example"}'
+```
+
+Registration can run from an unbound folder. A missing workspace
+returns its explicit creation command with no writes. Registration requires operator
+permission and exceptional consent: when not initially authorised, prepare,
+request consent and invoke in the same local `brain session run` job.
+MCP consent does not transfer to that job. Two folders may share one Brain/slug;
+path identifies each local registration. First registration requires an explicit
+slug; repeat registration may retain a validated binding. A changed identity
+requires `workspace.rebind`, never force. The current schema has no
+`links.workspace` or separate local slug; legacy linked metadata normalises from
+its verified old link via explicit local `workspace.upgrade`. Use read-only
+`workspace.discover` with explicit roots for unregistered folders.
+
+For an intentional adoption of an unscoped project root and its owned subtree:
+
+```bash
+brain artefact set-workspace --brain my-brain --request-json '{"path":"project/example","workspace_context":"workspace/example","recursive":true,"clear_parent":true}'
+brain workspace update-policy --brain my-brain --request-json '{"workspace":"workspace/example","default_parent":"project/example"}'
+```
+
+`clear_parent` explicitly makes the project root top-level; omit it when preserving
+a compatible parent, or provide a same-workspace replacement. To associate a
+workspace without adopting the project, use a tag or link instead. Such an
+unscoped project cannot be this workspace's default parent.
 
 ## Lifecycle
 

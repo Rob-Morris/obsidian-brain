@@ -93,6 +93,30 @@ index refresh rolled back the content change.
 
 ### Explicit adoption and reassignment
 
+For a repo folder for an existing project, first create the workspace hub in
+the intended Brain, then bind the folder to that identity:
+
+```bash
+brain workspace create --brain my-brain \
+  --request-json '{"key":"example","title":"Example Workspace"}' --json
+brain workspace register --brain my-brain --workspace /absolute/repo \
+  --request-json '{"brain_id":"my-brain","slug":"example"}' --json
+```
+
+Replace `my-brain` with a registered local Brain ID, or use `--vault /path/to/brain`.
+An unbound folder does not need a pre-existing manifest. If the hub is missing,
+the second command leaves the folder untouched and returns the creation command.
+Registration is exceptional: when not initially authorised, use the local
+[CLI job and consent workflow](../functional/cli.md#cli-jobs-and-consent).
+Run preparation, explicit consent and invocation in the same job; an MCP grant
+cannot authorise this caller-local CLI action.
+
+The workspace hub is self-scoped. To make the existing project its default
+parent, explicitly adopt the project into that workspace, then update workspace
+policy as below. Do not parent the hub to an unscoped project or treat tags as
+membership. For an association without adoption, use a project tag or a link;
+that project cannot be the workspace's default parent.
+
 Checkpoint the vault before a bulk adoption and upgrade to a runtime that describes
 `artefact.set-workspace`. Review `vault.check` findings and the intended ownership
 tree first. Existing `workspace/*` tags are relationship evidence, not permission
@@ -102,7 +126,7 @@ For an existing unscoped project and its owned subtree, these commands provide a
 deliberate rollout (replace the example identities and selected vault):
 
 ```bash
-brain workspace ensure-registration --vault /path/to/brain --request-json '{"key":"example"}'
+brain workspace create --vault /path/to/brain --request-json '{"key":"example"}'
 brain artefact set-workspace --vault /path/to/brain --request-json '{"path":"project/example","workspace_context":"workspace/example","recursive":true,"clear_parent":true}'
 brain workspace update-policy --vault /path/to/brain --request-json '{"workspace":"workspace/example","default_parent":"project/example"}'
 brain vault check --vault /path/to/brain --request-json '{"check":"workspace_contract","actionable":true}'

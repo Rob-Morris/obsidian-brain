@@ -1,27 +1,9 @@
 #!/usr/bin/env python3
-"""
-workspace_registry.py — Workspace slug-to-path resolution.
+"""Canonical workspace metadata and derived, path-keyed local registrations.
 
-Maps workspace slugs to their data folder paths. Embedded workspaces
-resolve implicitly (slug → _Workspaces/slug/). Linked workspaces store
-their external path in .brain/local/workspaces.json.
-
-Workspace listing, reading and path resolution read it. The registry is
-machine-local config (in .brain/local/, gitignored), so the vault remains
-portable.
-
-Each row is the Brain end of a link whose workspace end is the manifest in
-the recorded folder. Its writers are ``workspace.setup``, which writes a row
-when it makes a link; ``workspace.unregister``, which drops one;
-``workspace.repair-registry``, which rebuilds a malformed file without its
-invalid rows and drops a row whose manifest names another Brain or
-workspace, with no lock in, and no write to, any workspace folder; and MCP
-configuration, which stages the row its manifest implies.
-
-Usage:
-    python3 workspace_registry.py                # list all workspaces
-    python3 workspace_registry.py --vault /path
-    python3 workspace_registry.py --resolve slug
+Folders declare binding authority in their manifests. This inventory records
+known locations; reading a canonical workspace does not select a local folder.
+Historical raw-load/save APIs retain the released migration's slug-keyed format.
 """
 
 from __future__ import annotations
@@ -36,8 +18,8 @@ from typing import TYPE_CHECKING
 from _common._artefacts import iter_markdown_under
 from _common._filesystem import safe_write_json
 from _common._frontmatter import read_frontmatter
-from _common._slugs import is_valid_key, slug_to_title
-from _common._vault import find_vault_root, is_system_dir
+from _common._slugs import is_valid_key
+from _common._vault import find_vault_root
 
 if TYPE_CHECKING:
     from _bootstrap.workspace_binding import LinkClassification
@@ -63,26 +45,59 @@ class UnknownWorkspaceError(ValueError):
 
 def canonical_path(path):
     """The one form in which a linked workspace folder is stored and compared."""
-    return os.path.abspath(os.path.expanduser(os.fspath(path)))
+    return os.path.realpath(os.path.abspath(os.path.expanduser(os.fspath(path))))
 
 
 def salvage_row(key, entry):
-    """The canonical row ``{"path": canonical_path(...)}`` a stored entry names, or ``None``.
-
-    The registry's one row rule, used by every reader and writer: the key is a
-    valid key and the path a non-empty absolute string with no NUL byte
-    (``~`` counts as absolute and is expanded). Anything else names no usable
-    folder: it is never resolved against the current directory and never
-    classified, and a rebuild drops it. A valid row stored in another form (a
-    bare string, ``~``, a trailing slash, extra fields) differs from its
-    canonical form, so the file needs normalising.
-    """
+    """Validate a current path row or convert one historical slug row losslessly."""
     path = entry if isinstance(entry, str) else entry.get("path") if isinstance(entry, dict) else None
-    if not is_valid_key(key) or not isinstance(path, str) or not path or "\0" in path:
+    slug = entry.get("slug", key) if isinstance(entry, dict) else key
+    if not is_valid_key(slug) or not isinstance(path, str) or not path or "\0" in path:
         return None
     if not os.path.isabs(os.path.expanduser(path)):
         return None
-    return {"path": canonical_path(path)}
+    return {"slug": slug, "path": canonical_path(path)}
+
+
+def registry_rows(data):
+    """Decode current or legacy inventory without dropping invalid or conflicting rows."""
+    rows, invalid = inspect_registry_rows(data)
+    if invalid:
+        raise ValueError(f"Invalid linked workspace registry rows {invalid!r}: names no usable folder")
+    return rows
+
+
+def inspect_registry_rows(data):
+    """Separate salvageable rows from invalid rows; contradictory identity always refuses."""
+    if not isinstance(data, dict):
+        raise ValueError("Invalid linked workspace registry: expected an object")
+    current = "schema_version" in data or "registrations" in data
+    if current:
+        if type(data.get("schema_version")) is not int or data["schema_version"] != 1:
+            raise ValueError("Unsupported workspace registry schema; use a compatible runtime")
+        if "workspaces" in data:
+            raise ValueError("Conflicting legacy and current workspace registry collections")
+    if current and "registrations" not in data:
+        raise ValueError("Invalid workspace registry: current schema requires registrations")
+    raw = data.get("registrations" if current else "workspaces", {})
+    if not isinstance(raw, dict):
+        raise ValueError("Invalid linked workspace registry: registrations must be an object")
+    rows = {}
+    invalid = []
+    for key, entry in raw.items():
+        if current and (not isinstance(entry, dict) or "slug" not in entry
+                        or not os.path.isabs(key) or key != entry.get("path")):
+            invalid.append(key)
+            continue
+        row = salvage_row(key, entry)
+        if row is None:
+            invalid.append(key)
+            continue
+        path = row["path"]
+        if path in rows and rows[path] != row:
+            raise ValueError(f"Conflicting workspace registrations for {path}")
+        rows[path] = row
+    return rows, invalid
 
 
 def row_records(entry, folder):
@@ -114,32 +129,27 @@ def read_registry_bytes(vault_root):
         return None
 
 
+def _unique_object(pairs):
+    result = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError(f"Duplicate workspace registry field: {key!r}")
+        result[key] = value
+    return result
+
+
 def decode_registry(content):
-    """The ``workspaces`` object a registry file holds; ``ValueError`` when its rows cannot be read."""
+    """Validate an inventory's exact bytes and return path-keyed registrations."""
     try:
-        data = json.loads(content.decode("utf-8"))
+        data = json.loads(content.decode("utf-8"), object_pairs_hook=_unique_object)
     except (UnicodeDecodeError, json.JSONDecodeError) as exc:
         raise ValueError(f"Invalid linked workspace registry: {exc}") from exc
-    workspaces = data.get("workspaces", {}) if isinstance(data, dict) else None
-    if not isinstance(workspaces, dict):
-        raise ValueError("Invalid linked workspace registry: workspaces must be an object")
-    return workspaces
+    return registry_rows(data)
 
 
 def load_registry(vault_root):
-    """The salvageable rows of .brain/local/workspaces.json, ``{}`` when it is absent or unreadable.
-
-    Lenient: a row that names no usable folder is left out (``salvage_row``),
-    and every path is canonical, so no caller resolves a row against the
-    current directory.
-    """
-    try:
-        content = read_registry_bytes(vault_root)
-        workspaces = {} if content is None else decode_registry(content)
-    except (OSError, ValueError):
-        return {}
-    rows = {key: salvage_row(key, entry) for key, entry in workspaces.items()}
-    return {key: row for key, row in rows.items() if row is not None}
+    """Read registrations, refusing corrupt inventory rather than silently losing rows."""
+    return load_registry_strict(vault_root)
 
 
 def load_raw_registry(vault_root):
@@ -150,7 +160,12 @@ def load_raw_registry(vault_root):
     """
     try:
         content = read_registry_bytes(vault_root)
-        workspaces = {} if content is None else decode_registry(content)
+        data = {} if content is None else json.loads(content.decode("utf-8"))
+        if not isinstance(data, dict) or not isinstance(data.get("workspaces", {}), dict):
+            return {}
+        if "schema_version" in data or "registrations" in data:
+            raise RuntimeError("Historical workspace key migration cannot rewrite the current multi-folder inventory")
+        workspaces = data.get("workspaces", {})
     except (OSError, ValueError):
         return {}
     return {key: entry if isinstance(entry, dict) else {"path": entry} for key, entry in workspaces.items()}
@@ -164,12 +179,9 @@ def read_registry_strict(vault_root):
         raise ValueError(f"Invalid linked workspace registry: {exc}") from exc
     if content is None:
         return {}, None
-    registry = {}
-    for key, entry in decode_registry(content).items():
-        row = salvage_row(key, entry)
-        if row is None:
-            raise ValueError(f"Invalid linked workspace registry row {key!r}: it names no usable folder")
-        registry[key] = row
+    registry = decode_registry(content)
+    if canonical_path(vault_root) in registry:
+        raise ValueError("Vault-self is not a workspace registration; remove the stale row explicitly")
     return registry, content
 
 
@@ -180,7 +192,9 @@ def load_registry_strict(vault_root):
 
 def registry_bytes(registry):
     """The exact bytes a registry with these rows is stored as."""
-    return (json.dumps({"workspaces": registry}, indent=2, ensure_ascii=False) + "\n").encode("utf-8")
+    data = {"schema_version": 1, "registrations": registry}
+    data["registrations"] = registry_rows(data)
+    return (json.dumps(data, indent=2, ensure_ascii=False) + "\n").encode("utf-8")
 
 
 def replace_registry(vault_root, registry, *, expected, before_write=None):
@@ -223,29 +237,6 @@ def save_registry(vault_root, registry):
     """
     path = _registry_path(vault_root)
     safe_write_json(path, {"workspaces": registry}, bounds=str(vault_root))
-
-
-# ---------------------------------------------------------------------------
-# Discovery — embedded workspaces
-# ---------------------------------------------------------------------------
-
-def _scan_embedded(vault_root):
-    """Discover embedded workspaces from _Workspaces/ subdirectories.
-
-    Returns a dict of slug → {"path": absolute_path, "mode": "embedded"}.
-    """
-    data_dir = os.path.join(vault_root, EMBEDDED_DATA_DIR)
-    if not os.path.isdir(data_dir):
-        return {}
-    result = {}
-    for entry in sorted(os.listdir(data_dir)):
-        full = os.path.join(data_dir, entry)
-        if not os.path.isdir(full):
-            continue
-        if is_system_dir(entry):
-            continue
-        result[entry] = {"path": full, "mode": "embedded"}
-    return result
 
 
 # Per-hub frontmatter cache keyed by absolute path → (mtime, slug, metadata).
@@ -298,6 +289,8 @@ def _scan_hub_metadata(vault_root):
             _hub_metadata_cache[fpath] = (mtime, slug, entry)
         # Shallow-copy on emit so callers can't mutate the cached entry
         # (tags is the only list field, but copy it explicitly).
+        if slug in result:
+            raise ValueError(f"Duplicate canonical workspace hub key: {slug!r}")
         result[slug] = {**entry, "tags": list(entry["tags"])}
     for stale in set(_hub_metadata_cache) - seen:
         del _hub_metadata_cache[stale]
@@ -308,122 +301,73 @@ def _scan_hub_metadata(vault_root):
 # Resolution
 # ---------------------------------------------------------------------------
 
-def resolve_workspace(vault_root, slug, registry=None):
-    """Resolve a workspace slug to its absolute data folder path.
-
-    Resolution order:
-      1. Embedded: _Workspaces/{slug}/ exists → return that path
-      2. Linked: slug is in the registry → return registered path
-
-    Args:
-        vault_root: Absolute path to vault root.
-        slug: Workspace slug to resolve.
-        registry: Pre-loaded registry dict (loaded from disk if None).
-
-    Returns:
-        dict with "path", "mode", and "slug".
-
-    Raises:
-        ValueError: If the slug cannot be resolved.
-    """
-    # Check embedded first
-    embedded_path = os.path.join(vault_root, EMBEDDED_DATA_DIR, slug)
-    if os.path.isdir(embedded_path):
-        return {"slug": slug, "path": embedded_path, "mode": "embedded"}
-
-    if registry is None:
-        registry = load_registry(vault_root)
-    if slug in registry:
-        path = os.path.expanduser(registry[slug]["path"])
-        return {"slug": slug, "path": path, "mode": "linked"}
-
-    raise UnknownWorkspaceError(
-        f"Unknown workspace '{slug}'. "
-        f"No embedded data folder at _Workspaces/{slug}/ "
-        f"and no row in this Brain's linked workspace registry (.brain/local/workspaces.json)."
-    )
+def workspace_locations(vault_root, slug, registry=None):
+    """Known locations for an existing canonical workspace, without selecting one."""
+    if not is_valid_key(slug):
+        raise ValueError(f"Invalid workspace slug: {slug!r}")
+    if slug not in _scan_hub_metadata(vault_root):
+        raise UnknownWorkspaceError(f"Unknown canonical workspace '{slug}'")
+    registry = load_registry_strict(vault_root) if registry is None else registry
+    return _workspace_locations(vault_root, slug, (row for row in registry.values() if row["slug"] == slug))
 
 
-# ---------------------------------------------------------------------------
-# List
-# ---------------------------------------------------------------------------
+def _workspace_locations(vault_root, slug, rows):
+    """Collect one hub's locations from its already selected registrations."""
+    locations = [{**row, "mode": "linked"} for row in rows]
+    embedded = os.path.join(vault_root, EMBEDDED_DATA_DIR, slug)
+    if os.path.isdir(embedded):
+        path = canonical_path(embedded)
+        locations = [row for row in locations if row["path"] != path]
+        locations.insert(0, {"slug": slug, "path": path, "mode": "embedded"})
+    return sorted(locations, key=lambda row: row["path"])
 
-def _make_entry(slug, mode, path, hub_meta):
-    """Build a workspace list entry, enriched with hub metadata."""
-    meta = hub_meta.get(slug, {})
-    return {
-        "slug": slug,
-        "mode": mode,
-        "path": path,
-        "hub_path": meta.get("hub_path", ""),
-        "title": meta.get("title", slug_to_title(slug)),
-        "status": meta.get("status", ""),
-        "tags": meta.get("tags", []),
-    }
+
+def resolve_workspace(vault_root, slug, registry=None, *, folder=None):
+    """Resolve an explicitly selected folder; never pick one from a shared slug."""
+    locations = workspace_locations(vault_root, slug, registry)
+    if folder is not None:
+        match = next((row for row in locations if row["path"] == canonical_path(folder)), None)
+        if match is not None:
+            return match
+        raise ValueError(f"Folder {folder!s} is not a known location for workspace '{slug}'")
+    raise ValueError(f"Workspace '{slug}' needs an explicit folder selection; candidates: "
+                     + ", ".join(row["path"] for row in locations))
 
 
 def list_workspaces(vault_root, registry=None):
-    """List all workspaces (embedded + linked), enriched with hub metadata.
-
-    Returns a list of dicts, each with: slug, mode, path, hub_path,
-    title, status, tags. Hub metadata is best-effort — missing hub
-    artefacts result in empty fields.
-    """
-    if registry is None:
-        registry = load_registry(vault_root)
-
-    embedded = _scan_embedded(vault_root)
-
-    if not embedded and not registry:
-        return []
-
-    hub_meta = _scan_hub_metadata(vault_root)
-    workspaces = []
-
-    for slug, info in embedded.items():
-        workspaces.append(_make_entry(slug, "embedded", info["path"], hub_meta))
-
-    for slug, entry in registry.items():
-        path = os.path.expanduser(entry["path"])
-        workspaces.append(_make_entry(slug, "linked", path, hub_meta))
-
-    return workspaces
+    """Canonical hubs with zero or more locations; recorded paths are not access authority."""
+    registry = load_registry_strict(vault_root) if registry is None else registry
+    rows_by_slug = {}
+    for row in registry.values():
+        rows_by_slug.setdefault(row["slug"], []).append(row)
+    result = []
+    for slug, meta in sorted(_scan_hub_metadata(vault_root).items()):
+        if not is_valid_key(slug):
+            raise ValueError(f"Invalid canonical workspace slug: {slug!r}")
+        result.append({"slug": slug, **meta, "locations": _workspace_locations(vault_root, slug, rows_by_slug.get(slug, ()))})
+    return result
 
 
-def resolve_workspace_strict(vault_root, slug):
-    """Resolve one canonical workspace slug against validated registry state."""
-    if not is_valid_key(slug):
-        raise ValueError(f"Invalid workspace slug: {slug!r}")
-    return resolve_workspace(vault_root, slug, registry=load_registry_strict(vault_root))
+def resolve_workspace_strict(vault_root, slug, *, folder=None):
+    """Resolve one explicitly selected location against validated registry state."""
+    return resolve_workspace(vault_root, slug, registry=load_registry_strict(vault_root), folder=folder)
 
 
 def list_workspaces_strict(vault_root):
-    """List resolvable workspaces once each, failing on invalid registry state."""
-    resources = list_workspaces(vault_root, registry=load_registry_strict(vault_root))
-    unique = []
-    seen = set()
-    for resource in resources:
-        slug = resource.get("slug")
-        if not is_valid_key(slug):
-            raise ValueError(f"Invalid embedded workspace slug: {slug!r}")
-        if slug in seen:
-            continue
-        seen.add(slug)
-        unique.append(resource)
-    return unique
+    """List canonical workspaces without choosing arbitrary folders."""
+    return list_workspaces(vault_root, registry=load_registry_strict(vault_root))
 
 
 def read_workspace_strict(vault_root, slug):
-    """Read one workspace's resolved path and hub metadata by exact slug."""
+    """Read canonical metadata and its zero/one/many known locations."""
     if not is_valid_key(slug):
         raise ValueError(f"Invalid workspace slug: {slug!r}")
-    match = next(
-        (item for item in list_workspaces_strict(vault_root) if item["slug"] == slug),
-        None,
-    )
-    if match is None:
+    registry = load_registry_strict(vault_root)
+    meta = _scan_hub_metadata(vault_root).get(slug)
+    if meta is None:
         raise UnknownWorkspaceError(f"Unknown workspace '{slug}'")
-    return match
+    rows = (row for row in registry.values() if row["slug"] == slug)
+    return {"slug": slug, **meta, "locations": _workspace_locations(vault_root, slug, rows)}
 
 
 # ---------------------------------------------------------------------------
@@ -442,85 +386,54 @@ def register_workspace(vault_root, slug, path, *, before_write=None):
         dict with status and registration details.
 
     Raises:
-        ValueError: If slug conflicts with an embedded workspace.
+        ValueError: If the selected folder already records a different identity.
     """
-    if is_embedded(vault_root, slug):
-        raise ValueError(
-            f"Cannot register linked workspace '{slug}' — "
-            f"an embedded workspace already exists at _Workspaces/{slug}/."
-        )
-
+    if not is_valid_key(slug):
+        raise ValueError(f"Invalid workspace slug: {slug!r}")
     path = canonical_path(path)
-
+    if path == canonical_path(vault_root):
+        raise ValueError("Vault-self is not a workspace registration")
     registry, expected = read_registry_strict(vault_root)
-    was_update = slug in registry
-    if was_update and registry[slug]["path"] != path:
-        from pathlib import Path
-        from _bootstrap.mcp_registration import require_no_registered_integrations
-
-        require_no_registered_integrations(Path(vault_root), Path(registry[slug]["path"]))
-    registry[slug] = {"path": path}
-    if before_write is not None:
-        before_write()
-    replace_registry(vault_root, registry, expected=expected)
-
-    return {
-        "status": "ok",
-        "action": "updated" if was_update else "registered",
-        "slug": slug,
-        "path": path,
-        "mode": "linked",
-    }
+    row = {"slug": slug, "path": path}
+    previous = registry.get(path)
+    if previous is not None and previous != row:
+        raise ValueError(f"Folder {path} already records workspace '{previous['slug']}'; use workspace.rebind")
+    registry[path] = row
+    replace_registry(vault_root, registry, expected=expected, before_write=before_write)
+    return {"status": "ok", "action": "unchanged" if previous else "registered",
+            "slug": slug, "path": path, "mode": "linked"}
 
 
 def _staged_registry(plan, vault_root):
-    """Read the registry through a file transaction; a damaged file is refused, never rewritten."""
+    """Observe and validate inventory through the existing file transaction."""
     from pathlib import Path
 
     path = Path(_registry_path(vault_root))
-    content = plan.read_text(path)
-    if content is None:
-        return path, {}, {}
-    try:
-        data = json.loads(content)
-    except json.JSONDecodeError as exc:
-        raise ValueError(f"Workspace registry requires explicit recovery: {path}: {exc}") from exc
-    workspaces = data.get("workspaces", {}) if isinstance(data, dict) else None
-    if not isinstance(workspaces, dict):
-        raise ValueError(f"Workspace registry requires explicit recovery: {path}")
-    return path, data, workspaces
-
-
-def _stage(plan, path, data):
-    plan.write_text(path, json.dumps(data, indent=2, ensure_ascii=False) + "\n")
+    content = plan.read_bytes(path)
+    return path, {} if content is None else decode_registry(content)
 
 
 def stage_link_row(plan, vault_root, slug, path):
-    """Stage the row a manifest naming this Brain implies, inside an MCP file transaction.
-
-    This is the derivation of the registry from a manifest that MCP configuration
-    and migration perform (DD-083 item 5): an absent row is added, an equal row is
-    kept, and a different row for the slug is a conflict, never overwritten.
-    """
-    registry_path, data, workspaces = _staged_registry(plan, vault_root)
-    row = {"path": canonical_path(path)}
-    if slug in workspaces:
-        if row_records(salvage_row(slug, workspaces[slug]), path):
-            return
-        raise ValueError(f"Conflicting MCP reverse registration for {slug}: {registry_path}")
-    _stage(plan, registry_path, {**data, "workspaces": {**workspaces, slug: row}})
+    """Derive only the selected manifest's path row, preserving all other folders."""
+    registry_path, rows = _staged_registry(plan, vault_root)
+    path = canonical_path(path)
+    if path == canonical_path(vault_root):
+        raise ValueError("Vault-self is not a workspace registration")
+    row = salvage_row(path, {"slug": slug, "path": path})
+    if row is None:
+        raise ValueError(f"Invalid workspace registration for {path}")
+    if path in rows and rows[path] != row:
+        raise ValueError(f"Conflicting MCP reverse registration for {path}: {registry_path}")
+    plan.write_text(registry_path, registry_bytes({**rows, path: row}).decode("utf-8"))
 
 
 def stage_canonical_rows(plan, vault_root):
-    """Stage rewriting valid rows in canonical form inside an MCP file transaction.
-
-    Rows that name no usable folder are left for the registry repair, which
-    keeps a backup when it drops them.
-    """
-    registry_path, data, workspaces = _staged_registry(plan, vault_root)
-    canonical = {slug: salvage_row(slug, value) or value for slug, value in workspaces.items()}
-    if canonical != workspaces:
-        _stage(plan, registry_path, {**data, "workspaces": canonical})
+    """Losslessly convert supported historical rows within the MCP file transaction."""
+    path, rows = _staged_registry(plan, vault_root)
+    if canonical_path(vault_root) in rows:
+        raise ValueError("Vault-self is not a workspace registration; remove its stale row explicitly")
+    if plan.read_bytes(path) is not None:
+        plan.write_text(path, registry_bytes(rows).decode("utf-8"))
 
 
 class Unverified(str, Enum):
@@ -582,7 +495,7 @@ def verify_rows(vault_root, workspaces):
     rows = []
     for key, entry in sorted(workspaces.items()):
         folder = Path(canonical_path(entry["path"]))
-        rows.append(RowVerification(key, str(folder), classify_link(root, folder, key)))
+        rows.append(RowVerification(key, str(folder), classify_link(root, folder, entry["slug"])))
     return RegistryVerification(None, tuple(rows))
 
 
@@ -592,33 +505,20 @@ def missing_row_message(slug):
             f"Only linked workspaces (in .brain/local/workspaces.json) can be unregistered.")
 
 
-def unregister_workspace(vault_root, slug, *, before_write=None):
-    """Remove a linked workspace from .brain/local/workspaces.json.
-
-    Args:
-        vault_root: Absolute path to vault root.
-        slug: Workspace slug to remove.
-
-    Returns:
-        dict with status.
-
-    Raises:
-        ValueError: If slug is not in the registry.
-    """
+def unregister_workspace(vault_root, path, *, slug=None, before_write=None):
+    """Remove only one explicitly selected folder row after integration guards."""
+    path = canonical_path(path)
     registry, expected = read_registry_strict(vault_root)
-    if slug not in registry:
-        raise ValueError(missing_row_message(slug))
-
+    row = registry.get(path)
+    if row is None or (slug is not None and slug != row["slug"]):
+        raise ValueError(f"No matching workspace registration at {path}")
     from pathlib import Path
     from _bootstrap.mcp_registration import require_no_registered_integrations
 
-    require_no_registered_integrations(Path(vault_root), Path(registry[slug]["path"]))
-    del registry[slug]
-    if before_write is not None:
-        before_write()
-    replace_registry(vault_root, registry, expected=expected)
-
-    return {"status": "ok", "action": "unregistered", "slug": slug}
+    require_no_registered_integrations(Path(vault_root), Path(path))
+    del registry[path]
+    replace_registry(vault_root, registry, expected=expected, before_write=before_write)
+    return {"status": "ok", "action": "unregistered", "slug": row["slug"], "path": path}
 
 
 # ---------------------------------------------------------------------------
@@ -632,6 +532,7 @@ def main():
     parser.add_argument("--vault", help="Vault root (auto-detected if omitted)")
     parser.add_argument("--resolve", metavar="SLUG",
                         help="Resolve a workspace slug to its path")
+    parser.add_argument("--folder", help="Explicit absolute folder selection for resolution")
     parser.add_argument("--json", action="store_true", help="JSON output")
     args = parser.parse_args()
 
@@ -639,7 +540,7 @@ def main():
 
     if args.resolve:
         try:
-            result = resolve_workspace(vault_root, args.resolve)
+            result = resolve_workspace(vault_root, args.resolve, folder=args.folder)
             if args.json:
                 print(json.dumps(result, indent=2))
             else:
@@ -657,7 +558,7 @@ def main():
                 print("No workspaces registered.")
             else:
                 for ws in workspaces:
-                    print(f"  {ws['slug']} ({ws['mode']}): {ws['path']}")
+                    print(f"  {ws['slug']}: " + ", ".join(row["path"] for row in ws["locations"]))
 
 
 if __name__ == "__main__":

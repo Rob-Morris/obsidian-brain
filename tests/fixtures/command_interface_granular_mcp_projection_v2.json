@@ -7,13 +7,13 @@
   "client_projector_observed_at": "2026-09-13T10:59:32+10:00",
   "clients": {
     "claude-code": {
-      "catalogue_hash": "sha256:17fcaf69ca75951eca34ef2a17a08db7ec3d7831c86ba0c2183a8c6e7771044a",
+      "catalogue_hash": "sha256:10f245a2eb6dfa2ec7318b9dfd5a2c7634b59ea697d4bd09b36fc2676f9cf8cb",
       "client_version": "2.1.270",
       "maximum_tool_tokens": 2381,
       "projector": "claude-code-model-tool-declaration/2.1.270",
       "projector_source": "captured model request plus deterministic replay",
-      "raw_bytes": 71458,
-      "tokens": 15605,
+      "raw_bytes": 71432,
+      "tokens": 15602,
       "tool_count": 73,
       "tools": {
         "access_prepare": {
@@ -430,11 +430,11 @@
           "source_schema_hash": "sha256:f9ff36cf2479ec3bb71d1d29300cc56164106fd7c24716544841bde728ad550b",
           "tokens": 109
         },
-        "workspace_ensure-registration": {
-          "projected_declaration_hash": "sha256:a54ca759770cc0cfcd8fa721f2c3749879f7e6e8382b7b889c556c378d67b676",
-          "raw_bytes": 525,
+        "workspace_create": {
+          "projected_declaration_hash": "sha256:6a6bb00a3cb75a1db836ebabd81411613a0b81a556f3372a1aba2fca885d56ec",
+          "raw_bytes": 499,
           "source_schema_hash": "sha256:aae4b62bdbe8aed4cc742121c5c79dff195e8eed5e5f7401c74049bf71efbe3d",
-          "tokens": 112
+          "tokens": 109
         },
         "workspace_list": {
           "projected_declaration_hash": "sha256:8bdd5afae674007d70b29e62aff72d5028181e81a9a2275fea1183c29e2d0f1b",
@@ -458,13 +458,13 @@
       "version_command": "claude --version"
     },
     "codex-cli": {
-      "catalogue_hash": "sha256:24e0a5ef131fbfb7886e94733333e32cc00d46455faa32f660b010fe4fa389ef",
+      "catalogue_hash": "sha256:06e2e7d0061f2e0042df6cb26fce129805bb3dca87cfb8b750e9ef09a73ea055",
       "client_version": "0.154.0",
       "maximum_tool_tokens": 2381,
       "projector": "codex-cli-responses-function-declaration/0.154.0",
       "projector_source": "captured model request plus deterministic replay",
-      "raw_bytes": 72707,
-      "tokens": 15745,
+      "raw_bytes": 72681,
+      "tokens": 15742,
       "tool_count": 73,
       "tools": {
         "access_prepare": {
@@ -881,11 +881,11 @@
           "source_schema_hash": "sha256:f9ff36cf2479ec3bb71d1d29300cc56164106fd7c24716544841bde728ad550b",
           "tokens": 113
         },
-        "workspace_ensure-registration": {
-          "projected_declaration_hash": "sha256:854399dda673cac653f616c17ba2517cdba18a5e687a7200d16e692eb60f9835",
-          "raw_bytes": 550,
+        "workspace_create": {
+          "projected_declaration_hash": "sha256:19456c41a182bc364f7a0d021cb84085af640ce5d1bc7858f1e0b15c5c3772e2",
+          "raw_bytes": 524,
           "source_schema_hash": "sha256:aae4b62bdbe8aed4cc742121c5c79dff195e8eed5e5f7401c74049bf71efbe3d",
-          "tokens": 116
+          "tokens": 113
         },
         "workspace_list": {
           "projected_declaration_hash": "sha256:fafaf8c6caf5bcd930b7e7ca951061eea07aa302451744b617a0cd3caaf343e4",
@@ -912,9 +912,9 @@
   "interface_epoch": 3,
   "mcp_sdk_version": "2.0.0",
   "raw_fastmcp": {
-    "catalogue_hash": "sha256:6b3e8abd6e33b11bb62be7159f4ecb8d776dbcc14eec5eadd28db88fa9bf044f",
-    "raw_bytes": 70582,
-    "tokens": 15240,
+    "catalogue_hash": "sha256:05fc1000fcc285c65c39bdc61fe82563a0e0fbf9e87780e7f4be66da73f1746a",
+    "raw_bytes": 70556,
+    "tokens": 15237,
     "tool_count": 73
   },
   "schema": "brain.command-interface-granular-mcp-projection/1",

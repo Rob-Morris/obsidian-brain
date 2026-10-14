@@ -214,9 +214,39 @@ class TestListResources:
     def test_workspace_list(self, vault):
         tmp_path, router, index = vault
         (tmp_path / "_Workspaces" / "proj").mkdir(parents=True)
+        hubs = tmp_path / "Workspaces"
+        hubs.mkdir()
+        (hubs / "Project.md").write_text(
+            "---\ntype: living/workspace\nkey: proj\nworkspace: workspace/proj\nstatus: active\n---\n")
         results = la.list_resources(index, router, str(tmp_path), resource="workspace")
         assert isinstance(results, list)
-        assert any(result["slug"] == "proj" for result in results)
+        assert [result["slug"] for result in results] == ["proj"]
+        assert results[0]["locations"] == [{"slug": "proj", "path": str(tmp_path / "_Workspaces" / "proj"), "mode": "embedded"}]
+
+    def test_workspace_list_separates_identity_from_zero_or_many_locations(self, vault):
+        import workspace_registry
+
+        root, router, index = vault
+        hubs = root / "Workspaces"
+        hubs.mkdir()
+        for slug in ("empty", "shared"):
+            (hubs / f"{slug}.md").write_text(
+                f"---\ntype: living/workspace\nkey: {slug}\nworkspace: workspace/{slug}\nstatus: active\n---\n")
+        first, second, orphan = (root / name for name in ("first", "second", "orphan"))
+        for folder in (first, second, orphan):
+            folder.mkdir()
+        for slug, folder in (("shared", first), ("shared", second), ("unknown", orphan)):
+            workspace_registry.register_workspace(root, slug, folder)
+        registry = (root / workspace_registry.REGISTRY_REL).read_bytes()
+
+        results = la.list_resources(index, router, str(root), resource="workspace")
+
+        assert [item["slug"] for item in results] == ["empty", "shared"]
+        assert results[0]["locations"] == []
+        assert results[1]["locations"] == [
+            {"slug": "shared", "path": str(folder), "mode": "linked"}
+            for folder in (first, second)]
+        assert (root / workspace_registry.REGISTRY_REL).read_bytes() == registry
 
     def test_invalid_resource_raises(self, vault):
         tmp_path, router, index = vault
@@ -242,10 +272,15 @@ class TestListArtefactsCli:
     def test_cli_lists_workspaces(self, vault, capsys):
         tmp_path, _router, _index = vault
         (tmp_path / "_Workspaces" / "proj").mkdir(parents=True)
+        hubs = tmp_path / "Workspaces"
+        hubs.mkdir()
+        (hubs / "Project.md").write_text(
+            "---\ntype: living/workspace\nkey: proj\nworkspace: workspace/proj\nstatus: active\n---\n")
         la.main(["workspace", "--vault", str(tmp_path)])
         output = capsys.readouterr().out
         assert "Listed: 1 workspace(s)" in output
-        assert "proj\tembedded" in output
+        assert "proj\t[active]" in output
+        assert "\tembedded\t" in output
 
     def test_cli_rejects_query_for_artefacts(self, vault, capsys):
         tmp_path, _router, _index = vault

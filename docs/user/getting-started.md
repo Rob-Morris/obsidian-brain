@@ -100,29 +100,38 @@ If those tools and generated assets are unavailable, follow `.brain-core/md-boot
 
 Commands declare bootstrap, portable or managed dependency tiers. The adapter never silently provisions or changes tier; availability and one next action are part of the structural result. See [User Reference](user-reference.md#dependency-and-availability-model) and [Script Reference](../functional/scripts.md).
 
-When you already have a registered Brain and want to register a workspace (its hub) and link a folder to it without choosing transport policy, use `workspace.setup`:
+When you already have a registered Brain, create a workspace explicitly and then
+register its local folder without choosing transport policy:
 
 ```bash
-brain workspace setup --vault /path/to/brain --workspace /path/to/project \
-  --request-json '{}' --json
+brain workspace create --vault /path/to/brain \
+  --request-json '{"key":"example"}' --json
+brain workspace register --vault /path/to/brain --workspace /path/to/project \
+  --request-json '{"brain_id":"<registered-brain-id>","slug":"example"}' --json
 ```
 
-That ensures a canonical Brain workspace hub first, then creates or repairs
-`.brain/local/workspace.yaml` with `brain + slug + links.workspace` and adds
-Brain-owned machine-local ignore rules in git-backed targets. Workspace
-registration (the hub) and local binding are reported separately: if the second step fails, inspect the
-known partial result and retry. Existing content is not adopted from tags; use
-the [explicit adoption workflow](workflows.md#explicit-adoption-and-reassignment)
-before selecting an existing project as the shared default parent. Setup does not
-write `.mcp.json`, `.codex/config.toml`, or SessionStart hooks. Configure transport
-later only if you want it, for example:
+Replace `<registered-brain-id>` with the local registered ID for the selected
+Brain; `--vault` and `brain_id` must identify the same Brain.
+
+Create is a contributor/content operation; register requires an existing active
+canonical workspace and operator permission with exceptional consent. A missing
+workspace leaves the folder unchanged and supplies its Brain-pinned creation
+command. First registration needs an explicit slug; repeating the same binding
+may omit it. A different binding requires explicit `workspace.rebind`, never a
+force flag. Two folders can register against the same Brain/slug.
+
+Registration writes a versioned manifest with `brain` and canonical `slug`, plus
+the selected folder's derived registry row and normal local scaffold. Inspect
+partial effects before retrying. A project, project hub, default parent and tags
+are optional; tags never adopt existing content. See the
+[explicit adoption workflow](workflows.md#explicit-adoption-and-reassignment).
+When not initially authorised, use the
+[local CLI job and consent workflow](../functional/cli.md#cli-jobs-and-consent).
+MCP consent does not transfer. Bootstrap and MCP transport are separate choices:
 
 ```bash
-# Project scope for one workspace and all three clients
 brain mcp configure --vault /path/to/brain --workspace /path/to/project \
   --request-json '{"scope":"project","client":"all"}' --json
-
-# User scope everywhere on the machine
 brain mcp configure --vault /path/to/brain \
   --request-json '{"scope":"user","client":"all"}' --json
 ```
@@ -134,9 +143,9 @@ brain workspace configure-bootstrap --vault /path/to/brain \
   --workspace /absolute/path/to/project --json
 ```
 
-This local CLI command writes only the workspace's
-`.brain/local/workspace.yaml`; it does not create a Brain project or workspace
-artefact.
+This local CLI command configures optional agent bootstrap instructions in the
+workspace; it does not create a Brain project or canonical workspace, change
+its binding, or configure MCP transport.
 
 To make any active Brain workflow discoverable as a native skill in Claude Code
 and Codex, expose a thin discovery adapter explicitly:
@@ -459,3 +468,15 @@ vault or bound workspace, review its folder-trust prompt, then run
 `grok inspect` and `grok mcp doctor brain` to check discovery and connectivity.
 Ask Grok to call `session_start` and check the returned vault and workspace.
 See [native client setup](../functional/cli.md#native-grok-setup).
+
+### Registered-folder metadata during upgrades
+
+After compatible runtime provisioning, normal upgrade runs selected-Brain
+registered-folder migration as a separately admitted local phase. Its external
+folder effects and recovery are distinct from the vault-only journal and Core
+VERSION commit. A folder failure does not roll back a committed Core upgrade;
+inspect its partial/follow-up results and exact remediation. Direct machine
+scope can cover all compatible registered Brains without upgrading their Core
+installations. Unreachable or incompatible Brains leave explicit incomplete
+coverage. Discovery scans only explicit roots and reports unknown registration
+status when inventory coverage is incomplete; it never silently registers.

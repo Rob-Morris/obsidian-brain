@@ -119,7 +119,10 @@ def test_fresh_install_then_doctor_machine_subprocess_exits_zero(installed_vault
 
     assert completed.returncode == 0, completed.stderr
     payload = json.loads(completed.stdout)
-    assert payload["healthy"] and payload["tidy"] and payload["counts"]["repair_findings"] == 0
+    assert payload["healthy"] and payload["counts"]["repair_findings"] == 0, payload
+    assert payload["registration_coverage_complete"] and payload["counts"]["orphan_candidates"] == 0
+    # A real subprocess cannot inherit the in-process scan stub; restricted hosts report unknown tidiness.
+    assert payload["tidy"] is payload["live_process_scan_available"], payload
     assert payload["registry"]["brains_count"] == 1 and payload["registry"]["stale"] is False
 
 
@@ -204,21 +207,26 @@ def test_unregistered_current_vault_is_reported_with_the_registering_command(ins
     assert f"""register: brain register --request-json '{{"vault_root":"{installed_vault}"}}'""" in out
 
 
-def _link_by_setup(vault: Path, folder: Path):
-    """Make a link the one way a person makes it: workspace.setup from the folder."""
+def _link_by_register(vault: Path, folder: Path):
+    """Make a link the one way a person makes it: workspace.register from the folder."""
     from _application.context import Capability
     from _application.types import Availability, DependencyTier
-    from _application.workspace.setup import WorkspaceSetupRequest
+    from _application.workspace.create import WorkspaceCreateRequest
+    from _application.workspace.register import WorkspaceRegisterRequest
     from command_application import application_for
 
     class _Provider:
         provider_id = "caller_filesystem"
 
     folder.mkdir(parents=True, exist_ok=True)
-    result = application_for(vault, dependency_tier=DependencyTier.PORTABLE, workspace_dir=folder,
+    application = application_for(vault, dependency_tier=DependencyTier.PORTABLE, workspace_dir=folder,
                              providers=(_Provider(),),
                              capabilities=(Capability("caller_filesystem", Availability.AVAILABLE),)
-                             ).invoke(WorkspaceSetupRequest())
+                             )
+    slug = folder.name
+    created = application.invoke(WorkspaceCreateRequest(key=slug))
+    assert created.status == "ok", created
+    result = application.invoke(WorkspaceRegisterRequest(slug=slug))
     assert result.status == "ok", result.error.message if result.status == "error" else result
     return result
 
@@ -290,11 +298,11 @@ def test_deleted_and_rekeyed_manifests_settle_and_doctor_stays_healthy(installed
     shutil.copy2(vault / ".brain-core" / "scripts" / "_common" / "_venv.py", other / ".brain-core" / "scripts" / "_common")
     emptied, rekeyed, rebrained = ((tmp_path / "work" / name).resolve() for name in ("emptied", "rekeyed", "rebrained"))
     for folder in (emptied, rekeyed, rebrained):
-        _link_by_setup(vault, folder)
+        _link_by_register(vault, folder)
     emptied_key, rekeyed_key, rebrained_key = (_key_of(vault, folder) for folder in (emptied, rekeyed, rebrained))
     (emptied / ".brain" / "local" / "workspace.yaml").unlink()
     manifest = rekeyed / ".brain" / "local" / "workspace.yaml"
-    manifest.write_text(manifest.read_text().replace(f"workspace: {rekeyed_key}", "workspace: someone-else"))
+    manifest.write_text(manifest.read_text().replace(f"slug: {rekeyed.name}", "slug: someone-else"))
     manifest = rebrained / ".brain" / "local" / "workspace.yaml"
     brain_id = vault_registry.brain_id_for_path(str(vault))
     manifest.write_text(manifest.read_text().replace(f"brain: {brain_id}", "brain: other-brain"))
@@ -365,7 +373,7 @@ def test_moved_and_unplugged_folders_keep_their_rows_and_are_dismissed_one_at_a_
     vault = _refreshed(installed_vault)
     moved, away = ((tmp_path / "work" / name).resolve() for name in ("moved", "away"))
     for folder in (moved, away):
-        _link_by_setup(vault, folder)
+        _link_by_register(vault, folder)
     moved_key, away_key = _key_of(vault, moved), _key_of(vault, away)
     moved_to = (tmp_path / "elsewhere" / "moved").resolve()
     moved_to.parent.mkdir()
@@ -408,8 +416,21 @@ def test_moved_and_unplugged_folders_keep_their_rows_and_are_dismissed_one_at_a_
     assert str(moved) in blocked["message"] and str(away) in blocked["message"]
     assert "Reconnect them, or unregister them" in blocked["message"]
 
-    _link_by_setup(vault, moved_to)
-    assert workspace_registry.load_registry(vault)[moved_key] == {"path": str(moved_to)}
+    _link_by_register(vault, moved_to)
+    rows = workspace_registry.load_registry(vault)
+    assert rows[str(moved_to)] == {"slug": "moved", "path": str(moved_to)}
+    assert moved_key in rows, "moving is a new explicit path registration, never implicit stale cleanup"
+    from _application.workspace.unregister import WorkspaceUnregisterRequest
+    # Explicit stale-row cleanup does not touch the newly registered folder.
+    from _application.context import Capability
+    from _application.types import Availability
+    class _Provider:
+        provider_id = "caller_filesystem"
+    cleaned = application_for(vault, workspace_dir=moved, providers=(_Provider(),),
+                              capabilities=(Capability("caller_filesystem", Availability.AVAILABLE),)
+                              ).invoke(WorkspaceUnregisterRequest())
+    assert cleaned.status == "ok", cleaned
+    assert moved_key not in workspace_registry.load_registry(vault)
     assert f".brain/local/workspaces.json#{moved_key}" not in {item["file"] for item in check.run_checks(str(vault))["findings"]}
 
 

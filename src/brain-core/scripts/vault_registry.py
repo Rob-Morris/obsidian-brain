@@ -519,9 +519,9 @@ def register_guidance(vault_root, *, brain_id=None):
     return join_argv(["brain", "register", "--request-json", request])
 
 
-def _is_valid_brain_id(brain_id):
+def is_valid_brain_id(brain_id):
     """Return True when brain_id is a valid slug (lowercase alphanumeric and hyphens)."""
-    return bool(brain_id and _BRAIN_ID_RE.fullmatch(brain_id))
+    return isinstance(brain_id, str) and bool(_BRAIN_ID_RE.fullmatch(brain_id))
 
 
 def _plan_registration(entries, abs_path, brain_id):
@@ -592,7 +592,7 @@ def preview_register_action(vault_path, brain_id=None, *, installing=False):
     abs_path = _absolute(vault_path)
     if not installing:
         _require_installed_brain(abs_path)
-    if brain_id is not None and not _is_valid_brain_id(brain_id):
+    if brain_id is not None and not is_valid_brain_id(brain_id):
         raise ValueError(
             f"invalid Brain ID {brain_id!r}: must match ^[a-z0-9]+(-[a-z0-9]+)*$"
         )
@@ -618,7 +618,7 @@ def register_action(vault_path, brain_id=None, *, dry_run=False):
     """
     abs_path = _absolute(vault_path)
     _require_installed_brain(abs_path)
-    if brain_id is not None and not _is_valid_brain_id(brain_id):
+    if brain_id is not None and not is_valid_brain_id(brain_id):
         raise ValueError(
             f"invalid Brain ID {brain_id!r}: must match ^[a-z0-9]+(-[a-z0-9]+)*$"
         )

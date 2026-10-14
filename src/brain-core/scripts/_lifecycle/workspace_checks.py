@@ -7,6 +7,8 @@ or the rule that failed as evidence, so a changed condition reopens a
 dismissal; prose never counts (DD-086).
 """
 
+from pathlib import Path
+
 from _common._workspace import BindingState, InvalidBindingCause, OwnershipRuleError
 
 from .ownership_graph import read_ownership_graph
@@ -135,7 +137,7 @@ def workspace_findings(vault_root, router, *, workspace_dir=None, text_reader=No
             tags = fields.get("tags", ())
             if isinstance(tags, list) and any(isinstance(tag, str) and tag.startswith("workspace/") for tag in tags):
                 report("workspace_adoption_candidate", record.path, "Legacy workspace relationship tags do not establish membership", "Review ownership and explicitly adopt with artefact.set-workspace; never infer membership from tags", severity="info")
-    if workspace_dir is not None:
+    if workspace_dir is not None and workspace_dir.resolve() != Path(vault_root).resolve():
         manifest_path = str(workspace_dir)
         try:
             state = load_workspace_manifest_state(workspace_dir)
@@ -148,13 +150,13 @@ def workspace_findings(vault_root, router, *, workspace_dir=None, text_reader=No
                 if binding.cause is not None:
                     evidence["cause"] = binding.cause.value
                 report(binding_code(binding.state), manifest_path, binding.guidance or binding.state.value,
-                       "Run brain workspace setup for the intended selected Brain; repair local defaults or reactivate the hub as reported",
+                       "Run brain workspace register for the intended selected Brain; repair local defaults or reactivate the hub as reported",
                        evidence=evidence)
         except (WorkspaceBindingError, OSError, ValueError) as exc:
             # The manifest could not be read: the error's code, not its wording, is the evidence.
             error = exc.code if isinstance(exc, WorkspaceBindingError) else type(exc).__name__
             report(binding_code(BindingState.CONFIGURED_INVALID), manifest_path, str(exc),
-                   "Repair the local manifest with brain workspace setup / workspace.update-metadata",
+                   "Repair the local manifest with brain workspace register / workspace.upgrade",
                    evidence={"workspace": None, "cause": "manifest", "error": error})
     return findings
 
@@ -163,20 +165,25 @@ def _report_missing_row(vault_root, workspace_dir, key, manifest_path, report):
     """From the workspace end, the Brain's registry must record this folder for the hub key.
 
     Report-only (DD-083 item 6): only a caller-anchored check can see it, so no
-    pass acts on it, and ``workspace setup`` from this folder writes the row.
+    pass acts on it, and ``workspace register`` from this folder writes the row.
     It reads the rows the Brain end salvages; a registry whose rows cannot be
     read is the Brain end's finding, not a missing row.
     """
     from pathlib import Path
+    import json
+    import shlex
     from _bootstrap.diagnostics import RegistryCondition, inspect_registry
     import workspace_registry
 
-    if workspace_registry.is_embedded(vault_root, key):
+    embedded = Path(vault_root) / "_Workspaces" / key
+    if (workspace_registry.is_embedded(vault_root, key)
+            and workspace_registry.canonical_path(workspace_dir) == workspace_registry.canonical_path(embedded)):
         return
     registry = inspect_registry(Path(vault_root))
     if registry.condition in {RegistryCondition.UNREADABLE, RegistryCondition.UNPARSEABLE}:
         return
-    if not workspace_registry.row_records(registry.rows.get(key), workspace_dir):
+    row = registry.rows.get(workspace_registry.canonical_path(workspace_dir))
+    if not workspace_registry.row_records(row, workspace_dir) or row["slug"] != key:
         report("workspace_registry_missing", manifest_path,
                f"The selected Brain's linked workspace registry has no row for {key} at {workspace_dir}.",
-               "Run brain workspace setup from this workspace", severity="info")
+               f"Run brain --vault {shlex.quote(str(vault_root))} workspace register --workspace {shlex.quote(str(workspace_dir))} --request-json {shlex.quote(json.dumps({'slug': key}))}", severity="info")

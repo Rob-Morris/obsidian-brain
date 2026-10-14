@@ -37,6 +37,8 @@ def test_current_repository_version_has_an_exact_compatibility_owner():
     ("0.71.0", "brain-0.71"),
     ("0.71.1", "brain-0.71"),
     ("0.71.2", "brain-0.71"),
+    ("0.72.0", "brain-0.72"),
+    ("0.72.1", "brain-0.72"),
 ])
 def test_supported_release_versions_select_their_declared_adapter(version, owner):
     manifest = CompatibilityManifest(TOOL_ROOT / "compatibility.json")
@@ -761,7 +763,7 @@ def test_migrated_profiles_reject_a_newly_stored_built_in_copy(tmp_path):
 def test_migrated_profiles_reject_a_frozen_built_in_that_lost_the_templates_grants(tmp_path):
     helper = _acceptance_helper("historical_upgrade_profiles_frozen_test")
     stored = _stored_historical_profiles(helper)
-    stored["operator"]["allow"] = [grant for grant in stored["operator"]["allow"] if grant != "workspace.setup"]
+    stored["operator"]["allow"] = [grant for grant in stored["operator"]["allow"] if grant != "workspace.register"]
     vault = _migrated_vault(tmp_path, stored)
 
     with pytest.raises(helper["AcceptanceFailure"], match="effective built-in profile 'operator'"):

@@ -440,20 +440,17 @@ def _configure_client(
 
 
 def plan_reverse_registration(plan: FilePlan, vault: Path, target: Path) -> None:
-    if target == vault or target.is_relative_to(vault / "_Workspaces"):
-        return
-    from _bootstrap.workspace_binding import extract_workspace_binding, read_workspace_manifest
-
-    binding = extract_workspace_binding(read_workspace_manifest(target))
+    binding = plan_target_admission(plan, vault, target)
     if binding is None:
-        raise ValueError(f"Cannot recover unbound workspace: {target}")
-    from _common._workspace import manifest_workspace_reference
-
-    manifest = read_workspace_manifest(target)
-    slug = manifest_workspace_reference(manifest).split("/", 1)[1]
+        return
+    if not binding.linked:
+        raise ValueError(f"Workspace metadata needs explicit upgrade or registration: {target}")
     import workspace_registry
 
-    workspace_registry.stage_link_row(plan, vault, slug, target)
+    from _bootstrap.workspace_claims import inspect_path_claims
+
+    inspect_path_claims(plan, vault, target, allow_unreachable=True).require_unclaimed()
+    workspace_registry.stage_link_row(plan, vault, binding.slug, target)
 
 
 def _configure_plan(
@@ -471,10 +468,11 @@ def _configure_plan(
 
     plan = plan or FilePlan()
     if target is not None:
-        plan_target_admission(plan, vault, target)
+        if repair:
+            plan_target_admission(plan, vault, target)
+        else:
+            plan_reverse_registration(plan, vault, target)
     path, records = read_records(plan, vault, home, scope)
-    if target is not None and not repair:
-        plan_reverse_registration(plan, vault, target)
     for client in clients:
         config_path = _config_path(client, scope, target, home).absolute()
         owned = next((item for item in records if _record_id(item) == (
@@ -524,6 +522,20 @@ def plan_target_admission(plan, vault: Path, target: Path) -> None:
                  target / ".brain/workspace.yaml", Path(vault_registry.registry_path())):
         plan.read_bytes(path)
     _validate_target(vault, target)
+    if target == vault or target.is_relative_to(vault / "_Workspaces"):
+        return None
+    from _bootstrap.workspace_binding import read_workspace_manifest
+    from _bootstrap.workspace_schema import require_current_workspace_manifest, WorkspaceSchemaError
+    import shlex
+
+    try:
+        return require_current_workspace_manifest(read_workspace_manifest(target))
+    except WorkspaceSchemaError as exc:
+        if exc.code == "upgrade_required":
+            command = shlex.join(["brain", "--vault", str(vault), "workspace", "upgrade",
+                                  "--workspace", str(target)])
+            raise ValueError(f"workspace_upgrade_required: {exc}. Run `{command}`") from exc
+        raise
 
 
 def observed_server(plan, client: McpClient, path: Path) -> dict | None:

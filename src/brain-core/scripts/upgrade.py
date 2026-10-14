@@ -823,6 +823,7 @@ def _run_migrations(
     target: str = _DEFAULT_MIGRATION_TARGET,
     context: Optional[dict] = None,
     prepare=None,
+    versions=None,
 ) -> tuple[list[dict], dict]:
     """Run pending migrations between old_version and new_version.
 
@@ -840,6 +841,10 @@ def _run_migrations(
     Before a migration runs, ``prepare`` receives the effects it declares
     through ``prospective_effects``, or None when it declares nothing, so the
     caller can journal the broad scope only when something will run in it.
+
+    A pre-compile patch can declare versioned default predecessors. Run those
+    through this same journal/ledger owner before its replacement semantics;
+    the later default phase then skips their recorded historical work.
 
     Returns (results, ledger) so callers can check completeness without
     re-discovering migrations or re-loading the ledger from disk.
@@ -860,6 +865,8 @@ def _run_migrations(
     pending = _select_pending_migrations(
         all_migrations, old_version, new_version, ledger, target=target,
     )
+    if versions is not None:
+        pending = [entry for entry in pending if entry[1] in versions]
     if not pending:
         return [], ledger
 
@@ -875,6 +882,13 @@ def _run_migrations(
                     )
                 if prepare is not None:
                     prepare(_prospective_migration_effects(mod, vault_root))
+                predecessors = getattr(mod, 'PRECOMPILE_DEFAULT_PREDECESSORS', ())
+                if target == _PRECOMPILE_PATCH_TARGET and predecessors:
+                    predecessor_results, ledger = _run_migrations(
+                        vault_root, old_version, new_version, prepare=prepare,
+                        versions=predecessors,
+                    )
+                    results.extend(predecessor_results)
                 if target == _DEFAULT_MIGRATION_TARGET:
                     result = handler(vault_root)
                 else:
@@ -1236,6 +1250,7 @@ STAGE_VERSION_COMMIT = "version_commit"
 STAGE_POST_UPGRADE_SYNC = "post_upgrade_sync"
 STAGE_ROUTER_COMPILE = "router_compile"
 STAGE_DEPENDENCY_SYNC = "dependency_sync"
+STAGE_WORKSPACE_UPGRADE = "workspace_upgrade"
 STAGE_MCP_REGISTRATION_REPAIR = "mcp_registration_repair"
 STAGE_MACHINE_RESOLUTION_RUNTIME = "machine_resolution_runtime"
 STAGE_RETRIEVAL_ASSET_REPAIR = "retrieval_asset_repair"
@@ -1253,6 +1268,7 @@ _STAGES = (
     STAGE_POST_UPGRADE_SYNC,
     STAGE_ROUTER_COMPILE,
     STAGE_DEPENDENCY_SYNC,
+    STAGE_WORKSPACE_UPGRADE,
     STAGE_MCP_REGISTRATION_REPAIR,
     STAGE_MACHINE_RESOLUTION_RUNTIME,
     STAGE_RETRIEVAL_ASSET_REPAIR,
@@ -1265,7 +1281,7 @@ _PRE_COMMIT_STAGES = (
     STAGE_VALIDATE_COMPILE,
     STAGE_POST_COMPILE_MIGRATIONS,
 )
-_POST_COMMIT_REPAIRS = "runtime.refresh-router, brain runtime repair or mcp.repair"
+_POST_COMMIT_REPAIRS = "runtime.refresh-router, brain runtime repair, workspace.upgrade or mcp.repair"
 _SAME_VERSION_RE_APPLY = (
     "re-apply the same version (upgrade.py --force, or brain upgrade with \"force\": true)"
 )
@@ -2385,6 +2401,7 @@ def upgrade(
     sync_deps: Optional[bool] = None,
     commit_callback=None,
     prepare_cutover=None,
+    workspace_callback=None,
 ) -> dict:
     """Upgrade .brain-core/ in a vault from a source directory.
 
@@ -2421,6 +2438,9 @@ def upgrade(
             ValueError to refuse the run with no effect. A skipped run never
             commits a cutover, so it never prepares one. Callers that prepared
             before calling pass ``commit_callback`` instead.
+        workspace_callback: Optional separately admitted caller-local workspace
+            phase. Called after runtime provisioning, outside the Core journal,
+            and with dry_run=True for preview. It must return its own receipt.
 
     Returns:
         Dict with status, version info, and file change lists. A run that
@@ -2444,7 +2464,11 @@ def upgrade(
         commit_callback=commit_callback, prepare_cutover=prepare_cutover,
     )
     if dry_run:
-        return _preview(vault_root, source, target, new_version, **plan)
+        result = _preview(vault_root, source, target, new_version, **plan)
+        if result.get("status") in {"ok", "skipped"}:
+            result["workspace_upgrade"] = _workspace_upgrade_phase(
+                Path(vault_root), source, workspace_callback, dry_run=True)
+        return result
 
     # The lock spans the recovery, every guard, every pre-commit mutation and
     # the commit itself, so the guards judge locked state and a concurrent
@@ -2455,9 +2479,29 @@ def upgrade(
         vault_root, _read_version(target), new_version,
         lambda: _locked_upgrade(vault_root, source, target, version_file, new_version, **plan),
     )
+    if result["status"] == "skipped" and (Path(source) / "scripts/_bootstrap/workspace_schema.py").is_file():
+        if workspace_callback is None:
+            try:
+                has_workspace_work = _workspace_phase_has_work(Path(vault_root))
+            except (OSError, ValueError, RuntimeError):
+                # The phase reports unreadable inventory; it is never an empty
+                # workset and must not silently skip reconciliation.
+                has_workspace_work = True
+            if not has_workspace_work:
+                result["workspace_upgrade"] = _workspace_no_work()
+                return result
+        result["core_skipped"] = True
+        result = _reconcile_after_commit(vault_root, result, _progress_writer(vault_root, result),
+                                        sync=sync, sync_deps=sync_deps,
+                                        workspace_callback=workspace_callback, source=source)
+        if result["status"] == "skipped":
+            result["message"] = "Core is already current; post-commit workspace reconciliation completed."
+        return result
     if result["status"] != "ok":
         return result
-    return _reconcile_after_commit(vault_root, result, _progress_writer(vault_root, result), sync=sync, sync_deps=sync_deps)
+    return _reconcile_after_commit(vault_root, result, _progress_writer(vault_root, result),
+                                   sync=sync, sync_deps=sync_deps,
+                                   workspace_callback=workspace_callback, source=source)
 
 
 def _progress_writer(vault_root: str, result: dict):
@@ -3049,6 +3093,54 @@ def _commit(
     return result
 
 
+def _workspace_upgrade_phase(vault_root, source, callback=None, *, dry_run=False):
+    """Delegate external effects to the canonical local CLI and its receipt."""
+    command = ["brain", "workspace", "upgrade", "--vault", str(vault_root),
+               "--request-json", '{"scope":"brain"}']
+    try:
+        core = Path(source) if source else vault_root / ".brain-core"
+        if not (core / "scripts/_bootstrap/workspace_schema.py").is_file():
+            return {"outcome": "not_applicable",
+                    "message": "This historical Core target does not define the workspace schema upgrade phase."}
+        if callback is not None:
+            return callback(dry_run=dry_run, source_core=Path(source) if source else None)
+        if not _workspace_phase_has_work(vault_root):
+            return _workspace_no_work()
+        from _bootstrap.machine_cli import invoke
+        source_root = Path(source).resolve().parents[1] if source else None
+        if source_root is not None and not (source_root / "cli/_launcher/workspace.py").is_file():
+            source_root = None
+        envelope = invoke("workspace.upgrade", {"scope": "brain"}, source_root=source_root,
+                          vault=vault_root, dry_run=dry_run)
+        complete = envelope.get("status") == "ok" and envelope.get("result", {}).get("complete") is True
+        return {"outcome": "planned" if dry_run and complete else "ok" if complete else "partial",
+                "command": command, "result": envelope,
+                "message": "Workspace metadata compatibility phase completed." if complete else
+                           "Workspace metadata needs follow-up; inspect the child outcome before retrying."}
+    except (OSError, ValueError, RuntimeError) as exc:
+        return {"outcome": "error", "command": command,
+                "message": f"Caller-local workspace upgrade did not complete: {exc}"}
+
+
+def _workspace_no_work():
+    """A verified empty inventory needs no launcher, runtime or child mutation."""
+    return {"outcome": "no_work",
+            "message": "No registered external workspace folders require migration."}
+
+
+def _workspace_phase_has_work(vault_root):
+    """Read only the derived inventory; unrecorded folders require discovery."""
+    from _bootstrap.file_transaction import FilePlan
+    import workspace_registry
+
+    plan = FilePlan()
+    plan.observe_directory(vault_root)
+    raw = plan.read_bytes(vault_root / ".brain/local/workspaces.json")
+    rows = workspace_registry.decode_registry(raw) if raw is not None else {}
+    plan.validate()
+    return bool(rows)
+
+
 def _reconcile_after_commit(
     vault_root: str,
     result: dict,
@@ -3056,6 +3148,8 @@ def _reconcile_after_commit(
     *,
     sync: Optional[bool],
     sync_deps: Optional[bool],
+    workspace_callback=None,
+    source=None,
 ) -> dict:
     """The post-commit stages; nothing here rolls back, and the vault lock is not held."""
     old_version = result["old_version"]
@@ -3094,8 +3188,34 @@ def _reconcile_after_commit(
 
     dependency_provisioning_allowed = sync_deps is not False
 
+    # External folder writes have their own admission/receipts and cannot enter
+    # the vault-only Core journal. MCP repair depends on current workspace schema.
+    progress(STAGE_WORKSPACE_UPGRADE, "Upgrading registered local workspace metadata")
+    workspace_core = Path(source) if source else Path(vault_root) / ".brain-core"
+    if not (workspace_core / "scripts/_bootstrap/workspace_schema.py").is_file():
+        result["workspace_upgrade"] = {"outcome": "not_applicable",
+            "message": "This historical Core target does not define the workspace schema upgrade phase."}
+    elif dependency_provisioning_allowed and result["central_runtime"].get("outcome") in {RUNTIME_CREATED, RUNTIME_REUSED}:
+        result["workspace_upgrade"] = _workspace_upgrade_phase(Path(vault_root), source, workspace_callback)
+    else:
+        try:
+            has_work = _workspace_phase_has_work(Path(vault_root))
+        except (OSError, ValueError, RuntimeError) as exc:
+            result["workspace_upgrade"] = {"outcome": "error", "message": str(exc)}
+        else:
+            result["workspace_upgrade"] = ({"outcome": "deferred",
+                "message": "Workspace upgrade requires compatible runtime provisioning first.",
+                "command": ["brain", "workspace", "upgrade", "--vault", str(vault_root),
+                            "--request-json", '{"scope":"brain"}']}
+                if has_work else _workspace_no_work())
+    workspace_ready = result["workspace_upgrade"].get("outcome") in {"ok", "no_work", "not_applicable"}
+    if not workspace_ready:
+        result["status"] = "partial"
+
     progress(STAGE_MCP_REGISTRATION_REPAIR, "Reconciling existing current-vault MCP registrations")
-    if dependency_provisioning_allowed:
+    workspace_runtime_ready = (result["workspace_upgrade"].get("outcome") in {"not_applicable", "no_work"}
+                               or result["central_runtime"].get("outcome") in {RUNTIME_CREATED, RUNTIME_REUSED})
+    if dependency_provisioning_allowed and workspace_ready and workspace_runtime_ready:
         result["mcp_registration_repair"] = _repair_mcp_registration_after_upgrade(
             Path(vault_root)
         )
@@ -3103,6 +3223,10 @@ def _reconcile_after_commit(
         result["mcp_registration_repair"] = _deferred_mcp_registration_after_upgrade(
             Path(vault_root)
         )
+        if not workspace_ready:
+            result["mcp_registration_repair"]["message"] = "MCP reconciliation deferred until workspace metadata upgrade completes."
+        elif not workspace_runtime_ready:
+            result["mcp_registration_repair"]["message"] = "MCP reconciliation deferred until compatible runtime provisioning completes."
 
     progress(STAGE_MACHINE_RESOLUTION_RUNTIME, "Provisioning machine-level resolution runtime")
     result["machine_resolution_runtime"] = _ensure_machine_resolution_runtime(Path(vault_root))
@@ -3127,6 +3251,8 @@ def _reconcile_after_commit(
     result["runtime_orphans"] = _inspect_runtime_orphans(Path(vault_root))
 
     result["message"] = f"Upgraded {old_version or '(none)'} → {new_version}"
+    if not workspace_ready:
+        result["message"] += "; workspace metadata requires follow-up"
     if result["router_compile"]["outcome"] == "error":
         result["message"] += "; router recompilation requires recovery"
     if result["mcp_registration_repair"].get("outcome") in {"error", "partial", "unknown"}:

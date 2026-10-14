@@ -348,7 +348,7 @@ def test_an_unreachable_target_is_reported_while_the_reachable_one_is_repaired(t
     for key in ("here", "away"):
         folder = (tmp_path / key).resolve()
         (folder / ".brain/local").mkdir(parents=True)
-        (folder / ".brain/local/workspace.yaml").write_text(f"brain: brain\nslug: {key}\nlinks:\n  workspace: {key}\n")
+        (folder / ".brain/local/workspace.yaml").write_text(f"schema_version: 1\nbrain: brain\nslug: {key}\n")
         workspace_registry.register_workspace(vault, key, folder)
         server = build_mcp_config(owner._runtime_python(vault), vault, workspace_dir=folder)
         apply(owner._configure_plan(vault, home, folder, owner.McpScope.PROJECT, (owner.McpClient.CLAUDE,), server))
@@ -573,3 +573,34 @@ def test_a_strict_inventory_refuses_a_drifted_row_with_its_recovery(tmp_path, mo
     message = mcp_inventory.unreachable_message(collected)
     assert "brain registry remove-stale" in message and "Reconnect" not in message, (
         "a drifted row carries its own recovery, never the generic reconnect-or-unregister remedy")
+
+
+def test_legacy_folder_mcp_migration_requires_separate_explicit_workspace_upgrade(tmp_path, monkeypatch):
+    from _bootstrap.workspace_schema import plan_workspace_migration
+    from _common._yaml import dump_mapping_text
+    import workspace_registry
+
+    home, vault, state, _ = legacy_fixture(tmp_path, monkeypatch)
+    folder = tmp_path / 'legacy-folder'
+    manifest = folder / '.brain/local/workspace.yaml'
+    manifest.parent.mkdir(parents=True)
+    legacy = {'brain': 'brain', 'slug': 'old-local', 'links': {'workspace': 'shared'}}
+    manifest.write_text(dump_mapping_text(legacy))
+    server = {'command': '/old/python', 'args': ['-m', 'brain_mcp.proxy'], 'env': {}}
+    projection = folder / '.mcp.json'
+    projection.write_text(json.dumps({'mcpServers': {'brain': server}}))
+    evidence = json.loads(state.read_text())
+    evidence['records'].append({'client': 'claude', 'scope': 'project', 'target_path': str(folder),
+                                'config_path': str(projection), 'server_config': server})
+    state.write_text(json.dumps(evidence))
+    before = {path: path.read_bytes() for path in (manifest, state, projection)}
+    with pytest.raises(ValueError, match='workspace_upgrade_required'):
+        mcp_migration.migration_plan(home, tmp_path / 'bin/brain')
+    assert {path: path.read_bytes() for path in before} == before
+    # Model the explicit workspace-upgrade boundary independently of MCP migration.
+    manifest.write_text(dump_mapping_text(plan_workspace_migration(legacy).payload))
+    changes = mcp_migration.migration_plan(home, tmp_path / 'bin/brain')
+    mcp_migration.apply_migration(changes, home)
+    assert workspace_registry.load_registry_strict(vault)[str(folder)]['slug'] == 'shared'
+    _, records = owner.read_records(FilePlan(), vault, home, owner.McpScope.PROJECT)
+    assert records[0]['target_path'] == str(folder)

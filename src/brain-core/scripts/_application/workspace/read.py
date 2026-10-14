@@ -22,20 +22,26 @@ class WorkspaceMode(str, Enum):
 
 
 @dataclass(frozen=True, slots=True)
+class WorkspaceLocation:
+    path: str
+    mode: WorkspaceMode
+
+
+@dataclass(frozen=True, slots=True)
 class WorkspaceReadPayload:
     slug: str
-    mode: WorkspaceMode
-    path: str
+    locations: tuple[WorkspaceLocation, ...]
     hub_path: str | None
     title: str
     status: str | None
     tags: tuple[str, ...]
+    workspace_mode: WorkspaceMode | None
 
 
 @dataclass(frozen=True, slots=True)
 class WorkspaceReadRequest:
     COMMAND_ID: ClassVar[str] = "workspace.read"
-    COMMAND_VERSION: ClassVar[int] = 2
+    COMMAND_VERSION: ClassVar[int] = 3
     RESULT_TYPE: ClassVar[type] = WorkspaceReadPayload
 
     reference: str
@@ -47,12 +53,13 @@ class WorkspaceReadRequest:
 def _payload(resource):
     return WorkspaceReadPayload(
         slug=resource["slug"],
-        mode=WorkspaceMode(resource["mode"]),
-        path=resource["path"],
+        locations=tuple(WorkspaceLocation(row["path"], WorkspaceMode(row["mode"]))
+                        for row in resource["locations"]),
         hub_path=resource.get("hub_path") or None,
         title=resource["title"],
         status=resource.get("status") or None,
         tags=tuple(resource.get("tags") or ()),
+        workspace_mode=WorkspaceMode(resource["workspace_mode"]) if resource.get("workspace_mode") else None,
     )
 
 

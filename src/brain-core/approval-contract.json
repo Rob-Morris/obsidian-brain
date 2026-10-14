@@ -962,20 +962,20 @@
       "authority": "operator"
     },
     {
-      "command_id": "workspace.ensure-registration",
+      "command_id": "workspace.create",
       "version": 1,
       "owner": "application",
       "classification": "content",
-      "mcp": "workspace_ensure-registration",
+      "mcp": "workspace_create",
       "cli": [
         "workspace",
-        "ensure-registration"
+        "create"
       ],
       "authority": "contributor"
     },
     {
       "command_id": "workspace.list",
-      "version": 1,
+      "version": 2,
       "owner": "application",
       "classification": "observation",
       "mcp": "workspace_list",
@@ -987,7 +987,7 @@
     },
     {
       "command_id": "workspace.read",
-      "version": 2,
+      "version": 3,
       "owner": "application",
       "classification": "observation",
       "mcp": "workspace_read",
@@ -996,6 +996,30 @@
         "read"
       ],
       "authority": "reader"
+    },
+    {
+      "command_id": "workspace.rebind",
+      "version": 1,
+      "owner": "application",
+      "classification": "exceptional",
+      "mcp": null,
+      "cli": [
+        "workspace",
+        "rebind"
+      ],
+      "authority": "operator"
+    },
+    {
+      "command_id": "workspace.register",
+      "version": 4,
+      "owner": "application",
+      "classification": "exceptional",
+      "mcp": null,
+      "cli": [
+        "workspace",
+        "register"
+      ],
+      "authority": "operator"
     },
     {
       "command_id": "workspace.repair-registry",
@@ -1010,20 +1034,8 @@
       "authority": "maintainer"
     },
     {
-      "command_id": "workspace.setup",
-      "version": 2,
-      "owner": "application",
-      "classification": "exceptional",
-      "mcp": null,
-      "cli": [
-        "workspace",
-        "setup"
-      ],
-      "authority": "operator"
-    },
-    {
       "command_id": "workspace.unregister",
-      "version": 2,
+      "version": 3,
       "owner": "application",
       "classification": "exceptional",
       "mcp": null,
@@ -1085,5 +1097,5 @@
       "authority": "reader"
     }
   ],
-  "fingerprint": "sha256:cb54274976d3295911834edbebf6fec950b8d963d8ab4f039dd4a84f3be71ed1"
+  "fingerprint": "sha256:b918bc0637c55c50ea8753d6be38e2e0bef6ec5c3aae615cb00200c160b96c2c"
 }

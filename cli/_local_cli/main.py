@@ -94,7 +94,7 @@ def _run(argv, attachment) -> int:
         if command_argv[:1] == ["command"]:
             if common.operation is not None:
                 raise LocalCliUsageError("CLI discovery does not accept a prepared operation selector")
-            selected = _resolve_optional(common, required=False)
+            selected = _resolve_for_command(common, None, {}, command_id="command.list")
             return _run_discovery(
                 command_argv,
                 common=common,
@@ -120,8 +120,13 @@ def _run(argv, attachment) -> int:
                 )
         else:
             command_id = entry.command_id
+        if command_id in {"workspace.setup", "workspace.ensure-registration", "workspace.bind"}:
+            raise LocalCliUsageError(
+                f"{command_id} is retired; use workspace create for canonical creation, "
+                "workspace register for an existing workspace, or workspace rebind to change a folder binding"
+            )
         payload = _request_payload(common.request_json)
-        selected = _resolve_for_command(common, entry, payload)
+        selected = _resolve_for_command(common, entry, payload, command_id=command_id)
         if entry is not None:
             operator_key = _launcher_operator_key(command_id, common.operator_key)
             context = compose_launcher_context(
@@ -227,14 +232,19 @@ def _explicit(common) -> bool:
     return any((common.vault, common.brain_id, common.workspace))
 
 
-def _resolve(common) -> SelectedBrain:
+def _selection_arguments(common):
     attachment = getattr(common, "owner_attachment", None)
-    inherited_job = attachment is not None and attachment.kind == "cli-job" and not _explicit(common)
-    return resolve_selected_brain(
-        vault=os.environ.get("BRAIN_VAULT_ROOT") if inherited_job else common.vault,
-        brain_id=common.brain_id,
-        workspace=os.environ.get("BRAIN_WORKSPACE_DIR") if inherited_job else common.workspace,
-    )
+    inherited_job = (attachment is not None and attachment.kind == "cli-job"
+                     and common.vault is None and common.brain_id is None)
+    return {
+        "vault": os.environ.get("BRAIN_VAULT_ROOT") if inherited_job else common.vault,
+        "brain_id": common.brain_id,
+        "workspace": (common.workspace or os.environ.get("BRAIN_WORKSPACE_DIR")) if inherited_job else common.workspace,
+    }
+
+
+def _resolve(common) -> SelectedBrain:
+    return resolve_selected_brain(**_selection_arguments(common))
 
 
 def _resolve_doctor_selection(common) -> SelectedBrain | None:
@@ -259,23 +269,26 @@ def _resolve_doctor_selection(common) -> SelectedBrain | None:
     return None if selected.source in MACHINE_FALLBACK_RUNGS else selected
 
 
-def _resolve_for_command(common, entry, payload) -> SelectedBrain | None:
+def _resolve_for_command(common, entry, payload, *, command_id) -> SelectedBrain | None:
+    if command_id == "workspace.discover" or (
+        command_id == "workspace.upgrade" and payload.get("scope") == "machine"
+    ):
+        return None
     if entry is not None and entry.command_id in {"mcp.configure", "mcp.repair"} and payload.get("scope") == "user":
         # Machine transport ownership is independent of target/runtime readiness.
         return None
-    if (
+    pre_binding_control = command_id in {
+        "command.list", "command.describe", "access.prepare", "access.request", "access.status", "access.reduce",
+    } and (common.workspace or os.environ.get("BRAIN_WORKSPACE_DIR"))
+    if command_id in {"workspace.register", "workspace.rebind", "workspace.upgrade", "workspace.unregister"} or pre_binding_control or (
         entry is not None
         and entry.command_id in {"skill.expose", "skill.unexpose"}
         and payload.get("scope") == "project"
     ):
-        from .runtime import resolve_project_exposure_brain
+        from .runtime import resolve_folder_brain
 
         try:
-            return resolve_project_exposure_brain(
-                vault=common.vault,
-                brain_id=common.brain_id,
-                workspace=common.workspace,
-            )
+            return resolve_folder_brain(**_selection_arguments(common))
         except Exception as exc:
             raise CliError(str(exc)) from exc
     if entry is not None and entry.command_id == "brain.doctor":
@@ -449,16 +462,34 @@ def _invoke_application(
     options = attachment.forwarded_process() if attachment is not None else {}
     completed = managed_command(argv, role=ROLE_CLI, env=options.pop("env", None)).run(
         capture_output=True, text=True, check=False, **options)
+    diagnostic = f" (exit {completed.returncode})"
+    # Only recognise owned evidence; child streams may contain credentials.
+    evidence = completed.stderr[-4096:].strip()
+    if evidence == "command.py: infrastructure — direct workspace is not bound to the selected Brain":
+        diagnostic += (
+            "; discovery requires a workspace already bound to the selected Brain. "
+            "Bind the intended local folder with brain workspace register --brain <registered-brain-id> "
+            "--workspace <local-folder>, using a Core version that supports unbound registration."
+        )
+    elif evidence.startswith("command.py: infrastructure — Workspace metadata schema ") and " Run brain workspace upgrade" in evidence:
+        diagnostic += "; " + evidence.removeprefix("command.py: infrastructure — ")
+    elif evidence.startswith("command.py: infrastructure — direct workspace cannot be resolved:"):
+        diagnostic += (
+            "; the child could not resolve the workspace binding. "
+            "Check the workspace manifest and local Brain registry."
+        )
+    else:
+        diagnostic += "; check the selected Brain command entry point and runtime"
     if completed.returncode not in range(5):
-        raise CliError("selected Brain discovery failed its structural process contract")
+        raise CliError("selected Brain discovery failed its structural process contract" + diagnostic)
     try:
         result = json.loads(completed.stdout)
     except json.JSONDecodeError as exc:
-        raise CliError("selected Brain discovery returned invalid JSON") from exc
+        raise CliError("selected Brain discovery returned invalid JSON" + diagnostic) from exc
     try:
         validate_application_envelope(result, command_id, completed.returncode)
     except RuntimeError as exc:
-        raise CliError(str(exc)) from exc
+        raise CliError(str(exc) + diagnostic) from exc
     return result
 
 

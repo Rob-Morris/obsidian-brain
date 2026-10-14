@@ -9,7 +9,7 @@ from _application.skill.update import SkillUpdateRequest, execute as update_skil
 from _application.skill._preparation import prepare_skill
 from _application.workspace._preparation import prepare_workspace
 from _application.workspace.configure_bootstrap import WorkspaceConfigureBootstrapRequest, execute as configure_bootstrap
-from _application.workspace.setup import WorkspaceSetupRequest, execute as setup_workspace
+from _application.workspace.register import WorkspaceRegisterRequest, execute as setup_workspace
 from command_application import application_for
 from test_skill_library import allow_local_git, _source_repo, _advance
 from _skill_library import add_git_skill
@@ -33,6 +33,8 @@ class MatchingAdmission:
 def _workspace_context(root, tmp_path):
     workspace = tmp_path / "workspace"
     workspace.mkdir()
+    from _application.workspace.create import WorkspaceCreateRequest
+    assert application_for(root).invoke(WorkspaceCreateRequest("workspace")).status == "ok"
     return application_for(root, workspace_dir=workspace)._context, workspace
 
 
@@ -40,7 +42,7 @@ def test_workspace_setup_uses_same_prepared_target_and_admits_once(command_vault
     root = command_vault_clone.vault_root
     context, workspace = _workspace_context(root, tmp_path)
     vault_registry.register(root, "consent-brain")
-    request = WorkspaceSetupRequest()
+    request = WorkspaceRegisterRequest(slug="workspace")
     binding = prepare_workspace(context, request)
     registry = root / ".brain/local/workspaces.json"
     before = registry.read_bytes() if registry.exists() else None
@@ -56,7 +58,7 @@ def test_workspace_selector_drift_cannot_write_other_workspace_registration(comm
     root = command_vault_clone.vault_root
     context, _workspace = _workspace_context(root, tmp_path)
     vault_registry.register(root, "consent-brain")
-    request = WorkspaceSetupRequest()
+    request = WorkspaceRegisterRequest(slug="workspace")
     admission = MatchingAdmission(prepare_workspace(context, request))
     other = tmp_path / "other-workspace"
     other.mkdir()
@@ -74,7 +76,7 @@ def test_setup_pins_git_exclude_before_manifest_creation(command_vault_clone, tm
     context, workspace = _workspace_context(root, tmp_path)
     subprocess.run(["git", "init", "--quiet", str(workspace)], check=True)
     vault_registry.register(root, "consent-brain")
-    request = WorkspaceSetupRequest("consent-brain")
+    request = WorkspaceRegisterRequest("consent-brain", "workspace")
     admission = MatchingAdmission(prepare_workspace(context, request))
     exclude = workspace / ".git/info/exclude"
     exclude.write_text("changed since preparation\n")

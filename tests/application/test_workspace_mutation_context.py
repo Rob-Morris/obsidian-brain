@@ -16,7 +16,7 @@ from _application.document.replace_text import DocumentReplaceTextRequest, Uniqu
 from _application.document.structured_edit import DocumentStructuredEditRequest, ReplaceStructure, HeadingSelection, HeadingPart
 from _application.registry import current_application_catalogue, current_request_resolver
 from _application.projection import canonical_wire_value, request_schema, minimal_request_payload
-from _application.workspace.ensure_registration import WorkspaceEnsureRegistrationRequest
+from _application.workspace.create import WorkspaceCreateRequest
 from _application.workspace.update_policy import WorkspaceUpdatePolicyRequest
 from _application.workspace_context import WorkspaceSelector
 from _bootstrap.workspace_binding import read_workspace_manifest, save_workspace_manifest_data
@@ -36,7 +36,7 @@ def scoped(command_vault_clone, tmp_path):
     root = command_vault_clone.vault_root
     app = application_for(root)
     for key in ("alpha", "beta"):
-        result = app.invoke(WorkspaceEnsureRegistrationRequest(key))
+        result = app.invoke(WorkspaceCreateRequest(key))
         assert result.status == "ok", result
     parents = {}
     for key in ("shared", "local"):
@@ -52,8 +52,7 @@ def scoped(command_vault_clone, tmp_path):
     workspace = tmp_path / "repo"
     workspace.mkdir()
     vault_registry.register(root, "brain")
-    save_workspace_manifest_data(workspace, {"brain": "brain", "slug": "repo",
-        "links": {"workspace": "alpha"}, "defaults": {"parent": "project/local", "tags": ["local", "both"]}})
+    save_workspace_manifest_data(workspace, {"schema_version": 1, "brain": "brain", "slug": "alpha", "defaults": {"parent": "project/local", "tags": ["local", "both"]}})
     return root, workspace, application_for(root, workspace_dir=workspace), parents
 
 
@@ -203,7 +202,7 @@ def test_invalid_startup_binding_cannot_be_bypassed(scoped, selection, broken):
     if broken == "terminal":
         assert app.invoke(ArtefactSetStatusRequest("workspace/alpha", "completed")).status == "ok"
     elif broken == "missing":
-        manifest["links"]["workspace"] = "missing"
+        manifest["slug"] = "missing"
     elif broken == "stale-parent":
         manifest["defaults"]["parent"] = "workspace/beta"
     else:
@@ -271,7 +270,7 @@ def test_generic_type_edit_cannot_remove_workspace_hub_identity(scoped, explicit
 
     root, _workspace, app, _parents = scoped
     app = application_for(root)
-    assert app.invoke(WorkspaceEnsureRegistrationRequest("history")).status == "ok"
+    assert app.invoke(WorkspaceCreateRequest("history")).status == "ok"
     if explicit:
         result = app.invoke(ArtefactSetWorkspaceRequest("workspace/history",
             workspace_context=WorkspaceSelector("workspace/history")))
@@ -385,14 +384,36 @@ def test_index_failure_retains_committed_subject_and_exact_mutation_context(scop
 
 
 def test_session_exposes_distinct_canonical_shared_and_local_policy(scoped):
-    from _application.session.start import SessionStartRequest
+    from _application.session.start import SessionStartRequest, SessionBootstrapPage
+    from _application._response_budget import encoded_result_size, MODEL_TEXT_BUDGET
     from _application.types import DependencyTier
     from test_session_start_owner import _mark_ready
 
     root, workspace, _app, _parents = scoped
     _mark_ready(root)
-    result = application_for(root, workspace_dir=workspace, dependency_tier=DependencyTier.MANAGED).invoke(SessionStartRequest())
+    app = application_for(root, workspace_dir=workspace, dependency_tier=DependencyTier.MANAGED)
+    result = app.invoke(SessionStartRequest())
     assert result.status == "ok", result
+    if isinstance(result.result, SessionBootstrapPage):
+        revision = result.result.revision
+        pages = []
+        while True:
+            assert encoded_result_size(result) < MODEL_TEXT_BUDGET
+            assert result.result.revision == revision
+            pages.append(result.result.content)
+            cursor = result.result.range.next_cursor
+            if cursor is None:
+                assert result.result.bootstrap_complete
+                break
+            result = app.invoke(SessionStartRequest(cursor))
+            assert result.status == "ok", result
+        content = "".join(pages)
+        assert '`workspace`: `workspace/alpha`' in content
+        assert '`shared.parent`: `project/shared`' in content
+        assert '`local.parent`: `project/local`' in content
+        assert '`shared.tags`: `["shared", "both"]`' in content
+        assert '`local.tags`: `["local", "both"]`' in content
+        return
     policy = result.result.workspace_policy
     assert policy.workspace == "workspace/alpha"
     assert policy.shared.parent == "project/shared" and policy.local.parent == "project/local"
@@ -451,3 +472,17 @@ def test_maintenance_link_rewrites_do_not_apply_active_policy(scoped):
     fields, body = parse_frontmatter(referrer.read_text())
     assert fields["tags"] == [] and "workspace" not in fields
     assert "[[Brain Inbox]]" in body
+
+
+def test_vault_self_global_mutation_does_not_require_workspace_metadata(command_vault_clone):
+    root = command_vault_clone.vault_root
+    manifest = root / ".brain/local/workspace.yaml"
+    manifest.write_text("schema_version: 99\nbrain: wrong-brain\nslug: unrelated\n")
+    before = manifest.read_bytes()
+    app = application_for(root, workspace_dir=root)
+    created = app.invoke(ArtefactCreateRequest("living/design", "Vault Global", key="vault-global",
+                                              workspace_context=WorkspaceSelector("global")))
+    assert created.status == "ok", created
+    fields, _ = parse_frontmatter((root / created.result.path).read_text())
+    assert fields.get("workspace") is None
+    assert manifest.read_bytes() == before

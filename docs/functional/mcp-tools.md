@@ -239,14 +239,23 @@ subjects receive policy tags; deletion and incidental maintenance rewrites do no
 
 MCP callers provide only semantic fields. The adapter derives selected Brain, workspace binding, authenticated profile, authority, dependency tier, providers, dry-run facilities and receipt storage from trusted server/proxy state.
 
-`workspace.ensure-registration` and `workspace.update-policy` are selected-Brain
-content commands and are available over MCP. `workspace.setup` and
-`workspace.update-metadata` write the caller's folder, and
-`workspace.unregister` writes the folder the linked workspace registry row records; all three
-need local filesystem access and remain local CLI/script/Python operations. Session workspace configuration reports a
-canonical reference and explicit `valid`, `unconfigured`, `configured_invalid`
-or `terminal_inactive` state; unresolved manifest links never produce synthetic
-workspace records.
+`workspace.create` (`key`, optional `title`) and `workspace.update-policy` are
+selected-Brain content commands available over MCP. Register, rebind,
+unregister and metadata updates need local filesystem access and have no MCP
+projection. Upgrade and read-only discovery are local CLI operations with
+explicit scope/roots; MCP cannot configure a connecting agent's filesystem.
+
+Outdated local workspace metadata returns a structured no-effect recovery
+diagnostic with `details.reason: upgrade_required`, schema versions, affected
+folder and a pinned local `workspace upgrade` command. `session.start`, discovery
+and access controls remain usable; MCP cannot perform that local migration.
+
+`workspace.list` / `workspace.read` return canonical metadata and collections of
+zero, one or many known registrations. They accept no arbitrary caller-supplied
+filesystem selector. Known inventory paths do not grant access to those paths.
+Singular folder resolution needs validated context or local CLI selection and
+otherwise refuses with candidates. Invalid linkage never creates synthetic
+workspace records or falls back to another Brain.
 
 The local proxy assigns every accepted call a bounded `mcp-...` invocation ID in MCP request metadata before child dispatch. The server refuses calls without that proxy-owned identity. Configure an operator key as trusted `BRAIN_OPERATOR_KEY` server environment when a non-default profile is required; it is not a semantic tool argument.
 

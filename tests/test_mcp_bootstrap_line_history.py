@@ -39,7 +39,7 @@ def apply(plan):
 
 
 def legacy_registration(tmp_path, monkeypatch, *, kind, scope=owner.McpScope.PROJECT):
-    """Register Claude canonically, then rewrite the ledger as a pre-0.70 (version 1) record."""
+    """Use current workspace metadata while exercising a pre-0.70 MCP ledger."""
     import vault_registry
     import workspace_registry
 
@@ -56,7 +56,7 @@ def legacy_registration(tmp_path, monkeypatch, *, kind, scope=owner.McpScope.PRO
     if kind == "project":
         target = (tmp_path / "project").resolve()
         (target / ".brain/local").mkdir(parents=True)
-        (target / ".brain/local/workspace.yaml").write_text("brain: brain\nslug: project\nlinks:\n  workspace: project\n")
+        (target / ".brain/local/workspace.yaml").write_text("schema_version: 1\nbrain: brain\nslug: project\n")
         workspace_registry.register_workspace(vault, "project", target)
     server = build_mcp_config(sys.executable, vault, workspace_dir=target)
     apply(owner._configure_plan(vault, home, target, scope, (owner.McpClient.CLAUDE,), server))

@@ -235,8 +235,9 @@ Full details in the [Template Library Guide — Extending Your Vault](https://gi
 To bind a workspace and optionally configure Claude Code, Codex and Grok to use this vault's MCP server:
 
 ```bash
-# Register and bind one workspace to this Brain
-brain workspace setup --vault /path/to/vault --workspace /my/project --request-json '{}'
+# Create a workspace, then register its folder against this Brain
+brain workspace create --vault /path/to/vault --request-json '{"key":"example"}'
+brain workspace register --vault /path/to/vault --workspace /my/project --request-json '{"brain_id":"<registered-brain-id>","slug":"example"}'
 
 # Configure project-scoped MCP transport for all three clients
 brain mcp configure --vault /path/to/vault --workspace /my/project --request-json '{"scope":"project","client":"all"}'
@@ -251,14 +252,35 @@ brain mcp configure --request-json '{"scope":"user","client":"all"}'
 brain agent-skill configure --vault /path/to/vault --request-json '{"client":"all"}'
 ```
 
-`workspace.setup` ensures a canonical workspace hub before saving the local binding.
-Its result reports Brain registration and local binding separately; a local failure
-can be retried after inspecting the reported committed effects; `force` rebinds.
-`workspace.unregister` removes the link from both ends: the Brain's linked workspace registry row,
-then the manifest link fields in the folder that row records, when that folder's
-manifest still names this Brain and the same workspace key. `workspace.configure-bootstrap` and `mcp.configure`
-remain separate bootstrap and transport owners. Use `brain command describe` for
-their exact request contracts.
+Replace `<registered-brain-id>` with the local registered ID for the selected
+Brain; `--vault` and `brain_id` must identify the same Brain.
+
+`workspace.register` requires an existing active workspace. Create it with
+`workspace.create` (`key`, optional `title`), then register the folder with an
+explicit first `slug` and selected `brain_id`. A missing hub returns its exact
+Brain-pinned creation command with no writes. An idempotent repeat may retain the
+validated slug; a changed Brain/slug requires `workspace.rebind`, never force.
+Two folders can share a workspace. The versioned manifest stores `brain` and
+canonical `slug`; path identifies each derived registration.
+
+Register/rebind need operator permission and exceptional consent in a local
+`brain session run` job when not initially authorised. MCP consent does not
+transfer. Inspect partial effects before retrying. Unregister removes only the
+selected folder registration and matching identity fields; stale/unreadable or
+other-bound manifests remain untouched with follow-up guidance. Bootstrap and
+MCP configuration are separate operations.
+
+Use local CLI `workspace.upgrade` with explicit folder, Brain or machine scope
+for schema migration, and read-only `workspace.discover` with explicit roots for
+unregistered locations. Ordinary outdated use supplies its remediation command.
+Neither creates a missing canonical workspace. Use command discovery for exact
+request contracts; the retired creation/setup commands have no aliases.
+
+The workspace needs no project, default parent or default tags. Its hub is self-scoped.
+If you want project-owned filing defaults, explicitly adopt the project (and any
+intended owned descendants) with `artefact.set-workspace`, then set the hub's
+`default_parent` using `workspace.update-policy`. A project tag
+or link expresses association without adoption and cannot supply that default parent.
 
 Artefact creation, semantic document edits, shaping start, and artefact lifecycle mutations accept `workspace_context` as a
 canonical `workspace/{key}` or `global`; omission uses the validated bound

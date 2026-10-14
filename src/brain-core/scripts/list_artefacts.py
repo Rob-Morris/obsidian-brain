@@ -251,7 +251,11 @@ def _fmt_workspace_results(results):
         return "\n".join(lines)
     for result in results:
         status_part = f"\t[{result['status']}]" if result.get("status") else ""
-        lines.append(f"{result['slug']}\t{result['mode']}\t{result['path']}{status_part}")
+        lines.append(f"{result['slug']}{status_part}")
+        for location in result["locations"]:
+            lines.append(f"\t{location['mode']}\t{location['path']}")
+        if not result["locations"]:
+            lines.append("\tNo registered folders.")
     return "\n".join(lines)
 
 

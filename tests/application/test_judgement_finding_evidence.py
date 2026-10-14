@@ -94,9 +94,9 @@ def case_reference_missing(root, local, app):
 
 
 def case_reference_archived(root, local, app):
-    from _application.workspace.ensure_registration import WorkspaceEnsureRegistrationRequest
+    from _application.workspace.create import WorkspaceCreateRequest
 
-    assert app.invoke(WorkspaceEnsureRegistrationRequest("history")).status == "ok"
+    assert app.invoke(WorkspaceCreateRequest("history")).status == "ok"
     assert app.invoke(ArtefactArchiveRequest("workspace/history")).status == "ok"
     return ("workspace_reference_archived", _write(root, PLAN, {"type": "temporal/plan", "workspace": "workspace/history"}),
             {"workspace": "workspace/history"})
@@ -187,7 +187,7 @@ def case_binding_configured_invalid_link(root, local, app):
 
 def case_binding_configured_invalid_brain_slug(root, local, app):
     return ("workspace_binding_configured_invalid", _manifest(local, slug=""),
-            {"workspace": "workspace/alpha", "cause": "brain_slug"})
+            {"workspace": None, "cause": "brain_slug"})
 
 
 def case_binding_configured_invalid_alias(root, local, app):
@@ -196,7 +196,7 @@ def case_binding_configured_invalid_alias(root, local, app):
 
 
 def case_binding_configured_invalid_hub(root, local, app):
-    return ("workspace_binding_configured_invalid", _manifest(local, links={"workspace": "nope"}),
+    return ("workspace_binding_configured_invalid", _manifest(local, slug="nope"),
             {"workspace": "workspace/nope", "cause": "hub"})
 
 
@@ -314,6 +314,23 @@ def test_the_cases_cover_every_classified_code_cause_and_binding_state():
     for state in BindingState:
         if state not in {BindingState.VALID, BindingState.UNCONFIGURED}:
             assert any(name.startswith(f"case_binding_{state.value}") for name in covered), state
+
+
+@pytest.mark.parametrize("field,value", [("brain", ""), ("brain", "bad/path"),
+    ("slug", ""), ("slug", "bad/path")])
+def test_invalid_current_identity_keeps_typed_cause_without_inferred_reference(field, value):
+    from _common._workspace import resolve_workspace_binding
+    from _bootstrap.workspace_schema import classify_workspace_manifest, WorkspaceSchemaError
+
+    manifest = {"schema_version": 1, "brain": "brain", "slug": "alpha", field: value}
+    with pytest.raises(WorkspaceSchemaError) as failure:
+        classify_workspace_manifest(manifest)
+    assert failure.value.code == "malformed_binding"
+    assert failure.value.field == field
+    binding = resolve_workspace_binding({}, manifest)
+    assert binding.state is BindingState.CONFIGURED_INVALID
+    assert binding.cause is InvalidBindingCause.BRAIN_SLUG
+    assert binding.reference is None
 
 
 # ---------------------------------------------------------------------------

@@ -47,7 +47,7 @@ def test_configured_vault_root_extracts_legacy_env_root(bootstrap_vault):
 def test_config_targets_vault_through_complete_workspace_binding(bootstrap_vault, project, monkeypatch):
     manifest = project / ".brain" / "local" / "workspace.yaml"
     manifest.parent.mkdir(parents=True)
-    manifest.write_text("brain: brain\nslug: my-project\n", encoding="utf-8")
+    manifest.write_text("schema_version: 1\nbrain: brain\nslug: my-project\n", encoding="utf-8")
     config = build_mcp_config("/usr/bin/python3", bootstrap_vault, workspace_dir=project)
     monkeypatch.setattr(
         mcp_state,
@@ -61,7 +61,7 @@ def test_config_targets_vault_through_complete_workspace_binding(bootstrap_vault
 def test_config_targets_vault_rejects_workspace_binding_without_slug(bootstrap_vault, project, monkeypatch):
     manifest = project / ".brain" / "local" / "workspace.yaml"
     manifest.parent.mkdir(parents=True)
-    manifest.write_text("brain: brain\n", encoding="utf-8")
+    manifest.write_text("schema_version: 1\nbrain: brain\n", encoding="utf-8")
     config = build_mcp_config("/usr/bin/python3", bootstrap_vault, workspace_dir=project)
     monkeypatch.setattr(
         mcp_state,
@@ -77,7 +77,7 @@ def test_config_targets_vault_requires_authoritative_local_registry_match(
 ):
     manifest = project / ".brain" / "local" / "workspace.yaml"
     manifest.parent.mkdir(parents=True)
-    manifest.write_text("brain: brain\nslug: my-project\n", encoding="utf-8")
+    manifest.write_text("schema_version: 1\nbrain: brain\nslug: my-project\n", encoding="utf-8")
     config = build_mcp_config("/usr/bin/python3", bootstrap_vault, workspace_dir=project)
     monkeypatch.setattr(mcp_state, "resolve_local_brain_vault", lambda _brain_id: None)
 

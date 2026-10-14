@@ -293,6 +293,10 @@ LAUNCHER_CATALOGUE = LauncherCatalogue(
                     approval_transition="version",
                 ),
                 _read("brain.version", "_launcher.version:version", "brain", "version"),
+                _mutation("workspace.upgrade", "_launcher.workspace:upgrade", "brain", "workspace", "upgrade",
+                          summary="Upgrade workspace metadata for an explicit folder, Brain or machine workset."),
+                _read("workspace.discover", "_launcher.workspace:discover", "brain", "workspace", "discover",
+                      summary="Discover workspace manifests within explicitly selected local roots without registration."),
                 _mutation(
                     "mcp.configure",
                     "_launcher.mcp:configure",

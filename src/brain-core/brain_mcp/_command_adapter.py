@@ -29,6 +29,7 @@ from _application.resolver import RequestResolver
 from _application.results import CommandError, Error, ErrorCode
 from _application.types import EffectClass, InitialAuthorisationClass, Projection, RetryClass
 from _common import _operational_log
+from _command_interface.direct import WorkspaceCompatibilityError
 
 from ._interface_protocol import (
     CommandInterfaceHeader,
@@ -185,6 +186,8 @@ def _handler(
                 mcp_context=mcp_context,
                 **({"operation_id": operation_id} if operation_id is not None else {}),
             )
+        except WorkspaceCompatibilityError as exc:
+            projection = project_adapter_result(exc.result(entry))
         except Exception as exc:
             # Unpaired tool.handled: the invocation identity never composed.
             if logger is not None:

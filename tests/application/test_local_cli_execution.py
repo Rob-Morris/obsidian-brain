@@ -50,7 +50,7 @@ from _local_cli.runtime import (
     LauncherReceiptStore,
     SelectedBrain,
     command_python,
-    resolve_project_exposure_brain,
+    resolve_folder_brain,
     resolve_selected_brain,
 )
 from _common import _operational_log
@@ -635,7 +635,7 @@ def test_real_local_cli_project_exposure_uses_default_and_preserves_project(
     vault_registry.register(str(vault), "default-brain")
     vault_registry.set_default("default-brain")
 
-    selected = resolve_project_exposure_brain(
+    selected = resolve_folder_brain(
         vault=None,
         brain_id=None,
         workspace=str(project),

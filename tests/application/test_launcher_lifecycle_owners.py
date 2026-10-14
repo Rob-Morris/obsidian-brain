@@ -693,6 +693,23 @@ def _fake_upgrader(monkeypatch, result_factory):
     return calls
 
 
+def test_skipped_core_failure_after_reconciliation_is_not_reported_as_no_effect(tmp_path, monkeypatch):
+    vault = _vault(tmp_path, CORE_VERSION)
+    _register(monkeypatch, tmp_path, vault)
+    _fake_upgrader(monkeypatch, lambda kwargs: {
+        "status": "partial", "core_skipped": True,
+        "old_version": CORE_VERSION, "new_version": CORE_VERSION,
+        "router_compile": {"outcome": "ok"},
+        "workspace_upgrade": {"outcome": "error", "message": "Child admission failed"},
+    })
+    receipts = _Receipts()
+    result = _invocation(tmp_path, vault=vault, receipts=receipts).invoke(BrainUpgradeRequest())
+    assert result.status == "error", result
+    assert result.error.code is ErrorCode.COMMAND_OUTCOME_UNKNOWN
+    assert result.effects == "unknown"
+    assert receipts.values[-1].state is ReceiptState.UNKNOWN
+
+
 def test_upgrade_content_ahead_refusal_is_a_no_effect_conflict(tmp_path, monkeypatch):
     """A source older than the recorded content is refused like the preflight's own downgrade refusal (DD-084)."""
     vault = _vault(tmp_path)

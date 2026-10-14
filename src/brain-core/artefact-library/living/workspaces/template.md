@@ -10,8 +10,13 @@ workspace_mode: embedded
 
 ## Data Folder
 
-Workspace data lives under `_Workspaces/` in a folder keyed to this workspace's key.
+Embedded data lives under `_Workspaces/{key}/`. Linked data may live in several
+registered local folders sharing this Brain/workspace key. Folder paths identify
+registrations; they do not assign artefact membership.
 
 ## Related Artefacts
 
 Membership uses `workspace: workspace/{key}` on member artefacts. Relationship tags do not adopt content. Set shared parent/tag defaults through `workspace.update-policy`; this hub is self-scoped.
+
+For an existing project, explicitly adopt it before selecting it as `default_parent`.
+Use tags or links for association without adoption; do not give the hub a cross-workspace parent.

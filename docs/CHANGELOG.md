@@ -8,6 +8,7 @@ Never edit past changelog entries. Only add new entries at the top.
 
 | Version | Date | Summary |
 |---|---|---|
+| [v0.72.0](changelog/v0.72.0.md) | 2026-10-14 | Separate workspace identity from folder registration |
 | [v0.71.4](changelog/v0.71.4.md) | 2026-10-12 | Condition Codex MCP reconnect advice on pending tool discovery |
 | [v0.71.3](changelog/v0.71.3.md) | 2026-10-11 | Guide MCP upgrade recovery with brain_proxy_status and one notice |
 | [v0.71.2](changelog/v0.71.2.md) | 2026-10-10 | Clarify upgrade recovery storage and workspace locking |

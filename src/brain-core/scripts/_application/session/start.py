@@ -16,6 +16,7 @@ from typing import ClassVar, Mapping
 
 from ..context import InvocationContext
 from _workspace_contract import WorkspacePolicy
+from ..results import WorkspaceCompatibilityDetails
 from ..maintenance._advisory import MaintenanceAdvisory
 from ..results import CommandError, Error, ErrorCode, InstructionNextAction, Ok
 from ..runtime._snapshot import typed_snapshot
@@ -89,6 +90,7 @@ class SessionWorkspaceConfiguration:
     effect: str
     canonical_workspace: str | None
     guidance: str | None
+    metadata_upgrade: WorkspaceCompatibilityDetails | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -244,8 +246,10 @@ def _payload(model):
             **{
                 key: value
                 for key, value in model["workspace_configuration"].items()
-                if key != "current_binding"
-            }
+                if key not in {"current_binding", "metadata_upgrade"}
+            },
+            metadata_upgrade=_optional(model["workspace_configuration"], "metadata_upgrade",
+                                       lambda item: WorkspaceCompatibilityDetails(**item)),
         ),
         command_catalogue=SessionCommandCatalogue(**model["command_catalogue"]),
         config=_optional(

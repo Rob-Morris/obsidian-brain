@@ -142,7 +142,7 @@ def test_same_persisted_user_command_routes_two_bound_brains_with_distinct_contr
         workspace = tmp_path / f"project {index}"
         binding = workspace / ".brain/local/workspace.yaml"
         binding.parent.mkdir(parents=True)
-        binding.write_text(f"brain: {identity}\nslug: project-{index}\n")
+        binding.write_text(f"schema_version: 1\nbrain: {identity}\nslug: project-{index}\n")
         workspaces.append(workspace)
     monkeypatch.setenv("PATH", "")
     monkeypatch.setenv("PYTHONHOME", "/foreign/python")

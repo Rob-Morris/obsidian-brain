@@ -139,7 +139,7 @@ def test_archived_transcript_is_not_reopened_by_parent_independent_lookup(scoped
 def test_invalid_binding_fails_before_any_shaping_write(scoped, selection):
     root, directory, app, _parents = scoped
     manifest = read_workspace_manifest(directory)
-    manifest["links"]["workspace"] = "missing"
+    manifest["slug"] = "missing"
     save_workspace_manifest_data(directory, manifest)
     before = {path: path.read_bytes() for path in root.rglob("*.md")}
     result = app.invoke(ShapingStartRequest(DESIGN_REFERENCE, ShapingMode.REFINE,

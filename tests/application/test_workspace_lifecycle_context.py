@@ -18,7 +18,7 @@ from _application.artefact.set_status import ArtefactSetStatusRequest
 from _application.artefact.set_naming_field import ArtefactSetNamingFieldRequest
 from _application.artefact.unarchive import ArtefactUnarchiveRequest
 from _application.artefact.create import ArtefactCreateRequest
-from _application.workspace.ensure_registration import WorkspaceEnsureRegistrationRequest
+from _application.workspace.create import WorkspaceCreateRequest
 from _application.workspace.update_policy import WorkspaceUpdatePolicyRequest
 from _application.workspace_context import WorkspaceSelector, WorkspaceMutationPartial, WorkspaceAwareRequest
 from _application.registry import current_application_catalogue, current_request_resolver
@@ -247,17 +247,106 @@ def test_hub_guards_discover_members_in_every_source_class(scoped, monkeypatch, 
 def test_hub_active_local_binding_blocks_key_change_without_members(scoped):
     root, workspace, _app, _parents = scoped
     app = application_for(root)
-    assert app.invoke(WorkspaceEnsureRegistrationRequest("empty")).status == "ok"
-    save_workspace_manifest_data(workspace, {"brain": "brain", "slug": "repo", "links": {"workspace": "empty"}})
+    assert app.invoke(WorkspaceCreateRequest("empty")).status == "ok"
+    save_workspace_manifest_data(workspace, {"schema_version": 1, "brain": "brain", "slug": "empty"})
     bound = application_for(root, workspace_dir=workspace)
     result = bound.invoke(ArtefactSetKeyRequest("workspace/empty", "renamed", workspace_context=WorkspaceSelector("global")))
-    assert result.status == "error" and "links.workspace" in result.error.message
+    assert result.status == "error" and "slug" in result.error.message
+
+
+@pytest.mark.parametrize("operation", ["key", "archive", "delete", "convert"])
+def test_known_folder_registrations_protect_hub_without_caller_context(scoped, monkeypatch, operation):
+    import workspace_registry
+    root, workspace, _app, _parents = scoped
+    app = application_for(root)
+    assert app.invoke(WorkspaceCreateRequest("registered")).status == "ok"
+    folders = (workspace, workspace.parent / "second-folder")
+    for folder in folders:
+        workspace_registry.register_workspace(root, "registered", folder)
+    hub = require_fresh_compiled_router(root)["artefact_index"]["workspace/registered"]["path"]
+    before = (root / hub).read_bytes()
+    request = _request(operation, hub, root, app, monkeypatch, "global")
+    if operation == "convert":
+        request = ArtefactConvertRequest(hub, "temporal/plan", workspace_context=WorkspaceSelector("global"))
+    result = app.invoke(request)
+    assert result.status == "error" and result.effects == "none", result
+    assert all(str(folder) in result.error.message for folder in folders)
+    assert (root / hub).read_bytes() == before
+
+
+def test_known_registration_does_not_prevent_terminal_workspace_status(scoped):
+    import workspace_registry
+    root, workspace, _app, _parents = scoped
+    app = application_for(root)
+    assert app.invoke(WorkspaceCreateRequest("registered")).status == "ok"
+    workspace_registry.register_workspace(root, "registered", workspace)
+    result = app.invoke(ArtefactSetStatusRequest("workspace/registered", "completed"))
+    assert result.status == "ok", result
+    assert workspace_registry.load_registry_strict(root)[str(workspace)]["slug"] == "registered"
+
+
+def test_registration_added_after_preparation_blocks_hub_change(scoped):
+    import workspace_registry
+    root, workspace, _app, _parents = scoped
+    app = application_for(root)
+    assert app.invoke(WorkspaceCreateRequest("empty")).status == "ok"
+    request = ArtefactSetKeyRequest("workspace/empty", "changed")
+    entry = current_application_catalogue().resolve(request)
+    binding = entry.preparation.prepare(app._context, request)
+    workspace_registry.register_workspace(root, "empty", workspace)
+    admission = MatchingAdmission(binding)
+    result = entry.executor(replace(app._context, admission=admission), request)
+    assert result.status == "error" and result.effects == "none", result
+    assert admission.calls == 0
+    assert str(workspace) in result.error.message
+
+
+@pytest.mark.parametrize("operation", ["key", "archive", "delete"])
+def test_implicit_embedded_location_protects_hub_without_caller_context(scoped, operation):
+    root, _workspace, _app, _parents = scoped
+    app = application_for(root)
+    assert app.invoke(WorkspaceCreateRequest("embedded")).status == "ok"
+    folder = root / "_Workspaces" / "embedded"
+    folder.mkdir(parents=True)
+    hub = require_fresh_compiled_router(root)["artefact_index"]["workspace/embedded"]["path"]
+    request = {"key": ArtefactSetKeyRequest("workspace/embedded", "changed"),
+        "archive": ArtefactArchiveRequest("workspace/embedded"),
+        "delete": ArtefactDeleteRequest(hub)}[operation]
+    result = app.invoke(request)
+    assert result.status == "error" and result.effects == "none", result
+    assert str(folder) in result.error.message
+    assert folder.is_dir()
+
+
+def test_embedded_location_allows_terminal_status(scoped):
+    root, _workspace, _app, _parents = scoped
+    app = application_for(root)
+    assert app.invoke(WorkspaceCreateRequest("embedded")).status == "ok"
+    (root / "_Workspaces" / "embedded").mkdir(parents=True)
+    result = app.invoke(ArtefactSetStatusRequest("workspace/embedded", "completed"))
+    assert result.status == "ok", result
+
+
+def test_embedded_location_created_after_preparation_blocks_hub_change(scoped):
+    root, _workspace, _app, _parents = scoped
+    app = application_for(root)
+    assert app.invoke(WorkspaceCreateRequest("empty")).status == "ok"
+    request = ArtefactSetKeyRequest("workspace/empty", "changed")
+    entry = current_application_catalogue().resolve(request)
+    binding = entry.preparation.prepare(app._context, request)
+    assert any(item.kind == "workspace-lifecycle-embedded" for item in binding.observations)
+    folder = root / "_Workspaces" / "empty"
+    folder.mkdir(parents=True)
+    admission = MatchingAdmission(binding)
+    result = entry.executor(replace(app._context, admission=admission), request)
+    assert result.status == "error" and result.effects == "none", result
+    assert admission.calls == 0 and str(folder) in result.error.message
 
 
 def test_unreferenced_hub_can_change_key_but_conversion_cannot_clear_self_scope(scoped):
     root, _workspace, _app, _parents = scoped
     app = application_for(root)
-    assert app.invoke(WorkspaceEnsureRegistrationRequest("empty")).status == "ok"
+    assert app.invoke(WorkspaceCreateRequest("empty")).status == "ok"
     changed = app.invoke(ArtefactSetKeyRequest("workspace/empty", "renamed"))
     assert changed.status == "ok", changed
     assert "workspace/renamed" in require_fresh_compiled_router(str(root))["artefact_index"]
@@ -371,7 +460,7 @@ def test_recursive_and_multi_subject_policy_excludes_incidental_subjects(scoped,
 def test_reference_created_after_preparation_blocks_hub_change(scoped):
     root, _workspace, _app, _parents = scoped
     app = application_for(root)
-    assert app.invoke(WorkspaceEnsureRegistrationRequest("empty")).status == "ok"
+    assert app.invoke(WorkspaceCreateRequest("empty")).status == "ok"
     request = ArtefactSetKeyRequest("workspace/empty", "changed")
     entry = current_application_catalogue().resolve(request)
     binding = entry.preparation.prepare(app._context, request)

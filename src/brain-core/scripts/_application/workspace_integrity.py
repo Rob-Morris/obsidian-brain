@@ -8,7 +8,7 @@ def lifecycle_guard_observations(context, router, subjects, *, archiving=False, 
     from _common import normalize_artefact_key, parse_frontmatter, read_exact_file_content, UnreadableVaultTextFilesError, vault_text_failure
     from _lifecycle.frontmatter_repairs import iter_candidate_artefact_markdown_files
     from _common._workspace import is_terminal, membership
-    from _bootstrap.workspace_binding import load_workspace_manifest_state
+    from _bootstrap.workspace_binding import load_workspace_manifest_state, link_fields
 
     protected = {}
     for path, old_reference, new_reference, before, after in subjects:
@@ -31,8 +31,31 @@ def lifecycle_guard_observations(context, router, subjects, *, archiving=False, 
         return ()
 
     root = context.selected_brain.vault_root
+    import workspace_registry
+    registry_observations = []
+    registrations = {}
+    if any(hub for hub, _default_parent in protected.values()):
+        registrations, registry_bytes = workspace_registry.read_registry_strict(root)
+        registry_observations.append(ObservedResource("workspace-lifecycle-registry", str(root.resolve()),
+            content_digest(registry_bytes) if registry_bytes is not None else None))
     paths = set(iter_candidate_artefact_markdown_files(root))
     references = {reference: [] for reference in protected}
+    for reference, (hub, _default_parent) in sorted(protected.items()):
+        if not hub:
+            continue
+        slug = reference.removeprefix("workspace/")
+        embedded = root / workspace_registry.EMBEDDED_DATA_DIR / slug
+        exists = workspace_registry.is_embedded(root, slug)
+        registry_observations.append(ObservedResource("workspace-lifecycle-embedded", str(embedded),
+            content_digest(canonical_json({"exists": exists}))))
+        if exists:
+            references[reference].append(f"{embedded}: embedded workspace location")
+    # Recorded identity edges remain references even when a folder is offline.
+    # Inventory is read locally; no external manifest access is inferred from it.
+    for folder, registration in sorted(registrations.items()):
+        reference = "workspace/" + registration["slug"]
+        if reference in protected and protected[reference][0]:
+            references[reference].append(f".brain/local/workspaces.json: {folder}")
     failures = []
     for path in sorted(paths):
         try:
@@ -52,14 +75,16 @@ def lifecycle_guard_observations(context, router, subjects, *, archiving=False, 
             references[parent].append(f"{path}: default_parent")
     if failures:
         raise UnreadableVaultTextFilesError(failures)
-    if context.workspace_dir is not None:
+    if (context.workspace_dir is not None
+            and context.workspace_dir.resolve() != root.resolve()):
         state = load_workspace_manifest_state(context.workspace_dir)
         manifest = state.data or {}
-        link = (manifest.get("links") or {}).get("workspace")
+        _, link = link_fields(manifest)
+        identity_field = "slug" if "schema_version" in manifest else "links.workspace"
         parent = normalize_artefact_key((manifest.get("defaults") or {}).get("parent"))
         for reference, (hub, default_parent) in protected.items():
             if hub and link == reference.removeprefix("workspace/"):
-                references[reference].append(f"{state.manifest_path}: links.workspace")
+                references[reference].append(f"{state.manifest_path}: {identity_field}")
             if (hub or default_parent) and parent == reference:
                 references[reference].append(f"{state.manifest_path}: defaults.parent")
     blockers = [f"{reference}: " + "; ".join(refs) for reference, refs in references.items() if refs]
@@ -67,6 +92,6 @@ def lifecycle_guard_observations(context, router, subjects, *, archiving=False, 
         raise ValueError("Workspace lifecycle change would strand discoverable references: "
                          + " | ".join(blockers)
                          + ". Replace or clear these references first; disconnected local manifests are not inspected.")
-    return tuple(ObservedResource("workspace-lifecycle-references", reference,
+    return (*registry_observations, *tuple(ObservedResource("workspace-lifecycle-references", reference,
                                  content_digest(canonical_json({"references": refs})))
-                 for reference, refs in sorted(references.items()))
+                 for reference, refs in sorted(references.items())))

@@ -5,6 +5,43 @@
 **Extended by:** DD-052, DD-055, DD-078
 **Amended by:** DD-083 (§2's targeted `configure workspace binding` surface and `workspace.bind` are retired, with `workspace.setup --force` as the rebind surface)
 
+## Amendment — 2026-10-14: canonical identity and folder registrations
+
+The approved workspace creation/folder-registration design supersedes the
+historical contracts below for this increment. The earlier record is preserved
+as decision history, including retired command spellings and one-path assumptions.
+
+- `workspace.create` takes explicit `key` and optional `title`; creation is a
+  selected-Brain contributor/content operation. `workspace.register` takes the
+  target `brain_id` and explicit first `slug`, requires an existing active hub,
+  and is operator/exceptional caller-local work. A repeat may retain its validated
+  slug. Missing hubs refuse with an exact Brain-pinned creation command.
+- Brain plus canonical slug identifies the shared workspace; path identifies its
+  local registration. Multiple folders may share that identity. The manifest
+  stores independent `schema_version: 1`, `brain` and canonical `slug`, not a
+  separate local slug or `links.workspace`. The derived inventory has
+  `schema_version: 1` and a `registrations` list of `slug` / `path` pairs.
+- Separate `workspace.rebind` changes only the selected folder to an explicit
+  existing target Brain/slug, preserving other registrations and both hubs.
+  Incompatible defaults/integrations refuse. There is no force-based rebind,
+  callable setup/ensure-registration alias or hidden compatibility wrapper.
+- Projects, project hubs and parent/tag defaults remain optional. Tags and links
+  do not adopt content. Embedded locations remain implicit; vault-self is not a
+  registration. Unregister selects one folder, retains integration guards, and
+  leaves unreadable or differently bound manifests untouched with follow-up.
+- Local CLI `workspace.upgrade` uses explicit folder/Brain/machine scope and
+  preserves verified legacy canonical identity. Read-only `workspace.discover`
+  scans explicit roots without registration. Neither creates missing hubs.
+- Source-version-bound permission migration removes historical register/bind
+  grants before mapping ensure-registration to create and setup to narrower
+  register, preserving restrictions and exact initial classes. No inferred
+  custom rebind grants or consent transfer; conflicting target settings refuse.
+
+Current contracts: [CLI](../../functional/cli.md#workspace-registration-and-policy),
+[configuration](../../functional/config.md#workspace-manifest) and
+[security](../security.md). Historical grant retirement remains version-specific;
+reintroducing a spelling does not revive its old authority.
+
 ## Context
 
 DD-023 made `init.py` the practical setup surface for folder-scoped Brain use. DD-039 extended that surface across Claude and Codex while keeping each client's native MCP scope model. DD-040 added workspace manifests and session wiring, but still treated the active Brain route as something chosen by the MCP configuration itself.
@@ -31,11 +68,19 @@ The canonical workspace manifest is `.brain/local/workspace.yaml` in the workspa
 
 ### 2. Public command surface splits setup from configuration
 
-The current canonical contract extends this original decision: `workspace.setup`
-now ensures canonical Brain workspace registration before writing the local
-binding, with a composite locality/effect and separately reported outcomes.
-The historical `setup.py workspace` compatibility entry retains the local-only
-behavior below. See [the CLI contract](../../functional/cli.md#workspace-registration-and-policy)
+The current canonical contract extends this original decision. Explicit user
+amendment on 2026-10-13: workspace creation is a separate explicit operation;
+`workspace.setup` requires an active existing canonical `living/workspace`
+artefact in the selected Brain before registering the folder and writing its
+local binding. A missing identity returns no registration or binding effects
+and an explicit creation command pinned to the selected Brain. This amends the
+earlier combined create-and-bind contract while retaining composite
+locality/effect and separately reported outcomes; permission/consent classes,
+MCP locality, existing `links.workspace` precedence and DD-083's locking contract
+are unchanged.
+The former `setup.py workspace` compatibility entry had the local-only
+behaviour described in the original May record below; that entry is now retired
+under DD-083. See [the CLI contract](../../functional/cli.md#workspace-registration-and-policy)
 for the current supported grammar and policy owners.
 
 Canonical membership and shared mutation policy now extend the local-binding
