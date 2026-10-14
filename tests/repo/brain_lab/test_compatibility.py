@@ -26,10 +26,13 @@ def test_compatibility_families_are_non_overlapping_and_cover_selected_versions(
     assert manifest.select("0.70.0").adapter_id == "brain-0.70"
     assert manifest.select("0.70.10").adapter_id == "brain-0.70"
     assert manifest.select("0.71.0").adapter_id == "brain-0.71"
+    assert manifest.select("0.71.999").adapter_id == "brain-0.71"
+    assert manifest.select("0.72.0").adapter_id == "brain-0.72"
+    assert manifest.select("0.72.999").adapter_id == "brain-0.72"
     with pytest.raises(ValueError, match="no unique"):
         manifest.select("0.50.0")
     with pytest.raises(ValueError, match="no unique"):
-        manifest.select("0.72.0")
+        manifest.select("0.73.0")
 
 
 def test_brain_0_71_changes_only_how_doctor_selects_its_vault():
@@ -49,6 +52,29 @@ def test_brain_0_71_changes_only_how_doctor_selects_its_vault():
                    maximum_version_exclusive=released.maximum_version_exclusive,
                    health=tuple(released_doctor if gate is current_doctor else gate for gate in current.health)
                    ) == released
+
+
+def test_brain_0_72_keeps_vault_self_preparation_and_health_contracts():
+    """The workspace cutover does not change Lab's installed-Brain or vault-self contracts."""
+    from dataclasses import replace
+
+    manifest = CompatibilityManifest(MANIFEST)
+    historical, current = manifest.select("0.71.0"), manifest.select("0.72.0")
+
+    assert (current.revision, current.minimum_version, current.maximum_version_exclusive) == (1, "0.72.0", "0.73.0")
+    assert replace(current, adapter_id=historical.adapter_id,
+                   minimum_version=historical.minimum_version,
+                   maximum_version_exclusive=historical.maximum_version_exclusive) == historical
+    values = {"vault": "/home/brain/vault", "container_python": CONTAINER_PYTHON}
+    commands = [current.render(command, values) for command in current.rehydrate]
+    assert commands[1] == (
+        "brain", "register", "--request-json", '{"vault_root":"/home/brain/vault"}', "--json",
+    )
+    assert commands[2] == (
+        CONTAINER_PYTHON, "/home/brain/vault/.brain-core/scripts/configure.py", "mcp",
+        "--vault", "/home/brain/vault", "--project", "/home/brain/vault",
+        "--vault-self", "--client", "codex", "--json",
+    )
 
 
 def test_commands_render_argv_without_shell_interpolation():

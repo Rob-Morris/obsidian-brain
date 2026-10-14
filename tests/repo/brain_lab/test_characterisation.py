@@ -37,6 +37,8 @@ def test_current_repository_version_has_an_exact_compatibility_owner():
     ("0.71.0", "brain-0.71"),
     ("0.71.1", "brain-0.71"),
     ("0.71.2", "brain-0.71"),
+    ("0.72.0", "brain-0.72"),
+    ("0.72.1", "brain-0.72"),
 ])
 def test_supported_release_versions_select_their_declared_adapter(version, owner):
     manifest = CompatibilityManifest(TOOL_ROOT / "compatibility.json")
