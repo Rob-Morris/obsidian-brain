@@ -3,6 +3,11 @@
 from __future__ import annotations
 
 from datetime import date
+import base64
+import hashlib
+import json
+
+from _common._workspace import (WorkspaceMatch, validate_workspace_query, matches_workspace_query, workspace_discovery_metadata)
 
 from _common import (
     load_compiled_router,
@@ -34,16 +39,27 @@ def _validate_iso_date(value, field):
         raise ValueError(f"{field} must be an ISO date in YYYY-MM-DD form") from exc
 
 
-def _cursor_offset(cursor):
-    if cursor in (None, ""):
+def _cursor_identity(filters):
+    return hashlib.sha256(json.dumps(filters, sort_keys=True).encode()).hexdigest()
+
+
+def _cursor_offset(cursor, identity):
+    if cursor is None:
         return 0
     try:
-        offset = int(cursor)
-    except (TypeError, ValueError) as exc:
-        raise ValueError("cursor must be the next_cursor value from a prior list") from exc
-    if offset < 0:
-        raise ValueError("cursor must not be negative")
-    return offset
+        payload = json.loads(base64.urlsafe_b64decode(cursor.encode()))
+        offset = payload["offset"]
+        if payload["query"] != identity:
+            raise ValueError("cursor does not match this list query")
+        if not isinstance(offset, int) or isinstance(offset, bool) or offset < 0:
+            raise ValueError("invalid cursor offset")
+        return offset
+    except (KeyError, TypeError, UnicodeError, ValueError) as exc:
+        raise ValueError("cursor must be the next_cursor from the same list query") from exc
+
+
+def _encode_cursor(offset, identity):
+    return base64.urlsafe_b64encode(json.dumps({"offset": offset, "query": identity}).encode()).decode()
 
 
 def _collect_artefacts(
@@ -57,7 +73,10 @@ def _collect_artefacts(
     tag=None,
     parent=None,
     sort="date_desc",
+    workspace=None,
+    workspace_match=WorkspaceMatch.RELEVANT,
 ):
+    validate_workspace_query(workspace, workspace_match)
     since = _validate_iso_date(since, "since")
     until = _validate_iso_date(until, "until")
     modified_since = _validate_iso_date(modified_since, "modified_since")
@@ -103,6 +122,8 @@ def _collect_artefacts(
     by_path = {entry["path"]: entry for entry in artefact_index.values()}
 
     for doc in docs:
+        if not matches_workspace_query(doc, workspace, workspace_match):
+            continue
         if resolved_type is not None and doc.get("type") != resolved_type:
             continue
         if resolved_parent and doc.get("parent") != resolved_parent:
@@ -137,6 +158,7 @@ def _collect_artefacts(
             "modified": modified_date,
             "status": doc.get("status", ""),
             "location": doc.get("location", "active"),
+            **workspace_discovery_metadata(doc),
         }
         if doc.get("archiveddate"):
             result["archiveddate"] = doc["archiveddate"]
@@ -182,12 +204,19 @@ def list_artefacts_page(
     top_k=500,
     sort="date_desc",
     cursor=None,
+    workspace=None,
+    workspace_match=WorkspaceMatch.RELEVANT,
+    location="active",
 ):
     if top_k is None:
         top_k = 500
     if top_k < 1:
         raise ValueError("top_k must be at least 1")
-    offset = _cursor_offset(cursor)
+    identity = _cursor_identity(dict(type_filter=type_filter, since=since, until=until,
+        modified_since=modified_since, modified_until=modified_until, tag=tag,
+        parent=parent, sort=sort, workspace=workspace, workspace_match=workspace_match,
+        location=location))
+    offset = _cursor_offset(cursor, identity)
     results, omitted_missing_created = _collect_artefacts(
         index,
         router,
@@ -199,6 +228,8 @@ def list_artefacts_page(
         tag=tag,
         parent=parent,
         sort=sort,
+        workspace=workspace,
+        workspace_match=workspace_match,
     )
     total = len(results)
     items = results[offset : offset + top_k]
@@ -209,7 +240,7 @@ def list_artefacts_page(
         "total": total,
         "returned": len(items),
         "truncated": truncated,
-        "next_cursor": str(next_offset) if truncated else None,
+        "next_cursor": _encode_cursor(next_offset, identity) if truncated else None,
         "omitted_missing_created": omitted_missing_created,
     }
 
@@ -227,6 +258,9 @@ def list_artefacts(
     top_k=500,
     sort="date_desc",
     cursor=None,
+    workspace=None,
+    workspace_match=WorkspaceMatch.RELEVANT,
+    location="active",
 ):
     return list_artefacts_page(
         index,
@@ -240,7 +274,10 @@ def list_artefacts(
         parent=parent,
         top_k=top_k,
         sort=sort,
+        workspace=workspace,
+        workspace_match=workspace_match,
         cursor=cursor,
+        location=location,
     )["items"]
 
 
@@ -275,4 +312,4 @@ def list_combined_from_vault(
         from _portable.vault_files import list_archived_artefacts
 
         documents.extend(list_archived_artefacts(router, vault_root))
-    return list_artefacts_page({"documents": documents}, router, **kwargs)
+    return list_artefacts_page({"documents": documents}, router, location=location, **kwargs)

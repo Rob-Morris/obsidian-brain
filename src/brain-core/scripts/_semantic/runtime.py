@@ -15,6 +15,7 @@ import _semantic.model as semantic_model
 TYPE_EMBEDDINGS_REL = os.path.join(".brain", "local", "type-embeddings.npy")
 DOC_EMBEDDINGS_REL = os.path.join(".brain", "local", "doc-embeddings.npy")
 EMBEDDINGS_META_REL = os.path.join(".brain", "local", "embeddings-meta.json")
+EMBEDDINGS_METADATA_VERSION = 2
 ROUTER_SOURCE_HASH_KEY = "router_source_hash"
 EMBEDDING_MODEL = semantic_model.SHIPPED_MODEL_NAME
 EMBEDDING_MODEL_REVISION = semantic_model.SHIPPED_MODEL_REVISION
@@ -145,7 +146,8 @@ def embeddings_sidecars_match_manifest(vault_root, manifest):
     if not isinstance(meta, dict):
         return (True, True)
     outdated = (
-        meta.get("model") != manifest.model_name
+        meta.get("metadata_version") != EMBEDDINGS_METADATA_VERSION
+        or meta.get("model") != manifest.model_name
         or meta.get("model_revision") != manifest.revision
     )
     return (True, outdated)
@@ -174,7 +176,8 @@ def embeddings_meta_matches_router(meta, router):
     current_router_source_hash = router_source_hash(router)
     if current_router_source_hash is None:
         return False
-    return meta.get(ROUTER_SOURCE_HASH_KEY) == current_router_source_hash
+    return (meta.get("metadata_version") == EMBEDDINGS_METADATA_VERSION
+            and meta.get(ROUTER_SOURCE_HASH_KEY) == current_router_source_hash)
 
 
 def embeddings_meta_matches_current_router(vault_root, meta, *, loader=None):

@@ -1,5 +1,7 @@
 """Tests for _common._frontmatter — parsing and serialisation."""
 
+import pytest
+
 import _common as common
 from _common import _frontmatter as frontmatter_common
 
@@ -365,3 +367,45 @@ class TestReadArtefact:
         assert raw == plain.read_bytes()
         assert raw.count(b"\n---\n") == 1
         assert common.inspect_duplicate_frontmatter_document(raw.decode("utf-8")) is None
+
+
+@pytest.mark.parametrize("value", [
+    " workspace/reference-target ", " leading", "trailing ", " ", "\tvalue\t",
+    "", ' quote " and \\path ', "line\nbreak", "line\rbreak",
+    '"literal quotes"', "'literal quotes'", "[literal]",
+    r"C:\notes\target", "café",
+])
+def test_serialisation_preserves_string_values_in_scalars_and_lists(tmp_path, value):
+    fields = {"title": value, "tags": [value, "ordinary"]}
+    body = "# Body\n\nKeep this body.\n"
+    text = common.serialize_frontmatter(fields, body=body)
+    assert common.parse_frontmatter(text) == (fields, body)
+    path = tmp_path / "note.md"
+    path.write_text(text, encoding="utf-8")
+    assert common.read_frontmatter(path) == fields
+    assert common.read_artefact(path) == (fields, body)
+
+
+@pytest.mark.parametrize(("source", "expected"), [
+    ("' spaced '", " spaced "),
+    ('" spaced "', " spaced "),
+    (r'" space \"quoted\" \\path "', ' space "quoted" \\path '),
+    (r'"bad\q"', r"bad\q"),
+    ('"unfinished', '"unfinished'),
+    ("'unfinished", "'unfinished"),
+    ("unquoted", "unquoted"),
+])
+def test_yaml_ish_scalar_compatibility_and_roundtrip(source, expected):
+    text = f"---\ntitle: {source}\n---\nBody.\n"
+    fields, body = common.parse_frontmatter(text)
+    assert fields == {"title": expected}
+    assert common.parse_frontmatter(common.serialize_frontmatter(fields, body)) == (fields, body)
+
+
+@pytest.mark.parametrize("inline", [False, True])
+def test_yaml_ish_list_compatibility_and_roundtrip(inline):
+    items = ['plain', "' spaced '", r'"bad\q"', '"unfinished', "'unfinished"]
+    source = "[" + ", ".join(items) + "]" if inline else "\n  - " + "\n  - ".join(items)
+    fields, body = common.parse_frontmatter(f"---\ntags: {source}\n---\nBody.\n")
+    assert fields == {"tags": ["plain", " spaced ", r"bad\q", "unfinished", "unfinished"]}
+    assert common.parse_frontmatter(common.serialize_frontmatter(fields, body)) == (fields, body)

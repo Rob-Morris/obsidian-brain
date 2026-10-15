@@ -134,6 +134,10 @@ def validate_ownership(reference, entry, index):
     from ._artefacts import normalize_artefact_key
     own_workspace = membership(reference, entry)
     parent = entry.get("parent")
+    if entry.get("type") == "living/workspace" and parent is not None:
+        raise OwnershipRuleError("workspace_parent",
+                                 f"Workspace {reference} must not have a structural parent; "
+                                 "use default_parent for its optional content parent")
     if not parent:
         return
     parent = normalize_artefact_key(parent)
@@ -233,3 +237,61 @@ def resolve_workspace_binding(router, manifest, *, brain_binding_error=None):
         if isinstance(exc, WorkspaceSchemaError) and exc.field in {"brain", "slug"}:
             cause = InvalidBindingCause.BRAIN_SLUG
         return WorkspaceBinding(BindingState.CONFIGURED_INVALID, reference, str(exc), cause)
+
+
+from _workspace_contract import WorkspaceMatch
+
+
+def canonical_query_workspace(value):
+    """Accept only symbolic canonical syntax, independently of target lifecycle."""
+    if not isinstance(value, str) or not value.startswith("workspace/"):
+        raise ValueError("workspace filter must use canonical workspace/{key} syntax")
+    validate_key(value[len("workspace/"):])
+    return value
+
+
+def validate_workspace_query(workspace, workspace_match):
+    if workspace is not None:
+        canonical_query_workspace(workspace)
+    if not isinstance(workspace_match, WorkspaceMatch):
+        raise ValueError("workspace_match must use WorkspaceMatch (relevant or primary)")
+
+
+def workspace_relevance_tags(tags):
+    """Extract exact canonical workspace associations from an authored tag list."""
+    if not isinstance(tags, (list, tuple)):
+        return ()
+    references = set()
+    for tag in tags:
+        try:
+            references.add(canonical_query_workspace(tag))
+        except ValueError:
+            continue
+    return tuple(sorted(references))
+
+
+def workspace_discovery_metadata(fields):
+    """Project primary and relevant identities without resolving targets or ownership."""
+    def canonical_or_none(value):
+        try:
+            return canonical_query_workspace(value)
+        except ValueError:
+            return None
+
+    primary = canonical_or_none(fields.get("workspace"))
+    if fields.get("type") == "living/workspace":
+        key = fields.get("key")
+        primary = canonical_or_none("workspace/" + key) if isinstance(key, str) else primary
+    relevant = set(workspace_relevance_tags(fields.get("tags", ())))
+    if primary:
+        relevant.add(primary)
+    return {"primary_workspace": primary, "relevant_workspaces": sorted(relevant)}
+
+
+def matches_workspace_query(fields, workspace, workspace_match=WorkspaceMatch.RELEVANT):
+    if workspace is None:
+        return True
+    metadata = workspace_discovery_metadata(fields)
+    if workspace_match == WorkspaceMatch.PRIMARY:
+        return metadata["primary_workspace"] == workspace
+    return workspace in metadata["relevant_workspaces"]

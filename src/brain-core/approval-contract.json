@@ -75,7 +75,7 @@
     },
     {
       "command_id": "artefact.create",
-      "version": 4,
+      "version": 5,
       "owner": "application",
       "classification": "content",
       "mcp": "artefact_create",
@@ -99,7 +99,7 @@
     },
     {
       "command_id": "artefact.list",
-      "version": 2,
+      "version": 3,
       "owner": "application",
       "classification": "observation",
       "mcp": "artefact_list",
@@ -195,7 +195,7 @@
     },
     {
       "command_id": "artefact.search",
-      "version": 2,
+      "version": 3,
       "owner": "application",
       "classification": "observation",
       "mcp": "artefact_search",
@@ -1097,5 +1097,5 @@
       "authority": "reader"
     }
   ],
-  "fingerprint": "sha256:b918bc0637c55c50ea8753d6be38e2e0bef6ec5c3aae615cb00200c160b96c2c"
+  "fingerprint": "sha256:9b10a9585593a7cbeb7f9398b32db592146b0e442a45b0b609388752adb90138"
 }

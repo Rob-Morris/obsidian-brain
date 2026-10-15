@@ -318,6 +318,66 @@ To upgrade brain-core to a new version:
 - **CLI**: `brain upgrade --vault /path/to/brain --request-json '{}' --json` (add `"force": true` to re-apply the same version; it never re-runs migrations, and a downgrade is refused because migrations only run forward)
 - **install.sh wrapper**: `bash install.sh /path/to/brain` — detects the existing install and delegates to `upgrade.py`
 
+### Workspace compatibility and explicit repair
+
+The confirmed workspace upgrade policy permits automatic lossless format
+conversion only. Ownership adoption or reassignment and identity renames require
+an explicitly approved repair through existing public commands. Upgrade does not
+infer project ownership from a project having only one associated workspace.
+A one-off workspace rename request is specific user intent, not a general rename
+rule.
+
+Core 0.73.0 introduces this compatibility transition. Brains on earlier Core
+versions receive the ownership scan; later upgrades do not repeat it. Use the
+ordinary workspace checks for subsequent content drift.
+
+Before Core cutover, the source-target compatibility preflight checks the vault
+read-only against the target Core's canonical workspace validators. An
+incompatible workspace record, hub ownership or shared default parent stops the upgrade
+with affected records and remediation, before copying Core, changing VERSION or
+creating a new rollback journal. Existing interrupted-run journal recovery remains
+a separate prerequisite; a preview may defer compatibility until that recovery.
+
+If the check refuses the upgrade:
+
+1. Review the affected records and decide the intended identity, membership and
+   parentage explicitly. Relevance tags are associations, not permission to adopt.
+2. Approve and perform the required repair through the existing public commands
+   supported by the installed Core. Ownership changes use `artefact.set-workspace`;
+   parent and identity repairs use the applicable existing public command. Keep
+   explicit recovery checkpoints and review intermediate effects. Multi-command
+   repair is not atomic; verify the complete chosen scope before retrying upgrade.
+   Do not edit internal state to bypass validation.
+3. Verify the repaired records, then retry the same upgrade. The preflight must
+   pass before Core cutover proceeds.
+
+Released Core 0.72 provides the required repair commands. If an older installed
+Core lacks them (including historical releases before 0.69), explicitly use a
+coherent released 0.72 source as the bridge: preview its source upgrade with
+`--dry-run`, then run that upgrade normally. Perform the approved repair in a
+vault-only context, without an external `--workspace` binding, verify the result,
+then retry the intended target upgrade. The bridge is an explicit operator step;
+upgrade neither selects it automatically nor downgrades Core.
+No new migration version, public command or automatic repair flag is introduced
+by this policy. The development release proposal is deferred; the current VERSION
+file does not establish that this policy has shipped.
+
+The existing registered-folder format phase validates the active canonical hub
+and shared policy, but preserves local defaults without validating them. Format
+success therefore does not prove that workspace-scoped mutations are ready.
+Check local policy after conversion to the current format; repair invalid local
+defaults explicitly with `workspace.update-metadata`. Do not add local-default
+validation before format conversion: that would block the conversion needed to
+make the repair available.
+
+Registered-folder metadata conversion remains the existing separately admitted
+post-commit phase described below. Its receipts, offline handling and resumable
+partial outcomes are separate from compatibility admission and the Core journal.
+A compatibility refusal does not trigger an automatic MCP reset; after a completed
+upgrade, use the existing diagnostic-led recovery guidance below.
+
+### Upgrade execution and recovery
+
 The checked upgrade runs every pending versioned migration in order, completes
 the selected Brain's runtime warm-up before returning success, and records the
 result in `.brain/local/last-upgrade.json`. If readiness cannot complete, the

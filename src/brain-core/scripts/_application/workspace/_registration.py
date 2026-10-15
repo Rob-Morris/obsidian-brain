@@ -70,6 +70,11 @@ def plan_registration(context, key, title=None, *, frozen_inputs=None):
         title or key, key=key, frontmatter_overrides={"workspace_mode": "linked"},
         effective_at=datetime.fromisoformat(choice["effective_at"]) if choice else context.clock.now(),
         chosen_filename=choice.get("filename"))
+    from _common._workspace import validate_ownership
+    validate_ownership("workspace/" + key, plan.fields, router.get("artefact_index", {}))
+    from ..workspace_associations import observe_workspace_associations
+    observations.extend(observe_workspace_associations(context, router, plan.fields.get("tags", ()),
+                                                       new_identity="workspace/" + key))
     frozen["registration"] = {"effective_at": plan.effective_at, "filename": plan.path.rsplit("/", 1)[-1]}
     # Reuse the creation boundary's definition/template/content observations.
     binding = creation_binding(context, WorkspaceCreateRequest(key, title), plan=plan,

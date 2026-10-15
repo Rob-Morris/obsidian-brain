@@ -33,10 +33,10 @@ ERROR_CODES = frozenset({
     "workspace_policy_invalid",
     *(binding_code(state) for state in _REPORTED_BINDING_STATES),
 })
-INFO_CODES = frozenset({"workspace_adoption_candidate", "workspace_registry_missing"})
+INFO_CODES = frozenset({"workspace_relevance_missing", "workspace_relevance_malformed", "workspace_registry_missing"})
 
-# Ownership causes beyond the two ``OwnershipRuleError`` rules, in the order the rules run.
-OWNERSHIP_CAUSES = ("reference", "parent", "archived_parent", "membership", "parent_missing", "workspace_mismatch", "lineage")
+# Named causes also form the stable evidence vocabulary for judgement findings.
+OWNERSHIP_CAUSES = ("reference", "workspace_parent", "parent", "archived_parent", "membership", "parent_missing", "workspace_mismatch", "lineage")
 
 
 def _ownership_failure(graph, record, complete_index):
@@ -48,6 +48,13 @@ def _ownership_failure(graph, record, complete_index):
             graph.resolve(record.reference)
     except ValueError as exc:
         return "reference", str(exc)
+    if record.fields.get("type") == "living/workspace":
+        try:
+            validate_ownership(record.reference or record.path, record.fields, complete_index)
+        except OwnershipRuleError as exc:
+            return exc.cause, str(exc)
+        except ValueError as exc:
+            return "membership", str(exc)
     try:
         if record.parent:
             owner = graph.resolve(record.parent)
@@ -55,12 +62,13 @@ def _ownership_failure(graph, record, complete_index):
                 return "archived_parent", f"Active artefact has archived parent {record.parent}"
     except ValueError as exc:
         return "parent", str(exc)
-    try:
-        validate_ownership(record.reference or record.path, record.fields, complete_index)
-    except OwnershipRuleError as exc:
-        return exc.cause, str(exc)
-    except ValueError as exc:
-        return "membership", str(exc)
+    if record.fields.get("type") != "living/workspace":
+        try:
+            validate_ownership(record.reference or record.path, record.fields, complete_index)
+        except OwnershipRuleError as exc:
+            return exc.cause, str(exc)
+        except ValueError as exc:
+            return "membership", str(exc)
     try:
         graph.validate_lineage(record)
     except ValueError as exc:
@@ -68,8 +76,8 @@ def _ownership_failure(graph, record, complete_index):
     return None
 
 
-def workspace_findings(vault_root, router, *, workspace_dir=None, text_reader=None):
-    from _common._workspace import membership, require_workspace, workspace_policy
+def workspace_findings(vault_root, router, *, workspace_dir=None, text_reader=None, graph=None):
+    from _common._workspace import membership, require_workspace, workspace_policy, canonical_query_workspace
     from _bootstrap.workspace_binding import load_workspace_manifest_state, resolve_selected_workspace_binding, WorkspaceBindingError
 
     findings = []
@@ -85,7 +93,8 @@ def workspace_findings(vault_root, router, *, workspace_dir=None, text_reader=No
         findings.append(finding)
 
     try:
-        graph = read_ownership_graph(vault_root, text_reader=text_reader)
+        if graph is None:
+            graph = read_ownership_graph(vault_root, text_reader=text_reader)
     except ValueError as exc:
         report("workspace_scan_unreadable", None, str(exc), "Repair the blocking source named in this message; consult any matching per-file unreadable_file finding, or check symlinks and bounds, then retry vault.check")
         return findings
@@ -125,7 +134,11 @@ def workspace_findings(vault_root, router, *, workspace_dir=None, text_reader=No
             evidence = {"cause": cause, "parent": fields.get("parent")}
             if cause in {"membership", "workspace_mismatch"}:
                 evidence["workspace"] = fields.get("workspace")
-            report("workspace_ownership_invalid", record.path, message, "Use artefact.set-workspace recursively with an explicit replacement/cleared root parent, or repair the living owner identity",
+            fix = ("Clear the workspace record's structural parent explicitly; use workspace.update-policy "
+                   "for an optional default_parent belonging to this workspace"
+                   if cause == "workspace_parent" else
+                   "Use artefact.set-workspace recursively with an explicit replacement/cleared root parent, or repair the living owner identity")
+            report("workspace_ownership_invalid", record.path, message, fix,
                    evidence=evidence)
         if fields.get("type") == "living/workspace":
             try:
@@ -133,10 +146,22 @@ def workspace_findings(vault_root, router, *, workspace_dir=None, text_reader=No
             except ValueError as exc:
                 report("workspace_policy_invalid", record.path, str(exc), "Use workspace.update-policy to replace/clear the shared parent or tags",
                        evidence={"default_parent": fields.get("default_parent"), "default_tags": fields.get("default_tags")})
-        if fields.get("workspace") is None and fields.get("type") != "living/workspace":
-            tags = fields.get("tags", ())
-            if isinstance(tags, list) and any(isinstance(tag, str) and tag.startswith("workspace/") for tag in tags):
-                report("workspace_adoption_candidate", record.path, "Legacy workspace relationship tags do not establish membership", "Review ownership and explicitly adopt with artefact.set-workspace; never infer membership from tags", severity="info")
+        tags = fields.get("tags", ())
+        if isinstance(tags, (list, tuple)):
+            for tag in sorted({tag for tag in tags if isinstance(tag, str) and tag.startswith("workspace/")}):
+                try:
+                    reference = canonical_query_workspace(tag)
+                except ValueError:
+                    report("workspace_relevance_malformed", record.path,
+                           f"Workspace relevance tag is not canonical: {tag}",
+                           "Review the association and explicitly replace it with workspace/{key}, or remove it; tags never adopt ownership",
+                           severity="info", evidence={"workspace": tag})
+                    continue
+                if reference not in graph.identities:
+                    report("workspace_relevance_missing", record.path,
+                           f"Workspace relevance target is missing: {reference}",
+                           "Preserve historical relevance or explicitly correct/remove the tag; create a workspace only when intended, never adopt from tags",
+                           severity="info", evidence={"workspace": reference})
     if workspace_dir is not None and workspace_dir.resolve() != Path(vault_root).resolve():
         manifest_path = str(workspace_dir)
         try:

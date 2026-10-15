@@ -93,6 +93,8 @@ def test_shaping_creation_policy_and_preserved_source(scoped, selection, workspa
 
 
 def test_continuation_preserves_membership_parent_and_restores_both_subjects(scoped):
+    import compile_router
+
     root, _directory, app, _parents = scoped
     request = ShapingStartRequest(DESIGN_REFERENCE, ShapingMode.REFINE)
     first = app.invoke(request)
@@ -101,8 +103,9 @@ def test_continuation_preserves_membership_parent_and_restores_both_subjects(sco
         fields, body = parse_frontmatter((root / path).read_text())
         fields["tags"] = ["explicit-transcript-or-source"]
         (root / path).write_text(serialize_frontmatter(fields, body=body))
+    compile_router.persist_compiled_router(root, compile_router.compile(str(root)))
     alternate = app.invoke(replace(request, workspace_context=WorkspaceSelector("workspace/beta")))
-    assert alternate.status == "ok", alternate
+    assert alternate.status == "ok", alternate.error.message
     assert alternate.result.transcript_path == first.result.transcript_path
     assert alternate.result.transcript_operation.value == "appended"
     for path in alternate.result.changed_paths:

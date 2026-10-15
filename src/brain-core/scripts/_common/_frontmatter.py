@@ -1,5 +1,6 @@
 """Frontmatter parsing and serialisation."""
 
+import json
 import re
 
 # A UTF-8 byte-order mark decodes to U+FEFF, which some editors leave at the
@@ -9,6 +10,24 @@ import re
 BYTE_ORDER_MARK = "\ufeff"
 
 FM_RE = re.compile(r"\A\ufeff?---\s*\n(.*?)\n---\s*\n?", re.DOTALL)
+
+
+def _decode_quoted_string(value):
+    if value.startswith('"') and value.endswith('"'):
+        try:
+            return json.loads(value)
+        except json.JSONDecodeError:
+            pass  # Retain the existing YAML-ish handling for non-JSON quotes.
+    return None
+
+
+def _serialize_value(value):
+    if isinstance(value, str) and (
+        not value or value != value.strip() or value.startswith("[")
+        or any(char in value for char in "\r\n\"'")
+    ):
+        return json.dumps(value, ensure_ascii=False)
+    return str(value)
 
 
 def _parse_yaml_lines(fm_text):
@@ -22,7 +41,11 @@ def _parse_yaml_lines(fm_text):
             continue
 
         if stripped.startswith("- ") and pending_list_key:
-            fields[pending_list_key].append(stripped[2:].strip().strip("'\""))
+            value = stripped[2:].strip()
+            decoded = _decode_quoted_string(value)
+            fields[pending_list_key].append(
+                decoded if decoded is not None else value.strip("'\"")
+            )
             continue
 
         if pending_list_key:
@@ -37,12 +60,21 @@ def _parse_yaml_lines(fm_text):
 
         if value.startswith("["):
             inner = value.strip("[]")
-            fields[key] = [t.strip().strip("'\"") for t in inner.split(",") if t.strip()]
+            fields[key] = [
+                decoded if (decoded := _decode_quoted_string(t.strip())) is not None
+                else t.strip().strip("'\"")
+                for t in inner.split(",") if t.strip()
+            ]
             continue
 
         if not value:
             fields[key] = []
             pending_list_key = key
+            continue
+
+        decoded = _decode_quoted_string(value)
+        if decoded is not None:
+            fields[key] = decoded
             continue
 
         if (value.startswith("'") and value.endswith("'")) or \
@@ -200,11 +232,11 @@ def serialize_frontmatter(fields, body=""):
             if value:
                 lines.append(f"{key}:")
                 for item in value:
-                    lines.append(f"  - {item}")
+                    lines.append(f"  - {_serialize_value(item)}")
             else:
                 lines.append(f"{key}: []")
         else:
-            lines.append(f"{key}: {value}")
+            lines.append(f"{key}: {_serialize_value(value)}")
     lines.append("---")
     lines.append("")  # blank line after frontmatter
 

@@ -71,6 +71,36 @@ def test_shared_and_local_policy_use_same_parent_rule():
         workspace_policy(view, "workspace/demo", {"default_tags": "bad"})
 
 
+@pytest.mark.parametrize("parent", ["project/owner", "project/global", "workspace/demo", "project/missing", ""])
+def test_workspace_identity_rejects_any_structural_parent(parent):
+    from _common._workspace import OwnershipRuleError, require_workspace
+
+    view = router()
+    entry = view["artefact_index"]["workspace/demo"]
+    entry["parent"] = parent
+    for validate in (lambda: validate_ownership("workspace/demo", entry, view["artefact_index"]),
+                     lambda: require_workspace(view, "workspace/demo")):
+        with pytest.raises(OwnershipRuleError, match="structural parent") as error:
+            validate()
+        assert error.value.cause == "workspace_parent"
+
+
+@pytest.mark.parametrize("explicit_membership", [False, True])
+def test_workspace_root_keeps_identity_and_independent_content_policy(explicit_membership):
+    from _common._workspace import require_workspace
+
+    view = router()
+    entry = view["artefact_index"]["workspace/demo"]
+    entry.update(parent=None, default_parent="project/owner")
+    if explicit_membership:
+        entry["workspace"] = "workspace/demo"
+    assert require_workspace(view, "workspace/demo") is entry
+    assert membership("workspace/demo", entry) == "workspace/demo"
+    assert workspace_policy(view, "workspace/demo", entry).parent == "project/owner"
+    validate_ownership("project/member", {"type": "living/project", "workspace": "workspace/demo",
+                                        "parent": "workspace/demo"}, view["artefact_index"])
+
+
 @pytest.mark.parametrize("scope", [None, "workspace/other"])
 def test_default_parent_rejects_unscoped_and_other_workspace_ownership(scope):
     view = router()

@@ -111,6 +111,8 @@ def _fuse_rrf(lexical_results, semantic_results, *, top_k, query_tokens=()):
                     "title": result["title"],
                     "type": result["type"],
                     "status": result.get("status"),
+                    "primary_workspace": result.get("primary_workspace"),
+                    "relevant_workspaces": result.get("relevant_workspaces", []),
                     "snippet": result.get("snippet", ""),
                     "score": 0.0,
                 },

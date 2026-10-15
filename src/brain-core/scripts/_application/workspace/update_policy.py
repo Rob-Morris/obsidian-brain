@@ -64,6 +64,7 @@ def plan_policy(context, request):
     raw = path.read_bytes()
     content = decode_persisted_document(raw, source_path=path, convert_lossless=True)
     fields, body = parse_frontmatter(content)
+    old_tags = fields.get("default_tags", ())
     if request.clear_parent:
         fields.pop("default_parent", None)
     elif request.default_parent is not None:
@@ -75,6 +76,10 @@ def plan_policy(context, request):
         fields["default_parent"] = policy.parent
     observations = [ObservedResource("workspace-file", str(path), content_digest(raw)),
                     ObservedResource("workspace-index", reference, content_digest(canonical_json(router["artefact_index"])))]
+    if request.default_tags is not None:
+        from ..workspace_associations import observe_workspace_associations
+        observations.extend(observe_workspace_associations(context, router, request.default_tags,
+                                                           existing_tags=old_tags))
     if policy.parent:
         parent_path = context.selected_brain.vault_root / router["artefact_index"][policy.parent]["path"]
         if parent_path != path:

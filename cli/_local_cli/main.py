@@ -29,6 +29,7 @@ from .discovery import (
 )
 from .execution import (
     ApplicationProcessInvoker,
+    application_process_diagnostic,
     validate_application_envelope,
     LauncherCommandInvoker,
     LocalCliExecution,
@@ -462,24 +463,7 @@ def _invoke_application(
     options = attachment.forwarded_process() if attachment is not None else {}
     completed = managed_command(argv, role=ROLE_CLI, env=options.pop("env", None)).run(
         capture_output=True, text=True, check=False, **options)
-    diagnostic = f" (exit {completed.returncode})"
-    # Only recognise owned evidence; child streams may contain credentials.
-    evidence = completed.stderr[-4096:].strip()
-    if evidence == "command.py: infrastructure — direct workspace is not bound to the selected Brain":
-        diagnostic += (
-            "; discovery requires a workspace already bound to the selected Brain. "
-            "Bind the intended local folder with brain workspace register --brain <registered-brain-id> "
-            "--workspace <local-folder>, using a Core version that supports unbound registration."
-        )
-    elif evidence.startswith("command.py: infrastructure — Workspace metadata schema ") and " Run brain workspace upgrade" in evidence:
-        diagnostic += "; " + evidence.removeprefix("command.py: infrastructure — ")
-    elif evidence.startswith("command.py: infrastructure — direct workspace cannot be resolved:"):
-        diagnostic += (
-            "; the child could not resolve the workspace binding. "
-            "Check the workspace manifest and local Brain registry."
-        )
-    else:
-        diagnostic += "; check the selected Brain command entry point and runtime"
+    diagnostic = application_process_diagnostic(completed.returncode, completed.stderr)
     if completed.returncode not in range(5):
         raise CliError("selected Brain discovery failed its structural process contract" + diagnostic)
     try:

@@ -27,6 +27,7 @@ def maintain_router(
     *,
     dry_run: bool,
     force: bool,
+    preserve_embeddings: bool = False,
 ) -> RouterMaintenanceResult:
     """Repair a stale router or explicitly rebuild it when ``force`` is true."""
     root = Path(vault_root)
@@ -40,7 +41,7 @@ def maintain_router(
 
     compiled = compile_router.compile(str(root))
     compile_router.persist_compiled_router(str(root), compiled)
-    removed = tuple(clear_embeddings_outputs(root))
+    removed = () if preserve_embeddings else tuple(clear_embeddings_outputs(root))
     try:
         compile_router.refresh_session_markdown(str(root), compiled)
     except (OSError, ValueError) as exc:

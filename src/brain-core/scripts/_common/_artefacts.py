@@ -148,7 +148,7 @@ def canonical_living_artefact_key(artefact, fields):
 
 def living_artefact_index_entry(artefact, rel_path, fields):
     """Return the compiled-router living-index entry for parsed frontmatter."""
-    from ._workspace import indexed_workspace_fields
+    from ._workspace import indexed_workspace_fields, workspace_discovery_metadata
     type_prefix = artefact_type_prefix(artefact)
     key_value = fields.get("key")
     return {
@@ -161,6 +161,7 @@ def living_artefact_index_entry(artefact, rel_path, fields):
         "parent": normalize_artefact_key(fields.get("parent")),
         "children_count": 0,
         **indexed_workspace_fields(fields),
+        **workspace_discovery_metadata(fields),
     }
 
 
@@ -796,8 +797,63 @@ def living_key_set(vault_root, router, artefact, *, exclude_path=None):
     return keys
 
 
-def replace_artefact_key_references(fields, old_key, new_key):
-    """Replace exact canonical artefact-key references in frontmatter."""
+def iter_archived_artefact_paths(vault_root, router):
+    """Yield bounded Markdown paths in current and legacy archive locations."""
+    from ._filesystem import resolve_and_check_bounds
+
+    vault_root = str(vault_root)
+    seen = set()
+
+    def bounded(path):
+        try:
+            return resolve_and_check_bounds(path, vault_root)
+        except (ValueError, OSError):
+            return None
+
+    def directory(path):
+        resolved = bounded(path)
+        return resolved is not None and os.path.isdir(resolved)
+
+    def scan(base):
+        if not directory(base):
+            return
+        for folder, dirs, files in os.walk(base):
+            dirs[:] = [name for name in dirs
+                       if not name.startswith(".") and directory(os.path.join(folder, name))]
+            for name in files:
+                absolute = os.path.join(folder, name)
+                if not name.endswith(".md") or bounded(absolute) is None:
+                    continue
+                relative = os.path.relpath(absolute, vault_root)
+                if relative not in seen:
+                    seen.add(relative)
+                    yield relative
+
+    yield from scan(os.path.join(vault_root, "_Archive"))
+    for artefact in router.get("artefacts", ()):
+        root = os.path.join(vault_root, artefact["path"])
+        if not directory(root):
+            continue
+        yield from scan(os.path.join(root, "_Archive"))
+        for entry in os.listdir(root):
+            child = os.path.join(root, entry)
+            if not entry.startswith((".", "_", "+")) and directory(child):
+                yield from scan(os.path.join(child, "_Archive"))
+
+
+def _tag_reference_key(tag):
+    key = normalize_artefact_key(tag)
+    if key and key.startswith("workspace/") and tag != key:
+        return None
+    return key
+
+
+def replace_artefact_key_references(fields, old_key, new_key, *, preserve_tags=False):
+    """Replace exact canonical references, optionally retaining authored soft tags.
+
+    ``preserve_tags`` leaves tags intact while applying the normal parent rule.
+    Removal callers use it for historical workspace relevance.
+    """
     changed = False
 
     if normalize_artefact_key(fields.get("parent")) == old_key:
@@ -811,7 +867,7 @@ def replace_artefact_key_references(fields, old_key, new_key):
     if isinstance(tags, list):
         updated = []
         for tag in tags:
-            if normalize_artefact_key(tag) == old_key:
+            if _tag_reference_key(tag) == old_key and not preserve_tags:
                 if new_key is not None:
                     updated.append(new_key)
                 changed = True
@@ -822,14 +878,29 @@ def replace_artefact_key_references(fields, old_key, new_key):
     return changed
 
 
-def scan_artefact_key_reference_index(vault_root, router):
-    """Index frontmatter references by canonical artefact key in one vault pass."""
+def scan_artefact_key_reference_index(vault_root, router, *, include_archive=False):
+    """Index canonical frontmatter references; archive traversal is explicit.
+
+    Active-only remains the default for existing ownership and repair callers.
+    Workspace relevance rekeys opt into historical references as well.
+    """
     from ._document_revision import NonStandardVaultTextError, UnreadableVaultTextFilesError, vault_text_failure
 
+    from ._filesystem import resolve_and_check_bounds
+
     references, unreadable = {}, []
-    for rel_path in iter_artefact_markdown_files(
+    paths = iter_artefact_markdown_files(
         vault_root, router, classifications={"living", "temporal"}, include_status_folders=True
-    ):
+    )
+    if include_archive:
+        from itertools import chain
+
+        paths = chain(paths, iter_archived_artefact_paths(vault_root, router))
+    for rel_path in paths:
+        try:
+            resolve_and_check_bounds(os.path.join(vault_root, rel_path), vault_root)
+        except ValueError:
+            continue
         try:
             content = read_file_content(vault_root, rel_path, convert_lossless=True)
         except (NonStandardVaultTextError, OSError) as exc:
@@ -842,7 +913,7 @@ def scan_artefact_key_reference_index(vault_root, router):
         parent_key = normalize_artefact_key(fields.get("parent"))
         tags_by_key = {}
         for tag in fields.get("tags", []):
-            tag_key = normalize_artefact_key(tag)
+            tag_key = _tag_reference_key(tag)
             if tag_key:
                 tags_by_key.setdefault(tag_key, []).append(tag)
         referenced_keys = set(tags_by_key)
@@ -860,12 +931,14 @@ def scan_artefact_key_reference_index(vault_root, router):
     return references
 
 
-def scan_artefact_key_references(vault_root, router, key):
+def scan_artefact_key_references(vault_root, router, key, *, include_archive=False):
     """Return artefacts whose frontmatter references ``key``."""
     normalized = normalize_artefact_key(key)
     if not normalized:
         return []
-    return scan_artefact_key_reference_index(vault_root, router).get(normalized, [])
+    return scan_artefact_key_reference_index(
+        vault_root, router, include_archive=include_archive
+    ).get(normalized, [])
 
 
 def resolve_parent_reference(vault_root, router, parent):

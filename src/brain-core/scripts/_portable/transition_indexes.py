@@ -24,7 +24,8 @@ def reconcile_artefact_indexes(root, *, lexical_before=None, changed_paths=()):
 
     command = "runtime.refresh-router"
     try:
-        router = maintain_router(root, dry_run=False, force=False)
+        router = maintain_router(root, dry_run=False, force=False,
+                                 preserve_embeddings=True)
         if router.status == "partial":
             raise IndexRefreshIncomplete(command, router_result=router)
         command = "retrieval.refresh-lexical"
@@ -32,7 +33,7 @@ def reconcile_artefact_indexes(root, *, lexical_before=None, changed_paths=()):
             update_lexical_documents(root, lexical_before, changed_paths)
         else:
             # Moves preserve mtime; a rebuild covers their full affected extent.
-            maintain_lexical_index(root, dry_run=False, force=True)
+            maintain_lexical_index(root, dry_run=False, force=True, preserve_embeddings=True)
     except IndexRefreshIncomplete:
         raise
     except (OSError, RuntimeError, ValueError) as exc:

@@ -211,20 +211,55 @@ and have no MCP projection. MCP list/read return canonical metadata and zero,
 one or many known registrations without arbitrary caller-supplied folder
 selectors; known paths are inventory, not authority to access them.
 
+### Workspace discovery filters
+
+`artefact.list` and `artefact.search` accept optional `workspace: workspace/{key}`
+and `workspace_match: relevant | primary` (default `relevant`). Relevant means
+primary membership plus exact canonical workspace tags; primary means only the
+scalar membership. Omit `workspace` for vault-wide discovery, regardless of the
+caller's startup workspace. The filter validates canonical syntax without
+requiring an active or existing target. `global`, bare slugs and paths are not
+workspace filters. These filters select results; they neither select mutation
+policy nor grant authority.
+
+Results expose `primary_workspace` (nullable) and `relevant_workspaces` (including
+primary membership). Workspace records report their own canonical identity as
+primary. Search covers the active namespace, including terminal status folders,
+and excludes archives in lexical, semantic and hybrid modes. Listing is exhaustive
+and supports `location: active | archived | all` (default `active`); archived
+results retain the same membership/relevance projection. Use listing for archive
+or membership enumeration and search for ranked content retrieval.
+
+List cursors are opaque and bound to the original filters, workspace match mode,
+sort and location. Follow the returned cursor with the same query; restart listing
+when those selectors change. Old numeric cursors are rejected. The lexical index
+uses generation `1.2.0` and semantic metadata uses generation `2`; refresh outdated
+assets with `retrieval.refresh-lexical` and `retrieval.refresh-semantic` rather than
+reusing older sidecars. Metadata-only changes retain vectors only when their exact
+encoder inputs and model identity still match.
+
 ### Effective workspace context for content mutations
 
 `artefact.create`, rename, naming-field/status/key changes, convert, reparent,
 reparent-children, archive, unarchive, delete, set-workspace, `shaping.start` v2 and the four `document.*` mutation
 commands accept the shared
 semantic field `workspace_context`: omit it (or pass null) to use validated
-startup context, use `workspace/{key}` to select a canonical workspace in the
+startup context (creation's explicit-parent exception is described below), use `workspace/{key}` to select a canonical workspace in the
 selected Brain, or `global` for intentional unscoped operation. This is never
 a path; CLI `--workspace /absolute/path` remains trusted adapter input. Invalid,
 stale or inactive local bindings must be repaired even when supplying an override.
 
-Create derives `workspace` membership and chooses its parent in this order:
-explicit, local default, shared default, none. Local defaults apply only to the
-locally bound workspace. Every ownership edge must be wholly global or within
+`artefact.create` version 5 selects its destination in this order: explicit
+`workspace_context`, a non-null explicit parent's primary membership, then
+validated startup context (global when unconfigured). An explicit global parent
+selects global; conflicting explicit destination and parent refuse without writes.
+After selection, parent precedence is explicit (including null), local default,
+shared default, none. `parent: null` suppresses defaults; omission uses them.
+Parentless content keeps its selected membership without an implicit workspace
+parent. Local defaults apply only when destination equals the bound workspace.
+Cross-destination creation adds the bound source workspace tag as relevance.
+Workspace records instead form independent self-scoped roots, reject parents
+and do not inherit caller policy. Every ownership edge must be wholly global or within
 one workspace. Shared, local and explicit tags are additive and deduplicated;
 the normal parent relationship tag remains derived.
 
@@ -264,9 +299,13 @@ Reparent and conversion outcomes must retain same-workspace ownership edges.
 Configured default parents cannot be deleted, archived, made terminal, converted
 out of living classification or given a different canonical key. Workspace hubs
 cannot be archived, deleted or re-keyed while discoverable member/policy references
-or the active local binding remain. Guards inspect active and terminal living,
-temporal and archived artefacts and the invocation's local manifest; they cannot
-inspect disconnected clones. Clear or replace reported policy references before
+or folder registrations, an embedded location or the active local binding remain.
+Guards inspect active and terminal living, temporal and archived artefacts, the
+Brain's local registration inventory and the invocation's local manifest; they
+cannot inspect unrecorded disconnected clones. Relevance tags alone do not block
+archive or deletion and survive both. A permitted workspace rekey rewrites exact
+canonical relevance tags in active and archived living and temporal artefacts;
+similarly prefixed tags are unchanged. Clear or replace reported policy references before
 retrying. Terminal workspace hubs remain historical identities but cannot be
 selected as effective mutation context. Hub type conversion fails closed because
 ordinary conversion cannot clear implicit self-membership.

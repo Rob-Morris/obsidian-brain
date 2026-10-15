@@ -276,7 +276,9 @@ unregistered locations. Ordinary outdated use supplies its remediation command.
 Neither creates a missing canonical workspace. Use command discovery for exact
 request contracts; the retired creation/setup commands have no aliases.
 
-The workspace needs no project, default parent or default tags. Its hub is self-scoped.
+The workspace needs no project, default parent or default tags. Its hub is a
+self-scoped root and cannot have a structural parent. Membership is separate from
+parentage: content without a parent still belongs to its selected workspace.
 If you want project-owned filing defaults, explicitly adopt the project (and any
 intended owned descendants) with `artefact.set-workspace`, then set the hub's
 `default_parent` using `workspace.update-policy`. A project tag
@@ -284,9 +286,16 @@ or link expresses association without adoption and cannot supply that default pa
 
 Artefact creation, semantic document edits, shaping start, and artefact lifecycle mutations accept `workspace_context` as a
 canonical `workspace/{key}` or `global`; omission uses the validated bound
-workspace. The separate `--workspace` adapter option is still a local path.
-Creation writes membership and uses explicit, local-default, shared-default,
-then no parent, in that order. Semantic mutations preserve membership, and preserve
+workspace, except for creation's explicit-parent selection below. The separate
+`--workspace` adapter option is still a local path.
+Creation selects its destination from explicit `workspace_context`, otherwise a
+non-null explicit parent's membership, otherwise startup context (or global).
+Conflicting explicit destination and parent refuse. It then uses explicit,
+local-default, shared-default, then no parent; explicit `parent: null` suppresses
+defaults. Local policy applies only in the bound workspace. Cross-destination
+creation adds the source workspace tag as relevance. Creating a workspace record
+instead makes an independent root without inheriting caller defaults.
+Semantic mutations preserve membership, and preserve
 parent unless explicitly reparenting or converting. Surviving semantic subjects
 receive shared and applicable local default tags; maintenance rewrites do not.
 New shaping transcripts follow creation defaults and remain temporal leaves;
@@ -295,6 +304,16 @@ its membership and parent, while restoring configured tags on both transcript an
 Lifecycle changes cannot strand discoverable workspace membership or default-parent
 references. Terminal workspaces remain historical identities but cannot be selected
 for new scoped mutations.
+`artefact.list` and `artefact.search` accept canonical `workspace` filters with
+`workspace_match: relevant` (default: primary membership plus canonical tags) or
+`primary` (membership only). Omission is vault-wide. Results expose
+`primary_workspace` and `relevant_workspaces`. Search excludes archives; use list
+with `location: archived` or `all` for historical enumeration. Tags do not grant
+ownership or select policy. New authored workspace tags must resolve to an
+existing active or archived identity; stale historical tags remain editable and
+produce informational findings. Archive/deletion retains them; a permitted
+workspace rekey updates exact tags in active and archived content.
+
 Use `workspace.update-policy` for shared defaults and `workspace.update-metadata`
 for local overrides. A stale or invalid local binding must be repaired before
 content mutation, including explicitly global operations.

@@ -706,7 +706,7 @@ _RECONCILIATION_TABLE: tuple[tuple[str, str, str | None], ...] = (
         "Run runtime.refresh-router, then retry only after the router compiles.",
     ),
     ("managed_runtime", "central_runtime", None),
-    ("workspace_upgrade", "workspace_upgrade", "Inspect the workspace upgrade child receipt; run the pinned workspace.upgrade command. Core remains committed."),
+    ("workspace_upgrade", "workspace_upgrade", "Review the workspace upgrade refusal details or last-upgrade.json workspace_upgrade.result; explicitly correct the canonical metadata/root/default_parent as appropriate, then retry the pinned workspace upgrade command and rerun brain upgrade. Core remains committed."),
     ("mcp_registration", "mcp_registration_repair", None),
     ("machine_resolution_runtime", "machine_resolution_runtime", None),
     ("retrieval_assets", "retrieval_asset_repair", None),
@@ -824,7 +824,10 @@ def _reconciliation_failed(result: dict) -> bool:
 
 def _reconciliation_next_action(result: dict) -> InstructionNextAction | None:
     for _name, key, instruction in _RECONCILIATION_TABLE:
-        if instruction is not None and _outcome(result, key) == "error":
+        if instruction is not None and (
+            _outcome(result, key) == "error"
+            or key == "workspace_upgrade" and _outcome(result, key) in _FAILED_OUTCOMES
+        ):
             return InstructionNextAction(instruction)
     return None
 
@@ -1018,6 +1021,16 @@ def execute_upgrade(context: LauncherContext, request: BrainUpgradeRequest):
         effects += tuple(CommittedEffect(request.COMMAND_ID, item["subject"]) for item in workspace_effects)
     if _reconciliation_failed(result):
         message = "The Brain/CLI cutover committed, but post-commit reconciliation requires recovery."
+        if _outcome(result, "workspace_upgrade") in _FAILED_OUTCOMES:
+            message += " " + workspace_phase.get("message", "Workspace metadata needs follow-up.")
+            log_path = vault / ".brain/local/last-upgrade.json"
+            try:
+                logged = json.loads(log_path.read_text(encoding="utf-8"))
+                logged_phase = logged.get("workspace_upgrade") if isinstance(logged, dict) else None
+            except (OSError, ValueError):
+                logged_phase = None
+            if logged_phase == workspace_phase:
+                message += f" Folder outcomes: {log_path} at workspace_upgrade.result."
         recovery_paths = _reconciliation_recovery_paths(result)
         details = (
             RecoveryRequiredDetails(recovery_paths, message)

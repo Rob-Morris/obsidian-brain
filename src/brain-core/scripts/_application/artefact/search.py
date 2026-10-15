@@ -4,12 +4,15 @@ from __future__ import annotations
 
 from .._decoding import optional_string, reject_unexpected
 
-from dataclasses import dataclass
+from _workspace_contract import WorkspaceMatch
+
+from dataclasses import asdict, dataclass
 from enum import Enum
 from typing import ClassVar, Mapping
 
 from .._search_support import (
     DEFAULT_TOP_K,
+    SearchItem,
     SearchPayload,
     catalogue_entry as _catalogue_entry,
     error,
@@ -32,10 +35,35 @@ class ArtefactSearchMode(str, Enum):
 
 
 @dataclass(frozen=True, slots=True)
+class ArtefactSearchItem(SearchItem):
+    primary_workspace: str | None = None
+    relevant_workspaces: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class ArtefactSearchPayload(SearchPayload):
+    items: tuple[ArtefactSearchItem, ...]
+
+
+def artefact_search_payload(mode, results):
+    """Keep workspace discovery metadata on artefacts, separate from resources."""
+    common = search_payload(mode, results)
+    items = tuple(ArtefactSearchItem(**asdict(item),
+        primary_workspace=source.get("primary_workspace"),
+        relevant_workspaces=tuple(source.get("relevant_workspaces", ())))
+        for item, source in zip(common.items, results))
+    return ArtefactSearchPayload(mode, items, len(items))
+
+
+@dataclass(frozen=True, slots=True)
 class ArtefactSearchRequest:
     COMMAND_ID: ClassVar[str] = "artefact.search"
-    COMMAND_VERSION: ClassVar[int] = 2
-    RESULT_TYPE: ClassVar[type] = SearchPayload
+    COMMAND_VERSION: ClassVar[int] = 3
+    FIELD_DESCRIPTIONS: ClassVar[dict[str, str]] = {
+        "workspace": "Optional canonical workspace/{key} discovery filter; does not grant authority or require an existing active target. Omit for vault-wide discovery.",
+        "workspace_match": "Match primary membership or relevant membership (primary plus canonical workspace tags).",
+    }
+    RESULT_TYPE: ClassVar[type] = ArtefactSearchPayload
 
     query: str
     type_filter: str | None = None
@@ -44,7 +72,13 @@ class ArtefactSearchRequest:
     mode: ArtefactSearchMode = ArtefactSearchMode.AUTO
     top_k: int = DEFAULT_TOP_K
 
+    workspace: str | None = None
+    workspace_match: WorkspaceMatch = WorkspaceMatch.RELEVANT
+
     def __post_init__(self) -> None:
+        from _common._workspace import validate_workspace_query
+
+        validate_workspace_query(self.workspace, self.workspace_match)
         validate_query_and_limit(self.COMMAND_ID, self.query, self.top_k)
         for name in ("type_filter", "tag", "status"):
             value = getattr(self, name)
@@ -112,6 +146,8 @@ def execute(context: InvocationContext, request: ArtefactSearchRequest):
             return error(ArtefactSearchRequest, ErrorCode.CONFLICT, str(exc), None)
     filters = SearchFilters(
         type=canonical_type,
+        workspace=request.workspace,
+        workspace_match=request.workspace_match,
         tag=request.tag,
         status=request.status,
     )
@@ -141,11 +177,11 @@ def execute(context: InvocationContext, request: ArtefactSearchRequest):
     return Ok(
         request.COMMAND_ID,
         request.COMMAND_VERSION,
-        search_payload(resolved_mode, results),
+        artefact_search_payload(resolved_mode, results),
     )
 
 def decode(payload: Mapping[str, object]) -> ArtefactSearchRequest:
-    allowed = {"query", "type_filter", "tag", "status", "mode", "top_k"}
+    allowed = {"workspace", "workspace_match", "query", "type_filter", "tag", "status", "mode", "top_k"}
     reject_unexpected(payload, allowed)
     query = payload.get("query")
     if not isinstance(query, str):
@@ -159,6 +195,8 @@ def decode(payload: Mapping[str, object]) -> ArtefactSearchRequest:
     return ArtefactSearchRequest(
         query=query,
         type_filter=optional_string(payload.get("type_filter"), "type_filter"),
+        workspace=optional_string(payload.get("workspace"), "workspace"),
+        workspace_match=WorkspaceMatch(payload.get("workspace_match", "relevant")),
         tag=optional_string(payload.get("tag"), "tag"),
         status=optional_string(payload.get("status"), "status"),
         mode=ArtefactSearchMode(mode),

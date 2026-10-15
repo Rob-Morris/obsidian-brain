@@ -501,14 +501,19 @@ def plan_semantic_document(context, request, router, opened, intent, body, *, ef
         return plan, None
     effective = resolve_mutation_context(context, router, request.workspace_context,
                                         parent=opened.fields.get("parent"))
+    from .workspace_associations import observe_workspace_associations
+    associations = observe_workspace_associations(context, router, plan.fields.get("tags", ()),
+                                                  existing_tags=opened.fields.get("tags", ()))
     fields = apply_semantic_tags(plan.fields, effective)
     reference = canonical_living_artefact_key(opened.artefact or {}, opened.fields) or opened.path
     validate_subject_membership(router, fields, reference, opened.fields)
     from .workspace_integrity import lifecycle_guard_observations
     guards = lifecycle_guard_observations(context, router,
         ((opened.path, reference, reference, opened.fields, fields),))
-    from _common._workspace import normalise_tags
-    effective = replace(effective, tags=normalise_tags(fields.get("tags", [])), sources=effective.sources + guards)
+    from _common._workspace import normalise_tags, workspace_discovery_metadata
+    effective = replace(effective, tags=normalise_tags(fields.get("tags", [])),
+        relevant_workspaces=tuple(workspace_discovery_metadata(fields)["relevant_workspaces"]),
+        sources=effective.sources + guards + associations)
     plan = edit.plan_document_lifecycle(
         str(context.selected_brain.vault_root), router, replace(plan, fields=fields),
         effective_at=effective_at,

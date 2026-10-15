@@ -146,7 +146,7 @@ def test_selector_shared_codec_schema_and_round_trip(request_type):
 ])
 def test_create_effective_membership_parent_and_tags(scoped, parent, selection, expected_parent, expected_workspace, expected_tags):
     root, _workspace, app, _parents = scoped
-    result = app.invoke(create_request(parent=parent,
+    result = app.invoke(create_request(**({"parent": parent} if parent is not None else {}),
         workspace_context=WorkspaceSelector(selection) if selection else None,
         frontmatter=(FrontmatterField("tags", ("explicit", "explicit")),)))
     assert result.status == "ok", result.error.message
@@ -185,13 +185,175 @@ def test_shared_parent_used_without_local_override_and_no_default_remains_root(s
     assert parse_frontmatter((root / another.result.path).read_text())[0]["workspace"] == "workspace/alpha"
 
 
-@pytest.mark.parametrize("parent,selection", [("project/command-fixture", None), ("workspace/beta", None), ("project/shared", "global")])
+@pytest.mark.parametrize("parent,selection", [("project/command-fixture", "workspace/alpha"), ("workspace/beta", "workspace/alpha"), ("project/shared", "global")])
 def test_create_rejects_cross_workspace_and_scoped_unscoped_parent_edges(scoped, parent, selection):
     _root, _workspace, app, _parents = scoped
     result = app.invoke(create_request(parent=parent, workspace_context=WorkspaceSelector(selection) if selection else None))
     assert result.status == "error", result
     assert result.effects == "none"
     assert "share one workspace" in result.error.message
+
+
+@pytest.mark.parametrize("parent,workspace,expected_tags", [
+    ("workspace/beta", "workspace/beta", {"beta", "workspace/alpha"}),
+    ("project/command-fixture", None, {"workspace/alpha"}),
+])
+def test_explicit_parent_selects_destination_before_defaults(scoped, parent, workspace, expected_tags):
+    root, _folder, app, _parents = scoped
+    result = app.invoke(create_request(parent=parent))
+    assert result.status == "ok", result
+    fields, _ = parse_frontmatter((root / result.result.path).read_text())
+    assert fields.get("workspace") == workspace
+    assert fields["parent"] == parent
+    assert expected_tags <= set(fields["tags"])
+    assert not {"shared", "local", "both"} & set(fields["tags"])
+    effective = result.result.mutation_context
+    assert effective.source_workspace == "workspace/alpha"
+    assert effective.selection_reason == "parent"
+    assert "workspace/alpha" in effective.relevant_workspaces
+
+
+@pytest.mark.parametrize("wire_parent", ["top-level", "frontmatter"])
+def test_explicit_null_suppresses_parent_defaults_without_clearing_membership(scoped, wire_parent):
+    root, _folder, app, _parents = scoped
+    payload = {"type": "living/design", "title": "No Parent", "key": "no-parent"}
+    if wire_parent == "top-level":
+        payload["parent"] = None
+    else:
+        payload["frontmatter"] = {"parent": None}
+    request = current_request_resolver().resolve("artefact.create", payload)
+    assert current_request_resolver().resolve("artefact.create", canonical_wire_value(request)) == request
+    result = app.invoke(request)
+    assert result.status == "ok", result
+    fields, _ = parse_frontmatter((root / result.result.path).read_text())
+    assert fields["workspace"] == "workspace/alpha"
+    assert not fields.get("parent")
+    assert result.result.mutation_context.parent_source == "explicit"
+    assert {"shared", "local", "both"} <= set(fields["tags"])
+
+
+def test_parent_presence_round_trips_without_sentinel_in_transport_schema():
+    from _application._decoding import OMITTED
+    from jsonschema import Draft202012Validator
+
+    resolver = current_request_resolver()
+    omitted = create_request()
+    assert omitted.parent is OMITTED
+    assert "parent" not in canonical_wire_value(omitted)
+    assert resolver.resolve("artefact.create", canonical_wire_value(omitted)) == omitted
+    explicit_null = create_request(parent=None)
+    assert canonical_wire_value(explicit_null)["parent"] is None
+    assert resolver.resolve("artefact.create", canonical_wire_value(explicit_null)) == explicit_null
+    schema = request_schema(ArtefactCreateRequest)
+    assert "default" not in schema["properties"]["parent"]
+    assert "omitted" not in json.dumps(schema)
+    for request in (omitted, explicit_null):
+        Draft202012Validator(schema).validate(canonical_wire_value(request))
+
+
+@pytest.mark.parametrize("transport", ["mcp", "cli"])
+@pytest.mark.parametrize("parent_input", ["omitted", "null", "frontmatter-null"])
+def test_raw_transports_preserve_creation_parent_presence(scoped, transport, parent_input, monkeypatch, capsys):
+    from pathlib import Path
+
+    root, folder, app, _parents = scoped
+    payload = {"type": "living/design", "title": "Transport Parent", "key": "transport-parent"}
+    if parent_input == "null":
+        payload["parent"] = None
+    elif parent_input == "frontmatter-null":
+        payload["frontmatter"] = {"parent": None}
+    if transport == "mcp":
+        import asyncio
+        from mcp.server import MCPServer
+        from brain_mcp._command_adapter import register_application_tools
+
+        mcp = MCPServer("workspace-parent-presence")
+        register_application_tools(mcp, catalogue=current_application_catalogue(),
+            resolver=current_request_resolver(), context_factory=lambda **_metadata: app._context,
+            invocation_guard=lambda: None)
+        called = asyncio.run(mcp.call_tool("artefact_create", payload))
+        assert not called.is_error, called
+        result = called.structured_content["result"]
+    else:
+        repo = Path(__file__).resolve().parents[2]
+        monkeypatch.syspath_prepend(str(repo / "cli"))
+        from _local_cli.main import run
+
+        monkeypatch.setenv("BRAIN_CLI_BINARY", str(repo / "cli/brain"))
+        monkeypatch.setenv("BRAIN_CLI_DISTRIBUTION_ROOT", str(repo))
+        monkeypatch.delenv("BRAIN_WORKSPACE_DIR", raising=False)
+        monkeypatch.delenv("BRAIN_VAULT_ROOT", raising=False)
+        code = run(["--vault", str(root), "--workspace", str(folder),
+                    "artefact", "create", "--request-json", json.dumps(payload), "--json"])
+        output = capsys.readouterr()
+        assert code == 0, output
+        result = json.loads(output.out)["result"]
+    fields, _ = parse_frontmatter((root / result["path"]).read_text())
+    assert fields["workspace"] == "workspace/alpha"
+    assert fields.get("parent") == ("project/local" if parent_input == "omitted" else None)
+    assert result["mutation_context"]["parent_source"] == ("local" if parent_input == "omitted" else "explicit")
+
+
+def test_conflicting_top_level_and_frontmatter_parents_refuse_without_effects(scoped):
+    root, _folder, app, _parents = scoped
+    request = create_request(parent=None,
+        frontmatter=(FrontmatterField("parent", "project/shared"),))
+    result = app.invoke(request)
+    assert result.status == "error" and result.effects == "none"
+    assert "parent and frontmatter.parent must agree" in result.error.message
+    assert not (root / "Designs/Subject.md").exists()
+
+
+def test_workspace_identity_creation_does_not_inherit_caller_policy(scoped):
+    root, _folder, app, _parents = scoped
+    created = app.invoke(ArtefactCreateRequest("living/workspace", "Independent", key="independent"))
+    assert created.status == "ok", created
+    fields, _ = parse_frontmatter((root / created.result.path).read_text())
+    assert not fields.get("parent")
+    assert not fields.get("workspace")
+    assert not {"local", "shared", "both"} & set(fields["tags"])
+    assert created.result.mutation_context.workspace == "workspace/independent"
+    assert created.result.mutation_context.selection_reason == "identity"
+    assert created.result.mutation_context.local_overrides is False
+
+
+@pytest.mark.parametrize("field", ["parent", "destination"])
+def test_workspace_identity_creation_rejects_explicit_containment(scoped, field):
+    _root, _folder, app, _parents = scoped
+    kwargs = ({"parent": "project/local"} if field == "parent" else
+              {"workspace_context": WorkspaceSelector("workspace/alpha")})
+    result = app.invoke(ArtefactCreateRequest("living/workspace", "Independent", key="independent", **kwargs))
+    assert result.status == "error" and result.effects == "none"
+
+
+@pytest.mark.parametrize("source", ["parent-membership", "destination-policy", "source-hub"])
+def test_inferred_destination_sources_are_admission_bound(scoped, source):
+    root, _folder, app, _parents = scoped
+    created = app.invoke(ArtefactCreateRequest("living/project", "Other Parent", key="other-parent",
+        parent=None, workspace_context=WorkspaceSelector("workspace/beta")))
+    assert created.status == "ok", created
+    request = create_request(parent="project/other-parent")
+    entry = current_application_catalogue().resolve(request)
+    binding = entry.preparation.prepare(app._context, request)
+    admission = MatchingAdmission(binding)
+    if source == "parent-membership":
+        from _common import serialize_frontmatter
+        parent_path = root / created.result.path
+        fields, body = parse_frontmatter(parent_path.read_text())
+        fields["workspace"] = "workspace/alpha"
+        parent_path.write_text(serialize_frontmatter(fields, body=body))
+        import compile_router
+        compile_router.persist_compiled_router(str(root), compile_router.compile(str(root)))
+    elif source == "destination-policy":
+        changed = app.invoke(WorkspaceUpdatePolicyRequest("workspace/beta", default_tags=("changed-policy",)))
+        assert changed.status == "ok", changed
+    else:
+        from _lifecycle.derived_cache_state import require_fresh_compiled_router
+        source_hub = root / require_fresh_compiled_router(str(root))["artefact_index"]["workspace/alpha"]["path"]
+        source_hub.write_text(source_hub.read_text() + "\nSource hub revised.\n")
+    result = entry.executor(replace(app._context, admission=admission), request)
+    assert result.status == "error" and result.effects == "none"
+    assert admission.calls == 0
 
 
 @pytest.mark.parametrize("selection", [None, "workspace/beta", "global"])

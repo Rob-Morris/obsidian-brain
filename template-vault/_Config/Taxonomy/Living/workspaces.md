@@ -4,7 +4,7 @@ Living artefact. Workspace hub files.
 
 ## Purpose
 
-One durable identity per workspace, connecting Brain artefacts to bounded working files. Canonical membership is the artefact's `workspace: workspace/{key}` field, never a relationship tag or filesystem location. The workspace hub is self-scoped even when its own `workspace` field is omitted.
+One durable identity per workspace, connecting Brain artefacts to bounded working files. Canonical membership is the artefact's `workspace: workspace/{key}` field, never a relationship tag or filesystem location. The workspace hub is a root record with no structural `parent`, self-scoped even when its own `workspace` field is omitted. Its optional `default_parent` is policy for content inside the workspace, not the workspace record's own parent.
 
 Workspaces solve the problem of work that involves non-markdown files (CSVs, JSON, API dumps, spreadsheets), pipelines (raw data, processed output), and scratch material that only makes sense within the scope of that work.
 
@@ -48,7 +48,7 @@ Caller-local `.brain/local/workspace.yaml` stores `schema_version: 1`, `brain` a
 ## Repo for an Existing Project
 
 The workspace needs no project, default parent or default tags. The hub is
-self-scoped; do not parent it to an unscoped project. If you want project-owned
+self-scoped; do not parent it to another hub, even one in its own workspace. If you want project-owned
 filing defaults, explicitly adopt the project into the workspace first, then
 set the hub's `default_parent` to that project. Review and checkpoint the
 ownership tree before recursive adoption. Older hubs with cross-workspace parent

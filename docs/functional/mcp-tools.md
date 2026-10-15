@@ -194,6 +194,33 @@ The schema preserves required versus optional fields, explicit nullable fields, 
 
 Large or retry-sensitive content uses the explicit staging commands where the described command accepts a staged handle. Caller-owned file paths are not an MCP content source because the server may not share the caller's filesystem.
 
+## Workspace discovery filters
+
+`artefact.list` and `artefact.search` accept optional `workspace: workspace/{key}`
+and `workspace_match: relevant | primary` (default `relevant`). Relevant means
+primary membership plus exact canonical workspace tags; primary means only the
+scalar membership. Omit `workspace` for vault-wide discovery, regardless of the
+caller's startup workspace. The filter validates canonical syntax without
+requiring an active or existing target. `global`, bare slugs and paths are not
+workspace filters. These filters select results; they neither select mutation
+policy nor grant authority.
+
+Results expose `primary_workspace` (nullable) and `relevant_workspaces` (including
+primary membership). Workspace records report their own canonical identity as
+primary. Search covers the active namespace, including terminal status folders,
+and excludes archives in lexical, semantic and hybrid modes. Listing is exhaustive
+and supports `location: active | archived | all` (default `active`); archived
+results retain the same membership/relevance projection. Use listing for archive
+or membership enumeration and search for ranked content retrieval.
+
+List cursors are opaque and bound to the original filters, workspace match mode,
+sort and location. Follow the returned cursor with the same query; restart listing
+when those selectors change. Old numeric cursors are rejected. The lexical index
+uses generation `1.2.0` and semantic metadata uses generation `2`; refresh outdated
+assets with `retrieval.refresh-lexical` and `retrieval.refresh-semantic` rather than
+reusing older sidecars. Metadata-only changes retain vectors only when their exact
+encoder inputs and model identity still match.
+
 ## Trusted invocation context
 
 `artefact.create` and artefact-targeting `document.write-body`,
@@ -205,6 +232,16 @@ uses validated startup binding; `workspace/{key}` selects another workspace in
 the same Brain; `global` applies no workspace defaults. Invalid local bindings
 cannot be bypassed. This field never accepts filesystem paths and does not
 change connection state. Non-artefact document targets reject it.
+For `artefact.create` version 5, an omitted selector uses a non-null explicit
+parent's membership before startup context. Destination policy supplies the
+defaults; an explicit selector conflicting with the parent refuses. Omitted
+`parent` uses defaults, while `parent: null` explicitly suppresses them.
+No parent still retains primary membership; it does not imply a workspace-record
+parent. Cross-destination creation adds the bound source workspace's relationship
+tag, independently of the destination membership. The effective context reports
+`source_workspace`, `workspace`, `selection_reason`, `parent_source` and
+`relevant_workspaces` alongside observed policy revisions. Workspace records
+themselves are independent self-scoped roots and cannot have a structural parent.
 Semantic document edits preserve a workspace hub's type, including when its
 self-membership is explicitly stored.
 
@@ -219,7 +256,9 @@ but cannot implicitly clear membership in an unconfigured connection. It is a
 contributor command with CLI, script, MCP and typed Python projections.
 
 `vault_check` version 3 includes optional finding `code` values for workspace
-reference, ownership, policy, local-binding, and explicit-adoption diagnostics.
+reference, ownership, policy, local-binding and relevance diagnostics.
+`workspace_relevance_missing` and `workspace_relevance_malformed` are
+informational; relationship tags never imply an adoption request.
 An archived workspace hub's own self-membership is valid; other artefacts that
 still reference that archived hub receive `workspace_reference_archived`.
 
@@ -234,7 +273,11 @@ receipt schema does not persist workspace policy inputs.
 
 Lifecycle guards preserve discoverable workspace membership and default-parent
 references, including temporal and archived members. They report the selected
-vault and active local binding only, not disconnected clones. Recursive semantic
+vault, recorded folder registrations, embedded locations and active local
+binding, not unrecorded disconnected clones. Relevance tags alone do not block
+archive/deletion and are retained. A permitted workspace rekey updates exact
+canonical tags in active and archived living/temporal artefacts, without changing
+similarly prefixed tags. Recursive semantic
 subjects receive policy tags; deletion and incidental maintenance rewrites do not.
 
 MCP callers provide only semantic fields. The adapter derives selected Brain, workspace binding, authenticated profile, authority, dependency tier, providers, dry-run facilities and receipt storage from trusted server/proxy state.

@@ -1117,12 +1117,14 @@ def detect_environment(vault_root):
 
 def _hash_index_payload(fields):
     """Hash only the frontmatter fields that affect the artefact index."""
-    from _common._workspace import indexed_workspace_fields
+    from _common._workspace import indexed_workspace_fields, workspace_discovery_metadata
     payload = {
         "type": fields.get("type"),
         "key": fields.get("key"),
         "parent": normalize_artefact_key(fields.get("parent")),
+        "tags": fields.get("tags", []),
         **indexed_workspace_fields(fields),
+        **workspace_discovery_metadata(fields),
     }
     return hash_json_payload(payload)
 

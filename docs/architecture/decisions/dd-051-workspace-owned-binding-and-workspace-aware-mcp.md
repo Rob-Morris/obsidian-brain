@@ -2,7 +2,7 @@
 
 **Status:** Accepted
 **Extends:** DD-023, DD-039, DD-040
-**Extended by:** DD-052, DD-055, DD-078
+**Extended by:** DD-052, DD-055, DD-078, [DD-088](dd-088-workspace-destination-and-relevance.md) (destination/default selection and relevance)
 **Amended by:** DD-083 (§2's targeted `configure workspace binding` surface and `workspace.bind` are retired, with `workspace.setup --force` as the rebind surface)
 
 ## Amendment — 2026-10-14: canonical identity and folder registrations

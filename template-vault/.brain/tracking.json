@@ -114,11 +114,11 @@
       }
     },
     "living/workspaces": {
-      "brain_core_version": "0.71.4",
-      "installed_at": "2026-10-13T23:00:54.165734+00:00",
+      "brain_core_version": "0.72.0",
+      "installed_at": "2026-10-14T23:39:48.082133+00:00",
       "files": {
         "taxonomy": {
-          "source_hash": "sha256:c293f9a8fc5ee8229499ec697ad4b79be74b328edac0698d3c4410f96f093f2c",
+          "source_hash": "sha256:c32e91ad0b6f6df2dee1638e899f9d81a72806efc879de7c14b9d4d98a61098c",
           "target": "_Config/Taxonomy/Living/workspaces.md"
         },
         "template": {

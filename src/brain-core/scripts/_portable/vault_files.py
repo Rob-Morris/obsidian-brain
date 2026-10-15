@@ -8,12 +8,15 @@ from datetime import datetime, timezone
 
 from _common import (
     MissingFileResult,
+    NonStandardVaultTextError,
     is_archived_path,
     load_compiled_router,
     parse_frontmatter,
     read_exact_file_content,
     resolve_and_check_bounds,
 )
+
+from _common._artefacts import iter_archived_artefact_paths
 
 
 PUBLIC_BRAIN_CORE_FILES = frozenset(
@@ -100,57 +103,39 @@ def read_archived_artefact(vault_root, path, *, infer_markdown=False, convert_lo
 def list_archived_artefacts(router, vault_root):
     vault_root = str(vault_root)
     results = []
-    seen = set()
-
-    def scan(base_dir):
-        if not os.path.isdir(base_dir):
-            return
-        for dirpath, dirnames, filenames in os.walk(base_dir):
-            dirnames[:] = [name for name in dirnames if not name.startswith(".")]
-            for filename in filenames:
-                if not filename.endswith(".md"):
-                    continue
-                absolute = os.path.join(dirpath, filename)
-                relative = os.path.relpath(absolute, vault_root)
-                if relative in seen:
-                    continue
-                seen.add(relative)
-                try:
-                    with open(absolute, "r", encoding="utf-8") as handle:
-                        fields, _ = parse_frontmatter(handle.read())
-                except (OSError, UnicodeError):
-                    fields = {}
-                results.append(
-                    {
-                        "path": relative,
-                        "title": os.path.splitext(filename)[0],
-                        "type": fields.get("type", ""),
-                        "created": fields.get("created", ""),
-                        "modified": datetime.fromtimestamp(
-                            os.path.getmtime(absolute), timezone.utc
-                        ).isoformat(),
-                        "status": fields.get("status", ""),
-                        "archiveddate": fields.get("archiveddate", ""),
-                        "tags": fields.get("tags", []),
-                        "key": fields.get("key", ""),
-                        "parent": fields.get("parent", ""),
-                        "location": "archived",
-                    }
-                )
-
-    scan(os.path.join(vault_root, "_Archive"))
-    for artefact in router.get("artefacts", ()):
-        artefact_dir = os.path.join(vault_root, artefact["path"])
-        if not os.path.isdir(artefact_dir):
+    for relative in iter_archived_artefact_paths(vault_root, router):
+        absolute = os.path.join(vault_root, relative)
+        filename = os.path.basename(relative)
+        try:
+            resolved = resolve_and_check_bounds(absolute, vault_root)
+            modified = datetime.fromtimestamp(
+                os.path.getmtime(resolved), timezone.utc
+            ).isoformat()
+        except (ValueError, OSError):
             continue
-        for entry in os.listdir(artefact_dir):
-            if entry == "_Archive":
-                scan(os.path.join(artefact_dir, "_Archive"))
-            child = os.path.join(artefact_dir, entry)
-            if os.path.isdir(child) and not entry.startswith((".", "_", "+")):
-                archive = os.path.join(child, "_Archive")
-                if os.path.isdir(archive):
-                    scan(archive)
+        try:
+            content = read_archived_artefact(vault_root, relative, convert_lossless=True)
+            if not isinstance(content, str):
+                continue
+            fields, _ = parse_frontmatter(content)
+        except (OSError, UnicodeError, NonStandardVaultTextError):
+            fields = {}
+        results.append(
+            {
+                "path": relative,
+                "title": os.path.splitext(filename)[0],
+                "type": fields.get("type", ""),
+                "created": fields.get("created", ""),
+                "modified": modified,
+                "status": fields.get("status", ""),
+                "archiveddate": fields.get("archiveddate", ""),
+                "tags": fields.get("tags", []),
+                "workspace": fields.get("workspace"),
+                "key": fields.get("key", ""),
+                "parent": fields.get("parent", ""),
+                "location": "archived",
+            }
+        )
 
     results.sort(
         key=lambda item: (item.get("archiveddate", ""), item["path"].casefold()),

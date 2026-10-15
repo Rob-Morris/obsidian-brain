@@ -9,6 +9,7 @@ from typing import Annotated
 from _workspace_contract import WorkspacePolicy
 from .preparation import ObservedResource, content_digest
 from .results import Partial
+from ._decoding import OMITTED
 
 
 @dataclass(frozen=True, slots=True)
@@ -83,6 +84,9 @@ class EffectiveMutationContext:
     parent_source: str
     tags: tuple[str, ...]
     sources: tuple[ObservedResource, ...]
+    source_workspace: str | None = None
+    selection_reason: str = "startup"
+    relevant_workspaces: tuple[str, ...] = ()
 
     def review(self):
         return asdict(self)
@@ -100,7 +104,8 @@ class WorkspaceMutationPayload:
     mutation_context: EffectiveMutationContext | None = None
 
 
-def resolve_mutation_context(context, router, selector, *, parent=None, creation=False, explicit_tags=()):
+def resolve_mutation_context(context, router, selector, *, parent=OMITTED, creation=False,
+                             explicit_tags=(), workspace_identity=False):
     """Validate startup intent even for overrides, then resolve one policy snapshot."""
     from _bootstrap.workspace_binding import load_workspace_manifest_state, resolve_selected_workspace_binding, WorkspaceBindingError
     from _common import document_revision_at, resolve_parent_reference
@@ -124,11 +129,29 @@ def resolve_mutation_context(context, router, selector, *, parent=None, creation
         context.selected_brain.vault_root, router, manifest)
     if state not in {BindingState.VALID, BindingState.UNCONFIGURED}:
         raise ValueError(f"Workspace binding is {state.value}: {guidance}")
+    if bound_workspace is not None:
+        bound_hub = router["artefact_index"][bound_workspace]
+        sources.append(ObservedResource("workspace-source", bound_workspace,
+            document_revision_at(context.selected_brain.vault_root / bound_hub["path"])))
     if manifest is not None:
         registry = Path(vault_registry.registry_path())
         sources.append(ObservedResource("brain-binding", str(registry), content_digest(registry.read_bytes())))
 
+    explicit_parent = parent is not OMITTED
+    parent = None if parent is OMITTED else parent
+    parent_entry = None
+    if creation and parent is not None:
+        parent, parent_entry = resolve_parent_reference(str(context.selected_brain.vault_root), router, parent)
     selected = selector.value if selector is not None else bound_workspace
+    reason = "explicit" if selector is not None else "startup"
+    if workspace_identity:
+        if parent is not None:
+            raise ValueError("Workspace records must have no parent; configure default_parent for their content instead")
+        if selector is not None and selector.value != "global":
+            raise ValueError("Workspace identities are self-scoped; they cannot belong to another workspace")
+        selected, reason = None, "identity"
+    elif creation and selector is None and parent_entry is not None:
+        selected, reason = membership(parent, parent_entry), "parent"
     workspace = None if selected == "global" else selected
     local_applies = workspace is not None and workspace == bound_workspace
     shared = WorkspacePolicy()
@@ -140,19 +163,25 @@ def resolve_mutation_context(context, router, selector, *, parent=None, creation
             document_revision_at(context.selected_brain.vault_root / hub["path"])))
         if local_applies:
             local = workspace_policy(router, workspace, manifest.get("defaults", {}), local=True)
-    parent_source = ("explicit" if creation else "preserved") if parent is not None else "none"
-    if creation and parent is None:
+    parent_source = ("explicit" if creation else "preserved") if explicit_parent else "none"
+    if creation and not explicit_parent and not workspace_identity:
         parent = local.parent or shared.parent
         parent_source = "local" if local.parent else "shared" if shared.parent else "none"
     if parent is not None:
-        parent, entry = resolve_parent_reference(str(context.selected_brain.vault_root), router, parent)
-        if creation and membership(parent, entry) != workspace:
-            raise ValueError(f"Parent {parent} and created artefact must share one workspace")
+        if parent_entry is None:
+            parent, parent_entry = resolve_parent_reference(str(context.selected_brain.vault_root), router, parent)
+        if creation and membership(parent, parent_entry) != workspace:
+            destination = membership(parent, parent_entry) or "global"
+            raise ValueError(f"Parent {parent} and created artefact must share one workspace; "
+                             f"select workspace_context={destination} or supply a parent in {workspace or 'global'}")
         sources.append(ObservedResource("workspace-parent", parent,
-            document_revision_at(context.selected_brain.vault_root / entry["path"])))
+            document_revision_at(context.selected_brain.vault_root / parent_entry["path"])))
     tags = tuple(dict.fromkeys(shared.tags + local.tags + normalise_tags(explicit_tags)))
+    if creation and not workspace_identity and bound_workspace is not None and workspace != bound_workspace:
+        tags = tuple(dict.fromkeys((*tags, bound_workspace)))
     return EffectiveMutationContext(workspace, selector.value if selector else "startup", local_applies,
-        shared, local, parent, parent_source, tags, tuple(sources))
+        shared, local, parent, parent_source, tags, tuple(sources), bound_workspace, reason,
+        tuple(tag for tag in tags if tag.startswith("workspace/")))
 
 
 def apply_semantic_tags(fields, effective):

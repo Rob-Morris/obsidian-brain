@@ -86,6 +86,35 @@ class SelectedBrainProcess:
 ProcessRunner = Callable[..., subprocess.CompletedProcess[str]]
 
 
+def application_process_diagnostic(exit_code: int, stderr: str) -> str:
+    """Classify bounded owned evidence without echoing arbitrary child streams."""
+    diagnostic = f" (exit {exit_code})"
+    # Only recognise owned evidence; child streams may contain credentials.
+    evidence = stderr[-4096:].strip()
+    if evidence == "command.py: infrastructure — direct workspace is not bound to the selected Brain":
+        diagnostic += (
+            "; the command requires a workspace already bound to the selected Brain. "
+            "Register the intended local folder with brain workspace register --brain <registered-brain-id> "
+            "--workspace <local-folder> --request-json '{\"slug\":\"<workspace-key>\"}'. "
+            "If the workspace hub does not exist, first run brain workspace create "
+            "--brain <registered-brain-id> "
+            "--request-json '{\"key\":\"<workspace-key>\",\"title\":\"<workspace-title>\"}', then register it."
+        )
+    elif evidence.startswith("command.py: infrastructure — Workspace metadata schema ") and " Run brain workspace upgrade" in evidence:
+        diagnostic += (
+            "; Workspace metadata needs upgrading. Review and run brain workspace upgrade "
+            "--brain <registered-brain-id> --workspace <local-folder>."
+        )
+    elif evidence.startswith("command.py: infrastructure — direct workspace cannot be resolved:"):
+        diagnostic += (
+            "; the child could not resolve the workspace binding. "
+            "Check the workspace manifest and local Brain registry."
+        )
+    else:
+        diagnostic += "; check the selected Brain command entry point and runtime"
+    return diagnostic
+
+
 @dataclass(frozen=True, slots=True)
 class ApplicationProcessInvoker:
     target: SelectedBrainProcess
@@ -136,15 +165,16 @@ class ApplicationProcessInvoker:
             check=False,
             **options,
         )
+        diagnostic = application_process_diagnostic(completed.returncode, completed.stderr)
         if completed.returncode not in range(5):
-            raise RuntimeError("selected Brain command returned an invalid exit category")
+            raise RuntimeError("selected Brain command returned an invalid exit category" + diagnostic)
         stdout = completed.stdout
         if not stdout.strip():
-            raise RuntimeError("selected Brain command returned no structural result")
+            raise RuntimeError("selected Brain command returned no structural result" + diagnostic)
         try:
             envelope = json.loads(stdout)
         except json.JSONDecodeError as exc:
-            raise RuntimeError("selected Brain command returned invalid JSON") from exc
+            raise RuntimeError("selected Brain command returned invalid JSON" + diagnostic) from exc
         _validate_child_envelope(entry, envelope, completed.returncode)
         diagnostic = None
         error = envelope.get("error", {})

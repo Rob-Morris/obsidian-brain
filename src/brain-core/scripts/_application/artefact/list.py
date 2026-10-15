@@ -5,6 +5,8 @@ from __future__ import annotations
 from .._decoding import optional_string, reject_unexpected
 from .._read_support import catalogue_entry as portable_reader_entry
 
+from _workspace_contract import WorkspaceMatch
+
 from dataclasses import dataclass
 from enum import Enum
 from typing import ClassVar, Mapping
@@ -41,6 +43,8 @@ class ArtefactListItem:
     parent: str | None = None
     children_count: int | None = None
     archived_date: str | None = None
+    primary_workspace: str | None = None
+    relevant_workspaces: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -56,7 +60,11 @@ class ArtefactListPayload:
 @dataclass(frozen=True, slots=True)
 class ArtefactListRequest:
     COMMAND_ID: ClassVar[str] = "artefact.list"
-    COMMAND_VERSION: ClassVar[int] = 2
+    COMMAND_VERSION: ClassVar[int] = 3
+    FIELD_DESCRIPTIONS: ClassVar[dict[str, str]] = {
+        "workspace": "Optional canonical workspace/{key} discovery filter; does not grant authority or require an existing active target. Omit for vault-wide discovery.",
+        "workspace_match": "Match primary membership or relevant membership (primary plus canonical workspace tags).",
+    }
     RESULT_TYPE: ClassVar[type] = ArtefactListPayload
 
     location: ArtefactListLocation = ArtefactListLocation.ACTIVE
@@ -71,7 +79,13 @@ class ArtefactListRequest:
     cursor: str | None = None
     page_size: int = 500
 
+    workspace: str | None = None
+    workspace_match: WorkspaceMatch = WorkspaceMatch.RELEVANT
+
     def __post_init__(self) -> None:
+        from _common._workspace import validate_workspace_query
+
+        validate_workspace_query(self.workspace, self.workspace_match)
         if not isinstance(self.location, ArtefactListLocation):
             raise ValueError("artefact.list location must use ArtefactListLocation")
         for name in (
@@ -120,6 +134,8 @@ def execute(context: InvocationContext, request: ArtefactListRequest):
             until=request.until,
             modified_since=request.modified_since,
             modified_until=request.modified_until,
+            workspace=request.workspace,
+            workspace_match=request.workspace_match,
             tag=request.tag,
             parent=request.parent,
             top_k=request.page_size,
@@ -153,6 +169,8 @@ def execute(context: InvocationContext, request: ArtefactListRequest):
             parent=item.get("parent"),
             children_count=item.get("children_count"),
             archived_date=item.get("archiveddate"),
+            primary_workspace=item.get("primary_workspace"),
+            relevant_workspaces=tuple(item.get("relevant_workspaces", ())),
         )
         for item in page["items"]
     )
@@ -176,6 +194,8 @@ def _error(code: ErrorCode, message: str, field: str | None) -> Error:
 
 def decode(payload: Mapping[str, object]) -> ArtefactListRequest:
     allowed = {
+        "workspace",
+        "workspace_match",
         "location",
         "type_filter",
         "since",
@@ -213,6 +233,8 @@ def decode(payload: Mapping[str, object]) -> ArtefactListRequest:
         modified_until=optional_string(
             payload.get("modified_until"), "modified_until"
         ),
+        workspace=optional_string(payload.get("workspace"), "workspace"),
+        workspace_match=WorkspaceMatch(payload.get("workspace_match", "relevant")),
         tag=optional_string(payload.get("tag"), "tag"),
         parent=optional_string(payload.get("parent"), "parent"),
         sort=ArtefactSort(sort),

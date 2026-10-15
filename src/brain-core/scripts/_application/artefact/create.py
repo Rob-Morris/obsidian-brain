@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from .._text_warnings import raise_nonstandard_text_error
 
-from .._decoding import reject_unexpected
+from .._decoding import OMITTED, Omitted, reject_unexpected
 
 from dataclasses import dataclass
 from typing import ClassVar, Mapping
@@ -67,8 +67,12 @@ class ArtefactCreatePayload:
 @dataclass(frozen=True, slots=True)
 class ArtefactCreateRequest(WorkspaceAwareRequest):
     COMMAND_ID: ClassVar[str] = "artefact.create"
-    COMMAND_VERSION: ClassVar[int] = 4
+    COMMAND_VERSION: ClassVar[int] = 5
     RESULT_TYPE: ClassVar[type] = ArtefactCreatePayload
+    FIELD_DESCRIPTIONS: ClassVar[dict[str, str]] = {
+        "parent": "Explicit structural parent; null suppresses defaults. Omission uses destination defaults. Without an explicit workspace_context, a non-null parent selects its own workspace.",
+        "workspace_context": "Destination workspace/{key} or global. Omission uses an explicit parent's membership, otherwise validated startup context. Destination policy supplies defaults; never a filesystem path.",
+    }
 
     MINIMAL_EXAMPLE: ClassVar[dict[str, object]] = {
         "type": "living/wiki",
@@ -80,7 +84,7 @@ class ArtefactCreateRequest(WorkspaceAwareRequest):
     title: str
     content: MutationContent | None = None
     frontmatter: Frontmatter = ()
-    parent: str | None = None
+    parent: str | None | Omitted = OMITTED
     key: str | None = None
     fix_links: bool = False
 
@@ -107,6 +111,8 @@ class ArtefactCreateRequest(WorkspaceAwareRequest):
             )
         for field_name in ("parent", "key"):
             value = getattr(self, field_name)
+            if field_name == "parent" and value is OMITTED:
+                continue
             if value is not None and (
                 not isinstance(value, str) or not value.strip()
             ):
@@ -263,10 +269,10 @@ def decode(payload: Mapping[str, object]) -> ArtefactCreateRequest:
     if not isinstance(type_key, str) or not isinstance(title, str):
         raise ValueError("type and title must be strings")
     raw_content = payload.get("content")
-    parent = payload.get("parent")
+    parent = payload.get("parent", OMITTED)
     key = payload.get("key")
     fix_links = payload.get("fix_links", False)
-    if parent is not None and not isinstance(parent, str):
+    if parent is not None and parent is not OMITTED and not isinstance(parent, str):
         raise ValueError("parent must be null or a string")
     if key is not None and not isinstance(key, str):
         raise ValueError("key must be null or a string")

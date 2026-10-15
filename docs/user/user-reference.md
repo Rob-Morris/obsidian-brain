@@ -201,7 +201,21 @@ Two folders may share that identity; path identifies each local registration.
 There is no separate local slug or `links.workspace` field. Shared
 `default_parent` / `default_tags` live on the hub; local defaults apply only to
 the bound workspace. A project, project hub, parent and tags are optional.
-Generic metadata cannot relink identity.
+Generic metadata cannot relink identity. Workspace records are self-scoped roots
+and cannot have a structural parent. Content membership does not imply parentage.
+Creation selects explicit `workspace_context`, otherwise a non-null explicit
+parent's membership, otherwise startup/global context. Destination defaults apply;
+`parent: null` suppresses default parents. Cross-destination creation adds the
+bound source workspace tag as relevance.
+
+For `artefact.list` and `artefact.search`, optional `workspace: workspace/{key}`
+uses `workspace_match: relevant` by default (primary membership plus canonical
+tags); select `primary` for membership alone. Without a workspace filter,
+discovery is vault-wide. Search excludes archives; list supports `location:
+archived` or `all`. Results expose `primary_workspace` and `relevant_workspaces`.
+Historical relevance tags survive archive/deletion; missing or malformed targets
+are informational findings. New authored associations must resolve to an existing
+active or archived workspace. See [workspace-aware workflows](workflows.md#workspace-aware-changes).
 
 Use local CLI `workspace.upgrade` with explicit folder, Brain or machine scope
 for supported metadata migration, and read-only `workspace.discover` with

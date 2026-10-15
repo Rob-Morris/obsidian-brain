@@ -3,6 +3,16 @@
 from __future__ import annotations
 
 from typing import Mapping
+from enum import Enum
+
+
+class Omitted(Enum):
+    """A request field absent on the wire, distinct from an explicit null."""
+
+    VALUE = "omitted"
+
+
+OMITTED = Omitted.VALUE
 
 
 def reject_unexpected(

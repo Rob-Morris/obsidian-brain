@@ -96,7 +96,7 @@ def prepare_workspace_transition(context, request, router, plan):
     if isinstance(plan, WorkspaceReassignmentPlan):
         return plan.transition, plan.mutation_context
     from _common import parse_frontmatter, read_exact_file_content, serialize_frontmatter, document_revision_at
-    from _common._workspace import membership, require_workspace, validate_ownership
+    from _common._workspace import membership, require_workspace, validate_ownership, OwnershipRuleError, workspace_discovery_metadata
     from rename import DeletePlan
 
     root = context.selected_brain.vault_root
@@ -134,6 +134,7 @@ def prepare_workspace_transition(context, request, router, plan):
             index[new] = {**after, "path": path}
     view = {**router, "artefact_index": index}
     parent_sources = {}
+    relevant = set()
     for path, old, new, before, after in subjects:
         if after is None:
             continue
@@ -146,7 +147,18 @@ def prepare_workspace_transition(context, request, router, plan):
             require_workspace(view, new_workspace)
         legacy_restore = request.COMMAND_ID == "artefact.unarchive" and new_workspace is None and after.get("parent") not in index
         if not legacy_restore:
-            validate_ownership(new, after, index)
+            try:
+                validate_ownership(new, after, index)
+            except OwnershipRuleError as exc:
+                if exc.cause != "workspace_mismatch" or not changes_parent:
+                    raise
+                import json
+                import shlex
+                destination = membership(after["parent"], index[after["parent"]]) or "global"
+                payload = {"path": old, "workspace_context": destination, "parent": after["parent"]}
+                command = "brain artefact set-workspace --request-json " + shlex.quote(json.dumps(payload))
+                raise ValueError(f"{exc}. Moving existing ownership requires explicit reassignment: {command}. "
+                                 "Review descendants and add recursive=true if required.") from exc
         if request.COMMAND_ID not in {"artefact.convert", "artefact.reparent", "artefact.reparent-children"}:
             if after.get("parent") != before.get("parent"):
                 raise ValueError("This semantic transition must preserve the subject's parent")
@@ -155,12 +167,13 @@ def prepare_workspace_transition(context, request, router, plan):
             parent_sources[parent] = ObservedResource("workspace-parent", parent,
                 document_revision_at(root / index[parent]["path"]))
         updated = apply_semantic_tags(after, effective) if applies_policy_tags(request.COMMAND_ID) else after
+        relevant.update(workspace_discovery_metadata(updated)["relevant_workspaces"])
         if path in planned_metadata_paths or updated != after:
             writes[path]["fields"] = updated
         else:
             writes.pop(path)
     sources = {(item.kind, item.identity): item for item in (*effective.sources, *guard_sources, *parent_sources.values())}
-    effective = replace(effective, sources=tuple(sources.values()))
+    effective = replace(effective, sources=tuple(sources.values()), relevant_workspaces=tuple(sorted(relevant)))
     if deleting:
         return plan, effective
     semantic = set(paths)

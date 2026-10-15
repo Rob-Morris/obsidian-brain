@@ -49,7 +49,8 @@ _Archive/
 
 The layout inside `_Archive/` is a historical snapshot of where each file sat when it was archived; `artefact.unarchive` re-files by the current conventions (flat under the type root, or under the owner chain), not by the archived path.
 
-This single location is excluded from the vault file index, search, listing, and all normal artefact operations.
+This single location is excluded from the active vault file index, search and
+default listing. Explicit archived listing remains available.
 
 ## Accessing archived files
 
@@ -61,7 +62,13 @@ Normal active-namespace operations do not interact with `_Archive/`. Select the 
 | **Read** | `artefact.read(reference=..., location="archived")` |
 | **Restore** | `artefact.unarchive`; use its explicit recursive field for a subtree |
 
-No edit, search, or create operations work on archived files.
+Ordinary edit, search and create operations do not target archived files.
+Workspace relevance is still projected by archived listing: use a canonical
+`workspace` filter and `workspace_match: relevant` (default) or `primary`.
+Workspace archive/deletion preserves authored relevance tags. A permitted
+workspace rekey is an explicit historical-maintenance exception: it updates exact
+canonical workspace tags in archived living and temporal artefacts, alongside
+active associations, without changing similarly prefixed tags or adopting content.
 
 ## Wikilink hygiene
 
