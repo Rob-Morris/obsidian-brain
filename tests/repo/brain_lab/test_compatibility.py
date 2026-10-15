@@ -29,10 +29,12 @@ def test_compatibility_families_are_non_overlapping_and_cover_selected_versions(
     assert manifest.select("0.71.999").adapter_id == "brain-0.71"
     assert manifest.select("0.72.0").adapter_id == "brain-0.72"
     assert manifest.select("0.72.999").adapter_id == "brain-0.72"
+    assert manifest.select("0.73.0").adapter_id == "brain-0.73"
+    assert manifest.select("0.73.999").adapter_id == "brain-0.73"
     with pytest.raises(ValueError, match="no unique"):
         manifest.select("0.50.0")
     with pytest.raises(ValueError, match="no unique"):
-        manifest.select("0.73.0")
+        manifest.select("0.74.0")
 
 
 def test_brain_0_71_changes_only_how_doctor_selects_its_vault():
@@ -75,6 +77,17 @@ def test_brain_0_72_keeps_vault_self_preparation_and_health_contracts():
         "--vault", "/home/brain/vault", "--project", "/home/brain/vault",
         "--vault-self", "--client", "codex", "--json",
     )
+
+
+def test_brain_0_73_preserves_lab_install_and_vault_self_contracts():
+    """Destination changes do not change Lab's template or vault-self health requests."""
+    from dataclasses import replace
+
+    manifest = CompatibilityManifest(MANIFEST)
+    previous, current = manifest.select("0.72.0"), manifest.select("0.73.0")
+    assert replace(current, adapter_id=previous.adapter_id,
+                   minimum_version=previous.minimum_version,
+                   maximum_version_exclusive=previous.maximum_version_exclusive) == previous
 
 
 def test_commands_render_argv_without_shell_interpolation():
