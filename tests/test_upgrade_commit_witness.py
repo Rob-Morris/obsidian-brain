@@ -1097,3 +1097,156 @@ def test_committed_version_keeps_the_source_file_permissions(tmp_path):
     installed = vault / ".brain-core" / "VERSION"
     assert installed.read_bytes() == (source / "VERSION").read_bytes()
     assert stat.S_IMODE(installed.stat().st_mode) == stat.S_IMODE((source / "VERSION").stat().st_mode)
+
+
+def _workspace_preflight_source(source, outcome="blocked"):
+    """A target-owned compatibility contract, independent of installed imports."""
+    path = source / "scripts/_lifecycle/workspace_upgrade.py"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        "def preflight_workspace_upgrade(vault_root, *, installed_version=None):\n"
+        f"    return {{'outcome': {outcome!r}, 'message': 'Explicit ownership approval required', 'findings': []}}\n"
+    )
+
+
+@pytest.mark.parametrize("dry_run", [False, True])
+def test_workspace_preflight_refuses_before_core_migrations_or_cli_cutover(tmp_path, dry_run):
+    source = _make_source(tmp_path, "2.0.0", migrations={"migrate_to_2_0_0.py": _counter_migration("must-not-run")})
+    vault = _make_vault(tmp_path, "1.0.0")
+    _workspace_preflight_source(source)
+    before = _tree_bytes(vault)
+    called = []
+    result = upgrade.upgrade(str(vault), str(source), dry_run=dry_run, sync=False,
+        prepare_cutover=lambda: called.append("prepared"))
+    assert result["status"] == "error", result
+    assert result["reason"] == "workspace_compatibility"
+    assert result["workspace_compatibility"]["outcome"] == "blocked"
+    assert "approval" in result["message"]
+    assert called == []
+    assert _tree_bytes(vault) == before
+
+
+def test_workspace_preflight_uses_target_rules_and_restores_cached_modules(tmp_path):
+    import types
+
+    source = _make_source(tmp_path, "2.0.0", migrations={})
+    vault = _make_vault(tmp_path, "1.0.0")
+    _workspace_preflight_source(source, "ready")
+    old = types.ModuleType("_lifecycle.workspace_upgrade")
+    old.preflight_workspace_upgrade = lambda _root: (_ for _ in ()).throw(AssertionError("stale rule"))
+    missing = object()
+    previous = sys.modules.get(old.__name__, missing)
+    sys.modules[old.__name__] = old
+    try:
+        assert upgrade._workspace_compatibility_preflight(str(vault), str(source))["outcome"] == "ready"
+        assert sys.modules[old.__name__] is old
+    finally:
+        if previous is missing:
+            sys.modules.pop(old.__name__, None)
+        else:
+            sys.modules[old.__name__] = previous
+
+
+def test_historical_target_without_workspace_contract_does_not_gain_one(tmp_path):
+    source = _make_source(tmp_path, "2.0.0", migrations={})
+    (source / "scripts/_lifecycle/workspace_upgrade.py").unlink(missing_ok=True)
+    vault = _make_vault(tmp_path, "1.0.0")
+    assert upgrade._workspace_compatibility_preflight(str(vault), str(source)) is None
+
+
+def test_workspace_preflight_waits_for_pending_recovery_in_dry_run(tmp_path, monkeypatch):
+    source = _make_source(tmp_path, "2.0.0", migrations={})
+    vault = _make_vault(tmp_path, "1.0.0")
+    monkeypatch.setattr(upgrade, "_workspace_compatibility_preflight",
+        lambda *_args: (_ for _ in ()).throw(AssertionError("partial graph read")))
+    stopped, result, _callback = upgrade._plan(str(vault), str(source), str(vault / ".brain-core"),
+        "1.0.0", "2.0.0", force=False, ledger=lambda: {"schema_version": 1, "migrations": {}},
+        prepare_cutover=None, commit_callback=None)
+    assert stopped is None, stopped
+    assert result["workspace_compatibility"]["outcome"] == "deferred"
+    assert "pending_recovery" in _warning_codes(result)
+
+
+def test_workspace_rules_rechecked_after_migration_before_cutover(tmp_path):
+    source = _make_source(tmp_path, "2.0.0", migrations={
+        "migrate_to_2_0_0.py": (
+            "from pathlib import Path\n"
+            "def prospective_effects(vault_root):\n"
+            "    return [str(Path(vault_root) / '.brain/local/compat-blocked')]\n"
+            "def migrate(vault_root):\n"
+            "    (Path(vault_root) / '.brain/local/compat-blocked').write_text('blocked')\n"
+            "    return {'status': 'ok'}\n"
+        ),
+    })
+    vault = _make_vault(tmp_path, "1.0.0")
+    path = source / "scripts/_lifecycle/workspace_upgrade.py"
+    path.write_text(
+        "from pathlib import Path\n"
+        "def preflight_workspace_upgrade(vault_root, *, installed_version=None):\n"
+        "    blocked = (Path(vault_root) / '.brain/local/compat-blocked').exists()\n"
+        "    return {'outcome': 'blocked' if blocked else 'ready', 'message': 'Review ownership'}\n"
+    )
+    called = []
+    result = upgrade.upgrade(str(vault), str(source), sync=False,
+        commit_callback=lambda _result: called.append("committed"))
+    assert result["status"] == "error", result
+    assert "Workspace compatibility changed before cutover" in result["message"]
+    assert called == []
+    assert _version(vault) == "1.0.0"
+    assert not (vault / ".brain/local/compat-blocked").exists()
+    assert "2.0.0" not in _ledger_keys(vault)
+
+
+@pytest.mark.parametrize("introduce_in_migration", [False, True])
+def test_real_target_workspace_admission_and_migration_rollback(
+    command_vault_clone, tmp_path, introduce_in_migration,
+):
+    import compile_router
+
+    from _application.workspace.create import WorkspaceCreateRequest
+    from _common import parse_frontmatter, serialize_frontmatter
+    from command_application import application_for
+
+    vault = command_vault_clone.vault_root
+    created = application_for(vault).invoke(WorkspaceCreateRequest("upgrade-example"))
+    assert created.status == "ok", created
+    (vault / ".brain-core/VERSION").write_text("0.72.0\n")
+    compile_router.persist_compiled_router(vault, compile_router.compile(str(vault)))
+    hub = vault / created.result.path
+    valid_bytes = hub.read_bytes()
+    source = tmp_path / "real-target-core"
+    shutil.copytree(_REAL_SCRIPTS.parent, source, ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
+    (source / "VERSION").write_text("2.0.0\n")
+    if introduce_in_migration:
+        migration = source / "scripts/migrations/migrate_to_2_0_0.py"
+        migration.write_text(
+            "from pathlib import Path\n"
+            "from _common import parse_frontmatter, serialize_frontmatter\n"
+            "def prospective_effects(vault_root):\n"
+            f"    return [str(Path(vault_root) / {created.result.path!r})]\n"
+            "def migrate(vault_root):\n"
+            f"    path = Path(vault_root) / {created.result.path!r}\n"
+            "    fields, body = parse_frontmatter(path.read_text())\n"
+            "    fields['parent'] = 'project/command-fixture'\n"
+            "    path.write_text(serialize_frontmatter(fields, body=body))\n"
+            "    return {'status': 'ok'}\n"
+        )
+    else:
+        fields, body = parse_frontmatter(hub.read_text())
+        fields["parent"] = "project/command-fixture"
+        hub.write_text(serialize_frontmatter(fields, body=body))
+    before = _tree_bytes(vault)
+    callbacks = []
+    result = upgrade.upgrade(str(vault), str(source), sync=False,
+        commit_callback=lambda _result: callbacks.append("committed"))
+    assert result["status"] == "error", result
+    assert callbacks == []
+    assert _version(vault) != "2.0.0"
+    if introduce_in_migration:
+        assert "Workspace compatibility changed before cutover" in result["message"]
+        assert hub.read_bytes() == valid_bytes
+        assert "2.0.0" not in _ledger_keys(vault)
+    else:
+        assert result["reason"] == "workspace_compatibility"
+        assert "upgrade-example" in result["message"]
+        assert _tree_bytes(vault) == before

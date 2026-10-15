@@ -9,6 +9,58 @@ Ledger keys are target-aware:
 - `0.27.6` means the standard `post_compile` migration for `v0.27.6`
 - `0.29.0@pre_compile_patch` means the `pre_compile_patch` handler for `v0.29.0`
 
+## Workspace upgrade safety boundary
+
+The confirmed workspace upgrade policy permits automatic lossless format
+conversion only. Ownership adoption/reassignment and identity renames require
+explicitly approved repair through existing public commands before retrying
+upgrade. Do not infer adoption from relevance tags or from a project having one
+associated workspace. A one-off user-approved workspace rename is not a general
+migration rule.
+
+Core 0.73.0 introduces the ownership contract. This compatibility scan applies
+to earlier installed Core versions; later upgrades do not repeat it.
+
+Before Core copy, VERSION changes or opening a new rollback journal, the
+read-only source-target compatibility preflight uses the target's canonical
+workspace validators in a fresh import context. Check the actual hub ownership
+and shared default parent, not just workspace identity and status. Refuse with affected
+records and remediation when incompatible; never perform semantic repair in the
+check. Existing interrupted-run journal recovery comes first; a dry-run preview
+may defer compatibility until the recovered state can be validated.
+
+The repair workflow is: review and approve intent, use supported existing public
+commands, retain recovery checkpoints and review intermediate effects. Multi-command
+repair is not atomic; verify the complete chosen scope before retrying upgrade.
+Released Core 0.72 provides the required repair
+commands. If the installed Core lacks them, including historical releases before
+0.69, explicitly bridge using a coherent released 0.72 source: preview its source
+upgrade with `--dry-run`, then run normally. Apply the approved repair in a
+vault-only context without an external `--workspace` binding, verify it, then
+retry the target upgrade. Never select the bridge automatically or downgrade.
+The confirmed policy introduces no new migration version, public command or
+automatic repair flag. Its development release proposal is deferred and VERSION
+is unchanged.
+
+The runner already holds the non-re-entrant vault mutation lock. Use internal
+helpers that respect that held lock for format conversion; do not invoke public
+commands in process or through a subprocess that attempts to acquire it again.
+Approved public repairs belong outside the runner, before the upgrade retry.
+
+Registered-folder format conversion remains the existing separately admitted
+post-commit phase. Its admission receipts, offline/incomplete coverage and
+resumable partial outcomes are distinct from preflight and the Core journal;
+folder failure does not roll back committed Core. A preflight refusal does not
+trigger an automatic MCP reset.
+
+The existing registered-folder format phase validates the active canonical hub
+and shared policy, but preserves local defaults without validating them. Format
+success therefore does not prove that workspace-scoped mutations are ready.
+Check local policy after conversion to the current format; repair invalid local
+defaults explicitly with `workspace.update-metadata`. Do not add local-default
+validation before format conversion: that would block the conversion needed to
+make the repair available.
+
 ## File naming
 
 `migrate_to_{VERSION}.py` where VERSION uses underscores: `migrate_to_0_19_0.py` for v0.19.0.

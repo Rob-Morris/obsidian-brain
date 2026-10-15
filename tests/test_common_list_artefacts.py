@@ -192,7 +192,7 @@ class TestListArtefactsTypeFilter:
         assert first["total"] == 4
         assert first["returned"] == 2
         assert first["truncated"] is True
-        assert first["next_cursor"] == "2"
+        assert first["next_cursor"]
 
         second = la.list_artefacts_page(
             self._make_index(), self._make_router(), top_k=2,

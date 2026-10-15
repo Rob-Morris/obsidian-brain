@@ -419,7 +419,8 @@ def test_embeddings_meta_matches_router_uses_source_hash_fingerprint():
 
     assert (
         semantic_runtime.embeddings_meta_matches_router(
-            {semantic_runtime.ROUTER_SOURCE_HASH_KEY: "sha256:router"},
+            {"metadata_version": semantic_runtime.EMBEDDINGS_METADATA_VERSION,
+             semantic_runtime.ROUTER_SOURCE_HASH_KEY: "sha256:router"},
             router,
         )
         is True

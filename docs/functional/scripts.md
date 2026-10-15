@@ -243,6 +243,55 @@ An inaccessible directory is reported as `unreadable_file/os_error` and means th
 
 Use `command.py vault repair-text --dry-run` for a byte-count preview, then apply without the flag. The optional request `paths` selects only current clear `text_encoding` findings; the command does not infer a legacy encoding. It operates without a compiled router, checks source digests, skips changes made after planning, and atomically writes bytes without altering line endings. A failed write can produce a partial result naming each committed path. Truncation previews show the dropped bytes in hexadecimal and Windows-1252, with guidance to exclude that file or convert it manually. The judgement family is not a bootstrap-recovery scope or an automatic repair.
 
+### Workspace compatibility before Core cutover
+
+The confirmed upgrade policy allows automatic lossless format conversion only.
+Core 0.73.0 introduces the ownership contract. This compatibility scan applies
+to earlier installed Core versions; later upgrades do not repeat it.
+
+Before Core copy, VERSION mutation or creation of a new rollback journal, the
+upgrader runs a read-only workspace compatibility preflight from the selected
+source target. It imports the target's canonical validators in a fresh import
+context, so cached installed-Core modules cannot determine target compatibility.
+The check covers workspace records, actual hub ownership and shared default parents;
+identity and status checks alone are insufficient. A refusal names affected
+records and actionable remediation without performing the repair. Existing
+journal recovery precedes this check on a real rerun; a preview with pending
+recovery may defer the compatibility verdict until restored state is available.
+
+Ownership adoption/reassignment and identity renames require explicit approval
+and existing public repair commands, followed by verification and another upgrade
+attempt. Neither workspace relevance tags nor a single workspace associated with
+a project authorises inferred adoption. A specific workspace rename request is not a
+generic migration rule. Retain recovery checkpoints and review intermediate effects;
+verify the complete chosen scope before retrying the upgrade. Multi-command repair
+is not atomic.
+Released Core 0.72 has the required repair commands. When the installed Core
+lacks them, including historical releases before 0.69, explicitly preview a source
+upgrade from a coherent released 0.72 source with `--dry-run`, then run it normally.
+Apply the approved repair in a vault-only context without an external
+`--workspace` binding, verify it, then retry the intended target. The bridge is
+not automatic and does not permit downgrade.
+
+The Core migration runner already holds the non-re-entrant mutation lock. Its
+internal format conversions must use lock-compatible internal helpers, not
+re-enter public commands or launch commands that acquire the same lock. Explicit
+public repair runs separately before retrying upgrade.
+
+This documents the confirmed contract being added on `dev`, not a release claim:
+the release proposal is deferred and VERSION is unchanged. It introduces no new
+migration version, public command or automatic repair flag. Compatibility
+admission is distinct from registered-folder admission receipts and post-commit
+recovery below. A preflight refusal does not automatically reset MCP.
+
+The existing registered-folder format phase validates the active canonical hub
+and shared policy, but preserves local defaults without validating them. Format
+success therefore does not prove that workspace-scoped mutations are ready.
+Check local policy after conversion to the current format; repair invalid local
+defaults explicitly with `workspace.update-metadata`. Do not add local-default
+validation before format conversion: that would block the conversion needed to
+make the repair available.
+
 ### Registered-folder metadata during upgrades
 
 After compatible runtime provisioning, normal upgrade runs selected-Brain

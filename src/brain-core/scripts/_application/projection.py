@@ -21,6 +21,7 @@ from typing import (
 )
 
 from ._mutation_support import FrontmatterCodec
+from ._decoding import OMITTED, Omitted
 from .workspace_context import WorkspaceSelectorCodec, WorkspaceMutationPartial
 
 from .requests import CommandRequest
@@ -123,7 +124,7 @@ def request_schema(request_type: type[CommandRequest]) -> dict[str, object]:
         if not isinstance(description, str) or not description.strip():
             raise ValueError(f"{command_id} field description must be non-empty: {field.name}")
         schema["description"] = description
-        if field.default is not MISSING:
+        if field.default is not MISSING and field.default is not OMITTED:
             schema["default"] = _field_wire_value(field.default, annotation)
         properties[field.name] = schema
         if field.default is MISSING and field.default_factory is MISSING:
@@ -253,6 +254,7 @@ def canonical_wire_value(value):
                 getattr(value, field.name), hints.get(field.name, field.type)
             )
             for field in fields(value)
+            if getattr(value, field.name) is not OMITTED
         }
     if isinstance(value, Mapping):
         if any(not isinstance(key, str) for key in value):
@@ -294,7 +296,7 @@ def _type_schema(annotation, *, command_id: str, trail: tuple[type, ...]) -> dic
     if origin in {Union, types.UnionType}:
         branches = [
             _type_schema(item, command_id=command_id, trail=trail)
-            for item in arguments
+            for item in arguments if item is not Omitted
         ]
         compact = _compact_distinct_type_union(branches)
         return compact if compact is not None else {"anyOf": branches}

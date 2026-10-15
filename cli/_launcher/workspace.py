@@ -27,6 +27,10 @@ class UpgradeScope(str, Enum):
     MACHINE = "machine"
 
 
+class WorkspaceIdentityRefusal(ValueError):
+    """Reviewed identity guidance safe to include in the outer upgrade summary."""
+
+
 class RegistrationConflict(ValueError):
     """Known inventories make contradictory claims; never select a winner."""
 
@@ -42,6 +46,7 @@ class WorkspaceOutcome:
     files: tuple[str, ...] = ()
     message: str = ""
     command: str | None = None
+    guidance: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -176,7 +181,7 @@ def _inventory(plan, selected=None):
 
 def _identity(plan, vault, brain, slug):
     import vault_registry
-    from _common._workspace import require_workspace
+    from _common._workspace import OwnershipRuleError, is_terminal, require_workspace, workspace_policy
     from _lifecycle.derived_cache_state import require_fresh_compiled_router
 
     path = Path(vault_registry.registry_path())
@@ -187,10 +192,35 @@ def _identity(plan, vault, brain, slug):
     router_path = vault / ".brain/local/compiled-router.json"
     plan.read_bytes(router_path)
     router = require_fresh_compiled_router(vault)
+    reference = "workspace/" + slug
+    candidate = (router.get("artefact_index") or {}).get(reference)
+    stage = "identity"
     try:
-        entry = require_workspace(router, "workspace/" + slug, active=True)
+        entry = require_workspace(router, reference)
+        stage = "lifecycle"
+        if is_terminal(router, entry):
+            raise ValueError("Workspace identity is inactive")
+        stage = "policy"
+        workspace_policy(router, reference, entry)
     except ValueError as exc:
-        raise ValueError(f"{exc}. Create/reactivate explicitly: {_command('create', vault=vault, request={'key': slug})}") from exc
+        if isinstance(exc, OwnershipRuleError):
+            guidance = (f"Ownership rule {exc.cause}: review the canonical workspace metadata. "
+                        "The workspace record must be a self-scoped root; preserve project/content ownership "
+                        "and review project membership before setting default_parent. "
+                        "Semantic repair requires a separate explicit operation.")
+        elif candidate is None:
+            guidance = f"Workspace identity is missing. Create explicitly: {_command('create', vault=vault, request={'key': slug})}"
+        elif candidate.get("type") != "living/workspace":
+            guidance = "The configured key is not a workspace identity; review the binding and canonical metadata explicitly."
+        elif stage == "lifecycle":
+            guidance = "Workspace identity is inactive; review and reactivate it explicitly before retrying."
+        elif stage == "policy":
+            guidance = ("Workspace shared policy is invalid; review default_parent eligibility/membership "
+                        "and default_tags explicitly. Semantic repair requires a separate explicit operation.")
+        else:
+            guidance = ("Workspace identity scope is invalid; review its canonical self-scope and root metadata "
+                        "explicitly. Semantic repair requires a separate explicit operation.")
+        raise WorkspaceIdentityRefusal(f"{reference}: {guidance} workspace.upgrade only migrates folder metadata; it does not adopt content.") from exc
     hub = vault / entry["path"]
     plan.read_bytes(hub)
 
@@ -350,7 +380,8 @@ def execute_upgrade(context: LauncherContext, request: WorkspaceUpgradeRequest, 
             recovery.extend(surviving)
             effects.extend(CommittedEffect(request.COMMAND_ID, f"file:{path}") for path in surviving)
             outcomes.append(WorkspaceOutcome(str(folder), "blocked", slug=slug, message=str(exc),
-                                             command=_command("upgrade", vault=brain, folder=folder)))
+                                             command=_command("upgrade", vault=brain, folder=folder),
+                                             guidance=str(exc) if isinstance(exc, WorkspaceIdentityRefusal) else None))
     complete = not coverage and all(row.status != "blocked" for row in outcomes)
     payload = WorkspaceUpgradePayload(request.scope, complete, tuple(outcomes), tuple(coverage))
     if not complete:
@@ -467,7 +498,16 @@ def invoke_upgrade_phase(context, *, dry_run=False, source_core=None):
     result = LauncherInvocation(child, LAUNCHER_CATALOGUE, owners).invoke(WorkspaceUpgradeRequest(UpgradeScope.BRAIN))
     envelope = project_launcher_result(result).structured_content
     complete = isinstance(result, Ok) and result.result.complete
+    progress = result.result if isinstance(result, Ok) else getattr(result.error.details, "progress", None)
+    blocked = [row for row in progress.folders if row.status == "blocked"] if progress else []
+    summary = "; ".join(
+        f"{row.path[:400]}: {(row.guidance or 'Blocked; review folder availability and metadata in the child receipt.')[:900]}"
+        for row in blocked[:8])
+    if len(blocked) > 8:
+        summary += f"; {len(blocked) - 8} further blocked folders; inspect the child receipt."
     return {"outcome": "planned" if dry_run and complete else "ok" if complete else "partial",
             "invocation_id": child.invocation_id, "result": envelope,
             "message": "Workspace metadata compatibility phase completed." if complete else
-                       "Workspace metadata needs follow-up; inspect the child receipt and run the pinned workspace upgrade command."}
+                       "Workspace metadata needs follow-up. " + summary +
+                       " Review refusals before retrying the pinned workspace upgrade command; "
+                       "then rerun brain upgrade to resume reconciliation."}

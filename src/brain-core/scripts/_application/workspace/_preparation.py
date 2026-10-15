@@ -135,6 +135,11 @@ def prepare_workspace(context, request, *, frozen_inputs=None):
         from _common._workspace import update_metadata_links
         links = update_metadata_links(raw_links, {link.name: link.value for link in request.links}, clear=request.clear_links)
         manifest["links"] = links
+        if request.tags:
+            from ..workspace_associations import observe_workspace_associations
+            router = require_fresh_compiled_router(str(root))
+            observations.extend(observe_workspace_associations(context, router, request.tags,
+                                                               existing_tags=raw_defaults.get("tags", ())))
         if defaults.get("parent") is not None:
             router = require_fresh_compiled_router(str(root))
             reference = manifest_workspace_reference(manifest)

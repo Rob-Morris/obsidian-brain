@@ -2526,6 +2526,17 @@ def _reported(result: dict, warnings: list[dict], recovery: Optional[dict]) -> d
     return result
 
 
+def _workspace_compatibility_preflight(vault_root: str, source: str, installed_version=None) -> Optional[dict]:
+    """Use the selected target's read-only rules before replacing installed Core."""
+    script = os.path.join(source, "scripts", "_lifecycle", "workspace_upgrade.py")
+    if not os.path.isfile(script):
+        return None
+    with _MigrationImportContext(script):
+        from _lifecycle.workspace_upgrade import preflight_workspace_upgrade
+
+        return preflight_workspace_upgrade(vault_root, installed_version=installed_version)
+
+
 def _plan(
     vault_root: str,
     source: str,
@@ -2568,6 +2579,28 @@ def _plan(
             ),
         })
 
+    # A preview of pending journal recovery cannot judge the still-partial files.
+    # Real execution restores them before reaching this locked preflight.
+    compatibility = None
+    if ledger is not None:
+        compatibility = {"outcome": "deferred", "message":
+            "Workspace compatibility will be checked after the pending journal rollback, before Core cutover."}
+        warnings.append({"stage": "workspace_compatibility", "code": "pending_recovery",
+                         "message": compatibility["message"]})
+    else:
+        try:
+            compatibility = _workspace_compatibility_preflight(vault_root, source,
+                _parse_version(old_version) if old_version else None)
+        except (OSError, ValueError, RuntimeError, ImportError) as exc:
+            return _refusal(old_version, new_version,
+                f"Upgrade refused — workspace compatibility could not be verified: {exc}",
+                reason="workspace_compatibility"), None, None
+        if compatibility is not None and compatibility["outcome"] != "ready":
+            refusal = _refusal(old_version, new_version, compatibility["message"],
+                               reason="workspace_compatibility")
+            refusal["workspace_compatibility"] = compatibility
+            return refusal, None, None
+
     if prepare_cutover is not None:
         try:
             commit_callback = prepare_cutover()
@@ -2585,6 +2618,8 @@ def _plan(
     }
     if warnings:
         result["warnings"] = warnings
+    if compatibility is not None:
+        result["workspace_compatibility"] = compatibility
     followups = _agent_skill_adapter_followups(vault_root, source, diff)
     followups.extend(_managed_approval_followups(old_version, new_version))
     if followups:
@@ -2997,6 +3032,20 @@ def _apply_upgrade(
         return _rollback(f"skill override reconciliation failed: {exc}")
     except BaseException as exc:
         rollback = _rollback(f"skill override reconciliation interrupted: {exc}")
+        exc.add_note(rollback["message"])
+        raise
+
+    try:
+        compatibility = _workspace_compatibility_preflight(vault_root, source,
+            _parse_version(old_version) if old_version else None)
+        if compatibility is not None:
+            if compatibility["outcome"] != "ready":
+                return _rollback("Workspace compatibility changed before cutover: " + compatibility["message"])
+            result["workspace_compatibility"] = compatibility
+    except (OSError, ValueError, RuntimeError, ImportError) as exc:
+        return _rollback(f"Workspace compatibility could not be verified before cutover: {exc}")
+    except BaseException as exc:
+        rollback = _rollback(f"Workspace compatibility check interrupted: {exc}")
         exc.add_note(rollback["message"])
         raise
 

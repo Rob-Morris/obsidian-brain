@@ -227,11 +227,32 @@ must identify a non-terminal living artefact in the same workspace. Use
 `workspace.update-policy` for shared changes and `workspace.update-metadata`
 with `parent` or `clear_parent` for the local override. Shared policy fields are
 handler-owned: generic creation and frontmatter updates reject them. Workspace hubs are
-self-scoped; other membership is explicit `workspace: workspace/{key}` and is
-never inferred from tags.
+self-scoped root records: their own `parent` is forbidden. Their optional
+`default_parent` controls content creation, not the workspace record's placement.
+Other membership is explicit `workspace: workspace/{key}` and is
+never inferred from tags. Canonical `workspace/{key}` tags add relevance, not
+ownership or policy selection. Newly authored associations in creation, explicit
+tag edits and policy changes must resolve to one existing active or archived
+workspace identity. Existing stale tags can be retained or removed; inherited
+policy tags do not become new authored associations merely by being applied.
+Missing or malformed historical associations are informational check findings.
+Archive/deletion retains relevance tags; a permitted rekey updates exact tags
+across active and archived living/temporal artefacts.
 
-Creation uses explicit parent, then local `defaults.parent`, then shared
-`default_parent`, then no parent. Policy tags are additive; local policy applies
+Creation selects its destination before loading policy: explicit
+`workspace_context`, otherwise a non-null explicit parent's membership,
+otherwise validated startup context. Contradictory explicit destination and
+parent refuse without writes. An explicit global parent selects global when
+the destination is omitted; it is never adopted into the caller's workspace.
+Parent selection uses the explicit value (including null to suppress defaults),
+then local `defaults.parent`, then shared `default_parent`, then no parent.
+Omitting a parent differs from explicit null. With no parent the artefact still
+has its selected workspace membership, without becoming a child of its workspace
+record. Cross-destination creation adds the bound caller's canonical workspace
+tag as relevance; tags do not change primary membership and can be explicitly
+edited later. Workspace-record creation instead always produces an independent
+self-scoped root, without inheriting caller defaults.
+Policy tags are additive; local policy applies
 only when the effective workspace equals the bound workspace. Artefact document
 edits retain their existing membership/parent but restore configured tags.
 For ordinary mutations, `workspace_context: global` suppresses these defaults without

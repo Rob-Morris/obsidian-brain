@@ -39,6 +39,7 @@ def maintain_lexical_index(
     *,
     dry_run: bool,
     force: bool,
+    preserve_embeddings: bool = False,
 ) -> LexicalMaintenanceResult:
     """Repair a stale lexical index or explicitly rebuild it when forced."""
     root = Path(vault_root)
@@ -60,7 +61,10 @@ def maintain_lexical_index(
 
     build_result = search_index.build_index(root)
     search_index.persist_retrieval_index(root, build_result.index)
-    removed = tuple(clear_embeddings_outputs(root))
+    if preserve_embeddings:
+        removed = _refresh_semantic_metadata_or_clear(root, build_result.index)
+    else:
+        removed = tuple(clear_embeddings_outputs(root))
     document_count, term_count = _counts(build_result.index)
     return LexicalMaintenanceResult(
         "changed",
@@ -82,4 +86,14 @@ def update_lexical_documents(vault_root, index, paths):
             raise OSError("A changed document disappeared during lexical maintenance")
     index["meta"]["built_at"] = datetime.now(timezone.utc).astimezone().isoformat()
     search_index.persist_retrieval_index(vault_root, index)
-    clear_embeddings_outputs(vault_root)
+    _refresh_semantic_metadata_or_clear(vault_root, index)
+
+
+def _refresh_semantic_metadata_or_clear(vault_root, index):
+    from _common import load_compiled_router
+    from _semantic.assets import refresh_document_metadata
+
+    router = load_compiled_router(vault_root)
+    if router.get("error") or not refresh_document_metadata(vault_root, router, index["documents"]):
+        return tuple(clear_embeddings_outputs(vault_root))
+    return ()

@@ -120,6 +120,11 @@ def case_ownership_parent(root, local, app):
             {"cause": "parent", "parent": "project/vanished"})
 
 
+def case_ownership_workspace_parent(root, local, app):
+    file = _edit_frontmatter(root, "workspace/beta", app, parent="workspace/beta")
+    return "workspace_ownership_invalid", file, {"cause": "workspace_parent", "parent": "workspace/beta"}
+
+
 def case_ownership_archived_parent(root, local, app):
     from _application.artefact.create import ArtefactCreateRequest
     from _application.workspace_context import WorkspaceSelector

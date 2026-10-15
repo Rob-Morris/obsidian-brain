@@ -827,3 +827,97 @@ def test_cli_discovery_json_input_and_flat_page_preserve_continuation(tmp_path, 
     assert len(launcher["entries"]) == 1
     assert launcher["entries"][0]["mcp_tool"] is None
     assert launcher["entries"][0]["cli_argv"] == ["permission", "set-profile"]
+
+
+@pytest.mark.parametrize("route", ["execution", "discovery"])
+@pytest.mark.parametrize(
+    "stdout, exit_code, execution_prefix, discovery_prefix",
+    [
+        ("", 4, "returned no structural result", "returned invalid JSON"),
+        ("PRIVATE-STDOUT", 4, "returned invalid JSON", "returned invalid JSON"),
+        ("", 7, "returned an invalid exit category", "failed its structural process contract"),
+    ],
+)
+@pytest.mark.parametrize(
+    "stderr, expected, forbidden",
+    [
+        (
+            "command.py: infrastructure — direct workspace is not bound to the selected Brain",
+            "--workspace <local-folder> --request-json '{\"slug\":\"<workspace-key>\"}'",
+            "supports unbound registration",
+        ),
+        (
+            "command.py: infrastructure — Workspace metadata schema 1 is outdated. Run brain workspace upgrade",
+            "Workspace metadata needs upgrading. Review and run brain workspace upgrade",
+            "command.py:",
+        ),
+        (
+            "command.py: infrastructure — Workspace metadata schema 1 is outdated. "
+            "Run brain workspace upgrade\nAuthorization: Bearer SECRET-CREDENTIAL",
+            "Workspace metadata needs upgrading. Review and run brain workspace upgrade",
+            "SECRET-CREDENTIAL",
+        ),
+        (
+            "command.py: infrastructure — direct workspace cannot be resolved: token=SECRET-CREDENTIAL",
+            "Check the workspace manifest and local Brain registry",
+            "SECRET-CREDENTIAL",
+        ),
+        (
+            "Authorization: Bearer SECRET-CREDENTIAL",
+            "check the selected Brain command entry point and runtime",
+            "SECRET-CREDENTIAL",
+        ),
+    ],
+)
+def test_application_process_failures_keep_safe_guidance_on_both_routes(
+    tmp_path, monkeypatch, route, stdout, exit_code, execution_prefix,
+    discovery_prefix, stderr, expected, forbidden,
+):
+    from types import SimpleNamespace
+    from _local_cli import main
+
+    vault = (tmp_path / "Brain").resolve()
+    script = vault / ".brain-core/scripts/command.py"
+    script.parent.mkdir(parents=True)
+    script.write_text("# runner fixture\n", encoding="utf-8")
+    calls = []
+
+    def runner(argv, **options):
+        calls.append(argv)
+        assert options["capture_output"] and options["text"]
+        assert options["check"] is False
+        return subprocess.CompletedProcess(argv, exit_code, stdout, stderr)
+
+    if route == "execution":
+        invoker = ApplicationProcessInvoker(
+            SelectedBrainProcess(vault, Path(sys.executable).resolve()), runner,
+        )
+        invoke = lambda: invoker.invoke(_entry("application", "artefact.read"), {})
+        prefix = "selected Brain command " + execution_prefix
+    else:
+        monkeypatch.setattr(main, "command_python", lambda *_args: Path(sys.executable))
+        monkeypatch.setattr(
+            main, "managed_command",
+            lambda argv, **_options: SimpleNamespace(run=lambda **options: runner(argv, **options)),
+        )
+        selected = SimpleNamespace(vault_root=vault, command_script=script, workspace=None)
+        common = SimpleNamespace(operator_key=None)
+        invoke = lambda: main._invoke_application(
+            selected, "command.list", {}, common, dependency_tier="bootstrap",
+        )
+        prefix = "selected Brain discovery " + discovery_prefix
+
+    with pytest.raises(RuntimeError) as caught:
+        invoke()
+
+    message = str(caught.value)
+    assert message.startswith(prefix + f" (exit {exit_code})")
+    assert expected in message
+    assert forbidden not in message
+    assert "PRIVATE-STDOUT" not in message
+    if "not bound" in stderr:
+        assert "brain workspace create --brain <registered-brain-id>" in message
+        assert '"key":"<workspace-key>"' in message
+        assert "then register it" in message
+    assert len(calls) == 1
+    assert not (vault / ".brain/local/workspace.yaml").exists()

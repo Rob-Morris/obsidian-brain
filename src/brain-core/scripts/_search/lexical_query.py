@@ -9,7 +9,8 @@ import os
 from .filters import SearchFilters
 from .lexical import tokenise
 from .mode import DEFAULT_TOP_K
-from .paths import OUTPUT_PATH
+from .paths import INDEX_VERSION, OUTPUT_PATH
+from _common._workspace import workspace_discovery_metadata
 from .snippet import attach_snippets
 
 
@@ -29,7 +30,10 @@ def load_index(vault_root):
         )
 
     with open(index_path, "r", encoding="utf-8") as handle:
-        return json.load(handle)
+        index = json.load(handle)
+    if index.get("meta", {}).get("index_version") != INDEX_VERSION:
+        raise ValueError("retrieval index schema is outdated; run retrieval.refresh-lexical")
+    return index
 
 
 def search(
@@ -87,6 +91,7 @@ def search(
                     "title": doc["title"],
                     "type": doc["type"],
                     "status": doc.get("status"),
+                    **workspace_discovery_metadata(doc),
                     "score": round(score, 4),
                 }
             )

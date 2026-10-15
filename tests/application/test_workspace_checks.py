@@ -13,6 +13,59 @@ from _bootstrap.workspace_binding import read_workspace_manifest, save_workspace
 from test_workspace_mutation_context import scoped
 
 
+@pytest.fixture
+def workspace_root(command_vault_clone):
+    import compile_router
+    from _application.workspace.create import WorkspaceCreateRequest
+    from command_application import application_for
+
+    root = command_vault_clone.vault_root
+    app = application_for(root)
+    assert app.invoke(WorkspaceCreateRequest("alpha")).status == "ok"
+    project = root / "Projects/Local.md"
+    project.parent.mkdir(parents=True, exist_ok=True)
+    project.write_text(serialize_frontmatter({"type": "living/project", "key": "local",
+        "status": "active", "workspace": "workspace/alpha"}, body="# Local\n"))
+    compile_router.persist_compiled_router(str(root), compile_router.compile(str(root)))
+    return root, app
+
+
+@pytest.mark.parametrize("archived", [False, True])
+@pytest.mark.parametrize("parent", ["project/local", "project/missing", "workspace/alpha"])
+def test_workspace_root_parent_has_named_diagnostic_even_when_archived(workspace_root, archived, parent):
+    import compile_router
+    root, _app = workspace_root
+    view = require_fresh_compiled_router(root)
+    source = root / view["artefact_index"]["workspace/alpha"]["path"]
+    fields, body = parse_frontmatter(source.read_text())
+    fields["parent"] = parent
+    source.write_text(serialize_frontmatter(fields, body=body))
+    if archived:
+        target = root / "_Archive/Workspaces/Alpha.md"
+        target.parent.mkdir(parents=True, exist_ok=True)
+        source.rename(target)
+        source = target
+    findings = workspace_findings(root, compile_router.compile(str(root)))
+    ownership = [item for item in findings if item["code"] == "workspace_ownership_invalid"
+                 and item["file"] == str(source.relative_to(root))]
+    assert len(ownership) == 1
+    assert ownership[0]["evidence"] == {"cause": "workspace_parent", "parent": parent}
+    assert "default_parent" in ownership[0]["fix"]
+
+
+def test_reparenting_workspace_beneath_its_member_refuses_without_effects(workspace_root):
+    from _application.artefact.reparent import ArtefactReparentRequest
+
+    root, app = workspace_root
+    view = require_fresh_compiled_router(root)
+    source = root / view["artefact_index"]["workspace/alpha"]["path"]
+    before = source.read_bytes()
+    result = app.invoke(ArtefactReparentRequest(str(source.relative_to(root)), "project/local"))
+    assert result.status == "error", result
+    assert result.effects == "none"
+    assert source.read_bytes() == before
+
+
 @pytest.mark.parametrize("explicit", [False, True])
 def test_archived_hub_self_membership_is_valid_but_member_reference_is_not(scoped, explicit):
     from _application.artefact.archive import ArtefactArchiveRequest
@@ -79,18 +132,18 @@ def test_historical_terminal_identity_is_valid_but_removed_hubs_are_not(scoped, 
         assert "workspace_reference_" + kind in codes
 
 
-def test_checks_surface_local_policy_and_tag_only_adoption_candidates(scoped):
+def test_checks_surface_local_policy_and_missing_relevance_without_adoption(scoped):
     root, local, app, _parents = scoped
     manifest = read_workspace_manifest(local)
     manifest["defaults"]["parent"] = "workspace/beta"
     save_workspace_manifest_data(local, manifest)
     path = root / "_Temporal/Plans/20260917-plan~Legacy.md"
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(serialize_frontmatter({"type": "temporal/plan", "tags": ["workspace/alpha"]}, body="# Legacy\n"))
+    path.write_text(serialize_frontmatter({"type": "temporal/plan", "tags": ["workspace/missing"]}, body="# Legacy\n"))
     result = app.invoke(VaultCheckRequest(check="workspace_contract", actionable=True))
     assert result.status == "ok", result
     codes = {item.code for item in result.result.findings}
-    assert {"workspace_binding_configured_invalid", "workspace_adoption_candidate"} <= codes
+    assert {"workspace_binding_configured_invalid", "workspace_relevance_missing"} <= codes
     assert "workspace" not in parse_frontmatter(path.read_text())[0]
 
 

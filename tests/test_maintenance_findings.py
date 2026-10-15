@@ -283,7 +283,7 @@ class TestErrorSeverityRule:
 
         findings = classify([
             self._raw("naming", "warning", "a.md"),
-            self._raw("workspace_contract", "info", "b.md", code="workspace_adoption_candidate"),
+            self._raw("workspace_contract", "info", "b.md", code="workspace_relevance_missing"),
         ])
 
         assert {finding.disposition for finding in findings} == {Disposition.REPORT_ONLY}

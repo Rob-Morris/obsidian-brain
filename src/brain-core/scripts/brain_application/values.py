@@ -1,6 +1,8 @@
 """Supported value types used to construct public command requests."""
 
 from _application._mutation_support import FrontmatterField, InlineContent, StagedContent
+from _application._decoding import OMITTED, Omitted
+from _workspace_contract import WorkspaceMatch
 from _application.access.reduce import ClearGrants, DiscardOperations, NarrowInitial, RevokeGrants
 from _application.access.request import CommandConsent, OperationConsent
 from _application.access.prepare import InspectOperation, PrepareCommand
@@ -106,6 +108,8 @@ __all__ = (
     "Locality",
     "MemoryCreateTarget",
     "OccurrenceMatch",
+    "Omitted",
+    "OMITTED",
     "PresentationOutput",
     "PrintableOutput",
     "Projection",
@@ -121,5 +125,6 @@ __all__ = (
     "TemplateCreateTarget",
     "UniqueMatch",
     "WorkspaceMetadataLink",
+    "WorkspaceMatch",
     "WorkspaceSelector",
 )

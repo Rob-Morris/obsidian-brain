@@ -1215,7 +1215,10 @@ def _plan_reference_mutation(
 
     skip_paths = set(skip_paths or [])
     operations = []
-    for ref in scan_artefact_key_references(vault_root, router, old_key):
+    workspace_rekey = old_key.startswith("workspace/") and new_key is not None
+    for ref in scan_artefact_key_references(
+        vault_root, router, old_key, include_archive=workspace_rekey
+    ):
         rel_path = ref["path"]
         if rel_path in skip_paths:
             continue
@@ -1223,9 +1226,15 @@ def _plan_reference_mutation(
         if isinstance(content, MissingFileResult):
             _raise_stale_index_missing(rel_path, operation)
         fields, body = parse_frontmatter(content)
-        if not replace_artefact_key_references(fields, old_key, new_key):
+        if not replace_artefact_key_references(
+            fields, old_key, new_key,
+            preserve_tags=old_key.startswith("workspace/") and new_key is None,
+        ):
             continue
-        _resolved, art = resolve_and_validate_folder(vault_root, router, rel_path)
+        if is_archived_path(rel_path):
+            art = resolve_type(router, fields.get("type"))
+        else:
+            _resolved, art = resolve_and_validate_folder(vault_root, router, rel_path)
         operations.append(
             {
                 "path": rel_path,

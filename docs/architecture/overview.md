@@ -198,6 +198,21 @@ This runtime contract is distinct from the repository's [contributor bootstrap](
 
 The workspace configuration record describes local CLI work and never substitutes server paths for the connecting agent's filesystem. Remote transport and gateway hosting are separate from this local command architecture.
 
+Canonical workspace records are self-scoped roots, independent of structural
+parentage. Content stores one primary membership; canonical workspace tags add
+relevance without ownership. Creation selects explicit destination, then explicit
+parent membership, then validated startup/global context before loading defaults.
+Local policy applies only to the bound destination; explicit null parent
+suppresses defaults. Cross-destination creation retains the source as relevance.
+Discovery defaults to primary-plus-tag relevance, with explicit primary-only
+matching; search is active-only and listing can enumerate archives. Historical
+tags survive archive/deletion, while permitted rekeys update exact associations
+across active and archived content. Hard ownership and registration guards remain
+separate from these soft references. See
+[DD-088](decisions/dd-088-workspace-destination-and-relevance.md) for the rationale
+and [CLI contracts](../functional/cli.md#workspace-discovery-filters) for fields.
+
+
 ## Version policy
 
 - incompatible MCP identity/request projection increments the interface epoch;

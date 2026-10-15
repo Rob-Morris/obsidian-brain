@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from _workspace_contract import WorkspaceMatch
+
 from dataclasses import dataclass
 from typing import Any, Mapping
 
@@ -14,6 +16,14 @@ class SearchFilters:
     tag: str | None = None
     status: str | None = None
 
+    workspace: str | None = None
+    workspace_match: WorkspaceMatch = WorkspaceMatch.RELEVANT
+
+    def __post_init__(self):
+        from _common._workspace import validate_workspace_query
+
+        validate_workspace_query(self.workspace, self.workspace_match)
+
     def matches(self, doc_meta: Mapping[str, Any]) -> bool:
         """Return whether one document or result metadata dict matches."""
         if self.type and doc_meta.get("type") != self.type:
@@ -22,4 +32,6 @@ class SearchFilters:
             return False
         if self.status and doc_meta.get("status") != self.status:
             return False
-        return True
+        from _common._workspace import matches_workspace_query
+
+        return matches_workspace_query(doc_meta, self.workspace, self.workspace_match)

@@ -5,6 +5,7 @@ from pathlib import Path
 from dataclasses import replace
 
 from ._mutation_support import frontmatter_mapping
+from ._decoding import OMITTED
 from .preparation import (
     ObservedResource, OperationPreparation, bind_operation, canonical_json,
     content_digest, prepare_content,
@@ -13,9 +14,10 @@ from .preparation import (
 
 def plan_artefact_create(context, request, router, body, *, frozen_inputs=None):
     import create
-    from _common import parse_frontmatter, serialize_frontmatter
-    from _common._workspace import reject_workspace_membership_changes, validate_ownership, normalise_tags
+    from _common import parse_frontmatter, serialize_frontmatter, resolve_type
+    from _common._workspace import reject_workspace_membership_changes, validate_ownership, normalise_tags, workspace_discovery_metadata
     from .workspace_context import resolve_mutation_context, apply_semantic_tags
+    from .workspace_associations import observe_workspace_associations
 
     frozen = dict(frozen_inputs or {})
     choice = frozen.get("creation", {})
@@ -23,30 +25,39 @@ def plan_artefact_create(context, request, router, body, *, frozen_inputs=None):
                     if choice else context.clock.now())
     overrides = frontmatter_mapping(request.frontmatter)
     reject_workspace_membership_changes(overrides)
-    explicit_parent = request.parent if request.parent is not None else overrides.pop("parent", None)
-    overrides.pop("parent", None)
+    frontmatter_parent = overrides.pop("parent", OMITTED)
+    if request.parent is not OMITTED and frontmatter_parent is not OMITTED and request.parent != frontmatter_parent:
+        raise ValueError("parent and frontmatter.parent must agree; supply a single explicit parent")
+    explicit_parent = request.parent if request.parent is not OMITTED else frontmatter_parent
     explicit_tags = overrides.get("tags")
+    workspace_identity = resolve_type(router, request.type).get("frontmatter_type") == "living/workspace"
     effective = resolve_mutation_context(context, router, request.workspace_context,
-        parent=explicit_parent, creation=True, explicit_tags=() if explicit_tags is None else explicit_tags)
+        parent=explicit_parent, creation=True, explicit_tags=() if explicit_tags is None else explicit_tags,
+        workspace_identity=workspace_identity)
     plan = create.plan_artefact_creation(
         str(context.selected_brain.vault_root), router, request.type, request.title,
         body=body, frontmatter_overrides=overrides,
         parent=effective.parent, key=request.key, effective_at=effective_at,
         chosen_filename=choice.get("filename"), chosen_key=choice.get("key"),
     )
-    if plan.fields["type"] == "living/workspace" and effective.workspace is not None:
-        raise ValueError("Workspace hubs are self-scoped; use workspace.create to create one")
     fields = apply_semantic_tags(plan.fields, effective)
     if effective.workspace is not None:
         fields["workspace"] = effective.workspace
     reference = (fields["type"].rsplit("/", 1)[-1] + "/" + fields["key"]
                  if fields.get("key") else plan.path)
+    if workspace_identity:
+        effective = replace(effective, workspace=reference)
+    associations = observe_workspace_associations(context, router, plan.fields.get("tags", ()),
+                                                  new_identity=reference if workspace_identity else None)
     validate_ownership(reference, fields, router.get("artefact_index", {}))
     if fields.get("parent") != effective.parent:
         raise ValueError("Template parent must be supplied through the explicit creation parent")
     _, rendered_body = parse_frontmatter(plan.content)
     plan = replace(plan, fields=fields, content=serialize_frontmatter(fields, body=rendered_body))
-    effective = replace(effective, tags=normalise_tags(fields.get("tags", [])))
+    tags = normalise_tags(fields.get("tags", []))
+    effective = replace(effective, tags=tags,
+                        relevant_workspaces=tuple(workspace_discovery_metadata(fields)["relevant_workspaces"]),
+                        sources=effective.sources + associations)
     frozen["creation"] = {"effective_at": plan.effective_at,
                           "filename": Path(plan.path).name,
                           "key": plan.fields.get("key")}

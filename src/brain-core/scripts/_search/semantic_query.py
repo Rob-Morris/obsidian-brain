@@ -100,6 +100,8 @@ def search_semantic(
             "title": entry["title"],
             "type": entry["type"],
             "status": entry.get("status"),
+            "primary_workspace": entry.get("primary_workspace"),
+            "relevant_workspaces": entry.get("relevant_workspaces", []),
             "score": round(entry["score"], 4),
         }
         for entry in ranked

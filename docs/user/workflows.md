@@ -68,6 +68,29 @@ instance ends exceptional consent; reauthorise only if the intended work needs i
 
 ## Workspace-aware changes
 
+Workspace membership and structural parentage are separate. A workspace record
+is an independent root; its optional `default_parent` points to a project or
+other living hub inside that workspace. Creating content without a parent uses
+that default. Without a default it remains parentless but still belongs to the
+workspace; explicit `parent: null` suppresses a configured default.
+
+To create a Barbican bug while working in Subcortex, select
+`workspace_context: workspace/barbican`. Barbican's shared defaults apply, not
+Subcortex's local overrides. Alternatively supply a Barbican-owned explicit
+parent and omit the selector: that parent determines the destination. Conflicting
+explicit parent and destination choices refuse without writes. The new bug has
+Barbican primary membership and a Subcortex relationship tag for relevance.
+The source tag can later be explicitly removed; configured policy tags are
+restored while their policy applies. Ordinary edits never move its membership or parent; an existing ownership tree
+moves only through explicit `artefact.set-workspace`.
+
+For workspace discovery, pass `workspace: workspace/barbican` to `artefact.list`
+or `artefact.search`. The default `workspace_match: relevant` includes primary
+members and tagged associations; use `primary` for membership alone. Without a
+workspace filter, discovery spans the vault. Search excludes archived content;
+use list with `location: archived` or `all` when enumerating history. Historical
+workspace tags can remain after archive/deletion and do not require adoption.
+
 When a local workspace is bound, creation and semantic edits use its shared and
 local default tags. Lifecycle operations (rename, status/key/type changes,
 reparent, archive and restore) also apply these tags to the selected surviving

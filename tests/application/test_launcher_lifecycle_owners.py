@@ -1049,3 +1049,45 @@ def test_a_next_run_restore_that_does_not_verify_is_an_unknown_outcome(tmp_path,
     assert result.status == "error" and result.error.code is ErrorCode.COMMAND_OUTCOME_UNKNOWN
     assert result.effects == "unknown"
     assert result.error.details.recovery_paths == ("/state/brain/upgrade-journals/abc", "/vault/.brain/notes.txt")
+
+
+def test_outer_upgrade_partial_keeps_folder_followup_and_verified_durable_pointer(tmp_path, monkeypatch):
+    vault = _vault(tmp_path)
+    _register(monkeypatch, tmp_path, vault)
+    phase = {'outcome': 'partial', 'message': 'blocked-folder: Ownership rule workspace_parent; review root and default_parent.',
+             'result': {'status': 'partial', 'error': {'details': {'progress': {'folders': [
+                 {'path': '/changed-folder', 'status': 'changed'},
+                 {'path': '/blocked-folder', 'status': 'blocked', 'message': 'workspace_parent'},
+             ]}}}, 'result': {'committed_effects': [{'subject': 'file:/changed-folder/.brain/local/workspace.yaml'}]}}}
+    raw = _partial_after_commit({'workspace_upgrade': phase})
+    def committed(kwargs):
+        result = raw(kwargs)
+        import upgrade
+        upgrade._write_upgrade_log(str(vault), result)
+        return result
+    _fake_upgrader(monkeypatch, committed)
+    result = _invocation(tmp_path, vault=vault).invoke(BrainUpgradeRequest())
+    assert result.status == 'partial', result
+    projected = project_launcher_result(result).structured_content
+    assert 'blocked-folder' in projected['error']['message']
+    assert 'workspace_parent' in projected['error']['message']
+    log = vault / '.brain/local/last-upgrade.json'
+    assert str(log) in projected['error']['message']
+    assert 'workspace_upgrade.result' in projected['error']['message']
+    assert json.loads(log.read_text())['workspace_upgrade'] == phase
+    assert 'default_parent' in result.error.next_action.instruction
+    assert 'rerun brain upgrade' in result.error.next_action.instruction
+    assert any(e.subject == 'file:/changed-folder/.brain/local/workspace.yaml' for e in result.committed_effects)
+
+
+def test_outer_upgrade_does_not_point_to_stale_upgrade_log(tmp_path, monkeypatch):
+    vault = _vault(tmp_path)
+    _register(monkeypatch, tmp_path, vault)
+    (vault / '.brain/local/last-upgrade.json').write_text('{"workspace_upgrade":{"outcome":"ok"}}')
+    _fake_upgrader(monkeypatch, _partial_after_commit({
+        'workspace_upgrade': {'outcome': 'partial', 'message': 'blocked-folder: review root metadata'},
+    }))
+    result = _invocation(tmp_path, vault=vault).invoke(BrainUpgradeRequest())
+    assert result.status == 'partial', result
+    assert 'blocked-folder' in result.error.message
+    assert 'Folder outcomes:' not in result.error.message

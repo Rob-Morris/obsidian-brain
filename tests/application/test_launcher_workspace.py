@@ -347,3 +347,71 @@ def test_discovery_overlapping_roots_do_not_repeat_traversal_or_write(linked, tm
     assert {row.path for row in result.result.folders} == {str(folder), str(nested)}
     assert [Path(path) for path in walked if Path(path).is_relative_to(folder)] == [folder]
     assert before == {str(path): path.read_bytes() for path in folder.rglob('*') if path.is_file()}
+
+
+@pytest.mark.parametrize('changes,expected,create', [
+    (None, 'identity is missing', True),
+    ({'status': 'completed'}, 'identity is inactive', False),
+    ({'parent': 'project/legacy'}, 'Ownership rule workspace_parent', False),
+    ({'parent': 'project/legacy', 'status': 'completed'}, 'Ownership rule workspace_parent', False),
+    ({'workspace': 'workspace/other'}, 'Workspace identity scope is invalid', False),
+    ({'default_parent': 'project/missing'}, 'default_parent eligibility/membership', False),
+    ({'default_tags': 'private-policy-value'}, 'default_tags', False),
+])
+def test_identity_refusals_use_verified_state_without_effects(linked, changes, expected, create):
+    import compile_router
+    from _common import parse_frontmatter, serialize_frontmatter
+    from _lifecycle.derived_cache_state import require_fresh_compiled_router
+
+    root, folder, ctx = linked
+    entry = require_fresh_compiled_router(root)['artefact_index']['workspace/shared']
+    hub = root / entry['path']
+    if changes is None:
+        hub.unlink()
+    else:
+        fields, body = parse_frontmatter(hub.read_text())
+        fields.update(changes)
+        hub.write_text(serialize_frontmatter(fields, body=body))
+    compile_router.persist_compiled_router(root, compile_router.compile(str(root)))
+    before = {str(p): p.read_bytes() for base in (root, folder) for p in base.rglob('*') if p.is_file()}
+    result = LauncherInvocation(ctx, LAUNCHER_CATALOGUE, LAUNCHER_OWNERS).invoke(WorkspaceUpgradeRequest())
+    assert isinstance(result, Ok), result
+    assert not result.result.complete
+    message = result.result.folders[0].message
+    assert expected in message
+    assert ('brain workspace create' in message) is create
+    assert 'Create/reactivate' not in message
+    assert 'private-policy-value' not in message
+    assert not result.committed_effects
+    assert before == {str(p): p.read_bytes() for base in (root, folder) for p in base.rglob('*') if p.is_file()}
+    if changes and 'parent' in changes:
+        assert 'preserve project/content ownership' in message
+        assert 'separate explicit operation' in message
+
+
+def test_child_partial_summary_names_blocked_folder_without_recovery_bodies(linked, tmp_path):
+    root, folder, ctx = linked
+    workspace_registry.register_workspace(root, 'shared', folder)
+    missing = tmp_path / 'blocked-folder'
+    workspace_registry.register_workspace(root, 'shared', missing)
+    phase = invoke_upgrade_phase(ctx)
+    assert phase['outcome'] == 'partial'
+    assert str(missing) in phase['message']
+    assert 'folder availability' in phase['message']
+    assert 'rerun brain upgrade' in phase['message']
+    assert '"before":' not in phase['message']
+    assert 'unknown' not in phase['message']
+    assert not missing.exists()
+
+
+def test_outer_child_summary_does_not_echo_manifest_parser_excerpts(linked):
+    root, folder, ctx = linked
+    workspace_registry.register_workspace(root, 'shared', folder)
+    manifest = folder / '.brain/local/workspace.yaml'
+    manifest.write_text('defaults: [private-folder-body\n')
+    before = manifest.read_bytes()
+    phase = invoke_upgrade_phase(ctx)
+    assert phase['outcome'] == 'partial'
+    assert str(folder) in phase['message']
+    assert 'private-folder-body' not in phase['message']
+    assert manifest.read_bytes() == before

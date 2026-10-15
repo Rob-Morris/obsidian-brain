@@ -127,6 +127,7 @@ Each DD captures the reasoning behind an architectural decision at the time it w
 | DD-085 | A write-ahead rollback journal makes a killed upgrade a failed one | Proposed | [dd-085](dd-085-upgrade-rollback-journal.md) |
 | DD-086 | A dismissal needs something that can reopen it | Proposed | [dd-086](dd-086-dismissals-need-something-to-reopen-them.md) |
 | DD-087 | Text files Brain cannot read | Accepted | [dd-087](dd-087-text-files-brain-cannot-read.md) |
+| DD-088 | Workspace destination, defaults and relevance | Accepted | [dd-088](dd-088-workspace-destination-and-relevance.md) |
 
 ---
 
@@ -144,6 +145,6 @@ Related decisions grouped by domain. Arrows show supersede/extend chains.
 - **Upgrade & migrations:** DD-036/DD-072/DD-083 → DD-084 → DD-085
 - **Plugins & platforms:** DD-004, DD-005, DD-006, DD-007, DD-021, DD-022
 - **Agent methodology:** DD-024 → DD-057 → DD-058 → DD-068 → DD-069, DD-057 → DD-063, DD-035
-- **Workspaces:** DD-040 → DD-051 → DD-052 → DD-053 → DD-054 (DD-051 extends DD-023, DD-039, DD-040; DD-052 adds the runtime resolution ladder; DD-053 adds the explicit vault-self flag + the unified vault predicate single-sourced in `_common`, and — extending DD-049 — its sign-off refinements add the Decision-#2 anchor hard-error and record that the `brain` dispatch surface includes `setup`; DD-054 carries that ladder into no-MCP `brain session` through machine-owned resolution infrastructure; DD-055 retires the legacy `init.py` shell and consolidates transport CLI onto `configure`)
+- **Workspaces:** DD-051 → DD-088 (destination/default selection, primary membership and historical relevance); DD-040 → DD-051 → DD-052 → DD-053 → DD-054 (DD-051 extends DD-023, DD-039, DD-040; DD-052 adds the runtime resolution ladder; DD-053 adds the explicit vault-self flag + the unified vault predicate single-sourced in `_common`, and — extending DD-049 — its sign-off refinements add the Decision-#2 anchor hard-error and record that the `brain` dispatch surface includes `setup`; DD-054 carries that ladder into no-MCP `brain session` through machine-owned resolution infrastructure; DD-055 retires the legacy `init.py` shell and consolidates transport CLI onto `configure`)
 - **Artefact lifecycle & folder convention:** DD-029, DD-030 → DD-050 → DD-056 → DD-057 → DD-063, DD-030 → DD-071, DD-041 → DD-056, DD-072
 - **Command application architecture:** DD-002 → DD-003 → DD-049 → DD-061 → DD-062, DD-049/DD-061 → DD-066, DD-045 → DD-061, DD-043/DD-061 → DD-082 → DD-086

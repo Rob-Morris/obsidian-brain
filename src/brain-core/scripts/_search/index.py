@@ -5,6 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timezone
 import os
+import hashlib
+import json
 from pathlib import Path
 from typing import Any
 
@@ -24,6 +26,7 @@ from _lifecycle.retrieval_errors import (
     RetrievalPersistenceError,
     UnreadableRetrievalSourceError,
 )
+from _common._workspace import workspace_discovery_metadata
 from .lexical import tokenise
 from .paths import INDEX_VERSION, OUTPUT_PATH
 BM25_K1 = 1.5
@@ -115,22 +118,29 @@ def parse_doc(
     for token in title_tokens:
         title_tf[token] = title_tf.get(token, 0) + 1
 
+    embedding_parts = embedding_parts_from_body(body)
+    embedding_source_hash = hashlib.sha256(json.dumps(
+        [title, doc_type, embedding_parts.headings, embedding_parts.body_head]
+    ).encode("utf-8")).hexdigest()
     return ParsedDocument(
         doc={
             "path": rel_path,
             "title": title,
             "type": doc_type,
             "tags": fields.get("tags", []),
+            "workspace": fields.get("workspace"),
+            **workspace_discovery_metadata({**fields, "type": doc_type}),
             "key": fields.get("key"),
             "parent": normalize_artefact_key(fields.get("parent")),
             "status": fields.get("status"),
             "created": _valid_frontmatter_date(fields.get("created")),
             "modified": _valid_frontmatter_date(fields.get("modified"), modified),
+            "embedding_source_hash": embedding_source_hash,
             "doc_length": len(tokens),
             "tf": tf,
             "title_tf": title_tf,
         },
-        embedding_parts=embedding_parts_from_body(body),
+        embedding_parts=embedding_parts,
     )
 
 

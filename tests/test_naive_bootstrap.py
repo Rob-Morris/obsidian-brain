@@ -83,7 +83,7 @@ def _public_docs() -> list[Path]:
     docs = [CORE / name for name in PUBLIC_BRAIN_CORE_FILES]
     for tree in PUBLIC_BRAIN_CORE_TREES:
         docs.extend(sorted((CORE / tree).rglob("*.md")))
-    return [p for p in docs if p.is_file()]
+    return sorted(p for p in docs if p.is_file())
 
 
 def _cited_commands(text: str) -> set[str]:

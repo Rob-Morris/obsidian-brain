@@ -1,10 +1,12 @@
 """Session preparation freezes transcript selection and complete lifecycle effects."""
 
 from datetime import datetime
+from dataclasses import replace
 
 from ..preparation import ObservedResource, OperationPreparation, bind_operation, canonical_json, content_digest
 from ..preparation_transition import transition_binding
 from ..workspace_context import resolve_mutation_context, apply_semantic_tags, validate_subject_membership
+from .._decoding import OMITTED
 
 
 def session_plan(context, request, router, *, frozen_inputs=None):
@@ -23,7 +25,10 @@ def session_plan(context, request, router, *, frozen_inputs=None):
         original, _ = parse_frontmatter(render_transcript_template(
             plan["template"], source_path, plan["prepared"].artefact["key"], now))
     effective = resolve_mutation_context(context, router, request.workspace_context,
-        creation=not plan["transcript_exists"], parent=original.get("parent") if plan["transcript_exists"] else None)
+        creation=not plan["transcript_exists"], parent=original.get("parent") if plan["transcript_exists"] else OMITTED)
+    from ..workspace_associations import observe_workspace_associations
+    associations = (observe_workspace_associations(context, router, original.get("tags", ()))
+                    if not plan["transcript_exists"] else ())
     transcript_fields = original
     transcript_fields = apply_semantic_tags(transcript_fields, effective)
     if not plan["transcript_exists"]:
@@ -46,6 +51,10 @@ def session_plan(context, request, router, *, frozen_inputs=None):
         original, _ = parse_frontmatter(read_exact_file_content(root / plan["transcript_path"], convert_lossless=True))
         transcript_fields = apply_semantic_tags(original, effective)
         validate_subject_membership(router, transcript_fields, plan["transcript_path"], original)
+    from _common._workspace import workspace_discovery_metadata
+    effective = replace(effective, sources=effective.sources + associations,
+        relevant_workspaces=tuple(sorted({reference for fields in (target_fields, transcript_fields)
+            for reference in workspace_discovery_metadata(fields)["relevant_workspaces"]})))
     plan.update(target_fields=target_fields, transcript_fields=transcript_fields,
                 mutation_context=effective, reconcile_indexes=True)
     frozen["transcript_path"] = plan["transcript_path"]

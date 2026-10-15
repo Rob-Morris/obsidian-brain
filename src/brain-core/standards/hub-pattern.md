@@ -14,7 +14,7 @@ This is useful when a stream of related work or content needs a single living to
 - **People** — `person/{key}` can own living or temporal child artefacts and relate observations or other artefacts to a person
 - **Projects** — `project/{key}` can own releases, designs, wiki pages, research, and other child artefacts; temporal children file flat under the project scope
 - **Journals** — `journal/{key}` remains the named anchor for a journal stream; journal entries can use the `journal/{key}` relationship tag without ownership, or persist canonical `parent` when owner-scoped temporal filing is intended
-- **Workspaces** — `workspace/{key}` can own living or temporal child artefacts and connect brain content to a bounded working container (`_Workspaces/`)
+- **Workspaces** — `workspace/{key}` is an independent self-scoped root and cannot itself have a parent. It can explicitly own living or temporal children, but membership does not imply that parentage. Optional `default_parent` policy can instead select a project/hub inside the workspace; without it content remains parentless and retains workspace membership. Relationship tags can associate content with several workspaces without changing its primary membership.
 
 **When to use:** Some types are hubs by design — `project`, `person`, `workspace`, `journal` exist specifically to anchor other artefacts. For those, the hub role is the point; create the hub first, let children accrue.
 

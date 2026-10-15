@@ -18,7 +18,7 @@ def plan_reassignment(context, request, router, *, frozen_inputs=None):
     from _common import (resolve_type, living_artefact_index_entry, resolve_parent_reference,
                          document_revision_at, parent_chain_entries,
                          resolve_folder, apply_terminal_status_folder, normalize_artefact_key)
-    from _common._workspace import validate_ownership
+    from _common._workspace import validate_ownership, workspace_discovery_metadata
     from _lifecycle.ownership_graph import read_ownership_graph
     from .preparation_transition import transition_time
     from .workspace_integrity import lifecycle_guard_observations
@@ -110,6 +110,8 @@ def plan_reassignment(context, request, router, *, frozen_inputs=None):
     sources.extend(lifecycle_guard_observations(context, router, guards, reassigning=True))
     effective = replace(effective, parent=root_parent,
         parent_source=("explicit" if request.parent is not None else "preserved") if root_parent else "none",
+        relevant_workspaces=tuple(sorted({reference for fields in updated.values()
+            for reference in workspace_discovery_metadata(fields)["relevant_workspaces"]})),
         sources=tuple({(item.kind, item.identity): item for item in sources}.values()))
     destinations = {item["source"]: item["dest"] for item in moves}
     changed_subjects = tuple(sorted({destinations.get(item["path"], item["path"]) for item in writes}
