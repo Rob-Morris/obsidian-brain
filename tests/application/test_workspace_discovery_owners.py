@@ -83,7 +83,7 @@ def test_public_workspace_match_enum():
 
 @pytest.mark.semantic
 def test_workspace_tag_edit_refreshes_semantic_filters_without_encoding(command_vault_clone, monkeypatch):
-    import numpy as np
+    np = pytest.importorskip("numpy")
     from types import SimpleNamespace
     from _semantic import model, assets, runtime
     from _common import load_compiled_router, document_revision_at
@@ -133,7 +133,7 @@ def test_workspace_tag_edit_refreshes_semantic_filters_without_encoding(command_
 
 @pytest.mark.semantic
 def test_metadata_only_incremental_status_keeps_vectors(command_vault_clone, monkeypatch):
-    import numpy as np
+    np = pytest.importorskip("numpy")
     from types import SimpleNamespace
     from _semantic import model, assets, runtime
     from _common import load_compiled_router
