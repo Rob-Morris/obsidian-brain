@@ -239,7 +239,7 @@ LAUNCHER_CATALOGUE = LauncherCatalogue(
                     "_launcher.lifecycle:install",
                     "brain",
                     "install",
-                    version=5,
+                    version=6,
                     approval_transition="install",
                 ),
                 _read("brain.list", "_launcher.registry:list", "brain", "list", version=2),
@@ -283,7 +283,7 @@ LAUNCHER_CATALOGUE = LauncherCatalogue(
                 ),
                 LauncherEntry(
                     "brain.upgrade",
-                    3,
+                    4,
                     "_launcher.lifecycle:upgrade",
                     ("brain", "upgrade"),
                     "operator",

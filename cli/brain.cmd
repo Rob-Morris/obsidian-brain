@@ -1,11 +1,13 @@
 @echo off
 setlocal
-set "BRAIN_CLI_VERSION=6.0.1"
+set "BRAIN_CLI_VERSION=6.1.0"
 set "BRAIN_INSTALL_REF=v0.73.0"
+
+set "BRAIN_DISTRIBUTION_ID=source"
 
 set "SELF_DIR=%~dp0"
 set "SELF_PATH=%~f0"
-set "DISTRIBUTION_ROOT=%SELF_DIR%..\lib\brain-cli\%BRAIN_CLI_VERSION%"
+set "DISTRIBUTION_ROOT=%SELF_DIR%..\lib\brain-cli\%BRAIN_DISTRIBUTION_ID%"
 if "%~1"=="mcp" if "%~2"=="serve" goto mcp_serve
 if defined BRAIN_CLI_BUNDLE (
     set "DISTRIBUTION_ROOT=%BRAIN_CLI_BUNDLE%"

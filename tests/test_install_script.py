@@ -1068,7 +1068,7 @@ def test_install_stops_when_the_upgrade_refuses_content_ahead_of_the_source(tmp_
     assert "Upgraded to" not in result.stderr
 
 
-def test_install_rejects_skip_cli_at_an_equal_version(tmp_path):
+def test_install_preserves_cli_at_an_equal_version(tmp_path):
     source = tmp_path / "source"
     source.mkdir()
     _copy_source_checkout(source)
@@ -1081,9 +1081,10 @@ def test_install_rejects_skip_cli_at_an_equal_version(tmp_path):
         cwd=source, capture_output=True, text=True, timeout=60,
     )
 
-    assert result.returncode != 0
-    assert "--skip-cli cannot be used" in result.stderr
-    assert not (target / "upgrade-args.txt").exists()
+    assert result.returncode == 0
+    assert "--skip-cli cannot be used" not in result.stderr
+    assert (target / "upgrade-args.txt").exists()
+    assert "--replace-cli" not in (target / "upgrade-args.txt").read_text()
 
 
 def test_install_does_not_prompt_for_an_equal_version_re_apply(tmp_path):
@@ -1148,3 +1149,37 @@ def test_equal_version_preview_carries_the_same_options_as_the_run(tmp_path):
     assert "--acknowledge-global-cli-cutover" in preview and preview[preview.index("--exclude-stale-brain") + 1] == "stale-a"
     assert "--dry-run" not in run
     assert [arg for arg in run if arg not in ("--unattended",)] == [arg for arg in preview if arg not in ("--dry-run", "--json", "--unattended")]
+
+
+def test_cli_bootstrap_failure_stops_before_vault_creation(tmp_path):
+    source = tmp_path / 'source'
+    source.mkdir()
+    _copy_source_checkout(source)
+    (source / 'cli/_distribution.py').write_text('import sys\nprint("injected bootstrap failure", file=sys.stderr)\nsys.exit(1)\n')
+    target = tmp_path / 'must-not-exist'
+    result = subprocess.run(
+        ['bash', 'install.sh', '--non-interactive', '--skip-mcp', str(target)],
+        cwd=source, capture_output=True, text=True, timeout=60,
+    )
+    assert result.returncode != 0
+    assert not target.exists()
+    assert 'CLI bootstrap failed before target-vault creation' in result.stderr
+    assert 'Retry CLI installation' in result.stderr
+    assert 'cli/_distribution.py' in result.stderr
+
+
+def test_conflicting_cli_flags_refuse_before_target_creation(tmp_path):
+    target = tmp_path / 'vault'
+    result = subprocess.run(['bash', str(REPO_ROOT / 'install.sh'), '--non-interactive',
+                             '--skip-cli', '--replace-cli', '--skip-mcp', str(target)],
+                            capture_output=True, text=True, timeout=30)
+    assert result.returncode != 0
+    assert 'cannot be combined' in result.stderr
+    assert not target.exists()
+
+
+def test_windows_upgrade_routes_before_unused_fresh_mcp_choices():
+    script = (REPO_ROOT / 'install.ps1').read_text()
+    upgrade = script.index('if (Test-Path -LiteralPath (Join-Path $VaultPath ".brain-core"))')
+    assert upgrade < script.index('if ($SkipMcp)')
+    assert 'if ($SkipCli) { $argsList += "--skip-cli" }' in script

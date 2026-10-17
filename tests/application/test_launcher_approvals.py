@@ -622,7 +622,8 @@ def test_distribution_replacement_with_managed_approvals(managed_distribution, n
             ROOT, previous.cli_binary, cli_version=previous.cli_version,
             expected_brain_core_version=previous.brain_core_version, failpoint=observe)
         assert verify_distribution(installed.distribution_root)["fingerprint"] == installed.manifest_fingerprint
-        assert installed.cli_binary.read_bytes() == (ROOT / "cli/brain").read_bytes()
+        from _distribution import verify_installed_distribution
+        assert verify_installed_distribution(installed.cli_binary)[0] == installed.distribution_root
         active = active_transitions(manager.FilePlan(), home)
         assert set(active) == ({invocation._context.invocation_id} if nested else set())
         return installed

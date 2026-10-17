@@ -150,7 +150,7 @@ When a user asks an agent working in this repo to install a Brain vault on their
 1. Vault scaffold and the central managed runtime at `~/.brain/venvs/` (dependency install), which every install provisions
 2. MCP registration completed
 
-Do not treat those as all-or-nothing unless the user explicitly requires MCP to be ready immediately.
+CLI bootstrap is a prior boundary: if it fails, stop before target-vault creation and report retry/repair guidance. Once the CLI is available, do not treat later runtime/MCP outcomes as all-or-nothing unless the user explicitly requires MCP to be ready immediately. Preserve a healthy shared CLI unless replacement was explicitly requested.
 
 Preferred command selection:
 

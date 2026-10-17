@@ -390,7 +390,7 @@ def discard(root: Path, branch: str, *, expected_sha: str | None = None) -> None
 
 
 def publish(root: Path, sha: str, *, ci: CiRunner = default_ci) -> str:
-    """Fast-forward origin/main to a version commit already on unreleased."""
+    """Publish certified ledger releases and permanent tags, then observe before cleanup."""
     if not SHA_RE.fullmatch(sha):
         raise PromotionError("publish requires a full commit SHA")
     lock = git.lock(root)
@@ -402,17 +402,48 @@ def publish(root: Path, sha: str, *, ci: CiRunner = default_ci) -> str:
             raise PromotionError("main can move only to a commit already on unreleased")
         ledger = git.rev(root, "refs/remotes/origin/unreleased")
         origin_main = git.rev(root, "refs/remotes/origin/main")
-        if sha == origin_main:
-            delete_published_candidates(root, sha)
-            print(f"already published {sha}")
-            return sha
-        if not git.is_ancestor(root, origin_main, sha) or not candidates.on_first_parent_line(root, ledger, sha):
+        if not candidates.on_first_parent_line(root, ledger, sha) or not candidates.on_first_parent_line(root, sha, origin_main):
             raise PromotionError(f"{sha} is not a later commit on the unreleased first-parent line")
-        branch = candidates.validate_candidate(root, git.read_commit(root, sha))
-        result = ci(root, sha, branch)
-        if result.get("state") != "passed":
-            raise PromotionError(f"candidate CI is {result.get('state')}, not passed")
-        git.run(root, "push", f"--force-with-lease=refs/heads/main:{origin_main}", "origin", f"{sha}:refs/heads/main")
+        releases = git.commits_after(root, origin_main, sha)
+        if sha == origin_main:
+            # Retained candidate refs identify an interrupted publication, not an
+            # invitation to backfill every historical untagged release.
+            retained = {candidate for candidate, _ref in git.promotion_refs(root)}
+            releases = [git.read_commit(root, item) for item in reversed(git.ancestry(root, sha))
+                        if item == sha or item in retained]
+        tags = candidates.publication_tags(root, releases)
+        refs = ["refs/heads/main", *tags]
+        before = git.remote_refs(root, refs)
+        if before.get("refs/heads/main") != origin_main:
+            raise PromotionError("origin/main changed while planning publication; retry")
+        for tag, target in tags.items():
+            if tag in before and before.get(f"{tag}^{{}}", before[tag]) != target:
+                raise PromotionError(f"conflicting published tag {tag}; expected {target}")
+        missing = {tag: target for tag, target in tags.items() if tag not in before}
+        if origin_main != sha or missing:
+            for tag, target in tags.items():
+                branch = "promotion/" + tag.removeprefix("refs/tags/")
+                result = ci(root, target, branch)
+                if result.get("state") != "passed":
+                    raise PromotionError(f"candidate {target} CI is {result.get('state')}, not passed")
+            push = git.run(
+                root, "push", "--atomic",
+                f"--force-with-lease=refs/heads/main:{origin_main}",
+                *(f"--force-with-lease={tag}:" for tag in missing),
+                "origin", f"{sha}:refs/heads/main",
+                *(f"{target}:{tag}" for tag, target in missing.items()),
+                check=False,
+            )
+            try:
+                after = git.remote_refs(root, refs)
+            except PromotionError as exc:
+                raise PromotionError("publication outcome unknown; cannot observe origin; candidate refs retained") from exc
+            settled = after.get("refs/heads/main") == sha and all(
+                after.get(f"{tag}^{{}}", after.get(tag)) == target for tag, target in tags.items()
+            )
+            if not settled:
+                state = "unchanged" if after == before else "uncertain"
+                raise PromotionError(f"atomic publication {state}; candidate refs retained: {push.stderr.strip()}")
         git.run(root, "update-ref", "refs/remotes/origin/main", sha)
         if git.rev_exists(root, "refs/heads/main") and git.rev(root, "refs/heads/main") == origin_main:
             git.run(root, "update-ref", "refs/heads/main", sha, origin_main)

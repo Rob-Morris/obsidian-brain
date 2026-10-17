@@ -102,7 +102,7 @@ def test_release_versions_move_together():
 def test_windows_bootloader_defaults_to_the_installed_distribution():
     default = (
         'set "DISTRIBUTION_ROOT=%SELF_DIR%..\\lib\\brain-cli\\'
-        '%BRAIN_CLI_VERSION%"'
+        '%BRAIN_DISTRIBUTION_ID%"'
     )
 
     assert default in WINDOWS_CLI_TEXT
@@ -122,11 +122,15 @@ def test_version_and_launcher_discovery_need_no_selected_brain(tmp_path):
     listing = _run(tmp_path, "command", "list", "--owner", "launcher", "--json")
 
     assert version.returncode == 0
-    assert version.stdout.strip() == f"brain {CLI_VERSION}"
+    assert version.stdout.splitlines()[0] == f"brain {CLI_VERSION}"
+    assert f"Distributed with Brain Core: {CORE_VERSION}" in version.stdout
     payload = json.loads(structural.stdout)
     assert structural.returncode == 0
     assert payload["command"] == "brain.version"
     assert payload["result"]["cli_version"] == CLI_VERSION
+    assert payload["result"]["distributed_with_core_version"] == CORE_VERSION
+    from _launcher.version import read_cli_version_facts
+    assert payload["result"]["full_support_core_version"] == read_cli_version_facts(REPO_ROOT).full_support_core_version
     commands = json.loads(listing.stdout)
     assert listing.returncode == 0
     assert commands["schema"] == "brain.local-command-list/2"
@@ -270,7 +274,7 @@ def test_launcher_description_carries_exact_schema_and_example(tmp_path):
     payload = json.loads(result.stdout)
     assert result.returncode == 0
     assert payload["command_id"] == "brain.upgrade"
-    assert payload["command_version"] == 3
+    assert payload["command_version"] == 4
     schema = json.loads(payload["payload"]["request_schema_json"])
     assert "acknowledge_global_cli_cutover" in schema["properties"]
     assert "excluded_stale_brain_ids" in schema["properties"]

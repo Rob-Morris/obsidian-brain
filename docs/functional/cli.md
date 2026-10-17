@@ -838,12 +838,14 @@ user MCP registrations still depend on it.
 
 The installer writes a versioned distribution under the selected prefix and a small platform bootloader under `bin/`:
 
-- Unix-like user install: `~/.local/bin/brain` and `~/.local/lib/brain-cli/6.0.1/`.
-- Native Windows user install: `%LOCALAPPDATA%\Programs\Brain\bin\brain.cmd` and the adjacent `lib\brain-cli\6.0.1\` distribution.
+- Unix-like user install: `~/.local/bin/brain` and `~/.local/lib/brain-cli/6.1.0-<bundle>/`.
+- Native Windows user install: `%LOCALAPPDATA%\Programs\Brain\bin\brain.cmd` and the adjacent `lib\brain-cli\6.1.0-<bundle>\` distribution.
+
+The bundle discriminator includes Core version and a source-content digest, so an unchanged CLI component can safely coexist with another release bundle. The installed bootloader records that exact bundle; source launch uses its adjacent checkout. CLI component version, source identity and machine-local installed integrity are distinct.
 
 The distribution contains the launcher application plus the Brain Core payload needed for install, upgrade and selected-Brain execution. Installation and replacement verify a content manifest and executable identity; failed replacement restores the proven old binary/distribution pair or retains recovery material and reports the outcome as unverified. Failed upgrade results carry every known absolute recovery path in the structural error and durable launcher receipt: residual staging material after a verified rollback is a known partial outcome, while unverified rollback remains outcome-unknown. Standalone human output lists the same paths before the failure message. Once the new pair is verified, failure or interruption while removing an old backup is committed post-upgrade recovery work and never rolls Brain Core back to an older version. Both the launcher result and standalone distribution JSON list the surviving `cleanup_recovery_paths`.
 
-The bootloader requires Python 3.12 or newer. `BRAIN_CLI_VERSION` is `6.0.1`; `BRAIN_INSTALL_REF` is `v0.73.0`.
+The bootloader requires Python 3.12 or newer. `BRAIN_CLI_VERSION` is `6.1.0`; `BRAIN_INSTALL_REF` is `v0.73.0`.
 
 JSON command invocations validate the structural stdout envelope, including
 command identity, version and exit category. Incidental child stderr does not
@@ -878,3 +880,14 @@ scope can cover all compatible registered Brains without upgrading their Core
 installations. Unreachable or incompatible Brains leave explicit incomplete
 coverage. Discovery scans only explicit roots and reports unknown registration
 status when inventory coverage is incomplete; it never silently registers.
+
+
+## Published source selection and offline identity
+
+Normal remote installation selects latest published main and verifies its matching release tag. Exact selection uses `bash install.sh --version X.Y.Z` or native Windows `-Version X.Y.Z`; `latest` is also accepted. Local installers without a selector use their adjacent checkout. Source is resolved once to a commit/tree and recorded in `.brain-source-receipt.json`; retries from that retained checkout verify the receipt without resolving latest again. The selected source supplies installer, template, Core and lifecycle code. Target provenance is recorded separately at `.brain/local/install-source.json`. Local modified/unpublished source is not certified by a version label. Downloads must remain available; this is not an offline-bundle guarantee.
+
+`brain install` and `brain upgrade` accept `version` (latest or exact) or an explicit absolute `source_root` in request JSON, not both. Omission acquires latest published source. Existing healthy shared CLI is preserved, including when it lacks an operation; report the specific limitation and explicit remediation. `replace_cli: true`, Unix `--replace-cli` or Windows `-ReplaceCli` explicitly requests replacement through existing ownership/approval/rollback guards. Genuine absence or structural launcher damage may bootstrap; permission errors, timeouts and operation errors do not authorise replacement. First CLI bootstrap failure stops before creating a target vault with retry/repair guidance; later runtime and optional MCP steps retain their separate partial-install outcomes.
+
+`brain --version` and `brain version --json` work before vault attachment, discovery, managed runtime provisioning, approval-state reads or network use (supported local Python is required). They report `cli_version`, `distributed_with_core_version` and `full_support_core_version`; JSON retains catalogue diagnostics. The full-support baseline is advisory for older Core: it does not ban all commands. Development uses `next-release` in the canonical version contract, rendered as unknown/null until release preparation stamps the actual baseline. The first supported baseline is the next release; earlier interoperability is best-effort, non-gating.
+
+Explicit `skip_cli: true` (Unix `--skip-cli`, Windows `-SkipCli`) suppresses global CLI bootstrap and replacement, including delegated managed installation. Skip and replace are conflicting requests. MCP scope/client choices apply to fresh installs; upgrades reconcile existing registrations and do not require those unused fresh-install choices. Non-install machine commands require an installed CLI rather than implicitly bootstrapping one.

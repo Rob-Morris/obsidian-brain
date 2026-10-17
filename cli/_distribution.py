@@ -7,9 +7,11 @@ from dataclasses import dataclass
 import hashlib
 import json
 import os
+import re
 from pathlib import Path
 import shutil
 import stat
+import subprocess
 import sys
 import uuid
 
@@ -140,7 +142,8 @@ def _install_distribution(
         raise DistributionInstallError(
             "CLI binary cannot be a symlink", rollback_verified=True
         )
-    distribution = _distribution_path(binary, cli_version)
+    identity, source_fingerprint = _source_identity(source, cli_version, expected_brain_core_version)
+    distribution = _distribution_path(binary, identity)
     parent = distribution.parent
     parent.mkdir(parents=True, exist_ok=True)
     binary.parent.mkdir(parents=True, exist_ok=True)
@@ -157,17 +160,27 @@ def _install_distribution(
     new_binary_fingerprint = None
     try:
         _copy_distribution(source, stage)
+        receipt = source / ".brain-source-receipt.json"
+        if receipt.is_file():
+            from _acquisition import verify_acquired
+            if (source / ".git").exists():
+                verify_acquired(source)
+            else:
+                verify_distribution(source)
+            shutil.copy2(receipt, stage / receipt.name)
         (stage / ".bootstrap-python").write_text(str(base_python) + "\n", encoding="utf-8")
         manifest = _write_manifest(
             stage,
             cli_version=cli_version,
             brain_core_version=expected_brain_core_version,
+            source_identity=identity,
+            source_fingerprint=source_fingerprint,
         )
         _fire(failpoint, "after_stage")
         _validate_staged(stage, manifest)
         new_distribution_fingerprint = str(manifest["fingerprint"])
         source_binary = _source_bootloader(source, binary)
-        shutil.copyfile(source_binary, binary_stage)
+        binary_stage.write_bytes(_render_bootloader(source_binary, identity))
         os.chmod(binary_stage, 0o755)
         new_binary_fingerprint = _file_fingerprint(binary_stage)
         _fire(failpoint, "after_cli_stage")
@@ -186,6 +199,7 @@ def _install_distribution(
             binary,
             manifest,
             source_binary,
+            identity,
         )
         _fire(failpoint, "after_verify")
     except BaseException as exc:
@@ -257,6 +271,56 @@ def _install_distribution(
     )
 
 
+
+def _source_identity(source: Path, cli_version: str, core_version: str) -> tuple[str, str]:
+    # This excludes machine-local bootstrap state and the installed manifest.
+    entries = {}
+    for entry in SOURCE_ENTRIES:
+        root = source / entry
+        paths = [root, *root.rglob("*")] if root.is_dir() else [root]
+        for path in paths:
+            relative = path.relative_to(source)
+            if any(part == "__pycache__" or part.endswith((".pyc", ".pyo", ".DS_Store")) for part in relative.parts):
+                continue
+            if path.is_symlink():
+                entries[relative.as_posix()] = "symlink:" + os.readlink(path)
+            elif path.is_file():
+                entries[relative.as_posix()] = "sha256:" + _sha256(path)
+    receipt = source / ".brain-source-receipt.json"
+    if receipt.is_file():
+        entries[receipt.name] = "sha256:" + _sha256(receipt)
+    fingerprint = _manifest_fingerprint(entries)
+    return f"{cli_version}-{core_version}-{fingerprint.removeprefix('sha256:')}", fingerprint
+
+
+def _render_bootloader(path: Path, identity: str) -> bytes:
+    content = path.read_bytes()
+    marker = b'BRAIN_DISTRIBUTION_ID=source' if path.suffix == ".cmd" else b'BRAIN_DISTRIBUTION_ID="source"'
+    replacement = f'BRAIN_DISTRIBUTION_ID={identity}'.encode() if path.suffix == ".cmd" else f'BRAIN_DISTRIBUTION_ID="{identity}"'.encode()
+    if content.count(marker) != 1:
+        raise ValueError("CLI bootloader must declare one distribution identity marker")
+    return content.replace(marker, replacement)
+
+
+def ensure_cli(source_root: Path, cli_binary: Path, *, replace_cli: bool = False,
+               bootstrap_python: Path | None = None) -> InstalledDistribution | None:
+    """Preserve a healthy global CLI; install only by explicit request or known absence/damage."""
+    binary = cli_binary.expanduser().absolute()
+    if not replace_cli and (binary.exists() or binary.is_symlink()):
+        try:
+            result = subprocess.run([str(binary), "--version"], cwd=binary.parent,
+                                    capture_output=True, text=True, timeout=10, check=False)
+        except (OSError, subprocess.SubprocessError) as exc:
+            raise ValueError(f"CLI health could not be established; repair it explicitly: {binary}: {exc}") from exc
+        if result.returncode == 0 and result.stdout.strip().startswith("brain "):
+            return None
+        structural = result.returncode == 4 and any(message in result.stderr for message in (
+            "is missing or incomplete", "installed MCP bootstrap is missing"))
+        if not structural:
+            raise ValueError(f"Existing CLI was preserved; inspect or explicitly replace it: {binary}; {result.stderr.strip()}")
+    return install_from_source(source_root, binary, bootstrap_python=bootstrap_python)
+
+
 def validate_bootstrap_python(python: Path | None = None) -> Path:
     """Admit an absolute base interpreter independently of rotating Brain environments."""
     candidate = python or Path(getattr(sys, "_base_executable", sys.executable))
@@ -271,6 +335,21 @@ def validate_bootstrap_python(python: Path | None = None) -> Path:
     if result.returncode or result.stdout.strip() != "True" or "venvs" in candidate.parts and ".brain" in candidate.parts:
         raise ValueError("Bootstrap Python must be Python 3.12+ outside managed dependency environments")
     return candidate
+
+
+def verify_installed_distribution(binary: Path) -> tuple[Path, dict[str, object]]:
+    """Resolve the actual installed bootloader's bundle and verify their pair."""
+    if binary.is_symlink():
+        raise ValueError("Installed CLI bootloader cannot be a symlink; reinstall the CLI explicitly")
+    text = binary.read_text(encoding="utf-8")
+    matches = re.findall(r'^(?:set ")?BRAIN_DISTRIBUTION_ID="?([a-zA-Z0-9._-]+)"?$', text, re.MULTILINE)
+    if len(matches) != 1:
+        raise ValueError("Installed CLI bundle identity is missing or ambiguous; reinstall the CLI explicitly")
+    root = _distribution_path(binary, matches[0])
+    manifest = verify_distribution(root)
+    source = _source_bootloader(root, binary)
+    _verify_pair(root, binary, manifest, source, matches[0])
+    return root, manifest
 
 
 def verify_distribution(root: Path) -> dict[str, object]:
@@ -343,6 +422,8 @@ def _write_manifest(
     *,
     cli_version: str,
     brain_core_version: str,
+    source_identity: str,
+    source_fingerprint: str,
 ) -> dict[str, object]:
     entries = _tree_entries(root)
     fingerprint = _manifest_fingerprint(entries)
@@ -350,6 +431,8 @@ def _write_manifest(
         "schema": "brain.cli-distribution/1",
         "cli_version": cli_version,
         "brain_core_version": brain_core_version,
+        "source_identity": source_identity,
+        "source_fingerprint": source_fingerprint,
         "entries": entries,
         "fingerprint": fingerprint,
     }
@@ -380,6 +463,9 @@ def _validate_staged(root: Path, manifest: dict[str, object]) -> None:
         raise ValueError("CLI distribution files do not match their manifest")
     if manifest.get("fingerprint") != _manifest_fingerprint(actual):
         raise ValueError("CLI distribution manifest fingerprint is invalid")
+    identity, fingerprint = _source_identity(root, str(manifest.get("cli_version")), str(manifest.get("brain_core_version")))
+    if manifest.get("source_identity") != identity or manifest.get("source_fingerprint") != fingerprint:
+        raise ValueError("CLI distribution source identity is invalid")
 
 
 def _verify_pair(
@@ -387,9 +473,10 @@ def _verify_pair(
     binary: Path,
     manifest: dict[str, object],
     source_binary: Path,
+    identity: str,
 ) -> None:
     _validate_staged(distribution, manifest)
-    if _file_fingerprint(binary) != _file_fingerprint(source_binary):
+    if binary.read_bytes() != _render_bootloader(source_binary, identity):
         raise ValueError("installed CLI binary does not match the distribution")
     if sys.platform == "win32":
         if binary.suffix.casefold() != ".cmd":
@@ -604,9 +691,14 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("source_root", type=Path)
     parser.add_argument("cli_binary", type=Path)
     parser.add_argument("--bootstrap-python", type=Path, help="Absolute Python 3.12+ base interpreter for non-interactive MCP startup")
+    parser.add_argument("--preserve-existing", action="store_true", help="Preserve a healthy installed CLI")
     args = parser.parse_args(argv)
     try:
-        result = install_from_source(args.source_root, args.cli_binary, bootstrap_python=args.bootstrap_python)
+        result = (ensure_cli(args.source_root, args.cli_binary, bootstrap_python=args.bootstrap_python) if args.preserve_existing
+                  else install_from_source(args.source_root, args.cli_binary, bootstrap_python=args.bootstrap_python))
+        if result is None:
+            print(json.dumps({"status": "preserved", "cli_binary": str(args.cli_binary)}))
+            return 0
     except (DistributionInstallError, OSError, ValueError) as exc:
         print(str(exc), file=sys.stderr)
         return 1

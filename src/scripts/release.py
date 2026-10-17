@@ -42,6 +42,7 @@ CHANGELOG_INDEX_PATH = "docs/CHANGELOG.md"
 FUNCTIONAL_CLI_PATH = "docs/functional/cli.md"
 USER_REFERENCE_PATH = "docs/user/user-reference.md"
 COMMAND_CATALOGUE_PATH = "src/brain-core/command-catalogue.json"
+VERSION_CONTRACT_PATH = "cli/_version_contract.py"
 
 
 class ReleaseError(RuntimeError):
@@ -119,6 +120,7 @@ def release_facts(root: Path, view: str) -> VersionContract:
             CHANGELOG_INDEX_PATH,
             FUNCTIONAL_CLI_PATH,
             USER_REFERENCE_PATH,
+            VERSION_CONTRACT_PATH,
         )
     }
     return parse_version_contract(
@@ -130,6 +132,7 @@ def release_facts(root: Path, view: str) -> VersionContract:
         changelog=texts[CHANGELOG_INDEX_PATH],
         functional_cli=texts[FUNCTIONAL_CLI_PATH],
         user_reference=texts[USER_REFERENCE_PATH],
+        version_contract=(texts[VERSION_CONTRACT_PATH] if "CLI_FULL_SUPPORT_CORE_VERSION" in (texts[VERSION_CONTRACT_PATH] or "") else None),
     )
 
 
@@ -244,6 +247,7 @@ class ReleaseRequest:
     release_type: str | None
     change: tuple[str, ...]
     amend: bool
+    full_support_core_version: str | None = None
 
 
 def _prepare_changes(args: ReleaseRequest) -> dict[str, str]:
@@ -251,6 +255,7 @@ def _prepare_changes(args: ReleaseRequest) -> dict[str, str]:
         ("core version", args.core_version),
         ("CLI version", args.cli_version),
         ("proxy version", args.proxy_version),
+        ("full-support Core version", args.full_support_core_version),
     ):
         if value is not None and not SEMVER_RE.fullmatch(value):
             raise ReleaseError(f"invalid {name}: {value!r}")
@@ -264,6 +269,22 @@ def _prepare_changes(args: ReleaseRequest) -> dict[str, str]:
     proxy_version = args.proxy_version or current.proxy
     if cli_version is None or proxy_version is None:
         raise ReleaseError("current CLI/proxy versions are not uniquely readable")
+    baseline = args.full_support_core_version or current.full_support_core_version
+    if baseline is None:
+        raise ReleaseError("CLI full-support Core baseline is not uniquely readable")
+    if baseline == "next-release":
+        baseline = args.core_version
+    version_key = lambda value: tuple(int(part) for part in value.split("."))
+    if version_key(baseline) > version_key(args.core_version):
+        raise ReleaseError("CLI full-support Core baseline exceeds the distribution Core version")
+    if args.full_support_core_version is not None:
+        if current.full_support_core_version is None:
+            raise ReleaseError("current CLI full-support Core baseline is invalid")
+        if current.full_support_core_version != "next-release" and version_key(baseline) < version_key(current.full_support_core_version):
+            raise ReleaseError("CLI full-support Core baseline cannot decrease")
+        if (current.full_support_core_version != "next-release"
+                and baseline != current.full_support_core_version and cli_version == current.cli_unix):
+            raise ReleaseError("advancing the CLI full-support Core baseline requires a CLI version change")
     paths = (
         VERSION_PATH,
         README_PATH,
@@ -274,11 +295,18 @@ def _prepare_changes(args: ReleaseRequest) -> dict[str, str]:
         FUNCTIONAL_CLI_PATH,
         USER_REFERENCE_PATH,
         COMMAND_CATALOGUE_PATH,
+        VERSION_CONTRACT_PATH,
     )
     original = {path: (root / path).read_text(encoding="utf-8") for path in paths}
     changed = dict(original)
     changed[COMMAND_CATALOGUE_PATH] = _render_command_catalogue_route(root)
     changed[VERSION_PATH] = args.core_version + "\n"
+    changed[VERSION_CONTRACT_PATH] = _replace_one(
+        original[VERSION_CONTRACT_PATH],
+        rf'^CLI_FULL_SUPPORT_CORE_VERSION = "(?:{SEMVER}|next-release)"$',
+        f'CLI_FULL_SUPPORT_CORE_VERSION = "{baseline}"',
+        VERSION_CONTRACT_PATH,
+    )
     changed[README_PATH] = _replace_one(
         original[README_PATH],
         rf"version-{SEMVER}-blue",
@@ -311,14 +339,14 @@ def _prepare_changes(args: ReleaseRequest) -> dict[str, str]:
     )
     functional = _replace_one(
         original[FUNCTIONAL_CLI_PATH],
-        rf"brain-cli/{SEMVER}/",
-        f"brain-cli/{cli_version}/",
+        rf"brain-cli/{SEMVER}(?P<bundle>-[^/`]+)?/",
+        rf"brain-cli/{cli_version}\g<bundle>/",
         FUNCTIONAL_CLI_PATH,
     )
     functional = _replace_one(
         functional,
-        rf"brain-cli\\{SEMVER}\\",
-        lambda _match: f"brain-cli\\{cli_version}\\",
+        rf"brain-cli\\{SEMVER}(?P<bundle>-[^\\`]+)?\\",
+        lambda match: f"brain-cli\\{cli_version}{match.group("bundle") or ""}\\",
         FUNCTIONAL_CLI_PATH,
     )
     functional = _replace_one(
@@ -484,6 +512,7 @@ def prepare_release(
     cli_version: str | None = None,
     proxy_version: str | None = None,
     amend: bool = False,
+    full_support_core_version: str | None = None,
 ) -> dict[str, str]:
     """Return the release-file edits for one explicit request. This does not write."""
     request = ReleaseRequest(
@@ -496,6 +525,7 @@ def prepare_release(
         release_type=release_type,
         change=tuple(changes),
         amend=amend,
+        full_support_core_version=full_support_core_version,
     )
     return _prepare_changes(request)
 
@@ -517,6 +547,7 @@ def _prepare(args: argparse.Namespace) -> int:
         cli_version=args.cli_version,
         proxy_version=args.proxy_version,
         amend=args.amend,
+        full_support_core_version=args.full_support_core_version,
     )
     print(_diff(args.repo, changes), end="")
     if not changes:
@@ -569,6 +600,7 @@ def _parser() -> argparse.ArgumentParser:
     prepare.add_argument("--core-version", required=True)
     prepare.add_argument("--cli-version")
     prepare.add_argument("--proxy-version")
+    prepare.add_argument("--full-support-core-version")
     prepare.add_argument("--summary", required=True)
     prepare.add_argument("--date", default=date.today().isoformat())
     prepare.add_argument("--release-type")

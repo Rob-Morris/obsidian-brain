@@ -25,6 +25,8 @@ param(
     [ValidateSet("mcp", "cli", "both")]
     [string]$Approvals,
 
+    [string]$Version,
+    [switch]$ReplaceCli,
     [string]$Id,
     [string]$Launcher,
     [switch]$SkipMcp,
@@ -35,6 +37,8 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 $PSNativeCommandUseErrorActionPreference = $false
+
+if ($SkipCli -and $ReplaceCli) { throw "-SkipCli and -ReplaceCli cannot be combined." }
 
 if (($ApprovalClient -or $ApprovalScope -or $Approvals) -and
     -not ($ApprovalClient -and $ApprovalScope -and $Approvals)) {
@@ -69,6 +73,38 @@ function Find-CompatiblePython {
 
 $repoRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
 $python = Find-CompatiblePython -ExplicitLauncher $Launcher
+if ($Version -and $Version -ne "latest" -and $Version -notmatch '^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$') {
+    throw "-Version requires latest or an exact X.Y.Z."
+}
+if (($Version -or -not (Test-Path -LiteralPath (Join-Path $repoRoot "src/brain-core/VERSION"))) -and $env:BRAIN_INSTALL_ACQUIRED -ne $repoRoot) {
+    $acquired = Join-Path ([System.IO.Path]::GetTempPath()) ([System.Guid]::NewGuid().ToString())
+    $selectedVersion = if ($Version) { $Version } else { "latest" }
+    $ref = if ($selectedVersion -eq "latest") { "main" } else { "v$selectedVersion" }
+    $acquisitionCompleted = $false
+    try {
+        & git clone --branch $ref --depth 1 --quiet "https://github.com/rob-morris/obsidian-brain.git" $acquired
+        if ($LASTEXITCODE -ne 0) { throw "Release source acquisition failed." }
+        $acquisition = Join-Path $acquired "cli\_acquisition.py"
+        if (-not (Test-Path -LiteralPath $acquisition)) { throw "Historical verified installation is best-effort; use an explicit local checkout." }
+        & $python $acquisition $selectedVersion $acquired --certify-checkout
+        if ($LASTEXITCODE -ne 0) { throw "Release source verification failed." }
+        $env:BRAIN_INSTALL_ACQUIRED = $acquired
+        & (Join-Path $acquired "install.ps1") @PSBoundParameters
+        $acquisitionCompleted = $LASTEXITCODE -eq 0
+        exit $LASTEXITCODE
+    } finally {
+        Remove-Item Env:BRAIN_INSTALL_ACQUIRED -ErrorAction SilentlyContinue
+        if ($acquisitionCompleted -or -not (Test-Path -LiteralPath (Join-Path $acquired ".brain-source-receipt.json"))) {
+            if (Test-Path -LiteralPath $acquired) { Remove-Item -LiteralPath $acquired -Recurse -Force }
+        } else {
+            Write-Warning "Retained verified source at $acquired. Retry its install.ps1 with the same options and without -Version; this reuses the pinned source."
+        }
+    }
+}
+if (Test-Path -LiteralPath (Join-Path $repoRoot ".brain-source-receipt.json")) {
+    & $python (Join-Path $repoRoot "cli/_acquisition.py") latest $repoRoot --verify-retained
+    if ($LASTEXITCODE -ne 0) { throw "Retained source verification failed." }
+}
 $currentDefaultBrain = ""
 $registryScript = Join-Path $repoRoot "src\brain-core\scripts\vault_registry.py"
 if (Test-Path -LiteralPath $registryScript) {
@@ -91,6 +127,21 @@ if (-not $VaultPath) {
         $VaultPath = if ($inputPath) { $inputPath } else { $defaultPath }
     }
 }
+
+if (Test-Path -LiteralPath (Join-Path $VaultPath ".brain-core")) {
+    $upgradeArgs = @((Join-Path $repoRoot "src/brain-core/scripts/upgrade.py"), "--source", (Join-Path $repoRoot "src/brain-core"), "--vault", $VaultPath)
+    if ($NonInteractive) { $upgradeArgs += "--unattended" }
+    if ($ReplaceCli) { $upgradeArgs += "--replace-cli" }
+    & $python @upgradeArgs
+    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+    if ($Approvals) {
+        $surfaces = if ($Approvals -eq "both") { @("mcp", "cli") } else { @($Approvals) }
+        & $python (Join-Path $repoRoot "src/brain-core/scripts/configure.py") approvals --client $ApprovalClient --scope $ApprovalScope --workspace $VaultPath --surfaces @surfaces
+        exit $LASTEXITCODE
+    }
+    exit 0
+}
+
 
 if ($SkipMcp) {
     $McpScope = "skip"
@@ -122,6 +173,7 @@ if (-not $Client) {
     else { $Client = Read-Host "MCP client: claude, codex, grok, or all (All supported clients)" }
 }
 
+
 if (-not $SkipCli) {
     $localRoot = if ($env:LOCALAPPDATA) {
         Join-Path $env:LOCALAPPDATA "Programs\Brain"
@@ -129,10 +181,15 @@ if (-not $SkipCli) {
         Join-Path $HOME ".local"
     }
     $cliTarget = Join-Path $localRoot "bin\brain.cmd"
+    if (-not $ReplaceCli) {
+        $existingCli = Get-Command brain -ErrorAction SilentlyContinue
+        if ($existingCli -and $existingCli.Source) { $cliTarget = $existingCli.Source }
+    }
     $distributionInstaller = Join-Path $repoRoot "cli\_distribution.py"
-    & $python $distributionInstaller $repoRoot $cliTarget
+    $cliPolicy = if ($ReplaceCli) { @() } else { @("--preserve-existing") }
+    & $python $distributionInstaller $repoRoot $cliTarget @cliPolicy
     if ($LASTEXITCODE -ne 0) {
-        Write-Warning "The Brain CLI distribution failed to install; vault installation has not started."
+        Write-Warning "The Brain CLI distribution failed to install; vault installation has not started. Retry from the same source checkout with Python 3.12+ and cli/_distribution.py, or repair the existing CLI explicitly."
         exit 1
     }
     Write-Host "Installed Brain CLI distribution: $cliTarget"
@@ -153,6 +210,7 @@ $argsList = @(
     "--mcp-scope", $McpScope,
     "--client", $Client
 )
+if ($SkipCli) { $argsList += "--skip-cli" }
 if ($Id) {
     $argsList += @("--id", $Id)
 }

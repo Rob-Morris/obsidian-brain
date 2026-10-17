@@ -72,7 +72,7 @@
     },
     {
       "command_id": "brain.install",
-      "version": 5,
+      "version": 6,
       "owner": "launcher",
       "classification": "machine_mutation",
       "mcp": null,
@@ -160,7 +160,7 @@
     },
     {
       "command_id": "brain.upgrade",
-      "version": 3,
+      "version": 4,
       "owner": "launcher",
       "classification": "machine_mutation",
       "mcp": null,
@@ -397,5 +397,5 @@
       "authority": "operator"
     }
   ],
-  "fingerprint": "sha256:d080cfe7bcda597f537b58c122beb744a6e635a0ce5dd3d0caa4b5683ee24506"
+  "fingerprint": "sha256:a64f04f9777347b07a4faa903cfd4a07fae8b6bc96aed77c6a74271b0a9b1c42"
 }

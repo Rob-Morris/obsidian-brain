@@ -142,6 +142,16 @@ def build_replay(root: Path, candidate: GitCommit) -> str:
 def assess_push(root: Path, updates: list[PushUpdate]) -> None:
     """Accept ordinary fast-forwards, one unreleased/dev finish, or a main publish."""
     from . import recovery_workflow
+    tag_updates = [update for update in updates if update.remote_ref.startswith("refs/tags/")]
+    if len({update.remote_ref for update in tag_updates}) != len(tag_updates):
+        raise PromotionError("a tag appears twice in one push")
+    for update in tag_updates:
+        require_release_tag(root, update)
+        if PROMOTION_BRANCH_RE.fullmatch("promotion/" + update.remote_ref.removeprefix("refs/tags/")):
+            main = next((item.local_sha for item in updates if item.remote_ref == "refs/heads/main"), None)
+            published = main or git.rev(root, "refs/remotes/origin/main")
+            if not on_first_parent_line(root, published, git.rev(root, update.local_sha)):
+                raise PromotionError("release tags must be published together with main or already on main")
     if recovery_workflow.assess_push(root, updates):
         return
     interesting = [
@@ -167,6 +177,7 @@ def assess_push(root: Path, updates: list[PushUpdate]) -> None:
         if set(by_ref) != {"refs/heads/main"}:
             raise PromotionError("main is published on its own")
         require_main_publish(root, main_update)
+        require_publication_tags(root, main_update, tag_updates)
         return
     for update in interesting:
         require_ordinary_update(root, update)
@@ -195,6 +206,15 @@ def validate_candidate(root: Path, candidate: GitCommit, branch: str | None = No
     facts = release.release_facts(root, candidate.sha)
     if not facts.coherent or not facts.core:
         raise PromotionError("candidate release facts are incoherent")
+    baseline = facts.full_support_core_version
+    if baseline is None or not release.SEMVER_RE.fullmatch(baseline) or version_tuple(baseline) > version_tuple(facts.core):
+        raise PromotionError("candidate requires a concrete full-support Core baseline at or below its Core version")
+    previous = release.release_facts(root, ledger)
+    if previous.full_support_core_version and previous.full_support_core_version != "next-release":
+        if version_tuple(baseline) < version_tuple(previous.full_support_core_version):
+            raise PromotionError("candidate full-support baseline cannot decrease")
+        if baseline != previous.full_support_core_version and facts.cli_unix == previous.cli_unix:
+            raise PromotionError("candidate baseline change requires a new CLI component version")
     require_release_intent(
         root, ledger, cut, tip, core_version=facts.core,
         cli_version=facts.cli_unix, proxy_version=facts.proxy,
@@ -210,7 +230,8 @@ def validate_candidate(root: Path, candidate: GitCommit, branch: str | None = No
         release.VERSION_PATH, release.README_PATH, release.UNIX_CLI_PATH,
         release.WINDOWS_CLI_PATH, release.PROXY_PATH, release.CHANGELOG_INDEX_PATH,
         release.FUNCTIONAL_CLI_PATH, release.USER_REFERENCE_PATH,
-        release.COMMAND_CATALOGUE_PATH, f"docs/changelog/v{facts.core}.md",
+        release.COMMAND_CATALOGUE_PATH, release.VERSION_CONTRACT_PATH,
+        f"docs/changelog/v{facts.core}.md",
     }
     changed = set(git.out(root, "diff-tree", "--no-commit-id", "--name-only", "-r", cut, candidate.sha).splitlines())
     if changed - allowed:
@@ -287,3 +308,43 @@ def ledger_tip(root: Path) -> str:
             )
         return ledger
     return main
+
+
+def require_release_tag(root: Path, update: PushUpdate) -> None:
+    name = update.remote_ref.removeprefix("refs/tags/")
+    if not PROMOTION_BRANCH_RE.fullmatch(f"promotion/{name}"):
+        return
+    if update.local_sha == ZERO_SHA:
+        raise PromotionError(f"published release tag {name} cannot be deleted")
+    if update.remote_sha not in {ZERO_SHA, update.local_sha}:
+        raise PromotionError(f"published release tag {name} is immutable")
+    target = git.rev(root, update.local_sha)
+    validate_candidate(root, git.read_commit(root, target), f"promotion/{name}")
+    if not on_first_parent_line(root, git.rev(root, "refs/remotes/origin/unreleased"), target):
+        raise PromotionError(f"release tag {name} must identify a recorded ledger candidate")
+
+
+def require_publication_tags(root: Path, main: PushUpdate, updates: list[PushUpdate]) -> None:
+    releases = git.commits_after(root, main.remote_sha, main.local_sha)
+    required = publication_tags(root, releases)
+    if not required:
+        return
+    observed = git.remote_refs(root, list(required))
+    proposed = {update.remote_ref: git.rev(root, update.local_sha) for update in updates
+                if update.local_sha != ZERO_SHA}
+    for tag, target in required.items():
+        actual = proposed.get(tag, observed.get(f"{tag}^{{}}", observed.get(tag)))
+        if actual != target:
+            raise PromotionError(f"main publication requires {tag} at {target}")
+
+
+def publication_tags(root: Path, releases: list[GitCommit]) -> dict[str, str]:
+    """Bind each ledger release identity to its validated candidate commit."""
+    tags = {}
+    for candidate in releases:
+        branch = validate_candidate(root, candidate)
+        tag = "refs/tags/" + branch.removeprefix("promotion/")
+        if tag in tags and tags[tag] != candidate.sha:
+            raise PromotionError(f"conflicting release identity {tag}")
+        tags[tag] = candidate.sha
+    return tags

@@ -424,3 +424,7 @@ Focused fixture/guard tests are in
 installed CLI or native Docker acceptance. This Stage 8 scenario awaits the
 complete text pipeline, including the Stage 5 IO security fix, before final
 integration certification. It is not included in an existing Make Docker gate.
+
+### Reproducible installation acceptance
+
+Run `tools/brain-lab/brain-lab --state-dir .brain-lab --json scenario run --request-json - < tools/brain-lab/scenarios/reproducible-install.json` against Docker when explicitly exercising installation. This uses a bare base (not a prepared baseline), public dependency downloads and a captured product source. The focused script creates a controlled Git origin to exercise latest/exact resolution, bootstraps the CLI, installs two Brains, checks their source receipts and complete shared-CLI/first-Brain preservation, reads offline metadata, and injects bootstrap failure before vault creation. It is Linux evidence; native Windows/macOS and publication/interruption tests retain their separate owners. The scenario discards its run; inspect returned resource IDs and remove only owned source/base inputs when finished. No personal Brain is imported.

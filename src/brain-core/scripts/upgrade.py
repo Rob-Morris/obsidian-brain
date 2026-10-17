@@ -2797,6 +2797,12 @@ def _apply_upgrade(
     old_version = result["old_version"]
     new_version = result["new_version"]
 
+    from _bootstrap.install_source import read_source, write_source
+    try:
+        selected_source = read_source(Path(source).resolve().parent.parent, core=Path(source))
+    except (OSError, ValueError) as exc:
+        return _refusal(old_version, new_version, reason="source_receipt", message=f"Upgrade refused — invalid source receipt: {exc}")
+
     try:
         journal = UpgradeJournal.open(vault_root, old_version, new_version)
     except OSError as exc:
@@ -2941,6 +2947,8 @@ def _apply_upgrade(
         # that every run may change.
         journal.capture(JOURNAL_STAGE_PRE_COMPILE, [ledger_path])
         journal.capture_tree(JOURNAL_STAGE_PRE_COMPILE, os.path.join(vault_root, ".brain"))
+        write_source(Path(vault_root), selected_source)
+        result["install_source"] = selected_source
         progress(STAGE_VALIDATE_COMPILE, "Validating the upgraded router/compiler state")
         compile_context = {
             "authorisation_before_upgrade": authorisation_before_upgrade,
@@ -3382,6 +3390,10 @@ def main() -> None:
         help="Skip central managed runtime sync after upgrade",
     )
     parser.add_argument(
+        "--replace-cli", action="store_true",
+        help="Explicitly replace the shared machine CLI from the selected source.",
+    )
+    parser.add_argument(
         "--acknowledge-global-cli-cutover",
         action="store_true",
         help="Acknowledge every classified pre-cutover Brain named by preflight.",
@@ -3410,6 +3422,7 @@ def main() -> None:
     if machine_cli.approvals_present():
         try:
             receipt = machine_cli.invoke("brain.upgrade", {
+                "replace_cli": args.replace_cli,
                 "force": args.force,
                 "definition_sync": "auto" if args.sync is None else "enable" if args.sync else "disable",
                 "dependency_sync": "auto" if args.sync_deps is None else "enable" if args.sync_deps else "disable",
@@ -3425,6 +3438,8 @@ def main() -> None:
     def prepare_cutover():
         """Plan the global CLI cutover for a run that will apply; a skipped run never gets here."""
         nonlocal cutover
+        if not args.replace_cli:
+            return None if args.dry_run else lambda _result: {"status": "preserved", "message": "The shared Brain CLI was preserved."}
         try:
             cutover = _prepare_cli_cutover(
                 Path(vault_root),

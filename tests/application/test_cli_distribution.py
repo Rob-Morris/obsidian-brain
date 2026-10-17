@@ -45,7 +45,9 @@ def test_installed_pair_is_versioned_manifested_and_runnable(tmp_path):
 
     manifest = verify_distribution(installed.distribution_root)
     assert installed.cli_binary.stat().st_mode & 0o111
-    assert installed.distribution_root == tmp_path / "prefix" / "lib" / "brain-cli" / CLI_VERSION
+    assert installed.distribution_root.parent == tmp_path / "prefix" / "lib" / "brain-cli"
+    assert installed.distribution_root.name.startswith(f"{CLI_VERSION}-{CORE_VERSION}-")
+    assert manifest["source_identity"] == installed.distribution_root.name
     assert manifest["cli_version"] == CLI_VERSION
     assert manifest["brain_core_version"] == CORE_VERSION
     assert manifest["fingerprint"] == installed.manifest_fingerprint
@@ -110,7 +112,9 @@ def test_windows_target_selects_the_cmd_bootloader(tmp_path):
         expected_brain_core_version=CORE_VERSION,
     )
 
-    assert installed.cli_binary.read_bytes() == (REPO_ROOT / "cli" / "brain.cmd").read_bytes()
+    assert installed.cli_binary.read_bytes() == _distribution._render_bootloader(
+        REPO_ROOT / "cli" / "brain.cmd", installed.distribution_root.name
+    )
     assert verify_distribution(installed.distribution_root)["cli_version"] == CLI_VERSION
 
 
@@ -134,7 +138,9 @@ def test_windows_cmd_bootloader_does_not_require_posix_execute_bits(
     )
 
     assert installed.cli_binary.stat().st_mode & 0o111 == 0
-    assert installed.cli_binary.read_bytes() == (REPO_ROOT / "cli" / "brain.cmd").read_bytes()
+    assert installed.cli_binary.read_bytes() == _distribution._render_bootloader(
+        REPO_ROOT / "cli" / "brain.cmd", installed.distribution_root.name
+    )
 
 
 def test_source_core_version_must_match_requested_distribution(tmp_path):
@@ -254,7 +260,7 @@ def test_after_effect_interrupt_removes_a_new_install_pair(
     target_kind,
 ):
     binary = tmp_path / "prefix" / "bin" / "brain"
-    distribution = tmp_path / "prefix" / "lib" / "brain-cli" / CLI_VERSION
+    distribution = tmp_path / "prefix" / "lib" / "brain-cli" / _distribution._source_identity(REPO_ROOT, CLI_VERSION, CORE_VERSION)[0]
     real_replace = _distribution.os.replace
 
     def replace_then_interrupt(source, destination):
@@ -455,7 +461,7 @@ def test_cutover_projection_has_one_canonical_shape(tmp_path):
 
 def test_unverified_old_distribution_is_reported_honestly_on_failure(tmp_path):
     binary = tmp_path / "prefix" / "bin" / "brain"
-    distribution = tmp_path / "prefix" / "lib" / "brain-cli" / CLI_VERSION
+    distribution = tmp_path / "prefix" / "lib" / "brain-cli" / _distribution._source_identity(REPO_ROOT, CLI_VERSION, CORE_VERSION)[0]
     binary.parent.mkdir(parents=True)
     distribution.mkdir(parents=True)
     binary.write_text("old\n")
@@ -602,3 +608,38 @@ print(json.dumps({'first':first,'other':other,'last':last,'args':sys.argv[2:]}))
     assert payload['first'][1]['result']['identity']['principal'] == 'operator:job-user'
     assert payload['last'][1]['result']['identity']['principal'] == 'operator:job-user'
     assert payload['other'][0] != 0
+
+
+def test_healthy_incapable_cli_is_preserved_without_distribution_writes(tmp_path):
+    binary = tmp_path / 'prefix/bin/brain'
+    binary.parent.mkdir(parents=True)
+    binary.write_text('#!/bin/sh\nif [ "$1" = --version ]; then echo "brain 1.0.0"; exit 0; fi\nexit 2\n')
+    binary.chmod(0o755)
+    before = binary.read_bytes()
+    assert _distribution.ensure_cli(REPO_ROOT, binary) is None
+    assert binary.read_bytes() == before
+    assert not (tmp_path / 'prefix/lib').exists()
+
+
+def test_ambiguous_cli_failure_is_not_bootstrap_authority(tmp_path):
+    binary = tmp_path / 'prefix/bin/brain'
+    binary.parent.mkdir(parents=True)
+    binary.write_text('#!/bin/sh\necho "permission denied" >&2\nexit 1\n')
+    binary.chmod(0o755)
+    before = binary.read_bytes()
+    with pytest.raises(ValueError, match='preserved'):
+        _distribution.ensure_cli(REPO_ROOT, binary)
+    assert binary.read_bytes() == before
+    assert not (tmp_path / 'prefix/lib').exists()
+
+
+def test_fresh_preserve_mode_honours_explicit_bootstrap_python(tmp_path, monkeypatch, capsys):
+    base_python = Path(getattr(sys, '_base_executable', sys.executable)).resolve()
+    monkeypatch.setattr(_distribution.sys, '_base_executable', str(tmp_path / 'unavailable-default-python'))
+    binary = tmp_path / 'prefix/bin/brain'
+    assert _distribution.main([str(REPO_ROOT), str(binary), '--preserve-existing',
+                               '--bootstrap-python', str(base_python)]) == 0
+    result = json.loads(capsys.readouterr().out)
+    installed = Path(result['distribution_root'])
+    assert (installed / '.bootstrap-python').read_text().strip() == str(base_python)
+    assert verify_distribution(installed)['cli_version'] == CLI_VERSION

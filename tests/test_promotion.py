@@ -836,7 +836,8 @@ def test_publish_and_the_hook_refuse_a_dev_replay_off_the_unreleased_line(tmp_pa
         )
     candidates.assess_push(
         root,
-        [model.PushUpdate("refs/heads/main", shas["main"], candidate)],
+        [model.PushUpdate("refs/heads/main", shas["main"], candidate),
+         model.PushUpdate("refs/tags/v1.1.0", model.ZERO_SHA, candidate)],
     )
 
 

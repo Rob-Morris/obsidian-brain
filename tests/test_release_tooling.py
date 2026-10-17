@@ -41,6 +41,7 @@ def _release_repo(tmp_path: Path) -> Path:
     _git(root, "config", "user.name", "Release Tests")
     _git(root, "config", "user.email", "release@example.invalid")
     _write(root, release.VERSION_PATH, "1.0.0\n")
+    _write(root, release.VERSION_CONTRACT_PATH, 'CLI_FULL_SUPPORT_CORE_VERSION = "1.0.0"\n')
     _write(root, release.README_PATH, "![Version](version-1.0.0-blue)\n")
     _write(
         root,
@@ -198,6 +199,52 @@ def test_command_catalogue_route_renders_from_selected_source_tree():
     tracked = json.loads((REPO_ROOT / release.COMMAND_CATALOGUE_PATH).read_text())
 
     assert rendered == tracked
+
+
+@pytest.mark.parametrize(
+    "baseline,cli_version,error",
+    [
+        ("0.9.0", "2.1.0", "cannot decrease"),
+        ("1.2.0", "2.1.0", "exceeds"),
+        ("1.1.0", None, "requires a CLI version change"),
+        ("invalid", "2.1.0", "invalid full-support"),
+    ],
+)
+def test_full_support_baseline_refuses_conflicting_intent(tmp_path, baseline, cli_version, error):
+    root = _release_repo(tmp_path)
+    with pytest.raises(release.ReleaseError, match=error):
+        release.prepare_release(
+            root, core_version="1.1.0", cli_version=cli_version,
+            full_support_core_version=baseline, summary="Advance support baseline",
+            release_date="2026-10-18", release_type=None, changes=[],
+        )
+    assert (root / release.VERSION_PATH).read_text() == "1.0.0\n"
+
+
+def test_full_support_baseline_is_stamped_only_on_explicit_intent(tmp_path, monkeypatch):
+    root = _release_repo(tmp_path)
+    monkeypatch.setattr(release, "_render_command_catalogue_route", lambda root: "{}\n")
+    request = dict(
+        core_version="1.1.0", cli_version="2.1.0", summary="Advance support baseline",
+        release_date="2026-10-18", release_type="Additive", changes=["Expose support metadata."],
+    )
+    retained = release.prepare_release(root, **request)
+    assert release.VERSION_CONTRACT_PATH not in retained
+    advanced = release.prepare_release(root, **request, full_support_core_version="1.1.0")
+    assert advanced[release.VERSION_CONTRACT_PATH] == 'CLI_FULL_SUPPORT_CORE_VERSION = "1.1.0"\n'
+    assert release.release_facts(root, "worktree").full_support_core_version == "1.0.0"
+
+
+def test_next_release_baseline_uses_selected_release_number(tmp_path, monkeypatch):
+    root = _release_repo(tmp_path)
+    _write(root, release.VERSION_CONTRACT_PATH, 'CLI_FULL_SUPPORT_CORE_VERSION = "next-release"\n')
+    monkeypatch.setattr(release, "_render_command_catalogue_route", lambda root: "{}\n")
+    changes = release.prepare_release(
+        root, core_version="1.1.0", cli_version="2.1.0",
+        summary="Introduce support metadata", release_date="2026-10-18",
+        release_type="Additive", changes=["Report CLI support metadata."],
+    )
+    assert changes[release.VERSION_CONTRACT_PATH] == 'CLI_FULL_SUPPORT_CORE_VERSION = "1.1.0"\n'
 
 
 def test_export_materialises_only_the_selected_commit(tmp_path, capsys):
@@ -392,3 +439,17 @@ def test_release_stage_cleanup_failure_does_not_mask_initiating_error(
     assert caught.value.rollback_complete is False
     assert len(caught.value.recovery_paths) == 1
     assert caught.value.recovery_paths[0].name.endswith(".release")
+
+
+@pytest.mark.parametrize("explicit", [False, True])
+def test_pending_baseline_explicit_and_automatic_stamp_have_same_result(tmp_path, monkeypatch, explicit):
+    root = _release_repo(tmp_path)
+    _write(root, release.VERSION_CONTRACT_PATH, 'CLI_FULL_SUPPORT_CORE_VERSION = "next-release"\n')
+    monkeypatch.setattr(release, "_render_command_catalogue_route", lambda root: "{}\n")
+    changes = release.prepare_release(
+        root, core_version="1.1.0", cli_version=None,
+        full_support_core_version="1.1.0" if explicit else None,
+        summary="Stamp pending baseline", release_date="2026-10-18",
+        release_type="Additive", changes=["Declare the selected release baseline."],
+    )
+    assert changes[release.VERSION_CONTRACT_PATH] == 'CLI_FULL_SUPPORT_CORE_VERSION = "1.1.0"\n'
