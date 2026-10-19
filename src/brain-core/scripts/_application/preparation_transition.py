@@ -66,6 +66,10 @@ def transition_binding(context, request, *, plan, router, frozen_inputs=None, ef
                 "result": result}
     observations.append(ObservedResource("effects", request.COMMAND_ID,
                                         content_digest(canonical_json(manifest))))
+    from .relationship._native import prepare as prepare_relationships
+    _semantic_plan, semantic_observations, frozen_inputs = prepare_relationships(
+        context, request, plan, router, frozen_inputs)
+    observations.extend(semantic_observations)
     return bind_operation(request, observations=observations, frozen_inputs=frozen_inputs,
                           review={"moves": manifest["moves"], "delete": list(deleted),
                                   "writes": sorted(writes),

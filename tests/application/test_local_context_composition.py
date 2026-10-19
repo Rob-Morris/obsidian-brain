@@ -155,11 +155,11 @@ def test_built_in_profiles_derive_cumulative_exact_application_commands():
     profiles = builtin_profile_allow_lists(current_application_catalogue())
 
     assert {name: len(tools) for name, tools in profiles.items()} == {
-        "reader": 30,
-        "contributor": 61,
-        "maintainer": 81,
-        "operator": 88,
-        "administrator": 89,
+        "reader": 37,
+        "contributor": 72,
+        "maintainer": 98,
+        "operator": 105,
+        "administrator": 106,
     }
     assert (
         set(profiles["reader"])
@@ -202,7 +202,7 @@ def test_every_application_command_has_the_exact_five_profile_authority_matrix()
         "administrator": 4,
     }
 
-    assert len(catalogue.entries) == 89
+    assert len(catalogue.entries) == 106
     for profile, maximum in profile_rank.items():
         allowed = set(profiles[profile])
         for entry in catalogue.entries:

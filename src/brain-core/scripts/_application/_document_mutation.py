@@ -166,6 +166,7 @@ def execute_document_mutation(
     from _common import (
         DocumentRevisionConflict,
         MutationLockError,
+        PartialApplyError,
         public_mutation_error_message,
         validate_document_revision,
         vault_mutation_lock,
@@ -228,6 +229,12 @@ def execute_document_mutation(
             admit_owner(context, request, document_binding, intent=intent,
                         opened=opened, body=body, file_index=file_index, effective=effective,
                         plan=plan, router=router)
+            from .relationship import _native as relationship_native
+            from .workspace_transitions import transition_effect_snapshot, committed_transition_effects
+            semantic_plan = None
+            if plan.artefact_transition is not None:
+                effects_before = transition_effect_snapshot(context, plan.artefact_transition)
+                semantic_plan = relationship_native.begin(context, request, plan.artefact_transition, router)
             if intent.resource == "skill" and ":" not in intent.reference:
                 from _skill_library import materialise_core_skill_for_edit
 
@@ -264,6 +271,7 @@ def execute_document_mutation(
                     **_edit_arguments(intent),
                     **subject_kwargs,
                 )
+                relationship_native.complete(context, semantic_plan)
                 staging_warning = finalise_staged_body(vault_root, staged_handle)
                 if opened.resource == "artefact":
                     from compile_router import _hash_index_payload
@@ -272,6 +280,8 @@ def execute_document_mutation(
                     elif context.derived_snapshots is not None:
                         context.derived_snapshots.invalidate()
             except FileNotFoundError as exc:
+                if semantic_plan is not None:
+                    raise PartialApplyError(str(exc) + "; inspect history.repair operation " + semantic_plan.operation) from exc
                 raise MutationOutcomeUncertain(
                     "document mutation outcome could not be classified"
                 ) from exc
@@ -300,6 +310,20 @@ def execute_document_mutation(
     except TransitionIndexesIncomplete as exc:
         return WorkspaceMutationPartial(request.COMMAND_ID, request.COMMAND_VERSION, exc.error,
                        (CommittedEffect(request.COMMAND_ID, result["path"]),),
+                       warnings=conversion_warnings(opened.path, opened.conversion_code),
+                       mutation_context=effective)
+    except PartialApplyError as exc:
+        from ._transition_indexes import transition_error, combine_transition_errors
+        effects = committed_transition_effects(context, request, plan.artefact_transition, effects_before)
+        effects += relationship_native.committed_effects(context, semantic_plan)
+        try:
+            reconcile_transition_indexes(context)
+        except PartialApplyError as index_error:
+            exc = combine_transition_errors(exc, index_error)
+        if not effects:
+            raise MutationOutcomeUncertain(str(exc)) from exc
+        return WorkspaceMutationPartial(request.COMMAND_ID, request.COMMAND_VERSION,
+                       transition_error(exc), effects,
                        warnings=conversion_warnings(opened.path, opened.conversion_code),
                        mutation_context=effective)
     except DocumentRevisionConflict as exc:
@@ -443,8 +467,10 @@ def document_binding(context, request, *, intent, opened, body, plan, router,
     lifecycle_review = {}
     if plan.artefact_transition is not None:
         lifecycle = transition_binding(
-            context, request, plan=plan.artefact_transition, router=router
+            context, request, plan=plan.artefact_transition, router=router,
+            frozen_inputs=frozen_inputs,
         )
+        frozen_inputs = lifecycle.frozen_inputs
         observations.extend(lifecycle.observations)
         lifecycle_review = {"lifecycle": {
             key: lifecycle.review[key] for key in ("moves", "writes", "delete")

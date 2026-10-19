@@ -64,7 +64,27 @@ def test_application_header_is_exact_catalogue_derived_mcp_mapping():
         if Projection.MCP in entry.eligible_projections
     )
 
-    assert len(header.tools) == len(eligible) == 73
+    assert len(header.tools) == len(eligible) == 90
+    assert {name: tool.command_id for name, tool in header.tools
+            if name.startswith(("relationship_", "history_"))} == {
+        "history_cleanup": "history.cleanup",
+        "history_configure": "history.configure",
+        "history_correct": "history.correct",
+        "history_policy": "history.policy",
+        "history_query": "history.query",
+        "history_read": "history.read",
+        "history_repair": "history.repair",
+        "history_write": "history.write",
+        "relationship_batch": "relationship.batch",
+        "relationship_check": "relationship.check",
+        "relationship_define": "relationship.define",
+        "relationship_definitions": "relationship.definitions",
+        "relationship_expose": "relationship.expose",
+        "relationship_query": "relationship.query",
+        "relationship_read": "relationship.read",
+        "relationship_refresh": "relationship.refresh",
+        "relationship_undefine": "relationship.undefine",
+    }
     assert header.interface_epoch == catalogue.interface_epoch
     assert header.catalogue_schema == catalogue.schema
     assert header.result_schema == catalogue.result_schema

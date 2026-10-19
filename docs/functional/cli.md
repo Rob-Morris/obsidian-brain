@@ -104,6 +104,27 @@ CLI rendering also works with earlier command-interface Brains.
 
 `application` commands are owned by the selected Brain. `launcher` commands are machine-global and owned by the installed CLI distribution. The composed view preserves that owner and each catalogue's fingerprint; it does not create a third semantic catalogue.
 
+## Semantic relationships and history
+
+These are selected-Brain application commands, with the same JSON contracts as
+MCP. For example, using an existing artefact and its previously exposed native
+occurrences:
+
+```bash
+brain command describe relationship.query --owner application --json
+brain relationship query --request-json '{"subject":{"kind":"artefact","reference":"design/example"},"include_native":true}' --json
+brain history policy --request-json '{}' --json
+brain relationship check --request-json '{"work_budget":5000}' --json
+```
+
+Normal Brain selection and access rules apply. `--dry-run` previews supported
+mutations, including `relationship.batch` and `history.cleanup`; it is an adapter
+option rather than a field in their JSON requests. Inspect nested findings and
+`complete` as well as the outer status: exit 0 does not certify source completeness.
+Use the [shipped relationship reference](../../src/brain-core/standards/semantic-relationships.md)
+for registration, authoring, native setters, history corrections and the distinct
+`relationship.refresh` versus `history.repair` recovery paths.
+
 ## Select a Brain
 
 Selection options are global and mutually constrained:
