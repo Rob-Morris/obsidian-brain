@@ -320,3 +320,47 @@ def test_native_windows_install_and_granular_mcp_round_trip(tmp_path):
     environment = asyncio.run(_call_installed_environment_read(vault, env))
     assert Path(environment["vault_root"]) == vault
     assert environment["platform"] == "win32"
+
+    original = "Windows retained output 雪 😀.\n" * 180
+    source = vault / "README.md"
+    source.write_text(original, encoding="utf-8", newline="")
+
+    def call(command, request, session_file=None):
+        argv = [str(cli), "--vault", str(vault), *command, "--json",
+                "--request-json", json.dumps(request)]
+        if session_file is not None:
+            argv.extend(["--result-session-file", str(session_file)])
+        completed = subprocess.run(argv, cwd=tmp_path, env=env,
+                                   capture_output=True, text=True, timeout=90)
+        assert completed.returncode == 0, completed.stderr or completed.stdout
+        return json.loads(completed.stdout)
+
+    def content(payload):
+        if "fragments" in payload:
+            return "".join(item["text"] + item["line_ending"] for item in payload["fragments"])
+        return payload["content"]
+
+    first = call(["vault", "read-file"], {"path": "README.md"})
+    assert first["status"] == "ok" and first["delivery"]["total_pages"] > 1
+    session_file = Path(first["result_session_file"])
+    credential = session_file.read_bytes()
+    result_id = first["delivery"]["result_id"]
+    source.write_text("Changed after opening.\n", encoding="utf-8", newline="")
+    output = content(first["result"])
+    page = first
+    for _ in range(first["delivery"]["total_pages"] - 1):
+        cursor = page["delivery"]["continuation"]
+        assert cursor is not None
+        page = call(["result", "read"], {"result_id": result_id, "continuation": cursor}, session_file)
+        assert page["status"] == "ok"
+        output += content(page["result"]["envelope"]["result"])
+    assert output == original
+    assert page["delivery"]["continuation"] is None
+    assert session_file.read_bytes() == credential
+    assert source.read_text(encoding="utf-8") == "Changed after opening.\n"
+
+    cleared = call(["result", "clear"], {}, session_file)
+    assert cleared["result"]["cleared"]
+    reused = call(["vault", "read-file"], {"path": "README.md"}, session_file)
+    assert content(reused["result"]) == "Changed after opening.\n"
+    assert session_file.read_bytes() == credential

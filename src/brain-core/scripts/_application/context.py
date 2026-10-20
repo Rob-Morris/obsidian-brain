@@ -153,6 +153,10 @@ class DerivedSnapshotStore(Protocol):
 
     def load_lexical_index(self) -> dict: ...
 
+    def list_revision(self, location: str) -> str | None:
+        """Identify a cheap maintained projection; None requires retained delivery."""
+        ...
+
     def invalidate(self, *names: str) -> None: ...
 
 
@@ -160,6 +164,24 @@ class SessionMirrorPublisher(Protocol):
     """Publish the human-readable session mirror through an adapter-owned policy."""
 
     def publish(self, model: Mapping[str, object]) -> None: ...
+
+
+class ResultDeliveryPort(Protocol):
+    """Deliver produced output without granting source execution authority."""
+
+    credential: str | None
+
+    def source_finished(self, context, entry, admission, result) -> None: ...
+
+    def begin(self, context, command_id: str, request=None): ...
+
+    def finish(self, context, request, result, ticket) -> dict: ...
+
+    def read(self, context, request) -> dict: ...
+
+    def search(self, context, request) -> dict: ...
+
+    def clear(self, context) -> None: ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -264,6 +286,7 @@ class InvocationContext:
     session_mirror: SessionMirrorPublisher | None = None
     admission: InvocationAdmission | None = None
     maintenance: MaintenanceInvoker | None = None
+    result_delivery: ResultDeliveryPort | None = None
 
     def __post_init__(self) -> None:
         if not self.profile.strip():

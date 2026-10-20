@@ -114,7 +114,18 @@ def _registered(tmp_path, allowed_tools):
 
 
 def test_mcp_discovery_returns_the_registered_edit_name(tmp_path):
-    mcp, _catalogue, _resolver, names = _registered(tmp_path, ("command.list", "command.describe"))
+    from dataclasses import replace
+    from _command_interface.result_delivery import ResultDeliverySession
+    from _command_interface.result_store import FileResultStore
+    mcp = MCPServer("granular-discovery-test")
+    create = _context_factory(tmp_path, ("command.list", "command.describe"))
+    def result_context(**metadata):
+        context = create(**metadata)
+        store = FileResultStore(context.selected_brain.vault_root, context.selected_brain.brain_id,
+                                context.authorisation.service.identity.principal)
+        return replace(context, result_delivery=ResultDeliverySession(store, store.issue()))
+    names = register_application_tools(mcp, catalogue=current_application_catalogue(),
+        resolver=current_request_resolver(), context_factory=result_context, invocation_guard=lambda: None)
     listed = asyncio.run(mcp.call_tool("command_list", {"query": "document_structured-edit"}))
     assert not listed.is_error
     rows = listed.structured_content["result"]["entries"]
@@ -142,9 +153,18 @@ def test_every_mcp_eligible_command_registers_one_flat_canonical_schema(tmp_path
     by_name = {tool.name: tool for tool in tools}
     for entry in eligible:
         tool = by_name[project_identity(entry.command_id).mcp_tool]
-        schema = request_schema(entry.request_type)
+        from _application._schema_compaction import compact_mcp_annotations
+        schema = compact_mcp_annotations(request_schema(entry.request_type))
         actual = dict(tool.input_schema)
         properties = dict(actual["properties"])
+        session = properties.pop("brain_session")
+        assert session["type"] == "string" and session["maxLength"] == 512
+        required_session = entry.command_id in {"result.clear", "result.read", "result.search"}
+        assert ("brain_session" in actual.get("required", ())) is required_session
+        if required_session:
+            actual["required"] = [name for name in actual["required"] if name != "brain_session"]
+            if not actual["required"] and "required" not in schema:
+                actual.pop("required")
         selector = properties.pop("brain_operation", None)
         if entry.initial_class is InitialAuthorisationClass.CONTROL:
             assert selector is None
@@ -395,8 +415,10 @@ def test_every_minimal_request_survives_real_mcpserver_projection(tmp_path):
         payload = minimal_request_payload(entry.request_type)
         resolved = resolver.resolve(entry.command_id, payload)
         assert type(resolved) is entry.request_type
+        wire_payload = ({**payload, "brain_session": "a" * 64}
+                        if entry.command_id in {"result.clear", "result.read", "result.search"} else payload)
         result = asyncio.run(
-            mcp.call_tool(project_identity(entry.command_id).mcp_tool, payload)
+            mcp.call_tool(project_identity(entry.command_id).mcp_tool, wire_payload)
         )
         assert result.structured_content["command"] == entry.command_id
         assert (

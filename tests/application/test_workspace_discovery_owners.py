@@ -216,5 +216,5 @@ def test_resource_search_keeps_its_existing_result_shape():
     assert "primary_workspace" not in properties
     assert "relevant_workspaces" not in properties
     from _application.projection import canonical_wire_value
-    result = canonical_wire_value(search_payload("lexical", [{"path": "resource"}]))
+    result = canonical_wire_value(search_payload("lexical", [{"path": "resource"}], requested_top_k=10))
     assert set(result["items"][0]) == {"path", "title", "resource_type", "status", "score", "snippet"}
