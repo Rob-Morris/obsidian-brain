@@ -258,11 +258,8 @@ def _pinned_retry_command(argv, directory, environment, *, platform=None):
         request_index = argv.index("--request-json") + 1
         request = json.dumps(json.loads(argv[request_index]), ensure_ascii=True)
         argv[request_index] = "-"
-        # The ASCII JSON pipe must not inherit a BOM-producing PowerShell encoding.
-        statements.append("$retryOutputEncoding = $OutputEncoding")
-        statements.append("try { $OutputEncoding = [Text.Encoding]::ASCII; " + quote(request)
-                          + " | & " + " ".join(quote(value) for value in argv)
-                          + " } finally { $OutputEncoding = $retryOutputEncoding }")
+        # JSON travels over stdin, avoiding PowerShell/cmd.exe native argv quoting.
+        statements.append(quote(request) + " | & " + " ".join(quote(value) for value in argv))
         return "; ".join(statements)
     invocation = ["env", *(name + "=" + value for name, value in selected.items()), *argv]
     return "cd " + shlex.quote(str(directory)) + " && " + shlex.join(invocation)
@@ -435,10 +432,12 @@ def _resolve_for_command(common, entry, payload, *, command_id) -> SelectedBrain
 def _request_payload(value: str | None) -> dict[str, object]:
     if value is None:
         return {}
-    raw = sys.stdin.read() if value == "-" else value
     try:
+        raw = getattr(sys.stdin, "buffer", sys.stdin).read() if value == "-" else value
+        if isinstance(raw, bytes):
+            raw = raw.decode("utf-8-sig")
         decoded = json.loads(raw)
-    except json.JSONDecodeError as exc:
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
         raise LocalCliUsageError(f"--request-json is invalid JSON: {exc}") from exc
     if not isinstance(decoded, dict):
         raise LocalCliUsageError("--request-json must decode to an object")

@@ -373,10 +373,13 @@ def test_native_powershell_pinned_retry_round_trips_cmd_stdin_and_selectors(tmp_
     directory.mkdir()
     capture = directory / "capture.py"
     capture.write_text(
-        "import json,os,sys; raw=sys.stdin.read(); print('stdin='+ascii(raw),file=sys.stderr); "
-        "json.dump(dict(argv=sys.argv[1:], request=json.loads(raw), "
-        "cwd=os.getcwd(), vault=os.environ.get('BRAIN_VAULT_ROOT'), "
-        "workspace=os.environ.get('BRAIN_WORKSPACE_DIR')),sys.stdout)", encoding="utf-8")
+        "import json,os,sys\n"
+        f"sys.path[:0] = {[str(REPO_ROOT / 'cli'), str(SCRIPTS)]!r}\n"
+        "from _local_cli.main import _request_payload\n"
+        "request = _request_payload('-')\n"
+        "json.dump(dict(argv=sys.argv[1:], request=request, cwd=os.getcwd(), "
+        "vault=os.environ.get('BRAIN_VAULT_ROOT'), "
+        "workspace=os.environ.get('BRAIN_WORKSPACE_DIR')),sys.stdout)\n", encoding="utf-8")
     binary = directory / "brain.cmd"
     binary.write_text('@"' + sys.executable + '" "%~dp0capture.py" %*\n', encoding="utf-8")
     payload = {"source_root": str(directory / "pinned source"), "version": None,
@@ -399,28 +402,7 @@ def test_native_powershell_pinned_retry_round_trips_cmd_stdin_and_selectors(tmp_
              "exit $retryExitCode")
     completed = subprocess.run([shell, "-NoProfile", "-Command", probe],
                                capture_output=True, text=True, encoding="utf-8", timeout=30)
-    diagnostics = []
-    if completed.returncode != 0:
-        # Failure-only native spike: identify which scope/encoding reaches .cmd stdin.
-        variants = {
-            "outside-try": command.replace("try { $OutputEncoding = [Text.Encoding]::ASCII; ",
-                                            "$OutputEncoding = [Text.Encoding]::ASCII; try { "),
-            "global": command.replace("$OutputEncoding", "$global:OutputEncoding"),
-            "utf8-no-bom": command.replace("[Text.Encoding]::ASCII", "[Text.UTF8Encoding]::new($false)"),
-            "no-finally": command.replace("try { ", "").replace(
-                " } finally { $OutputEncoding = $retryOutputEncoding }", ""),
-        }
-        for name, variant in variants.items():
-            try:
-                diagnostic = subprocess.run([shell, "-NoProfile", "-Command",
-                    "$OutputEncoding = [Text.UTF8Encoding]::new($true); " + variant],
-                    capture_output=True, text=True, encoding="utf-8", timeout=30)
-                diagnostics.append({"variant": name, "exit": diagnostic.returncode,
-                                    "stdout": diagnostic.stdout, "stderr": diagnostic.stderr})
-            except subprocess.TimeoutExpired as exc:
-                diagnostics.append({"variant": name, "timeout": True,
-                                    "stdout": str(exc.stdout), "stderr": str(exc.stderr)})
-    assert completed.returncode == 0, completed.stderr + json.dumps(diagnostics, ensure_ascii=True)
+    assert completed.returncode == 0, completed.stderr
     assert completed.stdout, completed.stderr
     actual = json.loads(completed.stdout)
     expected_argv = argv[1:]
