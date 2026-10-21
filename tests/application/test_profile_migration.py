@@ -48,7 +48,7 @@ def _previous_granular_builtins():
     for profile, tools in builtin_profile_allow_lists(
         current_application_catalogue()
     ).items():
-        previous = set(tools) - {
+        previous = {tool for tool in tools if not tool.startswith(("relationship.", "history."))} - {
             "access.reduce",
             "access.request",
             "access.status",
@@ -154,11 +154,11 @@ def test_exact_legacy_builtins_become_catalogue_derived_granular_profiles():
     )
 
     assert {name: len(value["allow"]) for name, value in result.profiles.items()} == {
-        "reader": 30,
-        "contributor": 61,
-        "maintainer": 81,
-        "operator": 88,
-        "administrator": 89,
+        "reader": 37,
+        "contributor": 72,
+        "maintainer": 98,
+        "operator": 105,
+        "administrator": 106,
     }
     assert [change.strategy for change in result.changes] == [
         "builtin",
@@ -322,11 +322,11 @@ def test_v055_upgrade_migration_writes_all_five_builtin_profiles(tmp_path):
         name: len(definition["allow"])
         for name, definition in migrated["vault"]["profiles"].items()
     } == {
-        "reader": 30,
-        "contributor": 61,
-        "maintainer": 81,
-        "operator": 88,
-        "administrator": 89,
+        "reader": 37,
+        "contributor": 72,
+        "maintainer": 98,
+        "operator": 105,
+        "administrator": 106,
     }
     assert migrated["vault"]["brain_name"] == "Test Brain"
     assert migrated["defaults"] == {"default_profile": "operator"}

@@ -1029,7 +1029,19 @@ def check_unreadable_files(vault_root, router=None, *, ctx=None):
     return findings
 
 
+def check_relationship_integrity(vault_root, router, *, ctx=None):
+    """Report bounded semantic integrity without inferring policy obligations."""
+    from _relationships.checks import inspect
+    result = inspect(vault_root, router)
+    return [{"check": "relationship_integrity", "code": item["state"],
+             "severity": "warning", "file": item.get("path"),
+             "message": (item.get("identity", "relationship inventory") + ": " + item["reason"]),
+             "fix": item.get("remediation", "Run relationship.check for scoped diagnostics.")}
+            for item in result["findings"]]
+
+
 ALL_CHECKS = [
+    check_relationship_integrity,
     check_root_files,
     check_naming,
     check_duplicate_frontmatter,

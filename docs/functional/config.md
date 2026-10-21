@@ -116,6 +116,25 @@ Config freshness is checked before profile enforcement and before `session.start
 
 ---
 
+## Relationship vocabulary and capture policy
+
+Semantic configuration is shared authored JSON under `_Config/Relationships/`,
+separate from the three-layer YAML defaults merge. `relationship.define` owns
+vault-local `predicate/` and `event-type/` definitions; minimal identity, name and
+meaning suffice before adding optional constraints. `history.configure` owns
+`policy/capture.json` and requires the effective revision from `history.policy`.
+Absent a local policy, built-in selected-history defaults apply. Selecting an empty
+list disables automatic capture; it does not delete old events.
+
+`_Relationships/` holds shared records, pinned historic contracts and recovery
+operations. `.brain/local/relationships.sqlite` is a disposable projection and
+must not be treated as authored configuration. Definition sync preserves local
+semantic catalogues and reports conflicts instead of silently replacing them.
+No YAML feature flag enables an event watcher, arbitrary executable predicate
+semantics or automatic retention/pruning. See the
+[shipped relationship reference](../../src/brain-core/standards/semantic-relationships.md)
+for selected classes, command permissions, evolution and recovery.
+
 ## Machine and workspace state
 
 Brain keeps a few machine-local and workspace-local files that record which

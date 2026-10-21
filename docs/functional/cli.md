@@ -104,6 +104,27 @@ CLI rendering also works with earlier command-interface Brains.
 
 `application` commands are owned by the selected Brain. `launcher` commands are machine-global and owned by the installed CLI distribution. The composed view preserves that owner and each catalogue's fingerprint; it does not create a third semantic catalogue.
 
+## Semantic relationships and history
+
+These are selected-Brain application commands, with the same JSON contracts as
+MCP. For example, using an existing artefact and its previously exposed native
+occurrences:
+
+```bash
+brain command describe relationship.query --owner application --json
+brain relationship query --request-json '{"subject":{"kind":"artefact","reference":"design/example"},"include_native":true}' --json
+brain history policy --request-json '{}' --json
+brain relationship check --request-json '{"work_budget":5000}' --json
+```
+
+Normal Brain selection and access rules apply. `--dry-run` previews supported
+mutations, including `relationship.batch` and `history.cleanup`; it is an adapter
+option rather than a field in their JSON requests. Inspect nested findings and
+`complete` as well as the outer status: exit 0 does not certify source completeness.
+Use the [shipped relationship reference](../../src/brain-core/standards/semantic-relationships.md)
+for registration, authoring, native setters, history corrections and the distinct
+`relationship.refresh` versus `history.repair` recovery paths.
+
 ## Select a Brain
 
 Selection options are global and mutually constrained:
@@ -845,7 +866,7 @@ The bundle discriminator includes Core version and a source-content digest, so a
 
 The distribution contains the launcher application plus the Brain Core payload needed for install, upgrade and selected-Brain execution. Installation and replacement verify a content manifest and executable identity; failed replacement restores the proven old binary/distribution pair or retains recovery material and reports the outcome as unverified. Failed upgrade results carry every known absolute recovery path in the structural error and durable launcher receipt: residual staging material after a verified rollback is a known partial outcome, while unverified rollback remains outcome-unknown. Standalone human output lists the same paths before the failure message. Once the new pair is verified, failure or interruption while removing an old backup is committed post-upgrade recovery work and never rolls Brain Core back to an older version. Both the launcher result and standalone distribution JSON list the surviving `cleanup_recovery_paths`.
 
-The bootloader requires Python 3.12 or newer. `BRAIN_CLI_VERSION` is `6.1.0`; `BRAIN_INSTALL_REF` is `v0.74.0`.
+The bootloader requires Python 3.12 or newer. `BRAIN_CLI_VERSION` is `6.1.0`; `BRAIN_INSTALL_REF` is `v0.74.1`.
 
 JSON command invocations validate the structural stdout envelope, including
 command identity, version and exit category. Incidental child stderr does not

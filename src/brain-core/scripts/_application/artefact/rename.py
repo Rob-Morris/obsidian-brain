@@ -13,11 +13,11 @@ from .._artefact_transition import (
     validate_string,
 )
 from ..context import InvocationContext
-from ..workspace_context import WorkspaceAwareRequest, workspace_request_decoder, validate_workspace_request
+from ..workspace_context import WorkspaceDispositionRequest, workspace_disposition_decoder, validate_workspace_request
 
 
 @dataclass(frozen=True, slots=True)
-class ArtefactRenameRequest(WorkspaceAwareRequest):
+class ArtefactRenameRequest(WorkspaceDispositionRequest):
     COMMAND_ID: ClassVar[str] = "artefact.rename"
     COMMAND_VERSION: ClassVar[int] = 2
     RESULT_TYPE: ClassVar[type] = ArtefactRenamePayload
@@ -43,7 +43,7 @@ def execute(context: InvocationContext, request: ArtefactRenameRequest):
     )
 
 
-@workspace_request_decoder
+@workspace_disposition_decoder
 def decode(payload: Mapping[str, object]) -> ArtefactRenameRequest:
     return decode_required_strings(payload, ArtefactRenameRequest, ("source", "dest"))
 

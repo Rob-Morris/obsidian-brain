@@ -20,7 +20,7 @@ from .._mutation_support import (
     decode_mutation_content,
 )
 from ..context import InvocationContext
-from ..workspace_context import WorkspaceAwareRequest, workspace_request_decoder
+from ..workspace_context import WorkspaceDispositionRequest, workspace_disposition_decoder
 from ._types import DocumentLocator, decode_document, validate_document_request
 
 
@@ -31,7 +31,7 @@ class DocumentWriteBodyOperation(str, Enum):
 
 
 @dataclass(frozen=True, slots=True)
-class DocumentWriteBodyRequest(WorkspaceAwareRequest):
+class DocumentWriteBodyRequest(WorkspaceDispositionRequest):
     COMMAND_ID: ClassVar[str] = "document.write-body"
     COMMAND_VERSION: ClassVar[int] = 2
     RESULT_TYPE: ClassVar[type] = DocumentWriteBodyPayload
@@ -97,7 +97,7 @@ def prepare(context, request, *, frozen_inputs=None):
                                      frozen_inputs=frozen_inputs)
 
 
-@workspace_request_decoder
+@workspace_disposition_decoder
 def decode(payload: Mapping[str, object]) -> DocumentWriteBodyRequest:
     reject_unexpected(
         payload,

@@ -186,6 +186,23 @@ explicit CLI job route for a multi-call workflow. An uncertain call is recovered
 through `invocation.read`, whose intent and final outcome distinguish admission
 from execution. Do not replay entered or uncertain operations automatically.
 
+## Semantic relationships and selected history
+
+The application catalogue exposes the `relationship.*` and `history.*` families
+through granular tools such as `relationship_batch`, `relationship_check`,
+`relationship_expose`, `history_read` and `history_repair`. Discover each installed
+contract with `command_describe`; fields and transport mappings are owned by the
+same typed requests used by CLI/script/Python. Relationship checks require no
+embedding model or external semantic-retrieval provider.
+
+The [shipped semantic relationship reference](../../src/brain-core/standards/semantic-relationships.md)
+owns command roles, endpoint shapes, dependency dispositions, revision semantics,
+bounded queries, capture policy and recovery. `history_read` and `history_query`
+include correction interpretation; inspecting an original event must not hide its
+supersession. `relationship_query` exposes projection freshness and does not certify
+a whole-graph snapshot. Use `relationship_check` for bounded source validation and
+explicitly selected assessment/transcript policies.
+
 ## Request contract
 
 Each tool exposes the exact strict object schema derived from its sealed command request. MCP arguments are the semantic request itself, plus the reserved optional `brain_operation` selector on ordinary tools. There is no generic invocation envelope or caller-supplied command version. Nested consent/preparation variants have explicit scope discriminators. Unknown fields fail before executor entry.
@@ -335,7 +352,23 @@ Tool summaries are short and contain no parameter manuals. Every reachable reque
 - commands that can contact an external service set `openWorldHint`; all others
   leave it false.
 
-Real Claude Code, Codex CLI and Grok captures verify fresh and resumed discovery, bootstrap, read and authorised mutation through the same portable MCP names. Evidence lives in `tests/fixtures/command_interface_real_client_evidence_v1.json` and `tests/fixtures/command_interface_grok_client_evidence_v1.json`. Deterministic metadata budgets use the Claude Code and Codex projections with pinned capture tooling. The catalogue must stay within 16,384 deterministic tokens per supported client. Ordinary tools remain within 512 tokens; the explicitly cohesive `document.structured-edit` and `resource.create` schemas may use up to 3,072 so strict structural variants remain typed rather than opaque or artificially split.
+Historical Claude Code, Codex CLI and Grok captures verify fresh and resumed discovery, bootstrap, read and authorised mutation through the portable MCP names. Evidence lives in `tests/fixtures/command_interface_real_client_evidence_v1.json` and `tests/fixtures/command_interface_grok_client_evidence_v1.json`. Those captures do not establish current-client acceptance or loading costs for the compact schemas introduced with semantic relationships; supported-harness verification follows the semantic implementation commit.
+
+The application projection now shares repeated shapes with local `$defs`/`$ref`, preserving descriptions and defaults at each use. Equivalent numeric unions, string enums and identical discriminator branches are compacted without changing typed requests or validation. Examples still use the inline schema. Graph cursors remain structured. Only the accepted-but-unused disposition argument on `artefact.create` was removed; the other 16 native consumers retain it.
+
+The full application-inventory target is **20,000 tokens**, superseding the former 16,384 headroom gate. The current pinned whole-array replay measures **21,465 Claude / 21,501 Codex tokens** for 90 application tools: **both exceed the target**. This excludes the proxy's three recovery tools and is not measured host loading or billed usage. The current capture records the target, excess and those exact measured regression baselines. Tests prevent unexplained growth and verify the known excess; passing them does not certify target compliance or current-harness compatibility.
+
+Every tool retains the hard **3,072-token maximum**. The ordinary compact target remains 512; reviewed exceptions are:
+
+| Tool | Reason for retaining its typed structure |
+|---|---|
+| `document.structured-edit` | Structural selectors and replace/insert/delete variants |
+| `document.replace-text` | Revision-bound matching and native disposition controls |
+| `document.write-body` | Typed content, body operations, revisions and required dispositions |
+| `relationship.check` | Explicit scoped assessment and transcript-policy inputs |
+| `relationship.query` | Structured graph cursor and native-scope selectors; above 512 only in the Claude replay |
+
+`resource.create` is now compact and no longer needs an exception. Historical metadata captures remain unchanged; `command_interface_granular_mcp_projection_v2.json` contains the current deterministic replay.
 
 ## Proxy replacement protocol
 

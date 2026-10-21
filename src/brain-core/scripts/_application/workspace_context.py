@@ -10,6 +10,7 @@ from _workspace_contract import WorkspacePolicy
 from .preparation import ObservedResource, content_digest
 from .results import Partial
 from ._decoding import OMITTED
+from .relationship._types import Disposition
 
 
 @dataclass(frozen=True, slots=True)
@@ -52,6 +53,15 @@ class WorkspaceAwareRequest:
     })
 
 
+@dataclass(frozen=True, slots=True, kw_only=True)
+class WorkspaceDispositionRequest(WorkspaceAwareRequest):
+    """Native mutation capability for revision-bound dependant withdrawal."""
+
+    relationship_dispositions: tuple["Disposition", ...] = field(default=(), metadata={
+        "description": "Explicit revision-bound withdrawal of semantic dependants affected by this native transition; native owners retain authority.",
+    })
+
+
 def workspace_request_decoder(decode):
     """Compose one selector decoder around each owner's remaining strict fields."""
     @wraps(decode)
@@ -59,6 +69,18 @@ def workspace_request_decoder(decode):
         fields = dict(payload)
         selection = WORKSPACE_SELECTOR_CODEC.decode(fields.pop("workspace_context", None))
         return replace(decode(fields), workspace_context=selection)
+    return combined
+
+
+def workspace_disposition_decoder(decode):
+    """Add disposition decoding only for native owners which consume it."""
+    @workspace_request_decoder
+    @wraps(decode)
+    def combined(payload):
+        fields = dict(payload)
+        from .relationship.batch import decode_disposition
+        dispositions = tuple(decode_disposition(item) for item in fields.pop("relationship_dispositions", ()))
+        return replace(decode(fields), relationship_dispositions=dispositions)
     return combined
 
 
