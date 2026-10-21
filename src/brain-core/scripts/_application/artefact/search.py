@@ -45,14 +45,14 @@ class ArtefactSearchPayload(SearchPayload):
     items: tuple[ArtefactSearchItem, ...]
 
 
-def artefact_search_payload(mode, results):
+def artefact_search_payload(mode, results, *, requested_top_k):
     """Keep workspace discovery metadata on artefacts, separate from resources."""
-    common = search_payload(mode, results)
+    common = search_payload(mode, results, requested_top_k=requested_top_k)
     items = tuple(ArtefactSearchItem(**asdict(item),
         primary_workspace=source.get("primary_workspace"),
         relevant_workspaces=tuple(source.get("relevant_workspaces", ())))
         for item, source in zip(common.items, results))
-    return ArtefactSearchPayload(mode, items, len(items))
+    return ArtefactSearchPayload(mode, items, len(items), common.candidate_policy, common.requested_top_k)
 
 
 @dataclass(frozen=True, slots=True)
@@ -177,7 +177,7 @@ def execute(context: InvocationContext, request: ArtefactSearchRequest):
     return Ok(
         request.COMMAND_ID,
         request.COMMAND_VERSION,
-        artefact_search_payload(resolved_mode, results),
+        artefact_search_payload(resolved_mode, results, requested_top_k=request.top_k),
     )
 
 def decode(payload: Mapping[str, object]) -> ArtefactSearchRequest:

@@ -14,7 +14,7 @@ _NAME = re.compile(r"^[a-z][a-z0-9_-]*$")
 _CONTROLS = {
     "access.status": "allow", "access.prepare": "allow", "access.request": "prompt",
     "access.reduce": "allow", "command.list": "allow", "command.describe": "allow",
-    "invocation.read": "allow", "session.start": "allow",
+    "invocation.read": "allow", "session.start": "allow", "result.clear": "allow",
 }
 
 

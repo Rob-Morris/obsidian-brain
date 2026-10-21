@@ -76,6 +76,7 @@ NO_TEXT = {
 }
 OTHER_MUTATIONS = {
     'maintenance.run': 'Writes derived maintenance findings/cache state; authored text remains read-only.',
+    'result.clear': 'Deletes caller-owned retained JSON; no authored text role.',
     'runtime.remove-temporaries': 'Deletes temporary derived state; no authored text role.',
     'runtime.warmup': 'Writes runtime/cache diagnostics; no authored text role.',
     'session.start': 'Writes generated session mirrors; no authored text mutation role.',

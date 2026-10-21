@@ -8,6 +8,7 @@ Never edit past changelog entries. Only add new entries at the top.
 
 | Version | Date | Summary |
 |---|---|---|
+| [v0.75.0](changelog/v0.75.0.md) | 2026-10-21 | Keep command output recoverable through private bounded result pages |
 | [v0.74.1](changelog/v0.74.1.md) | 2026-10-21 | Add extensible semantic relationships and automatic artefact history |
 | [v0.74.0](changelog/v0.74.0.md) | 2026-10-21 | Make exact-version installs reproducible without replacing shared CLIs |
 | [v0.73.0](changelog/v0.73.0.md) | 2026-10-15 | Make workspace destinations, defaults and relevance explicit |

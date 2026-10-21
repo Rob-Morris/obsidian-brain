@@ -99,7 +99,7 @@
     },
     {
       "command_id": "artefact.list",
-      "version": 3,
+      "version": 4,
       "owner": "application",
       "classification": "observation",
       "mcp": "artefact_list",
@@ -758,6 +758,42 @@
       "authority": "reader"
     },
     {
+      "command_id": "result.clear",
+      "version": 1,
+      "owner": "application",
+      "classification": "control",
+      "mcp": "result_clear",
+      "cli": [
+        "result",
+        "clear"
+      ],
+      "authority": "reader"
+    },
+    {
+      "command_id": "result.read",
+      "version": 1,
+      "owner": "application",
+      "classification": "observation",
+      "mcp": "result_read",
+      "cli": [
+        "result",
+        "read"
+      ],
+      "authority": "reader"
+    },
+    {
+      "command_id": "result.search",
+      "version": 1,
+      "owner": "application",
+      "classification": "observation",
+      "mcp": "result_search",
+      "cli": [
+        "result",
+        "search"
+      ],
+      "authority": "reader"
+    },
+    {
       "command_id": "retrieval.construct-benchmark",
       "version": 1,
       "owner": "application",
@@ -1301,5 +1337,5 @@
       "authority": "reader"
     }
   ],
-  "fingerprint": "sha256:1d9db045a3aad8fec511d03647051f245dea0ff5901d603f631ea79170a9dc3a"
+  "fingerprint": "sha256:f1d70bf7c8382af4c96304bd523327c8943844d16b5486416866f6966cb494a7"
 }

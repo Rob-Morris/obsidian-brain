@@ -841,7 +841,7 @@ def test_list_shows_judgement_items_and_only_unsettled_automatic_groups(command_
     assert len(everything.result.items) == 1, "all=True reveals quiet items, not clean automatic groups"
 
 
-def test_advisory_reaches_runtime_status_and_session_start(command_vault_clone):
+def test_advisory_reaches_runtime_status_and_session_start(command_vault_clone, record_property):
     root = command_vault_clone.vault_root
     assert application_for(root).invoke(RuntimeStatusRequest()).result.maintenance is None
 
@@ -852,16 +852,18 @@ def test_advisory_reaches_runtime_status_and_session_start(command_vault_clone):
     advisory = status.result.maintenance
     assert advisory is not None and advisory.needs_person == 0 and advisory.blocked is None
     assert advisory.age_seconds >= 0
-    from _application.session.start import SessionStartRequest
     from _application.types import DependencyTier
-    from test_session_start_owner import _mark_ready
+    from test_session_start_owner import _PublishedSessionMirror, _complete_bootstrap, _mark_ready
 
     _mark_ready(root)
-    session = application_for(root, clock=_RealClock(), dependency_tier=DependencyTier.MANAGED).invoke(SessionStartRequest())
-    assert session.status == "ok", session
-    assert session.result.maintenance.finished_at == advisory.finished_at
-    mirror = (root / ".brain" / "local" / "session.md").read_text()
-    assert "## Maintenance" in mirror and "brain maintenance list" in mirror
+    mirror = _PublishedSessionMirror(root)
+    app = application_for(root, clock=_RealClock(), dependency_tier=DependencyTier.MANAGED,
+                          session_mirror=mirror)
+    session, rendered = _complete_bootstrap(app, root, mirror, record_property)
+    assert session["maintenance"]["finished_at"] == advisory.finished_at
+    assert "## Maintenance" in rendered
+    maintenance = rendered.split("## Maintenance\n", 1)[1].split("\n## ", 1)[0]
+    assert "brain maintenance list" in maintenance
 
 
 def test_log_records_go_through_the_diagnostics_port_only(command_vault_clone, monkeypatch, tmp_path):

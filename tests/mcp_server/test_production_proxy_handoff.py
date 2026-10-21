@@ -44,7 +44,7 @@ def test_preparation_diagnostic_survives_actual_proxy_replacement(command_vault_
         assert call("brain_proxy_restart")["isError"] is False
         proxy_file = vault / ".brain-core/brain_mcp/proxy.py"
         original = proxy_file.read_text()
-        signature = "    def _preflight_handoff(self, fd: int, python: str) -> bool:\n"
+        signature = "    def _preflight_handoff(self, fd: int, python: str, *, input_fd: int | None = None) -> bool:\n"
         assert original.count(signature) == 1
         injected = original.replace(signature, signature + '        raise PermissionError(13, "private secret", "/private/user-data")\n')
         failure_line = injected[:injected.index('        raise PermissionError(13, "private secret"')].count("\n") + 1
@@ -120,6 +120,9 @@ def test_real_proxy_handoff_preserves_pipelined_and_split_input(command_vault_cl
             process.stdin.flush()
         assert not initial.get("error"), initial
         assert any(tool["name"] == "brain_proxy_restart" for tool in request("tools/list", {})["result"]["tools"])
+        issued = call("command_list", {})
+        assert issued["isError"] is False
+        credential = issued["structuredContent"]["result_session"]["credential"]
         before = call("brain_proxy_status", {})["structuredContent"]["result"]
         unchanged = call("brain_proxy_restart", {})
         assert unchanged["isError"] is False
@@ -139,11 +142,11 @@ def test_real_proxy_handoff_preserves_pipelined_and_split_input(command_vault_cl
             if failure == "preflight":
                 proxy_file.write_text(proxy_file.read_text() + "not valid Python !\n")
             restart_id, restart = frame("tools/call", {"name": "brain_proxy_restart", "arguments": {}})
-            read_id, read = frame("tools/call", {"name": "artefact_read", "arguments": {"reference": "Projects/Command Fixture.md"}})
-            split_id, split = frame("tools/call", {"name": "brain_proxy_status", "arguments": {}})
+            read_id, read = frame("tools/call", {"name": "artefact_read", "arguments": {"reference": "Projects/Command Fixture.md", "brain_session": credential}})
+            split_id, split = frame("tools/call", {"name": "command_list", "arguments": {"brain_session": credential}})
             # Recovery refuses new semantic work while preparation runs. The
             # partial frame remains owned by the raw reader and crosses exec.
-            cut = len(split) // 2
+            cut = split.index(credential.encode()) + len(credential) // 2
             process.stdin.write(restart + read + split[:cut])
             process.stdin.flush()
             result = receive(restart_id)["result"]
@@ -160,7 +163,10 @@ def test_real_proxy_handoff_preserves_pipelined_and_split_input(command_vault_cl
             assert "recovery in progress" in payload["error"]["message"], payload
             process.stdin.write(split[cut:])
             process.stdin.flush()
-            after = receive(split_id)["result"]["structuredContent"]["result"]
+            split_result = receive(split_id)["result"]
+            assert split_result["isError"] is False
+            assert split_result["structuredContent"]["command"] == "command.list"
+            after = call("brain_proxy_status", {})["structuredContent"]["result"]
             assert after["interface"]["generation"] == before["interface"]["generation"] + (0 if refused else number + 1)
             assert after["proxy"]["restart_required"] is (failure is not None)
         stale = call("artefact_read", {"reference": "Projects/Command Fixture.md", "brain_operation": prepared["operation_id"]})

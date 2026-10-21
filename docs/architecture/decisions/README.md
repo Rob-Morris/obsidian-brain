@@ -130,6 +130,7 @@ Each DD captures the reasoning behind an architectural decision at the time it w
 | DD-088 | Workspace destination, defaults and relevance | Accepted | [dd-088](dd-088-workspace-destination-and-relevance.md) |
 | DD-089 | Release source identity and shared CLI ownership | Accepted | [dd-089](dd-089-release-source-and-shared-cli.md) |
 | DD-090 | Semantic relationships and selected history | Accepted | [dd-090](dd-090-semantic-relationships-and-history.md) |
+| DD-091 | Invocation result navigation | Accepted | [dd-091](dd-091-invocation-result-navigation.md) |
 
 ---
 
@@ -153,3 +154,5 @@ Related decisions grouped by domain. Arrows show supersede/extend chains.
 - **Semantic relationships and history:** DD-090 (independent assertions, native occurrence identity, registered vocabulary, selected command history and recoverable publication; preserves DD-056/DD-088 native authority)
 
 - **Release installation:** DD-077 → DD-089 (one selected source, independent shared CLI ownership and permanent publication identity).
+
+- **Invocation delivery:** DD-061/DD-062/DD-073 → DD-091 (private result sessions, bounded delivery, live query freshness and exceptional-output continuation).
