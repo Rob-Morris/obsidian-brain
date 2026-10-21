@@ -345,6 +345,7 @@ def test_native_windows_install_and_granular_mcp_round_trip(tmp_path):
     (vault / "README.md").write_text(text, encoding="utf-8", newline="")
     read = call("vault", "read-file", {"path": "README.md"})
     assert read["result"]["content"] == text
+    call("runtime", "refresh-router", {})
     from _common import document_revision_at
     memory = vault / "_Config/Memories/brain-core-reference.md"
     marker = "\nNative CP1252 once-only effect: 雪 😀.\n"
@@ -387,7 +388,12 @@ def test_native_powershell_pinned_retry_round_trips_cmd_stdin_and_selectors(tmp_
                 "BRAIN_WORKSPACE_DIR": str(directory / "env workspace")}
     command = _pinned_retry_command(argv, directory, selected)
     assert command.isascii()
-    completed = subprocess.run([shell, "-NoProfile", "-Command", command],
+    # A caller may have selected a BOM-producing output encoding (PowerShell 5).
+    probe = ("$originalEncoding = [Text.UTF8Encoding]::new($true); "
+             "$OutputEncoding = $originalEncoding; " + command
+             + "; if (-not [object]::ReferenceEquals($OutputEncoding, $originalEncoding)) "
+             "{ throw 'Output encoding changed' }")
+    completed = subprocess.run([shell, "-NoProfile", "-Command", probe],
                                capture_output=True, text=True, encoding="utf-8", timeout=30)
     assert completed.returncode == 0, completed.stderr
     actual = json.loads(completed.stdout)
