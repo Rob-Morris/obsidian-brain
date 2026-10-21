@@ -288,6 +288,77 @@ are logically absent without deletion. Atomic publication lets readers avoid a
 cross-process write lock, while receipt writes and explicit maintenance retain
 serialised retention cleanup.
 
+### Retained result security
+
+Retained bodies live separately from privacy-minimal receipts, under private
+`.brain/local/results/` storage outside synced content. The namespace is bound
+to Brain/root, authenticated principal and a distinct result-session owner;
+slots are per canonical originating command. Latest means admission order, so
+a late completion cannot replace newer output. There is no time expiry or
+account-wide fallback. Superseded IDs cannot alias replacement output. Storage
+ceilings (256 MiB per result, 1 GiB per owner, 4 GiB per Brain by default) bound
+capacity, including metadata/staging; they do not impose page-count limits.
+Explicit `result.clear` clears only the caller's verified namespace and keeps
+its credential, source files, independent receipts and other owners' output.
+It is a Reader control available through MCP, CLI, script and composed Python
+contexts. MCP `result_clear` requires an existing `brain_session` proof, outside
+the empty domain request; it never creates a namespace for cleanup. Deliberate
+cleanup provides capacity recovery without transferring a holder credential
+between transports.
+
+The server issues an opaque holder credential once, keeping only its digest
+in the result registry. MCP delivers it separately as
+`result_session.credential`; the reserved `brain_session` adapter argument
+selects/resumes the namespace and is stripped before domain dispatch and
+operation preparation. Explicit `"new"` is accepted only for `session.start`.
+An omitted credential opens an ephemeral context, not a principal-shared slot.
+Distinct agents must use distinct sessions. The one-time issuance is excluded
+from retained business-result bodies, request digests, receipts and operational
+logs; losing it does not permit recovery by result ID or account identity.
+A model-visible argument or issuance is visible to that model/host history;
+this does not promise universal host redaction. A copied complete credential
+selects the same namespace: the boundary is logical-agent isolation, not hostile
+same-OS-user process or filesystem attestation.
+
+CLI/direct scripts keep the caller credential in a private owned regular file
+selected by `--result-session-file`. Standalone automatic issuance reports a
+new private client-file path for explicit reuse. Managed CLI jobs share their
+private result credential through the inherited owner channel; conflicting
+explicit contexts fail closed. Neither the file nor its credential confers
+permissions, renews consent, impersonates the original consent owner or admits
+a source mutation. Without explicit result-session selection, diagnostic
+`runtime.status` and `runtime.read-environment` skip retention and result-cache
+write attempts. Public result IDs are selectors, not credentials. Relocated
+or replaced Brain/root bindings and foreign principals fail closed.
+
+Every page, detail and literal search validates ownership and current
+permission/disclosure authority before emitting output. Eligible exceptional
+output carries a narrow delivery entitlement bound to that result, result
+session and original consent-owner generation. Spending one-shot execution
+consent does not prevent subsequent delivery, but owner end, revocation or
+incompatible authority change ends the entitlement. Stored bytes and a resume
+credential cannot recreate it. Delivery never authorises another result or
+source execution. Dynamic query refresh separately requires current source-query
+authority. Secret-bearing output requires domain-owned retention eligibility;
+generic delivery is not blanket permission to retain credentials or secret bodies.
+The domain entry declares `retain_output` and `output_owner_bound`. Consent
+inspection/preparation replies are owner-bound; grant/revocation replies opt out.
+Without an explicit result-session selector, those non-retained controls do not
+open the optional cache; cache capacity cannot block revocation.
+Ordinary bootstrap and command discovery can resume through a new process with
+the same private result credential and current permissions. Their result session
+does not preserve exceptional execution consent.
+
+Result retention follows source outcome finalisation. Failed retention/final
+encoding preserves execution status and committed effects with unavailable
+delivery; it must never cause mutation replay. MCP final guards measure an
+8,000-byte canonical UTF-8 envelope and a 32,768-byte encoded tool-result value,
+including duplication and notices, excluding JSON-RPC correlation. They do not
+slice JSON, discard mandatory bootstrap guidance, or weaken complete consent
+review admission. Generic continuation must be consumed before semantic payload
+or owner-cursor handling. These encoding contracts are not evidence of a native
+host upgrade or refreshed host tool inventory.
+
 Operational diagnostics are another fixed internal write capability, under
 `.brain/local/diagnostics/` (0700 directory, 0600 files, per-family sidecar
 locks). The stream is content-free by construction: its record schema has no

@@ -8,7 +8,7 @@ import re
 from jsonschema import Draft202012Validator
 from schema_assertions import expand_local_schema
 
-from _application.projection import project_identity
+from _application.projection import project_identity, request_schema
 from _application.registry import current_application_catalogue
 from brain_mcp import server
 
@@ -58,8 +58,10 @@ def _reachable_properties(schema):
 
 def test_every_projected_tool_has_strict_valid_described_schema():
     tools = _tools()
-    assert len(tools) == 90
+    assert len(tools) == 93
+    entries = {project_identity(e.command_id).mcp_tool: e for e in current_application_catalogue().entries}
     for tool in tools:
+        authored = dict(_reachable_properties(expand_local_schema(request_schema(entries[tool.name].request_type))))
         Draft202012Validator.check_schema(tool.input_schema)
         assert tool.input_schema.get("type") == "object"
         assert tool.input_schema.get("additionalProperties") is False
@@ -69,6 +71,7 @@ def test_every_projected_tool_has_strict_valid_described_schema():
             path
             for path, metadata in _reachable_properties(expand_local_schema(tool.input_schema))
             if not str(metadata.get("description", "")).strip()
+            and str(authored.get(path, {}).get("description", "")).strip().casefold() != path.rsplit(".", 1)[-1].replace("_", " ").casefold()
         ]
         assert not missing, f"{tool.name} has undocumented fields: {missing}"
 

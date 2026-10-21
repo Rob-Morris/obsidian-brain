@@ -99,7 +99,12 @@ def test_fresh_install_and_same_version_rerun_apply_managed_cli_approvals(tmp_pa
     claude = fake_bin / "claude"
     claude.write_text("#!/bin/sh\nprintf '99.0.0\\n'\n")
     claude.chmod(0o755)
-    monkeypatch.setenv("PATH", str(fake_bin) + os.pathsep + os.environ["PATH"])
+    fixture_cli = tmp_path / "home/.local/bin/brain"
+    monkeypatch.setenv("PATH", os.pathsep.join((
+        str(fake_bin), str(fixture_cli.parent), str(Path(sys.executable).parent),
+        "/usr/bin", "/bin", "/usr/sbin", "/sbin",
+    )))
+    assert shutil.which("brain") is None
     monkeypatch.setenv("BRAIN_VENV_LAUNCHER", offline_install_env({}, tmp_path)["BRAIN_VENV_LAUNCHER"])
     vault = tmp_path / "vault"
     command = [
@@ -112,6 +117,8 @@ def test_fresh_install_and_same_version_rerun_apply_managed_cli_approvals(tmp_pa
     assert settings.is_file()
     before = settings.read_bytes()
     assert any(rule.startswith("Bash(") for rule in json.loads(before)["permissions"]["allow"])
+    assert fixture_cli.is_file() and shutil.which("brain") == str(fixture_cli)
+    assert f"Bash({fixture_cli} result clear *)" in json.loads(before)["permissions"]["allow"]
     second = subprocess.run(command, cwd=tmp_path / "home", capture_output=True, text=True, timeout=60)
     assert second.returncode == 0, second.stderr + second.stdout
     assert "Configuring requested client approvals" in second.stderr

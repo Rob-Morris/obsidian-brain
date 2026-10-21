@@ -62,6 +62,9 @@ from .runtime.read_environment import RuntimeReadEnvironmentRequest
 from .runtime.status import RuntimeStatusRequest
 from .runtime.warmup import RuntimeWarmupRequest
 from .session.start import SessionStartRequest
+from .result.read import ResultReadRequest
+from .result.clear import ResultClearRequest
+from .result.search import ResultSearchRequest
 from .shaping.render import ShapingRenderRequest
 from .shaping.start import ShapingStartRequest
 from .skill.add_git import SkillAddGitRequest
@@ -135,6 +138,9 @@ from .history.configure import HistoryConfigureRequest
 from .history.policy import HistoryPolicyRequest
 
 __all__ = (
+    "ResultReadRequest",
+    "ResultSearchRequest",
+    "ResultClearRequest",
     "RelationshipCheckRequest",
     "RelationshipUndefineRequest",
     "HistoryConfigureRequest",
@@ -543,7 +549,10 @@ class InvocationReadRequest:
 
 
 CommandRequest = (
-    RelationshipCheckRequest
+    ResultClearRequest
+    | ResultReadRequest
+    | ResultSearchRequest
+    | RelationshipCheckRequest
     | RelationshipUndefineRequest
     | HistoryConfigureRequest
     | HistoryPolicyRequest

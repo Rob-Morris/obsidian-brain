@@ -64,7 +64,7 @@ def test_application_header_is_exact_catalogue_derived_mcp_mapping():
         if Projection.MCP in entry.eligible_projections
     )
 
-    assert len(header.tools) == len(eligible) == 90
+    assert len(header.tools) == len(eligible) == 93
     assert {name: tool.command_id for name, tool in header.tools
             if name.startswith(("relationship_", "history_"))} == {
         "history_cleanup": "history.cleanup",

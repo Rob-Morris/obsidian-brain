@@ -33,10 +33,12 @@ def test_compatibility_families_are_non_overlapping_and_cover_selected_versions(
     assert manifest.select("0.73.999").adapter_id == "brain-0.73"
     assert manifest.select("0.74.0").adapter_id == "brain-0.74"
     assert manifest.select("0.74.999").adapter_id == "brain-0.74"
+    assert manifest.select("0.75.0").adapter_id == "brain-0.75"
+    assert manifest.select("0.75.999").adapter_id == "brain-0.75"
     with pytest.raises(ValueError, match="no unique"):
         manifest.select("0.50.0")
     with pytest.raises(ValueError, match="no unique"):
-        manifest.select("0.75.0")
+        manifest.select("0.76.0")
 
 
 def test_brain_0_71_changes_only_how_doctor_selects_its_vault():
@@ -216,3 +218,10 @@ def test_gate_output_is_judged_and_retried_by_one_rule():
         gate, '{"error": {"retryable": true, "code": "runtime_warming_up", "details": {"runtime_status": {"retry_after_ms": 500}}}}',
     ) == 0.5
     assert gate_retry_delay(HealthGate("plain", ("x",)), '{"error": {"retryable": true, "code": "runtime_warming_up"}}') is None
+
+
+def test_brain_0_75_checks_updated_cli_support_baseline():
+    adapter = CompatibilityManifest(MANIFEST).select("0.75.0")
+    gate = next(gate for gate in adapter.health if gate.gate_id == "cli-version")
+    assert gate.command == ("brain", "version", "--json")
+    assert gate.expected_json["result.full_support_core_version"] == "0.75.0"

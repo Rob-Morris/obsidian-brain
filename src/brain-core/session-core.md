@@ -60,10 +60,20 @@ The system is self-extending. When content has no appropriate home, add a new ar
 
 ## Completing Bootstrap
 
-Finish `session.start(cursor=range.next_cursor)` pages until
-`bootstrap_complete` before ordinary work. For document reads, repeat the
-same command and reference with `range.next_cursor` until null. On revision
-conflict, restart without a cursor.
+MCP: open with `session_start({"brain_session":"new"})`; keep its private
+`result_session.credential` and pass it as `brain_session` on subsequent calls.
+CLI: reuse `--result-session-file <private-path>`. Each agent needs its own session;
+this selects results, not consent. Finish `delivery.continuation` via `result.read`
+with that session, `result_id` and `continuation` before legacy cursors; source
+pages are in `result.envelope`, delivery is outer. Page 0 is still bounded;
+`outside_continuation` opens the next selection. Then finish
+`session.start(cursor=range.next_cursor)` until `bootstrap_complete`.
+All bootstrap guidance is mandatory. Document reads also finish delivery before
+following `range.next_cursor`; restart conflicting reads without a cursor.
+Never repeat a mutation for output; use `invocation.read` for uncertain execution.
+For deliberate capacity recovery, `result_clear` with the existing `brain_session`
+clears only your retained output, keeping the credential and source files.
+Check recovery needs before clearing.
 
 ## Authorisation
 

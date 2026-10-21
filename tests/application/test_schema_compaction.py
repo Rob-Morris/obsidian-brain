@@ -129,3 +129,20 @@ def test_graph_cursor_contract_remains_structured(command):
     assert 'object' in cursor['type']
     assert set(cursor['properties']) == {'generation', 'offset', 'selectors', 'traversal'}
     assert cursor['required'] == ['generation', 'offset', 'selectors']
+
+
+def test_mcp_name_only_help_compaction_preserves_rules_guidance_and_literal_defaults():
+    from _application._schema_compaction import compact_mcp_annotations
+    source={'type':'object','additionalProperties':False,'properties':{
+        'name':{'type':'string','description':'Name'},
+        'expected_revision':{'type':'string','description':'Must match the most recent read.'},
+        'frontmatter':{'type':'object','description':'Frontmatter','default':{
+            'properties':{'name':{'description':'Name'}},'description':'Literal user data'}}},'required':['name']}
+    original=deepcopy(source)
+    compact=compact_mcp_annotations(source)
+    assert source==original
+    assert 'description' not in compact['properties']['name']
+    assert compact['properties']['expected_revision']['description']=='Must match the most recent read.'
+    assert compact['properties']['frontmatter']['default']==source['properties']['frontmatter']['default']
+    for value in ({'name':'a'},{'name':4},{'name':'a','extra':True},{}):
+        assert Draft202012Validator(source).is_valid(value)==Draft202012Validator(compact).is_valid(value)
