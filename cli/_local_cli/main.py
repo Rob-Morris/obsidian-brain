@@ -75,6 +75,8 @@ def run(argv: list[str] | None = None) -> int:
         arguments = list(sys.argv[1:] if argv is None else argv)
         common, command_argv = _parse_common(arguments)
         if common.version or command_argv == ["version"]:
+            if common.result_session_file is not None:
+                raise LocalCliUsageError("launcher commands do not accept result-session files")
             if common.request_json is not None and _request_payload(common.request_json):
                 raise LocalCliUsageError("brain.version accepts an empty request only")
             if common.operation is not None:
@@ -128,6 +130,8 @@ def _run(argv, attachment) -> int:
                 distribution_root=distribution_root,
             )
         entry = _launcher_entry_for_argv(command_argv)
+        if entry is not None and getattr(common, "result_session_file", None) is not None:
+            raise LocalCliUsageError("launcher commands do not accept result-session files")
         if entry is not None and common.operation is not None:
             raise LocalCliUsageError("launcher commands do not accept application operation selectors")
         if entry is None:
@@ -215,6 +219,12 @@ def _run(argv, attachment) -> int:
                     )
                 ).invoke(entry, payload)
         stdout, stderr, code = render_local_result(projection, json_mode=common.json_mode)
+        session_file = projection.structured_content.get("result_session_file")
+        if not common.json_mode and isinstance(session_file, str):
+            if projection.is_error:
+                stderr += f"result_session_file: {session_file}\n"
+            else:
+                stdout += f"result_session_file: {session_file}\n"
         if stdout:
             sys.stdout.write(stdout)
         if stderr:
@@ -326,6 +336,7 @@ def _parse_common(argv: list[str]):
     parser.add_argument("--workspace")
     parser.add_argument("--operator-key")
     parser.add_argument("--operation")
+    parser.add_argument("--result-session-file")
     parser.add_argument("--request-json")
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--json", dest="json_mode", action="store_true")
@@ -489,7 +500,7 @@ def _application_entry(selected: SelectedBrain, command_id: str, common) -> Comp
         common,
         dependency_tier="bootstrap",
     )
-    payload = _ok_payload(envelope, "command.describe")
+    payload = _application_description_metadata(selected, envelope, common)
     description = compose_application_description(
         catalogue_schema=_required_text(payload, "catalogue_schema"),
         catalogue_fingerprint=_required_text(payload, "catalogue_fingerprint"),
@@ -521,6 +532,8 @@ def _application_invoker(selected: SelectedBrain, entry: ComposedCommandEntry, c
         ),
         owner_attachment=getattr(common, "owner_attachment", None),
         operation_id=getattr(common, "operation", None),
+        **({"runner": _result_session_runner(common.result_session_file)}
+           if getattr(common, "result_session_file", None) is not None else {}),
     )
 
 
@@ -552,6 +565,8 @@ def _initialise_selected_job(selected, owner, common) -> None:
                 "--initialise-job-owner", "--vault", str(selected.vault_root)]
         if common.operator_key is not None:
             argv.extend(("--operator-key", common.operator_key))
+        if getattr(common, "result_session_file", None) is not None:
+            argv.extend(("--result-session-file", common.result_session_file))
         if selected.workspace is not None:
             argv.extend(("--workspace", str(selected.workspace)))
         result = managed_command(argv, role=ROLE_CLI, env=options.pop("env")).run(
@@ -577,6 +592,7 @@ def _invoke_application(
     common,
     *,
     dependency_tier: str,
+    result_session_file: str | None = None,
 ) -> Mapping[str, object]:
     noun, verb = command_id.split(".", 1)
     argv = [
@@ -594,6 +610,8 @@ def _invoke_application(
         argv.extend(("--workspace", str(selected.workspace)))
     if common.operator_key:
         argv.extend(("--operator-key", common.operator_key))
+    if result_session_file is not None:
+        argv.extend(("--result-session-file", result_session_file))
     attachment = getattr(common, "owner_attachment", None)
     options = machine_process_options(attachment.forwarded_process() if attachment is not None else {})
     completed = managed_command(argv, role=ROLE_CLI, env=options.pop("env", None)).run(
@@ -631,6 +649,7 @@ def _run_discovery(command_argv, *, common, selected, cli_binary, distribution_r
                 arguments.application_payload() or {},
                 common,
                 dependency_tier="bootstrap",
+                result_session_file=getattr(common, "result_session_file", None),
             )
             payload = _ok_payload(envelope, "command.list")
             entries = payload.get("entries")
@@ -678,10 +697,18 @@ def _run_discovery(command_argv, *, common, selected, cli_binary, distribution_r
             "application_next_cursor": composed.application_next_cursor,
             "launcher_next_cursor": composed.launcher_next_cursor,
         }
+        if application is not None:
+            for key in ("delivery", "result_session_file"):
+                if key in envelope:
+                    payload[key] = envelope[key]
+            if "delivery" in payload:
+                payload["delivery"] = {**payload["delivery"], "count_scope": "application-command-window"}
+        payload = _bound_discovery(payload, arguments.launcher_cursor)
         return _render_discovery(payload, common.json_mode)
 
     assert isinstance(arguments, CommandDescribeArguments)
     launcher_description = None
+    application_envelope = None
     if arguments.owner in {"launcher", "all"}:
         try:
             launcher_description = describe_command(arguments.target_command_id)
@@ -705,17 +732,21 @@ def _run_discovery(command_argv, *, common, selected, cli_binary, distribution_r
             {"target_command_id": arguments.target_command_id},
             common,
             dependency_tier="bootstrap",
+            result_session_file=getattr(common, "result_session_file", None),
         )
-        payload = _ok_payload(envelope, "command.describe")
+        application_envelope = envelope
+        payload = _application_description_metadata(selected, envelope, common)
         description = compose_application_description(
             catalogue_schema=_required_text(payload, "catalogue_schema"),
             catalogue_fingerprint=_required_text(payload, "catalogue_fingerprint"),
             payload=payload,
         )
-    return _render_discovery(
-        {"schema": "brain.local-command-description/1", **asdict(description)},
-        common.json_mode,
-    )
+    payload = {"schema": "brain.local-command-description/1", **asdict(description)}
+    if application_envelope is not None:
+        for key in ("delivery", "result_session_file"):
+            if key in application_envelope:
+                payload[key] = application_envelope[key]
+    return _render_discovery(_bound_discovery(payload), common.json_mode)
 
 
 def _ok_payload(envelope: Mapping[str, object], command_id: str) -> Mapping[str, object]:
@@ -774,6 +805,9 @@ def _render_discovery(payload: Mapping[str, object], json_mode: bool) -> int:
         inner = payload.get("payload")
         if isinstance(inner, dict) and isinstance(inner.get("summary"), str):
             print(inner["summary"])
+    for key in ("delivery", "result_session_file", "application_next_cursor", "launcher_next_cursor", "launcher_pending"):
+        if payload.get(key) is not None:
+            print(f"{key}: " + json.dumps(payload[key], ensure_ascii=False, separators=(",", ":")))
     return 0
 
 
@@ -798,9 +832,137 @@ Usage:
 Application commands use their canonical noun/verb spelling. Launcher commands
 use the entry point advertised by discovery. Run `brain command describe
 <command-id> --json` for its exact request schema and minimal example.
+Use --result-session-file PATH for a private reusable result context.
+Run session start with a missing file to issue it; later calls reuse that file.
+Session run accepts the same file option and seeds the job before its program starts.
+Omitting the flag returns a new private client file path; managed jobs reuse their private context.
 Use --operation ID on an application invocation to select explicitly authorised
 specific consent. A session job ends when its root program exits.
 """
+
+
+def _result_session_runner(path):
+    # Only the credential file path crosses the process boundary.
+    from _common._venv import run_managed
+
+    def run(argv, **options):
+        return run_managed([*argv, "--result-session-file", path], **options)
+
+    return run
+
+
+def _discovery_fits(payload):
+    text = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
+    return len(text.encode("utf-8")) <= 8000 and len(json.dumps(payload).encode("utf-8")) <= 32768
+
+
+def _bound_discovery(payload, initial_launcher_cursor=None):
+    """Bound the composed page without cutting an addressed application page."""
+    value = dict(payload)
+    entries = list(value.get("entries", ()))
+    while not _discovery_fits(value):
+        launcher = [i for i, entry in enumerate(entries) if entry.get("owner") == "launcher"]
+        if not launcher:
+            break
+        entries.pop(launcher[-1])
+        value["entries"] = entries
+        remaining = [entry for entry in entries if entry.get("owner") == "launcher"]
+        value["launcher_next_cursor"] = ({
+            "catalogue_fingerprint": value["catalogues"]["launcher"]["fingerprint"],
+            "command_id": remaining[-1]["command_id"],
+        } if remaining else initial_launcher_cursor)
+        value["launcher_pending"] = True
+    if _discovery_fits(value):
+        return value
+    # Application boundaries/counts belong to its retained view. Never shorten
+    # that page and leave the old navigation descriptor attached to it.
+    value = {key: value[key] for key in (
+        "schema", "owner", "command_id", "command_version", "catalogues",
+        "catalogue_schema", "catalogue_fingerprint", "result_session_file",
+        "application_next_cursor", "launcher_next_cursor", "launcher_pending",
+    ) if key in value}
+    value["entries" if "entries" in payload else "payload"] = [] if "entries" in payload else None
+    delivery = payload.get("delivery") or {}
+    value["delivery"] = {
+        "status": "unavailable", "availability": "unavailable", "count_scope": "composed-command-page",
+        "result_id": delivery.get("result_id"), "view_id": delivery.get("view_id"),
+        "message": "Composed discovery exceeds its delivery budget; read the retained application result using this result_id and private session file. Do not assume an empty inventory.",
+    }
+    for key in ("catalogues", "catalogue_schema", "catalogue_fingerprint", "result_session_file"):
+        if _discovery_fits(value):
+            break
+        if key in value:
+            value.pop(key)
+            value.setdefault("metadata_unavailable", []).append(key)
+    return value
+
+
+def _application_description_metadata(selected, envelope, common):
+    """Resolve only metadata required for real dispatch; preserve schema detail references."""
+    payload = dict(_ok_payload(envelope, "command.describe"))
+    if payload.get("root_type") == "dict" and isinstance(payload.get("fields"), list):
+        fields = list(payload["fields"])
+        cursor = (envelope.get("delivery") or {}).get("continuation")
+        seen = set()
+        while cursor is not None:
+            marker = json.dumps(cursor, sort_keys=True)
+            if marker in seen:
+                raise CliError("selected Brain description delivery did not progress")
+            seen.add(marker)
+            frame = _invoke_application(selected, "result.read", {
+                "result_id": envelope["delivery"]["result_id"], "continuation": cursor}, common,
+                dependency_tier="stdlib", result_session_file=envelope.get("result_session_file"))
+            source = _ok_payload(frame, "result.read").get("envelope")
+            if not isinstance(source, dict) or source.get("command") != "command.describe":
+                raise CliError("selected Brain description continuation has the wrong source")
+            fields.extend(source["result"]["fields"])
+            cursor = (frame.get("delivery") or {}).get("continuation")
+        payload = {field["field"]: field["value"] for field in fields}
+    required = ("catalogue_schema", "catalogue_fingerprint", "command_id", "command_version", "summary", "dependency_tier")
+    for key in required:
+        value = payload.get(key)
+        if isinstance(value, dict) and "detail_reference" in value:
+            payload[key] = _application_detail(selected, envelope, value["detail_reference"], common)
+    return payload
+
+
+def _application_detail(selected, envelope, detail, common):
+    """Reconstruct a declared detail through bounded result reads on the same private file."""
+    result_id = (envelope.get("delivery") or {}).get("result_id")
+    path = envelope.get("result_session_file")
+    if not result_id or (not path and getattr(common, "owner_attachment", None) is None):
+        raise CliError("selected Brain discovery detail has no reusable result context")
+    seen = set()
+    fragments = []
+    fields = []
+    root_type = None
+    scalar = None
+    while detail is not None:
+        if detail in seen:
+            raise CliError("selected Brain discovery detail did not progress")
+        seen.add(detail)
+        frame = _invoke_application(selected, "result.read", {"result_id": result_id, "detail": detail}, common,
+                                    dependency_tier="stdlib", result_session_file=path)
+        wrapper = _ok_payload(frame, "result.read")
+        source = wrapper.get("envelope")
+        if not isinstance(source, dict):
+            raise CliError("selected Brain detail omitted its source envelope")
+        payload = source.get("result")
+        if isinstance(payload, dict) and isinstance(payload.get("fragments"), list):
+            fragments.extend(item["text"] + item["line_ending"] for item in payload["fragments"])
+        elif isinstance(payload, dict) and isinstance(payload.get("fields"), list):
+            root_type = payload.get("root_type")
+            fields.extend(payload["fields"])
+        else:
+            scalar = payload
+        detail = (frame.get("delivery") or {}).get("next_detail")
+    if fragments:
+        return "".join(fragments)
+    if root_type == "list":
+        return [item["value"] for item in sorted(fields, key=lambda item: item["index"])]
+    if root_type == "dict":
+        return {item["field"]: item["value"] for item in fields}
+    return scalar
 
 
 if __name__ == "__main__":

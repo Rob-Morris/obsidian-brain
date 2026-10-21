@@ -26,6 +26,55 @@ inspect the reported boundary instead: consent cannot raise permissions, and
 switching transports is not a remedy for denial. A granted command still needs
 to be within the user's task.
 
+### Reading complete output and resuming a session
+
+For reusable MCP output, call `session_start({"brain_session":"new"})` once.
+Keep the one-time `result_session.credential` private and use it as `brain_session`
+on later calls, including bootstrap pages. Each logical agent opens its own
+session. An omitted credential creates an ephemeral context. With CLI, use
+`brain session start --result-session-file /private/path/brain-result-session --json`,
+then pass the same file on subsequent calls. The parent directory must exist.
+Standalone calls without a file report a new private `result_session_file`;
+reuse that path explicitly to continue. A credential/file selects retained
+output and grants neither permissions nor consent.
+
+Read `delivery` before the semantic payload. Follow `delivery.continuation`
+with `result_read` (CLI `brain result read`), passing its exact object,
+`delivery.result_id` and the same result credential. The original command page
+is in `result.envelope`; the outer envelope carries delivery. Finish generic
+continuation **before inspecting a semantic payload or following its legacy
+cursor**. Then follow source `range.next_cursor` where present. Complete every
+bootstrap page until `bootstrap_complete` before ordinary work: preferences,
+rules and triggers are mandatory in full, never optional or truncated.
+
+Every call returns one bounded page. Get-all (`page: 0`) still needs continuation
+when output does not fit. Query selections default to 10 pages across calls;
+retained output has no default page-count cap. `has_more` describes the selection;
+`has_more_outside_selection` and `outside_continuation` expose the rest. A new
+page size requires an explicit source anchor. Dynamic active-list pages show current
+projection data and independent per-page change notices; revisiting an unchanged
+page does not repeat the notice. Ordering changes can repeat or skip items
+across revisions. Archived/all lists retain the opening snapshot, with an
+explicit freshness limitation; rerun the list for current data. Their requested
+size and ten-page list selection remain in effect. Literal `result.search` searches retained body units only;
+resume using both `next_page` and `next_offset` until `scan_complete`. It excludes
+envelope metadata, contextual extras and referenced detail bodies. `complete`
+can remain false when `details_skipped` reports unsearched references; it does
+not search live artefacts.
+
+Eligible output remains available without time expiry until replaced by a new
+invocation of the same command in that result session, or explicitly cleared.
+Unrelated commands and navigation preserve it. For storage-capacity recovery,
+`brain result clear --result-session-file /private/path/brain-result-session --json`
+clears only that verified session's output, retaining its credential. Check
+recovery needs first. MCP callers use `result_clear` with their existing
+`brain_session` credential; source files, receipts and other owners stay untouched.
+Never rerun a mutation to
+recover more output. Failed delivery does not undo its effects; uncertain
+execution should be checked through `invocation.read`. Exceptional output's
+delivery entitlement still ends with its original consent owner or revocation;
+a resumed result session does not renew consent.
+
 ### Recovering discovery after an upgrade
 
 The first eligible Brain result per connection/catalogue generation carries a

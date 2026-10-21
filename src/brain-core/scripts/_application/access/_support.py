@@ -25,7 +25,7 @@ def object_fields(value, allowed, required=()):
     return value
 
 
-def control_entry(request_type, executor, *, summary, mutation=False):
+def control_entry(request_type, executor, *, summary, mutation=False, retain_output=True):
     from ..catalogue import ALL_APPLICATION_PROJECTIONS, ApplicationEntry
     return ApplicationEntry(request_type=request_type, executor=executor,
         dependency_tier=DependencyTier.BOOTSTRAP, locality=Locality.SELECTED_BRAIN_LOCAL,
@@ -33,4 +33,4 @@ def control_entry(request_type, executor, *, summary, mutation=False):
         initial_class=InitialAuthorisationClass.CONTROL,
         effect_class=EffectClass.SELECTED_BRAIN_MUTATION if mutation else EffectClass.NONE,
         retry_class=RetryClass.RECEIPT_REQUIRED if mutation else RetryClass.SAFE,
-        projections=ALL_APPLICATION_PROJECTIONS, summary=summary)
+        projections=ALL_APPLICATION_PROJECTIONS, summary=summary, retain_output=retain_output, output_owner_bound=True)

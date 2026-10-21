@@ -332,31 +332,66 @@ def test_native_windows_install_and_granular_mcp_round_trip(tmp_path):
 
     env.update(PYTHONUTF8="0", PYTHONIOENCODING="cp1252")
 
-    def call(noun, verb, payload):
-        completed = subprocess.run(
-            [str(cli), "--vault", str(vault), noun, verb, "--json", "--request-json", "-"],
-            input=json.dumps(payload).encode("ascii"), env=env, cwd=tmp_path,
-            capture_output=True, timeout=90)
-        assert completed.returncode == 0, completed.stderr.decode("cp1252") or completed.stdout.decode("cp1252")
-        assert completed.stdout.isascii()
-        return json.loads(completed.stdout.decode("cp1252"))
+    original = "Windows retained output 雪 😀.\n" * 180
+    source = vault / "README.md"
+    source.write_text(original, encoding="utf-8", newline="")
 
-    text = "Native CP1252 output 雪 😀.\n"
-    (vault / "README.md").write_text(text, encoding="utf-8", newline="")
-    read = call("vault", "read-file", {"path": "README.md"})
-    assert read["result"]["content"] == text
-    call("runtime", "refresh-router", {})
+    def call(command, request, session_file=None):
+        argv = [str(cli), "--vault", str(vault), *command, "--json",
+                "--request-json", json.dumps(request)]
+        if session_file is not None:
+            argv.extend(["--result-session-file", str(session_file)])
+        completed = subprocess.run(argv, cwd=tmp_path, env=env,
+                                   capture_output=True, text=True, encoding="cp1252", timeout=90)
+        assert completed.returncode == 0, completed.stderr or completed.stdout
+        assert completed.stdout.isascii()
+        return json.loads(completed.stdout)
+
+    def content(payload):
+        if "fragments" in payload:
+            return "".join(item["text"] + item["line_ending"] for item in payload["fragments"])
+        return payload["content"]
+
+    first = call(["vault", "read-file"], {"path": "README.md"})
+    assert first["status"] == "ok" and first["delivery"]["total_pages"] > 1
+    session_file = Path(first["result_session_file"])
+    credential = session_file.read_bytes()
+    result_id = first["delivery"]["result_id"]
+    source.write_text("Changed after opening.\n", encoding="utf-8", newline="")
+    output = content(first["result"])
+    page = first
+    for _ in range(first["delivery"]["total_pages"] - 1):
+        cursor = page["delivery"]["continuation"]
+        assert cursor is not None
+        page = call(["result", "read"], {"result_id": result_id, "continuation": cursor}, session_file)
+        assert page["status"] == "ok"
+        output += content(page["result"]["envelope"]["result"])
+    assert output == original
+    assert page["delivery"]["continuation"] is None
+    assert session_file.read_bytes() == credential
+    assert source.read_text(encoding="utf-8") == "Changed after opening.\n"
+
+    cleared = call(["result", "clear"], {}, session_file)
+    assert cleared["result"]["cleared"]
+    reused = call(["vault", "read-file"], {"path": "README.md"}, session_file)
+    assert content(reused["result"]) == "Changed after opening.\n"
+    assert session_file.read_bytes() == credential
+
+    call(["runtime", "refresh-router"], {}, session_file)
     from _common import document_revision_at
     memory = vault / "_Config/Memories/brain-core-reference.md"
     marker = "\nNative CP1252 once-only effect: 雪 😀.\n"
-    mutation = call("document", "write-body", {
+    mutation = call(["document", "write-body"], {
         "document": {"resource": "memory", "reference": "brain-core-reference"},
         "expected_revision": document_revision_at(memory), "operation": "append",
         "content": {"source": "inline", "content": marker},
-    })
-    assert mutation["status"] == "ok" and mutation["committed_effects"]
-    assert memory.read_bytes().endswith(marker.encode("utf-8"))
-    assert memory.read_bytes().count(marker.encode("utf-8")) == 1
+    }, session_file)
+    assert mutation["committed_effects"]
+    after = memory.read_bytes()
+    assert after.endswith(marker.encode("utf-8")) and after.count(marker.encode("utf-8")) == 1
+    replay = call(["result", "read"], {"result_id": mutation["delivery"]["result_id"], "page": 0}, session_file)
+    assert replay["result"]["envelope"]["committed_effects"] == mutation["committed_effects"]
+    assert memory.read_bytes() == after
 
 
 @native_windows

@@ -12,8 +12,9 @@ Usage:
 Env:
     BRAIN_VAULT_ROOT        — vault path (passed through to child)
     BRAIN_WORKSPACE_DIR     — optional active workspace path (passed through to child)
-    BRAIN_LOG_BODIES        — when "1" or "true", capture raw JSON bodies of every
-                              forwarded message to .brain/local/diagnostics/debug-bodies.log
+    BRAIN_LOG_BODIES        — when "1" or "true", capture JSON bodies of every
+                              forwarded message, with result-session controls redacted,
+                              to .brain/local/diagnostics/debug-bodies.log
     BRAIN_PROXY_BACKOFF     — comma-separated int seconds (default: 0,4,8,16,32)
     BRAIN_PROXY_INIT_TIMEOUT — seconds to wait for child initialize response (default 60)
     BRAIN_PROXY_VERSION_CHECK_INTERVAL — rate-limit for version-reset checks (default 5)
@@ -23,7 +24,6 @@ Env:
 from contextlib import nullcontext
 from datetime import datetime, timezone
 from dataclasses import asdict, dataclass
-import base64
 import hashlib
 import itertools
 import json
@@ -85,7 +85,10 @@ from ._interface_protocol import (
     accept_call,
     interface_header_from_response,
 )
-from ._result_content import result_text_wire
+from ._result_content import (
+    delivery_descriptor, guard_tool_result, has_catalogue_notice,
+    redact_debug_wire_body, result_text_wire,
+)
 from ._proxy_controls import (
     CONTROL_TOOLS, REFRESH_TOOL, RESTART_TOOL, STATUS_TOOL,
     add_control_discovery, control_response, modern_identity_request, reconnect_guidance,
@@ -94,7 +97,7 @@ from ._proxy_controls import (
 
 from ._proxy_handoff import (
     HANDOFF_TIMEOUT, HANDOFF_VERSION, READ_CHUNK, RawLineReader, public_session,
-    read_state, state_descriptor,
+    consume_remainder, read_state, state_descriptor,
 )
 from ._proxy_session import (
     Subscriptions, SubscriptionEvent, SUBSCRIPTION_ID, EVENT_FILTERS, discovery,
@@ -111,7 +114,7 @@ class StartupFailure:
 # Constants
 # ---------------------------------------------------------------------------
 
-PROXY_VERSION = "0.10.10"
+PROXY_VERSION = "0.10.11"
 _CHILD_PROTOCOL_VERSION = "2026-07-28"
 
 
@@ -276,7 +279,7 @@ def _op_event(event: str, *, family: str | None = None, **fields) -> None:
 
 
 def _capture_body(direction: str, method: object, raw: bytes) -> None:
-    """Capture one raw wire body to the opt-in debug-bodies family."""
+    """Capture a diagnostic copy with reserved result-session controls redacted."""
     logger = _operational_log.current_logger()
     if logger is None:
         return
@@ -287,7 +290,7 @@ def _capture_body(direction: str, method: object, raw: bytes) -> None:
             run_id=logger.run_id,
             direction=direction,
             method=name.replace("/", "."),
-            body=raw.decode("utf-8", "replace").strip(),
+            body=redact_debug_wire_body(raw),
         ),
     )
 
@@ -599,7 +602,10 @@ def _outcome_timestamp(value):
 def _write_line(stream, obj: dict) -> None:
     """Serialize obj as NDJSON and write to stream."""
     line = json.dumps(obj) + "\n"
-    stream.write(line.encode("utf-8"))
+    encoded = line.encode("utf-8")
+    written = stream.write(encoded)
+    if written != len(encoded):
+        raise OSError("incomplete JSON-RPC write")
     stream.flush()
 
 
@@ -1341,13 +1347,29 @@ class Proxy:
                     self._subscriptions.delivered(event.key)
                     continue
                 obj = event.frame
+            notice_generation = None
             if event is None:
-                obj = self._decorate_catalogue_notice(obj)
+                obj, notice_generation = self._prepare_catalogue_notice(obj)
             result = obj.get("result")
             envelope = result.get("structuredContent") if isinstance(result, dict) else None
             if (self._proxy_drift and self._proxy_version_on_disk
                     and not (isinstance(envelope, dict) and envelope.get("schema") == "brain.command-result/1")):
                 obj = _decorate_with_drift_note(obj, PROXY_VERSION, self._proxy_version_on_disk)
+            result = obj.get("result")
+            if isinstance(result, dict) and isinstance(result.get("content"), list):
+                envelope = result.get("structuredContent")
+                if (isinstance(envelope, dict) and "delivery" not in envelope
+                        and envelope.get("schema") != "brain.command-result/1"):
+                    content = result["content"]
+                    target = _human_text_index(content)
+                    concise = content[target].get("text", "") if target is not None else "Brain result"
+                    envelope = {**envelope, "delivery": delivery_descriptor()}
+                    result = {**result, "structuredContent": envelope,
+                              "content": result_text_wire(concise, envelope)}
+                guarded = guard_tool_result(result)
+                if notice_generation is not None and not has_catalogue_notice(guarded):
+                    notice_generation = None
+                obj = {**obj, "result": guarded}
             if not _safe_write_line(
                 self._output_stream if self._output_stream is not None else sys.stdout.buffer,
                 obj,
@@ -1356,6 +1378,8 @@ class Proxy:
             ):
                 self._initiate_shutdown()
                 return
+            if notice_generation is not None:
+                self._commit_catalogue_notice(notice_generation)
             if event:
                 self._subscriptions.delivered(event.key)
 
@@ -1368,25 +1392,34 @@ class Proxy:
                       if current.get(name) != self._advertised_tools.get(name))
 
     def _decorate_catalogue_notice(self, response: dict) -> dict:
+        """Prepare a candidate without consuming its notice."""
+        return self._prepare_catalogue_notice(response)[0]
+
+    def _commit_catalogue_notice(self, generation: int) -> None:
+        """Called only by the writer after accepted output and flush."""
+        with self._interface_lock:
+            self._catalogue_notice_generation = generation
+
+    def _prepare_catalogue_notice(self, response: dict) -> tuple[dict, int | None]:
         """Emit bounded transport guidance once, without probing installed state on output."""
         result = response.get("result")
         envelope = result.get("structuredContent") if isinstance(result, dict) else None
         if ("id" not in response or not isinstance(envelope, dict)
                 or envelope.get("schema") != "brain.command-result/1"):
-            return response
+            return response, None
         # The handoff owner holds publication while waiting for this writer to
         # drain. Only interface observation may be locked here; preparation's
         # provisional header is excluded until activation publishes generation.
         with self._interface_lock:
             if self._preparing_child is not None:
-                return response
+                return response, None
             generation = self._catalogue_generation
             if self._catalogue_notice_generation == generation:
-                return response
+                return response, None
             pending = self._pending_tool_names()
             proxy_drift = self._proxy_drift
             if not pending and not proxy_drift:
-                return response
+                return response, None
             names = ", ".join(name if len(name) <= 80 else name[:77] + "..."
                               for name in (pending or [])[:6])
             remainder = max(0, len(pending or []) - 6)
@@ -1412,9 +1445,8 @@ class Proxy:
             content = result.get("content", [])
             target = _human_text_index(content) if isinstance(content, list) else None
             concise = content[target].get("text", "") if target is not None else "Brain result"
-            self._catalogue_notice_generation = generation
             return {**response, "result": {**result, "structuredContent": updated,
-                    "content": result_text_wire(concise + "\n\n" + message, updated)}}
+                    "content": result_text_wire(concise + "\n\n" + message, updated)}}, generation
 
     def _read_with_timeout(self, child: ChildProcess, timeout: int) -> dict | None:
         """
@@ -1906,7 +1938,7 @@ class Proxy:
             "initialise_response": self._init_response, "public_session": self._public_session,
             "tools": {name: asdict(tool) for name, tool in (self._advertised_tools or {}).items()},
             "generation": self._catalogue_generation, "request_id": request_id,
-            "remainder": base64.b64encode(stdin.remainder).decode("ascii"),
+            "remainder": stdin.remainder,
             "subscriptions": self._subscriptions.snapshot(),
             "resolution": ({**self._resolution_inputs, "start_dir": str(self._resolution_inputs["start_dir"])}
                            if self._resolution_inputs is not None else None),
@@ -1930,14 +1962,15 @@ class Proxy:
         env["PYTHONPATH"] = str(Path(self.vault_root) / ".brain-core")
         return env
 
-    def _preflight_handoff(self, fd: int, python: str) -> bool:
+    def _preflight_handoff(self, fd: int, python: str, *, input_fd: int | None = None) -> bool:
         env = self._handoff_environment()
         env.pop("BRAIN_OPERATOR_KEY", None)
+        input_fds = (input_fd,) if input_fd is not None else ()
         started = time.monotonic()
         process = managed_command(
             [python, "-m", "brain_mcp.proxy", "--check-handoff", str(fd)], role=ROLE_MCP, env=env,
         ).popen(
-            pass_fds=(fd,), stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+            pass_fds=(fd, *input_fds), stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL, start_new_session=True,
         )
         try:
@@ -2135,7 +2168,8 @@ class Proxy:
                         state["python"] = runtime["required"]
                         image_hash = self._compute_proxy_hash()
                         with state_descriptor(state) as fd:
-                            if self._preflight_handoff(fd, state["python"]):
+                            wire_state = read_state(fd, expected_pid=os.getpid())
+                            if self._preflight_handoff(fd, state["python"], input_fd=wire_state["remainder"]["fd"]):
                                 prepared = {"state": state, "image_hash": image_hash}
                             else:
                                 code = "proxy_handoff_preflight_failed"
@@ -3203,7 +3237,7 @@ def _serve_proxy(python_path: str, server_target: str, vault_root: str | None, *
                                                        code=failure or (None if ready else "proxy_server_start_failed"), effects="consent_ended"))
             if not ready and startup_failure is None:
                 proxy._signal_recovery(exit_code=1)
-            next_state = proxy.run(remainder=base64.b64decode(state["remainder"]) if state else b"")
+            next_state = proxy.run(remainder=consume_remainder(state) if state else b"")
         finally:
             proxy._initiate_shutdown()
         if next_state is None:
@@ -3216,6 +3250,7 @@ def _handoff_entry(mode: str, fd: int) -> None:
     state = read_state(fd, expected_pid=os.getppid() if probe else os.getpid())
     if not probe:
         os.close(fd)
+        state = {**state, "remainder": consume_remainder(state)}
     vault = state["vault"]
     installed_proxy = Path(vault) / ".brain-core" / "brain_mcp" / "proxy.py"
     if Path(__file__).resolve() != installed_proxy.resolve() or not same_executable_path(sys.executable, state["python"]):

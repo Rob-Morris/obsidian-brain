@@ -219,6 +219,39 @@ def canonical_result_json(result: CommandResult) -> str:
     )
 
 
+def unavailable_delivery_envelope(envelope: dict, message: str, *, reason: str = "result_unavailable") -> dict:
+    """Report unavailable output without changing the originating execution outcome."""
+    from .result_navigation import Delivery, delivery_metadata
+    value = dict(envelope)
+    payload = envelope.get("result")
+    if envelope.get("status") == "partial" and isinstance(payload, dict):
+        if "committed_effects" in payload:
+            value["committed_effects"] = payload["committed_effects"]
+    value["result"] = None
+    value["delivery"] = delivery_metadata(Delivery(status="unavailable",
+        reason=reason, message=message))
+    return value
+
+
+def disclosure_ended_envelope(envelope: dict) -> dict:
+    """Withhold business data without changing known execution or effect truth."""
+    from .result_navigation import Delivery, delivery_metadata
+    message = ('Source disclosure authority ended or could not be verified. Business output and '
+               'effect subjects are withheld. Do not rerun a mutation to recover output.')
+    value = {key: envelope[key] for key in ('schema', 'command', 'command_version', 'status')}
+    value.update(result=None, warnings=[], committed_effects_withheld=True)
+    error = envelope.get('error')
+    value['effects'] = error.get('effects', 'unknown') if isinstance(error, dict) else 'known'
+    if isinstance(error, dict):
+        value['error'] = {key: error[key] for key in ('code', 'effects') if key in error}
+        value['error']['message'] = message
+        reference = error.get('outcome_reference')
+        if isinstance(reference, dict) and isinstance(reference.get('invocation_id'), str):
+            value['error']['outcome_reference'] = {'invocation_id': reference['invocation_id']}
+    value['delivery'] = delivery_metadata(Delivery(status='unavailable', reason='disclosure_ended', message=message))
+    return value
+
+
 def _error_value(
     error: CommandError,
     *,

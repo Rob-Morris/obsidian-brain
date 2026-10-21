@@ -331,3 +331,16 @@ def test_frontmatter_wire_objects_round_trip_through_all_request_variants():
             assert not validator.is_valid(bad), (command_id, invalid)
             with pytest.raises(ValueError):
                 resolver.resolve(command_id, bad)
+
+
+def test_unavailable_partial_delivery_preserves_known_committed_effects():
+    from _application.projection import unavailable_delivery_envelope
+    source = {'schema': 'brain.command-result/1', 'command': 'fixture.write',
+              'command_version': 1, 'status': 'partial',
+              'result': {'committed_effects': [{'kind': 'written', 'subject': 'first'}]},
+              'error': {'effects': 'known'}}
+    delivered = unavailable_delivery_envelope(source, 'Retained output is unavailable.')
+    assert delivered['status'] == 'partial'
+    assert delivered['error'] == source['error']
+    assert delivered['committed_effects'] == source['result']['committed_effects']
+    assert delivered['result'] is None

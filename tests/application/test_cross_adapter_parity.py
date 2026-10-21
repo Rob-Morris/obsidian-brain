@@ -201,12 +201,20 @@ def test_equivalent_valid_intent_has_one_result_across_all_eligible_adapters(tmp
 
     assert direct_code == dynamic.exit_code == local.exit_code == 0
     assert direct_stderr == ""
-    assert [
+    projected = [
         dynamic.structured_content,
         json.loads(direct_stdout),
         mcp.structured_content,
         local.structured_content,
-    ] == [python_result] * 4
+    ]
+    for envelope in projected:
+        delivery = envelope.pop('delivery')
+        assert delivery['status'] == 'complete'
+        assert delivery['total_items'] == delivery['total_pages'] == 1
+        assert envelope == python_result
+        # Delivery of this source window is complete, while its native cursor
+        # still identifies more catalogue entries outside that window.
+        assert envelope['result']['next_cursor'] is not None
 
 
 def test_equivalent_known_invalid_intent_has_one_structural_error(tmp_path):
@@ -271,9 +279,16 @@ def test_local_cli_crosses_a_real_selected_brain_process_boundary(tmp_path):
     ).invoke(entry, {"path": "README.md"})
 
     assert result.exit_code == 0
-    assert result.structured_content["result"] == {
+    expected = {
         "path": "README.md",
         "content": "selected Brain content\n",
         "revision": "sha256:272fa697ca3b3d7a50b52f0befad352d5287a60dfd4075f984fa5c57855c9f8a",
         "range": {"start": 0, "end": 23, "total_characters": 23, "next_cursor": None},
     }
+    envelope = result.structured_content
+    payload = envelope['result']
+    assert {key: payload[key] for key in expected} == expected
+    assert ''.join(fragment['text'] + fragment['line_ending']
+                   for fragment in payload['fragments']) == expected['content']
+    assert envelope['delivery']['status'] == 'complete'
+    assert envelope['delivery']['unit'] == 'lines'

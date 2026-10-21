@@ -46,6 +46,7 @@ def test_released_commands_all_have_explicit_policy_classification():
     facts = read_snapshot(build_contract())
     assert not [f.command_id for f in facts if decision(f) == "unknown"]
     desired = desired_policy((facts,), "mcp")
+    assert desired["result_clear"] == "allow"
     assert desired["access_request"] == "prompt"
     assert desired["brain_proxy_restart"] == "prompt"
     assert desired["brain_proxy_status"] == "allow"

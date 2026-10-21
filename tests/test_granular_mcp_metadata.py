@@ -39,7 +39,7 @@ def test_supported_client_projections_obey_hard_and_compact_tool_bounds():
     assert all(reason.strip() for reason in COMPACT_TOOL_EXCEPTIONS.values())
     observed_large = set()
     assert set(capture["clients"]) == set(SUPPORTED_CLIENTS)
-    assert capture["raw_fastmcp"]["tool_count"] == 90
+    assert capture["raw_fastmcp"]["tool_count"] == 93
     for client, expected in SUPPORTED_CLIENTS.items():
         projected = capture["clients"][client]
         assert {
@@ -51,7 +51,7 @@ def test_supported_client_projections_obey_hard_and_compact_tool_bounds():
                 "projector_source",
             )
         } == expected
-        assert projected["tool_count"] == 90
+        assert projected["tool_count"] == 93
         assert projected["maximum_tool_tokens"] <= MAX_TOOL_TOKENS
         large = {name for name, metadata in projected["tools"].items()
                  if metadata["tokens"] > COMPACT_TOOL_TOKENS}
