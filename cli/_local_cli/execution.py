@@ -7,6 +7,8 @@ import json
 from pathlib import Path
 import subprocess
 from typing import Callable, Mapping, Protocol
+
+from _bootstrap.process_text import machine_process_options
 from _bootstrap.owner_attachment import OwnerAttachment
 from _common._operational_log import matching_command_failure
 from _common._venv import ROLE_CLI, run_managed
@@ -15,6 +17,11 @@ from _launcher.adapter import LauncherAdapter
 from _launcher.context import LauncherContext
 
 from .discovery import ComposedCommandEntry
+
+
+def machine_json_text(text: str) -> str:
+    """Keep public JSON usable through legacy Windows codepage pipes."""
+    return text if text.isascii() else json.dumps(json.loads(text), ensure_ascii=True, separators=(",", ":"))
 
 
 @dataclass(frozen=True, slots=True)
@@ -156,12 +163,11 @@ class ApplicationProcessInvoker:
             argv.append("--dry-run")
         if self.operation_id is not None:
             argv.extend(("--operation", self.operation_id))
-        options = self.owner_attachment.forwarded_process() if self.owner_attachment is not None else {}
+        options = machine_process_options(self.owner_attachment.forwarded_process() if self.owner_attachment is not None else {})
         completed = self.runner(
             argv,
             role=ROLE_CLI,
             capture_output=True,
-            text=True,
             check=False,
             **options,
         )
@@ -252,7 +258,7 @@ def render_local_result(
 
     diagnostic = projection.diagnostic_text + "\n" if projection.diagnostic_text else ""
     if json_mode:
-        return projection.json_text + "\n", diagnostic, projection.exit_code
+        return machine_json_text(projection.json_text) + "\n", diagnostic, projection.exit_code
     line = projection.concise_text + "\n"
     if projection.is_error:
         return "", line + diagnostic, projection.exit_code

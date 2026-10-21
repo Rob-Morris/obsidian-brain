@@ -845,7 +845,7 @@ The bundle discriminator includes Core version and a source-content digest, so a
 
 The distribution contains the launcher application plus the Brain Core payload needed for install, upgrade and selected-Brain execution. Installation and replacement verify a content manifest and executable identity; failed replacement restores the proven old binary/distribution pair or retains recovery material and reports the outcome as unverified. Failed upgrade results carry every known absolute recovery path in the structural error and durable launcher receipt: residual staging material after a verified rollback is a known partial outcome, while unverified rollback remains outcome-unknown. Standalone human output lists the same paths before the failure message. Once the new pair is verified, failure or interruption while removing an old backup is committed post-upgrade recovery work and never rolls Brain Core back to an older version. Both the launcher result and standalone distribution JSON list the surviving `cleanup_recovery_paths`.
 
-The bootloader requires Python 3.12 or newer. `BRAIN_CLI_VERSION` is `6.1.0`; `BRAIN_INSTALL_REF` is `v0.73.0`.
+The bootloader requires Python 3.12 or newer. `BRAIN_CLI_VERSION` is `6.1.0`; `BRAIN_INSTALL_REF` is `v0.74.0`.
 
 JSON command invocations validate the structural stdout envelope, including
 command identity, version and exit category. Incidental child stderr does not
@@ -888,6 +888,24 @@ Normal remote installation selects latest published main and verifies its matchi
 
 `brain install` and `brain upgrade` accept `version` (latest or exact) or an explicit absolute `source_root` in request JSON, not both. Omission acquires latest published source. Existing healthy shared CLI is preserved, including when it lacks an operation; report the specific limitation and explicit remediation. `replace_cli: true`, Unix `--replace-cli` or Windows `-ReplaceCli` explicitly requests replacement through existing ownership/approval/rollback guards. Genuine absence or structural launcher damage may bootstrap; permission errors, timeouts and operation errors do not authorise replacement. First CLI bootstrap failure stops before creating a target vault with retry/repair guidance; later runtime and optional MCP steps retain their separate partial-install outcomes.
 
-`brain --version` and `brain version --json` work before vault attachment, discovery, managed runtime provisioning, approval-state reads or network use (supported local Python is required). They report `cli_version`, `distributed_with_core_version` and `full_support_core_version`; JSON retains catalogue diagnostics. The full-support baseline is advisory for older Core: it does not ban all commands. Development uses `next-release` in the canonical version contract, rendered as unknown/null until release preparation stamps the actual baseline. The first supported baseline is the next release; earlier interoperability is best-effort, non-gating.
+`brain --version` and `brain version --json` work before vault attachment, discovery, managed runtime provisioning, approval-state reads or network use (supported local Python is required). They report `cli_version`, `distributed_with_core_version` and `full_support_core_version`; JSON retains catalogue diagnostics. The full-support baseline is advisory for older Core: it does not ban all commands. Development may use `next-release` in the canonical version contract, rendered as unknown/null until release preparation stamps the concrete earliest full-support Core version for that CLI. Earlier interoperability is best-effort, non-gating.
 
 Explicit `skip_cli: true` (Unix `--skip-cli`, Windows `-SkipCli`) suppresses global CLI bootstrap and replacement, including delegated managed installation. Skip and replace are conflicting requests. MCP scope/client choices apply to fresh installs; upgrades reconcile existing registrations and do not require those unused fresh-install choices. Non-install machine commands require an installed CLI rather than implicitly bootstrapping one.
+
+
+### CLI pipe encoding and pinned Windows retries
+
+Public `--json` output uses ASCII-escaped JSON, preserving Unicode values after
+JSON decoding even when native Windows pipes use an ANSI codepage. Internal
+selected-Brain command, discovery and selected-source lifecycle subprocesses pair child-only
+`PYTHONIOENCODING=utf-8` with explicit UTF-8 decoding in the parent. This does
+not change global UTF-8 mode or filesystem/text-file encoding defaults.
+
+After a failed acquired-source install or upgrade, the retained-source retry
+keeps its source pin, destination selectors, working directory and relevant
+Brain environment selectors. Native Windows instructions use PowerShell and
+pipe the ASCII JSON request to `--request-json -`, avoiding JSON quoting through
+the `.cmd` launcher. Replace the operator-key placeholder with the original key
+when present; inspect the original outcome before retrying a mutation.
+
+Selected-source lifecycle delegation preserves the original Brain/workspace environment selectors as explicit handoff inputs. Code-origin variables are rebuilt for the selected snapshot; unrelated machine-command delegation still removes ambient destination selectors.

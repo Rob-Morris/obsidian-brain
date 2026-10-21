@@ -8,6 +8,7 @@ Never edit past changelog entries. Only add new entries at the top.
 
 | Version | Date | Summary |
 |---|---|---|
+| [v0.74.0](changelog/v0.74.0.md) | 2026-10-21 | Make exact-version installs reproducible without replacing shared CLIs |
 | [v0.73.0](changelog/v0.73.0.md) | 2026-10-15 | Make workspace destinations, defaults and relevance explicit |
 | [v0.72.0](changelog/v0.72.0.md) | 2026-10-14 | Separate workspace identity from folder registration |
 | [v0.71.4](changelog/v0.71.4.md) | 2026-10-12 | Condition Codex MCP reconnect advice on pending tool discovery |

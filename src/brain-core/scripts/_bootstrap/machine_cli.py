@@ -12,13 +12,14 @@ from _bootstrap.file_transaction import FilePlan
 from _bootstrap.mcp_registration import APPROVAL_LEDGER_SCHEMA, user_ledger_path
 from _common._venv import ROLE_CLI, run_managed
 from _bootstrap.owner_attachment import PROCESS_CONTEXT_ENV
+from _bootstrap.process_text import machine_process_options
 
 
 LIFECYCLE_SOURCE_ENV = "BRAIN_LIFECYCLE_SOURCE_ROOT"
 
 
 def run_source_cli(source_root: Path, binary: Path, argv: list[str], *,
-                   owner_attachment=None, **options):
+                   owner_attachment=None, selection_environment: dict[str, str] | None = None, **options):
     """Run a complete selected snapshot while retaining the existing private job owner."""
     source_root = source_root.resolve()
     if not (source_root / "cli/_launcher/approval_lifecycle.py").is_file():
@@ -26,6 +27,10 @@ def run_source_cli(source_root: Path, binary: Path, argv: list[str], *,
     environment = dict(os.environ)
     for key in ("BRAIN_CLI_BUNDLE", "PYTHONPATH", "PYTHONHOME", "BRAIN_VAULT_ROOT", "BRAIN_WORKSPACE_DIR"):
         environment.pop(key, None)
+    if selection_environment is not None:
+        for key in ("BRAIN_VAULT_ROOT", "BRAIN_WORKSPACE_DIR"):
+            if key in selection_environment:
+                environment[key] = selection_environment[key]
     environment["BRAIN_CLI_BINARY"] = str(binary)
     environment["BRAIN_CLI_DISTRIBUTION_ROOT"] = str(source_root)
     environment[LIFECYCLE_SOURCE_ENV] = str(source_root)
@@ -38,7 +43,7 @@ def run_source_cli(source_root: Path, binary: Path, argv: list[str], *,
             environment[PROCESS_CONTEXT_ENV] = process_context
         options.update(inherited)
     return run_managed([sys.executable, "-P", "-B", "-m", "_local_cli.main", *argv],
-                       role=ROLE_CLI, env=environment, **options)
+                       role=ROLE_CLI, **machine_process_options({**options, "env": environment}))
 
 
 def approvals_present(home: Path | None = None) -> bool:

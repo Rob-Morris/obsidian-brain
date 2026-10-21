@@ -115,3 +115,41 @@ def test_failed_cli_attempt_retains_a_usable_pinned_retry(origin, tmp_path, monk
     monkeypatch.setattr(main, '_run_selected_lifecycle', retry)
     assert main.run(['install', '--request-json', json.dumps({**payload, 'source_root': str(lease)})]) == 0
     assert calls == ['latest']
+
+
+def test_windows_retry_uses_ascii_stdin_json_and_preserves_all_selectors():
+    import json
+    from _local_cli.main import _pinned_retry_command
+    payload = {"source_root": r"C:\retained source", "version": None, "vault_root": "C:/雪"}
+    argv = [r"C:\Program Files\Brain\bin\brain.cmd", "upgrade", "--request-json", json.dumps(payload),
+            "--vault", r"C:\vault", "--brain", "selected", "--workspace", r"C:\workspace", "--dry-run"]
+    rendered = _pinned_retry_command(argv, "C:/O'Brien & work", {"BRAIN_VAULT_ROOT": "C:/env vault"}, platform="win32")
+    assert rendered.startswith("Set-Location -LiteralPath 'C:/O''Brien & work'; ")
+    assert "$env:BRAIN_VAULT_ROOT = 'C:/env vault'" in rendered
+    assert " | & 'C:" in rendered
+    assert "'--request-json' '-'" in rendered
+    assert "'--vault' 'C:" in rendered
+    assert "'--brain' 'selected'" in rendered and "'--workspace' 'C:" in rendered
+    assert "'--dry-run'" in rendered
+    # The escaped request, including its fixed source pin, is entirely ASCII.
+    request = rendered.split("; ")[-1].split(" | & ")[0]
+    assert json.loads(request[1:-1].replace("''", "'")) == payload
+    assert request.isascii()
+
+
+def test_windows_retry_unicode_paths_survive_a_legacy_diagnostic_pipe():
+    import base64
+    import json
+    import re
+    from _local_cli.main import _pinned_retry_command
+    directory = "C:/working 雪 😀"
+    binary = "C:/ユーザー/Brain/bin/brain.cmd"
+    vault = "C:/vault 雪"
+    request = {"source_root": "C:/retained 雪", "version": None}
+    rendered = _pinned_retry_command(
+        [binary, "upgrade", "--request-json", json.dumps(request), "--vault", vault],
+        directory, {"BRAIN_VAULT_ROOT": vault}, platform="win32")
+    assert rendered.encode("cp1252").decode("cp1252") == rendered
+    encoded_values = re.findall(r"FromBase64String\('([^']+)'\)", rendered)
+    assert {base64.b64decode(value).decode("utf-8") for value in encoded_values} == {directory, binary, vault}
+    assert "Remove-Item Env:BRAIN_WORKSPACE_DIR -ErrorAction SilentlyContinue" in rendered

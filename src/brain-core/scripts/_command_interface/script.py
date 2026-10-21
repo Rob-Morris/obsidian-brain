@@ -164,7 +164,7 @@ def _run(argv, *, stdin, stdout, stderr, context_factory, script_path, owner_att
 
         entry = next(item for item in catalogue.entries if item.command_id == command_id)
         projection = project_adapter_result(exc.result(entry))
-        print(projection.json_text if args.json else projection.concise_text,
+        print(json.dumps(projection.structured_content, ensure_ascii=True, separators=(",", ":")) if args.json else projection.concise_text,
               file=stdout if args.json else stderr)
         return projection.exit_code
     except (DirectContextError, OSError, ValueError) as exc:
@@ -189,7 +189,7 @@ def _run(argv, *, stdin, stdout, stderr, context_factory, script_path, owner_att
         _report_internal_failure("direct command setup failed", stderr)
         return 4
     if args.json:
-        print(projection.json_text, file=stdout)
+        print(json.dumps(projection.structured_content, ensure_ascii=True, separators=(",", ":")), file=stdout)
     elif projection.is_error:
         print(projection.concise_text, file=stderr)
     else:

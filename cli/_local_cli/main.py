@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import base64
 from dataclasses import asdict
 import getpass
 import json
@@ -40,6 +41,8 @@ from .execution import (
     LocalExecutionProjection,
     SelectedBrainProcess,
     render_local_result,
+    machine_process_options,
+    machine_json_text,
 )
 from .parser import (
     discovery_request_argv,
@@ -78,7 +81,7 @@ def run(argv: list[str] | None = None) -> int:
                 raise LocalCliUsageError("launcher commands do not accept application operation selectors")
             result = version_result()
             if common.json_mode:
-                print(project_launcher_result(result).json_text)
+                print(machine_json_text(project_launcher_result(result).json_text))
             else:
                 sys.stdout.write(version_text(result.result))
             return 0
@@ -231,12 +234,35 @@ def _run(argv, attachment) -> int:
             else:
                 retry = [str(cli_binary), *command_argv, "--request-json", json.dumps(payload), "--json"]
                 retry.extend(_lifecycle_options(common, redact_secrets=True))
-                invocation = ["env"]
-                for name in ("BRAIN_VAULT_ROOT", "BRAIN_WORKSPACE_DIR"):
-                    if name in os.environ:
-                        invocation.append(name + "=" + os.environ[name])
-                invocation.extend(retry)
-                print(f"brain: retained verified source at {acquired}. After inspecting the outcome, retry the same identity/context (replace any operator-key placeholder with the original key): cd {shlex.quote(str(Path.cwd()))} && {shlex.join(invocation)}", file=sys.stderr)
+                retry_command = _pinned_retry_command(retry, Path.cwd(), os.environ)
+                print(f"brain: retained verified source at {acquired}. After inspecting the outcome, retry the same identity/context (replace any operator-key placeholder with the original key): {retry_command}", file=sys.stderr)
+
+
+def _pinned_retry_command(argv, directory, environment, *, platform=None):
+    """Render a pinned retry for PowerShell on Windows or the POSIX shell."""
+    selected = {name: environment[name] for name in ("BRAIN_VAULT_ROOT", "BRAIN_WORKSPACE_DIR") if name in environment}
+    if (sys.platform if platform is None else platform) == "win32":
+        def quote(value):
+            value = str(value)
+            if not value.isascii():
+                encoded = base64.b64encode(value.encode("utf-8")).decode("ascii")
+                return "([Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('" + encoded + "')))"
+            return "'" + value.replace("'", "''") + "'"
+        statements = ["Set-Location -LiteralPath " + quote(directory)]
+        for name in ("BRAIN_VAULT_ROOT", "BRAIN_WORKSPACE_DIR"):
+            if name in selected:
+                statements.append("$env:" + name + " = " + quote(selected[name]))
+            else:
+                statements.append("Remove-Item Env:" + name + " -ErrorAction SilentlyContinue")
+        argv = list(argv)
+        request_index = argv.index("--request-json") + 1
+        request = json.dumps(json.loads(argv[request_index]), ensure_ascii=True)
+        argv[request_index] = "-"
+        # JSON travels over stdin, avoiding PowerShell/cmd.exe native argv quoting.
+        statements.append(quote(request) + " | & " + " ".join(quote(value) for value in argv))
+        return "; ".join(statements)
+    invocation = ["env", *(name + "=" + value for name, value in selected.items()), *argv]
+    return "cd " + shlex.quote(str(directory)) + " && " + shlex.join(invocation)
 
 
 def main() -> None:
@@ -274,6 +300,8 @@ def _run_selected_lifecycle(command_argv, common, payload, binary, distribution,
     argv = [*command_argv, "--request-json", json.dumps({**payload, "source_root": str(source)})]
     argv.extend(_lifecycle_options(common))
     process = run_source_cli(source, binary, argv, owner_attachment=attachment,
+                             selection_environment={key: os.environ[key] for key in
+                                 ("BRAIN_VAULT_ROOT", "BRAIN_WORKSPACE_DIR") if key in os.environ},
                              capture_output=True, text=True, timeout=1800)
     if process.returncode not in range(5):
         raise CliError("selected source lifecycle returned an invalid exit category; inspect before retrying")
@@ -515,7 +543,7 @@ def _initialise_selected_job(selected, owner, common) -> None:
     """Run authentication in selected Brain code through a private supervisor-only handoff."""
     attachment = OwnerAttachment.for_job(owner)
     try:
-        options = attachment.forwarded_process()
+        options = machine_process_options(attachment.forwarded_process())
         options["env"][PROCESS_CONTEXT_ENV] = ProcessIdentity("cli-job", owner.identity.context_id).launch_value(initialise_owner=True)
         argv = [str(command_python(selected, "stdlib")), str(selected.command_script),
                 "--initialise-job-owner", "--vault", str(selected.vault_root)]
@@ -524,7 +552,7 @@ def _initialise_selected_job(selected, owner, common) -> None:
         if selected.workspace is not None:
             argv.extend(("--workspace", str(selected.workspace)))
         result = managed_command(argv, role=ROLE_CLI, env=options.pop("env")).run(
-            **options, capture_output=True, text=True, timeout=30)
+            **options, capture_output=True, timeout=30)
         if result.returncode != 0:
             raise CliError("selected Brain could not initialise the job: " + result.stderr.strip())
         expected = {"schema": "brain.owner-initialised/1", "context_id": owner.identity.context_id}
@@ -564,9 +592,9 @@ def _invoke_application(
     if common.operator_key:
         argv.extend(("--operator-key", common.operator_key))
     attachment = getattr(common, "owner_attachment", None)
-    options = attachment.forwarded_process() if attachment is not None else {}
+    options = machine_process_options(attachment.forwarded_process() if attachment is not None else {})
     completed = managed_command(argv, role=ROLE_CLI, env=options.pop("env", None)).run(
-        capture_output=True, text=True, check=False, **options)
+        capture_output=True, check=False, **options)
     diagnostic = application_process_diagnostic(completed.returncode, completed.stderr)
     if completed.returncode not in range(5):
         raise CliError("selected Brain discovery failed its structural process contract" + diagnostic)
@@ -732,7 +760,7 @@ def _upgrade_required(command_id: str, selected: SelectedBrain) -> LocalExecutio
 
 def _render_discovery(payload: Mapping[str, object], json_mode: bool) -> int:
     if json_mode:
-        print(json.dumps(payload, ensure_ascii=False, separators=(",", ":")))
+        print(json.dumps(payload, ensure_ascii=True, separators=(",", ":")))
         return 0
     entries = payload.get("entries")
     if isinstance(entries, list):

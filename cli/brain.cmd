@@ -1,7 +1,7 @@
 @echo off
 setlocal
 set "BRAIN_CLI_VERSION=6.1.0"
-set "BRAIN_INSTALL_REF=v0.73.0"
+set "BRAIN_INSTALL_REF=v0.74.0"
 
 set "BRAIN_DISTRIBUTION_ID=source"
 

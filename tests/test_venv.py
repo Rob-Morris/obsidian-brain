@@ -552,6 +552,31 @@ def test_find_existing_central_venv_picks_highest_compatible_minor(monkeypatch, 
     assert result == py313
 
 
+@pytest.mark.parametrize("replace_file", [False, True], ids=["in-place", "atomic-replace"])
+def test_find_existing_central_venv_observes_launcher_replacement(monkeypatch, tmp_path, replace_file):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.delenv("BRAIN_VENV_LAUNCHER", raising=False)
+    vault = _make_vault(tmp_path)
+    rhash = _venv.requirements_hash(_venv.vault_requirements_path(vault))
+    py312 = _make_central_venv(tmp_path, "py3.12", rhash)
+    py313 = _make_central_venv(tmp_path, "py3.13", rhash)
+    launcher = tmp_path / "launcher" / "python"
+    launcher.parent.mkdir()
+
+    def publish(version):
+        target = launcher.with_name("replacement") if replace_file else launcher
+        target.write_text(f"#!/bin/sh\necho {version}\n")
+        target.chmod(0o755)
+        if replace_file:
+            target.replace(launcher)
+
+    publish("3.12")
+    assert _venv.find_existing_central_venv(vault, launcher=launcher) == py312
+
+    publish("3.14")
+    assert _venv.find_existing_central_venv(vault, launcher=launcher) == py313
+
+
 def test_find_existing_central_venv_ignores_different_hash(monkeypatch, tmp_path):
     """A venv for a different requirements hash never matches, regardless of minor."""
     monkeypatch.setenv("HOME", str(tmp_path))
