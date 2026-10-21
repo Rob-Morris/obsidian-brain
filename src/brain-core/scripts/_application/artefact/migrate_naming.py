@@ -4,7 +4,7 @@ from __future__ import annotations
 
 
 from .._decoding import decode_empty
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import ClassVar, Mapping
 
 from .._artefact_transition import PathChange
@@ -55,6 +55,8 @@ def execute(context: InvocationContext, request: ArtefactMigrateNamingRequest):
     import migrate_naming
 
     root = str(context.selected_brain.vault_root)
+    from ..relationship import _native as relationship_native
+    semantic_plan = None
     try:
         with vault_mutation_lock(root):
             from ..preparation import admit_owner
@@ -63,16 +65,35 @@ def execute(context: InvocationContext, request: ArtefactMigrateNamingRequest):
             plan = migrate_naming.plan_naming_migration(root, router=router, dry_run=context.dry_run)
             if plan.movement is not None:
                 admit_owner(context, request, migration_binding, plan=plan, router=router)
+            if plan.movement is not None and not context.dry_run:
+                semantic_plan = relationship_native.begin(context, request, plan.movement, router)
             result = migrate_naming.apply_naming_migration(root, plan)
+            publication_error = None
+            if not context.dry_run and not result.get("errors") and not result.get("error"):
+                try:
+                    relationship_native.complete(context, semantic_plan)
+                except PartialApplyError as exc:
+                    publication_error = exc
             if not context.dry_run and (result.get("renamed") or any(
                 item.get("partial_apply") for item in result.get("errors", ())
             )):
-                from .._transition_indexes import reconcile_transition_indexes
-                reconcile_transition_indexes(context)
+                from .._transition_indexes import reconcile_transition_indexes, combine_transition_errors
+                try:
+                    reconcile_transition_indexes(context)
+                except PartialApplyError as exc:
+                    if publication_error is not None:
+                        raise combine_transition_errors(publication_error, exc) from exc
+                    raise
+            if publication_error is not None:
+                raise publication_error
     except PartialApplyError as exc:
         from .._transition_indexes import transition_error
+        error = transition_error(exc)
+        if semantic_plan is not None:
+            error = replace(error, message=error.message + "; inspect history.repair operation " + semantic_plan.operation)
         return Partial(request.COMMAND_ID, request.COMMAND_VERSION,
-                       transition_error(exc), (CommittedEffect(request.COMMAND_ID, "vault"),))
+                       error, (CommittedEffect(request.COMMAND_ID, "vault"),)
+                       + relationship_native.committed_effects(context, semantic_plan))
     except MutationLockError as exc:
         return no_effect_error(
             type(request),
@@ -86,6 +107,8 @@ def execute(context: InvocationContext, request: ArtefactMigrateNamingRequest):
     payload = _payload(result)
     if payload.errors:
         message = "; ".join(item.message for item in payload.errors)
+        if semantic_plan is not None:
+            message += "; inspect history.repair operation " + semantic_plan.operation
         if (payload.renamed or any(item.partial_apply for item in payload.errors)) and not payload.dry_run:
             return Partial(
                 request.COMMAND_ID,
@@ -95,7 +118,8 @@ def execute(context: InvocationContext, request: ArtefactMigrateNamingRequest):
                     message,
                     RequestErrorDetails(None, message),
                 ),
-                (CommittedEffect(request.COMMAND_ID, "vault"),),
+                (CommittedEffect(request.COMMAND_ID, "vault"),)
+                + relationship_native.committed_effects(context, semantic_plan),
             )
         return no_effect_error(type(request), ErrorCode.CONFLICT, message)
     effects = (

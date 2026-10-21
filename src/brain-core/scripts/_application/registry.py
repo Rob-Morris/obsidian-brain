@@ -92,7 +92,49 @@ from .workspace import update_metadata as workspace_update_metadata
 from .resolver import ResolverEntry
 
 
+from .relationship import batch as relationship_batch
+from .relationship import define as relationship_define
+from .relationship import definitions as relationship_definitions
+from .relationship import query as relationship_query
+from .relationship import read as relationship_read
+from .history import write as history_write
+from .history import read as history_read
+from .history import query as history_query
+from .history import correct as history_correct
+from .history import cleanup as history_cleanup
+
+
+from .relationship import expose as relationship_expose
+
+from .relationship import refresh as relationship_refresh
+from .history import repair as history_repair
+
+from .relationship import check as relationship_check
+from .relationship import undefine as relationship_undefine
+from .history import configure as history_configure
+from .history import policy as history_policy
+
 _COMMAND_OWNERS = (
+    relationship_check,
+    relationship_undefine,
+    history_configure,
+    history_policy,
+
+    relationship_refresh,
+    history_repair,
+
+    relationship_expose,
+    relationship_batch,
+    relationship_define,
+    relationship_definitions,
+    relationship_query,
+    relationship_read,
+    history_write,
+    history_read,
+    history_query,
+    history_correct,
+    history_cleanup,
+
     access_prepare,
     access_reduce,
     access_request,

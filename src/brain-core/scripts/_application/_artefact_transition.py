@@ -158,8 +158,11 @@ def execute_transition(
                 from .preparation_transition import require_inspected_transition
                 require_inspected_transition(plan)
                 admit_owner(context, request, transition_binding, plan=plan, router=router, effective=effective)
+                from .relationship import _native as relationship_native
+                semantic_plan = relationship_native.begin(context, request, plan, router)
                 effects_before = transition_effect_snapshot(context, plan)
                 raw_result = apply_plan(vault_root, plan)
+                relationship_native.complete(context, semantic_plan)
             except PartialApplyError as exc:
                 partial_error = exc
             from ._transition_indexes import reconcile_transition_indexes
@@ -186,6 +189,7 @@ def execute_transition(
         message = parent_chain_error_message(exc)
         return no_effect_error(type(request), ErrorCode.INVALID_REQUEST, message)
     except PartialApplyError as exc:
+        effects += relationship_native.committed_effects(context, semantic_plan)
         if not effects:
             raise RuntimeError("Transition reported partial effects without an observable committed subject") from exc
         return WorkspaceMutationPartial(

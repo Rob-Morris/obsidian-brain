@@ -5,7 +5,7 @@ from typing import ClassVar, Mapping
 
 from .._decoding import reject_unexpected
 from .._artefact_transition import execute_transition, catalogue_entry as transition_entry, PathChange, validate_string
-from ..workspace_context import WorkspaceAwareRequest, WorkspaceMutationPayload, workspace_request_decoder, validate_workspace_request
+from ..workspace_context import WorkspaceDispositionRequest, WorkspaceMutationPayload, workspace_disposition_decoder, validate_workspace_request
 from ..preparation_transition import TransitionPreparation
 from ..workspace_reassignment import plan_reassignment
 
@@ -22,7 +22,7 @@ class ArtefactSetWorkspacePayload(WorkspaceMutationPayload):
 
 
 @dataclass(frozen=True, slots=True)
-class ArtefactSetWorkspaceRequest(WorkspaceAwareRequest):
+class ArtefactSetWorkspaceRequest(WorkspaceDispositionRequest):
     COMMAND_ID: ClassVar[str] = "artefact.set-workspace"
     COMMAND_VERSION: ClassVar[int] = 1
     RESULT_TYPE: ClassVar[type] = ArtefactSetWorkspacePayload
@@ -53,7 +53,7 @@ def execute(context, request):
         effect_subjects=lambda payload: payload.changed_subjects)
 
 
-@workspace_request_decoder
+@workspace_disposition_decoder
 def decode(payload: Mapping[str, object]):
     reject_unexpected(payload, {"path", "recursive", "parent", "clear_parent"})
     return ArtefactSetWorkspaceRequest(payload.get("path"), payload.get("recursive", False),

@@ -134,7 +134,7 @@ def register_application_tools(
         if entry.initial_class is not InitialAuthorisationClass.CONTROL:
             tool.parameters["properties"]["brain_operation"] = {
                 "type": ["string", "null"], "minLength": 1, "maxLength": 128,
-                "description": "Prepared operation ID to select its specific consent in this Brain session; omit for initial or blanket authorisation.",
+                "description": "Select prepared consent by operation ID; omit for initial or command-wide consent.",
             }
         names.append(name)
     if names != sorted(names) or len(names) != len(set(names)):

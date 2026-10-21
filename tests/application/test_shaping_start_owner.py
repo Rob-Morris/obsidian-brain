@@ -21,6 +21,17 @@ from command_application import application_for
 DESIGN_REFERENCE = "design/command-fixture-design"
 
 
+def partial_native_paths(root, result):
+    """Retain exact native path assertions and verify the extra recovery receipt."""
+    from _relationships.storage import Store
+    recovery, = [effect for effect in result.committed_effects if effect.kind == "semantic.recovery"]
+    assert Store(root).read("operation", recovery.subject)["state"] == "native-pending"
+    assert recovery.subject in result.error.message
+    paths = tuple(effect.subject for effect in result.committed_effects if effect.kind == "shaping.start")
+    assert len(result.committed_effects) == len(paths) + 1
+    return paths
+
+
 @pytest.mark.parametrize("entrypoint", ["direct", "application"])
 def test_shaping_status_change_refreshes_router_once(command_vault_clone, monkeypatch, entrypoint):
     from _portable import router_maintenance
@@ -144,9 +155,9 @@ def test_shaping_start_preserves_known_partial_application(
 
     assert result.status == "partial"
     assert result.error.code is ErrorCode.CONFLICT
-    assert len(result.committed_effects) == 2
-    assert all((command_vault_clone.vault_root / effect.subject).exists()
-               for effect in result.committed_effects)
+    paths = partial_native_paths(command_vault_clone.vault_root, result)
+    assert len(paths) == 2
+    assert all((command_vault_clone.vault_root / path).exists() for path in paths)
 
 
 def test_shaping_index_failure_preserves_committed_paths_and_repair(command_vault_clone, monkeypatch):
@@ -159,7 +170,7 @@ def test_shaping_index_failure_preserves_committed_paths_and_repair(command_vaul
     result = application_for(root).invoke(ShapingStartRequest(DESIGN_REFERENCE, ShapingMode.REFINE))
     assert result.status == "partial", result
     assert result.error.next_action.command_id == "runtime.refresh-router"
-    paths = tuple(effect.subject for effect in result.committed_effects)
+    paths = partial_native_paths(root, result)
     assert len(paths) == 2
     assert all((root / path).exists() for path in paths)
     assert parse_frontmatter((root / paths[0]).read_text())[0]["status"] == "shaping"
@@ -189,7 +200,7 @@ def test_shaping_dual_failure_keeps_incomplete_session_and_index_repair(
     assert guidance in result.error.message
     assert result.error.next_action.command_id == "runtime.refresh-router"
     assert len(refreshes) == 1
-    paths = tuple(effect.subject for effect in result.committed_effects)
+    paths = partial_native_paths(root, result)
     assert len(paths) == 2
     assert all((root / path).exists() for path in paths)
     fields, body = parse_frontmatter((root / paths[0]).read_text())

@@ -9,6 +9,7 @@ import subprocess
 import sys
 import threading
 import time
+from types import SimpleNamespace
 
 import pytest
 
@@ -120,6 +121,62 @@ def test_preflight_group_cleanup_retains_timeout_and_permission_failures(tmp_pat
         assert relay._preflight_handoff(123, sys.executable) is (not timed_out)
         assert events[-1] == ("wait", HANDOFF_TIMEOUT)
     assert events[:2] == [("wait", HANDOFF_TIMEOUT), ("killpg", 123, proxy.signal.SIGKILL)]
+
+
+@pytest.mark.parametrize("outcome", [0, 1, -9, "timeout"])
+def test_preflight_diagnostic_is_bounded_and_preserves_cleanup(tmp_path, monkeypatch, caplog, outcome):
+    relay = proxy.Proxy(sys.executable, "brain_mcp.server", str(tmp_path))
+    events = []
+    launches = []
+    secret = "private-candidate-output"
+
+    class Process:
+        pid = 123
+
+        def wait(self, timeout):
+            events.append(("wait", timeout))
+            if len(events) == 1:
+                if outcome == "timeout":
+                    raise subprocess.TimeoutExpired(secret, timeout, output=secret, stderr=secret)
+                return outcome
+            return -9
+
+    def managed(argv, *, role, env):
+        assert argv == [sys.executable, "-m", "brain_mcp.proxy", "--check-handoff", "123"]
+        assert role == proxy.ROLE_MCP
+
+        def launch(**kwargs):
+            launches.append({**kwargs, "env": env})
+            return Process()
+
+        return SimpleNamespace(popen=launch)
+
+    monkeypatch.setenv("BRAIN_OPERATOR_KEY", secret)
+    monkeypatch.setattr(proxy, "managed_command", managed)
+    monkeypatch.setattr(proxy, "os", SimpleNamespace(
+        killpg=lambda pid, sig: events.append(("killpg", pid, sig))))
+    ticks = iter([10.0, 15.0 if outcome == "timeout" else 10.125])
+    monkeypatch.setattr(proxy, "time", SimpleNamespace(monotonic=lambda: next(ticks)))
+    with caplog.at_level(logging.WARNING, logger="brain-proxy"):
+        assert relay._preflight_handoff(123, sys.executable) is (outcome == 0)
+
+    assert HANDOFF_TIMEOUT == 5.0
+    assert events == [("wait", 5.0), ("killpg", 123, proxy.signal.SIGKILL), ("wait", 5.0)]
+    assert len(launches) == 1
+    launch_options = launches[0]
+    assert launch_options["pass_fds"] == (123,)
+    assert launch_options["start_new_session"] is True
+    assert all(launch_options[name] == subprocess.DEVNULL for name in ("stdin", "stdout", "stderr"))
+    assert "BRAIN_OPERATOR_KEY" not in launch_options["env"]
+    messages = [record.getMessage() for record in caplog.records if record.name == "brain-proxy"]
+    if outcome == 0:
+        assert messages == []
+    elif outcome == "timeout":
+        assert messages == ["handoff preflight refused: reason=timeout elapsed_ms=5000 returncode=unknown"]
+    else:
+        assert messages == [f"handoff preflight refused: reason=nonzero_exit elapsed_ms=125 returncode={outcome}"]
+    assert secret not in caplog.text
+    assert str(tmp_path) not in caplog.text
 
 
 def test_preparation_diagnostic_keeps_location_and_errno_without_private_text(tmp_path, monkeypatch, caplog):

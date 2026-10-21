@@ -97,7 +97,13 @@ def command_id_from_mcp_tool(tool_name: str, command_ids: tuple[str, ...]) -> st
 
 
 def request_schema(request_type: type[CommandRequest]) -> dict[str, object]:
-    """Return a strict transport schema derived from one sealed request type.
+    """Return the equivalent compact schema owned by the application projection."""
+    from ._schema_compaction import compact_request_schema
+    return compact_request_schema(_request_schema(request_type))
+
+
+def _request_schema(request_type: type[CommandRequest]) -> dict[str, object]:
+    """Build the inline schema before equivalent declaration compaction.
 
     Request classes may define ``FIELD_DESCRIPTIONS`` to replace the bounded
     mechanical fallback. The request type remains the field/default authority.
@@ -159,7 +165,8 @@ def minimal_request_payload(request_type: type[CommandRequest]) -> dict[str, obj
         if not isinstance(declared, Mapping):
             raise TypeError("request MINIMAL_EXAMPLE must be a mapping")
         return _wire_value(declared)
-    schema = request_schema(request_type)
+    # Examples use the inline source so compaction never becomes a decoder.
+    schema = _request_schema(request_type)
     required = schema.get("required", ())
     properties = schema["properties"]
     return {

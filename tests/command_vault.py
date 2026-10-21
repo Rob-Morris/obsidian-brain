@@ -16,6 +16,7 @@ import os
 from pathlib import Path
 import platform
 import shutil
+import stat
 import subprocess
 import threading
 import time
@@ -200,6 +201,26 @@ def isolated_command_environment(overrides: Mapping[str, str]) -> Iterator[None]
                 time.tzset()
 
 
+def _freshen_copied_files(root: Path) -> None:
+    """Keep disposable copies out of age-based temp cleanup, without following links.
+
+    copy2 and filesystem clones preserve source ages, including access times on
+    macOS. Freshen the copies before generating caches; authored dates and the
+    content-only immutability hash remain unchanged. Runtimes without no-follow
+    timestamp support keep their existing metadata.
+    """
+    if root.is_symlink():
+        raise ValueError("copied-file timestamp root must not be a symlink")
+    if os.utime not in os.supports_follow_symlinks:
+        return
+    now = time.time_ns()
+    for directory, _, names in os.walk(root, followlinks=False):
+        for name in names:
+            path = Path(directory) / name
+            if stat.S_ISREG(path.stat(follow_symlinks=False).st_mode):
+                os.utime(path, ns=(now, now), follow_symlinks=False)
+
+
 def assemble_command_vault_baseline(
     destination: Path,
     *,
@@ -246,6 +267,7 @@ def assemble_command_vault_baseline(
                 continue
             target.mkdir(parents=True, exist_ok=True)
 
+        _freshen_copied_files(destination)
         router = compile_router.compile(str(destination))
         compile_router.persist_compiled_router(str(destination), router)
         compile_router.refresh_session_markdown(str(destination), router)

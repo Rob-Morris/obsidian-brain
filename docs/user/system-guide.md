@@ -9,6 +9,7 @@ How the artefact system works — lifecycle, frontmatter contracts, vault struct
 - [The Artefact Model](#the-artefact-model)
 - [Vault Structure](#vault-structure)
 - [Frontmatter Conventions](#frontmatter-conventions)
+- [Semantic Relationships and History](#semantic-relationships-and-history)
 - [Filing Conventions](#filing-conventions)
 - [Workflows](#workflows)
 - [Extension](#extension)
@@ -17,7 +18,9 @@ How the artefact system works — lifecycle, frontmatter contracts, vault struct
 
 ## The Artefact Model
 
-Brain classifies every file as either **living** or **temporal**.
+Brain classifies content artefacts as either **living** or **temporal**. System
+records, including semantic relationships and history, have separate tooling-owned
+formats and are not ordinary notes.
 
 ### Living Artefacts
 
@@ -82,6 +85,8 @@ When temporal work produces something lasting, it spins out to a living artefact
 | `_Config/User/` | Your standing preferences and learned gotchas |
 | `_Config/Memories/` | Reference cards agents load on demand |
 | `_Config/Skills/` | Skill documents for tools and workflows |
+| `_Config/Relationships/` | Vault-local predicate/event contracts and selected-history policy |
+| `_Relationships/` | Tooling-managed assertions, native occurrences, events and recovery records |
 | `_Temporal/` | Parent folder for all temporal artefact types |
 | `_Plugins/` | External tool data and integrations |
 | `_Workspaces/` | Freeform data containers for workspaces — not indexed, not compliance-checked |
@@ -152,6 +157,30 @@ parent: project/my-project
 Why? Obsidian's backlinks and graph view resolve body wikilinks. Body text is visible in reading mode. The search index tokenises body text. Keep your links where they work.
 
 ---
+
+## Semantic Relationships and History
+
+Semantic assertions are independently identified subject/predicate/object claims.
+Register predicates locally before first use; the minimum is an identity, name and
+clear meaning. Metadata may target an artefact directly or another assertion.
+Equal triples may coexist unless a predicate declares one value per subject,
+predicate and scope. Independent assessments remain separate claims, interpreted
+only by an explicitly selected policy with criterion/evidence/revision pins.
+
+Native parent, workspace membership/relevance and status facts can be exposed and
+annotated. Their artefact setters remain authoritative; semantic cross-workspace
+associations do not relax native ownership invariants. History is a separate stream
+of selected command changes and caller-authored typed events. Direct event reads
+show correction markers and links, while retaining the original account.
+
+Relationship records live under `_Relationships/`, definitions/policy under
+`_Config/Relationships/`, and the disposable local index under `.brain/local/`.
+Generic body editing is not an assertion editor. Routine body/no-op writes do not
+produce transition events; external edits have integrity checking without guaranteed
+event capture. See the
+[shipped reference](../../src/brain-core/standards/semantic-relationships.md)
+for exact operations, source freshness, explicit cleanup and recovery limits, and
+[the workflow](workflows.md#semantic-relationship-workflow) for the usual sequence.
 
 ## Filing Conventions
 
