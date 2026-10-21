@@ -362,3 +362,11 @@ def delete_remote_refs(root: Path, refs: Mapping[str, str]) -> None:
     if remaining:
         detail = deleted.stderr.strip() or deleted.stdout.strip() or "no output"
         raise PromotionError(f"promotion cleanup not settled; retained refs {remaining}: {detail}")
+
+
+def remote_refs(root: Path, refs: list[str]) -> dict[str, str]:
+    """Observe exact ref objects, retaining peeled annotated-tag identities."""
+    completed = run(root, "ls-remote", "origin", *refs,
+                    *(f"{ref}^{{}}" for ref in refs if ref.startswith("refs/tags/")))
+    return dict((ref, sha) for sha, ref in
+                (line.split() for line in completed.stdout.splitlines()))

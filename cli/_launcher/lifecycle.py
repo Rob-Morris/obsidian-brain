@@ -171,8 +171,8 @@ class BrainUpgradePayload:
 @dataclass(frozen=True, slots=True)
 class BrainInstallRequest:
     COMMAND_ID: ClassVar[str] = "brain.install"
-    # 5: the managed runtime is provisioned whatever the MCP scope; skip skips MCP registration only.
-    COMMAND_VERSION: ClassVar[int] = 5
+    # 6: explicit release/source selection; shared CLI preservation is the default.
+    COMMAND_VERSION: ClassVar[int] = 6
     RESULT_TYPE: ClassVar[type] = BrainInstallPayload
 
     vault_root: Path
@@ -182,8 +182,15 @@ class BrainInstallRequest:
     approval_client: ApprovalClient | None = None
     approval_scope: ApprovalScope | None = None
     approval_surfaces: tuple[ApprovalSurface, ...] = ()
+    skip_cli: bool = False
+    replace_cli: bool = False
+    version: str | None = None
+    source_root: Path | None = None
 
     def __post_init__(self) -> None:
+        _source_selection(self.version, self.source_root, self.replace_cli)
+        if not isinstance(self.skip_cli, bool) or (self.skip_cli and self.replace_cli):
+            raise ValueError("skip_cli must be boolean and cannot be combined with replace_cli")
         _absolute_request_path(self.vault_root, "vault_root")
         _brain_id(self.brain_id)
         if not isinstance(self.mcp_scope, InstallMcpScope):
@@ -208,12 +215,13 @@ class BrainUninstallRequest:
 @dataclass(frozen=True, slots=True)
 class BrainUpgradeRequest:
     COMMAND_ID: ClassVar[str] = "brain.upgrade"
-    # 3: a registry row that is no longer its own canonical path is stale (exclude it), not an unsafe-path refusal.
+    # 4: explicit release/source selection and opt-in shared CLI replacement.
+    # A registry row that is no longer its own canonical path is stale (exclude it), not an unsafe-path refusal.
     #    VERSION is written last as the commit witness; force re-applies only a matching same-version core
     #    and never replays migrations; a mismatched same-version core re-applies without force; a source
     #    older than the recorded content is a no-effect conflict; version_commit and router_compile
     #    failures are partial with their own next actions.
-    COMMAND_VERSION: ClassVar[int] = 3
+    COMMAND_VERSION: ClassVar[int] = 4
     RESULT_TYPE: ClassVar[type] = BrainUpgradePayload
 
     force: bool = False
@@ -221,8 +229,12 @@ class BrainUpgradeRequest:
     dependency_sync: UpgradePolicy = UpgradePolicy.AUTO
     acknowledge_global_cli_cutover: bool = False
     excluded_stale_brain_ids: tuple[str, ...] = ()
+    replace_cli: bool = False
+    version: str | None = None
+    source_root: Path | None = None
 
     def __post_init__(self) -> None:
+        _source_selection(self.version, self.source_root, self.replace_cli)
         if not isinstance(self.force, bool):
             raise ValueError("upgrade force must be boolean")
         if not isinstance(self.definition_sync, UpgradePolicy):
@@ -237,6 +249,17 @@ class BrainUpgradeRequest:
             raise ValueError("stale Brain exclusions must be sorted and unique")
         for brain_id in self.excluded_stale_brain_ids:
             _brain_id(brain_id)
+
+
+def _source_selection(version, source_root, replace_cli):
+    if not isinstance(replace_cli, bool):
+        raise ValueError("replace_cli must be boolean")
+    if version is not None and (not isinstance(version, str) or not re.fullmatch(r"latest|(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)", version)):
+        raise ValueError("version must be latest or a Core version X.Y.Z")
+    if source_root is not None:
+        _absolute_request_path(source_root, "source_root")
+        if version is not None:
+            raise ValueError("select version or source_root, not both")
 
 
 def _absolute_request_path(value: object, field: str) -> None:
@@ -259,8 +282,8 @@ def _steps(value: object) -> None:
         raise ValueError("lifecycle result steps must be typed")
 
 
-def _source(context: LauncherContext) -> tuple[Path, Path] | None:
-    root = context.distribution_root
+def _source(context: LauncherContext, request=None) -> tuple[Path, Path] | None:
+    root = getattr(request, "source_root", None) or context.distribution_root
     if root is None:
         return None
     core = root / "src" / "brain-core"
@@ -382,7 +405,7 @@ def _install_preview(context: LauncherContext, request: BrainInstallRequest, sou
 
 
 def execute_install(context: LauncherContext, request: BrainInstallRequest):
-    source = _source(context)
+    source = _source(context, request)
     if source is None:
         return _distribution_unavailable(type(request))
     source_root, core = source
@@ -392,7 +415,35 @@ def execute_install(context: LauncherContext, request: BrainInstallRequest):
         except (OSError, ValueError) as exc:
             return no_effect_error(type(request), ErrorCode.CONFLICT, str(exc))
 
+    try:
+        preview = _install_preview(context, request, source_root, core)
+    except (OSError, ValueError) as exc:
+        return no_effect_error(type(request), ErrorCode.CONFLICT, str(exc))
+    if preview.status != "ok":
+        return preview
     from install import install_vault_action
+    from _distribution import ensure_cli, DistributionInstallError
+
+    cli_effects = ()
+    cli_recovery_paths = ()
+    try:
+        installed = None if request.skip_cli else ensure_cli(source_root, context.cli_binary, replace_cli=request.replace_cli)
+    except DistributionInstallError as exc:
+        paths = tuple(str(path) for path in exc.recovery_paths)
+        if exc.rollback_verified and not paths:
+            return no_effect_error(type(request), ErrorCode.CONFLICT, str(exc))
+        reference = OutcomeReference(context.invocation_id)
+        return Error(request.COMMAND_ID, request.COMMAND_VERSION,
+                     CommandError(ErrorCode.COMMAND_OUTCOME_UNKNOWN, str(exc), OutcomeUnknownDetails(reference, paths)),
+                     effects="unknown", outcome_reference=reference)
+    except (OSError, ValueError) as exc:
+        return no_effect_error(type(request), ErrorCode.CONFLICT, str(exc))
+    if installed is not None:
+        cli_recovery_paths = tuple(str(path) for path in installed.cleanup_recovery_paths)
+        cli_effects = (
+            CommittedEffect(request.COMMAND_ID, f"file:{context.cli_binary}"),
+            CommittedEffect(request.COMMAND_ID, f"directory:{installed.distribution_root}"),
+        )
 
     mode = _install_mode(request.vault_root)
     result = install_vault_action(
@@ -404,7 +455,11 @@ def execute_install(context: LauncherContext, request: BrainInstallRequest):
         brain_id=request.brain_id,
     )
     raw_steps = list(result.get("steps", []))
-    effects = _install_effects(request, raw_steps)
+    effects = cli_effects + _install_effects(request, raw_steps)
+    if cli_recovery_paths:
+        message = "Installation committed; shared CLI backup cleanup requires recovery: " + ", ".join(cli_recovery_paths)
+        return Partial(request.COMMAND_ID, request.COMMAND_VERSION,
+                       CommandError(ErrorCode.CONFLICT, message, RecoveryRequiredDetails(cli_recovery_paths, message)), effects)
     errors = [step for step in raw_steps if step.get("status") == "error"]
     # Core's notes carry the remedy (runtime repair, MCP later); every route reaches the person with them.
     notes = tuple(note for note in result.get("notes", []) if isinstance(note, str) and note)
@@ -682,11 +737,12 @@ def _checked_preflight(
         selected_vault=context.current_vault,
         source_brain_core_version=version,
         old_cli_version=context.cli_version,
-        new_cli_version=cli_version,
+        new_cli_version=cli_version if request.replace_cli else context.cli_version,
         interface_epoch=epoch,
         proxy_protocol=protocol,
         acknowledge_global_cli_cutover=request.acknowledge_global_cli_cutover,
         excluded_stale_brain_ids=request.excluded_stale_brain_ids,
+        replace_cli=request.replace_cli,
     )
 
 
@@ -808,6 +864,9 @@ def _reconciliation_steps(result: dict) -> tuple[LifecycleStep, ...]:
                 or "Shared-runtime tidiness inspection requires recovery.",
             )
         )
+    cutover = result.get("cutover_commit")
+    if isinstance(cutover, dict) and cutover.get("status") == "preserved":
+        steps.append(LifecycleStep("shared_cli", LifecycleStatus.NOOP, "The shared Brain CLI was preserved."))
     return tuple(steps)
 
 
@@ -861,7 +920,7 @@ def _reconciliation_recovery_paths(result: dict) -> tuple[str, ...]:
 
 
 def execute_upgrade(context: LauncherContext, request: BrainUpgradeRequest):
-    source = _source(context)
+    source = _source(context, request)
     vault = context.current_vault
     if source is None:
         return _distribution_unavailable(type(request))
@@ -880,12 +939,17 @@ def execute_upgrade(context: LauncherContext, request: BrainUpgradeRequest):
         return no_effect_error(type(request), ErrorCode.CONFLICT, str(exc))
 
     installed_distribution = None
+    cutover_completed = False
 
     def commit_cutover(_upgrade_result):
-        nonlocal installed_distribution
+        nonlocal installed_distribution, cutover_completed
+        if not request.replace_cli:
+            cutover_completed = True
+            return {"status": "preserved", "message": "The shared Brain CLI was preserved."}
         from _distribution import distribution_cutover_commit, install_from_source
 
         installed_distribution = install_from_source(source_root, context.cli_binary)
+        cutover_completed = True
         return distribution_cutover_commit(installed_distribution)
 
     def workspace_phase(*, dry_run=False, source_core=None):
@@ -970,9 +1034,9 @@ def execute_upgrade(context: LauncherContext, request: BrainUpgradeRequest):
         raise RuntimeError(
             "Brain upgrader returned a version that does not match cutover preflight"
         )
-    if not context.dry_run and status in {"ok", "partial"} and installed_distribution is None and not result.get("core_skipped"):
+    if not context.dry_run and status in {"ok", "partial"} and not cutover_completed and not result.get("core_skipped"):
         raise RuntimeError(
-            "Brain upgrader did not execute the coordinated CLI commit callback"
+            "Brain upgrader did not execute the coordinated cutover commit callback"
         )
     lifecycle_status = (
         LifecycleStatus.PLANNED
@@ -1006,7 +1070,9 @@ def execute_upgrade(context: LauncherContext, request: BrainUpgradeRequest):
     if not context.dry_run and status != "skipped" and not result.get("core_skipped"):
         effects += (
             CommittedEffect(request.COMMAND_ID, f"upgrade:{vault}"),
-            CommittedEffect(request.COMMAND_ID, f"file:{context.cli_binary}"),
+        )
+        if installed_distribution is not None:
+            effects += (CommittedEffect(request.COMMAND_ID, f"file:{context.cli_binary}"),
             CommittedEffect(
                 request.COMMAND_ID,
                 f"directory:{installed_distribution.distribution_root}",

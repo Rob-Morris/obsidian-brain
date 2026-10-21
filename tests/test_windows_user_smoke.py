@@ -34,6 +34,11 @@ CLI_VERSION = re.search(
     (REPO_ROOT / "cli" / "brain").read_text(encoding="utf-8"),
     re.MULTILINE,
 ).group(1)
+FULL_SUPPORT_CORE_VERSION = re.search(
+    r'^CLI_FULL_SUPPORT_CORE_VERSION = "([^"]+)"$',
+    (REPO_ROOT / "cli" / "_version_contract.py").read_text(encoding="utf-8"),
+    re.MULTILINE,
+).group(1)
 
 
 def _windows_smoke_env(tmp_path: Path) -> dict[str, str]:
@@ -307,7 +312,7 @@ def test_native_windows_install_and_granular_mcp_round_trip(tmp_path):
     cli = Path(env["LOCALAPPDATA"]) / "Programs" / "Brain" / "bin" / "brain.cmd"
     assert cli.is_file()
     cli_version = subprocess.run(
-        [str(cli), "--version"],
+        [str(cli), "version", "--json"],
         cwd=REPO_ROOT,
         env=env,
         capture_output=True,
@@ -315,8 +320,95 @@ def test_native_windows_install_and_granular_mcp_round_trip(tmp_path):
         timeout=60,
     )
     assert cli_version.returncode == 0, cli_version.stderr
-    assert cli_version.stdout.strip() == f"brain {CLI_VERSION}"
+    version_payload = json.loads(cli_version.stdout)["result"]
+    assert version_payload["cli_version"] == CLI_VERSION
+    assert version_payload["distributed_with_core_version"] == (BRAIN_CORE / "VERSION").read_text().strip()
+    assert version_payload["full_support_core_version"] == (
+        None if FULL_SUPPORT_CORE_VERSION == "next-release" else FULL_SUPPORT_CORE_VERSION)
 
     environment = asyncio.run(_call_installed_environment_read(vault, env))
     assert Path(environment["vault_root"]) == vault
     assert environment["platform"] == "win32"
+
+    env.update(PYTHONUTF8="0", PYTHONIOENCODING="cp1252")
+
+    def call(noun, verb, payload):
+        completed = subprocess.run(
+            [str(cli), "--vault", str(vault), noun, verb, "--json", "--request-json", "-"],
+            input=json.dumps(payload).encode("ascii"), env=env, cwd=tmp_path,
+            capture_output=True, timeout=90)
+        assert completed.returncode == 0, completed.stderr.decode("cp1252") or completed.stdout.decode("cp1252")
+        assert completed.stdout.isascii()
+        return json.loads(completed.stdout.decode("cp1252"))
+
+    text = "Native CP1252 output 雪 😀.\n"
+    (vault / "README.md").write_text(text, encoding="utf-8", newline="")
+    read = call("vault", "read-file", {"path": "README.md"})
+    assert read["result"]["content"] == text
+    call("runtime", "refresh-router", {})
+    from _common import document_revision_at
+    memory = vault / "_Config/Memories/brain-core-reference.md"
+    marker = "\nNative CP1252 once-only effect: 雪 😀.\n"
+    mutation = call("document", "write-body", {
+        "document": {"resource": "memory", "reference": "brain-core-reference"},
+        "expected_revision": document_revision_at(memory), "operation": "append",
+        "content": {"source": "inline", "content": marker},
+    })
+    assert mutation["status"] == "ok" and mutation["committed_effects"]
+    assert memory.read_text(encoding="utf-8").endswith(marker)
+    assert memory.read_text(encoding="utf-8").count(marker) == 1
+
+
+@native_windows
+@pytest.mark.parametrize("shell", ["powershell.exe", "pwsh"])
+def test_native_powershell_pinned_retry_round_trips_cmd_stdin_and_selectors(tmp_path, monkeypatch, shell):
+    monkeypatch.syspath_prepend(str(REPO_ROOT / "cli"))
+    from _local_cli.main import _pinned_retry_command
+    import shutil
+    # Exercise each available native shell: Windows PowerShell and PowerShell 7
+    # have different native-argument passing rules.
+    if not shutil.which(shell):
+        pytest.skip(f"{shell} is unavailable")
+    directory = tmp_path / "retry's working & directory 雪 😀"
+    directory.mkdir()
+    capture = directory / "capture.py"
+    capture.write_text(
+        "import json,os,sys\n"
+        f"sys.path[:0] = {[str(REPO_ROOT / 'cli'), str(SCRIPTS)]!r}\n"
+        "from _local_cli.main import _request_payload\n"
+        "request = _request_payload('-')\n"
+        "json.dump(dict(argv=sys.argv[1:], request=request, cwd=os.getcwd(), "
+        "vault=os.environ.get('BRAIN_VAULT_ROOT'), "
+        "workspace=os.environ.get('BRAIN_WORKSPACE_DIR')),sys.stdout)\n", encoding="utf-8")
+    binary = directory / "brain.cmd"
+    binary.write_text('@"' + sys.executable + '" "%~dp0capture.py" %*\n', encoding="utf-8")
+    payload = {"source_root": str(directory / "pinned source"), "version": None,
+               "vault_root": str(directory / "vault 雪"), "brain_id": "selected"}
+    argv = [str(binary), "install", "--request-json", json.dumps(payload), "--json",
+            "--vault", str(directory / "vault"), "--brain", "selected",
+            "--workspace", str(directory / "workspace"), "--dry-run"]
+    selected = {"BRAIN_VAULT_ROOT": str(directory / "env vault"),
+                "BRAIN_WORKSPACE_DIR": str(directory / "env workspace")}
+    command = _pinned_retry_command(argv, directory, selected)
+    assert command.isascii()
+    # A caller may have selected a BOM-producing output encoding (PowerShell 5).
+    probe = ("$LASTEXITCODE = $null; $originalEncoding = [Text.UTF8Encoding]::new($true); "
+             "$OutputEncoding = $originalEncoding; " + command
+             + "; $retryExitCode = $LASTEXITCODE; "
+             "[Console]::Error.WriteLine('native_exit=' + $retryExitCode + '; errors=' + $Error.Count); "
+             "if (-not [object]::ReferenceEquals($OutputEncoding, $originalEncoding)) "
+             "{ throw 'Output encoding changed' }; "
+             "if ($null -eq $retryExitCode) { throw 'Native process did not set an exit code' }; "
+             "exit $retryExitCode")
+    completed = subprocess.run([shell, "-NoProfile", "-Command", probe],
+                               capture_output=True, text=True, encoding="utf-8", timeout=30)
+    assert completed.returncode == 0, completed.stderr
+    assert completed.stdout, completed.stderr
+    actual = json.loads(completed.stdout)
+    expected_argv = argv[1:]
+    expected_argv[expected_argv.index("--request-json") + 1] = "-"
+    assert actual["argv"] == expected_argv
+    assert actual["request"] == payload
+    assert Path(actual["cwd"]) == directory
+    assert actual["vault"] == selected["BRAIN_VAULT_ROOT"]
+    assert actual["workspace"] == selected["BRAIN_WORKSPACE_DIR"]

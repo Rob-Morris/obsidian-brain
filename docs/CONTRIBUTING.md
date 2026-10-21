@@ -530,3 +530,8 @@ obsidian-brain/
 ├── template-vault/              # starter vault; copy to create a new Brain
 └── README.md
 ```
+
+
+### Published release identity
+
+Publication plans main and the permanent version tag for every new release on the selected ledger range, validates each exact commit's required CI, then pushes all refs atomically with expected-ref guards. Matching existing tags are idempotent; conflicting identities refuse without overwriting tags. An uncertain push is recovered by observing exact main/tag refs before candidate cleanup. Already-published main still checks owned missing/conflicting tags. Historic untagged releases are not automatically backfilled. CLI full-support metadata is stamped from the canonical version contract by release preparation; `next-release` is a development declaration, never a published support claim.

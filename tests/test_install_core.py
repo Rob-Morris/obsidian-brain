@@ -434,3 +434,42 @@ def test_install_core_main_maps_unhandled_exception_to_hard_error(tmp_path, monk
     assert payload["status"] == "error"
     assert payload["steps"][0]["name"] == "install"
     assert "simulated crash" in payload["steps"][0]["message"]
+
+
+def test_install_records_local_core_source_separately_from_shared_cli(tmp_path):
+    source = _copy_source(tmp_path)
+    vault = tmp_path / "vault"
+    result = install_core.install_vault_action(vault, source_root=source, launcher=sys.executable, mcp_scope="skip")
+    assert result["status"] == "ok", result
+    receipt = json.loads((vault / ".brain/local/install-source.json").read_text())
+    assert receipt["kind"] == "local"
+    assert receipt["version"] == (source / "src/brain-core/VERSION").read_text().strip()
+    assert "commit" not in receipt
+    steps = {step["name"]: step for step in result["steps"]}
+    assert steps["install_source"]["committed_effects"] == [{"subject": f"file:{vault / '.brain/local/install-source.json'}"}]
+
+
+def test_unverified_copied_acquisition_receipt_refuses_before_vault_creation(tmp_path):
+    source = _copy_source(tmp_path)
+    version = (source / "src/brain-core/VERSION").read_text().strip()
+    (source / ".brain-source-receipt.json").write_text(json.dumps({
+        "schema": "brain.source-acquisition/1", "origin": "fixture", "ref": f"refs/tags/v{version}",
+        "version": version, "commit": "a" * 40, "tree": "b" * 40,
+    }))
+    vault = tmp_path / "vault"
+    result = install_core.install_vault_action(vault, source_root=source, launcher=sys.executable, mcp_scope="skip")
+    assert result["status"] == "error", result
+    assert not vault.exists()
+
+
+def test_managed_install_keeps_explicit_skip_cli_intent(tmp_path, monkeypatch, capsys):
+    from _bootstrap import machine_cli
+    requests = []
+    monkeypatch.setattr(machine_cli, 'approvals_present', lambda: True)
+    def invoke(command, request, **kwargs):
+        requests.append((command, request))
+        return {'schema': 'brain.command-result/1', 'status': 'ok'}
+    monkeypatch.setattr(machine_cli, 'invoke', invoke)
+    assert install_core.main([str(tmp_path / 'vault'), '--skip-cli', '--mcp-scope', 'skip']) == 0
+    assert requests[0][0] == 'brain.install'
+    assert requests[0][1]['skip_cli'] is True

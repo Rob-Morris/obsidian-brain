@@ -13,10 +13,13 @@ import uuid
 
 from _launcher.context import LauncherContext, ProviderBindings, launcher_state_home
 from _launcher.contracts import OutcomeReceipt, ReceiptState
-from _distribution import source_versions
+from _launcher.version import read_cli_version_facts
 
 
-CLI_VERSION = source_versions(Path(__file__).resolve().parents[2]).cli_version
+try:
+    CLI_VERSION = read_cli_version_facts(Path(__file__).resolve().parents[2]).cli_version
+except ValueError:
+    CLI_VERSION = None
 CUTOVER_BRAIN_VERSION = (0, 55, 0)
 
 # Mirrors the vault receipt store's ReceiptPolicy bounds.
@@ -255,7 +258,7 @@ def compose_launcher_context(
         clock=LocalClock(),
         caller_dir=Path.cwd().resolve(),
         home_dir=Path.home().resolve(),
-        cli_version=CLI_VERSION,
+        cli_version=_installed_cli_version(cli_binary, distribution_root),
         cli_binary=cli_binary.resolve(),
         launcher_python=Path(sys.executable).resolve(),
         current_vault=selected.vault_root if selected else None,
@@ -313,3 +316,15 @@ def _version_tuple(value: str | None) -> tuple[int, int, int] | None:
     if len(parts) != 3 or any(not part.isdigit() for part in parts):
         return None
     return tuple(int(part) for part in parts)
+
+
+def _installed_cli_version(binary: Path, distribution_root: Path) -> str:
+    """Read the actual launcher component, independently of selected lifecycle source."""
+    import re
+    if not binary.exists():
+        return "uninstalled"
+    text = binary.read_text(encoding="utf-8")
+    matches = re.findall(r'^(?:set ")?BRAIN_CLI_VERSION=["\']?(\d+\.\d+\.\d+)', text, re.MULTILINE)
+    if len(matches) != 1:
+        return "unknown"
+    return matches[0]

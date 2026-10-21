@@ -121,7 +121,7 @@ def launcher_discovery_path() -> str:
         if not entry or not os.path.isdir(entry):
             continue
         for name in sorted(os.listdir(entry)):
-            if name in seen or _masks_versioned_python(name):
+            if name in seen or name in {"brain", "brain.cmd"} or _masks_versioned_python(name):
                 continue
             src = os.path.join(entry, name)
             if os.path.isfile(src) and os.access(src, os.X_OK):

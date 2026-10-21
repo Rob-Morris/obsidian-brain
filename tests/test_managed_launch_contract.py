@@ -28,6 +28,8 @@ OWNER = {
 }
 
 ALLOWED = {
+    "cli/_acquisition.py::_git": "git source acquisition",
+    "cli/_distribution.py::ensure_cli": "installed CLI bounded read-only health probe",
     "src/brain-core/scripts/_common/_venv.py::_python_tag_for_launcher": "base launcher version probe",
     "src/brain-core/scripts/_common/_venv.py::ensure_central_venv": "base launcher creates the venv",
     "src/brain-core/scripts/_common/_venv.py::_role_probe_passes": "materialisation probe executes the staged candidate",

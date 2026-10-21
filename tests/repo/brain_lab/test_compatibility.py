@@ -31,10 +31,12 @@ def test_compatibility_families_are_non_overlapping_and_cover_selected_versions(
     assert manifest.select("0.72.999").adapter_id == "brain-0.72"
     assert manifest.select("0.73.0").adapter_id == "brain-0.73"
     assert manifest.select("0.73.999").adapter_id == "brain-0.73"
+    assert manifest.select("0.74.0").adapter_id == "brain-0.74"
+    assert manifest.select("0.74.999").adapter_id == "brain-0.74"
     with pytest.raises(ValueError, match="no unique"):
         manifest.select("0.50.0")
     with pytest.raises(ValueError, match="no unique"):
-        manifest.select("0.74.0")
+        manifest.select("0.75.0")
 
 
 def test_brain_0_71_changes_only_how_doctor_selects_its_vault():
@@ -88,6 +90,17 @@ def test_brain_0_73_preserves_lab_install_and_vault_self_contracts():
     assert replace(current, adapter_id=previous.adapter_id,
                    minimum_version=previous.minimum_version,
                    maximum_version_exclusive=previous.maximum_version_exclusive) == previous
+
+
+def test_brain_0_74_checks_offline_version_metadata():
+    adapter = CompatibilityManifest(MANIFEST).select("0.74.0")
+    gate = next(gate for gate in adapter.health if gate.gate_id == "cli-version")
+    assert gate.command == ("brain", "version", "--json")
+    assert dict(gate.expected_json) == {
+        "status": "ok", "result.cli_version": "{cli_version}",
+        "result.distributed_with_core_version": "{version}",
+        "result.full_support_core_version": "0.74.0",
+    }
 
 
 def test_commands_render_argv_without_shell_interpolation():

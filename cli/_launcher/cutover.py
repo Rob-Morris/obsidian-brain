@@ -56,8 +56,9 @@ def preflight(
     proxy_protocol: int,
     acknowledge_global_cli_cutover: bool,
     excluded_stale_brain_ids: tuple[str, ...],
+    replace_cli: bool = True,
 ) -> CutoverPreflight:
-    """Classify the complete registry before any Brain or CLI mutation."""
+    """Classify the selected Brain, or the complete registry for shared CLI replacement."""
 
     import vault_registry
 
@@ -78,12 +79,17 @@ def preflight(
         raise CutoverPreflightError(
             "the coordinated cutover requires Brain Core 0.55.0 or newer"
         )
-    _version(old_cli_version, "installed Brain CLI")
-    if _version(new_cli_version, "source Brain CLI") < (2, 0, 0):
+    # Absence and an unreadable declaration are honest launcher identities,
+    # not version numbers. Neither participates in a version comparison.
+    if old_cli_version not in {"uninstalled", "unknown"}:
+        _version(old_cli_version, "installed Brain CLI")
+    if replace_cli and _version(new_cli_version, "source Brain CLI") < (2, 0, 0):
         raise CutoverPreflightError(
             "the coordinated cutover requires Brain CLI 2.0.0 or newer"
         )
     for brain_id, entry in sorted(entries.items()):
+        if not replace_cli and not (entry.kind == vault_registry.TYPE_LOCAL and os.path.realpath(entry.value) == str(selected)):
+            continue
         if entry.kind == vault_registry.TYPE_REMOTE:
             remote.append(brain_id)
             continue
@@ -168,7 +174,7 @@ def preflight(
         )
     return CutoverPreflight(
         str(registry),
-        True,
+        replace_cli,
         selected_ids,
         tuple(classified),
         affected,
@@ -184,7 +190,7 @@ def preflight(
             "CLI v1 flat dispatch",
             "legacy direct-script aliases",
             "public aggregate Python wrappers",
-        ),
+        ) if replace_cli else (),
         (
             "Inspect brain_proxy_status({}) in each running Brain MCP connection after upgrade; follow its highest-priority next_action.",
             "Use brain_proxy_refresh for eligible Core refresh or brain_proxy_restart for supported idle installed proxy/runtime replacement when status requires it; neither refreshes host tool contracts.",

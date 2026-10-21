@@ -348,15 +348,11 @@ def _runtime_error(request_type, message: str):
 
 
 def _verify_stable_launcher(context):
-    from _distribution import verify_distribution, validate_bootstrap_python
+    from _distribution import verify_installed_distribution, validate_bootstrap_python
 
-    root = context.cli_binary.parent.parent / "lib/brain-cli" / context.cli_version
-    manifest = verify_distribution(root)
+    root, manifest = verify_installed_distribution(context.cli_binary)
     if manifest.get("cli_version") != context.cli_version or not (root / "cli/_mcp_stdio.py").is_file():
         raise ValueError("Install the parity-capable machine CLI before changing user registrations")
-    source = root / "cli" / ("brain.cmd" if context.cli_binary.suffix.lower() == ".cmd" else "brain")
-    if context.cli_binary.is_symlink() or context.cli_binary.read_bytes() != source.read_bytes():
-        raise ValueError("Installed CLI bootloader does not match its checked distribution; reinstall the CLI")
     validate_bootstrap_python(Path((root / ".bootstrap-python").read_text(encoding="utf-8").strip()))
 
 

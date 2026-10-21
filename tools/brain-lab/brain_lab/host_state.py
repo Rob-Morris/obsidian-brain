@@ -49,6 +49,7 @@ def _hash_directory(path: Path) -> dict[str, Any]:
     return {
         "present": True,
         "entry_count": len(entries),
+        "entries": {entry["path"]: entry for entry in entries},
         "sha256": hashlib.sha256(canonical_json(entries).encode("utf-8")).hexdigest(),
     }
 

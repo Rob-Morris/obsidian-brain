@@ -8,6 +8,8 @@ from pathlib import Path
 import stat
 import sys
 
+import pytest
+
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 CLI_DIR = REPO_ROOT / "cli"
@@ -199,6 +201,7 @@ def test_install_dry_run_validates_registry_and_writes_nothing(tmp_path, monkeyp
 
 def test_install_maps_changed_steps_and_preserves_preinstall_mode(tmp_path, monkeypatch):
     import install
+    monkeypatch.setattr("_distribution.ensure_cli", lambda *_args, **_kwargs: None)
 
     target = (tmp_path / "existing").resolve()
     target.mkdir()
@@ -218,6 +221,7 @@ def test_install_maps_changed_steps_and_preserves_preinstall_mode(tmp_path, monk
 
 def test_install_retains_known_partial_steps(tmp_path, monkeypatch):
     import install
+    monkeypatch.setattr("_distribution.ensure_cli", lambda *_args, **_kwargs: None)
 
     target = (tmp_path / "partial").resolve()
     monkeypatch.setattr(
@@ -429,7 +433,8 @@ def test_upgrade_success_receipts_core_and_error_is_unknown(tmp_path, monkeypatc
             },
         ),
     )
-    success = _invocation(tmp_path, vault=vault).invoke(BrainUpgradeRequest())
+    success = _invocation(tmp_path, vault=vault).invoke(BrainUpgradeRequest(replace_cli=True))
+    assert success.status == "ok", success
     assert success.result.status is LifecycleStatus.CHANGED
     assert success.committed_effects[0].subject == f"upgrade:{vault}"
     assert f'BRAIN_INSTALL_REF="v{CORE_VERSION}"' in cli_binary.read_text()
@@ -634,7 +639,7 @@ def test_upgrade_partial_carries_typed_cli_cleanup_recovery_paths(
         lambda _core: type("Upgrade", (), {"upgrade": staticmethod(fake_upgrade)}),
     )
 
-    result = _invocation(tmp_path, vault=vault).invoke(BrainUpgradeRequest())
+    result = _invocation(tmp_path, vault=vault).invoke(BrainUpgradeRequest(replace_cli=True))
 
     assert result.status == "partial"
     assert isinstance(result.error.details, RecoveryRequiredDetails)
@@ -998,7 +1003,7 @@ def test_upgrade_recovery_warning_requires_follow_up_and_the_recovery_is_an_effe
         (WarningCode.FOLLOW_UP_REQUIRED, "recovered_interrupted_upgrade: A previous upgrade was rolled back from its journal."),
     ]
     assert result.committed_effects[0] == CommittedEffect(BrainUpgradeRequest.COMMAND_ID, "upgrade-recovery:/state/brain/upgrade-journals/abc")
-    assert len(result.committed_effects) == 4
+    assert len(result.committed_effects) == 2
 
 
 def test_a_refusal_after_a_recovery_is_partial_with_the_recovery_as_its_effect(tmp_path, monkeypatch):
@@ -1091,3 +1096,57 @@ def test_outer_upgrade_does_not_point_to_stale_upgrade_log(tmp_path, monkeypatch
     assert result.status == 'partial', result
     assert 'blocked-folder' in result.error.message
     assert 'Folder outcomes:' not in result.error.message
+
+
+def test_upgrade_preserves_shared_cli_and_unrelated_newer_brain(tmp_path, monkeypatch):
+    vault = _vault(tmp_path)
+    _register(monkeypatch, tmp_path, vault)
+    other = tmp_path / "other"
+    (other / ".brain-core").mkdir(parents=True)
+    (other / ".brain-core/VERSION").write_text("99.0.0\n")
+    registry = tmp_path / "config/brain/vaults"
+    registry.write_text(registry.read_text() + f"other\tlocal\t{other}\n")
+    binary = tmp_path / "bin/brain"
+    binary.parent.mkdir()
+    binary.write_bytes(b"healthy shared CLI fixture")
+    _fake_upgrader(monkeypatch, lambda kwargs: _ok_result(kwargs))
+
+    result = _invocation(tmp_path, vault=vault).invoke(BrainUpgradeRequest())
+
+    assert result.status == "ok", result
+    assert binary.read_bytes() == b"healthy shared CLI fixture"
+    assert (other / ".brain-core/VERSION").read_text() == "99.0.0\n"
+    assert result.result.preflight.registry_complete is False
+    assert result.result.preflight.affected_brain_ids == ()
+    assert result.result.cli_distribution_fingerprint is None
+    assert [effect.subject for effect in result.committed_effects] == [f"upgrade:{vault}"]
+    assert any(step.name == "shared_cli" and step.status is LifecycleStatus.NOOP for step in result.result.post_commit_reconciliation)
+
+
+def test_upgrade_requires_preservation_callback_before_reporting_commit(tmp_path, monkeypatch):
+    vault = _vault(tmp_path)
+    _register(monkeypatch, tmp_path, vault)
+    _fake_upgrader(monkeypatch, lambda kwargs: {"status": "ok", "new_version": CORE_VERSION})
+    result = _invocation(tmp_path, vault=vault).invoke(BrainUpgradeRequest())
+    assert result.status == "error"
+    assert result.error.code is ErrorCode.COMMAND_OUTCOME_UNKNOWN
+
+
+def test_explicit_skip_never_bootstraps_a_missing_cli(tmp_path, monkeypatch):
+    import install
+    def forbidden(*args, **kwargs):
+        pytest.fail('explicit skip attempted global CLI bootstrap')
+    monkeypatch.setattr('_distribution.ensure_cli', forbidden)
+    target = (tmp_path / 'skipped').resolve()
+    monkeypatch.setattr(install, 'install_vault_action', lambda *_a, **_k: _raw_install(target))
+    invocation = _invocation(tmp_path)
+    assert not invocation._context.cli_binary.exists()
+    result = invocation.invoke(BrainInstallRequest(target, 'skipped', mcp_scope=InstallMcpScope.SKIP, skip_cli=True))
+    assert result.status == 'ok'
+    assert not invocation._context.cli_binary.exists()
+
+
+def test_skip_and_replace_are_conflicting_intents(tmp_path):
+    with pytest.raises(ValueError, match='cannot be combined'):
+        BrainInstallRequest(tmp_path / 'vault', 'example', mcp_scope=InstallMcpScope.SKIP,
+                            skip_cli=True, replace_cli=True)

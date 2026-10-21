@@ -337,6 +337,13 @@ def install_vault_action(
         )
         return result()
 
+    from _bootstrap.install_source import read_source, write_source
+    try:
+        selected_source = read_source(source_root)
+    except (OSError, ValueError) as exc:
+        steps.append(_step("install_source", "error", f"Could not verify selected source metadata: {exc}"))
+        return result()
+
     try:
         if _is_existing_non_brain_vault(vault_root):
             _scaffold_existing_vault(vault_root, source_root)
@@ -346,6 +353,14 @@ def install_vault_action(
             steps.append(_step("vault_scaffold", "changed", "Created Brain vault scaffold."))
     except OSError as exc:
         steps.append(_step("vault_scaffold", "error", f"Could not scaffold vault: {exc}"))
+        return result()
+
+    try:
+        paths = write_source(vault_root, selected_source)
+        steps.append(_step("install_source", "changed" if paths else "noop", "Recorded selected Core source.",
+                           committed_effects=[{"subject": f"file:{path}"} for path in paths]))
+    except (OSError, ValueError, RuntimeError) as exc:
+        steps.append(_step("install_source", "error", f"Vault scaffold exists; source receipt needs repair: {exc}"))
         return result()
 
     resolution_runtime_step = _ensure_machine_resolution_runtime(vault_root)
@@ -395,6 +410,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Install Brain into a vault using the shared Python installer core.")
     parser.add_argument("vault", help="Destination vault directory.")
     parser.add_argument("--source-root", help="Source checkout root containing template-vault/ and src/brain-core/.")
+    parser.add_argument("--skip-cli", action="store_true", help="Do not bootstrap or replace the global CLI")
     parser.add_argument("--launcher", help="Python launcher used to create the managed runtime.")
     parser.add_argument("--mcp-scope", choices=SUPPORTED_MCP_SCOPES, default="project")
     parser.add_argument(
@@ -420,6 +436,8 @@ def main(argv: list[str] | None = None) -> int:
             vault = _resolve_vault_root(args.vault)
             request = {"vault_root": str(vault), "brain_id": vault_registry.preview_register_action(vault, args.brain_id, installing=True).brain_id,
                        "mcp_scope": args.mcp_scope, "client": args.client}
+            if args.skip_cli:
+                request["skip_cli"] = True
             if args.approvals:
                 request.update(approval_client=args.approval_client, approval_scope=args.approval_scope,
                                approval_surfaces=["mcp", "cli"] if args.approvals == "both" else [args.approvals])

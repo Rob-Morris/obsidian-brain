@@ -84,6 +84,10 @@ warn()  { printf '\033[33mWarning: %s\033[0m\n' "$*" >&2; }
 
 # Parse flags and positional path from arguments
 parse_flags() {
+    ORIGINAL_ARGS=("$@")
+    RELEASE_VERSION=""
+    REPLACE_CLI=false
+    local expect_version=false
     NON_INTERACTIVE=false
     SKIP_MCP=false
     SKIP_CLI=false
@@ -104,6 +108,11 @@ parse_flags() {
     local expect_client=false
     local expect_stale_exclusion=false
     for arg in "$@"; do
+        if [ "$expect_version" = true ]; then
+            RELEASE_VERSION="$arg"
+            expect_version=false
+            continue
+        fi
         if [ -n "$expect_approval" ]; then
             case "$expect_approval" in
                 --approval-client) APPROVAL_CLIENT="$arg" ;;
@@ -148,6 +157,12 @@ parse_flags() {
             --skip-cli|--no-cli)
                 SKIP_CLI=true
                 ;;
+            --version)
+                expect_version=true
+                ;;
+            --replace-cli)
+                REPLACE_CLI=true
+                ;;
             --system)
                 INSTALL_SYSTEM=true
                 ;;
@@ -169,6 +184,10 @@ parse_flags() {
                 ;;
         esac
     done
+    if [ "$SKIP_CLI" = true ] && [ "$REPLACE_CLI" = true ]; then
+        err "--skip-cli and --replace-cli cannot be combined."
+    fi
+    [ "$expect_version" = false ] || err "--version requires latest or an exact X.Y.Z."
     [ "$expect_stale_exclusion" = false ] || err "--exclude-stale-brain requires a Brain ID."
     [ -z "$expect_approval" ] || err "$expect_approval requires a value."
     if [ "$has_approval" = true ]; then
@@ -210,6 +229,9 @@ build_upgrade_cmd() {
         --source "$REPO_DIR/src/brain-core"
         --vault "$VAULT_PATH"
     )
+    if [ "$REPLACE_CLI" = true ]; then
+        upgrade_cmd+=(--replace-cli)
+    fi
     if [ "$NON_INTERACTIVE" = true ]; then
         upgrade_cmd+=(--unattended)
     fi
@@ -639,21 +661,53 @@ REPO_DIR=""
 CLEANUP_REPO=false
 
 cleanup() {
+    local outcome=$?
     if [ "$CLEANUP_REPO" = true ] && [ -n "$REPO_DIR" ]; then
-        rm -rf "$REPO_DIR"
+        if [ "$outcome" -eq 0 ] || [ ! -f "$REPO_DIR/.brain-source-receipt.json" ]; then
+            rm -rf "$REPO_DIR"
+        else
+            warn "Retained verified source for retry: $REPO_DIR"
+            retry_args=()
+            omit_version=false
+            for retry_arg in "${ORIGINAL_ARGS[@]}"; do
+                if [ "$omit_version" = true ]; then omit_version=false; continue; fi
+                if [ "$retry_arg" = --version ]; then omit_version=true; continue; fi
+                retry_args+=("$retry_arg")
+            done
+            printf '  Retry the same source: bash %q ' "$REPO_DIR/install.sh" >&2
+            printf '%q ' "${retry_args[@]}" "$VAULT_PATH" >&2
+            printf '\n' >&2
+        fi
     fi
 }
 trap cleanup EXIT
 
-if [ -n "$SCRIPT_DIR" ] && [ -f "$SCRIPT_DIR/src/brain-core/VERSION" ]; then
+if [ -n "$RELEASE_VERSION" ] && [ "$RELEASE_VERSION" != latest ] && ! is_semver "$RELEASE_VERSION"; then
+    err "--version requires latest or an exact X.Y.Z"
+fi
+
+if [ -n "$SCRIPT_DIR" ] && [ -f "$SCRIPT_DIR/src/brain-core/VERSION" ] && { [ -z "$RELEASE_VERSION" ] || [ "${BRAIN_INSTALL_ACQUIRED:-}" = "$SCRIPT_DIR" ]; }; then
     REPO_DIR="$SCRIPT_DIR"
+    if [ -f "$REPO_DIR/.brain-source-receipt.json" ]; then
+        "$PYTHON" "$REPO_DIR/cli/_acquisition.py" latest "$REPO_DIR" --verify-retained >/dev/null || err "Retained source verification failed."
+    fi
     SOURCE_VERSION=$(cat "$REPO_DIR/src/brain-core/VERSION" 2>/dev/null || echo "unknown")
     printf '\n  \033[1mInstalling from local copy\033[0m at %s (v%s)\n' "$REPO_DIR" "$SOURCE_VERSION" >&2
 else
     REPO_DIR="$(mktemp -d)"
     CLEANUP_REPO=true
     printf '\n' >&2
-    spin "Downloading obsidian-brain" git clone --branch main --depth 1 --quiet "$REPO_URL" "$REPO_DIR"
+    selected_ref=main
+    if [ -n "$RELEASE_VERSION" ] && [ "$RELEASE_VERSION" != latest ]; then selected_ref="v$RELEASE_VERSION"; fi
+    spin "Downloading obsidian-brain" git clone --branch "$selected_ref" --depth 1 --quiet "$REPO_URL" "$REPO_DIR"
+    [ -f "$REPO_DIR/cli/_acquisition.py" ] || err "This historical release does not support verified installation. Use an explicit local checkout; historical compatibility is best-effort."
+    "$PYTHON" "$REPO_DIR/cli/_acquisition.py" "${RELEASE_VERSION:-latest}" "$REPO_DIR" --certify-checkout >/dev/null || err "Release source verification failed."
+    # Run the installer from the verified source, not the downloaded bootstrap.
+    set +e
+    BRAIN_INSTALL_ACQUIRED="$REPO_DIR" bash "$REPO_DIR/install.sh" "${ORIGINAL_ARGS[@]}" "$VAULT_PATH"
+    child_status=$?
+    set -e
+    exit "$child_status"
     SOURCE_VERSION=$(cat "$REPO_DIR/src/brain-core/VERSION" 2>/dev/null || echo "unknown")
     printf '    \033[1mVersion:\033[0m v%s\n' "$SOURCE_VERSION" >&2
 fi
@@ -679,9 +733,6 @@ if [ -n "$EXISTING_VERSION" ]; then
             # preview shares the real run's guards, so "skipped" means the
             # installed core already matches this source and nothing runs.
             printf '\n' >&2
-            if [ "$SKIP_CLI" = true ]; then
-                err "--skip-cli cannot be used for the coordinated Brain Core 0.55 / CLI 2 cutover."
-            fi
             [ -n "$PYTHON" ] || err "Python 3.12+ is required for upgrade. Install it and rerun, or call upgrade.py with a compatible interpreter."
             # A preview never prompts: an unacknowledged cutover is reported, not asked.
             build_upgrade_cmd
@@ -754,9 +805,6 @@ printf '\n' >&2
 
 
 if [ "$UPGRADE_MODE" = true ]; then
-    if [ "$SKIP_CLI" = true ]; then
-        err "--skip-cli cannot be used for the coordinated Brain Core 0.55 / CLI 2 cutover."
-    fi
     [ -n "$PYTHON" ] || err "Python 3.12+ is required for upgrade. Install it and rerun, or call upgrade.py with a compatible interpreter."
     step "Upgrading brain-core"
     # --skip-mcp skips MCP registration only: an upgrade still syncs the managed runtime.
@@ -836,7 +884,13 @@ else
             CLI_TARGET_DIR="$HOME/.local/bin"
         fi
         CLI_TARGET="$CLI_TARGET_DIR/brain"
-        if [ -n "$PYTHON" ] && "$PYTHON" "$REPO_DIR/cli/_distribution.py" "$REPO_DIR" "$CLI_TARGET" >/dev/null; then
+        if [ "$REPLACE_CLI" != true ] && command -v brain >/dev/null 2>&1; then
+            CLI_TARGET="$(command -v brain)"
+            CLI_TARGET_DIR="$(dirname "$CLI_TARGET")"
+        fi
+        cli_policy=()
+        if [ "$REPLACE_CLI" != true ]; then cli_policy+=(--preserve-existing); fi
+        if [ -n "$PYTHON" ] && "$PYTHON" "$REPO_DIR/cli/_distribution.py" "$REPO_DIR" "$CLI_TARGET" ${cli_policy[@]+"${cli_policy[@]}"} >/dev/null; then
             printf '\n' >&2
             info "Installed Brain CLI distribution: $CLI_TARGET"
             export PATH="$CLI_TARGET_DIR:$PATH"
@@ -851,8 +905,10 @@ else
         else
             printf '\n' >&2
             warn "Could not install the Brain CLI distribution to $CLI_TARGET."
+            info "Vault installation has not started. Retry from the same local source snapshot."
             info "Retry CLI installation with Python 3.12+:"
             info "  python3.12 \"$REPO_DIR/cli/_distribution.py\" \"$REPO_DIR\" \"$CLI_TARGET\""
+            err "CLI bootstrap failed before target-vault creation."
         fi
     elif [ "$UPGRADE_MODE" != true ] && [ "$SKIP_CLI" = true ]; then
         info "brain CLI install skipped (--skip-cli)."
@@ -871,6 +927,8 @@ else
     if [ -n "$BRAIN_ID" ]; then
         install_cmd+=(--id "$BRAIN_ID")
     fi
+
+    if [ "$SKIP_CLI" = true ]; then install_cmd+=(--skip-cli); fi
 
     step "Installing brain vault"
     if [ "${#APPROVAL_ARGS[@]}" -gt 0 ]; then

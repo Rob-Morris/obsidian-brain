@@ -28,7 +28,6 @@ applies to `configure.py`, `upgrade.py`, and `repair.py`.
 from __future__ import annotations
 
 import argparse
-from functools import lru_cache
 import hashlib
 import json
 import ntpath
@@ -223,8 +222,8 @@ def conform_runtime(python: str | Path, requirements: Path, *, tag: str | None =
     return changed or recorded != verified
 
 
-@lru_cache(maxsize=None)
 def _python_tag_for_launcher(launcher_realpath: str) -> str:
+    """Read the current launcher version across executable replacement at one path."""
     out = subprocess.check_output(
         [launcher_realpath, "-c", "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}')"],
         text=True,

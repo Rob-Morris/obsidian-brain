@@ -151,7 +151,7 @@ def test_selected_brain_must_be_classified_by_the_complete_registry(
     "field, value, message",
     (
         ("source_brain_core_version", "0.54.59", "0.55.0"),
-        ("old_cli_version", "unknown", "unsupported version"),
+        ("old_cli_version", "malformed", "unsupported version"),
         ("new_cli_version", "1.9.9", "2.0.0"),
     ),
 )
@@ -195,3 +195,17 @@ def test_a_drifted_selected_brain_names_its_recovery(tmp_path, monkeypatch):
     with pytest.raises(CutoverPreflightError, match="not present in the complete local registry") as refused:
         _preflight(moved, excluded_stale_brain_ids=("selected",))
     assert "stale row" in str(refused.value) and '"brain_id":"selected"' in str(refused.value)
+
+
+@pytest.mark.parametrize("identity", ["unknown", "uninstalled"])
+@pytest.mark.parametrize("replace_cli", [False, True])
+def test_missing_numeric_cli_identity_does_not_prevent_core_or_explicit_cli_change(
+    tmp_path, monkeypatch, identity, replace_cli,
+):
+    selected = _brain(tmp_path, "selected", "0.55.0")
+    _registry(monkeypatch, tmp_path, [f"selected\tlocal\t{selected}\n"])
+    report = _preflight(selected, old_cli_version=identity, replace_cli=replace_cli,
+                        new_cli_version="2.0.0" if replace_cli else identity)
+    assert report.old_cli_version == identity
+    assert report.new_cli_version == ("2.0.0" if replace_cli else identity)
+    assert report.registry_complete is replace_cli

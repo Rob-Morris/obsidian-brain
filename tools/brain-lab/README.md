@@ -153,6 +153,11 @@ tools/brain-lab/brain-lab --json baseline prepare --request-json \
 
 Preparation uses the selected source's official installer. It checks Core version, CLI/machine health, `brain session start --json`, a direct MCP stdio read-only round trip, and template compliance. A retry occurs only when the selected compatibility manifest explicitly permits a known safe, retryable health response such as cold runtime warm-up.
 
+The 0.74 adapter retains installed-Brain selection and health contracts from
+0.73 and checks the new offline CLI metadata through `brain version --json`.
+Bounded result delivery keeps the scalar status/version/health fields used by
+these gates; this smoke does not certify complete bootstrap page traversal.
+
 ## Remote and historical sources
 
 Resolve or capture an exact Git ref:
@@ -424,3 +429,7 @@ Focused fixture/guard tests are in
 installed CLI or native Docker acceptance. This Stage 8 scenario awaits the
 complete text pipeline, including the Stage 5 IO security fix, before final
 integration certification. It is not included in an existing Make Docker gate.
+
+### Reproducible installation acceptance
+
+Run `tools/brain-lab/brain-lab --state-dir .brain-lab --json scenario run --request-json - < tools/brain-lab/scenarios/reproducible-install.json` against Docker when explicitly exercising installation. This uses a bare base (not a prepared baseline), public dependency downloads and a captured product source. The focused script creates a controlled Git origin to exercise latest/exact resolution, bootstraps the CLI, installs two Brains, checks their source receipts and complete shared-CLI/first-Brain preservation, reads offline metadata, and injects bootstrap failure before vault creation. It is Linux evidence; native Windows/macOS and publication/interruption tests retain their separate owners. The scenario discards its run; inspect returned resource IDs and remove only owned source/base inputs when finished. No personal Brain is imported.

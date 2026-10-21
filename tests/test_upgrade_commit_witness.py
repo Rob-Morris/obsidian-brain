@@ -560,7 +560,7 @@ def test_a_cutover_preflight_failure_is_a_json_error_from_main(tmp_path, monkeyp
         raise ValueError("stale registry entries require explicit exclusion before cutover")
 
     monkeypatch.setattr(upgrade, "_prepare_cli_cutover", fail_preflight)
-    monkeypatch.setattr(sys, "argv", ["upgrade.py", "--source", str(source), "--vault", str(vault), "--dry-run", "--json"])
+    monkeypatch.setattr(sys, "argv", ["upgrade.py", "--source", str(source), "--vault", str(vault), "--replace-cli", "--dry-run", "--json"])
 
     with pytest.raises(SystemExit) as exc:
         upgrade.main()
@@ -1250,3 +1250,21 @@ def test_real_target_workspace_admission_and_migration_rollback(
         assert result["reason"] == "workspace_compatibility"
         assert "upgrade-example" in result["message"]
         assert _tree_bytes(vault) == before
+
+
+def test_upgrade_source_receipt_is_journalled_and_replaced_on_success(tmp_path, monkeypatch):
+    source = _make_source(tmp_path, "2.0.0", migrations={})
+    vault = _make_vault(tmp_path, "1.0.0")
+    target = vault / ".brain/local/install-source.json"
+    original = '{"schema":"old-source-fixture"}\n'
+    target.write_text(original)
+    monkeypatch.setattr(upgrade, "_validate_compile", lambda _root: "injected failure")
+    failed = upgrade.upgrade(str(vault), str(source), sync=False)
+    assert failed["status"] == "error"
+    assert failed["rollback_verified"] is True
+    assert target.read_text() == original
+
+    monkeypatch.setattr(upgrade, "_validate_compile", lambda _root: None)
+    succeeded = upgrade.upgrade(str(vault), str(source), sync=False)
+    assert succeeded["status"] == "ok", succeeded
+    assert json.loads(target.read_text()) == {"schema": "brain.install-source/1", "kind": "local", "version": "2.0.0"}

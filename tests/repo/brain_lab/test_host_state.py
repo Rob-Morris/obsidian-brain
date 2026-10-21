@@ -107,3 +107,17 @@ def test_host_state_falls_back_to_file_hash_when_claude_state_is_unreadable(tmp_
 
     assert before["files"]["claude_global"]["unreadable"] is True
     assert before["fingerprint"] != after["fingerprint"]
+
+
+def test_machine_config_snapshot_identifies_lock_churn_separately(tmp_path):
+    config = tmp_path / 'brain'
+    (config / 'locks').mkdir(parents=True)
+    (config / 'vaults').write_text('registered')
+    lock = config / 'locks/owner-pins.lock'
+    lock.write_text('session-a')
+    before = host_state._hash_directory(config)
+    lock.write_text('session-b')
+    after = host_state._hash_directory(config)
+    changed = [name for name in before['entries'] if before['entries'][name] != after['entries'][name]]
+    assert changed == ['locks/owner-pins.lock']
+    assert before['sha256'] != after['sha256']

@@ -6,6 +6,9 @@ import re
 from dataclasses import dataclass
 
 
+CLI_FULL_SUPPORT_CORE_VERSION = "0.74.0"
+
+
 SEMVER_PATTERN = r"(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)"
 SEMVER_RE = re.compile(rf"^{SEMVER_PATTERN}$")
 _SUMMARY_VERSION_SUFFIX = re.compile(
@@ -31,6 +34,13 @@ class SourceVersions:
 
 
 @dataclass(frozen=True, slots=True)
+class CliVersionFacts:
+    cli_version: str
+    distributed_with_core_version: str
+    full_support_core_version: str | None
+
+
+@dataclass(frozen=True, slots=True)
 class VersionContract:
     core: str | None
     readme: str | None
@@ -48,6 +58,7 @@ class VersionContract:
     changelog_head: str | None
     coherent: bool
     declaration_counts: tuple[tuple[str, int], ...]
+    full_support_core_version: str | None = None
 
     def count(self, name: str) -> int:
         return dict(self.declaration_counts).get(name, 0)
@@ -73,11 +84,16 @@ def parse_version_contract(
     changelog: str | None = None,
     functional_cli: str | None = None,
     user_reference: str | None = None,
+    version_contract: str | None = None,
 ) -> VersionContract:
     """Parse all canonical release declarations without performing I/O."""
 
     core_version = core.strip() if core and SEMVER_RE.fullmatch(core.strip()) else None
     declarations = {
+        "full_support_core_version": _declaration(
+            rf'^CLI_FULL_SUPPORT_CORE_VERSION = "({SEMVER_PATTERN}|next-release)"$',
+            version_contract, flags=re.MULTILINE,
+        ),
         "readme": _declaration(rf"version-({SEMVER_PATTERN})-blue", readme),
         "cli_unix": _declaration(
             rf'^BRAIN_CLI_VERSION="({SEMVER_PATTERN})"$', unix_cli, flags=re.MULTILINE
@@ -98,10 +114,10 @@ def parse_version_contract(
             flags=re.MULTILINE | re.IGNORECASE,
         ),
         "documented_cli_unix": _declaration(
-            rf"lib/brain-cli/({SEMVER_PATTERN})/", functional_cli
+            rf"lib/brain-cli/({SEMVER_PATTERN})(?:-[^/`]+)?/", functional_cli
         ),
         "documented_cli_windows": _declaration(
-            rf"lib\\brain-cli\\({SEMVER_PATTERN})\\", functional_cli
+            rf"lib\\brain-cli\\({SEMVER_PATTERN})(?:-[^\\`]+)?\\", functional_cli
         ),
         "documented_cli_declaration": _declaration(
             rf"`BRAIN_CLI_VERSION` is `({SEMVER_PATTERN})`", functional_cli
@@ -146,7 +162,8 @@ def parse_version_contract(
     )
     changelog_head = changelog_rows[0] if changelog_rows else None
     coherent = (
-        all(value is not None for value in required)
+        (version_contract is None or values["full_support_core_version"] is not None)
+        and all(value is not None for value in required)
         and core_version
         == values["readme"]
         == values["install_ref_unix"]
@@ -178,6 +195,7 @@ def parse_version_contract(
         changelog_head,
         coherent,
         counts,
+        values["full_support_core_version"],
     )
 
 

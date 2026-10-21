@@ -1,0 +1,66 @@
+{
+  "steps": [
+    {
+      "operation": "base.build",
+      "request": {
+        "image": "ubuntu:24.04",
+        "platform": "linux/arm64"
+      }
+    },
+    {
+      "operation": "source.capture",
+      "request": {
+        "kind": "worktree",
+        "path": ".",
+        "platform": "linux/arm64",
+        "include_untracked": [
+          "cli/_acquisition.py",
+          "src/brain-core/scripts/_bootstrap/install_source.py",
+          "tools/brain-lab/container/reproducible_install_acceptance.py"
+        ]
+      }
+    },
+    {
+      "operation": "run.start",
+      "request": {
+        "base_id": "${steps.0.resource.id}",
+        "network": "bridge"
+      }
+    },
+    {
+      "operation": "run.copy-in",
+      "request": {
+        "id": "${steps.2.resource.id}",
+        "source_id": "${steps.1.resource.id}",
+        "destination": "/home/brain/source"
+      }
+    },
+    {
+      "operation": "run.exec",
+      "request": {
+        "id": "${steps.2.resource.id}",
+        "argv": [
+          "/usr/bin/python3.12",
+          "/home/brain/source/tools/brain-lab/container/reproducible_install_acceptance.py",
+          "--source",
+          "/home/brain/source",
+          "--work",
+          "/home/brain/install-acceptance"
+        ],
+        "timeout_seconds": 1800
+      }
+    },
+    {
+      "operation": "run.discard",
+      "request": {
+        "id": "${steps.2.resource.id}"
+      }
+    }
+  ],
+  "host_state": {
+    "worktrees": [
+      "."
+    ],
+    "vaults": []
+  }
+}

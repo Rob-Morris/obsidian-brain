@@ -1,6 +1,6 @@
 # Obsidian Brain
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE) ![Version](https://img.shields.io/badge/version-0.73.0-blue) ![Platform](https://img.shields.io/badge/platform-Obsidian-7C3AED) ![Python](https://img.shields.io/badge/python-≥3.12-3776AB?logo=python&logoColor=white) ![MCP](https://img.shields.io/badge/MCP-server-green)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE) ![Version](https://img.shields.io/badge/version-0.74.0-blue) ![Platform](https://img.shields.io/badge/platform-Obsidian-7C3AED) ![Python](https://img.shields.io/badge/python-≥3.12-3776AB?logo=python&logoColor=white) ![MCP](https://img.shields.io/badge/MCP-server-green)
 
 A self-evolving knowledge base for agents and humans working together on what matters.
 
@@ -257,3 +257,10 @@ startup rule at `.grok/rules/brain.md`. Review Grok's folder-trust prompt before
 using project configuration, then verify with `grok inspect` and
 `grok mcp doctor brain`. See [client configuration](docs/functional/config.md#grok-client-configuration)
 for ownership, removal and skill setup.
+
+
+### Selecting an installation release
+
+Use `bash install.sh --version X.Y.Z --non-interactive --skip-mcp /path/to/brain` for an exact published release (`latest` selects published main). Native Windows uses `./install.ps1 -Version X.Y.Z -NonInteractive -SkipMcp -VaultPath C:\Brains\Example`. Without a selector, an installer in a complete local checkout uses that checkout; remote installation defaults to latest published source. A published release's permanent tag must match its stored Core version and certified commit. Source selection and the resolved receipt are shared by installer, template and Core; missing/conflicting tags fail rather than silently falling back.
+
+A healthy machine-global CLI is preserved. Explicit `--replace-cli` / `-ReplaceCli` requests changing it; selecting a Core version alone does not. `brain install` / `brain upgrade` also accept `version` or `source_root` and `replace_cli` in request JSON. CLI bootstrap failure stops before creating a new target vault and reports retry/repair guidance; later runtime provisioning and optional MCP setup retain their separate follow-up outcomes. Offline `brain --version` reports CLI identity, distributed-with Core and the advisory full-support baseline. Earlier-release interoperability is best-effort; no dedicated offline bundle is promised. See [CLI contract](docs/functional/cli.md) for the detailed contract.

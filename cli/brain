@@ -1,14 +1,16 @@
 #!/bin/bash
 set -euo pipefail
 
-BRAIN_CLI_VERSION="6.0.1"
-BRAIN_INSTALL_REF="v0.73.0"
+BRAIN_CLI_VERSION="6.1.0"
+BRAIN_INSTALL_REF="v0.74.0"
+
+BRAIN_DISTRIBUTION_ID="source"
 
 SELF_DIR="$(CDPATH= cd -- "${0%/*}" && pwd -P)"
 SELF_PATH="$SELF_DIR/${0##*/}"
 
 if [ "${1:-}" = "mcp" ] && [ "${2:-}" = "serve" ]; then
-    DISTRIBUTION_ROOT="$SELF_DIR/../lib/brain-cli/$BRAIN_CLI_VERSION"
+    DISTRIBUTION_ROOT="$SELF_DIR/../lib/brain-cli/$BRAIN_DISTRIBUTION_ID"
     if [ ! -f "$DISTRIBUTION_ROOT/.bootstrap-python" ] || [ ! -f "$DISTRIBUTION_ROOT/cli/_mcp_stdio.py" ]; then
         printf 'brain: installed MCP bootstrap is missing; reinstall the CLI with an explicit --bootstrap-python\n' >&2
         exit 4
@@ -26,7 +28,7 @@ if [ -n "${BRAIN_CLI_BUNDLE:-}" ]; then
 elif [ -f "$SELF_DIR/_local_cli/main.py" ] && [ -f "$SELF_DIR/../src/brain-core/VERSION" ]; then
     DISTRIBUTION_ROOT="$(CDPATH= cd -- "$SELF_DIR/.." && pwd -P)"
 else
-    DISTRIBUTION_ROOT="$SELF_DIR/../lib/brain-cli/$BRAIN_CLI_VERSION"
+    DISTRIBUTION_ROOT="$SELF_DIR/../lib/brain-cli/$BRAIN_DISTRIBUTION_ID"
 fi
 
 if [ ! -f "$DISTRIBUTION_ROOT/cli/_local_cli/main.py" ] || [ ! -f "$DISTRIBUTION_ROOT/src/brain-core/VERSION" ]; then

@@ -451,7 +451,9 @@ def test_application_process_invoker_executes_the_selected_brain_command(
     assert argv[argv.index("--workspace") + 1] == str(tmp_path.resolve())
     assert argv[argv.index("--operator-key") + 1] == "amber-river-crown"
     assert "--dry-run" in argv and "--json" in argv
-    assert options == {"role": "cli", "capture_output": True, "text": True, "check": False}
+    child_environment = options.pop("env")
+    assert child_environment["PYTHONIOENCODING"] == "utf-8"
+    assert options == {"role": "cli", "capture_output": True, "text": True, "encoding": "utf-8", "check": False}
     assert result.owner == "application"
     assert result.structured_content == envelope
     assert result.concise_text == "artefact.read: ok"
@@ -921,3 +923,45 @@ def test_application_process_failures_keep_safe_guidance_on_both_routes(
         assert "then register it" in message
     assert len(calls) == 1
     assert not (vault / ".brain/local/workspace.yaml").exists()
+
+
+@pytest.mark.parametrize("route", ["execution", "discovery"])
+def test_machine_child_encoding_pairs_utf8_streams_and_decoder(tmp_path, monkeypatch, route):
+    from types import SimpleNamespace
+    from _local_cli import main
+    from _local_cli.execution import machine_process_options
+    monkeypatch.setenv("PYTHONIOENCODING", "cp1252")
+    monkeypatch.setenv("PYTHONUTF8", "0")
+    vault = tmp_path / "Brain"
+    script = vault / ".brain-core/scripts/command.py"
+    script.parent.mkdir(parents=True)
+    command_id = "artefact.read" if route == "execution" else "command.list"
+    frame = {"schema": "brain.command-result/1", "command": command_id,
+             "command_version": 1, "status": "ok", "warnings": [], "result": {"text": "雪 😀"}}
+    script.write_text("import json,sys; print(json.dumps(" + repr(frame) + ",ensure_ascii=False)); "
+                      "print('diagnostic 雪 😀',file=sys.stderr)", encoding="utf-8")
+    captured = []
+    def runner(argv, **options):
+        assert options["encoding"] == "utf-8"
+        assert options["env"]["PYTHONIOENCODING"] == "utf-8"
+        assert options["env"]["PYTHONUTF8"] == "0"
+        options.pop("role", None)
+        result = subprocess.run(argv, **options)
+        captured.append(result)
+        return result
+    if route == "execution":
+        result = ApplicationProcessInvoker(SelectedBrainProcess(vault, Path(sys.executable)), runner).invoke(
+            _entry("application", command_id), {})
+        public, _, _ = render_local_result(result, json_mode=True)
+        assert public.isascii() and json.loads(public) == frame
+    else:
+        monkeypatch.setattr(main, "command_python", lambda *_: Path(sys.executable))
+        monkeypatch.setattr(main, "managed_command", lambda argv, **options:
+                            SimpleNamespace(run=lambda **kw: runner(argv, **options, **kw)))
+        selected = SimpleNamespace(vault_root=vault, command_script=script, workspace=None)
+        assert main._invoke_application(selected, command_id, {}, SimpleNamespace(operator_key=None),
+                                        dependency_tier="stdlib") == frame
+    assert captured[0].stderr == "diagnostic 雪 😀\n"
+    import os
+    assert os.environ["PYTHONIOENCODING"] == "cp1252"
+    assert machine_process_options({"env": {}})["env"] == {"PYTHONIOENCODING": "utf-8"}

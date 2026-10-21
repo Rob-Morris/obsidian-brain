@@ -147,6 +147,7 @@ def test_a_run_killed_mid_migration_is_restored_and_completed_by_the_next_run(tm
     _directory, manifest = _recovery_manifest(vault)
     assert {os.path.relpath(path, vault) for path in manifest["preserved"]} == {
         ".brain/local/count.txt", ".brain/config.yaml", ".brain/local/compiled-router.json",
+        ".brain/local/install-source.json",
     }, "the run's own half-applied bytes are kept, not destroyed"
     assert (vault / ".brain" / "config.yaml").read_text() == "original: true\n"
     assert (vault / ".brain" / "local" / "count.txt").read_text() == "1", "the migration reran once from the restored state"
@@ -550,7 +551,7 @@ def test_edits_made_after_a_kill_are_preserved_before_the_restore_replaces_them(
     assert {key: preserved[key] for key in edits} == edits, "every changed byte is kept, byte for byte"
     assert preserved[os.path.join("Ideas", "a.md")] == b"migrated"
     kept = len(manifest["preserved"])
-    assert kept == len(edits) + 1, "the edits and the migration's own write"
+    assert kept == len(edits) + 2, "the edits, migration write and selected-source receipt"
     assert result["recovery"] == {
         "action": "restored", "journal": str(_journal_dir(vault)), "restored_paths": kept,
         "preserved_paths": kept, "recovery_directory": str(directory),

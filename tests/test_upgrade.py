@@ -16,7 +16,7 @@ CLI_DIR = REPO_ROOT / "cli"
 if str(CLI_DIR) not in sys.path:
     sys.path.insert(0, str(CLI_DIR))
 
-from _distribution import install_distribution, verify_distribution
+from _distribution import install_distribution, verify_installed_distribution
 from _local_cli.runtime import CLI_VERSION
 import migrate_to_0_53_0
 import upgrade
@@ -1803,9 +1803,7 @@ class TestPrecompileDefinitionRemediation:
             for path in other.rglob("*")
             if path.is_file()
         }
-        manifest = verify_distribution(
-            tmp_path / "machine" / "lib" / "brain-cli" / CLI_VERSION
-        )
+        _, manifest = verify_installed_distribution(cli_binary)
         assert result["status"] == "ok"
         assert (selected / ".brain-core" / "VERSION").read_text().strip() == CORE_VERSION
         assert result["cutover_commit"]["cli_version"] == CLI_VERSION
