@@ -18,12 +18,12 @@ from .._mutation_support import (
     contributor_mutation_entry,
 )
 from ..context import InvocationContext
-from ..workspace_context import WorkspaceAwareRequest, workspace_request_decoder
+from ..workspace_context import WorkspaceDispositionRequest, workspace_disposition_decoder
 from ._types import DocumentLocator, decode_document, validate_document_request
 
 
 @dataclass(frozen=True, slots=True)
-class DocumentUpdateFrontmatterRequest(WorkspaceAwareRequest):
+class DocumentUpdateFrontmatterRequest(WorkspaceDispositionRequest):
     COMMAND_ID: ClassVar[str] = "document.update-frontmatter"
     COMMAND_VERSION: ClassVar[int] = 4
     RESULT_TYPE: ClassVar[type] = DocumentFrontmatterUpdatePayload
@@ -75,7 +75,7 @@ def prepare(context, request, *, frozen_inputs=None):
                                      frozen_inputs=frozen_inputs)
 
 
-@workspace_request_decoder
+@workspace_disposition_decoder
 def decode(payload: Mapping[str, object]) -> DocumentUpdateFrontmatterRequest:
     reject_unexpected(payload, {"document", "expected_revision", "updates"})
     expected_revision = payload.get("expected_revision")

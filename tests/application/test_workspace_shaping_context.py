@@ -15,7 +15,7 @@ from _bootstrap.workspace_binding import read_workspace_manifest, save_workspace
 from _common import parse_frontmatter, serialize_frontmatter, PartialApplyError
 from test_workspace_mutation_context import scoped  # noqa: F401
 from test_workspace_skill_preparation import MatchingAdmission
-from test_shaping_start_owner import DESIGN_REFERENCE
+from test_shaping_start_owner import DESIGN_REFERENCE, partial_native_paths
 
 scenarios("../features/workspace_shaping.feature")
 
@@ -193,7 +193,7 @@ def test_shaping_partial_retains_exact_context_and_actual_subjects(scoped, monke
     result = execute(replace(app._context, admission=MatchingAdmission(binding)), request)
     assert isinstance(result, WorkspaceMutationPartial), result
     assert canonical_wire_value(result.mutation_context) == binding.review["mutation_context"]
-    subjects = tuple(effect.subject for effect in result.committed_effects)
+    subjects = partial_native_paths(root, result)
     assert len(subjects) == 2
     assert all((root / path).is_file() for path in subjects)
     transcript = next(path for path in subjects if path.startswith("_Temporal/"))
@@ -217,7 +217,7 @@ def test_shaping_selector_version_and_projection():
         payload = {"target": DESIGN_REFERENCE, "mode": "refine", "workspace_context": selection}
         Draft202012Validator(schema).validate(payload)
         request = current_request_resolver().resolve("shaping.start", payload)
-        assert canonical_wire_value(request) == payload
+        assert canonical_wire_value(request) == {**payload, "relationship_dispositions": []}
     with pytest.raises(ValueError):
         current_request_resolver().resolve("shaping.start", {"target": DESIGN_REFERENCE,
             "mode": "refine", "workspace_context": "/tmp/workspace"})

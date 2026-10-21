@@ -111,7 +111,7 @@ class StartupFailure:
 # Constants
 # ---------------------------------------------------------------------------
 
-PROXY_VERSION = "0.10.9"
+PROXY_VERSION = "0.10.10"
 _CHILD_PROTOCOL_VERSION = "2026-07-28"
 
 
@@ -1933,6 +1933,7 @@ class Proxy:
     def _preflight_handoff(self, fd: int, python: str) -> bool:
         env = self._handoff_environment()
         env.pop("BRAIN_OPERATOR_KEY", None)
+        started = time.monotonic()
         process = managed_command(
             [python, "-m", "brain_mcp.proxy", "--check-handoff", str(fd)], role=ROLE_MCP, env=env,
         ).popen(
@@ -1940,8 +1941,18 @@ class Proxy:
             stderr=subprocess.DEVNULL, start_new_session=True,
         )
         try:
-            return process.wait(timeout=HANDOFF_TIMEOUT) == 0
+            returncode = process.wait(timeout=HANDOFF_TIMEOUT)
+            if returncode != 0:
+                _log().warning(
+                    "handoff preflight refused: reason=nonzero_exit elapsed_ms=%d returncode=%d",
+                    int((time.monotonic() - started) * 1000), returncode,
+                )
+            return returncode == 0
         except subprocess.TimeoutExpired:
+            _log().warning(
+                "handoff preflight refused: reason=timeout elapsed_ms=%d returncode=unknown",
+                int((time.monotonic() - started) * 1000),
+            )
             return False
         finally:
             # Includes the probe's server if import or negotiation timed out.

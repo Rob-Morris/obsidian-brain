@@ -170,6 +170,32 @@ membership/parent/tags, and index health after adoption. Inspect any known parti
 result before retrying; checkpoint rollback is an explicit whole-vault action,
 never an automatic response to a reported partial write.
 
+## Semantic relationship workflow
+
+1. Discover the installed `relationship.*` and `history.*` contracts, inspect
+   `relationship.definitions`, and register missing vocabulary with a clear meaning.
+2. Create assertions through `relationship.batch`. To annotate a native parent,
+   workspace or status fact, first call `relationship.expose` and reference its
+   occurrence ID. Change native facts through the relevant artefact setter.
+3. Inspect current metadata with `relationship.query` and individual revisions with
+   `relationship.read`. Run `relationship.check`; supply an assessment or confirmed
+   transcript policy only when that workflow actually requires one. An empty cached
+   query or a clean default check is not an inferred approval.
+4. Before replacing/removing a meaning-bearing fact, inspect its dependency closure.
+   Supply explicit revision-bound dispositions, preserve useful explanations in a
+   report/decision, and author newly validated metadata against the replacement.
+5. Inspect selected change events through `history.query`/`history.read`. Correct an
+   account using `history.correct` and the current head revision. Register a custom
+   event type before `history.write`; caller attribution remains a claim.
+6. For stale projection state, refresh and check. For a partial publication, inspect
+   the receipt and use its exact operation ID with `history.repair`; do not blindly
+   repeat the original mutation. Preview explicit cleanup before applying it.
+
+The [semantic relationship reference](../../src/brain-core/standards/semantic-relationships.md)
+contains copyable command examples, capture controls, bounds, correction behaviour
+and the operator repair path for malformed external records. No event reconstruction
+is guaranteed for direct filesystem/Obsidian edits.
+
 ## A Day in the Life
 
 Here's what working with the Brain looks like in practice.

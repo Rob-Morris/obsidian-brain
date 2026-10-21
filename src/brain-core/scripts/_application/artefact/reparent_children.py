@@ -16,7 +16,7 @@ from .._artefact_transition import (
     validate_string,
 )
 from ..context import InvocationContext
-from ..workspace_context import WorkspaceAwareRequest, workspace_request_decoder, validate_workspace_request
+from ..workspace_context import WorkspaceDispositionRequest, workspace_disposition_decoder, validate_workspace_request
 
 
 class ReparentChildrenMode(str, Enum):
@@ -41,7 +41,7 @@ class ArtefactReparentChildrenPayload(WorkspaceMutationPayload):
 
 
 @dataclass(frozen=True, slots=True)
-class ArtefactReparentChildrenRequest(WorkspaceAwareRequest):
+class ArtefactReparentChildrenRequest(WorkspaceDispositionRequest):
     COMMAND_ID: ClassVar[str] = "artefact.reparent-children"
     COMMAND_VERSION: ClassVar[int] = 2
     RESULT_TYPE: ClassVar[type] = ArtefactReparentChildrenPayload
@@ -75,7 +75,7 @@ def execute(context: InvocationContext, request: ArtefactReparentChildrenRequest
     )
 
 
-@workspace_request_decoder
+@workspace_disposition_decoder
 def decode(payload: Mapping[str, object]) -> ArtefactReparentChildrenRequest:
     reject_unexpected(payload, {"source", "mode", "parent"})
     for field in ("source", "mode"):

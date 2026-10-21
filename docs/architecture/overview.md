@@ -123,6 +123,42 @@ Commands declare an ordered minimum dependency tier:
 
 Tier, locality and providers are independent. Selected-Brain and machine-global locality do not imply a tier. Required providers block execution; optional providers can enrich an otherwise complete result. Adapters do not silently provision, hand off, elevate authority or switch the selected Brain.
 
+## Semantic relationships and history
+
+`_application/relationship/` and `_application/history/` expose typed selected-Brain
+owners over the lower-level `_relationships/` context. The latter owns graph
+records, endpoint continuity, local vocabulary, validation/purpose-owned policies,
+projection and publication recovery; it does not own artefact lifecycle authority
+or import application executors.
+
+Shared source records use `_Relationships/<kind>/<sha256-of-id>.json`; vault-local predicate,
+event-type and capture-policy definitions use `_Config/Relationships/`. Independent
+logical identity and revisions are separate from physical packing. The local
+`.brain/local/relationships.sqlite` adjacency/locator index is disposable. Current
+assertions and selected history events are distinct record/query families; history
+is not event-sourced authority for reconstructing current state.
+
+Native parentage, workspace membership/relevance and status project as referenceable
+occurrences from their existing owners. Materialising an occurrence records its
+identity, not a competing authored structural claim. Native planners compose typed
+reference maintenance, dependency dispositions and selected history under admission
+coordination. A retired structural fact does not revive its old annotations if its
+tuple later reappears.
+
+Publication journals capture admitted inputs and deterministic event identities for
+targeted repair. Completed or safely abandoned operations retain only a minimal
+receipt, preventing completed recovery payloads from defeating explicit history
+cleanup. Body-only edits and no-ops do not create semantic journals. Content,
+history and projection can fail at different points and
+must report partial effects honestly; the journal does not establish crash-atomic
+multi-file commits. Cached queries disclose their projection-only freshness;
+explicit checks verify bounded source revisions before positive policy standing.
+Neither establishes a coherent whole-graph snapshot. Direct external edits receive
+integrity checks without guaranteed events or reconstruction of unseen changes.
+
+The [shipped relationship reference](../../src/brain-core/standards/semantic-relationships.md)
+owns command roles, bounds, source layout, policy controls and user recovery.
+
 ## Configuration and generated state
 
 Vault configuration merges:
