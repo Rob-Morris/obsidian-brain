@@ -86,7 +86,7 @@ def test_source_upgrade_uses_selected_helper_and_honest_cli_identity(
     assert result["files_modified"] == 1
     assert result["new_version"] == version
     assert result["preflight"]["old_cli_version"] == identity
-    assert result["preflight"]["new_cli_version"] == ("6.1.0" if replace_cli else identity)
+    assert result["preflight"]["new_cli_version"] == ("6.2.0" if replace_cli else identity)
     assert binary.exists() is (identity != "uninstalled")
     assert (vault / ".brain-core/VERSION").read_text() == "0.55.0\n"
 

@@ -89,5 +89,5 @@ def decode(payload: Mapping[str, object]):
 
 
 def catalogue_entry():
-    return control_entry(AccessRequestRequest, execute, mutation=True,
+    return control_entry(AccessRequestRequest, execute, mutation=True, retain_output=False,
         summary="Explicitly authorise one prepared operation or one command in this Brain context.")

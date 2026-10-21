@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import copy
+import hashlib
+import json
 from dataclasses import dataclass
 from pathlib import Path
 import threading
@@ -56,6 +58,20 @@ class FileDerivedSnapshotStore:
                 return
             for name in names:
                 self._cache.pop(name, None)
+
+    def list_revision(self, location: str) -> str | None:
+        """Return a cheap maintained revision, or None for live archive scope.
+
+        Archive summaries read files directly and have no maintained revision.
+        Their delivery must retain the opening snapshot rather than rescan the
+        archive to validate every page.
+        """
+        if location in {"archived", "all"}:
+            return None
+        signatures = [(COMPILED_ROUTER_REL, _signature(self._root / COMPILED_ROUTER_REL))]
+        if location == "active":
+            signatures.append((OUTPUT_PATH, _signature(self._root / OUTPUT_PATH)))
+        return "sha256:" + hashlib.sha256(json.dumps(signatures).encode()).hexdigest()
 
     def _load(self, name: str, path: Path, loader: Callable[[], dict]) -> dict:
         with self._lock:

@@ -51,6 +51,109 @@ A vault registry row that is no longer its own canonical path never selects a Br
 
 `--request-json -` reads the object as UTF-8 from standard input, accepting leading UTF-8 byte-order marks, including repeated marks emitted by Windows PowerShell. It does not depend on the console locale. Unknown fields, malformed JSON, unknown launcher entry points and application commands with anything other than one noun and one verb fail as request errors.
 
+## Reusable result sessions
+
+Use a private credential file for one logical agent's reusable output context:
+
+```bash
+brain session start --result-session-file /private/path/brain-result-session --json
+brain artefact list --result-session-file /private/path/brain-result-session --json
+brain result read --result-session-file /private/path/brain-result-session \
+  --request-json '{"result_id":"<returned-id>","continuation":{}}' --json
+```
+
+The parent directory must exist. `session start` creates a missing file
+atomically with mode 0600; existing files must be private, owned regular files,
+not symlinks. Reuse the same path on every bootstrap continuation, source call
+and result retrieval. The file contains a holder credential, not permissions
+or consent; do not put it in request JSON, synced content or logs. JSON output
+reports `result_session_file`, not the credential.
+
+Except for result navigation, cleanup, non-retained controls and the diagnostic
+reads below, a standalone call without an explicit
+file creates a new private client file
+under `.brain/local/result-clients/` and reports its path. Save that path and
+pass `--result-session-file` on later calls to reuse the output namespace;
+a new standalone call must not be assumed to share it. Managed CLI jobs inherit
+their private result context through the owner channel. Conflicting explicit
+credentials are refused. Launcher-owned machine commands do not accept this
+flag; it selects selected-Brain application output, not machine policy.
+
+`result.read`, `result.search` and `result.clear` require an existing private
+credential file or a managed job's already selected owner-channel namespace.
+They never create a new namespace when selection is omitted. Initialise a job's
+result namespace with `session start` before navigating or clearing it.
+Non-retained controls and diagnostic reads without an explicit file also skip
+automatic client-directory and job-file-lock selection; an optional cache cannot
+block revocation through that path. Explicit files are always verified.
+
+Without explicit result-session selection, `runtime.status` and
+`runtime.read-environment` remain read-only diagnostic observations: they skip
+result retention and do not attempt result-cache writes. An explicit existing
+`--result-session-file` opts those calls into retention.
+
+Read generic `delivery` first. If `delivery.continuation` is present, pass its
+exact object and `delivery.result_id` to `brain result read` with the same
+credential file **before inspecting the semantic payload or using a legacy
+cursor**. The original command page is in `result.envelope`; delivery is on the
+outer envelope. The example's empty object is a placeholder for that returned
+continuation. Finish generic delivery, then follow the source payload's cursor.
+All bootstrap guidance remains mandatory: continue source `session start`
+pages until `bootstrap_complete`, consuming generic pages at each step.
+
+Eligible output is retained without time expiry, latest invocation per command
+per result session per Brain. New admission of the same command replaces its
+slot; unrelated commands and navigation do not. Each call emits at most one
+page. `page: 0` means get-all intent within that bound. Query selections default
+to 10 pages across calls; retained output has no default page-count cap.
+`max_pages` changes the selection, not the response cap; `"all"` selects the
+complete set across bounded calls. Use
+`outside_continuation` for output beyond it. An absolute read of an existing
+page outside the selection opens a new selection there, keeping `max_pages`;
+relative navigation does not. Pages beyond the total remain out of range.
+Omitting `page` (or passing null) follows the continuation or starts at 1;
+explicit `page: 1` returns page 1 even with a continuation, including `@outcome`.
+Text size defaults to 100 units
+(maximum 500), records/fields to 25 (maximum 100); byte limits can fit fewer.
+Changing size requires an explicit zero-based `anchor`. See the
+[full result request and delivery contract](mcp-tools.md#result-sessions-and-delivery).
+
+`brain result search` takes `result_id`, `literal`, `start_page`, `start_offset`,
+`limit` and `scan_pages` in request JSON. Resume with both `next_page` and
+`next_offset` until `scan_complete`. Coverage is retained body units, excluding
+envelope metadata and contextual extras; detail bodies are not traversed.
+`complete` can remain false when `details_skipped` reports unsearched references.
+It does not run live search.
+Dynamic cursor-free active-list pages refresh current projection data with
+independent per-page change notices; traversal across revisions may repeat or
+skip items. Archived/all lists retain the opening snapshot with an explicit
+freshness limitation; page size and the ten-page list selection still apply.
+
+For a retention-capacity refusal, deliberately clear this result session:
+
+```bash
+brain result clear --result-session-file /private/path/brain-result-session --json
+```
+
+`result.clear` takes no request fields, removes only the verified session's
+retained output and keeps its credential usable. MCP callers can use
+`result_clear` with their existing `brain_session` credential; no CLI credential
+file is needed. Source files, receipts and other owners remain untouched.
+Clearing loses those outputs: check pending recovery needs
+first. Do not re-execute a mutation to recover text after clearing or a delivery
+failure. Preserve its outcome and committed effects; use `invocation.read`
+where execution is uncertain. Capacity limits are separate from page counts
+and time expiry.
+
+The shared layout uses byte-aware pages. MCP final delivery enforces an
+8,000-byte canonical UTF-8 envelope and a 32,768-byte encoded result-value
+ceiling, excluding JSON-RPC correlation. CLI final guards include session-file
+metadata in the same canonical and encoded limits, and bound concise output
+to 32,768 bytes. Unavailable delivery
+does not change source execution truth. Resuming a result
+session cannot revive exceptional output's entitlement after its original
+consent owner ends or is revoked, nor authorise dynamic source refresh.
+
 ### Mutation body normalisation
 
 Inline mutation content (including direct typed Python requests) and newly staged
@@ -859,14 +962,14 @@ user MCP registrations still depend on it.
 
 The installer writes a versioned distribution under the selected prefix and a small platform bootloader under `bin/`:
 
-- Unix-like user install: `~/.local/bin/brain` and `~/.local/lib/brain-cli/6.1.0-<bundle>/`.
-- Native Windows user install: `%LOCALAPPDATA%\Programs\Brain\bin\brain.cmd` and the adjacent `lib\brain-cli\6.1.0-<bundle>\` distribution.
+- Unix-like user install: `~/.local/bin/brain` and `~/.local/lib/brain-cli/6.2.0-<bundle>/`.
+- Native Windows user install: `%LOCALAPPDATA%\Programs\Brain\bin\brain.cmd` and the adjacent `lib\brain-cli\6.2.0-<bundle>\` distribution.
 
 The bundle discriminator includes Core version and a source-content digest, so an unchanged CLI component can safely coexist with another release bundle. The installed bootloader records that exact bundle; source launch uses its adjacent checkout. CLI component version, source identity and machine-local installed integrity are distinct.
 
 The distribution contains the launcher application plus the Brain Core payload needed for install, upgrade and selected-Brain execution. Installation and replacement verify a content manifest and executable identity; failed replacement restores the proven old binary/distribution pair or retains recovery material and reports the outcome as unverified. Failed upgrade results carry every known absolute recovery path in the structural error and durable launcher receipt: residual staging material after a verified rollback is a known partial outcome, while unverified rollback remains outcome-unknown. Standalone human output lists the same paths before the failure message. Once the new pair is verified, failure or interruption while removing an old backup is committed post-upgrade recovery work and never rolls Brain Core back to an older version. Both the launcher result and standalone distribution JSON list the surviving `cleanup_recovery_paths`.
 
-The bootloader requires Python 3.12 or newer. `BRAIN_CLI_VERSION` is `6.1.0`; `BRAIN_INSTALL_REF` is `v0.74.1`.
+The bootloader requires Python 3.12 or newer. `BRAIN_CLI_VERSION` is `6.2.0`; `BRAIN_INSTALL_REF` is `v0.75.0`.
 
 JSON command invocations validate the structural stdout envelope, including
 command identity, version and exit category. Incidental child stderr does not

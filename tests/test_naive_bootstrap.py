@@ -57,6 +57,8 @@ NON_COMMAND_NAMESPACES = frozenset(
 # Dotted tokens that look like `<noun>.<verb>` but are not application commands.
 # Keep this list short and justified — every entry weakens the catalogue check.
 KNOWN_NON_COMMANDS = {
+    "delivery.continuation": "response delivery descriptor field containing the next-page request",
+    "result.envelope": "result.read response field containing the originating command envelope",
     "links.workspace": "legacy workspace manifest field, not a command",
     "mcp.configure": "launcher-owned setup command (configure.py), outside the application catalogue",
 }

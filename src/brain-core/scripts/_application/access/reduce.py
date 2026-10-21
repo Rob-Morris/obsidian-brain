@@ -83,5 +83,5 @@ def decode(payload):
 
 
 def catalogue_entry():
-    return control_entry(AccessReduceRequest, execute, mutation=True,
+    return control_entry(AccessReduceRequest, execute, mutation=True, retain_output=False,
         summary="Revoke grants, discard preparations, or narrow initial authorisation in this context.")

@@ -117,13 +117,14 @@ def _proxy_invocation_id(context: Context) -> str:
     return _invocation_id_from_metadata(metadata)
 
 
-def _mcp_context_factory(*, command_id, catalogue, mcp_context, operation_id=None):
+def _mcp_context_factory(*, command_id, catalogue, mcp_context, operation_id=None, result_session=None):
     del catalogue
     composer = _mcp_context_composer()
     return composer.compose(
         command_id=command_id,
         invocation_id=_proxy_invocation_id(mcp_context),
         operation_id=operation_id,
+        **({"result_session": result_session} if result_session is not None else {}),
     )
 
 

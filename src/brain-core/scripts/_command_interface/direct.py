@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 import hashlib
 import os
 from pathlib import Path
@@ -46,11 +46,17 @@ _LOCAL_PROVIDERS = (
     "semantic_runtime",
 )
 
+RESULT_STORAGE_OPTIONAL_COMMANDS = frozenset({"runtime.status", "runtime.read-environment"})
+
 
 class DirectContextError(RuntimeError):
     """Trusted direct-command context could not be resolved safely."""
 
 
+
+
+class InvalidResultSession(ValueError):
+    """Caller-selected result proof or inherited identity is invalid, before execution."""
 
 
 class WorkspaceCompatibilityError(DirectContextError):
@@ -165,6 +171,7 @@ def compose_direct_context(
     owner_initialisation_allowed: bool = False,
     operation_id: str | None = None,
     maintenance_invoker: bool = False,
+    result_session: str | None = None,
 ):
     """Resolve one fresh direct-process invocation context without hand-off."""
 
@@ -184,6 +191,7 @@ def compose_direct_context(
         invocation_id=invocation_id,
         operation_id=operation_id,
         maintenance_invoker=maintenance_invoker,
+        result_session=result_session,
     )
 
 
@@ -330,6 +338,7 @@ class DirectContextComposer:
         invocation_id: str | None = None,
         operation_id: str | None = None,
         maintenance_invoker: bool = False,
+        result_session: str | None = None,
     ):
         """Compose fresh authority/capability state over cached immutable inputs.
 
@@ -381,7 +390,7 @@ class DirectContextComposer:
         ):
             raise DirectContextError("trusted invocation identity is invalid")
         receipt_store = authorisation.receipts
-        return compose_local_context(
+        context = compose_local_context(
             vault_root=self._root,
             brain_id=self._brain_id(),
             profile=profile,
@@ -404,6 +413,59 @@ class DirectContextComposer:
             session_mirror=self._session_mirror,
             maintenance=maintenance,
         )
+        selected_entry = next((entry for entry in self._catalogue.entries
+                               if entry.command_id == command_id), None)
+        navigation = command_id is not None and command_id.startswith("result.")
+        if result_session is None and not navigation and (
+                command_id in RESULT_STORAGE_OPTIONAL_COMMANDS
+                or (selected_entry is not None and not selected_entry.retain_output)):
+            # Diagnostics and non-retained consent controls must survive cache refusal.
+            return context
+        from .result_store import FileResultStore, ResultStoreError, ResultStoreLimits
+        from .result_delivery import ResultDeliverySession, store_delivery_failure
+        store = None
+        try:
+            if result_session == "new" and command_id != "session.start":
+                raise InvalidResultSession("A result session can only be opened by session.start.")
+            job_context = self._context_kind == "cli-job" and self._owner_store is not None
+            inherited = None
+            if job_context:
+                key = "result-session/" + hashlib.sha256(identity.principal.encode()).hexdigest()
+                snapshot = self._owner_store.snapshot((key,))
+                inherited = snapshot.values.get(key)
+            if navigation and result_session is None and inherited is None:
+                raise InvalidResultSession("Select an existing result session for navigation or cleanup; initialise the job with session.start first.")
+            store = FileResultStore(self._root, self._brain_id(), identity.principal)
+            issued = result_session is None or result_session == "new"
+            if job_context:
+                if inherited is not None:
+                    if result_session not in (None, inherited["credential"]):
+                        raise InvalidResultSession("The explicit result session conflicts with this job's inherited context.")
+                    credential, issued = inherited["credential"], False
+                else:
+                    credential = store.issue() if issued else result_session
+                    store.authenticate(credential)
+                    if not self._owner_store.compare_exchange(snapshot.versions, {key: {"credential": credential}}):
+                        winner = self._owner_store.snapshot((key,)).values.get(key)
+                        if winner is None:
+                            raise DirectContextError("Concurrent result-session initialisation; retry before executing the command.")
+                        if issued:
+                            store.revoke(store.authenticate(credential))
+                        if result_session is not None and winner["credential"] != credential:
+                            raise InvalidResultSession("The selected result session conflicts with the job's concurrent initialisation.")
+                        credential, issued = winner["credential"], False
+                    elif result_session is None:
+                        issued = False
+            else:
+                credential = store.issue() if issued else result_session
+            delivery = ResultDeliverySession(store, credential, issued=issued)
+        except ResultStoreError as exc:
+            if exc.code == "invalid_credential":
+                raise InvalidResultSession("Invalid result-session context.") from None
+            if exc.code == "capacity_exceeded":
+                raise store_delivery_failure(exc, store.limits if store is not None else ResultStoreLimits()) from None
+            raise DirectContextError("Private result storage is unavailable.") from None
+        return replace(context, result_delivery=delivery)
 
     def _brain_id(self) -> str:
         signature = _path_signature(Path(vault_registry.registry_path()))

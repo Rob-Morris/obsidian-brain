@@ -14,12 +14,15 @@ from mcp.types import CallToolResult, ToolAnnotations
 from pydantic import Field
 
 from _application.adapter import (
+    project_delivery_failure,
     AdapterRequestError,
     ApplicationAdapter,
     project_adapter_result,
 )
+from _application._schema_compaction import compact_mcp_annotations
 from _application.catalogue import ApplicationCatalogue, ApplicationEntry
 from _application.context import InvocationContext
+from _application.delivery_failure import DeliveryFailure
 from _application.projection import (
     canonical_wire_value,
     project_identity,
@@ -29,7 +32,7 @@ from _application.resolver import RequestResolver
 from _application.results import CommandError, Error, ErrorCode
 from _application.types import EffectClass, InitialAuthorisationClass, Projection, RetryClass
 from _common import _operational_log
-from _command_interface.direct import WorkspaceCompatibilityError
+from _command_interface.direct import InvalidResultSession, WorkspaceCompatibilityError
 
 from ._interface_protocol import (
     CommandInterfaceHeader,
@@ -41,6 +44,7 @@ from ._result_content import result_text_content
 
 ContextFactory = Callable[..., InvocationContext]
 InvocationGuard = Callable[[], None]
+_RESULT_SESSION_REQUIRED_COMMANDS = frozenset({"result.read", "result.search", "result.clear"})
 
 
 def application_interface_header(
@@ -130,16 +134,32 @@ def register_application_tools(
             output_model=generated.output_model,
             wrap_output=generated.wrap_output,
         )
-        tool.parameters = request_schema(entry.request_type)
+        tool.parameters = compact_mcp_annotations(request_schema(entry.request_type))
         if entry.initial_class is not InitialAuthorisationClass.CONTROL:
             tool.parameters["properties"]["brain_operation"] = {
                 "type": ["string", "null"], "minLength": 1, "maxLength": 128,
-                "description": "Select prepared consent by operation ID; omit for initial or command-wide consent.",
+                "description": "Consent operation ID.",
             }
+        tool.parameters["properties"]["brain_session"] = {
+            "type": "string", "minLength": 1, "maxLength": 512,
+            "description": "Private session credential.",
+        }
+        if entry.command_id in _RESULT_SESSION_REQUIRED_COMMANDS:
+            tool.parameters.setdefault("required", []).append("brain_session")
         names.append(name)
     if names != sorted(names) or len(names) != len(set(names)):
         raise RuntimeError("granular MCP registration must be sorted and collision-free")
     return tuple(names)
+
+
+
+def _valid_result_session(value: object, command_id: str) -> bool:
+    if not isinstance(value, str) or not value.strip():
+        return False
+    try:
+        return len(value.encode("utf-8")) <= 512 and (value != "new" or command_id == "session.start")
+    except UnicodeError:
+        return False
 
 
 def _annotations(entry: ApplicationEntry) -> ToolAnnotations:
@@ -172,6 +192,14 @@ def _handler(
         if "brain_operation" in arguments and entry.initial_class is InitialAuthorisationClass.CONTROL:
             return _tool_result(_error_projection(entry, ErrorCode.INVALID_REQUEST,
                                                   "Session controls cannot select a prepared operation."))
+        session_present = "brain_session" in arguments
+        result_session = arguments.pop("brain_session", None)
+        if not session_present and entry.command_id in _RESULT_SESSION_REQUIRED_COMMANDS:
+            return _tool_result(_error_projection(entry, ErrorCode.INVALID_REQUEST,
+                "Select the owning brain_session credential for result navigation; open a namespace with session.start first."))
+        if session_present and not _valid_result_session(result_session, entry.command_id):
+            return _tool_result(_error_projection(entry, ErrorCode.INVALID_REQUEST,
+                                                  "Invalid result-session context."))
         operation_id = arguments.pop("brain_operation", None)
         if operation_id is not None and (not isinstance(operation_id, str) or not operation_id.strip()
                                          or len(operation_id.encode("utf-8")) > 128):
@@ -184,10 +212,16 @@ def _handler(
                 command_id=entry.command_id,
                 catalogue=catalogue,
                 mcp_context=mcp_context,
+                **({"result_session": result_session} if session_present else {}),
                 **({"operation_id": operation_id} if operation_id is not None else {}),
             )
         except WorkspaceCompatibilityError as exc:
             projection = project_adapter_result(exc.result(entry))
+        except DeliveryFailure as exc:
+            projection = project_delivery_failure(entry.command_id, entry.command_version, exc)
+        except InvalidResultSession:
+            projection = _error_projection(entry, ErrorCode.INVALID_REQUEST,
+                "Invalid result session. Select its owning credential, or open a fresh namespace with session.start (brain_session=new).")
         except Exception as exc:
             # Unpaired tool.handled: the invocation identity never composed.
             if logger is not None:
@@ -256,6 +290,9 @@ def _signature(entry: ApplicationEntry) -> inspect.Signature:
             annotation=Context,
         )
     ]
+    parameters.append(inspect.Parameter("brain_session", inspect.Parameter.KEYWORD_ONLY,
+        default=inspect.Parameter.empty if entry.command_id in _RESULT_SESSION_REQUIRED_COMMANDS else None,
+        annotation=str if entry.command_id in _RESULT_SESSION_REQUIRED_COMMANDS else str | None))
     if entry.initial_class is not InitialAuthorisationClass.CONTROL:
         parameters.append(inspect.Parameter("brain_operation", inspect.Parameter.KEYWORD_ONLY,
                                             default=None, annotation=str | None))
@@ -287,6 +324,9 @@ def _signature(entry: ApplicationEntry) -> inspect.Signature:
 def _tool_result(projection) -> CallToolResult:
     """Project one canonical envelope for both structured and text-only clients."""
     envelope = projection.structured_content
+    if projection.result_session_credential is not None:
+        envelope["result_session"] = {"credential": projection.result_session_credential,
+            "instruction": "Keep this private result-session credential for subsequent calls using brain_session; it does not grant consent."}
     return CallToolResult(content=result_text_content(projection.concise_text, envelope),
                           structuredContent=envelope, isError=projection.is_error)
 
