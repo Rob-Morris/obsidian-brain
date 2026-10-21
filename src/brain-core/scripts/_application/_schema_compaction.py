@@ -134,3 +134,19 @@ def factor_request_schema(schema):
 def compact_request_schema(schema):
     """Preserve acceptance and annotations while removing repeated declaration cost."""
     return factor_request_schema(_walk(schema, _simplify))
+
+
+def compact_mcp_annotations(schema):
+    """Omit name-only help in MCP; command.describe retains complete annotations."""
+    def compact(node):
+        if "properties" not in node:
+            return node
+        properties = {}
+        for name, child in node["properties"].items():
+            description = child.get("description") if isinstance(child, dict) else None
+            if (isinstance(description, str)
+                    and description.casefold().rstrip(".") == name.replace("_", " ").casefold()):
+                child = {key: value for key, value in child.items() if key != "description"}
+            properties[name] = child
+        return {**node, "properties": properties}
+    return _walk(schema, compact)

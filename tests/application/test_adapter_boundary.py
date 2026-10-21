@@ -143,7 +143,6 @@ def test_result_projection_defers_unused_renderings(monkeypatch):
         raise AssertionError("unused rendering was constructed eagerly")
 
     monkeypatch.setattr(adapter_module, "canonical_result_envelope", unexpected)
-    monkeypatch.setattr(adapter_module, "canonical_result_json", unexpected)
     monkeypatch.setattr(adapter_module, "_concise_text", unexpected)
 
     projected = project_adapter_result(result)

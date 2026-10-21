@@ -95,6 +95,11 @@ class CommandApplication:
             if control_intent is not None or (admission is not None and admission.intent_recorded):
                 return self._unknown_result(entry)
             return internal_error_result(context, command_id, version)
+        if context.result_delivery is not None:
+            try:
+                context.result_delivery.source_finished(context, entry, admission, result)
+            except Exception as exc:
+                self._report("result.disclosure", command_id, exc)
         return result
 
     def _preflight(self, entry):

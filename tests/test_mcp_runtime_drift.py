@@ -85,8 +85,9 @@ def test_runtime_only_handoff_pins_new_interpreter_before_retirement(tmp_path, m
     monkeypatch.setattr(relay, "_check_proxy_drift", lambda: None)
     monkeypatch.setattr(relay, "_required_runtime_python", lambda: required)
     observed = []
-    def preflight(fd, python):
+    def preflight(fd, python, *, input_fd):
         state = read_state(fd, expected_pid=proxy.os.getpid())
+        assert input_fd == state["remainder"]["fd"]
         observed.append((python, state["python"]))
         return True
     def replace(fd, state, **kwargs):
@@ -109,7 +110,10 @@ def test_runtime_change_during_preflight_keeps_existing_instance(tmp_path, monke
     selection = [str(tmp_path / "new/bin/python")]
     monkeypatch.setattr(relay, "_check_proxy_drift", lambda: None)
     monkeypatch.setattr(relay, "_required_runtime_python", lambda: selection[0])
-    def preflight(fd, python):
+    def preflight(fd, python, *, input_fd):
+        state = read_state(fd, expected_pid=proxy.os.getpid())
+        assert input_fd == state["remainder"]["fd"]
+        assert python == state["python"]
         selection[0] = str(tmp_path / "newer/bin/python")
         return True
     monkeypatch.setattr(relay, "_preflight_handoff", preflight)
@@ -150,8 +154,10 @@ def test_new_hash_uses_installed_compatible_minor_for_status_and_handoff(tmp_pat
     relay._public_session = {}
     relay._client_protocol = "modern"
     observed = []
-    def preflight(fd, python):
-        observed.append((python, read_state(fd, expected_pid=proxy.os.getpid())["python"]))
+    def preflight(fd, python, *, input_fd):
+        state = read_state(fd, expected_pid=proxy.os.getpid())
+        assert input_fd == state["remainder"]["fd"]
+        observed.append((python, state["python"]))
         return True
     monkeypatch.setattr(relay, "_preflight_handoff", preflight)
     monkeypatch.setattr(relay, "_replace_idle_image", lambda *args, **kwargs: "selected")

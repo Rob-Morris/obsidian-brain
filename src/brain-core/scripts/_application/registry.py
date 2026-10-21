@@ -90,6 +90,7 @@ from .workspace import update_policy as workspace_update_policy
 from .workspace import unregister as workspace_unregister
 from .workspace import update_metadata as workspace_update_metadata
 from .resolver import ResolverEntry
+from .result import read as result_read, search as result_search, clear as result_clear
 
 
 from .relationship import batch as relationship_batch
@@ -115,6 +116,9 @@ from .history import configure as history_configure
 from .history import policy as history_policy
 
 _COMMAND_OWNERS = (
+    result_clear,
+    result_read,
+    result_search,
     relationship_check,
     relationship_undefine,
     history_configure,

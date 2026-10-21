@@ -1,6 +1,8 @@
 """Failure boundaries of the proxy's private same-process handoff."""
 
 import base64
+from contextlib import contextmanager
+import tempfile
 import json
 import logging
 import os
@@ -15,11 +17,20 @@ import pytest
 
 from brain_mcp import proxy
 from brain_mcp._proxy_handoff import (HANDOFF_TIMEOUT, HANDOFF_VERSION, MAX_STATE_BYTES, READ_CHUNK,
-                                      RawLineReader, public_session, read_state, state_descriptor)
+                                      RawLineReader, consume_remainder, public_session, read_state, state_descriptor)
 from _bootstrap.consent_owner import ConsentOwner, OwnerConnectionError
 from _bootstrap.file_lock import exclusive_file_lock, MutationLockError
 from proxy_test_support import _FakeChild, _write_vault
 from proxy_test_support import lifecycle_request
+
+
+@contextmanager
+def legacy_descriptor(value):
+    """Model an installed v1/v2 writer; production only emits v3."""
+    with tempfile.TemporaryFile() as stream:
+        stream.write(json.dumps(value).encode())
+        stream.flush()
+        yield stream.fileno()
 
 
 @pytest.fixture(autouse=True)
@@ -34,7 +45,7 @@ def state():
             "workspace": None, "python": sys.executable, "server": "brain_mcp.server",
             "protocol": "modern", "initialise_request": None, "initialise_response": None,
             "public_session": {"supportedVersions": ["2026-07-28"], "capabilities": {}},
-            "tools": {}, "generation": 1, "request_id": "restart", "remainder": "", "subscriptions": [], "resolution": None}
+            "tools": {}, "generation": 1, "request_id": "restart", "remainder": b"", "subscriptions": [], "resolution": None}
 
 
 @pytest.mark.skipif(os.name != "posix", reason="POSIX preflight child ownership")
@@ -154,17 +165,17 @@ def test_preflight_diagnostic_is_bounded_and_preserves_cleanup(tmp_path, monkeyp
     monkeypatch.setenv("BRAIN_OPERATOR_KEY", secret)
     monkeypatch.setattr(proxy, "managed_command", managed)
     monkeypatch.setattr(proxy, "os", SimpleNamespace(
-        killpg=lambda pid, sig: events.append(("killpg", pid, sig))))
+        getpid=os.getpid, killpg=lambda pid, sig: events.append(("killpg", pid, sig))))
     ticks = iter([10.0, 15.0 if outcome == "timeout" else 10.125])
     monkeypatch.setattr(proxy, "time", SimpleNamespace(monotonic=lambda: next(ticks)))
     with caplog.at_level(logging.WARNING, logger="brain-proxy"):
-        assert relay._preflight_handoff(123, sys.executable) is (outcome == 0)
+        assert relay._preflight_handoff(123, sys.executable, input_fd=456) is (outcome == 0)
 
     assert HANDOFF_TIMEOUT == 5.0
     assert events == [("wait", 5.0), ("killpg", 123, proxy.signal.SIGKILL), ("wait", 5.0)]
     assert len(launches) == 1
     launch_options = launches[0]
-    assert launch_options["pass_fds"] == (123,)
+    assert launch_options["pass_fds"] == (123, 456)
     assert launch_options["start_new_session"] is True
     assert all(launch_options[name] == subprocess.DEVNULL for name in ("stdin", "stdout", "stderr"))
     assert "BRAIN_OPERATOR_KEY" not in launch_options["env"]
@@ -198,22 +209,24 @@ def test_preparation_diagnostic_keeps_location_and_errno_without_private_text(tm
 def test_private_state_validates_process_and_bounds():
     value = state()
     with state_descriptor(value) as fd:
-        assert read_state(fd, expected_pid=os.getpid()) == value
+        restored = read_state(fd, expected_pid=os.getpid())
+        assert {k: v for k, v in restored.items() if k != "remainder"} == {k: v for k, v in value.items() if k != "remainder"}
+        assert restored["remainder"]["bytes"] == 0
         with pytest.raises(ValueError, match="identity"):
             read_state(fd, expected_pid=os.getpid() + 1)
     with pytest.raises(OSError):
         os.fstat(fd)
     with pytest.raises(ValueError, match="1 MiB"):
-        with state_descriptor({**value, "remainder": "x" * MAX_STATE_BYTES}):
+        with state_descriptor({**value, "tools": {"oversize": "x" * MAX_STATE_BYTES}}):
             pytest.fail("oversized descriptor admitted")
-    with state_descriptor({**value, "remainder": base64.b64encode(b"x" * (READ_CHUNK + 1)).decode()}) as fd:
-        with pytest.raises(ValueError, match="read-ahead"):
-            read_state(fd, expected_pid=os.getpid())
+    with pytest.raises(ValueError, match="read-ahead"):
+        with state_descriptor({**value, "remainder": b"x" * (READ_CHUNK + 1)}):
+            pytest.fail("oversized read-ahead admitted")
 
 
 def test_named_descriptor_is_not_a_handoff(tmp_path):
     target = tmp_path / "state.json"
-    target.write_text(json.dumps(state()))
+    target.write_text(json.dumps({**state(), "version": 2, "remainder": ""}))
     target.chmod(0o600)
     with target.open("rb") as stream:
         with pytest.raises(ValueError, match="unlinked"):
@@ -223,9 +236,10 @@ def test_named_descriptor_is_not_a_handoff(tmp_path):
 def test_previous_descriptor_version_has_no_subscriptions():
     value = state()
     value["version"] = 1
+    value["remainder"] = ""
     del value["subscriptions"]
     del value["resolution"]
-    with state_descriptor(value) as fd:
+    with legacy_descriptor(value) as fd:
         restored = read_state(fd, expected_pid=os.getpid())
     assert restored == value
     relay = proxy.Proxy(sys.executable, "brain_mcp.server", value["vault"])
@@ -239,10 +253,10 @@ def test_pre_notice_descriptor_v2_restores_catalogue_without_new_fields(tmp_path
     from _application.registry import current_application_catalogue
 
     header = application_interface_header(current_application_catalogue())
-    previous = state()  # Exact pre-notice v2 shape; no notice-delivery field.
+    previous = {**state(), "version": 2, "remainder": ""}  # Exact installed v2 shape.
     previous["vault"] = str(tmp_path)
     previous["tools"] = {name: asdict(tool) for name, tool in header.tools if name != "command_list"}
-    with state_descriptor(previous) as fd:
+    with legacy_descriptor(previous) as fd:
         restored = read_state(fd, expected_pid=os.getpid())
     relay = proxy.Proxy(sys.executable, "brain_mcp.server", str(tmp_path))
     relay._restore_transport(restored)
@@ -252,7 +266,8 @@ def test_pre_notice_descriptor_v2_restores_catalogue_without_new_fields(tmp_path
     assert relay._pending_tool_names() == ["command_list"]
     outgoing = relay._transport_state("restart", type("Input", (), {"remainder": b""})())
     assert outgoing.keys() == previous.keys()
-    assert outgoing["version"] == 2 and outgoing["tools"] == previous["tools"]
+    assert outgoing["version"] == 3 and outgoing["tools"] == previous["tools"]
+    assert outgoing["remainder"] == b""
 
 
 @pytest.mark.skipif(sys.platform == "win32", reason="POSIX pipe wakeup")
@@ -384,7 +399,7 @@ def test_final_handoff_revalidates_input_grown_after_preflight(tmp_path, monkeyp
     relay._proxy_drift = True
     replaced = []
     monkeypatch.setattr(relay, "_replace_idle_image", lambda *args, **kwargs: replaced.append(args[1]))
-    monkeypatch.setattr(relay, "_preflight_handoff", lambda fd, python: bool(read_state(fd, expected_pid=os.getpid())))
+    monkeypatch.setattr(relay, "_preflight_handoff", lambda fd, python, **kwargs: bool(read_state(fd, expected_pid=os.getpid())))
     incoming, outgoing = os.pipe()
     relay._wake_write = outgoing
     try:
@@ -397,7 +412,7 @@ def test_final_handoff_revalidates_input_grown_after_preflight(tmp_path, monkeyp
         assert response["isError"] is (size > READ_CHUNK)
         assert len(replaced) == (0 if size > READ_CHUNK else 1)
         if replaced:
-            assert base64.b64decode(replaced[0]["remainder"]) == retained
+            assert replaced[0]["remainder"] == retained
         else:
             assert response["structuredContent"]["error"]["effects"] == "none"
         assert reader.remainder == retained
@@ -602,7 +617,8 @@ def test_large_first_modern_call_does_not_retain_arguments_in_handoff(tmp_path):
                   "io.modelcontextprotocol/clientInfo": {"name": "codex-mcp-client", "title": "x" * MAX_STATE_BYTES}}}}
     assert relay._serve_transport_request(request) is False
     value = relay._transport_state("restart", type("Input", (), {"remainder": b""})())
-    assert len(json.dumps(value)) < 2000
+    assert len(json.dumps({k: v for k, v in value.items() if k != "remainder"})) < 2000
+    assert value["remainder"] == b""
     with state_descriptor(value) as fd:
         restored = read_state(fd, expected_pid=os.getpid())
     assert "Brain MCP in Codex" in proxy.rediscovery_action(restored["initialise_request"])["description"]
