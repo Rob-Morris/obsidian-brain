@@ -18,6 +18,7 @@ LOWER_LEVEL_PACKAGES = (
     "_bootstrap",
     "_machine",
     "_semantic",
+    "_relationships",
 )
 FORBIDDEN_APPLICATION_IMPORTS = {
     "argparse",

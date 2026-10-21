@@ -41,8 +41,16 @@ TOKENISER = "tiktoken/0.12.0:o200k_base"
 TOKEN_ENCODING = "o200k_base"
 COMPACT_TOOL_TOKENS = 512
 MAX_TOOL_TOKENS = 3_072
-LARGE_TOOL_ALLOWLIST = frozenset({"document_structured-edit", "resource_create"})
-MAX_CATALOGUE_TOKENS = 16_384
+COMPACT_TOOL_EXCEPTIONS = {
+    "document_structured-edit": "Typed structural selectors and replace/insert/delete variants remain explicit.",
+    "document_replace-text": "Revision-bound text matching and native disposition controls remain typed.",
+    "document_write-body": "Body operations retain typed content, revision guards and required disposition support.",
+    "relationship_check": "Explicit assessment and transcript policies retain their scoped typed inputs.",
+    "relationship_query": "Structured graph cursors and native-scope selectors exceed 512 only in the Claude replay.",
+}
+FULL_CATALOGUE_TARGET_TOKENS = 20_000
+# Measured no-growth ratchet, not a claim of compliance with the product target.
+CATALOGUE_REGRESSION_BASELINE = {"claude-code": 21_465, "codex-cli": 21_501}
 
 
 def _real_client_capture() -> dict[str, object]:
@@ -171,7 +179,13 @@ def build_granular_metadata_capture() -> dict[str, object]:
         "tokeniser": TOKENISER,
         "ceilings": {
             "per_tool_tokens": MAX_TOOL_TOKENS,
-            "full_catalogue_tokens": MAX_CATALOGUE_TOKENS,
+        },
+        "compact_tools": {"target_tokens": COMPACT_TOOL_TOKENS, "exceptions": COMPACT_TOOL_EXCEPTIONS},
+        "catalogue_budget": {
+            "target_tokens": FULL_CATALOGUE_TARGET_TOKENS,
+            "regression_baseline_tokens": CATALOGUE_REGRESSION_BASELINE,
+            "scope": "Complete application declaration array; not measured host loading or billed usage.",
+            "review": "Known target excess; supported-harness review follows the semantic implementation commit.",
         },
         "raw_fastmcp": {
             "tool_count": len(tools),
@@ -190,11 +204,19 @@ def build_granular_metadata_capture() -> dict[str, object]:
                 "projected_declaration_hash": _hash(projected),
                 **_cost(projected, encoding),
             }
+        cost = _cost(projections, encoding)
         capture["clients"][client] = {
             **provenance,
             "tool_count": len(projections),
             "catalogue_hash": _hash(projections),
-            **_cost(projections, encoding),
+            **cost,
+            "budget": {
+                "target_tokens": FULL_CATALOGUE_TARGET_TOKENS,
+                "target_exceeded": cost["tokens"] > FULL_CATALOGUE_TARGET_TOKENS,
+                "over_target_tokens": max(0, cost["tokens"] - FULL_CATALOGUE_TARGET_TOKENS),
+                "regression_baseline_tokens": CATALOGUE_REGRESSION_BASELINE[client],
+                "regression_exceeded": cost["tokens"] > CATALOGUE_REGRESSION_BASELINE[client],
+            },
             "maximum_tool_tokens": max(item["tokens"] for item in per_tool.values()),
             "tools": per_tool,
         }

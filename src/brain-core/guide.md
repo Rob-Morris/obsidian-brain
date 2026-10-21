@@ -36,6 +36,7 @@ _Temporal/                ← temporal artefacts (dated, point-in-time)
 _Assets/                  ← images, PDFs, non-markdown files
 _Config/                  ← router, taxonomy, styles, templates, memories, preferences
 _Plugins/                 ← external tool integrations
+_Relationships/           ← tooling-managed assertions, selected history and recovery records
 _Workspaces/              ← workspace data (infrastructure)
 .brain-core/              ← this system (versioned, upgradeable)
 ```
@@ -44,7 +45,7 @@ _Workspaces/              ← workspace data (infrastructure)
 
 **Temporal artefacts** sit under `_Temporal/`. They're snapshots bound to a moment — logs, plans, transcripts, research. They file flat under their type folder, ordered by their dated filenames.
 
-**Everything else** (`_Assets/`, `_Config/`, `_Plugins/`, `.brain-core/`) is infrastructure.
+**Everything else** (`_Assets/`, `_Config/`, `_Plugins/`, `_Relationships/`, `.brain-core/`) is infrastructure.
 
 ## The Golden Rule
 
@@ -117,6 +118,24 @@ At the end of the day, create a daily note that distils the log into an overview
 ### Capturing Ideas
 
 Low bar, high speed. Use **Idea Logs** (`_Temporal/Idea Logs/`) for raw captures. When an idea gains substance, spin it out to a living **Idea** in `Ideas/`. When it's ready for structured work, graduate it to a **Design** in `Designs/`.
+
+## Semantic relationships and history
+
+Use registered semantic assertions for explicit metadata about artefacts or other
+relationships. Discover `relationship.definitions`, register a clear name/meaning
+with `relationship.define`, then author through `relationship.batch`. Native
+parentage, workspace membership and status still change through their artefact
+commands; `relationship.expose` makes their derived facts annotatable.
+
+Selected supported command changes produce history automatically. Use
+`history.read`/`history.query` for events and visible correction links,
+`relationship.check` for integrity and explicitly selected assessment policies,
+and `history.policy` for capture selection and bounded usage. Filesystem edits do
+not guarantee events. A stale index needs `relationship.refresh`; an interrupted
+publication needs inspection and operation-specific `history.repair`.
+
+See [Semantic relationships and selected history](standards/semantic-relationships.md)
+for command examples, revisions, dependency dispositions and recovery limits.
 
 ## Frontmatter Basics
 

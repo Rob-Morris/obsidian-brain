@@ -454,14 +454,16 @@ def _contains_exact_previous_granular_builtins(
         "document.update-frontmatter",
         "document.write-body",
     }
-    for additions in (
+    historical_additions = (
         set(),
         new_document_tools,
         new_access_tools,
         new_access_tools | new_runtime_tools,
         new_access_tools | new_document_tools,
         new_access_tools | new_runtime_tools | new_document_tools,
-    ):
+    )
+    semantic_tools = {tool for tool in granular_entries if tool.startswith(("relationship.", "history."))}
+    for additions in (*historical_additions, *(tools | semantic_tools for tools in historical_additions)):
         matches = True
         for profile, expected in builtins.items():
             definition = profiles.get(profile)

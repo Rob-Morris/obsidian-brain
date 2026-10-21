@@ -58,8 +58,18 @@ from _application.types import (
 from _application.vault.check import CheckSeverity
 from _application.workspace.update_metadata import WorkspaceMetadataLink
 from _application.workspace_context import WorkspaceSelector
+from _application.relationship._types import (
+    Action, BatchItem, Cardinality, DefinitionKind, Disposition, GraphCursor,
+    PayloadField, PayloadValue,
+)
+from _application.relationship.read import RecordKind
+from _relationships.model import Endpoint, NodeKind
+from _relationships.policies import AssessmentPolicy, TranscriptPolicy
 
 __all__ = (
+    "Action", "BatchItem", "Cardinality", "DefinitionKind", "Disposition",
+    "GraphCursor", "PayloadField", "PayloadValue", "RecordKind",
+    "Endpoint", "NodeKind", "AssessmentPolicy", "TranscriptPolicy",
     "AllMatches",
     "ArtefactListLocation",
     "ArtefactLocation",

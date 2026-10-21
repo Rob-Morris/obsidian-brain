@@ -13,6 +13,7 @@ Brain Core separates semantic application ownership, machine-global lifecycle ow
 | Trusted local composition | Selected vault/workspace, profile, providers, tier and outcome receipt storage | `src/brain-core/scripts/_command_interface/` |
 | Bootstrap plane | Stdlib-safe config, selection, session, vault and linked workspace registry, and recovery seams | `src/brain-core/scripts/_bootstrap/` |
 | Portable plane | Low-dependency vault reads/mutations and lexical operations | `src/brain-core/scripts/_portable/` and domain packages |
+| Semantic relationships and history | Vault-local definitions, current assertions, native fact occurrence identity, scoped policies, selected events and recoverable publication; native artefact owners retain structural authority | `src/brain-core/scripts/_relationships/`, `_application/relationship/` and `_application/history/` |
 | Managed plane | Optional managed-runtime retrieval, rendering and provider-backed work | managed domain/provider packages |
 | Platform adapters | Obsidian and other external capabilities behind explicit provider ports | platform-specific modules |
 
