@@ -46,7 +46,6 @@ COMPACT_TOOL_EXCEPTIONS = {
     "document_replace-text": "Revision-bound text matching and native disposition controls remain typed.",
     "document_write-body": "Body operations retain typed content, revision guards and required disposition support.",
     "relationship_check": "Explicit assessment and transcript policies retain their scoped typed inputs.",
-    "relationship_query": "Structured graph cursors and native-scope selectors exceed 512 only in the Claude replay.",
 }
 FULL_CATALOGUE_TARGET_TOKENS = 20_000
 # Measured no-growth ratchet, not a claim of compliance with the product target.

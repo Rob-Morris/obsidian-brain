@@ -73,7 +73,7 @@ def test_cli_capability_check_and_cutover_hold_registration_lock(tmp_path, monke
 
 def test_installed_cli_discovers_real_selected_brain_catalogue(
     tmp_path,
-    command_vault_baseline,
+    command_vault_clone,
 ):
     installed = _install(tmp_path)
 
@@ -81,14 +81,14 @@ def test_installed_cli_discovers_real_selected_brain_catalogue(
         [
             str(installed.cli_binary),
             "--vault",
-            str(command_vault_baseline.vault_root),
+            str(command_vault_clone.vault_root),
             "--json",
             "command",
             "list",
             "--owner",
             "application",
         ],
-        cwd=command_vault_baseline.vault_root,
+        cwd=command_vault_clone.vault_root,
         capture_output=True,
         text=True,
         check=False,
@@ -97,8 +97,24 @@ def test_installed_cli_discovers_real_selected_brain_catalogue(
     assert completed.returncode == 0, completed.stderr
     payload = json.loads(completed.stdout)
     assert payload["schema"] == "brain.local-command-list/2"
-    assert len(payload["entries"]) == 25
-    deletion = next(entry for entry in payload["entries"] if entry["command_id"] == "artefact.delete")
+    entries = list(payload["entries"])
+    cursor = payload["delivery"]["continuation"]
+    result_id = payload["delivery"]["result_id"]
+    private_file = payload["result_session_file"]
+    while cursor:
+        page = subprocess.run(
+            [str(installed.cli_binary), "--vault", str(command_vault_clone.vault_root),
+             "--json", "--result-session-file", private_file, "result", "read",
+             "--request-json", json.dumps({"result_id": result_id, "continuation": cursor})],
+            cwd=command_vault_clone.vault_root, capture_output=True, text=True, check=False,
+        )
+        assert page.returncode == 0, page.stderr
+        frame = json.loads(page.stdout)
+        entries.extend(frame["result"]["envelope"]["result"]["entries"])
+        cursor = frame["delivery"]["continuation"]
+    assert len(entries) == 25
+    assert len({entry["command_id"] for entry in entries}) == 25
+    deletion = next(entry for entry in entries if entry["command_id"] == "artefact.delete")
     assert deletion["access"] == "denied"
     assert deletion["authority"] == "administrator"
     assert payload["catalogues"]["application"]["schema"] == "brain.command-catalogue/1"
@@ -518,7 +534,7 @@ def test_cli_install_refuses_a_symlink_target(tmp_path):
     assert real.read_text() == "old\n"
 
 
-def test_installed_cli_packages_and_uses_private_owner_transport(tmp_path, command_vault_baseline, monkeypatch):
+def test_installed_cli_packages_and_uses_private_owner_transport(tmp_path, command_vault_clone, monkeypatch):
     import os
     from _bootstrap.consent_owner import ConsentOwner
     from _bootstrap.owner_attachment import OwnerAttachment
@@ -536,11 +552,11 @@ def test_installed_cli_packages_and_uses_private_owner_transport(tmp_path, comma
         cwd=tmp_path, capture_output=True, text=True, timeout=5,
     )
     assert isolated.returncode == 0, isolated.stderr
-    owner = ConsentOwner(command_vault_baseline.vault_root)
+    owner = ConsentOwner(command_vault_clone.vault_root)
     from types import SimpleNamespace
     from _local_cli.main import _initialise_selected_job
     from _local_cli.runtime import SelectedBrain
-    _initialise_selected_job(SelectedBrain(command_vault_baseline.vault_root, None, "test"), owner, SimpleNamespace(operator_key=None))
+    _initialise_selected_job(SelectedBrain(command_vault_clone.vault_root, None, "test"), owner, SimpleNamespace(operator_key=None))
     attachment = OwnerAttachment.for_job(owner)
     connections = []
     serve = owner.serve_connection
@@ -552,7 +568,7 @@ def test_installed_cli_packages_and_uses_private_owner_transport(tmp_path, comma
         env = dict(os.environ, PYTHONPATH='')
         try:
             completed = subprocess.run(
-                [str(installed.cli_binary), '--vault', str(command_vault_baseline.vault_root),
+                [str(installed.cli_binary), '--vault', str(command_vault_clone.vault_root),
                  '--json', 'command', 'list', '--owner', 'application'],
                 cwd=tmp_path, **attachment.forwarded_process(env),
                 capture_output=True, text=True, timeout=20,

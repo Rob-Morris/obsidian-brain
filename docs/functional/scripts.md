@@ -25,10 +25,150 @@ The selected Brain owns one public direct command projection:
 .brain-core/scripts/command.py <noun> <verb> \
   --request-json JSON|- \
   [--vault PATH] [--workspace PATH] [--operator-key KEY] \
-  [--dry-run] [--json]
+  [--result-session-file PATH] [--dry-run] [--json]
 ```
 
 It resolves the exact command from the installed application catalogue, decodes the same sealed request used by MCP and CLI, composes trusted selected-Brain context, invokes the canonical application owner and projects `brain.command-result/1`.
+
+### Result delivery and private context
+
+`command.py` accepts `--result-session-file PATH` for selected-Brain application
+commands. Create it with `session start`, then reuse it for source and result
+calls; the parent must exist. Issuance writes a private owned regular credential
+file atomically, without replacing an existing file. Symlinks, non-private
+files and invalid credentials are refused. The credential grants neither
+permissions nor consent and is not a domain request field. JSON reports
+`result_session_file`; raw credentials do not belong in request bodies or logs.
+Without the flag, ordinary standalone scripts create and report a new private client
+file; reuse that path explicitly on later calls. Managed jobs inherit one
+private result context through their owner channel and reject conflicting
+explicit credentials. Without explicit result-session selection,
+`runtime.status` and `runtime.read-environment` skip retention and result-cache
+write attempts; an existing `--result-session-file` opts them into retention.
+
+Consume generic `delivery.continuation` with `result read` before inspecting
+any semantic payload or following its legacy cursor. Pass the same credential
+file, `result_id` and returned `continuation` in request JSON. The typed
+`ResultReadPayload.envelope` (`result.envelope` on the wire) contains the original
+command page, while the outer envelope carries delivery. Finish all generic
+pages before source cursor continuation. Bootstrap guidance is mandatory in
+full, through `bootstrap_complete`; no truncation or omission is permitted.
+
+`result read` takes `result_id`, `page`, `continuation`, `page_size`, `max_pages`,
+`detail` and `anchor`; `result search` takes `result_id`, `literal`, `start_page`,
+`start_offset`, `limit` and `scan_pages`. Resume search with both `next_page` and
+`next_offset` until `scan_complete`. Coverage excludes envelope metadata,
+contextual extras and referenced detail bodies; `complete` can remain false
+when `details_skipped` reports unsearched references.
+These are the same typed requests as MCP/CLI, not a
+command execution facade. See the [field contracts and limits](mcp-tools.md#result-sessions-and-delivery).
+Each call emits one bounded page, including get-all (`page: 0`). Query selections
+default to 10 pages across calls, retained output to no page-count cap; outside
+selection counts and `outside_continuation` expose further output. Dynamic
+cursor-free active lists refresh current projection pages with per-page notices;
+archived/all lists retain the opening snapshot with an explicit freshness
+limitation, preserving page size and the ten-page list selection;
+retained output and literal search do not replay source execution.
+
+For targeted retention-capacity recovery, invoke
+`command.py result clear --result-session-file PATH --json` with no request fields. It clears only the
+verified session's retained output and keeps the credential. `result.clear`
+is also available through CLI and typed Python with an authenticated, composed
+`ResultDeliveryPort`; constructing a request alone does not select a namespace.
+Result navigation and cleanup never issue a fresh namespace: supply an existing
+private file, or use a managed job's namespace already opened by `session.start`.
+MCP uses `result_clear` with the existing `brain_session` credential, without
+transferring it into a CLI file. Cleanup deletes only the authenticated namespace's
+output, keeping source files, independent receipts and other owners untouched.
+Retention keeps the latest invocation per command per
+session per Brain without a TTL; unrelated commands do not replace it. Capacity is a storage
+boundary, not a page-count cap. Never rerun a mutation to recover output after
+clearing or failed delivery. Source success and committed effects remain true;
+uncertain execution uses `invocation.read` recovery.
+
+Shared page layout is byte-aware. MCP final guards enforce 8,000 canonical
+UTF-8 bytes and 32,768 encoded tool-result bytes, excluding JSON-RPC correlation;
+the script printer also checks final session-file metadata against those limits
+and bounds concise output to 32,768 bytes. Retention credentials
+recover only the output namespace. Current disclosure checks and the original
+consent owner's exceptional-output entitlement still apply; a resumed namespace
+cannot renew consent or authorise a fresh source query.
+
+### Retired or lost result namespaces
+
+Result storage uses `.brain/local/results/<binding-hash>/<owner-digest>/`.
+The binding includes the absolute Brain root, device/inode and Brain identity.
+Moving/copying a Brain, replacing its root or registering it under a new Brain
+identity creates a fresh binding namespace. Old credentials cannot open the new
+binding, and old output is neither adopted nor rewritten or deleted. The shared
+parent lock serialises writers across bindings; the default 4 GiB aggregate
+ceiling includes retired bindings, legacy flat-layout data and unfinished files.
+Creating a new binding or result session does not reset that accounting.
+
+Use `result.clear` with the existing authenticated session for ordinary cleanup.
+If its credential is lost or its binding is retired, that command cannot select
+those bytes. A local administrator may explicitly authorise removal of the
+identified retired binding directory, or an identified lost owner directory
+within a current binding. This is deliberate deletion of local derived result
+storage, requiring confirmation of the exact scope and loss of retained output;
+it is not a credential-recovery procedure.
+
+Stop all Brain MCP processes, CLI jobs and embedded Python writers using this
+vault before manual cleanup. Identify the exact binding/owner directory using
+its location and the binding descriptor's non-secret root/identity information.
+Legacy flat-layout owner directories need the same explicit identification and
+authorisation.
+
+**Before deleting any bytes**, durably mark the shared results parent's
+`.result-accounting` file dirty. It is
+`.brain/local/results/.result-accounting`, not a marker inside a binding child.
+The marker must be a regular, single-link file, never a symlink, with mode 0600.
+Open/create it without truncation, write `b'1'` at offset zero, truncate it to
+exactly one byte, flush and fsync the file, then fsync the results parent. For
+example, on Unix-like systems, substitute the exact authorised absolute path:
+
+```python
+import os
+from pathlib import Path
+import stat
+
+results = Path("/absolute/path/to/Brain/.brain/local/results")
+marker = results / ".result-accounting"
+fd = os.open(marker, os.O_WRONLY | os.O_CREAT | os.O_NOFOLLOW, 0o600)
+try:
+    info = os.fstat(fd)
+    if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1:
+        raise RuntimeError("Unsafe result accounting marker")
+    os.fchmod(fd, 0o600)
+    os.lseek(fd, 0, os.SEEK_SET)
+    if os.write(fd, b"1") != 1:
+        raise RuntimeError("Incomplete dirty-marker write")
+    os.ftruncate(fd, 1)
+    os.fsync(fd)  # os.write is unbuffered.
+finally:
+    os.close(fd)
+parent_fd = os.open(results, os.O_RDONLY | os.O_DIRECTORY)
+try:
+    os.fsync(parent_fd)
+finally:
+    os.close(parent_fd)
+```
+
+Only after that succeeds, remove the explicitly authorised binding or owner
+subtree using local filesystem administration, without following symlinks.
+Fsync each surviving parent whose directory entries changed so deletion is
+durable. Leave the root marker at `b'1'`: do not edit counters or reset the marker
+to clean. The next store transaction, under the shared parent lock, reconciles
+all remaining sibling, legacy and staging bytes and writes clean counters.
+Keep both the root marker and `.lock` in place, and permit no concurrent manual
+or store operations during this procedure.
+
+Do not edit credential files, owner records or binding descriptors to recover
+access. Retired/lost namespaces are never automatically quarantined, evicted or
+excluded from quotas. Deleting them permanently loses their output and
+corresponding resume ability, while leaving source files and independent outcome
+receipts unchanged. Never rerun a mutation to recover deleted output. After
+cleanup, start a fresh session for the current binding.
 
 Examples:
 
@@ -113,6 +253,41 @@ Human output and JSON output are projections of the same result. Diagnostics nev
 ## Typed Python
 
 Python consumers import the supported kernel from `brain_application`, construct sealed request types from `brain_application.requests`, and obtain their construction values from `brain_application.values` or a narrow domain module such as `brain_application.documents`. Trusted context contracts, including dependency and availability enums and receipt ports, are exported by `brain_application.context`. Invoke requests through `CommandApplication(context).invoke(request)`. Importing the kernel does not load command owners; importing the all-requests or all-values modules is an explicit opt-in to every dependency tier. The internal `_application` tree owns execution and registration and is not a supported integration surface. Dynamic infrastructure consumers resolve through the catalogue-bound `ApplicationAdapter`; free command strings are permitted only at that explicit adapter boundary.
+
+Generic delivery envelopes, response byte limits and automatic output retention
+belong to the serialised MCP/CLI/direct-script adapter boundaries. Direct
+`CommandApplication(context).invoke(request)` returns the complete semantic
+`Ok`/`Partial`/`Error` value without generic paging or automatic result retention,
+even when a delivery port is present on the context. Existing command-owned
+source windows and cursors still apply. Supplying a port alone does not perform
+the adapter's result admission and publication lifecycle.
+
+Typed `result.read`, `result.search` and `result.clear` requests require a context
+with an authenticated, composed result-delivery port for the selected namespace.
+Trusted integrations can implement the `ResultDeliveryPort` contract exported by
+`brain_application.context`; the protocol grants neither namespace proof nor
+execution authority. The transport-neutral kernel and typed domain schemas
+remain independent of the concrete file store.
+
+Custom ports may raise `brain_application.results.DeliveryFailure(reason, message)`
+from `begin` or `finish` for known delivery failures. Reasons must be stable and
+messages bounded and content-safe: never include credentials, private paths or
+raw backend diagnostics. A `begin` failure prevents source execution; a `finish`
+failure preserves source status and effects without retrying the source.
+For `capacity_exceeded`, optional `capacity_limits` contains exactly
+`result_bytes`, `owner_bytes` and `brain_bytes`: positive integers, excluding
+booleans, no greater than `2**63 - 1`. Final writers validate these primitives
+and reconstruct fixed recovery guidance. Representation limits instead direct
+readers to retained `@outcome` recovery, without advising quota cleanup.
+If disclosure authority ends or cannot be verified, `disclosure_ended` withholds
+business output and effect subjects while preserving execution status, effect
+certainty and receipt references; it does not report an empty effects list.
+
+The local delivery port accepts one active source invocation at a time, binding
+its opening disclosure proof to the invocation ID, command and admission ticket.
+Concurrent reuse is refused before source effects without replacing that proof;
+use separate composed ports for concurrent calls. Sequential reuse remains
+supported. Nested query refreshes do not replace an active source's proof.
 
 The trusted `InvocationContext` contains selected-Brain identity, current permission and authorisation ports, dependency tier, capability snapshot, providers, invocation/correlation identity and owned outcome receipts. Executors do not rediscover these facts from environment variables. Ordinary owners must admit the operation under their existing domain guard before returning success; every entered observation or mutation has an immutable intent and independent execution/effect outcome.
 

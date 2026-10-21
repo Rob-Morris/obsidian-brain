@@ -59,6 +59,8 @@ class ApplicationEntry:
     lifecycle: CommandLifecycle = CommandLifecycle.ACTIVE
     replacement_command_id: str | None = None
     preparation: PreparationSpec | None = None
+    retain_output: bool = True
+    output_owner_bound: bool = False
 
     @property
     def command_id(self) -> str:
@@ -74,9 +76,11 @@ class ApplicationEntry:
 
     def __post_init__(self) -> None:
         validate_command_id(self.command_id)
+        if type(self.retain_output) is not bool or type(self.output_owner_bound) is not bool:
+            raise ValueError("Result-retention policy fields must be booleans")
         if not isinstance(self.initial_class, InitialAuthorisationClass):
             raise ValueError("application entry requires an explicit initial authorisation class")
-        reserved = REQUEST_IDENTITY_FIELDS | {"brain_operation"}
+        reserved = REQUEST_IDENTITY_FIELDS | {"brain_operation", "brain_session"}
         for item in fields(self.request_type):
             if item.init and item.name in reserved:
                 raise ValueError(f"{item.name} is reserved transport metadata")
@@ -188,6 +192,8 @@ class ApplicationCatalogue:
                     "authority": entry.authority.value,
                     "effect_class": entry.effect_class.value,
                     "initial_class": entry.initial_class.value,
+                    "retain_output": entry.retain_output,
+                    "output_owner_bound": entry.output_owner_bound,
                     "retry_class": entry.retry_class.value,
                     "summary": entry.summary,
                     "open_world": entry.open_world,

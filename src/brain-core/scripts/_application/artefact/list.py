@@ -60,7 +60,7 @@ class ArtefactListPayload:
 @dataclass(frozen=True, slots=True)
 class ArtefactListRequest:
     COMMAND_ID: ClassVar[str] = "artefact.list"
-    COMMAND_VERSION: ClassVar[int] = 3
+    COMMAND_VERSION: ClassVar[int] = 4
     FIELD_DESCRIPTIONS: ClassVar[dict[str, str]] = {
         "workspace": "Optional canonical workspace/{key} discovery filter; does not grant authority or require an existing active target. Omit for vault-wide discovery.",
         "workspace_match": "Match primary membership or relevant membership (primary plus canonical workspace tags).",
@@ -77,7 +77,7 @@ class ArtefactListRequest:
     parent: str | None = None
     sort: ArtefactSort = ArtefactSort.DATE_DESC
     cursor: str | None = None
-    page_size: int = 500
+    page_size: int = 25
 
     workspace: str | None = None
     workspace_match: WorkspaceMatch = WorkspaceMatch.RELEVANT
@@ -106,9 +106,9 @@ class ArtefactListRequest:
         if (
             not isinstance(self.page_size, int)
             or isinstance(self.page_size, bool)
-            or not 1 <= self.page_size <= 500
+            or not 1 <= self.page_size <= 100
         ):
-            raise ValueError("artefact.list page_size must be between 1 and 500")
+            raise ValueError("artefact.list page_size must be between 1 and 100")
 
 
 def execute(context: InvocationContext, request: ArtefactListRequest):
@@ -138,7 +138,7 @@ def execute(context: InvocationContext, request: ArtefactListRequest):
             workspace_match=request.workspace_match,
             tag=request.tag,
             parent=request.parent,
-            top_k=request.page_size,
+            top_k=(2**63 - 1 if context.result_delivery is not None and request.cursor is None else request.page_size),
             sort=request.sort.value,
             cursor=request.cursor,
         )
@@ -209,7 +209,7 @@ def decode(payload: Mapping[str, object]) -> ArtefactListRequest:
         "page_size",
     }
     reject_unexpected(payload, allowed)
-    page_size = payload.get("page_size", 500)
+    page_size = payload.get("page_size", 25)
     if not isinstance(page_size, int) or isinstance(page_size, bool):
         raise ValueError("page_size must be an integer")
     sort = payload.get("sort", ArtefactSort.DATE_DESC.value)
