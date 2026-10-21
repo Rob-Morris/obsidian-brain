@@ -90,25 +90,159 @@ Explicit refresh enforces provider-specific and aggregate deadlines. Timed-out p
 
 The former aggregates and variants are removed: `brain_init`, `brain_session`, `brain_read`, `brain_create`, `brain_edit`, `brain_define`, `brain_move`, `brain_action`, `brain_process` and the other flat v1 tools are not aliases and are not callable.
 
+## Result sessions and delivery
+
+`brain_session` is a reserved MCP adapter argument, stripped before domain
+request decoding and preparation. Use `session_start({"brain_session":"new"})`
+once to open a reusable result session. Save the one-time
+`result_session.credential` separately and pass it as `brain_session` on every
+subsequent call, including bootstrap continuations. Resume with that credential;
+use a distinct session for each logical agent. `result_read`, `result_search` and `result_clear`
+require `brain_session` in their MCP transport schemas and reject its absence
+before context composition; it remains outside their canonical domain requests.
+Other retained source calls may omit it to open an ephemeral context rather
+than selecting an account-wide result slot. The diagnostic
+reads `runtime.status` and `runtime.read-environment` skip retention and
+result-cache writes when no result session is explicitly selected. Retain any issued
+credential before following output. Issuance is separate from the persisted
+business-result body and cannot be recovered from a public result ID.
+
+For deliberate storage-capacity recovery, call
+`result_clear({"brain_session":"<existing-credential>"})`. This Reader control
+clears only the authenticated result namespace and keeps its credential, source
+files, independent receipts and other owners' results. It takes no domain request
+fields; missing, invalid or new-session selectors are refused before execution.
+Clearing permanently loses retained output: check recovery needs first. CLI,
+script and composed typed-Python callers can use the same `result.clear` command;
+see [the CLI recovery command](cli.md#reusable-result-sessions).
+
+Eligible output retains the latest invocation per canonical command, result
+session and Brain, with no time expiry. New admission of the same command
+supersedes its previous output; unrelated commands and result navigation leave
+it intact. Late completion cannot replace a newer admission. Superseded IDs
+never select the newer result. Retention failure preserves the source outcome
+and committed effects with unavailable delivery; never re-execute a mutation
+to recover its output. Use `invocation.read` for uncertain execution outcomes.
+
+The `delivery` descriptor reports availability, backing,
+consistency/count scope, units, requested/effective page size, item/page counts,
+selection bounds, remaining pages and continuation. Inapplicable counts are
+null. `delivery.status: "truncated"` means more output, not failed execution.
+Follow **generic `delivery.continuation` before inspecting any semantic payload
+or following its legacy cursor**. Call `result_read` with the same `result_id`,
+credential and returned `continuation`. Its `result.envelope` (the typed
+`ResultReadPayload.envelope`) holds the original command page; the outer outcome
+belongs to `result.read`. Delivery metadata is on the outer envelope. Only once
+that delivery is complete should the original payload's cursor be followed.
+
+`result.read` v1 accepts:
+
+| Field | Contract |
+|---|---|
+| `result_id` | Required owned retained invocation ID. |
+| `page` | Omitted/null follows the continuation, or starts at 1 without one. Explicit positive integers are absolute, including 1; 0 means get-all intent; `"+1"`/`"-1"` are relative to a supplied continuation. Applies to `@outcome` too. |
+| `continuation` | Returned delivery object; preserves view size and selection. |
+| `page_size` | Optional positive size: text defaults to 100, maximum 500; records/fields default to 25, maximum 100. Byte limits can reduce occupancy. |
+| `max_pages` | Positive selection limit across calls, or `"all"` for the complete set. Query selections default to 10 pages; retained output has no default page-count cap. |
+| `anchor` | Zero-based source-unit position when changing page size; page 0 explicitly anchors at the beginning. |
+| `detail` | Returned bounded detail reference, retrieved through this same command. Follow `delivery.next_detail` for further detail pages. |
+
+Each call returns at most one response page, including `page: 0`; get-all is
+not a multi-page bundle. Exact physical counts use byte-aware page boundaries.
+`has_more`/`remaining_pages` describe the selected set;
+`has_more_outside_selection`, `pages_before_selection` and
+`pages_after_selection` describe the rest. Follow `outside_continuation` to
+open the next selection. A selection preserves its numeric start and limit,
+reapplied to current page counts; it does not freeze membership. An absolute
+read of an existing page outside that extent starts a new selection at that
+page, preserving `max_pages`; relative navigation stays within its selection.
+Pages beyond the current total remain out of range. Resizing
+creates a new view anchored at the supplied position and reapplies that limit.
+Out-of-range pages report current counts rather than silently substituting a page.
+Oversized text uses Unicode-safe fragments with line number, character offsets
+and newline information; records/fields use bounded detail references rather
+than silently dropping content.
+
+Cursor-free `artefact.list` with result delivery enabled produces the full
+filtered summaries for generic paging. Active lists' dynamic pages check the maintained
+projection revision and refresh current ordering; unchanged pages reuse the
+cached view. `change_notice` is tracked per page/view, so each revisited page
+warns independently after a change, without repeating on unchanged rereads.
+Cross-revision traversal may repeat or skip items. `observed-projection`
+consistency is not proof of live-file reindexing. Explicit legacy list cursors
+retain their owner path. Other output is retained; ranked search and graph
+counts describe their produced window, not every possible match or graph node.
+Archived/all lists use retained backing and immutable-output consistency,
+with a persistent notice that freshness is unverified after opening. Archive
+files have no cheap maintained revision, so navigation never rescans or refreshes
+them; invoke a new `artefact.list` for current data. Requested page size, exact
+counts and the default ten-page list selection remain in effect, including
+outside continuation and an explicit `max_pages: "all"` selection.
+
+`result.search` v1 accepts `result_id`, case-sensitive `literal` (1–256
+characters), `start_page` (default 1), zero-based `start_offset` (default 0),
+`limit` (default 10, maximum 25) and `scan_pages` (default 10, maximum 50).
+It returns one bounded snippet per matching
+line, text fragment or structured record. `matches` include page/unit `offset`,
+character `column` and line/record identity. Text overlap finds literals crossing
+fragment boundaries, including after resume; one logical line can match in more
+than one fragment. `scanned_pages` counts forward page reads; `overlap_pages`
+counts additional look-behind reads, bounded at 256 per call. Byte limits can
+stop before `limit`. Resume using `start_page: next_page`,
+`start_offset: next_offset` so no unreturned match is lost. Coverage is derived
+from immutable view metadata on every call; no coverage flag needs to be echoed.
+
+`coverage: retained-body-units` scopes every reply to the retained result body's
+declared lines/fragments, records or structured field units. Search excludes
+canonical envelope metadata such as command identity, errors and warnings, and
+contextual payload extras repeated beside line/record units. It does not search
+the entire canonical JSON blob.
+
+`scan_complete` means those body units are exhausted; continuation positions
+then become null. Within that scope, `complete` additionally requires no unsearched detail
+references. Detail bodies are not traversed: if the retained view has any details,
+`details_skipped` is true on every call, with `complete: false` even at exhaustion.
+Neither completion flag claims coverage of envelope metadata or contextual extras.
+This is neither regex nor live artefact search; dynamic queries are refused.
+
+The final assistant-visible canonical envelope is capped at **8,000 UTF-8
+bytes**, and the final encoded MCP tool-result value at **32,768 bytes**,
+including duplicated text/structured content and proxy notices. JSON-RPC
+correlation IDs/framing are outside those limits. Byte limits win over requested
+unit counts; final guards report unavailable delivery without slicing JSON or
+changing the source execution outcome. Native host delivery still requires
+host verification; these limits do not prove a host upgrade or tool refresh.
+
+Credentials select private output namespaces; they grant neither permissions
+nor consent. Every page, detail and search checks current disclosure authority.
+Eligible exceptional output can continue after one-shot execution consent is
+spent through a narrow delivery entitlement under the original consent owner.
+It ends on owner end, revocation or incompatible authority change. Resuming a
+result session does not renew it or authorise source execution. Dynamic refresh
+requires current source-query authority separately. See the
+[security boundary](../architecture/security.md#retained-result-security).
+
 ## Bounded bootstrap and document reads
 
-`session.start` v8 returns the complete lean bootstrap when its canonical
-JSON envelope fits 16,000 UTF-8 bytes. It advertises the installed type count
+`session.start` returns the complete lean bootstrap when its source
+JSON envelope fits its 16,000-byte document budget. Generic delivery applies
+the stricter final response limits above and can page that source envelope again. It advertises the installed type count
 and shared retrieval routes; use `resource.list` with `resource: "type"` and
 `resource.read` to learn a type before creating it. Core-document references
 carry title and path; load them with `vault.read-file`.
 
 If the full bootstrap exceeds that budget, the same canonical markdown used
-by `.brain/local/session.md` is returned in pages. Repeat `session.start` with
+by `.brain/local/session.md` is returned in pages. Consume generic delivery
+first, then repeat `session.start` with
 `cursor: range.next_cursor` until `bootstrap_complete` is true, before ordinary
 work. Mandatory preferences, rules and triggers are preserved across the pages.
 
 `artefact.read` v4, `vault.read-file` v2 and document variants of `resource.read`
 v3 return `revision` and `range` alongside their content. Repeat the same
 request with `cursor: range.next_cursor` until that cursor is null. Each page
-fits the same 16,000-byte envelope budget; `max_characters` optionally limits
+fits the same 16,000-byte source-envelope budget before generic delivery; `max_characters` optionally limits
 the requested window to 1–12,000 Unicode characters. Offsets describe text
-after newline normalization; revisions identify the persisted source bytes.
+after newline normalisation; revisions identify the persisted source bytes.
 A changed source returns `conflict`: restart without a cursor. These bounds
 apply before MCP, CLI and Python projections, so no transport cuts serialized
 JSON or silently drops the tail. Metadata-only resource variants remain intact.

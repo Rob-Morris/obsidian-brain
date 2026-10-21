@@ -10,6 +10,7 @@ from _application.context import (
     NullDiagnosticReporter,
     ProviderBindings,
     ProviderPort,
+    ResultDeliveryPort,
     SelectedBrain,
 )
 from _application.access_contracts import AuthorisationAccess
@@ -49,6 +50,7 @@ __all__ = (
     "OutcomeReference",
     "ProviderBindings",
     "ProviderPort",
+    "ResultDeliveryPort",
     "OwnedReceiptPort",
     "OwnedReceiptLookup",
     "AdmissionIntent",

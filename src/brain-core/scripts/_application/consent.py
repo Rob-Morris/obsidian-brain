@@ -733,6 +733,7 @@ class ConsentService:
             changed = bool(writes) or reduced != context["reduced"]
             if changed:
                 writes[_CONTEXT] = dict(context, reduced=reduced,
+                                        delivery_generation=context.get("delivery_generation", 0) + 1,
                                         grant_count=context["grant_count"] - removed_grants,
                                         prepared_count=context["prepared_count"] - removed_operations)
             return writes, changed
@@ -764,6 +765,22 @@ class ConsentService:
     def generation(self) -> str:
         """Refresh current authority and return its irreversible owner generation."""
         return self._context().values[_CONTEXT]["generation"]
+
+    def result_delivery_stamp(self, command_id: str) -> dict:
+        """Bind produced-output continuation to this owner and revocation state."""
+        self.check_permission(command_id)
+        context = self._context().values[_CONTEXT]
+        return {"owner": self.identity.owner, "generation": context["generation"],
+                "delivery_generation": context.get("delivery_generation", 0)}
+
+    def check_result_delivery(self, command_id: str, stamp: dict | None) -> None:
+        """Check disclosure only; a valid stamp cannot admit another execution."""
+        current = self.result_delivery_stamp(command_id)
+        if stamp is not None:
+            if current != stamp:
+                raise ConsentError("context_changed", "The original result-disclosure context ended or was revoked. This retained result is unavailable; do not rerun a mutation to recover output.")
+        elif self.state(command_id) != "authorised":
+            raise ConsentError("authorisation_required", f"Authorisation for {command_id} is required. Inspect access.status or use access.request for {command_id}, then retry result.read. Do not replay the originating command.")
 
     def grant_page(self, *, after: str | None = None, revision: int | None = None,
                    limit: int = 32) -> dict:

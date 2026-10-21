@@ -45,6 +45,8 @@ class SearchPayload:
     retrieval_mode: str
     items: tuple[SearchItem, ...]
     returned: int
+    candidate_policy: str
+    requested_top_k: int
 
 
 def validate_query_and_limit(command_id: str, query: str, top_k: int) -> None:
@@ -102,11 +104,11 @@ def resource_search(
     return Ok(
         request.COMMAND_ID,
         request.COMMAND_VERSION,
-        search_payload("lexical", results),
+        search_payload("lexical", results, requested_top_k=request.top_k),
     )
 
 
-def search_payload(mode: str, results) -> SearchPayload:
+def search_payload(mode: str, results, *, requested_top_k: int) -> SearchPayload:
     items = tuple(
         SearchItem(
             path=str(item.get("path") or ""),
@@ -122,7 +124,7 @@ def search_payload(mode: str, results) -> SearchPayload:
         )
         for item in results
     )
-    return SearchPayload(mode, items, len(items))
+    return SearchPayload(mode, items, len(items), "fixed-top-k-window", requested_top_k)
 
 
 def semantic_provider_ready(context: InvocationContext) -> bool:

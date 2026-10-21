@@ -8,6 +8,7 @@ reusable-script docstrings and supported command API/schema documentation. The
 
 - [Specification](specification.md) — design rationale and structural decisions
 - [Agents](agents.md) — contributor workflow guidance for agents
+- [Invocation result acceptance](invocation-results-acceptance.md) — delivery, session isolation and transport evidence
 - [Semantic relationship acceptance](semantic-relationships-acceptance.md) — implementation acceptance and native persistence evidence
 - [Dependencies](dependencies.md) — locked exports, offline checks and native release certification
 - [Promotion Recovery](promotion-recovery.md) — rebuild an unpublished queue after an exceptional direct-main push

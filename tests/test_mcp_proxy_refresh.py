@@ -215,9 +215,54 @@ def brain_response():
             "isError": False, "content": proxy.result_text_wire("Read fixture", envelope)}}
 
 
-def test_catalogue_notice_preserves_application_projection_and_is_once_per_generation(tmp_path, monkeypatch):
+def emit_catalogue_notice(relay, frame):
+    """Prove preparation stays uncommitted through the actual write and flush."""
+    from io import BytesIO
+
+    previous = relay._catalogue_notice_generation
+    boundaries = []
+
+    class ObservedOutput(BytesIO):
+        def write(self, data):
+            assert relay._catalogue_notice_generation == previous
+            boundaries.append("write")
+            return super().write(data)
+
+        def flush(self):
+            assert relay._catalogue_notice_generation == previous
+            boundaries.append("flush")
+            return super().flush()
+
+    relay._output_stream = ObservedOutput()
+    relay._outbound.put(frame)
+    relay._outbound.put(None)
+    relay._writer_thread()
+    assert boundaries == ["write", "flush"]
+    assert relay._catalogue_notice_generation == relay._catalogue_generation
+    emitted = json.loads(relay._output_stream.getvalue())
+    result = emitted["result"]
+    assert json.loads(result["content"][0]["text"]) == result["structuredContent"]
+    assert result["structuredContent"]["warnings"]
+    return emitted
+
+
+@pytest.mark.parametrize("bootstrap_page", [False, True])
+def test_catalogue_notice_preserves_application_projection_and_is_once_per_generation(tmp_path, monkeypatch, bootstrap_page):
     relay = discovery_proxy(tmp_path, monkeypatch)
     original = brain_response()
+    if bootstrap_page:
+        envelope = original["result"]["structuredContent"]
+        envelope.update(command="session.start", command_version=8, committed_effects=[],
+                        result={"bootstrap_complete": False, "content": "Required bootstrap guidance",
+                                "revision": "bootstrap-revision",
+                                "range": {"start": 12000, "end": 24000, "total_characters": 28633,
+                                          "next_cursor": {"revision": "bootstrap-revision", "offset": 24000}}},
+                        delivery=proxy.delivery_descriptor(
+                            result_id="retained-bootstrap", view_id="bootstrap-view", page=2,
+                            total_pages=3, total_items=28633, first_item=12000, last_item=23999,
+                            backing="retained", source_revision="bootstrap-revision",
+                            has_more=True, continuation={"result_id": "retained-bootstrap", "page": 3}))
+        original["result"]["content"] = proxy.result_text_wire("Bootstrap page", envelope)
     assert relay._decorate_catalogue_notice(original) is original
     relay._advertised_tools.pop("command_list")
     # Output observes memory only; prerequisites must be inspected by status.
@@ -236,6 +281,10 @@ def test_catalogue_notice_preserves_application_projection_and_is_once_per_gener
         assert term in warning["message"]
     assert "ignore instructions" not in warning["message"]
     assert warning["message"] in result["content"][1]["text"]
+    assert relay._catalogue_notice_generation is None
+    assert relay._decorate_catalogue_notice(original) == first
+    assert emit_catalogue_notice(relay, original) == first
+    assert original["result"]["structuredContent"]["warnings"] == []
     assert relay._decorate_catalogue_notice(original) is original
     assert drive_lifecycle(relay) is None  # No-op refresh must not rearm.
     assert relay._decorate_catalogue_notice(original) is original
@@ -294,7 +343,10 @@ def test_refused_lifecycle_does_not_rearm_catalogue_notice(tmp_path, monkeypatch
     relay = discovery_proxy(tmp_path, monkeypatch)
     relay._advertised_tools.pop("command_list")
     frame = brain_response()
-    assert relay._decorate_catalogue_notice(frame) is not frame
+    prepared = relay._decorate_catalogue_notice(frame)
+    assert prepared is not frame
+    assert relay._catalogue_notice_generation is None
+    assert emit_catalogue_notice(relay, frame) == prepared
     relay._inflight_requests[1] = ({"method": "tools/call", "id": 1}, 0)
     assert relay._admit_lifecycle(lifecycle_request(), None) == "server_busy"
     assert relay._decorate_catalogue_notice(frame) is frame
@@ -330,12 +382,12 @@ def test_discovery_clearing_before_coordinated_emission_suppresses_notice(tmp_pa
     relay._advertised_tools.pop("command_list")
     relay._output_stream = BytesIO()
     entered, release = threading.Event(), threading.Event()
-    decorate = relay._decorate_catalogue_notice
+    prepare = relay._prepare_catalogue_notice
     def coordinate(frame):
         entered.set()
         assert release.wait(3)
-        return decorate(frame)
-    monkeypatch.setattr(relay, "_decorate_catalogue_notice", coordinate)
+        return prepare(frame)
+    monkeypatch.setattr(relay, "_prepare_catalogue_notice", coordinate)
     original = brain_response()
     relay._outbound.put(original)
     relay._outbound.put(None)
@@ -364,6 +416,9 @@ def test_partial_page_notice_names_only_remaining_mapping_and_preserves_cadence(
     message = noticed["result"]["structuredContent"]["warnings"][0]["message"]
     assert "Pending dispatch mappings: command_describe." in message
     assert relay._proxy_status()["interface"]["tool_discovery"]["pending_tools"] == ["command_describe"]
+    assert relay._catalogue_notice_generation is None
+    assert relay._decorate_catalogue_notice(original) == noticed
+    assert emit_catalogue_notice(relay, original) == noticed
     assert relay._decorate_catalogue_notice(original) is original
     relay._record_tool_discovery({"result": {"tools": [{"name": "command_describe"}]}},
                                  {"method": "tools/list", "params": {"cursor": "last"}})

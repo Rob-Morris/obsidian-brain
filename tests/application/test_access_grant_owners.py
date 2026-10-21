@@ -87,7 +87,7 @@ def test_controls_have_strict_schemas_and_no_operation_selector():
 def test_every_ordinary_command_has_explicit_class_and_preparation():
     catalogue = current_application_catalogue()
     controls = {entry.command_id for entry in catalogue.entries if entry.initial_class is InitialAuthorisationClass.CONTROL}
-    assert controls == {"access.prepare", "access.request", "access.status", "access.reduce", "command.list", "command.describe", "invocation.read", "session.start"}
+    assert controls == {"access.prepare", "access.request", "access.status", "access.reduce", "command.list", "command.describe", "invocation.read", "session.start", "result.clear"}
     assert catalogue.interface_epoch == 3
     for entry in catalogue.entries:
         assert (entry.preparation is None) == (entry.command_id in controls)
