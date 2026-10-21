@@ -355,8 +355,8 @@ def test_native_windows_install_and_granular_mcp_round_trip(tmp_path):
         "content": {"source": "inline", "content": marker},
     })
     assert mutation["status"] == "ok" and mutation["committed_effects"]
-    assert memory.read_bytes().endswith(marker.encode("utf-8"))
-    assert memory.read_bytes().count(marker.encode("utf-8")) == 1
+    assert memory.read_text(encoding="utf-8").endswith(marker)
+    assert memory.read_text(encoding="utf-8").count(marker) == 1
 
 
 @native_windows
@@ -389,13 +389,18 @@ def test_native_powershell_pinned_retry_round_trips_cmd_stdin_and_selectors(tmp_
     command = _pinned_retry_command(argv, directory, selected)
     assert command.isascii()
     # A caller may have selected a BOM-producing output encoding (PowerShell 5).
-    probe = ("$originalEncoding = [Text.UTF8Encoding]::new($true); "
+    probe = ("$LASTEXITCODE = $null; $originalEncoding = [Text.UTF8Encoding]::new($true); "
              "$OutputEncoding = $originalEncoding; " + command
-             + "; if (-not [object]::ReferenceEquals($OutputEncoding, $originalEncoding)) "
-             "{ throw 'Output encoding changed' }")
+             + "; $retryExitCode = $LASTEXITCODE; "
+             "[Console]::Error.WriteLine('native_exit=' + $retryExitCode + '; errors=' + $Error.Count); "
+             "if (-not [object]::ReferenceEquals($OutputEncoding, $originalEncoding)) "
+             "{ throw 'Output encoding changed' }; "
+             "if ($null -eq $retryExitCode) { throw 'Native process did not set an exit code' }; "
+             "exit $retryExitCode")
     completed = subprocess.run([shell, "-NoProfile", "-Command", probe],
                                capture_output=True, text=True, encoding="utf-8", timeout=30)
     assert completed.returncode == 0, completed.stderr
+    assert completed.stdout, completed.stderr
     actual = json.loads(completed.stdout)
     expected_argv = argv[1:]
     expected_argv[expected_argv.index("--request-json") + 1] = "-"
