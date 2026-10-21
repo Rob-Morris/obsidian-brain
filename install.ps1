@@ -186,7 +186,8 @@ if (-not $SkipCli) {
         if ($existingCli -and $existingCli.Source) { $cliTarget = $existingCli.Source }
     }
     $distributionInstaller = Join-Path $repoRoot "cli\_distribution.py"
-    $cliPolicy = if ($ReplaceCli) { @() } else { @("--preserve-existing") }
+    $cliPolicy = @()
+    if (-not $ReplaceCli) { $cliPolicy += "--preserve-existing" }
     & $python $distributionInstaller $repoRoot $cliTarget @cliPolicy
     if ($LASTEXITCODE -ne 0) {
         Write-Warning "The Brain CLI distribution failed to install; vault installation has not started. Retry from the same source checkout with Python 3.12+ and cli/_distribution.py, or repair the existing CLI explicitly."

@@ -258,8 +258,11 @@ def _pinned_retry_command(argv, directory, environment, *, platform=None):
         request_index = argv.index("--request-json") + 1
         request = json.dumps(json.loads(argv[request_index]), ensure_ascii=True)
         argv[request_index] = "-"
+        # Resolve native argument expressions before starting the input pipeline.
+        statements.append("$retryExecutable = " + quote(argv[0]))
+        statements.append("$retryArguments = @(" + ", ".join(quote(value) for value in argv[1:]) + ")")
         # JSON travels over stdin, avoiding PowerShell/cmd.exe native argv quoting.
-        statements.append(quote(request) + " | & " + " ".join(quote(value) for value in argv))
+        statements.append(quote(request) + " | & $retryExecutable @retryArguments")
         return "; ".join(statements)
     invocation = ["env", *(name + "=" + value for name, value in selected.items()), *argv]
     return "cd " + shlex.quote(str(directory)) + " && " + shlex.join(invocation)

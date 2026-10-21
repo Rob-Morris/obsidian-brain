@@ -359,19 +359,21 @@ def test_native_windows_install_and_granular_mcp_round_trip(tmp_path):
 
 
 @native_windows
-def test_native_powershell_pinned_retry_round_trips_cmd_stdin_and_selectors(tmp_path, monkeypatch):
+@pytest.mark.parametrize("shell", ["powershell.exe", "pwsh"])
+def test_native_powershell_pinned_retry_round_trips_cmd_stdin_and_selectors(tmp_path, monkeypatch, shell):
     monkeypatch.syspath_prepend(str(REPO_ROOT / "cli"))
     from _local_cli.main import _pinned_retry_command
     import shutil
     # Exercise each available native shell: Windows PowerShell and PowerShell 7
     # have different native-argument passing rules.
-    shells = [shell for shell in ("powershell.exe", "pwsh") if shutil.which(shell)]
-    assert shells
+    if not shutil.which(shell):
+        pytest.skip(f"{shell} is unavailable")
     directory = tmp_path / "retry's working & directory 雪 😀"
     directory.mkdir()
     capture = directory / "capture.py"
     capture.write_text(
-        "import json,os,sys; json.dump(dict(argv=sys.argv[1:], request=json.load(sys.stdin), "
+        "import json,os,sys; raw=sys.stdin.read(); print('stdin='+ascii(raw),file=sys.stderr); "
+        "json.dump(dict(argv=sys.argv[1:], request=json.loads(raw), "
         "cwd=os.getcwd(), vault=os.environ.get('BRAIN_VAULT_ROOT'), "
         "workspace=os.environ.get('BRAIN_WORKSPACE_DIR')),sys.stdout)", encoding="utf-8")
     binary = directory / "brain.cmd"
@@ -385,15 +387,14 @@ def test_native_powershell_pinned_retry_round_trips_cmd_stdin_and_selectors(tmp_
                 "BRAIN_WORKSPACE_DIR": str(directory / "env workspace")}
     command = _pinned_retry_command(argv, directory, selected)
     assert command.isascii()
-    for shell in shells:
-        completed = subprocess.run([shell, "-NoProfile", "-Command", command],
-                                   capture_output=True, text=True, encoding="utf-8", timeout=30)
-        assert completed.returncode == 0, completed.stderr
-        actual = json.loads(completed.stdout)
-        expected_argv = argv[1:]
-        expected_argv[expected_argv.index("--request-json") + 1] = "-"
-        assert actual["argv"] == expected_argv
-        assert actual["request"] == payload
-        assert Path(actual["cwd"]) == directory
-        assert actual["vault"] == selected["BRAIN_VAULT_ROOT"]
-        assert actual["workspace"] == selected["BRAIN_WORKSPACE_DIR"]
+    completed = subprocess.run([shell, "-NoProfile", "-Command", command],
+                               capture_output=True, text=True, encoding="utf-8", timeout=30)
+    assert completed.returncode == 0, completed.stderr
+    actual = json.loads(completed.stdout)
+    expected_argv = argv[1:]
+    expected_argv[expected_argv.index("--request-json") + 1] = "-"
+    assert actual["argv"] == expected_argv
+    assert actual["request"] == payload
+    assert Path(actual["cwd"]) == directory
+    assert actual["vault"] == selected["BRAIN_VAULT_ROOT"]
+    assert actual["workspace"] == selected["BRAIN_WORKSPACE_DIR"]

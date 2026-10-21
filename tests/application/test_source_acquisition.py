@@ -126,10 +126,11 @@ def test_windows_retry_uses_ascii_stdin_json_and_preserves_all_selectors():
     rendered = _pinned_retry_command(argv, "C:/O'Brien & work", {"BRAIN_VAULT_ROOT": "C:/env vault"}, platform="win32")
     assert rendered.startswith("Set-Location -LiteralPath 'C:/O''Brien & work'; ")
     assert "$env:BRAIN_VAULT_ROOT = 'C:/env vault'" in rendered
-    assert " | & 'C:" in rendered
-    assert "'--request-json' '-'" in rendered
-    assert "'--vault' 'C:" in rendered
-    assert "'--brain' 'selected'" in rendered and "'--workspace' 'C:" in rendered
+    assert "$retryExecutable = 'C:" in rendered
+    assert " | & $retryExecutable @retryArguments" in rendered
+    assert "'--request-json', '-'" in rendered
+    assert "'--vault', 'C:" in rendered
+    assert "'--brain', 'selected'" in rendered and "'--workspace', 'C:" in rendered
     assert "'--dry-run'" in rendered
     # The escaped request, including its fixed source pin, is entirely ASCII.
     request = rendered.split("; ")[-1].split(" | & ")[0]
