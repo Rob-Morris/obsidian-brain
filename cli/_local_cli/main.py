@@ -435,7 +435,10 @@ def _request_payload(value: str | None) -> dict[str, object]:
     try:
         raw = getattr(sys.stdin, "buffer", sys.stdin).read() if value == "-" else value
         if isinstance(raw, bytes):
-            raw = raw.decode("utf-8-sig")
+            raw = raw.decode("utf-8")
+        if value == "-":
+            # Windows PowerShell can prepend more than one UTF-8 BOM.
+            raw = raw.lstrip("\ufeff")
         decoded = json.loads(raw)
     except (UnicodeDecodeError, json.JSONDecodeError) as exc:
         raise LocalCliUsageError(f"--request-json is invalid JSON: {exc}") from exc

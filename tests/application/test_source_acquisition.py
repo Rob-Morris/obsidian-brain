@@ -155,13 +155,13 @@ def test_windows_retry_unicode_paths_survive_a_legacy_diagnostic_pipe():
     assert "Remove-Item Env:BRAIN_WORKSPACE_DIR -ErrorAction SilentlyContinue" in rendered
 
 
-@pytest.mark.parametrize("bom", [b"", b"\xef\xbb\xbf"])
+@pytest.mark.parametrize("bom", [b"", b"\xef\xbb\xbf", b"\xef\xbb\xbf" * 2])
 def test_request_stdin_decodes_utf8_independently_of_text_locale(monkeypatch, bom):
     import io
     import json
     import sys
     from _local_cli.main import _request_payload
-    payload = {"source_root": "C:/vault 雪 😀"}
+    payload = {"source_root": "C:/vault 雪 😀", "note": "\ufeffpreserve this value"}
     stream = io.TextIOWrapper(io.BytesIO(bom + json.dumps(payload, ensure_ascii=False).encode("utf-8")),
                               encoding="cp1252")
     monkeypatch.setattr(sys, "stdin", stream)

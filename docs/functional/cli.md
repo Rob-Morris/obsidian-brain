@@ -49,7 +49,7 @@ The CLI 3 launcher break is deliberate:
 
 A vault registry row that is no longer its own canonical path never selects a Brain. `brain register` (version 2) registers only an installed Brain and never gives the Brain a drifted row resolves to a second ID, whatever ID is passed. `brain unregister` (version 2) accepts an ordinary path through a symlink and refuses only when a drifted row makes it ambiguous: the path is a drifted row's stored value, or a drifted row also resolves to the Brain it names. `brain list` (version 2) reports each stale row's `stale_reason`, `stale_guidance` and `stale_explanation`, and `brain doctor` carries the same `reason`, `guidance` and `explanation` for each stale row. The guidance is empty when no command recovers the row; the explanation then says why.
 
-`--request-json -` reads the object as UTF-8 from standard input, accepting an optional UTF-8 byte-order mark. It does not depend on the console locale. Unknown fields, malformed JSON, unknown launcher entry points and application commands with anything other than one noun and one verb fail as request errors.
+`--request-json -` reads the object as UTF-8 from standard input, accepting leading UTF-8 byte-order marks, including repeated marks emitted by Windows PowerShell. It does not depend on the console locale. Unknown fields, malformed JSON, unknown launcher entry points and application commands with anything other than one noun and one verb fail as request errors.
 
 ### Mutation body normalisation
 
