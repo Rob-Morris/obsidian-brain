@@ -769,7 +769,8 @@ def plan_sync_definitions(
 
     updated = []
     skipped = []
-    warnings = []
+    from _relationships.upgrade import catalogue_conflicts
+    warnings = catalogue_conflicts(vault_root)
     errors = []
     now = effective_at or datetime.now(timezone.utc).isoformat()
 

@@ -15,11 +15,11 @@ from .._artefact_transition import (
     validate_string,
 )
 from ..context import InvocationContext
-from ..workspace_context import WorkspaceAwareRequest, workspace_request_decoder, validate_workspace_request
+from ..workspace_context import WorkspaceDispositionRequest, workspace_disposition_decoder, validate_workspace_request
 
 
 @dataclass(frozen=True, slots=True)
-class ArtefactConvertRequest(WorkspaceAwareRequest):
+class ArtefactConvertRequest(WorkspaceDispositionRequest):
     COMMAND_ID: ClassVar[str] = "artefact.convert"
     COMMAND_VERSION: ClassVar[int] = 3
     RESULT_TYPE: ClassVar[type] = ArtefactConvertPayload
@@ -50,7 +50,7 @@ def execute(context: InvocationContext, request: ArtefactConvertRequest):
     )
 
 
-@workspace_request_decoder
+@workspace_disposition_decoder
 def decode(payload: Mapping[str, object]) -> ArtefactConvertRequest:
     reject_unexpected(payload, {"path", "target_type", "parent", "recursive"})
     for field in ("path", "target_type"):

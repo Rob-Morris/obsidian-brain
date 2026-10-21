@@ -16,11 +16,11 @@ from .._artefact_transition import (
     validate_string,
 )
 from ..context import InvocationContext
-from ..workspace_context import WorkspaceAwareRequest, workspace_request_decoder, validate_workspace_request
+from ..workspace_context import WorkspaceDispositionRequest, workspace_disposition_decoder, validate_workspace_request
 
 
 @dataclass(frozen=True, slots=True)
-class ArtefactUnarchiveRequest(WorkspaceAwareRequest):
+class ArtefactUnarchiveRequest(WorkspaceDispositionRequest):
     COMMAND_ID: ClassVar[str] = "artefact.unarchive"
     COMMAND_VERSION: ClassVar[int] = 3
     RESULT_TYPE: ClassVar[type] = ArtefactUnarchivePayload
@@ -55,7 +55,7 @@ def execute(context: InvocationContext, request: ArtefactUnarchiveRequest):
     )
 
 
-@workspace_request_decoder
+@workspace_disposition_decoder
 def decode(payload: Mapping[str, object]) -> ArtefactUnarchiveRequest:
     return decode_path_recursive(payload, ArtefactUnarchiveRequest)
 

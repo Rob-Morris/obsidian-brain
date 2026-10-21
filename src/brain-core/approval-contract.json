@@ -386,6 +386,102 @@
       "authority": "contributor"
     },
     {
+      "command_id": "history.cleanup",
+      "version": 1,
+      "owner": "application",
+      "classification": "content",
+      "mcp": "history_cleanup",
+      "cli": [
+        "history",
+        "cleanup"
+      ],
+      "authority": "maintainer"
+    },
+    {
+      "command_id": "history.configure",
+      "version": 1,
+      "owner": "application",
+      "classification": "content",
+      "mcp": "history_configure",
+      "cli": [
+        "history",
+        "configure"
+      ],
+      "authority": "maintainer"
+    },
+    {
+      "command_id": "history.correct",
+      "version": 1,
+      "owner": "application",
+      "classification": "content",
+      "mcp": "history_correct",
+      "cli": [
+        "history",
+        "correct"
+      ],
+      "authority": "contributor"
+    },
+    {
+      "command_id": "history.policy",
+      "version": 1,
+      "owner": "application",
+      "classification": "observation",
+      "mcp": "history_policy",
+      "cli": [
+        "history",
+        "policy"
+      ],
+      "authority": "reader"
+    },
+    {
+      "command_id": "history.query",
+      "version": 1,
+      "owner": "application",
+      "classification": "observation",
+      "mcp": "history_query",
+      "cli": [
+        "history",
+        "query"
+      ],
+      "authority": "reader"
+    },
+    {
+      "command_id": "history.read",
+      "version": 1,
+      "owner": "application",
+      "classification": "observation",
+      "mcp": "history_read",
+      "cli": [
+        "history",
+        "read"
+      ],
+      "authority": "reader"
+    },
+    {
+      "command_id": "history.repair",
+      "version": 1,
+      "owner": "application",
+      "classification": "content",
+      "mcp": "history_repair",
+      "cli": [
+        "history",
+        "repair"
+      ],
+      "authority": "maintainer"
+    },
+    {
+      "command_id": "history.write",
+      "version": 1,
+      "owner": "application",
+      "classification": "content",
+      "mcp": "history_write",
+      "cli": [
+        "history",
+        "write"
+      ],
+      "authority": "contributor"
+    },
+    {
       "command_id": "invocation.read",
       "version": 3,
       "owner": "application",
@@ -502,6 +598,114 @@
       "cli": [
         "plugin",
         "replace"
+      ],
+      "authority": "maintainer"
+    },
+    {
+      "command_id": "relationship.batch",
+      "version": 1,
+      "owner": "application",
+      "classification": "content",
+      "mcp": "relationship_batch",
+      "cli": [
+        "relationship",
+        "batch"
+      ],
+      "authority": "contributor"
+    },
+    {
+      "command_id": "relationship.check",
+      "version": 1,
+      "owner": "application",
+      "classification": "observation",
+      "mcp": "relationship_check",
+      "cli": [
+        "relationship",
+        "check"
+      ],
+      "authority": "reader"
+    },
+    {
+      "command_id": "relationship.define",
+      "version": 1,
+      "owner": "application",
+      "classification": "content",
+      "mcp": "relationship_define",
+      "cli": [
+        "relationship",
+        "define"
+      ],
+      "authority": "maintainer"
+    },
+    {
+      "command_id": "relationship.definitions",
+      "version": 1,
+      "owner": "application",
+      "classification": "observation",
+      "mcp": "relationship_definitions",
+      "cli": [
+        "relationship",
+        "definitions"
+      ],
+      "authority": "reader"
+    },
+    {
+      "command_id": "relationship.expose",
+      "version": 1,
+      "owner": "application",
+      "classification": "content",
+      "mcp": "relationship_expose",
+      "cli": [
+        "relationship",
+        "expose"
+      ],
+      "authority": "contributor"
+    },
+    {
+      "command_id": "relationship.query",
+      "version": 1,
+      "owner": "application",
+      "classification": "observation",
+      "mcp": "relationship_query",
+      "cli": [
+        "relationship",
+        "query"
+      ],
+      "authority": "reader"
+    },
+    {
+      "command_id": "relationship.read",
+      "version": 1,
+      "owner": "application",
+      "classification": "observation",
+      "mcp": "relationship_read",
+      "cli": [
+        "relationship",
+        "read"
+      ],
+      "authority": "reader"
+    },
+    {
+      "command_id": "relationship.refresh",
+      "version": 1,
+      "owner": "application",
+      "classification": "content",
+      "mcp": "relationship_refresh",
+      "cli": [
+        "relationship",
+        "refresh"
+      ],
+      "authority": "maintainer"
+    },
+    {
+      "command_id": "relationship.undefine",
+      "version": 1,
+      "owner": "application",
+      "classification": "content",
+      "mcp": "relationship_undefine",
+      "cli": [
+        "relationship",
+        "undefine"
       ],
       "authority": "maintainer"
     },
@@ -1097,5 +1301,5 @@
       "authority": "reader"
     }
   ],
-  "fingerprint": "sha256:9b10a9585593a7cbeb7f9398b32db592146b0e442a45b0b609388752adb90138"
+  "fingerprint": "sha256:1d9db045a3aad8fec511d03647051f245dea0ff5901d603f631ea79170a9dc3a"
 }

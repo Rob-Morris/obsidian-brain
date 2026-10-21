@@ -138,7 +138,10 @@ def test_fix_preparation_pins_raw_revision(link_vault):
     raw = 'café [[brain-inbox]] Ω\n'.encode('utf-16')
     (link_vault / 'Wiki/Backlink.md').write_bytes(raw)
     plan = fix_links.plan_link_fixes(str(link_vault), router={})
-    context = SimpleNamespace(selected_brain=SimpleNamespace(vault_root=link_vault))
+    from datetime import datetime, timezone
+    context = SimpleNamespace(selected_brain=SimpleNamespace(vault_root=link_vault),
+        invocation_id="lossless-transition-preparation",
+        clock=SimpleNamespace(now=lambda: datetime(2026, 10, 20, tzinfo=timezone.utc)))
     binding = fix_binding(context, LinksFixRequest(), plan=plan)
     assert any(item.kind == 'source' and item.identity == 'Wiki/Backlink.md'
                and item.revision == document_revision(raw) for item in binding.observations)
@@ -179,8 +182,12 @@ def test_transition_preparation_parses_lossless_text_and_pins_raw_revision(link_
     (link_vault / 'Wiki/Old.md').write_bytes(raw)
     plan = rename.plan_move_and_links(str(link_vault),
         [{'source': 'Wiki/Old.md', 'dest': 'Wiki/New.md'}])
-    context = SimpleNamespace(selected_brain=SimpleNamespace(vault_root=link_vault))
-    router = {'artefacts': [{'key': 'wikis', 'type': 'living/wiki'}]}
+    from datetime import datetime, timezone
+    context = SimpleNamespace(selected_brain=SimpleNamespace(vault_root=link_vault),
+        invocation_id="lossless-transition-preparation",
+        clock=SimpleNamespace(now=lambda: datetime(2026, 10, 20, tzinfo=timezone.utc)))
+    router = {'artefacts': [{'key': 'wikis', 'type': 'living/wiki',
+                            'frontmatter_type': 'living/wiki', 'classification': 'living'}]}
     binding = transition_binding(context,
         ArtefactRenameRequest('Wiki/Old.md', 'Wiki/New.md'), plan=plan, router=router)
     assert any(item.kind == 'source' and item.identity == 'Wiki/Old.md'
@@ -221,6 +228,9 @@ def test_reparent_reuses_scan_reads_and_keeps_raw_backlink_pins(reparent_vault, 
     (root / 'Wiki/Backlink.md').write_bytes(raw)
     for i in range(50):
         (root / f'Wiki/Unrelated-{i}.md').write_text('Unrelated\n')
+    # The complete native owner context has its disposable semantic projection.
+    from _relationships.storage import Store
+    Store(root).initialise()
     before = snapshot(root)
     reads = Counter()
     import builtins
@@ -244,7 +254,11 @@ def test_reparent_reuses_scan_reads_and_keeps_raw_backlink_pins(reparent_vault, 
     assert write.conversion_code
     assert write.after == 'Café [[Wiki/Child#Heading|child]] Ω\n'
     assert ('Wiki/Backlink.md', write.conversion_code) in plan.movement.links.conversions
-    binding = transition_binding(SimpleNamespace(selected_brain=SimpleNamespace(vault_root=root)),
+    from datetime import datetime, timezone
+    context = SimpleNamespace(selected_brain=SimpleNamespace(vault_root=root),
+        invocation_id="reparent-scan-preparation",
+        clock=SimpleNamespace(now=lambda: datetime(2026, 10, 20, tzinfo=timezone.utc)))
+    binding = transition_binding(context,
         ArtefactReparentRequest('Wiki/Old.md', None), plan=plan, router=router)
     assert any(item.identity == 'Wiki/Backlink.md' and item.kind == 'source'
                and item.revision == document_revision(raw) for item in binding.observations)

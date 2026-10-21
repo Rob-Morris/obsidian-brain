@@ -44,6 +44,28 @@ python3 .brain-core/scripts/command.py command describe \
   --request-json '{"target_command_id":"artefact.create"}' --json
 ```
 
+## Relationship and history projections
+
+Use the shared direct entry point:
+
+```bash
+python3 .brain-core/scripts/command.py command describe \
+  --request-json '{"target_command_id":"relationship.batch"}' --json
+python3 .brain-core/scripts/command.py relationship check \
+  --request-json '{"work_budget":5000}' --json
+python3 .brain-core/scripts/command.py history policy --request-json '{}' --json
+```
+
+The current families are portable, selected-Brain operations without external
+providers. Python uses the exported relationship/history request types from
+`brain_application.requests` and construction values from
+`brain_application.values`, including `Endpoint`, `NodeKind`, `BatchItem`,
+`Disposition`, `AssessmentPolicy` and `TranscriptPolicy`. Internal `_relationships`
+modules implement records, projection, validation and publication; they are not
+public script commands. See the
+[semantic relationship reference](../../src/brain-core/standards/semantic-relationships.md)
+for the shared behaviour and supported repair sequence.
+
 ## Contract parity
 
 MCP, CLI, direct script and typed Python share:

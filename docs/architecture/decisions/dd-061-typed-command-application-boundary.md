@@ -1175,3 +1175,30 @@ CLI 3.2 composes flat discovery entries under `brain.local-command-list/2`,
 with shared catalogue provenance per owner and separate owner cursors. JSON
 requests and flags share the discovery grammar. Host-specific tool search and
 MCP `tools/list` remain distinct from these application pages.
+
+
+### 20 October 2026: equivalent request schemas and qualified metadata budget
+
+The canonical `_application.projection` owns compact request schemas for every
+adapter. Repeated object shapes use request-local references with annotations at
+their original sites. Safe numeric/string-enum simplification and grouping of
+otherwise identical discriminator branches preserve acceptance. Request owners
+and decoders remain authoritative; the MCP adapter only projects the canonical
+schema. Discovery examples are built from the inline source schema, avoiding a
+second reference decoder in example generation. Literal data and property names
+are never treated as schema keywords. Consent-selection guidance is concise.
+
+Workspace selection and relationship disposition are separate request
+capabilities. `artefact.create` retains selection but rejects the unused
+disposition argument; all 16 consuming native owners retain dispositions.
+Graph cursors keep their structured generation, selector and traversal fields.
+
+The accepted full-inventory target is 20,000 tokens. The measured 90-tool pinned
+application replays remain above it: 21,465 Claude and 21,501 Codex. Exact baselines
+are regression ratchets, not release-compliance ceilings. Captures and tests report
+the excess explicitly while preserving the hard 3,072 per-tool cap and reviewed
+512-token exceptions. The user requested completion and commit before review of
+all supported harnesses and their actual loading/limits. Current-host reference
+acceptance, loaded context and billing are therefore pending that review; the
+historical client captures do not establish them. See the current budget section
+in `docs/functional/mcp-tools.md` for the five compact-tool exceptions and scope.

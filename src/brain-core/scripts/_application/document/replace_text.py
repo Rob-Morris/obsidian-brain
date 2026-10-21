@@ -13,7 +13,7 @@ from .._document_mutation import (
 )
 from .._mutation_support import contributor_mutation_entry
 from ..context import InvocationContext
-from ..workspace_context import WorkspaceAwareRequest, workspace_request_decoder
+from ..workspace_context import WorkspaceDispositionRequest, workspace_disposition_decoder
 from ._types import DocumentLocator, decode_document, validate_document_request
 
 
@@ -41,7 +41,7 @@ DocumentReplaceTextMatch = UniqueMatch | OccurrenceMatch | AllMatches
 
 
 @dataclass(frozen=True, slots=True)
-class DocumentReplaceTextRequest(WorkspaceAwareRequest):
+class DocumentReplaceTextRequest(WorkspaceDispositionRequest):
     COMMAND_ID: ClassVar[str] = "document.replace-text"
     COMMAND_VERSION: ClassVar[int] = 2
     RESULT_TYPE: ClassVar[type] = DocumentReplaceTextPayload
@@ -103,7 +103,7 @@ def prepare(context, request, *, frozen_inputs=None):
                                      frozen_inputs=frozen_inputs)
 
 
-@workspace_request_decoder
+@workspace_disposition_decoder
 def decode(payload: Mapping[str, object]) -> DocumentReplaceTextRequest:
     reject_unexpected(
         payload,

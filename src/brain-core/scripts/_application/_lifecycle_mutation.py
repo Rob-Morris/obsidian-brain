@@ -107,6 +107,8 @@ def execute_lifecycle_mutation(
                                                    value=value, frozen_inputs=frozen)
             plan, effective = prepare_workspace_transition(context, request, router, plan)
             admit_owner(context, request, transition_binding, plan=plan, router=router, effective=effective)
+            from .relationship import _native as relationship_native
+            semantic_plan = relationship_native.begin(context, request, plan, router)
             effects_before = transition_effect_snapshot(context, plan)
             from ._transition_indexes import reconcile_transition_indexes
 
@@ -119,6 +121,7 @@ def execute_lifecycle_mutation(
                     lexical_before = lexical.payload
             try:
                 result = edit.apply_artefact_transition(vault_root, plan)
+                relationship_native.complete(context, semantic_plan)
             except PartialApplyError as exc:
                 try:
                     reconcile_transition_indexes(context)
@@ -141,6 +144,7 @@ def execute_lifecycle_mutation(
             retryable=True,
         )
     except PartialApplyError as exc:
+        effects += relationship_native.committed_effects(context, semantic_plan)
         if not effects:
             raise RuntimeError("Lifecycle mutation reported partial effects without an observable committed subject") from exc
         return WorkspaceMutationPartial(

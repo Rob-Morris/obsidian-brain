@@ -1,4 +1,4 @@
-"""Release gates for the staged granular MCP projection."""
+"""Hard tool bounds, known catalogue target excess and measured regression evidence."""
 
 from __future__ import annotations
 
@@ -8,8 +8,9 @@ from pathlib import Path
 from granular_mcp_metadata import (
     CAPTURE_PATH,
     COMPACT_TOOL_TOKENS,
-    LARGE_TOOL_ALLOWLIST,
-    MAX_CATALOGUE_TOKENS,
+    COMPACT_TOOL_EXCEPTIONS,
+    FULL_CATALOGUE_TARGET_TOKENS,
+    CATALOGUE_REGRESSION_BASELINE,
     MAX_TOOL_TOKENS,
     SUPPORTED_CLIENTS,
     TOKENISER,
@@ -26,17 +27,19 @@ def test_granular_projection_capture_matches_raw_fastmcp_registration():
     assert _capture() == build_granular_metadata_capture()
 
 
-def test_supported_client_projections_obey_release_token_ceilings():
+def test_supported_client_projections_obey_hard_and_compact_tool_bounds():
     capture = _capture()
 
     assert capture["schema"] == "brain.command-interface-granular-mcp-projection/1"
     assert capture["tokeniser"] == TOKENISER
     assert capture["ceilings"] == {
         "per_tool_tokens": MAX_TOOL_TOKENS,
-        "full_catalogue_tokens": MAX_CATALOGUE_TOKENS,
     }
+    assert capture["compact_tools"] == {"target_tokens": 512, "exceptions": COMPACT_TOOL_EXCEPTIONS}
+    assert all(reason.strip() for reason in COMPACT_TOOL_EXCEPTIONS.values())
+    observed_large = set()
     assert set(capture["clients"]) == set(SUPPORTED_CLIENTS)
-    assert capture["raw_fastmcp"]["tool_count"] == 73
+    assert capture["raw_fastmcp"]["tool_count"] == 90
     for client, expected in SUPPORTED_CLIENTS.items():
         projected = capture["clients"][client]
         assert {
@@ -48,18 +51,37 @@ def test_supported_client_projections_obey_release_token_ceilings():
                 "projector_source",
             )
         } == expected
-        assert projected["tool_count"] == 73
-        assert projected["tokens"] <= MAX_CATALOGUE_TOKENS
+        assert projected["tool_count"] == 90
         assert projected["maximum_tool_tokens"] <= MAX_TOOL_TOKENS
-        assert {
-            name
-            for name, metadata in projected["tools"].items()
-            if metadata["tokens"] > COMPACT_TOOL_TOKENS
-        } <= LARGE_TOOL_ALLOWLIST
+        large = {name for name, metadata in projected["tools"].items()
+                 if metadata["tokens"] > COMPACT_TOOL_TOKENS}
+        assert large <= set(COMPACT_TOOL_EXCEPTIONS)
+        observed_large.update(large)
         assert all(
             item["tokens"] <= MAX_TOOL_TOKENS
             for item in projected["tools"].values()
         )
+
+    assert observed_large == set(COMPACT_TOOL_EXCEPTIONS)
+
+
+def test_catalogue_reports_known_target_excess_and_preserves_measured_no_growth_ratchet():
+    capture = _capture()
+    assert FULL_CATALOGUE_TARGET_TOKENS == 20_000
+    assert CATALOGUE_REGRESSION_BASELINE == {"claude-code": 21_465, "codex-cli": 21_501}
+    assert capture["catalogue_budget"]["target_tokens"] == 20_000
+    assert capture["catalogue_budget"]["regression_baseline_tokens"] == CATALOGUE_REGRESSION_BASELINE
+    assert "not measured host loading" in capture["catalogue_budget"]["scope"]
+    assert "review follows" in capture["catalogue_budget"]["review"]
+    for client, row in capture["clients"].items():
+        assert row["tokens"] <= CATALOGUE_REGRESSION_BASELINE[client]
+        assert row["budget"] == {
+            "target_tokens": 20_000,
+            "target_exceeded": row["tokens"] > 20_000,
+            "over_target_tokens": max(0, row["tokens"] - 20_000),
+            "regression_baseline_tokens": CATALOGUE_REGRESSION_BASELINE[client],
+            "regression_exceeded": False,
+        }
 
 
 def test_projection_evidence_retains_source_and_declaration_hashes_per_tool():

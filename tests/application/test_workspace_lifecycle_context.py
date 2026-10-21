@@ -409,12 +409,24 @@ def test_index_failure_returns_observed_committed_subjects_and_policy(scoped, mo
     assert isinstance(result, WorkspaceMutationPartial), result
     assert canonical_wire_value(result.mutation_context) == json.loads(binding.review_json)["mutation_context"]
     assert result.error.next_action.command_id == "runtime.refresh-router"
-    assert result.committed_effects
+    from _relationships.storage import Store
+    store = Store(root)
+    native = tuple(effect for effect in result.committed_effects if effect.kind == request.COMMAND_ID)
+    assert native
+    recovery = tuple(effect for effect in result.committed_effects if effect.kind == "semantic.recovery")
+    assert len(recovery) == (1 if owner in {"status", "archive", "delete"} else 0)
     for effect in result.committed_effects:
-        if owner == "delete" and effect.subject == path:
-            assert not (root / effect.subject).exists()
+        if effect.kind == "semantic.recovery":
+            assert store.read("operation", effect.subject)["state"] == "complete"
+        elif effect.kind == "semantic.publication":
+            kind, identity = effect.subject.split(":", 1)
+            assert store.read(kind, identity) is not None
         else:
-            assert (root / effect.subject).exists()
+            assert effect.kind == request.COMMAND_ID
+            if owner == "delete" and effect.subject == path:
+                assert not (root / effect.subject).exists()
+            else:
+                assert (root / effect.subject).exists()
 
 
 @pytest.mark.parametrize("owner", ["archive", "unarchive", "convert", "children"])
@@ -510,7 +522,12 @@ def test_mid_apply_partial_names_only_observed_paths_and_keeps_context(scoped, m
     assert isinstance(result, WorkspaceMutationPartial), result
     assert result.mutation_context.workspace == "workspace/alpha"
     assert len(calls) == 2
-    assert all((root / effect.subject).exists() for effect in result.committed_effects)
+    from _relationships.storage import Store
+    recovery, = [effect for effect in result.committed_effects if effect.kind == "semantic.recovery"]
+    assert Store(root).read("operation", recovery.subject)["state"] == "native-pending"
+    native = [effect for effect in result.committed_effects if effect.kind == "artefact.archive"]
+    assert native and len(result.committed_effects) == len(native) + 1
+    assert all((root / effect.subject).exists() for effect in native)
     assert "move failure" in result.error.message
     require_fresh_compiled_router(str(root))
 

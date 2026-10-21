@@ -57,8 +57,46 @@ def session_plan(context, request, router, *, frozen_inputs=None):
             for reference in workspace_discovery_metadata(fields)["relevant_workspaces"]})))
     plan.update(target_fields=target_fields, transcript_fields=transcript_fields,
                 mutation_context=effective, reconcile_indexes=True)
+    plan["semantic_transition"] = semantic_transition(context, router, plan)
     frozen["transcript_path"] = plan["transcript_path"]
     return plan, frozen
+
+
+def semantic_transition(context, router, plan):
+    """Adapt final session writes to the existing native semantic plan owner."""
+    import os
+    import edit
+    from _common import parse_frontmatter, serialize_frontmatter, read_exact_file_content
+    from start_shaping_session import render_transcript_link
+    target, lifecycle = plan["prepared"], plan["lifecycle"]
+    writes = {item["path"]: dict(item) for item in lifecycle.writes} if lifecycle else {}
+    body = writes.get(target.resolved_path, {"body": target.body})["body"]
+    target_path = lifecycle.result["path"] if lifecycle else target.resolved_path
+    if lifecycle:
+        link_write = next((item for item in lifecycle.movement.links.writes if item.path in (target.resolved_path, target_path)), None)
+        if link_write:
+            _, body = parse_frontmatter(link_write.after)
+    fields = dict(plan["target_fields"])
+    content = render_transcript_link(fields, body, os.path.splitext(plan["transcript_path"])[0],
+                                    os.path.splitext(os.path.basename(plan["transcript_path"]))[0], plan["now"].isoformat())
+    original_fields = writes.get(target.resolved_path, {"fields": target.fields})["fields"]
+    if content is None and original_fields != plan["target_fields"]:
+        content = serialize_frontmatter(fields, body=body)
+    if content is not None:
+        fields, body = parse_frontmatter(content)
+        writes[target.resolved_path] = {"path": target.resolved_path, "fields": fields, "body": body}
+    if plan["transcript_exists"]:
+        path = plan["transcript_path"]
+        content = read_exact_file_content(context.selected_brain.vault_root / path)
+        original, body = parse_frontmatter(content)
+        if original != plan["transcript_fields"]:
+            content = serialize_frontmatter(plan["transcript_fields"], body=body)
+        content = content.rstrip() + f"\n\n## {plan['mode'].capitalize()} session start — {plan['now'].strftime('%H:%M')}\n"
+        fields, body = parse_frontmatter(content)
+        writes[path] = {"path": path, "fields": fields, "body": body}
+    return edit.plan_artefact_transition(str(context.selected_brain.vault_root), router,
+        operation="shaping.start", writes=tuple(writes.values()), moves=lifecycle.movement.moves if lifecycle else (),
+        result=lifecycle.result if lifecycle else {"path": target.resolved_path})
 
 
 def session_binding(context, request, *, plan, router, frozen_inputs=None):
@@ -82,8 +120,9 @@ def session_binding(context, request, *, plan, router, frozen_inputs=None):
             observations.append(ObservedResource("shaping-parent", parent,
                 file_identity(root / router["artefact_index"][parent]["path"])))
     lifecycle_review = None
-    if plan["lifecycle"] is not None:
-        binding = transition_binding(context, request, plan=plan["lifecycle"], router=router)
+    if plan["semantic_transition"] is not None:
+        binding = transition_binding(context, request, plan=plan["semantic_transition"], router=router, frozen_inputs=frozen_inputs)
+        frozen_inputs = binding.frozen_inputs
         observations.extend(binding.observations)
         lifecycle_review = binding.review
     return bind_operation(request, observations=observations, frozen_inputs=frozen_inputs,

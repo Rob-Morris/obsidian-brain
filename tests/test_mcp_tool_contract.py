@@ -6,6 +6,7 @@ import asyncio
 import re
 
 from jsonschema import Draft202012Validator
+from schema_assertions import expand_local_schema
 
 from _application.projection import project_identity
 from _application.registry import current_application_catalogue
@@ -57,7 +58,7 @@ def _reachable_properties(schema):
 
 def test_every_projected_tool_has_strict_valid_described_schema():
     tools = _tools()
-    assert len(tools) == 73
+    assert len(tools) == 90
     for tool in tools:
         Draft202012Validator.check_schema(tool.input_schema)
         assert tool.input_schema.get("type") == "object"
@@ -66,7 +67,7 @@ def test_every_projected_tool_has_strict_valid_described_schema():
         assert len((tool.description or "").strip()) <= 600
         missing = [
             path
-            for path, metadata in _reachable_properties(tool.input_schema)
+            for path, metadata in _reachable_properties(expand_local_schema(tool.input_schema))
             if not str(metadata.get("description", "")).strip()
         ]
         assert not missing, f"{tool.name} has undocumented fields: {missing}"
