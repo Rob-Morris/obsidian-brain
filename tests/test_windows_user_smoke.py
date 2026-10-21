@@ -399,7 +399,28 @@ def test_native_powershell_pinned_retry_round_trips_cmd_stdin_and_selectors(tmp_
              "exit $retryExitCode")
     completed = subprocess.run([shell, "-NoProfile", "-Command", probe],
                                capture_output=True, text=True, encoding="utf-8", timeout=30)
-    assert completed.returncode == 0, completed.stderr
+    diagnostics = []
+    if completed.returncode != 0:
+        # Failure-only native spike: identify which scope/encoding reaches .cmd stdin.
+        variants = {
+            "outside-try": command.replace("try { $OutputEncoding = [Text.Encoding]::ASCII; ",
+                                            "$OutputEncoding = [Text.Encoding]::ASCII; try { "),
+            "global": command.replace("$OutputEncoding", "$global:OutputEncoding"),
+            "utf8-no-bom": command.replace("[Text.Encoding]::ASCII", "[Text.UTF8Encoding]::new($false)"),
+            "no-finally": command.replace("try { ", "").replace(
+                " } finally { $OutputEncoding = $retryOutputEncoding }", ""),
+        }
+        for name, variant in variants.items():
+            try:
+                diagnostic = subprocess.run([shell, "-NoProfile", "-Command",
+                    "$OutputEncoding = [Text.UTF8Encoding]::new($true); " + variant],
+                    capture_output=True, text=True, encoding="utf-8", timeout=30)
+                diagnostics.append({"variant": name, "exit": diagnostic.returncode,
+                                    "stdout": diagnostic.stdout, "stderr": diagnostic.stderr})
+            except subprocess.TimeoutExpired as exc:
+                diagnostics.append({"variant": name, "timeout": True,
+                                    "stdout": str(exc.stdout), "stderr": str(exc.stderr)})
+    assert completed.returncode == 0, completed.stderr + json.dumps(diagnostics, ensure_ascii=True)
     assert completed.stdout, completed.stderr
     actual = json.loads(completed.stdout)
     expected_argv = argv[1:]
