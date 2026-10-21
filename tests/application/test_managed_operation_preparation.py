@@ -151,11 +151,12 @@ def test_shaping_start_keeps_prepared_transcript_day(command_vault_clone):
     context = context_for(root)
     request = ShapingStartRequest(DESIGN_REFERENCE, ShapingMode.REFINE)
     binding = prepare_session(context, request)
+    assert binding.frozen_inputs["relationship_recorded_at"] == context.clock.now().isoformat()
     admission = MatchingAdmission(binding)
     class Later:
         def now(self): return context.clock.now() + timedelta(days=1)
     result = start(replace(context, admission=admission, clock=Later()), request)
-    assert result.status == "ok"
+    assert result.status == "ok", result
     assert result.result.transcript_path == binding.review["transcript"]
     assert admission.calls == 1
 

@@ -7,6 +7,7 @@ from enum import Enum
 import json
 import re
 import pytest
+from schema_assertions import expand_local_schema
 from pathlib import Path
 
 from _application.projection import (
@@ -107,7 +108,7 @@ def test_every_application_request_projects_to_a_strict_described_object_schema(
     catalogue = current_application_catalogue()
 
     for entry in catalogue.entries:
-        schema = request_schema(entry.request_type)
+        schema = expand_local_schema(request_schema(entry.request_type))
         assert schema["type"] == "object", entry.command_id
         assert schema["additionalProperties"] is False, entry.command_id
         assert all(
@@ -148,7 +149,7 @@ def test_document_mutation_schemas_preserve_typed_intents_and_revisions():
     from _application.document.replace_text import DocumentReplaceTextRequest
     from _application.document.write_body import DocumentWriteBodyRequest
 
-    schema = request_schema(DocumentStructuredEditRequest)
+    schema = expand_local_schema(request_schema(DocumentStructuredEditRequest))
 
     assert schema["required"] == ["document", "expected_revision", "change"]
     assert schema["properties"]["fix_links"]["default"] is False
@@ -172,17 +173,17 @@ def test_document_mutation_schemas_preserve_typed_intents_and_revisions():
     assert '"target"' not in encoded
     assert '"scope"' not in encoded
 
-    write_schema = request_schema(DocumentWriteBodyRequest)
+    write_schema = expand_local_schema(request_schema(DocumentWriteBodyRequest))
     assert write_schema["properties"]["operation"]["enum"] == [
         "replace",
         "append",
         "prepend",
     ]
 
-    patch_schema = request_schema(DocumentReplaceTextRequest)
+    patch_schema = expand_local_schema(request_schema(DocumentReplaceTextRequest))
     assert {
-        branch["properties"]["mode"]["enum"][0]
-        for branch in patch_schema["properties"]["match"]["anyOf"]
+        mode for branch in patch_schema["properties"]["match"]["anyOf"]
+        for mode in branch["properties"]["mode"]["enum"]
     } == {"unique", "occurrence", "all"}
 
 

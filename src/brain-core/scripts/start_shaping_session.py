@@ -251,15 +251,8 @@ def render_transcript_template(template, source_path, source_type, now):
     }, _now=now)
 
 
-def _add_transcript_link(
-    abs_path,
-    vault_root,
-    fields,
-    body,
-    transcript_stem,
-    transcript_display,
-    modified,
-):
+def render_transcript_link(fields, body, transcript_stem, transcript_display, modified):
+    """Render the exact target write for both admission and session execution."""
     link = f"[[{transcript_stem}|{transcript_display}]]"
     fields["modified"] = modified
     content = serialize_frontmatter(fields, body=body)
@@ -276,10 +269,9 @@ def _add_transcript_link(
             or os.path.basename(_normalise_stem(transcript_stem)).lower()
             in linked_stems
         ):
-            return False
+            return None
         lines[index] = line.rstrip() + f" {link}"
-        safe_write_artefact(abs_path, "\n".join(lines), bounds=vault_root)
-        return True
+        return "\n".join(lines)
 
     if not body.strip():
         new_content = content.rstrip() + f"\n\n**Transcripts:** {link}\n"
@@ -290,7 +282,13 @@ def _add_transcript_link(
             insert_at += 1
         body_lines.insert(insert_at, f"**Transcripts:** {link}\n")
         new_content = serialize_frontmatter(fields, body="\n".join(body_lines))
-    safe_write_artefact(abs_path, new_content, bounds=vault_root)
+    return new_content
+
+def _add_transcript_link(abs_path, vault_root, fields, body, transcript_stem, transcript_display, modified):
+    content = render_transcript_link(fields, body, transcript_stem, transcript_display, modified)
+    if content is None:
+        return False
+    safe_write_artefact(abs_path, content, bounds=vault_root)
     return True
 
 

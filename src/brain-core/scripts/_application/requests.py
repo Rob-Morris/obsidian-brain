@@ -112,7 +112,49 @@ from .types import (
     validate_command_id,
 )
 
+from .relationship.batch import RelationshipBatchRequest
+from .relationship.define import RelationshipDefineRequest
+from .relationship.definitions import RelationshipDefinitionsRequest
+from .relationship.query import RelationshipQueryRequest
+from .relationship.read import RelationshipReadRequest
+from .history.write import HistoryWriteRequest
+from .history.read import HistoryReadRequest
+from .history.query import HistoryQueryRequest
+from .history.correct import HistoryCorrectRequest
+from .history.cleanup import HistoryCleanupRequest
+
+
+from .relationship.expose import RelationshipExposeRequest
+
+from .relationship.refresh import RelationshipRefreshRequest
+from .history.repair import HistoryRepairRequest
+
+from .relationship.check import RelationshipCheckRequest
+from .relationship.undefine import RelationshipUndefineRequest
+from .history.configure import HistoryConfigureRequest
+from .history.policy import HistoryPolicyRequest
+
 __all__ = (
+    "RelationshipCheckRequest",
+    "RelationshipUndefineRequest",
+    "HistoryConfigureRequest",
+    "HistoryPolicyRequest",
+
+    "RelationshipRefreshRequest",
+    "HistoryRepairRequest",
+
+    "RelationshipExposeRequest",
+    "RelationshipBatchRequest",
+    "RelationshipDefineRequest",
+    "RelationshipDefinitionsRequest",
+    "RelationshipQueryRequest",
+    "RelationshipReadRequest",
+    "HistoryWriteRequest",
+    "HistoryReadRequest",
+    "HistoryQueryRequest",
+    "HistoryCorrectRequest",
+    "HistoryCleanupRequest",
+
     "AccessPrepareRequest",
     "AccessReduceRequest",
     "AccessRequestRequest",
@@ -501,7 +543,24 @@ class InvocationReadRequest:
 
 
 CommandRequest = (
-    AccessPrepareRequest
+    RelationshipCheckRequest
+    | RelationshipUndefineRequest
+    | HistoryConfigureRequest
+    | HistoryPolicyRequest
+    | RelationshipRefreshRequest
+    | HistoryRepairRequest
+    | RelationshipExposeRequest
+    | RelationshipBatchRequest
+    | RelationshipDefineRequest
+    | RelationshipDefinitionsRequest
+    | RelationshipQueryRequest
+    | RelationshipReadRequest
+    | HistoryWriteRequest
+    | HistoryReadRequest
+    | HistoryQueryRequest
+    | HistoryCorrectRequest
+    | HistoryCleanupRequest
+    | AccessPrepareRequest
     | AccessReduceRequest
     | AccessRequestRequest
     | AccessStatusRequest

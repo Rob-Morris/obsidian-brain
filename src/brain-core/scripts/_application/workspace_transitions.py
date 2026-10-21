@@ -62,12 +62,8 @@ def transition_conversion_warnings(plan, before, *, effects=None):
 
 
 def _reference(router, path, fields):
-    from _common import canonical_living_artefact_key, resolve_type
-    try:
-        definition = resolve_type(router, fields.get("type"))
-    except ValueError:
-        return path
-    return canonical_living_artefact_key(definition, fields) or path
+    from _relationships.endpoints import native_reference
+    return native_reference(router, path, fields)
 
 
 def semantic_transition_paths(request, plan, router):

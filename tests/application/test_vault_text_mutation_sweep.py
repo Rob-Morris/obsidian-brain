@@ -40,6 +40,17 @@ class Role:
 
 # Reasons apply to existing persisted text, not newly supplied inline content.
 NO_TEXT = {
+    'history.cleanup': 'Removes typed semantic JSON payloads; authored Markdown remains read-only.',
+    'history.configure': 'Writes local capture-policy JSON; no persisted vault TEXT mutation.',
+    'history.correct': 'Publishes typed correction/event JSON; no authored Markdown mutation.',
+    'history.repair': 'Reconciles captured semantic JSON and SQLite; native Markdown guards are read-only, never replayed.',
+    'history.write': 'Publishes caller event JSON; referenced artefact Markdown is read-only.',
+    'relationship.batch': 'Publishes generic assertion and endpoint JSON; referenced Markdown is read-only.',
+    'relationship.define': 'Writes local predicate/event-contract JSON; no authored Markdown mutation.',
+    'relationship.expose': 'Publishes occurrence/binding JSON; native Markdown facts are read-only.',
+    'relationship.refresh': 'Rebuilds disposable SQLite from semantic JSON; no authored Markdown mutation.',
+    'relationship.undefine': 'Removes local contract JSON and dispositions semantic records; no Markdown mutation.',
+
     'retrieval.construct-benchmark': 'Writes benchmark and audit JSON; corpus Markdown is read-only, no persisted vault text mutation role.',
     'retrieval.enable': 'Writes operational semantic configuration/runtime/cache assets; corpus Markdown is read-only.',
     'retrieval.rebuild-semantic': 'Rebuilds binary/JSON semantic cache assets; corpus Markdown is read-only.',

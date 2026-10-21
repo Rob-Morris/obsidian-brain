@@ -13,8 +13,8 @@ from .._mutation_support import contributor_mutation_entry, no_effect_error
 from ..context import InvocationContext
 from ..preparation import admit_owner
 from ._start_preparation import SHAPING_SESSION, session_plan, session_binding
-from ..workspace_context import (WorkspaceAwareRequest, WorkspaceMutationPayload, WorkspaceMutationPartial,
-                                 workspace_request_decoder, validate_workspace_request)
+from ..workspace_context import (WorkspaceDispositionRequest, WorkspaceMutationPayload, WorkspaceMutationPartial,
+                                 workspace_disposition_decoder, validate_workspace_request)
 from ..results import (
     CommandError,
     ErrorCode,
@@ -54,7 +54,7 @@ class ShapingStartPayload(WorkspaceMutationPayload):
 
 
 @dataclass(frozen=True, slots=True)
-class ShapingStartRequest(WorkspaceAwareRequest):
+class ShapingStartRequest(WorkspaceDispositionRequest):
     COMMAND_ID: ClassVar[str] = "shaping.start"
     COMMAND_VERSION: ClassVar[int] = 2
     RESULT_TYPE: ClassVar[type] = ShapingStartPayload
@@ -90,6 +90,9 @@ def execute(context: InvocationContext, request: ShapingStartRequest):
         )
     root = str(context.selected_brain.vault_root)
     warnings = ()
+    semantic_plan = None
+    effects = ()
+    from ..relationship import _native as relationship_native
 
     try:
         with vault_mutation_lock(root):
@@ -102,6 +105,7 @@ def execute(context: InvocationContext, request: ShapingStartRequest):
             from ._start_preparation import session_effect_snapshot, committed_session_effects
             before = session_effect_snapshot(context, plan)
             options["_plan"] = plan
+            semantic_plan = relationship_native.begin(context, request, plan["semantic_transition"], router)
             try:
                 result = start_shaping_session(
                     root,
@@ -110,6 +114,7 @@ def execute(context: InvocationContext, request: ShapingStartRequest):
                     mode=request.mode.value,
                     **options,
                 )
+                relationship_native.complete(context, semantic_plan)
             finally:
                 effects = committed_session_effects(context, request, plan, before)
                 if plan["lifecycle"]:
@@ -125,10 +130,17 @@ def execute(context: InvocationContext, request: ShapingStartRequest):
             retryable=True,
         )
     except IndexRefreshIncomplete as exc:
-        return WorkspaceMutationPartial(request.COMMAND_ID, request.COMMAND_VERSION, index_refresh_error(exc),
+        effects += relationship_native.committed_effects(context, semantic_plan)
+        error = index_refresh_error(exc)
+        if semantic_plan is not None:
+            error = replace(error, message=error.message + "; inspect history.repair operation " + semantic_plan.operation)
+        return WorkspaceMutationPartial(request.COMMAND_ID, request.COMMAND_VERSION, error,
             effects, warnings=warnings, mutation_context=plan["mutation_context"])
     except PartialApplyError as exc:
         message = public_mutation_error_message(exc)
+        effects += relationship_native.committed_effects(context, semantic_plan)
+        if semantic_plan is not None:
+            message += "; inspect history.repair operation " + semantic_plan.operation
         if not effects:
             return no_effect_error(ShapingStartRequest, ErrorCode.CONFLICT, message)
         return WorkspaceMutationPartial(
@@ -142,6 +154,8 @@ def execute(context: InvocationContext, request: ShapingStartRequest):
             effects, warnings=warnings, mutation_context=plan["mutation_context"],
         )
     except FileNotFoundError as exc:
+        if effects:
+            raise
         return no_effect_error(
             ShapingStartRequest,
             ErrorCode.NOT_FOUND,
@@ -149,16 +163,12 @@ def execute(context: InvocationContext, request: ShapingStartRequest):
             "target",
         )
     except ValueError as exc:
+        if effects:
+            raise
         raise_nonstandard_text_error(exc)
         return no_effect_error(
             ShapingStartRequest,
             ErrorCode.INVALID_REQUEST,
-            str(exc),
-        )
-    except OSError as exc:
-        return no_effect_error(
-            ShapingStartRequest,
-            ErrorCode.CONFLICT,
             str(exc),
         )
 
@@ -184,7 +194,7 @@ def execute(context: InvocationContext, request: ShapingStartRequest):
     )
 
 
-@workspace_request_decoder
+@workspace_disposition_decoder
 def decode(payload: Mapping[str, object]) -> ShapingStartRequest:
     reject_unexpected(payload, {"target", "mode"})
     target = payload.get("target")
