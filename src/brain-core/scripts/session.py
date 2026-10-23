@@ -622,7 +622,7 @@ def build_session_model(
         "artefact_type_count": len(router.get("artefacts", [])),
         "resource_discovery": {
             "artefact_types": "Use resource.list(resource='type') for keys, then resource.read(resource='type', reference=<key>) for naming, statuses and paths before creating a note.",
-            "core_documents": "Load each core_docs path with vault.read-file(path=<path>); follow range.next_cursor for complete text.",
+            "core_documents": "Load each core_docs path with vault.read-file(path=<path>); follow delivery.continuation through result.read for complete text.",
         },
         "environment": env,
         "memories": _condense_memories(router.get("memories", [])),

@@ -22,8 +22,7 @@ def recover_detail_text(view, value):
     while address:
         frame = view.details[address]
         payload = frame["result"]
-        text += ("".join(item["text"] + item["line_ending"] for item in payload["fragments"])
-                 if "fragments" in payload else payload["content"])
+        text += payload["content"]
         address = frame["delivery"]["next_detail"]
     return text
 
@@ -83,14 +82,17 @@ def test_empty_accessible_set(payload):
 
 def test_long_unicode_line_exact_reconstruction_size_one():
     text = "a𐐀\\\"" * 15000 + "\r\nshort\nlast\u2028tail"
-    view = build_view(envelope({"content": text}), 1)
-    pieces = [piece for page in view.pages for piece in page["result"]["fragments"]]
-    assert "".join(piece["text"] + piece["line_ending"] for piece in pieces) == text
-    assert view.source_lines == 4
-    assert view.fragments == view.total_items == len(pieces) == len(view.pages)
-    for previous, following in zip(pieces, pieces[1:]):
-        if previous["line"] == following["line"]:
-            assert previous["end"] == following["start"]
+    view = build_view(envelope({"content": text}), 1, unit="lines")
+    assert "".join(page["result"]["content"] for page in view.pages) == text
+    assert view.source_lines == view.total_items == 4
+    position = 0
+    for page in view.pages:
+        payload = page["result"]
+        assert "fragments" not in payload
+        assert payload["content_range"] == {"start": position,
+            "end": position + len(payload["content"]), "total": len(text)}
+        position += len(payload["content"])
+    assert position == len(text)
     assert all(body_fits(page["result"]) for page in view.pages)
 
 
@@ -109,7 +111,7 @@ def test_structured_details_retain_every_field_and_make_progress():
     text = ""
     while body_reference:
         frame = view.details[body_reference]
-        text += "".join(piece["text"] + piece["line_ending"] for piece in frame["result"]["fragments"])
+        text += frame["result"]["content"]
         body_reference = frame["delivery"]["next_detail"]
     assert text == original["body"]
     assert all(body_fits(frame["result"]) for frame in view.details.values())
@@ -117,14 +119,14 @@ def test_structured_details_retain_every_field_and_make_progress():
 
 def test_small_structured_root_preserves_original_shape():
     original = {"path": "Example.md", "one": 1, "two": [False, None]}
-    view = build_view(envelope(original), 1)
+    view = build_view(envelope(original))
     assert len(view.pages) == 1
     assert view.page()["result"] == original
 
 
 def test_oversized_root_keeps_small_fields_without_json_dump():
     original = {"one": 1, "two": "x" * 10000}
-    view = build_view(envelope(original), 1)
+    view = build_view(envelope(original))
     compact = view.page()["result"]
     assert set(compact) == set(original)
     assert compact["one"] == 1
@@ -138,10 +140,10 @@ def test_invalid_record_sizes(size):
 
 
 def test_line_limits_and_declared_units():
-    assert build_view(envelope({"content": "x"})).page_size == 100
-    assert build_view(envelope({"content": "x"}), 500).page_size == 500
+    assert build_view(envelope({"content": "x"}), unit="lines").page_size == 100
+    assert build_view(envelope({"content": "x"}), 500, unit="lines").page_size == 500
     with pytest.raises(ValueError):
-        build_view(envelope({"content": "x"}), 501)
+        build_view(envelope({"content": "x"}), 501, unit="lines")
     with pytest.raises(ValueError):
         build_view(envelope([1, 2]), unit="records")
 
@@ -157,7 +159,7 @@ def test_relative_pages_require_origin_and_reject_bool():
 def test_failure_descriptor_has_no_private_counts():
     info = delivery_metadata(Delivery(reason="inaccessible"))
     assert info["availability"] == "unavailable"
-    assert info["total_pages"] is info["total_items"] is info["selected_pages"] is None
+    assert not ({"total_pages", "total_items", "selected_pages"} & info.keys())
 
 
 def test_no_input_or_returned_page_mutation():
@@ -226,13 +228,10 @@ def test_actual_proxy_ascii_outer_encoding_caps_emoji():
     assert len(json.dumps(oversized, ensure_ascii=False).encode("utf-8")) < 4000
     assert actual_encoded(oversized) > ENCODED_BODY_BYTES
     assert not body_fits(oversized)
-    view = build_view(envelope({"content": ("😀\\\"" * 5000)}), 1)
+    view = build_view(envelope({"content": ("😀\\\"" * 5000)}), 1, unit="lines")
     assert all(actual_encoded(frame["result"]) <= ENCODED_BODY_BYTES for frame in view.pages)
-    for frame in view.pages:
-        body = frame["result"]
-        text = "".join(item["text"] + item["line_ending"] for item in body["fragments"])
-        if body_fits({**body, "content": text}):
-            assert body["content"] == text
+    assert "".join(frame["result"]["content"] for frame in view.pages) == "😀\\\"" * 5000
+    assert all("fragments" not in frame["result"] for frame in view.pages)
     assert build_view(envelope({"content": "short 😀"})).page()["result"]["content"] == "short 😀"
 
 
@@ -261,7 +260,7 @@ def test_serialised_metadata_and_one_frame_reconstruct_selection():
 
 
 def test_nested_actual_page_does_not_recurse_through_field_wrappers():
-    source = build_view(envelope({"items": [{"id": 1, "body": "x" * 3500}]})).page()
+    source = build_view(envelope({"items": [{"id": 1, "body": "x" * 3600}]})).page()
     assert len(json.dumps(source).encode()) > 4000
     view = build_view(envelope({"envelope": source}))
     assert set(view.page()["result"]) == {"envelope"}
@@ -272,7 +271,7 @@ def test_nested_actual_page_does_not_recurse_through_field_wrappers():
 def test_near_budget_key_and_value_route_components_and_preserve_all_fields():
     original = {"k" * 2100: "v" * 1850, "availability_freshness": "current"}
     assert body_fits(original["k" * 2100])
-    view = build_view(envelope(original), 1)
+    view = build_view(envelope(original))
     compact = view.page()["result"]
     assert set(compact) == set(original)
     assert compact["availability_freshness"] == "current"
@@ -375,8 +374,7 @@ def test_long_line_fragmentation_bounds_encoding_work(monkeypatch):
         work.append(0)
         text = 'x' * length
         view = navigation.build_view(envelope({'content': text}))
-        assert ''.join(fragment['text'] for page in view.pages
-                       for fragment in page['result']['fragments']) == text
+        assert ''.join(page['result']['content'] for page in view.pages) == text
         assert all(original(page['result']) for page in view.pages)
     # An eightfold longer line needs proportional bounded fragment probes,
     # rather than repeatedly encoding its entire remaining suffix.
@@ -385,21 +383,15 @@ def test_long_line_fragmentation_bounds_encoding_work(monkeypatch):
 
 @pytest.mark.parametrize('text', ['x' * 5000, '雪😀\\\"' * 1300])
 def test_long_read_fragments_include_context_in_their_budget(text):
-    from _application.artefact.read import ArtefactLocation, ArtefactReadPayload
-    from _application._response_budget import ContentRange
-    from _application.projection import canonical_result_envelope
-    from _application.results import Ok
-
-    payload = ArtefactReadPayload('Wiki/Example.md', ArtefactLocation.ACTIVE,
-        text, 'sha256:' + 'a' * 64, ContentRange(0, len(text), len(text), None))
-    source = canonical_result_envelope(Ok('artefact.read', 4, payload))
+    source = {**envelope({"reference": "Wiki/Example.md", "location": "active",
+                          "content": text, "revision": "sha256:" + "a" * 64}),
+              "command": "artefact.read"}
     view = build_view(source)
     assert len(view.pages) > 1
-    assert ''.join(fragment['text'] + fragment['line_ending']
-                   for page in view.pages for fragment in page['result']['fragments']) == text
+    assert ''.join(page['result']['content'] for page in view.pages) == text
     for page in view.pages:
         assert body_fits(page['result'])
-        for key in ('reference', 'location', 'revision', 'range'):
+        for key in ('reference', 'location', 'revision'):
             assert page['result'][key] == source['result'][key]
 
 
@@ -407,8 +399,231 @@ def test_long_line_preserves_large_context_through_a_bounded_detail():
     context = {f'field-{i}': 'value' for i in range(300)}
     text = 'x' * 5000
     view = build_view(envelope({'content': text, **context}))
-    assert ''.join(fragment['text'] for page in view.pages
-                   for fragment in page['result']['fragments']) == text
+    assert ''.join(page['result']['content'] for page in view.pages) == text
     reference = view.pages[0]['result']['context']
     assert reference['detail'] in view.details
     assert all(body_fits(page['result']) for page in view.pages)
+
+
+@pytest.mark.parametrize("size", [1, 2, 100, 500])
+def test_text_pages_count_logical_lines_without_duplicate_text(size):
+    text = "one\r\ntwo\nthree\u2028last"
+    view = build_view(envelope({"content": text}), size, unit="lines")
+    assert "".join(page["result"]["content"] for page in view.pages) == text
+    assert len(view.pages) == (4 + size - 1) // size
+    assert all(len(page["result"]["content"].splitlines()) <= size for page in view.pages)
+    assert all(set(page["result"]) == {"content", "content_range"} for page in view.pages)
+
+
+def test_small_text_uses_one_representation_and_empty_range_is_stable():
+    text = "ordinary line\n" * 200
+    view = build_view(envelope({"content": text}), 500, unit="lines")
+    assert len(view.pages) == 1
+    assert view.page()["result"] == {"content": text,
+        "content_range": {"start": 0, "end": len(text), "total": len(text)}}
+    empty = build_view(envelope({"content": ""})).page()
+    assert empty["result"] == {"content": "", "content_range": {"start": 0, "end": 0, "total": 0}}
+    assert empty["delivery"]["total_pages"] == 0
+
+
+def test_page_line_bounds_match_delivered_text_at_exact_boundaries():
+    view = build_view(envelope({"content": "one\ntwo\nthree"}), 1, unit="lines")
+    assert [(page["delivery"]["first_item"], page["delivery"]["last_item"])
+            for page in view.pages] == [(1, 1), (2, 2), (3, 3)]
+
+
+def test_previous_layout_is_rejected_instead_of_delivering_fragments():
+    view = build_view(envelope({"content": "read"}))
+    old = view.metadata()
+    old.pop("layout_version")
+    with pytest.raises(ValueError, match="layout changed"):
+        select_page(view.pages[0], old)
+
+
+def test_compact_default_metadata_keeps_counts_without_selection_boilerplate():
+    info = build_view(envelope({"content": "text"})).page()["delivery"]
+    assert info["total_items"] == 4
+    assert info["total_pages"] == info["page"] == 1
+    assert info["status"] == "complete" and info["continuation"] is None
+    assert not ({"selection_id", "selected_pages", "start_page", "end_page",
+                 "pages_before_selection", "pages_after_selection", "source_revision",
+                 "change_notice", "fragments", "requested_page_size"} & info.keys())
+    assert all(value is not None or key == "continuation" for key, value in info.items())
+
+
+def test_retained_text_search_crosses_delivery_pages_without_public_fragments(tmp_path):
+    from types import SimpleNamespace
+    from _command_interface.result_delivery import ResultDeliverySession
+    from _command_interface.result_store import FileResultStore
+    from _application.result.read import ResultReadRequest
+    from _application.result.search import ResultSearchRequest
+
+    root = tmp_path / "Brain"
+    root.mkdir()
+    store = FileResultStore(root, "brain", "principal")
+    session = ResultDeliverySession(store, store.issue())
+    text = "header\n" + "x" * 15000
+    first = build_view(envelope({"content": text}))
+    boundary = first.pages[0]["result"]["content_range"]["end"]
+    text = text[:boundary - 2] + "NEEDLE" + text[boundary + 4:]
+    source = envelope({"content": text})
+    view = build_view(source)
+    key = session._view_key(view.unit, view.page_size)
+    authority = {"command_id": "test.read", "stamp": None, "default_view": key}
+    ticket = store.admit(session.owner, "test.read", "invocation")
+    result_id = store.publish(session.owner, ticket, source, authority)
+    session._save(result_id, key, view, None)
+    service = SimpleNamespace(check_result_delivery=lambda *args: None)
+    context = SimpleNamespace(authorisation=SimpleNamespace(service=service))
+    matches = []
+    page, offset = 1, 0
+    while page is not None:
+        found = session.search(context, ResultSearchRequest(result_id, "NEEDLE",
+            start_page=page, start_offset=offset, scan_pages=1))
+        matches.extend(found["matches"])
+        page, offset = found["next_page"], found["next_offset"]
+    assert [(match["line"], match["column"]) for match in matches] == [(2, boundary - 9)]
+    delivered = session.read(context, ResultReadRequest(result_id, page=2))
+    assert "_text_column" not in delivered
+    assert "fragments" not in delivered["result"]
+
+
+def test_retained_previous_layout_is_rejected_without_replaying_source(tmp_path):
+    from types import SimpleNamespace
+    from _command_interface.result_delivery import ResultDeliverySession
+    from _command_interface.result_store import FileResultStore
+    from _application.result.read import ResultReadRequest
+
+    root = tmp_path / "Brain"
+    root.mkdir()
+    store = FileResultStore(root, "brain", "principal")
+    session = ResultDeliverySession(store, store.issue())
+    source = envelope({"content": "text"})
+    view = build_view(source)
+    authority = {"command_id": "test.read", "stamp": None, "default_view": "old"}
+    ticket = store.admit(session.owner, "test.read", "invocation")
+    result_id = store.publish(session.owner, ticket, source, authority)
+    old = view.metadata()
+    old.pop("layout_version")
+    store.save_view(session.owner, result_id, "old", list(view.pages), old)
+    service = SimpleNamespace(check_result_delivery=lambda *args: None)
+    context = SimpleNamespace(authorisation=SimpleNamespace(service=service))
+    with pytest.raises(ValueError, match="Do not rerun a mutation"):
+        session.read(context, ResultReadRequest(result_id))
+
+
+def test_explicit_field_page_size_limits_units_without_changing_default_root():
+    data = {f"field{i}": i for i in range(6)}
+    default = build_view(envelope(data))
+    assert len(default.pages) == 1 and default.page()["result"] == data
+    selected = build_view(envelope(data), page_size=2)
+    assert len(selected.pages) == 3
+    assert all(len(page["result"]["fields"]) <= 2 for page in selected.pages)
+    rebuilt = {entry["field"]: entry["value"] for page in selected.pages
+               for entry in page["result"]["fields"]}
+    assert rebuilt == data
+    assert all(page["delivery"]["total_pages"] == 3 for page in selected.pages)
+
+
+def test_default_compact_root_and_explicit_default_field_size_have_distinct_identities():
+    data = {f"field{i}": i for i in range(40)}
+    compact = build_view(envelope(data))
+    explicit = build_view(envelope(data), page_size=25)
+    assert len(compact.pages) == 1 and len(explicit.pages) == 2
+    assert compact.view_id != explicit.view_id
+
+
+@pytest.mark.parametrize('size', [None, 1])
+def test_abandoned_compact_root_does_not_retain_unreferenced_details(size):
+    data = {f'field{i}': 'x' * 600 for i in range(35)}
+    view = build_view(envelope(data), page_size=size)
+    assert len(view.pages) > 1
+    assert not view.details and not view.metadata()['has_details']
+    recovered = {item['field']: item['value'] for page in view.pages for item in page['result']['fields']}
+    assert recovered == data
+
+
+def test_default_text_bytes_fit_many_lines_on_one_page():
+    text = "x\n" * 200
+    view = build_view(envelope({"content": text}))
+    assert view.unit == "bytes" and view.page_size == 4000
+    assert len(view.pages) == 1
+    assert view.page()["result"]["content"] == text
+    info = view.page()["delivery"]
+    assert (info["first_item"], info["last_item"], info["total_items"]) == (1, 400, 400)
+    lines = build_view(envelope({"content": text}), unit="lines")
+    assert lines.page_size == 100 and len(lines.pages) == 2
+    assert lines.total_items == 200
+
+
+@pytest.mark.parametrize("text,size", [("abcde", 2), ("雪😀éabc", 4), ("😀😀😀", 5)])
+def test_explicit_byte_sizes_preserve_unicode_and_report_byte_bounds(text, size):
+    view = build_view(envelope({"content": text}), size)
+    assert view.unit == "bytes" and view.page_size == size
+    assert view.total_items == len(text.encode("utf-8"))
+    char_position = byte_position = 0
+    for page in view.pages:
+        payload, info = page["result"], page["delivery"]
+        delivered = payload["content"]
+        byte_count = len(delivered.encode("utf-8"))
+        assert 0 < byte_count <= size
+        assert (info["first_item"], info["last_item"]) == (byte_position + 1, byte_position + byte_count)
+        assert payload["content_range"] == {"start": char_position,
+            "end": char_position + len(delivered), "total": len(text)}
+        assert body_fits(payload)
+        char_position += len(delivered)
+        byte_position += byte_count
+    assert "".join(page["result"]["content"] for page in view.pages) == text
+    assert byte_position == view.total_items
+
+
+@pytest.mark.parametrize("text,size,minimum", [("😀", 3, 4), ("a雪", 2, 3)])
+def test_byte_size_too_small_for_next_character_is_actionable(text, size, minimum):
+    with pytest.raises(ValueError, match=f"at least {minimum} UTF-8 bytes.*increase page_size to 4000.*default"):
+        build_view(envelope({"content": text}), size)
+
+
+def test_byte_mode_obeys_final_body_budget_without_exceeding_requested_size():
+    text = '😀\\"' * 2000
+    view = build_view(envelope({"content": text}), 4000)
+    assert len(view.pages) > 1
+    assert all(body_fits(page["result"]) for page in view.pages)
+    assert all(len(page["result"]["content"].encode("utf-8")) <= 4000 for page in view.pages)
+    assert len(view.pages[0]["result"]["content"].encode("utf-8")) < 4000
+    assert "".join(page["result"]["content"] for page in view.pages) == text
+
+
+@pytest.mark.parametrize("size", [True, 0, -1, 1.5, 4001, "100"])
+def test_invalid_byte_sizes(size):
+    with pytest.raises(ValueError, match="page_size"):
+        build_view(envelope({"content": "text"}), size)
+
+
+@pytest.mark.parametrize("payload,unit", [({"content": "x"}, "records"),
+    ({"content": "x"}, "fields"), ({"items": [1]}, "bytes"),
+    ({"items": [1]}, "lines"), ({"key": "value"}, "bytes"),
+    ({"key": "value"}, "lines")])
+def test_incompatible_explicit_unit_is_rejected(payload, unit):
+    with pytest.raises(ValueError, match="unit must"):
+        build_view(envelope(payload), unit=unit)
+
+
+def test_text_view_identity_binds_mode_and_size():
+    source = envelope({"content": "a\nb\nc"})
+    default = build_view(source)
+    assert default.view_id == build_view(source, 4000, "bytes").view_id
+    assert len({build_view(source, size, unit).view_id
+        for size, unit in [(2, "bytes"), (3, "bytes"), (2, "lines")]}) == 3
+    assert all(page["delivery"]["unit"] == "bytes" for page in default.pages)
+
+
+def test_line_mode_long_line_keeps_logical_line_bounds_under_byte_cap():
+    text = "雪" * 3000 + "\nend\n"
+    view = build_view(envelope({"content": text}), 1, "lines")
+    assert len(view.pages) > 2
+    assert "".join(page["result"]["content"] for page in view.pages) == text
+    assert view.total_items == 2
+    assert all(body_fits(page["result"]) for page in view.pages)
+    assert all(page["delivery"]["first_item"] == page["delivery"]["last_item"] for page in view.pages)
+    assert view.pages[0]["delivery"]["first_item"] == 1
+    assert view.pages[-1]["delivery"]["last_item"] == 2

@@ -13,8 +13,6 @@ from typing import ClassVar, Literal, Mapping
 from .._read_support import catalogue_entry as read_catalogue_entry
 from .._read_support import command_error
 from ..context import InvocationContext
-from .._response_budget import (ContentRange, TextCursor, bounded_text_result,
-    decode_text_cursor, validate_text_window, DEFAULT_TEXT_CHARACTERS, TEXT_WINDOW_DESCRIPTIONS)
 from ..results import Error, ErrorCode, Ok
 from ..type._classification import ArtefactTypeClassification
 from ._types import SkillSource, TriggerCategory
@@ -36,7 +34,6 @@ class MemoryReadItem:
     triggers: tuple[str, ...]
     content: str
     revision: str
-    range: ContentRange
     resource: Literal["memory"] = field(default="memory", init=False)
 
 
@@ -45,7 +42,6 @@ class PluginReadItem:
     name: str
     content: str
     revision: str
-    range: ContentRange
     resource: Literal["plugin"] = field(default="plugin", init=False)
 
 
@@ -55,7 +51,6 @@ class SkillReadItem:
     source: SkillSource
     content: str
     revision: str
-    range: ContentRange
     resource: Literal["skill"] = field(default="skill", init=False)
 
 
@@ -64,7 +59,6 @@ class StyleReadItem:
     name: str
     content: str
     revision: str
-    range: ContentRange
     resource: Literal["style"] = field(default="style", init=False)
 
 
@@ -75,7 +69,6 @@ class TemplateReadItem:
     path: str
     content: str
     revision: str
-    range: ContentRange
     resource: Literal["template"] = field(default="template", init=False)
 
 
@@ -98,9 +91,8 @@ class TypeReadItem:
     configured: bool
     taxonomy_path: str | None
     template_path: str | None
-    definition: str | None
+    content: str | None
     revision: str | None
-    range: ContentRange | None
     resource: Literal["type"] = field(default="type", init=False)
 
 
@@ -118,21 +110,17 @@ ResourceReadItem = (
 @dataclass(frozen=True, slots=True)
 class ResourceReadRequest:
     COMMAND_ID: ClassVar[str] = "resource.read"
-    COMMAND_VERSION: ClassVar[int] = 3
+    COMMAND_VERSION: ClassVar[int] = 4
     RESULT_TYPE: ClassVar[type] = ResourceReadItem
     FIELD_DESCRIPTIONS: ClassVar[dict[str, str]] = {
-        **TEXT_WINDOW_DESCRIPTIONS,
         "resource": "Named resource collection: memory, plugin, skill, style, template, trigger or type.",
         "reference": "Exact resource name, type key or trigger condition.",
     }
 
     resource: ReadableResource
     reference: str
-    cursor: TextCursor | None = None
-    max_characters: int = DEFAULT_TEXT_CHARACTERS
 
     def __post_init__(self) -> None:
-        validate_text_window(self.cursor, self.max_characters)
         if not isinstance(self.resource, ReadableResource):
             raise ValueError("resource.read resource is invalid")
         if not isinstance(self.reference, str) or not self.reference.strip():
@@ -146,36 +134,21 @@ def read_result(context: InvocationContext, request: ResourceReadRequest):
     )
     if isinstance(result, Error):
         return result
-    if isinstance(result, (MemoryReadItem, PluginReadItem, SkillReadItem,
-                           StyleReadItem, TemplateReadItem)):
-        field_name = "content"
-        content = result.content
-    elif isinstance(result, TypeReadItem) and result.definition is not None:
-        field_name = "definition"
-        content = result.definition
-    else:
-        if request.cursor is not None:
-            return _error(ErrorCode.INVALID_REQUEST, "This resource has no document continuation.", "cursor")
+    content = getattr(result, "content", None)
+    if content is None:
         return Ok(request.COMMAND_ID, request.COMMAND_VERSION, result)
     from ..preparation import observe_document_read
     from .._text_warnings import read_conversion_warnings
 
-    bounded = bounded_text_result(ResourceReadRequest, content, result.revision,
-        cursor=request.cursor, max_characters=request.max_characters,
-        warnings=read_conversion_warnings(context, content),
-        payload=lambda text, window: replace(result, **{field_name: text, "range": window}))
-
-    return observe_document_read(context, bounded, content)
+    complete = Ok(request.COMMAND_ID, request.COMMAND_VERSION, result,
+                  warnings=read_conversion_warnings(context, content))
+    return observe_document_read(context, complete, content)
 
 
 def execute(context, request):
     from ..preparation import execute_prepared_read
 
     return execute_prepared_read(context, request, read_result)
-
-
-def _full_range(content):
-    return ContentRange(0, len(content), len(content), None)
 
 
 def _error(code, message, field=None):
@@ -200,7 +173,6 @@ def _read_memory(root, reference):
         tuple(metadata.get("triggers") or ()),
         content,
         content.revision,
-        _full_range(content),
     )
 
 def _read_named(root, reference, resource, item_builder):
@@ -241,7 +213,6 @@ def _read_template(root, reference):
         metadata["template_file"],
         content,
         content.revision,
-        _full_range(content),
     )
 
 
@@ -290,7 +261,6 @@ def _read_type(root, reference):
         metadata.get("template_file"),
         definition,
         None if definition is None else definition.revision,
-        None if definition is None else _full_range(definition),
     )
 
 
@@ -300,14 +270,14 @@ _READERS = {
         root,
         reference,
         "plugin",
-        lambda metadata, content, revision: PluginReadItem(metadata["name"], content, revision, _full_range(content)),
+        lambda metadata, content, revision: PluginReadItem(metadata["name"], content, revision),
     ),
     ReadableResource.SKILL: lambda root, reference: _read_named(
         root,
         reference,
         "skill",
         lambda metadata, content, revision: SkillReadItem(
-            metadata["name"], SkillSource(metadata["source"]), content, revision, _full_range(content)
+            metadata["name"], SkillSource(metadata["source"]), content, revision
         ),
     ),
     ReadableResource.STYLE: lambda root, reference: _read_named(
@@ -315,7 +285,7 @@ _READERS = {
         reference,
         "style",
         lambda metadata, content, revision: StyleReadItem(
-            metadata["name"], content, revision, _full_range(content)
+            metadata["name"], content, revision
         ),
     ),
     ReadableResource.TEMPLATE: _read_template,
@@ -325,7 +295,7 @@ _READERS = {
 
 
 def decode(payload: Mapping[str, object]) -> ResourceReadRequest:
-    reject_unexpected(payload, {"resource", "reference", "cursor", "max_characters"})
+    reject_unexpected(payload, {"resource", "reference"})
     try:
         resource = ReadableResource(payload.get("resource"))
     except (TypeError, ValueError) as exc:
@@ -335,9 +305,7 @@ def decode(payload: Mapping[str, object]) -> ResourceReadRequest:
     reference = payload.get("reference")
     if not isinstance(reference, str):
         raise ValueError("reference must be a string")
-    return ResourceReadRequest(resource, reference,
-        decode_text_cursor(payload.get("cursor")),
-        payload.get("max_characters", DEFAULT_TEXT_CHARACTERS))
+    return ResourceReadRequest(resource, reference)
 
 
 def _reader_entry():

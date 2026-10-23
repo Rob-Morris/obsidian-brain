@@ -626,7 +626,7 @@ def _invoke_application(
     except json.JSONDecodeError as exc:
         raise CliError("selected Brain discovery returned invalid JSON" + diagnostic) from exc
     try:
-        validate_application_envelope(result, command_id, completed.returncode)
+        validate_application_envelope(result, command_id, completed.returncode, result_id=payload.get("result_id"))
     except RuntimeError as exc:
         raise CliError(str(exc) + diagnostic) from exc
     return result
@@ -914,10 +914,8 @@ def _application_description_metadata(selected, envelope, common):
             frame = _invoke_application(selected, "result.read", {
                 "result_id": envelope["delivery"]["result_id"], "continuation": cursor}, common,
                 dependency_tier="stdlib", result_session_file=envelope.get("result_session_file"))
-            source = _ok_payload(frame, "result.read").get("envelope")
-            if not isinstance(source, dict) or source.get("command") != "command.describe":
-                raise CliError("selected Brain description continuation has the wrong source")
-            fields.extend(source["result"]["fields"])
+            source = _retained_source(frame, "command.describe")
+            fields.extend(_ok_payload(source, "command.describe")["fields"])
             cursor = (frame.get("delivery") or {}).get("continuation")
         payload = {field["field"]: field["value"] for field in fields}
     required = ("catalogue_schema", "catalogue_fingerprint", "command_id", "command_version", "summary", "dependency_tier")
@@ -928,6 +926,17 @@ def _application_description_metadata(selected, envelope, common):
     return payload
 
 
+def _retained_source(frame, command_id):
+    """Accept released nested navigation and current direct source envelopes."""
+    if frame.get("command") == "result.read":
+        source = _ok_payload(frame, "result.read").get("envelope")
+    else:
+        source = frame
+    if not isinstance(source, dict) or source.get("command") != command_id:
+        raise CliError("selected Brain retained result has the wrong source")
+    return source
+
+
 def _application_detail(selected, envelope, detail, common):
     """Reconstruct a declared detail through bounded result reads on the same private file."""
     result_id = (envelope.get("delivery") or {}).get("result_id")
@@ -935,7 +944,7 @@ def _application_detail(selected, envelope, detail, common):
     if not result_id or (not path and getattr(common, "owner_attachment", None) is None):
         raise CliError("selected Brain discovery detail has no reusable result context")
     seen = set()
-    fragments = []
+    chunks = []
     fields = []
     root_type = None
     scalar = None
@@ -945,21 +954,20 @@ def _application_detail(selected, envelope, detail, common):
         seen.add(detail)
         frame = _invoke_application(selected, "result.read", {"result_id": result_id, "detail": detail}, common,
                                     dependency_tier="stdlib", result_session_file=path)
-        wrapper = _ok_payload(frame, "result.read")
-        source = wrapper.get("envelope")
-        if not isinstance(source, dict):
-            raise CliError("selected Brain detail omitted its source envelope")
-        payload = source.get("result")
-        if isinstance(payload, dict) and isinstance(payload.get("fragments"), list):
-            fragments.extend(item["text"] + item["line_ending"] for item in payload["fragments"])
+        source = _retained_source(frame, envelope["command"])
+        payload = _ok_payload(source, envelope["command"])
+        if isinstance(payload.get("content"), str):
+            chunks.append(payload["content"])
+        elif isinstance(payload.get("fragments"), list):
+            chunks.extend(item["text"] + item["line_ending"] for item in payload["fragments"])
         elif isinstance(payload, dict) and isinstance(payload.get("fields"), list):
             root_type = payload.get("root_type")
             fields.extend(payload["fields"])
         else:
             scalar = payload
         detail = (frame.get("delivery") or {}).get("next_detail")
-    if fragments:
-        return "".join(fragments)
+    if chunks:
+        return "".join(chunks)
     if root_type == "list":
         return [item["value"] for item in sorted(fields, key=lambda item: item["index"])]
     if root_type == "dict":

@@ -38,8 +38,8 @@ def test_archive_list_snapshot_preserves_selection_without_freshness_work(system
     monkeypatch.setattr(context.derived_snapshots, 'list_revision', forbidden)
     first = invoke('artefact.list', {'location': location, 'page_size': 2, 'sort': 'title'}).structured_content
     assert first['status'] == 'ok', first
-    assert first['delivery']['backing'] == 'retained'
-    assert first['delivery']['consistency'] == 'immutable-output'
+    assert first['delivery'].get('backing', 'retained') == 'retained'
+    assert first['delivery'].get('consistency', 'immutable-output') == 'immutable-output'
     assert first['delivery']['count_scope'] == 'filtered-artefacts'
     result_id = first['delivery']['result_id']
     owner = store.authenticate(credential)
@@ -69,7 +69,7 @@ def test_archive_list_snapshot_preserves_selection_without_freshness_work(system
         'continuation': first['delivery']['continuation']}).structured_content
     assert second['delivery']['max_pages'] == second['delivery']['selected_pages'] == 10
     assert second['delivery']['page_size'] == 2
-    assert second['result']['envelope']['result']['items'] == expected[2:4]
+    assert second['result']['items'] == expected[2:4]
     selected_last = invoke('result.read', {'result_id': result_id, 'page': 10}).structured_content
     outside = invoke('result.read', {'result_id': result_id,
         'continuation': selected_last['delivery']['outside_continuation']}).structured_content
@@ -80,12 +80,12 @@ def test_archive_list_snapshot_preserves_selection_without_freshness_work(system
     for _ in range((total + 1) // 2):
         delivery = page['delivery']
         assert page['status'] == 'ok'
-        assert delivery['backing'] == 'retained'
-        assert delivery['consistency'] == 'immutable-output'
+        assert delivery.get('backing', 'retained') == 'retained'
+        assert delivery.get('consistency', 'immutable-output') == 'immutable-output'
         assert delivery['count_scope'] == 'filtered-artefacts'
-        assert delivery['source_revision'] is delivery['change_notice'] is None
+        assert delivery.get('source_revision') is delivery.get('change_notice') is None
         assert delivery['total_items'] == total
-        source = page['result']['envelope']
+        source = page
         assert source['status'] == 'ok'
         assert any(warning['code'] == 'degraded_capability'
             and f'This {location} filtered artefact list' in warning['message']
@@ -108,10 +108,10 @@ def test_archive_list_snapshot_preserves_selection_without_freshness_work(system
     assert resized['delivery']['max_pages'] == 10
     assert resized['delivery']['total_pages'] == (total + 2) // 3
     assert resized['delivery']['count_scope'] == 'filtered-artefacts'
-    assert resized['result']['envelope']['result']['items'] == expected[:3]
+    assert resized['result']['items'] == expected[:3]
     cached = invoke('result.read', {'result_id': result_id,
         'page_size': 3, 'anchor': 3}).structured_content
-    assert cached['result']['envelope']['result']['items'] == expected[3:6]
+    assert cached['result']['items'] == expected[3:6]
     search = invoke('result.search', {'result_id': result_id,
         'literal': 'Archived 00', 'scan_pages': 50}).structured_content
     assert search['status'] == 'ok', search
@@ -164,7 +164,8 @@ def system(command_vault_clone):
 
 def content(frame):
     value=frame['result']
-    return value.get('content',''.join(x['text']+x['line_ending'] for x in value.get('fragments',())))
+    assert 'fragments' not in value
+    return value['content']
 
 
 def test_real_read_pages_do_not_reexecute_source_and_cached_read_is_bounded(system,monkeypatch):
@@ -183,7 +184,7 @@ def test_real_read_pages_do_not_reexecute_source_and_cached_read_is_bounded(syst
     while cursor:
         page=invoke('result.read',{'result_id':result_id,'continuation':cursor}).structured_content
         assert page['status']=='ok'
-        parts.append(content(page['result']['envelope']))
+        parts.append(content(page))
         cursor=page['delivery']['continuation']
     assert ''.join(parts)==expected
 
@@ -216,8 +217,8 @@ def test_dynamic_pages_warn_independently_even_when_count_is_unchanged(system):
     second=invoke('result.read',{'result_id':result_id,'page':2}).structured_content
     one=invoke('result.read',{'result_id':result_id,'page':1}).structured_content
     assert second['delivery']['change_notice'] and one['delivery']['change_notice']
-    assert not invoke('result.read',{'result_id':result_id,'page':1}).structured_content['delivery']['change_notice']
-    assert one['result']['envelope']['result']['items'][0]['status']=='updated'
+    assert not invoke('result.read',{'result_id':result_id,'page':1}).structured_content['delivery'].get('change_notice')
+    assert one['result']['items'][0]['status']=='updated'
 
 
 def test_current_read_reduction_blocks_body_counts_and_search(system):
@@ -297,17 +298,17 @@ def test_query_page_size_and_uncapped_selection_are_explicit(system):
     assert (info['page'], info['start_page'], info['end_page'], info['max_pages']) == (11, 11, 20, 10)
     assert (info['pages_before_selection'], info['pages_after_selection'], info['remaining_pages']) == (10, 30, 9)
     assert info['selection_id'] != first['delivery']['selection_id']
-    assert info['continuation']['page'] == 12
-    assert info['continuation']['selection_id'] == info['selection_id']
+    assert isinstance(info['continuation'], str) and info['continuation'].startswith('t1_')
     following = invoke('result.read', {'result_id': first['delivery']['result_id'],
                                      'continuation': info['continuation']}).structured_content
     assert following['delivery']['page'] == 12
     assert following['delivery']['selection_id'] == info['selection_id']
     full = invoke('result.read', {'result_id': first['delivery']['result_id'],
                                  'page': 0, 'max_pages': 'all'}).structured_content
-    assert full['delivery']['selected_pages'] == 50
-    assert not full['delivery']['has_more_outside_selection']
-    assert len(full['result']['envelope']['result']['items']) == 2
+    assert full['delivery']['total_pages'] == 50
+    assert 'selected_pages' not in full['delivery']
+    assert not full['delivery'].get('has_more_outside_selection', False)
+    assert len(full['result']['items']) == 2
 
 
 def test_control_output_is_bound_to_its_original_owner(system):
@@ -329,14 +330,13 @@ def test_dynamic_out_of_range_preserves_current_counts(system):
     assert beyond['delivery']['total_pages'] == first['delivery']['total_pages']
 
 
-@pytest.mark.parametrize('bad', [True, 'two', [], 10**100])
+@pytest.mark.parametrize('bad', ['two', 't2_unknown-version', 't1_malformed'])
 def test_malformed_continuation_is_a_request_conflict(system, bad):
     _, _, _, _, invoke = system
     first = invoke('artefact.read', {'reference': TARGET}).structured_content
     result_id = first['delivery']['result_id']
     response = invoke('result.read', {'result_id': result_id,
-        'continuation': {'result_id': result_id, 'view_id': first['delivery']['view_id'],
-                         'page': bad}}).structured_content
+        'continuation': bad}).structured_content
     assert response['status'] == 'error'
     assert response['error']['code'] == 'conflict'
 
@@ -352,7 +352,7 @@ def test_reused_port_does_not_retain_an_early_preflight_refusal(system):
     refused = adapter.invoke(second, 'artefact.read', {'reference': TARGET}).structured_content
     assert refused['status'] == 'error'
     assert refused['error']['code'] == 'capability_unavailable'
-    assert refused['delivery']['result_id'] is None
+    assert refused['delivery'].get('result_id') is None
 
 
 def test_revocation_does_not_depend_on_result_retention_capacity(system, monkeypatch):
@@ -363,7 +363,7 @@ def test_revocation_does_not_depend_on_result_retention_capacity(system, monkeyp
     reduced = invoke('access.reduce', {'reduction': {'kind': 'commands',
                        'commands': ['artefact.read']}}).structured_content
     assert reduced['status'] == 'ok'
-    assert reduced['delivery']['result_id'] is None
+    assert reduced['delivery'].get('result_id') is None
     assert context.authorisation.service.state('artefact.read') != 'authorised'
 
 
@@ -408,7 +408,7 @@ def test_spent_query_grant_delivers_cached_output_but_changed_query_needs_source
     monkeypatch.setattr(artefact_listing, 'list_combined_from_vault', forbidden)
     cached = invoke('result.read', {'result_id': result_id}).structured_content
     assert cached['status'] == 'ok'
-    assert cached['result']['envelope']['result']['items'] == first['result']['items']
+    assert cached['result']['items'] == first['result']['items']
     path = root / '.brain/local/retrieval-index.json'
     index = json.loads(path.read_text())
     index['documents'][0]['title'] = 'Changed current query title'
@@ -421,3 +421,46 @@ def test_spent_query_grant_delivers_cached_output_but_changed_query_needs_source
     assert 'artefact.list' in message and 'Fresh query' in message
     assert 'access.status' in message and 'access.request' in message and 'retry result.read' in message
     assert service.inspect(descriptor['operation_id'])['state'] == 'spent'
+
+
+@pytest.mark.parametrize('text', ['', '雪 😀 "quoted" \\ tail\n', ('雪😀"\\' * 6000) + '\nlast\n'],
+                         ids=['empty', 'short-unicode', 'oversized-unicode-line'])
+def test_full_text_has_one_content_value_contiguous_bounds_and_exact_counts(system, text):
+    root, _, _, _, invoke = system
+    path = root / 'Notes' / 'Delivery Unicode.md'
+    path.parent.mkdir(exist_ok=True)
+    path.write_text(text, encoding='utf-8')
+    first = invoke('vault.read-file', {'path': 'Notes/Delivery Unicode.md'}).structured_content
+    assert first['status'] == 'ok', first.get('error')
+    result_id = first['delivery']['result_id']
+    total_pages = first['delivery']['total_pages']
+    assert total_pages == 0 if not text else total_pages >= 1
+    page = first
+    pieces = []
+    offset = 0
+    for number in range(1, max(1, total_pages) + 1):
+        payload = page['result']
+        assert page['command'] == 'vault.read-file'
+        assert page['command_version'] == first['command_version']
+        assert 'envelope' not in payload and 'fragments' not in payload
+        assert 'range' not in payload and 'next_cursor' not in payload
+        chunk = payload['content']
+        assert payload['content_range'] == {'start': offset, 'end': offset + len(chunk), 'total': len(text)}
+        assert payload['revision'] == first['result']['revision']
+        info = page['delivery']
+        assert info['unit'] == 'bytes'
+        assert info['total_items'] == len(text.encode('utf-8'))
+        assert info['total_pages'] == total_pages
+        assert info['page'] == number
+        assert info['remaining_pages'] == max(0, total_pages - number)
+        assert info['has_more'] == (number < total_pages)
+        assert len(json.dumps(page, ensure_ascii=False, separators=(',', ':')).encode('utf-8')) <= 8000
+        pieces.append(chunk)
+        offset += len(chunk)
+        if info['continuation'] is None:
+            assert number == max(1, total_pages)
+            break
+        page = invoke('result.read', {'result_id': result_id, 'continuation': info['continuation']}).structured_content
+        assert page['status'] == 'ok', page.get('error')
+    assert ''.join(pieces) == text
+    assert ''.join(pieces).encode('utf-8') == path.read_bytes()

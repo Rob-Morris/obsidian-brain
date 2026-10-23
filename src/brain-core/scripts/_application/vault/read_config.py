@@ -3,11 +3,8 @@
 from __future__ import annotations
 
 from .._decoding import reject_unexpected
-from .._response_budget import (ContentRange, TextCursor, bounded_text_result, decode_text_cursor,
-    encoded_result_size, validate_text_window, MODEL_TEXT_BUDGET, DEFAULT_TEXT_CHARACTERS, TEXT_WINDOW_DESCRIPTIONS)
 from ..access_contracts import AccessConfiguration
-from dataclasses import dataclass, asdict
-import json
+from dataclasses import dataclass
 from typing import ClassVar, Mapping
 
 from .._read_support import (
@@ -32,25 +29,10 @@ class VaultConfigPayload:
 
 
 @dataclass(frozen=True, slots=True)
-class VaultConfigPage:
-    content: str
-    revision: str
-    range: ContentRange
-    instruction: str
-
-
-@dataclass(frozen=True, slots=True)
 class VaultReadConfigRequest:
     COMMAND_ID: ClassVar[str] = "vault.read-config"
-    COMMAND_VERSION: ClassVar[int] = 2
-    RESULT_TYPE: ClassVar[object] = VaultConfigPayload | VaultConfigPage
-    FIELD_DESCRIPTIONS: ClassVar[dict[str, str]] = TEXT_WINDOW_DESCRIPTIONS
-
-    cursor: TextCursor | None = None
-    max_characters: int = DEFAULT_TEXT_CHARACTERS
-
-    def __post_init__(self):
-        validate_text_window(self.cursor, self.max_characters)
+    COMMAND_VERSION: ClassVar[int] = 3
+    RESULT_TYPE: ClassVar[type] = VaultConfigPayload
 
 
 def execute(context: InvocationContext, request: VaultReadConfigRequest):
@@ -103,22 +85,12 @@ def execute(context: InvocationContext, request: VaultReadConfigRequest):
         warnings=tuple(str(item.message) for item in captured),
         access=context.access.configuration(),
     )
-    complete = Ok(request.COMMAND_ID, request.COMMAND_VERSION, payload)
-    if request.cursor is None and encoded_result_size(complete) < MODEL_TEXT_BUDGET:
-        return complete
-    from ..preparation import content_digest
-    content = json.dumps(asdict(payload), ensure_ascii=False, sort_keys=True, separators=(",", ":"))
-    revision = content_digest(content)
-    return bounded_text_result(VaultReadConfigRequest, content, revision,
-        cursor=request.cursor, max_characters=request.max_characters, byte_budget=MODEL_TEXT_BUDGET - 1,
-        payload=lambda text, window: VaultConfigPage(text, revision, window,
-            "Concatenate content from all range.next_cursor pages before parsing the redacted configuration JSON."))
+    return Ok(request.COMMAND_ID, request.COMMAND_VERSION, payload)
 
 
 def decode(payload: Mapping[str, object]) -> VaultReadConfigRequest:
-    reject_unexpected(payload, {"cursor", "max_characters"})
-    return VaultReadConfigRequest(decode_text_cursor(payload.get("cursor")),
-                                  payload.get("max_characters", DEFAULT_TEXT_CHARACTERS))
+    reject_unexpected(payload, set())
+    return VaultReadConfigRequest()
 
 
 def catalogue_entry():

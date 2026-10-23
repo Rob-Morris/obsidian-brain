@@ -8,6 +8,6 @@ Use this file as the bootstrap entry point only. `session.start` owns the canoni
 4. If MCP, CLI and scripts cannot be used, read `.brain/local/session.md` if it exists.
 5. If no generated mirror is available either, read `.brain-core/md-bootstrap.md` for the authored Markdown fallback. It requires no code execution, compilation or generated assets.
 
-For every tool-backed `session.start`, follow `range.next_cursor` until `bootstrap_complete` is true before ordinary work. On a source revision conflict, restart without a cursor.
+For every tool-backed `session.start`, keep the result-session credential and follow `delivery.continuation` through `result.read` until every bootstrap page has been retrieved before ordinary work. There is no separate text source cursor.
 
 `md-bootstrap.md` routes to shipped instructions and authored vault configuration. Keep this file a bootloader, not a second bootstrap payload surface.

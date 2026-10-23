@@ -49,9 +49,11 @@ class LocalExecutionProjection:
             raise ValueError("local execution JSON must be valid") from exc
         if decoded != self.structured_content:
             raise ValueError("local execution JSON and structured result must agree")
-        if self.is_error != (self.structured_content.get("status") != "ok"):
+        source_navigation = _is_retained_source(self.command_id, self.structured_content)
+        if self.is_error != (not source_navigation and self.structured_content.get("status") != "ok"):
             raise ValueError("local execution error state must follow structural status")
-        if self.exit_code != _envelope_exit_code(self.structured_content):
+        source_exit = _envelope_exit_code(self.structured_content)
+        if self.exit_code != (0 if source_navigation else source_exit):
             raise ValueError("local execution exit category must follow structural result")
 
 
@@ -181,7 +183,7 @@ class ApplicationProcessInvoker:
             envelope = json.loads(stdout)
         except json.JSONDecodeError as exc:
             raise RuntimeError("selected Brain command returned invalid JSON" + diagnostic) from exc
-        _validate_child_envelope(entry, envelope, completed.returncode)
+        _validate_child_envelope(entry, envelope, completed.returncode, result_id=payload.get("result_id"))
         diagnostic = None
         error = envelope.get("error", {})
         details = error.get("details") if isinstance(error, Mapping) else None
@@ -198,7 +200,7 @@ class ApplicationProcessInvoker:
             envelope,
             stdout.strip(),
             _concise_text(envelope),
-            envelope["status"] != "ok",
+            not _is_retained_source(entry.command_id, envelope) and envelope["status"] != "ok",
             completed.returncode,
             diagnostic,
         )
@@ -274,9 +276,11 @@ def _validate_child_envelope(
     entry: ComposedCommandEntry,
     envelope,
     exit_code: int,
+    *,
+    result_id: object = None,
 ) -> None:
     validate_application_envelope(
-        envelope, entry.command_id, exit_code, command_version=entry.command_version
+        envelope, entry.command_id, exit_code, command_version=entry.command_version, result_id=result_id
     )
 
 
@@ -286,12 +290,22 @@ def validate_application_envelope(
     exit_code: int,
     *,
     command_version: int | None = None,
+    result_id: object = None,
 ) -> None:
     """Validate selected-Brain identity and process status on both CLI routes."""
     if not isinstance(envelope, dict):
         raise RuntimeError("selected Brain command result must be a JSON object")
     if envelope.get("schema") != "brain.command-result/1":
         raise RuntimeError("selected Brain command result schema is unsupported")
+    source_navigation = _is_retained_source(command_id, envelope)
+    if source_navigation:
+        delivery = envelope.get("delivery")
+        if (not isinstance(result_id, str) or not result_id
+                or not isinstance(delivery, dict) or delivery.get("result_id") != result_id
+                or not isinstance(envelope.get("command"), str) or not envelope["command"]):
+            raise RuntimeError("selected Brain retained result identity changed after discovery")
+        command_id = envelope["command"]
+        command_version = None
     version = envelope.get("command_version")
     if (
         envelope.get("command") != command_id
@@ -305,8 +319,12 @@ def validate_application_envelope(
         expected_exit = _envelope_exit_code(envelope)
     except ValueError as exc:
         raise RuntimeError(f"selected Brain {exc}") from exc
-    if exit_code != expected_exit:
+    if exit_code != (0 if source_navigation else expected_exit):
         raise RuntimeError("selected Brain result and exit category disagree")
+
+
+def _is_retained_source(command_id: str, envelope: Mapping[str, object]) -> bool:
+    return command_id == "result.read" and envelope.get("command") != command_id
 
 
 def _envelope_exit_code(envelope: Mapping[str, object]) -> int:

@@ -110,7 +110,7 @@ def test_installed_cli_discovers_real_selected_brain_catalogue(
         )
         assert page.returncode == 0, page.stderr
         frame = json.loads(page.stdout)
-        entries.extend(frame["result"]["envelope"]["result"]["entries"])
+        entries.extend(frame["result"]["entries"])
         cursor = frame["delivery"]["continuation"]
     assert len(entries) == 25
     assert len({entry["command_id"] for entry in entries}) == 25

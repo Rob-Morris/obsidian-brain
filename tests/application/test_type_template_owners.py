@@ -30,7 +30,7 @@ def test_type_read_uses_the_exact_router_key_and_returns_the_definition(
     assert result.result.frontmatter_type == "living/design"
     assert result.result.taxonomy_path == "_Config/Taxonomy/Living/designs.md"
     assert result.result.template_path == "_Config/Templates/Living/Designs.md"
-    assert result.result.definition.startswith("# Designs\n")
+    assert result.result.content.startswith("# Designs\n")
     assert singular_alias.error.code is ErrorCode.NOT_FOUND
 
 
@@ -99,3 +99,36 @@ def test_type_and_template_transport_contracts_are_strict():
             "resource.read",
             {"resource": "template", "reference": "designs", "name": "design"},
         )
+
+
+def test_large_type_document_uses_generic_text_pager(command_vault_clone):
+    from _application.projection import canonical_result_envelope
+    from _application.result_navigation import build_view, body_fits
+    from _common import document_revision
+
+    root = command_vault_clone.vault_root
+    path = root / "_Config/Taxonomy/Living/designs.md"
+    text = "# Designs\n" + "Type policy 雪 and 🧠\n" * 2000
+    path.write_text(text, encoding="utf-8")
+    result = application_for(root).invoke(ResourceReadRequest(ReadableResource.TYPE, "designs"))
+    assert result.status == "ok", result
+    logical = canonical_result_envelope(result)
+    assert logical["result"]["content"] == text
+    assert "definition" not in logical["result"]
+    assert "range" not in logical["result"]
+    assert logical["result"]["revision"] == document_revision(path.read_bytes())
+    view = build_view(logical, page_size=20)
+    assert len(view.pages) > 1
+    assert "".join(page["result"]["content"] for page in view.pages) == text
+    metadata = {key: value for key, value in logical["result"].items() if key != "content"}
+    position = 0
+    for number, page in enumerate(view.pages, 1):
+        payload = page["result"]
+        assert body_fits(payload)
+        assert "definition" not in payload and "fragments" not in payload
+        assert {key: payload[key] for key in metadata} == metadata
+        assert payload["content_range"] == {"start": position, "end": position + len(payload["content"]), "total": len(text)}
+        assert page["delivery"]["page"] == number
+        assert page["delivery"]["total_pages"] == len(view.pages)
+        position += len(payload["content"])
+    assert position == len(text)

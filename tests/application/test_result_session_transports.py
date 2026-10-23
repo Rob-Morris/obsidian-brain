@@ -168,7 +168,7 @@ def test_automatic_client_file_recovers_retained_bytes(tmp_path, monkeypatch):
 
     credentials = []
     calls = []
-    body = {"text": "retained source bytes " * 100}
+    body = {"status": "ok", "command": "command.list", "result": {"text": "retained source bytes " * 100}}
 
     def factory(**kwargs):
         store = FileResultStore(tmp_path, "test-brain", "test-principal")
@@ -182,7 +182,7 @@ def test_automatic_client_file_recovers_retained_bytes(tmp_path, monkeypatch):
         calls.append(command)
         if command == "result.read":
             delivered = context.store.load(context.owner, payload["result_id"])["envelope"]
-            envelope = {"status": "ok", "result": delivered}
+            envelope = delivered
         else:
             ticket = context.store.admit(context.owner, command, "inv-source")
             result_id = context.store.publish(context.owner, ticket, body, {"scope": "normal"})
@@ -205,7 +205,7 @@ def test_automatic_client_file_recovers_retained_bytes(tmp_path, monkeypatch):
     assert script.run(["result", "read", "--result-session-file", str(path), "--json",
                        "--request-json", json.dumps({"result_id": first["delivery"]["result_id"]})],
                       context_factory=factory, stdout=out, stderr=err) == 0
-    assert json.loads(out.getvalue())["result"] == body
+    assert json.loads(out.getvalue()) == {**body, "result_session_file": str(path)}
     assert credentials[0] == credentials[1]
     assert credentials[0] not in out.getvalue() + err.getvalue()
     assert calls == ["command.list", "result.read"]
@@ -561,7 +561,7 @@ def test_composed_application_discovery_keeps_delivery_context(monkeypatch, caps
     source = {"schema": "brain.command-result/1", "command": "command.list", "command_version": 1,
         "status": "ok", "result_session_file": "/private/client", "delivery": {
             "result_id": "r" * 64, "view_id": "v", "page": 1, "total_pages": 3,
-            "continuation": {"result_id": "r" * 64, "page": 2}}, "result": {
+            "continuation": "t1_opaque-test-navigation"}, "result": {
             "catalogue_schema": "brain.command-catalogue/1", "catalogue_fingerprint": "sha256:test",
             "entries": [{"command_id": "test.read", "command_version": 1, "summary": "Read."}],
             "next_cursor": {"snapshot_token": "snapshot", "command_id": "test.read"}}}
@@ -606,9 +606,8 @@ def test_dispatch_metadata_reads_declared_detail_with_same_private_file(monkeypa
     calls = []
     def read(selected, command, payload, common, **kwargs):
         calls.append((command, payload, kwargs))
-        return {"schema": "brain.command-result/1", "command": "result.read", "status": "ok",
-                "result": {"envelope": {"result": {"fragments": [
-                    {"text": "stdlib", "line_ending": ""}]}}}, "delivery": {"next_detail": None}}
+        return {"schema": "brain.command-result/1", "command": "command.describe", "status": "ok",
+                "result": {"content": "stdlib"}, "delivery": {"next_detail": None}}
     monkeypatch.setattr(cli, "_invoke_application", read)
     resolved = cli._application_description_metadata(None, envelope, SimpleNamespace())
     assert resolved["dependency_tier"] == "stdlib"
@@ -693,8 +692,8 @@ def test_outcome_all_is_frozen_cached_and_preserves_partial_effects(retained_det
     first = session.read(context, ResultReadRequest(result_id, detail="@outcome", max_pages="all"))
     assert first["status"] == "partial"
     assert first["result"]["committed_effects"] == effects
-    assert first["delivery"]["backing"] == "retained"
-    assert first["delivery"]["max_pages"] is None
+    assert first["delivery"].get("backing", "retained") == "retained"
+    assert first["delivery"].get("max_pages") is None
     monkeypatch.setattr(store, "load", forbidden)
     again = session.read(context, ResultReadRequest(result_id, detail="@outcome", max_pages="all"))
     assert again == first
@@ -714,14 +713,15 @@ def test_child_generic_continuation_addresses_actual_stored_detail(retained_deta
     seen = set()
     frame = first
     while True:
-        pieces.extend(item["text"] + item["line_ending"] for item in frame["result"]["fragments"])
+        assert "fragments" not in frame["result"]
+        pieces.append(frame["result"]["content"])
         cursor = frame["delivery"]["continuation"]
         if cursor is None:
-            assert frame["delivery"]["next_detail"] is None
+            assert frame["delivery"].get("next_detail") is None
             break
-        assert cursor == {"result_id": result_id, "detail": frame["delivery"]["next_detail"]}
-        assert cursor["detail"] not in seen
-        seen.add(cursor["detail"])
+        assert isinstance(cursor, str) and cursor.startswith("t1_")
+        assert cursor not in seen
+        seen.add(cursor)
         frame = session.read(context, ResultReadRequest(result_id, continuation=cursor))
     assert seen
     assert "".join(pieces) == original
@@ -729,7 +729,7 @@ def test_child_generic_continuation_addresses_actual_stored_detail(retained_deta
 
 @pytest.mark.parametrize("cursor", [
     {"result_id": "foreign", "detail": "@outcome"},
-    {"detail": "@outcome"},
+    {"detail": None},
     {"detail": 123},
     {"detail": "x" * 129},
     {"detail": "@outcome", "start_page": True},
@@ -738,9 +738,8 @@ def test_detail_continuations_validate_identity_before_body_reads(retained_detai
     from _application.result.read import ResultReadRequest
     context, store, session, publish = retained_detail_system
     result_id, _ = publish({"small": "result"})
-    cursor = {"result_id": result_id, **cursor}
-    if cursor == {"result_id": result_id, "detail": "@outcome"}:
-        cursor.pop("result_id")
+    binding = cursor.get("result_id", result_id)
+    cursor = session._cursor.encode(binding, {"result_id": binding, **cursor})
     def forbidden(*args, **kwargs):
         pytest.fail("invalid detail continuation read the retained body")
     monkeypatch.setattr(store, "load", forbidden)
@@ -776,7 +775,7 @@ def test_explicit_page_one_differs_from_omitted_continuation_page(retained_detai
     assert (info['page'], info['start_page'], info['end_page'], info['max_pages']) == (1, 1, 2, 2)
     assert info['selection_id'] != selected['delivery']['selection_id']
     assert explicit['result'] == first['result']
-    assert (info['continuation']['page'], info['continuation']['start_page']) == (2, 1)
+    assert isinstance(info['continuation'], str)
     following = session.read(context, decode({'result_id': result_id, 'continuation': info['continuation']}))
     assert following['delivery']['page'] == 2
     assert following['delivery']['selection_id'] == info['selection_id']
@@ -790,27 +789,27 @@ def test_cached_outcome_selection_continuation_keeps_its_view(retained_detail_sy
         "command_id": "artefact.list", "revision": "old", "payload": {}})
     # Exercise the cached-view port with an exact multi-page outcome map.
     view = build_view({"schema": "brain.command-result/1", "command": "test.read", "command_version": 1,
-                       "status": "ok", "result": {"items": list(range(5))}}, page_size=1)
-    session._save(result_id, "outcome:1", view, None)
+                       "status": "ok", "result": {f"field{i}": i for i in range(5)}}, page_size=1, unit="fields")
+    session._save(result_id, "outcome:fields:1", view, None)
     def forbidden(*args, **kwargs):
         pytest.fail("cached outcome continuation left its immutable view")
     monkeypatch.setattr(store, "load", forbidden)
     monkeypatch.setattr(session, "_refresh", forbidden)
     first = session.read(context, ResultReadRequest(result_id, detail="@outcome", page_size=1, max_pages=2))
     cursor = first["delivery"]["continuation"]
-    assert cursor["detail"] == "@outcome"
+    assert isinstance(cursor, str) and cursor.startswith("t1_")
     second = session.read(context, ResultReadRequest(result_id, continuation=cursor, page="+1"))
-    assert second["result"]["items"] == [1]
+    assert [field["value"] for field in second["result"]["fields"]] == [1]
     assert second["delivery"]["start_page"] == 1
     assert second["delivery"]["max_pages"] == 2
     assert not second["delivery"]["has_more"]
     outside = second["delivery"]["outside_continuation"]
-    assert outside["detail"] == "@outcome"
+    assert isinstance(outside, str) and outside.startswith("t1_")
     third = session.read(context, ResultReadRequest(result_id, continuation=outside))
-    assert third["result"]["items"] == [2]
+    assert [field["value"] for field in third["result"]["fields"]] == [2]
     assert third["delivery"]["start_page"] == 3
     assert third["delivery"]["selection_id"] != first["delivery"]["selection_id"]
-    assert third["delivery"]["backing"] == "retained"
+    assert third["delivery"].get("backing", "retained") == "retained"
 
 
 def test_cached_outcome_anchor_uses_stored_selection_without_body_reload(retained_detail_system, monkeypatch):
@@ -828,8 +827,8 @@ def test_cached_outcome_anchor_uses_stored_selection_without_body_reload(retaine
     assert anchored["result"] == first["result"]
     assert anchored["delivery"]["requested_anchor"] == 1
     assert anchored["delivery"]["overlap_notice"]
-    assert anchored["delivery"]["start_page"] == anchored["delivery"]["page"] == 1
-    assert anchored["delivery"]["backing"] == "retained"
+    assert anchored["delivery"].get("start_page", 1) == anchored["delivery"]["page"] == 1
+    assert anchored["delivery"].get("backing", "retained") == "retained"
 
 
 def test_cached_outcome_anchor_resets_selection_and_reuses_resized_view(retained_detail_system, monkeypatch):
@@ -839,28 +838,28 @@ def test_cached_outcome_anchor_resets_selection_and_reuses_resized_view(retained
     result_id, _ = publish({"source": "immutable"})
     # Exercise the cached-view port with exact multi-page maps for both sizes.
     envelope = {"schema": "brain.command-result/1", "command": "test.read", "command_version": 1,
-                "status": "ok", "result": {"items": list(range(10))}}
+                "status": "ok", "result": {f"field{i}": i for i in range(10)}}
     for size in (2, 3):
-        session._save(result_id, f"outcome:{size}", build_view(envelope, page_size=size), None)
+        session._save(result_id, f"outcome:fields:{size}", build_view(envelope, page_size=size, unit="fields"), None)
     def forbidden(*args, **kwargs):
         pytest.fail("cached anchored outcome rebuilt or loaded the original body")
     monkeypatch.setattr(store, "load", forbidden)
     monkeypatch.setattr(session, "_save", forbidden)
     anchored = session.read(context, ResultReadRequest(result_id, detail="@outcome", page_size=3,
                                                      anchor=4, max_pages=2))
-    assert anchored["result"]["items"] == [3, 4, 5]
+    assert [field["value"] for field in anchored["result"]["fields"]] == [3, 4, 5]
     assert anchored["delivery"]["page"] == anchored["delivery"]["start_page"] == 2
     assert anchored["delivery"]["requested_anchor"] == 4
     assert anchored["delivery"]["overlap_notice"]
     cursor = anchored["delivery"]["continuation"]
-    assert cursor["detail"] == "@outcome"
+    assert isinstance(cursor, str) and cursor.startswith("t1_")
     resized = session.read(context, ResultReadRequest(result_id, continuation=cursor, page_size=2, anchor=5))
-    assert resized["result"]["items"] == [4, 5]
+    assert [field["value"] for field in resized["result"]["fields"]] == [4, 5]
     assert resized["delivery"]["page"] == resized["delivery"]["start_page"] == 3
     assert resized["delivery"]["max_pages"] == 2
     assert resized["delivery"]["requested_anchor"] == 5
     assert resized["delivery"]["overlap_notice"]
-    assert resized["delivery"]["continuation"]["detail"] == "@outcome"
+    assert isinstance(resized["delivery"]["continuation"], str)
 
 
 @pytest.mark.parametrize("status", ["partial", "error"])
@@ -906,14 +905,10 @@ def test_large_outcome_recovers_every_original_value_through_final_encoder(retai
         assert "committed_effects" not in {k: v for k, v in frame.items() if k != "result"}
         if status == "error":
             assert frame["error"] == {"code": "conflict", "effects": "unknown"}
-        # Match ApplicationAdapter's result.read wrapping, then use the real MCP
-        # result builder and the proxy's final ASCII JSON size measurement.
-        body = deepcopy(frame)
-        descriptor = body.pop("delivery")
-        result = Ok("result.read", 1, ResultReadPayload(body))
-        envelope = canonical_result_envelope(result)
-        envelope["delivery"] = descriptor
-        wire = _tool_result(AdapterProjection(result, False, 0, envelope)).model_dump(by_alias=True, exclude_none=True)
+        # Match the adapter's direct source-envelope projection and the real
+        # MCP builder, including the proxy's final ASCII JSON encoder.
+        result = Ok("result.read", 1, ResultReadPayload(deepcopy(frame)))
+        wire = _tool_result(AdapterProjection(result, False, 0, frame)).model_dump(by_alias=True, exclude_none=True)
         assert canonical_tool_result_size(wire["structuredContent"]) <= 8000
         assert encoded_tool_result_size(wire) <= 32768
         assert tool_result_fits(wire)
@@ -930,9 +925,9 @@ def test_large_outcome_recovers_every_original_value_through_final_encoder(retai
             while frames[-1]["delivery"]["continuation"] is not None:
                 frames.append(read(continuation=frames[-1]["delivery"]["continuation"]))
             bodies = [frame["result"] for frame in frames]
-            if "fragments" in bodies[0]:
-                restored = "".join(fragment["text"] + fragment["line_ending"]
-                                   for body in bodies for fragment in body["fragments"])
+            if "content" in bodies[0]:
+                assert all("fragments" not in body for body in bodies)
+                restored = "".join(body["content"] for body in bodies)
             elif bodies[0].get("root_type") == "list":
                 fields = [field for body in bodies for field in body["fields"]]
                 assert [field["index"] for field in fields] == list(range(len(fields)))
@@ -1326,11 +1321,14 @@ def test_representation_limit_keeps_retained_outcome_recoverable_without_clear(r
         assert page["status"] == "partial"
         wire = {"structuredContent": page, "content": result_text_wire("partial", page), "isError": True}
         assert tool_result_fits(wire)
-        fragments.extend(fragment["text"] + fragment["line_ending"]
-                         for fragment in page["result"].get("fragments", []))
+        assert "fragments" not in page["result"]
+        if "content" in page["result"]:
+            fragments.append(page["result"]["content"])
         addresses = list(references(page["result"]))
-        if page["delivery"]["continuation"] is not None:
-            addresses.append(page["delivery"]["continuation"]["detail"])
+        continuation = page["delivery"]["continuation"]
+        if continuation is not None and continuation not in seen:
+            seen.add(continuation)
+            pending.append(session.read(context, ResultReadRequest(result_id, continuation=continuation)))
         for address in addresses:
             if address not in seen:
                 seen.add(address)
@@ -1390,8 +1388,8 @@ def test_real_read_initial_disclosure_and_error_retention(command_vault_clone, m
         assert envelope["delivery"]["reason"] == "disclosure_ended"
         assert envelope["result"] is None and envelope["warnings"] == []
         assert envelope["committed_effects_withheld"] is True
-        assert envelope["delivery"]["total_items"] is None
-        assert envelope["delivery"]["total_pages"] is None
+        assert envelope["delivery"].get("total_items") is None
+        assert envelope["delivery"].get("total_pages") is None
         assert "committed_effects" not in envelope and "committed_effect_summary" not in envelope
         if source_error:
             assert envelope["error"]["code"] == "conflict"
@@ -1404,9 +1402,10 @@ def test_real_read_initial_disclosure_and_error_retention(command_vault_clone, m
         assert store.load(session.owner, result_id)["envelope"] == canonical_result_envelope(projection.result)
         recovered = adapter.invoke(replace(base, result_delivery=ResultDeliverySession(store, credential)),
                                    "result.read", {"result_id": result_id, "detail": "@outcome"})
-        assert recovered.structured_content["status"] == "ok"
+        assert recovered.structured_content["status"] == ("error" if source_error else "ok")
+        assert recovered.structured_content["command"] == original.command_id
         if source_error:
-            source = recovered.structured_content["result"]["envelope"]
+            source = recovered.structured_content
             assert source["status"] == "error"
             assert source["result"]["error"]["message"] == secret
         assert len(calls) == 1
@@ -1437,7 +1436,7 @@ def test_privacy_projection_withholds_subjects_without_changing_effect_truth(sta
     assert output["error"]["outcome_reference"] == {"invocation_id": "receipt-id"}
     assert output["committed_effects_withheld"] is True
     assert "committed_effects" not in output and "committed_effect_summary" not in output
-    assert output["delivery"]["total_items"] is None
+    assert output["delivery"].get("total_items") is None
     assert secret not in str(output)
 
 
@@ -1715,7 +1714,7 @@ def test_list_error_retention_is_immutable_not_a_live_query(retained_detail_syst
     recovered = session.read(context, ResultReadRequest(result_id))
     assert recovered["status"] == "error"
     assert recovered["error"]["message"] == "Original failed list outcome."
-    assert recovered["delivery"]["backing"] == "retained"
+    assert recovered["delivery"].get("backing", "retained") == "retained"
 
 
 @pytest.mark.parametrize("tool,payload", [("result_read", {"result_id": "a" * 64}),

@@ -5,19 +5,12 @@ from __future__ import annotations
 from ..types import InitialAuthorisationClass
 
 from .._decoding import reject_unexpected
-from .._response_budget import (ContentRange, TextCursor, bounded_text_result,
-    decode_text_cursor, validate_text_window, encoded_result_size,
-    MODEL_TEXT_BUDGET, DEFAULT_TEXT_CHARACTERS)
 from dataclasses import dataclass, asdict
 import json
 
-from ..access_contracts import AccessSummary, AuthorisationSummary, PermissionsSummary
 from typing import ClassVar, Mapping
 
 from ..context import InvocationContext
-from _workspace_contract import WorkspacePolicy
-from ..results import WorkspaceCompatibilityDetails
-from ..maintenance._advisory import MaintenanceAdvisory
 from ..results import CommandError, Error, ErrorCode, InstructionNextAction, Ok
 from ..runtime._snapshot import typed_snapshot
 from ..runtime_status import RuntimeProgressDetails, RuntimeState
@@ -33,262 +26,17 @@ from .._read_support import command_error
 
 
 @dataclass(frozen=True, slots=True)
-class SessionCoreDocument:
-    title: str
-    path: str
-
-
-@dataclass(frozen=True, slots=True)
-class SessionCoreDocumentSection:
-    section: str
-    docs: tuple[SessionCoreDocument, ...]
-
-
-@dataclass(frozen=True, slots=True)
-class SessionTrigger:
-    category: str
-    condition: str
-    detail: str | None
-    target: str | None
-
-
-@dataclass(frozen=True, slots=True)
-class SessionResourceDiscovery:
-    artefact_types: str
-    core_documents: str
-
-
-@dataclass(frozen=True, slots=True)
-class SessionEnvironment:
-    vault_root: str
-    platform: str
-    python_version: str
-    cli_available: bool
-    obsidian_cli_available: bool
-
-
-@dataclass(frozen=True, slots=True)
-class SessionMemory:
-    name: str
-    triggers: tuple[str, ...]
-
-
-@dataclass(frozen=True, slots=True)
-class SessionSkill:
-    name: str
-    source: str
-
-
-@dataclass(frozen=True, slots=True)
-class SessionWorkspaceConfiguration:
-    surface: str
-    binding_status: str
-    purpose: str
-    command: str
-    selection: str
-    remote_boundary: str
-    effect: str
-    canonical_workspace: str | None
-    guidance: str | None
-    metadata_upgrade: WorkspaceCompatibilityDetails | None = None
-
-
-@dataclass(frozen=True, slots=True)
-class SessionConfig:
-    brain_name: str
-    default_profile: str
-    profiles: tuple[str, ...]
-
-
-@dataclass(frozen=True, slots=True)
-class SessionWorkspace:
-    directory: str
-    name: str
-    location: str
-
-
-@dataclass(frozen=True, slots=True)
-class SessionWorkspaceBinding:
-    brain: str
-    slug: str
-
-
-@dataclass(frozen=True, slots=True)
-class SessionWorkspaceRecord:
-    slug: str
-    workspace_mode: str
-    hub_path: str | None
-    tags: tuple[str, ...]
-
-
-@dataclass(frozen=True, slots=True)
-class SessionWorkspacePolicies:
-    workspace: str
-    shared: WorkspacePolicy
-    local: WorkspacePolicy
-
-
-@dataclass(frozen=True, slots=True)
-class SessionCommandCatalogue:
-    schema: str
-    interface_epoch: int
-    static_fingerprint: str
-    installed_application_command_count: int
-    brain_core_version: str
-    list: str
-    describe: str
-
-
-@dataclass(frozen=True, slots=True)
 class SessionStartPayload:
-    bootstrap_complete: bool
-    version: str
     brain_core_version: str
-    compiled_at: str
-    core_bootstrap: str
-    core_docs: tuple[SessionCoreDocumentSection, ...]
-    always_rules: tuple[str, ...]
-    preferences: str
-    gotchas: str
-    triggers: tuple[SessionTrigger, ...]
-    artefact_type_count: int
-    resource_discovery: SessionResourceDiscovery
-    environment: SessionEnvironment
-    memories: tuple[SessionMemory, ...]
-    skills: tuple[SessionSkill, ...]
-    plugins: tuple[str, ...]
-    styles: tuple[str, ...]
-    workspace_configuration: SessionWorkspaceConfiguration
-    command_catalogue: SessionCommandCatalogue
-    config: SessionConfig | None
-    access: AccessSummary
-    workspace: SessionWorkspace | None
-    workspace_binding: SessionWorkspaceBinding | None
-    workspace_record: SessionWorkspaceRecord | None
-    workspace_default_tags: tuple[str, ...]
-    workspace_policy: SessionWorkspacePolicies | None
-    maintenance: MaintenanceAdvisory | None = None
-
-
-@dataclass(frozen=True, slots=True)
-class SessionBootstrapPage:
-    brain_core_version: str
-    bootstrap_complete: bool
     content: str
     revision: str
-    range: ContentRange
-    instruction: str
 
 
 @dataclass(frozen=True, slots=True)
 class SessionStartRequest:
     COMMAND_ID: ClassVar[str] = "session.start"
-    COMMAND_VERSION: ClassVar[int] = 8
-    RESULT_TYPE: ClassVar = SessionStartPayload | SessionBootstrapPage
-
-    cursor: TextCursor | None = None
-
-    def __post_init__(self):
-        validate_text_window(self.cursor, DEFAULT_TEXT_CHARACTERS)
-
-
-def _optional(model, key, factory):
-    value = model.get(key)
-    return None if value is None else factory(value)
-
-
-def _payload(model):
-    return SessionStartPayload(
-        bootstrap_complete=True,
-        version=model["version"],
-        brain_core_version=model["brain_core_version"],
-        compiled_at=model["compiled_at"],
-        core_bootstrap=model["core_bootstrap"],
-        core_docs=tuple(
-            SessionCoreDocumentSection(
-                section["section"],
-                tuple(
-                    SessionCoreDocument(
-                        doc["title"],
-                        doc["path"],
-                    )
-                    for doc in section["docs"]
-                ),
-            )
-            for section in model["core_docs"]
-        ),
-        always_rules=tuple(model["always_rules"]),
-        preferences=model["preferences"],
-        gotchas=model["gotchas"],
-        triggers=tuple(
-            SessionTrigger(
-                item.get("category", "ongoing"),
-                item["condition"],
-                item.get("detail"),
-                item.get("target"),
-            )
-            for item in model["triggers"]
-        ),
-        artefact_type_count=model["artefact_type_count"],
-        resource_discovery=SessionResourceDiscovery(**model["resource_discovery"]),
-        environment=SessionEnvironment(**model["environment"]),
-        memories=tuple(
-            SessionMemory(item["name"], tuple(item.get("triggers") or ()))
-            for item in model["memories"]
-        ),
-        skills=tuple(
-            SessionSkill(item["name"], item["source"])
-            for item in model["skills"]
-        ),
-        plugins=tuple(item["name"] for item in model["plugins"]),
-        styles=tuple(model["styles"]),
-        workspace_configuration=SessionWorkspaceConfiguration(
-            **{
-                key: value
-                for key, value in model["workspace_configuration"].items()
-                if key not in {"current_binding", "metadata_upgrade"}
-            },
-            metadata_upgrade=_optional(model["workspace_configuration"], "metadata_upgrade",
-                                       lambda item: WorkspaceCompatibilityDetails(**item)),
-        ),
-        command_catalogue=SessionCommandCatalogue(**model["command_catalogue"]),
-        config=_optional(
-            model,
-            "config",
-            lambda item: SessionConfig(
-                item["brain_name"],
-                item["default_profile"],
-                tuple(item["profiles"]),
-            ),
-        ),
-        access=AccessSummary(PermissionsSummary(**model["access"]["permissions"]),
-            AuthorisationSummary(**model["access"]["authorisation"])),
-        workspace=_optional(model, "workspace", lambda item: SessionWorkspace(**item)),
-        workspace_binding=_optional(
-            model,
-            "workspace_binding",
-            lambda item: SessionWorkspaceBinding(**item),
-        ),
-        workspace_record=_optional(
-            model,
-            "workspace_record",
-            lambda item: SessionWorkspaceRecord(
-                item["slug"],
-                item["workspace_mode"],
-                item.get("hub_path"),
-                tuple(item.get("tags") or ()),
-            ),
-        ),
-        workspace_default_tags=tuple(
-            model.get("workspace_defaults", {}).get("tags", ())
-        ),
-        workspace_policy=_optional(model, "workspace_policy", lambda item: SessionWorkspacePolicies(
-            item["workspace"],
-            WorkspacePolicy(item["shared"]["parent"], tuple(item["shared"]["tags"])),
-            WorkspacePolicy(item["local"]["parent"], tuple(item["local"]["tags"])),
-        )),
-        maintenance=_optional(model, "maintenance", lambda item: MaintenanceAdvisory(**item)),
-    )
+    COMMAND_VERSION: ClassVar[int] = 9
+    RESULT_TYPE: ClassVar[type] = SessionStartPayload
 
 
 def execute(context: InvocationContext, request: SessionStartRequest):
@@ -361,36 +109,21 @@ def execute(context: InvocationContext, request: SessionStartRequest):
         if context.session_mirror is None:
             raise RuntimeError("session mirror publisher is not available")
         context.session_mirror.publish(model)
-        payload = _payload(model)
-        if len(json.dumps(asdict(payload.access), ensure_ascii=False, separators=(",", ":")).encode("utf-8")) > 768:
+        if len(json.dumps(model["access"], ensure_ascii=False, separators=(",", ":")).encode("utf-8")) > 768:
             raise ValueError("Authorisation bootstrap exceeds its 768-byte budget")
     except (OSError, RuntimeError, ValueError) as exc:
         return command_error(SessionStartRequest, ErrorCode.CONFLICT, str(exc), None)
-    complete = Ok(request.COMMAND_ID, request.COMMAND_VERSION, payload)
-    if request.cursor is None and encoded_result_size(complete) < MODEL_TEXT_BUDGET:
-        return complete
-    # The same canonical markdown is published as the fallback mirror. Use it
-    # for overflow instead of dropping required instructions from the model.
     from _common import document_revision
 
     content = session.render_session_markdown(model)
-    revision = document_revision(content)
-    return bounded_text_result(
-        SessionStartRequest, content, revision, cursor=request.cursor,
-        max_characters=DEFAULT_TEXT_CHARACTERS, byte_budget=MODEL_TEXT_BUDGET - 1,
-        payload=lambda text, window: SessionBootstrapPage(
-            model["brain_core_version"], window.next_cursor is None,
-            text, revision, window,
-            ("Read every bootstrap page before ordinary work. Continue with "
-             "session.start(cursor=range.next_cursor) until bootstrap_complete is true; "
-             "a source conflict requires restarting session.start without a cursor."),
-        ),
-    )
+    return Ok(request.COMMAND_ID, request.COMMAND_VERSION, SessionStartPayload(
+        model["brain_core_version"], content, document_revision(content),
+    ))
 
 
 def decode(payload: Mapping[str, object]) -> SessionStartRequest:
-    reject_unexpected(payload, {"cursor"})
-    return SessionStartRequest(decode_text_cursor(payload.get("cursor")))
+    reject_unexpected(payload, set())
+    return SessionStartRequest()
 
 
 def catalogue_entry():

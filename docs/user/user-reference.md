@@ -1,6 +1,6 @@
 # Brain Reference
 
-This page is the stable user-facing reference for Brain Core 0.75.0 and CLI 6.2.0. Exact command schemas, examples and availability come from the installed Brain rather than a duplicated hand-maintained inventory.
+This page is the stable user-facing reference for Brain Core 0.75.0 and CLI 6.3.0. Exact command schemas, examples and availability come from the installed Brain rather than a duplicated hand-maintained inventory.
 
 Optional [managed approvals](../functional/approvals.md) cover normal reads/writes
 in selected clients and surfaces. They preserve user overrides and do not change
@@ -287,13 +287,13 @@ pass. See [maintenance passes and scheduling](../functional/cli.md#maintenance-p
 
 Run `brain command describe <command-id> --json` before relying on an example here: the installed catalogue is authoritative.
 
-Document reads return `range.next_cursor` when more text remains. Repeat the same read with that cursor until it is null; restart without a cursor if the source revision changes.
+Document reads return text once in `result.content` with exact `content_range` bounds. Follow `delivery.continuation` through `result.read` with the same result session until every page has been retrieved; pages retain the original source revision.
 
 ## Bootstrap fallback
 
 Use the first available route:
 
-1. MCP `session_start` returns the canonical bootstrap. Follow `range.next_cursor` with another `session_start` until `bootstrap_complete` is true.
+1. MCP `session_start` returns the canonical bootstrap. Follow `delivery.continuation` through `result.read` until every bootstrap page has been retrieved.
 2. CLI `brain session start --json` returns the same application result through the selected Brain.
 3. Supported direct scripts provide tool-backed access without the CLI. From the vault, `python3 .brain-core/scripts/command.py session start --request-json '{}' --json` requires an interpreter that meets the command's managed-runtime requirements.
 4. Without usable MCP, CLI or scripts, read `.brain-core/index.md`, then `.brain/local/session.md` if present. This generated Markdown mirror is a projection of the canonical bootstrap, not an independently authored source of truth.

@@ -48,7 +48,7 @@ def test_issuance_failure_preserves_typed_outcome(
     original = canonical_result_envelope(source)
     envelope = {**original, 'delivery': {
         'status': 'truncated', 'availability': 'available', 'result_id': 'retained-id',
-        'continuation': {'page': 2}, 'outside_continuation': {'page': 3},
+        'continuation': 'opaque-next-page', 'outside_continuation': 'opaque-outside-page',
     }}
     secret = 'private-issuance-truth-credential'
     projection = replace(project_adapter_result(source), delivery_envelope=envelope,
@@ -81,7 +81,7 @@ def test_issuance_failure_preserves_typed_outcome(
     assert output['delivery']['status'] == output['delivery']['availability'] == 'unavailable'
     assert output['delivery']['reason'] == 'result_session_unavailable'
     assert output['delivery']['continuation'] is None
-    assert output['delivery']['outside_continuation'] is None
+    assert output['delivery'].get('outside_continuation') is None
     assert 'result_session_file' not in output and 'result_session' not in output
     assert not destination.exists()
     assert secret not in stdout.getvalue() + stderr.getvalue()

@@ -22,18 +22,47 @@ def retained(tmp_path, monkeypatch):
         pytest.fail('search loaded the full retained envelope')
     monkeypatch.setattr(store, 'load', no_full_body)
     counter = 0
-    def create(payload, *, page_size=3, query=None, command='test.read'):
+    def create(payload, *, page_size=3, query=None, command='test.read', unit=None):
         nonlocal counter
         counter += 1
         frame = {'schema': 'brain.command-result/1', 'command': command,
                  'command_version': 1, 'status': 'ok', 'warnings': [], 'result': payload}
-        view = build_view(frame, page_size=page_size)
+        view = build_view(frame, page_size=page_size,
+                          unit=unit or ('lines' if isinstance(payload, dict) and isinstance(payload.get('content'), str) else None))
         authority = {'command_id': command, 'stamp': None, 'default_view': 'default'}
         ticket = store.admit(session.owner, 'test.read-' + str(counter), str(counter))
         result_id = store.publish(session.owner, ticket, frame, authority, query)
-        store.save_view(session.owner, result_id, 'default', list(view.pages), view.metadata())
+        session._save(result_id, 'default', view, None)
         return result_id, view
     return store, session, context, create
+
+
+def test_default_byte_crlf_boundary_does_not_omit_matches(retained):
+    _, session, context, create = retained
+    text = 'a' * 3931 + '\r\nneedle' + 'b' * 9000 + '\nlast needle\n'
+    result_id, _ = create({'content': text}, page_size=4000, unit='bytes')
+    matches, replies = collect(session, context, result_id, 'needle', scan_pages=50)
+    assert [(item['line'], item['column']) for item in matches] == [(2, 0), (3, 5)]
+    assert replies[-1]['complete']
+
+
+def test_abandoned_compact_root_does_not_falsely_report_skipped_search_details(retained):
+    _, session, context, create = retained
+    result_id, _ = create({f'field{i}': 'x' * 600 for i in range(35)}, page_size=None)
+    matches, replies = collect(session, context, result_id, 'not-present', scan_pages=50)
+    assert not matches
+    assert replies[-1]['scan_complete'] and replies[-1]['complete']
+    assert not replies[-1]['details_skipped']
+
+
+@pytest.mark.parametrize('size', [1, 2, 5, 9])
+def test_crlf_search_coordinates_across_arbitrary_byte_boundaries(retained, size):
+    _, session, context, create = retained
+    text = 'hit\r\nhit\r\n\r\nhit\rhit\nhit\n'
+    result_id, _ = create({'content': text}, page_size=size, unit='bytes')
+    matches, replies = collect(session, context, result_id, 'hit', limit=1, scan_pages=50)
+    assert [(item['line'], item['column']) for item in matches] == [(1, 0), (2, 0), (4, 0), (5, 0), (6, 0)]
+    assert replies[-1]['complete']
 
 
 def collect(session, context, result_id, literal, **options):
@@ -222,17 +251,16 @@ def test_request_decode_validates_resumable_offsets_and_limits():
         decode({'result_id': 'result', 'literal': 'hit', 'unknown': True})
 
 
-def test_literal_across_three_text_fragments_survives_page_resume(retained):
+def test_literal_across_three_text_pages_survives_page_resume(retained):
     store, session, context, create = retained
     result_id, view = create({'content': 'abcNEEDLEdef'})
     texts = ['abcNE', 'ED', 'LEdef']
     frames = []
     start = 0
     for index, text in enumerate(texts):
-        frames.append({'result': {'fragments': [{'line': 1, 'start': start,
-            'end': start + len(text), 'text': text, 'line_ending': '',
-            'line_complete': index == len(texts) - 1}]},
-            'delivery': {'first_item': index + 1, 'last_item': index + 1}})
+        frames.append({'result': {'content': text,
+            'content_range': {'start': start, 'end': start + len(text), 'total': 12}},
+            '_text_column': start, 'delivery': {'first_item': 1, 'last_item': 1}})
         start += len(text)
     store.save_view(session.owner, result_id, 'default', frames,
                     {**view.metadata(), 'total_pages': len(frames)})
@@ -245,22 +273,26 @@ def test_literal_across_three_text_fragments_survives_page_resume(retained):
     assert all(reply['scanned_pages'] <= 1 and reply['overlap_pages'] <= 256 for reply in replies)
 
 
-def test_fragment_overlap_inside_page_and_mid_page_resume(retained):
+def test_text_page_overlap_and_mid_page_resume(retained):
     store, session, context, create = retained
-    result_id, view = create({'content': 'abcNEEDLE hit'})
-    fragments = [
-        {'line': 1, 'start': 0, 'text': 'abcNE'},
-        {'line': 1, 'start': 5, 'text': 'EDLE hit'},
-        {'line': 2, 'start': 0, 'text': 'NEEDLE'},
-    ]
+    original = 'abcNEEDLE hit\nNEEDLE'
+    result_id, view = create({'content': original})
     store.save_view(session.owner, result_id, 'default', [
-        {'result': {'fragments': fragments}, 'delivery': {'first_item': 1, 'last_item': 3}},
-    ], view.metadata())
+        {'result': {'content': original[:5],
+                    'content_range': {'start': 0, 'end': 5, 'total': len(original)}},
+         '_text_column': 0, 'delivery': {'first_item': 1, 'last_item': 1}},
+        {'result': {'content': original[5:],
+                    'content_range': {'start': 5, 'end': len(original), 'total': len(original)}},
+         '_text_column': 5, 'delivery': {'first_item': 1, 'last_item': 2}},
+    ], {**view.metadata(), 'total_pages': 2})
     matches, replies = collect(session, context, result_id, 'NEEDLE', limit=1)
     assert [(m['line'], m['column']) for m in matches] == [(1, 3), (2, 0)]
-    assert replies[0]['next_offset'] == 2
-    resumed = session.search(context, ResultSearchRequest(result_id, 'NEEDLE', start_offset=1))
+    assert [(m['page'], m['offset']) for m in matches] == [(2, 0), (2, 1)]
+    assert (replies[0]['next_page'], replies[0]['next_offset']) == (2, 1)
+    resumed = session.search(context, ResultSearchRequest(
+        result_id, 'NEEDLE', start_page=2, start_offset=0))
     assert [(m['line'], m['column']) for m in resumed['matches']] == [(1, 3), (2, 0)]
+    assert resumed['overlap_pages'] == 1
 
 
 def test_skipped_detail_content_never_claims_complete_across_resume(retained):
@@ -327,12 +359,12 @@ def test_empty_text_with_context_details_never_claims_full_coverage(retained):
     assert reply['coverage'] == 'retained-body-units'
 
 
-def test_incomplete_fragment_sequence_fails_instead_of_claiming_complete(retained):
+def test_incomplete_text_page_sequence_fails_instead_of_claiming_complete(retained):
     store, session, context, create = retained
     result_id, view = create({'content': 'needle'})
     store.save_view(session.owner, result_id, 'default', [
-        {'result': {'fragments': [{'line': 1, 'start': 4, 'text': 'le'}]},
-         'delivery': {'first_item': 1, 'last_item': 1}},
+        {'result': {'content': 'le', 'content_range': {'start': 4, 'end': 6, 'total': 6}},
+         '_text_column': 4, 'delivery': {'first_item': 1, 'last_item': 1}},
     ], view.metadata())
     with pytest.raises(ValueError, match='overlap is unavailable'):
         session.search(context, ResultSearchRequest(result_id, 'needle'))

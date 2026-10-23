@@ -59,7 +59,7 @@ Use a private credential file for one logical agent's reusable output context:
 brain session start --result-session-file /private/path/brain-result-session --json
 brain artefact list --result-session-file /private/path/brain-result-session --json
 brain result read --result-session-file /private/path/brain-result-session \
-  --request-json '{"result_id":"<returned-id>","continuation":{}}' --json
+  --request-json '{"result_id":"<returned-id>","continuation":"<returned-token>"}' --json
 ```
 
 The parent directory must exist. `session start` creates a missing file
@@ -92,14 +92,14 @@ Without explicit result-session selection, `runtime.status` and
 result retention and do not attempt result-cache writes. An explicit existing
 `--result-session-file` opts those calls into retention.
 
-Read generic `delivery` first. If `delivery.continuation` is present, pass its
-exact object and `delivery.result_id` to `brain result read` with the same
-credential file **before inspecting the semantic payload or using a legacy
-cursor**. The original command page is in `result.envelope`; delivery is on the
-outer envelope. The example's empty object is a placeholder for that returned
-continuation. Finish generic delivery, then follow the source payload's cursor.
-All bootstrap guidance remains mandatory: continue source `session start`
-pages until `bootstrap_complete`, consuming generic pages at each step.
+Text is returned once in `result.content`, with an exact character `content_range`
+(start inclusive, end exclusive, total characters) and stable source revision.
+Initial calls and successful `result read` continuations expose the same
+originating command payload. Pass `delivery.result_id` and its returned
+`delivery.continuation` unchanged to `brain result read` with the same credential file. The continuation is an opaque versioned string, not an editable object; use the explicit navigation fields to change the view or selection.
+There is no second text/source cursor. Consume every bootstrap page before
+ordinary work. A retained read remains the original snapshot even if the file
+changes; a new originating read creates a new invocation.
 
 Eligible output is retained without time expiry, latest invocation per command
 per result session per Brain. New admission of the same command replaces its
@@ -113,10 +113,26 @@ page outside the selection opens a new selection there, keeping `max_pages`;
 relative navigation does not. Pages beyond the total remain out of range.
 Omitting `page` (or passing null) follows the continuation or starts at 1;
 explicit `page: 1` returns page 1 even with a continuation, including `@outcome`.
-Text size defaults to 100 units
-(maximum 500), records/fields to 25 (maximum 100); byte limits can fit fewer.
-Changing size requires an explicit zero-based `anchor`. See the
+Ordinary text defaults to bytes (4,000 UTF-8 content bytes, also the current
+maximum). Choose `page_unit: "lines"` on `result read` for lines (default 100,
+maximum 500). Records/fields default to 25 (maximum 100). All modes obey the
+final encoded-response caps, which can fit fewer units.
+Changing mode or size requires an explicit zero-based `anchor` (text character offset
+or record/field position). See the
 [full result request and delivery contract](mcp-tools.md#result-sessions-and-delivery).
+
+For an existing text result, explicitly request a line view and restart it:
+
+```bash
+brain result read --result-session-file /private/path/brain-result-session \
+  --request-json '{"result_id":"<returned-id>","page_unit":"lines","page":0}' --json
+```
+
+This returns up to the default 100 lines, subject to the byte cap. Follow its
+continuation for the remainder; omitted mode/size preserve that view. To switch
+back to the default byte view, use `page_unit: "bytes", page: 0`. Record queries
+remain record views; asking for lines on them returns a corrective error.
+
 
 `brain result search` takes `result_id`, `literal`, `start_page`, `start_offset`,
 `limit` and `scan_pages` in request JSON. Resume with both `next_page` and
@@ -962,14 +978,14 @@ user MCP registrations still depend on it.
 
 The installer writes a versioned distribution under the selected prefix and a small platform bootloader under `bin/`:
 
-- Unix-like user install: `~/.local/bin/brain` and `~/.local/lib/brain-cli/6.2.0-<bundle>/`.
-- Native Windows user install: `%LOCALAPPDATA%\Programs\Brain\bin\brain.cmd` and the adjacent `lib\brain-cli\6.2.0-<bundle>\` distribution.
+- Unix-like user install: `~/.local/bin/brain` and `~/.local/lib/brain-cli/6.3.0-<bundle>/`.
+- Native Windows user install: `%LOCALAPPDATA%\Programs\Brain\bin\brain.cmd` and the adjacent `lib\brain-cli\6.3.0-<bundle>\` distribution.
 
 The bundle discriminator includes Core version and a source-content digest, so an unchanged CLI component can safely coexist with another release bundle. The installed bootloader records that exact bundle; source launch uses its adjacent checkout. CLI component version, source identity and machine-local installed integrity are distinct.
 
 The distribution contains the launcher application plus the Brain Core payload needed for install, upgrade and selected-Brain execution. Installation and replacement verify a content manifest and executable identity; failed replacement restores the proven old binary/distribution pair or retains recovery material and reports the outcome as unverified. Failed upgrade results carry every known absolute recovery path in the structural error and durable launcher receipt: residual staging material after a verified rollback is a known partial outcome, while unverified rollback remains outcome-unknown. Standalone human output lists the same paths before the failure message. Once the new pair is verified, failure or interruption while removing an old backup is committed post-upgrade recovery work and never rolls Brain Core back to an older version. Both the launcher result and standalone distribution JSON list the surviving `cleanup_recovery_paths`.
 
-The bootloader requires Python 3.12 or newer. `BRAIN_CLI_VERSION` is `6.2.0`; `BRAIN_INSTALL_REF` is `v0.75.0`.
+The bootloader requires Python 3.12 or newer. `BRAIN_CLI_VERSION` is `6.3.0`; `BRAIN_INSTALL_REF` is `v0.75.0`.
 
 JSON command invocations validate the structural stdout envelope, including
 command identity, version and exit category. Incidental child stderr does not

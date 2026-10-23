@@ -348,8 +348,7 @@ def test_native_windows_install_and_granular_mcp_round_trip(tmp_path):
         return json.loads(completed.stdout)
 
     def content(payload):
-        if "fragments" in payload:
-            return "".join(item["text"] + item["line_ending"] for item in payload["fragments"])
+        assert "fragments" not in payload
         return payload["content"]
 
     first = call(["vault", "read-file"], {"path": "README.md"})
@@ -365,7 +364,7 @@ def test_native_windows_install_and_granular_mcp_round_trip(tmp_path):
         assert cursor is not None
         page = call(["result", "read"], {"result_id": result_id, "continuation": cursor}, session_file)
         assert page["status"] == "ok"
-        output += content(page["result"]["envelope"]["result"])
+        output += content(page["result"])
     assert output == original
     assert page["delivery"]["continuation"] is None
     assert session_file.read_bytes() == credential
@@ -391,7 +390,7 @@ def test_native_windows_install_and_granular_mcp_round_trip(tmp_path):
     assert memory.read_text(encoding="utf-8").endswith(marker)
     assert memory.read_text(encoding="utf-8").count(marker) == 1
     replay = call(["result", "read"], {"result_id": mutation["delivery"]["result_id"], "page": 0}, session_file)
-    assert replay["result"]["envelope"]["committed_effects"] == mutation["committed_effects"]
+    assert replay["committed_effects"] == mutation["committed_effects"]
     assert memory.read_bytes() == after
 
 

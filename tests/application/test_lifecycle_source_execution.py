@@ -14,6 +14,7 @@ REPO = Path(__file__).resolve().parents[2]
 if str(REPO / "cli") not in sys.path:
     sys.path.insert(0, str(REPO / "cli"))
 from _local_cli import main
+from _launcher.version import read_cli_version_facts
 
 
 @pytest.fixture
@@ -86,7 +87,7 @@ def test_source_upgrade_uses_selected_helper_and_honest_cli_identity(
     assert result["files_modified"] == 1
     assert result["new_version"] == version
     assert result["preflight"]["old_cli_version"] == identity
-    assert result["preflight"]["new_cli_version"] == ("6.2.0" if replace_cli else identity)
+    assert result["preflight"]["new_cli_version"] == (read_cli_version_facts(selected_source).cli_version if replace_cli else identity)
     assert binary.exists() is (identity != "uninstalled")
     assert (vault / ".brain-core/VERSION").read_text() == "0.55.0\n"
 

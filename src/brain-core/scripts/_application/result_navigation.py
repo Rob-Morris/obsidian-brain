@@ -2,15 +2,18 @@
 from __future__ import annotations
 
 from copy import deepcopy
-from dataclasses import asdict, dataclass, field
+from dataclasses import dataclass, field, replace
 from hashlib import sha256
 import json
 from typing import Mapping
 
-from _bootstrap.result_metadata import Delivery
+from _bootstrap.result_metadata import Delivery, compact_delivery
 
+LAYOUT_VERSION = 4
 CANONICAL_BODY_BYTES = 4000
 ENCODED_BODY_BYTES = 12768
+_PAGE_SIZE_LIMITS = {"bytes": (CANONICAL_BODY_BYTES, CANONICAL_BODY_BYTES),
+                     "lines": (100, 500), "records": (25, 100), "fields": (25, 100)}
 
 
 def _json(value: object) -> str:
@@ -36,6 +39,17 @@ def _positive(value: int, name: str, maximum: int | None = None) -> int:
     if type(value) is not int or value < 1 or (maximum is not None and value > maximum):
         raise ValueError(f"{name} must be an integer from 1 to {maximum or 'unbounded'}")
     return value
+
+
+def page_size_limits(unit: str) -> tuple[int, int]:
+    """Return the shared default and maximum for a result's paging unit."""
+    return _PAGE_SIZE_LIMITS[unit]
+
+
+def resolve_page_size(unit: str, requested: int | None = None) -> int:
+    """Apply the same paging policy to new and retained layouts."""
+    default, maximum = page_size_limits(unit)
+    return _positive(default if requested is None else requested, "page_size", maximum)
 
 
 def _record_field(envelope: dict) -> str | None:
@@ -64,14 +78,8 @@ class Selection:
 
 
 def delivery_metadata(delivery: Delivery) -> dict:
-    """Project the universal descriptor, including explicit inapplicable counts."""
-    return asdict(delivery)
-
-
-def project_delivery(envelope: dict, delivery: Delivery) -> dict:
-    result = deepcopy(envelope)
-    result["delivery"] = delivery_metadata(delivery)
-    return result
+    """Project meaningful metadata without repeating default transport policy."""
+    return compact_delivery(delivery)
 
 
 def resolve_page(page: int | str, origin: int | None = None) -> int:
@@ -98,10 +106,8 @@ class ResultView:
     total_items: int
     view_id: str
     _envelope: dict = field(repr=False)
-    _ranges: tuple[tuple[int, int], ...] = field(repr=False)
     requested_page_size: int | None = None
     source_lines: int | None = None
-    fragments: int | None = None
 
     def metadata(self) -> dict:
         """Export constant-size JSON metadata; page bounds travel with each frame."""
@@ -116,10 +122,11 @@ class ResultView:
 
 def view_metadata(view: ResultView) -> dict:
     """Export view identity/counts independently of page bodies and detail maps."""
-    return {"view_id": view.view_id, "unit": view.unit, "page_size": view.page_size,
+    return {"layout_version": LAYOUT_VERSION, "view_id": view.view_id, "unit": view.unit, "page_size": view.page_size,
+            "navigation_kind": "pages", "explicit_field_limit": view.unit == "fields" and view.requested_page_size is not None,
             "requested_page_size": view.requested_page_size, "total_items": view.total_items,
             "total_pages": len(view.pages), "source_lines": view.source_lines,
-            "fragments": view.fragments, "record_field": _record_field(view._envelope),
+            "record_field": _record_field(view._envelope),
             "has_details": bool(view.details)}
 
 
@@ -130,6 +137,8 @@ def select_page(frame: dict, metadata: dict, page: int = 1, start_page: int = 1,
     The caller supplies the addressed frame (or an outcome-only frame for an
     empty/out-of-range view). Its delivery descriptor carries the unit bounds.
     """
+    if metadata.get("layout_version") != LAYOUT_VERSION:
+        raise ValueError("Retained page layout changed; run the source read again to obtain current pages. Do not rerun a mutation.")
     selected = Selection(start_page, max_pages)
     requested = resolve_page(page)
     number = selected.start_page if requested == 0 else requested
@@ -156,8 +165,8 @@ def select_page(frame: dict, metadata: dict, page: int = 1, start_page: int = 1,
         availability="available", view_id=metadata["view_id"], unit=metadata["unit"],
         requested_page_size=metadata.get("requested_page_size"), page_size=metadata["page_size"],
         page=number, first_item=bounds[0], last_item=bounds[1],
-        total_items=metadata["total_items"], total_pages=total, source_lines=metadata.get("source_lines"),
-        fragments=metadata.get("fragments"), selection_id=selection_id, start_page=start_page,
+        total_items=metadata["total_items"], total_pages=total,
+        selection_id=selection_id, start_page=start_page,
         max_pages=max_pages, end_page=end, selected_pages=count, remaining_pages=remaining,
         has_more=bool(remaining), pages_before_selection=before, pages_after_selection=after,
         has_more_outside_selection=bool(before or after),
@@ -176,7 +185,8 @@ def select_page(frame: dict, metadata: dict, page: int = 1, start_page: int = 1,
             payload["returned"] = len(payload[record_field])
         if "truncated" in payload:
             payload["truncated"] = bool(payload["truncated"] or remaining or before or after)
-    return project_delivery(result, descriptor)
+    result["delivery"] = delivery_metadata(descriptor)
+    return result
 
 
 def build_view(envelope: dict, page_size: int | None = None, unit: str | None = None) -> ResultView:
@@ -195,36 +205,37 @@ def build_view(envelope: dict, page_size: int | None = None, unit: str | None = 
     original.pop("delivery", None)
     payload = original.get("result")
     record_field = _record_field(original)
-    detected = ("lines" if isinstance(payload, dict) and isinstance(payload.get("content"), str)
+    detected = ("bytes" if isinstance(payload, dict) and isinstance(payload.get("content"), str)
                 else "records" if record_field is not None
                 else "fields")
-    if unit is not None and unit != detected:
-        raise ValueError(f"unit must match the declared {detected} view")
-    unit = detected
-    size = _positive(page_size if page_size is not None else (100 if unit == "lines" else 25),
-                     "page_size", 500 if unit == "lines" else 100)
-    view_id = _identity([original, unit, size])
+    allowed = ("bytes", "lines") if detected == "bytes" else (detected,)
+    if unit is not None and unit not in allowed:
+        raise ValueError(f"unit must be {' or '.join(allowed)} for this result")
+    unit = unit or detected
+    size = resolve_page_size(unit, page_size)
+    view_id = _identity([LAYOUT_VERSION, original, unit, size,
+                         unit == "fields" and page_size is not None])
     details: dict[str, dict] = {}
     base = {key: value for key, value in original.items() if key != "result"}
     if (original.get("status") == "partial" and isinstance(payload, dict)
             and "committed_effects" in payload and "committed_effect_summary" not in base):
         base.setdefault("committed_effects", deepcopy(payload["committed_effects"]))
 
-    if unit == "fields" and body_fits(payload):
+    field_count = len(payload) if isinstance(payload, (dict, list)) else int(payload is not None)
+    fields_fit_page = page_size is None or field_count <= size
+    if unit == "fields" and fields_fit_page and body_fits(payload):
         count = len(payload) if isinstance(payload, (dict, list)) else int(payload is not None)
         frames = ({**base, "result": payload, "delivery": {"first_item": 1, "last_item": count}},) if count else ()
         empty = {**base, "result": payload}
-        view = ResultView(frames, {}, unit, size, count, view_id, empty,
-                          ((1, count),) if count else (), page_size)
-        return ResultView(tuple(view.page(i + 1) for i in range(len(frames))), {}, unit,
-                          size, count, view_id, empty, view._ranges, page_size)
+        view = ResultView(frames, {}, unit, size, count, view_id, empty, page_size)
+        return replace(view, pages=tuple(view.page(i + 1) for i in range(len(frames))))
 
     def detail(value: object) -> dict:
         if isinstance(value, str):
             value = {"content": value}
         key = _identity([view_id, value])
         if key not in details:
-            child = build_view({**base, "result": value}, page_size=1)
+            child = build_view({**base, "result": value})
             details.update(child.details)
             for index, frame in enumerate(child.pages):
                 address = key if index == 0 else f"{key}:{index + 1}"
@@ -250,67 +261,87 @@ def build_view(envelope: dict, page_size: int | None = None, unit: str | None = 
             return detail(value)
         raise ValueError("mandatory scalar cannot fit the delivery budget")
 
-    if unit == "fields" and isinstance(payload, dict):
+    if unit == "fields" and isinstance(payload, dict) and fields_fit_page:
         compact = {key: bounded(value) for key, value in payload.items()}
         # Aggregate overhead can exceed the budget even when each value fits.
         # Replace an actual component, never wrap the same oversized field again.
-        for key in sorted(compact, key=lambda name: len(_json(compact[name])), reverse=True):
-            if body_fits(compact):
-                break
-            value = compact[key]
-            if len(_json(value)) > 512 and not (isinstance(value, dict) and "detail_reference" in value):
+        fits = body_fits(compact)
+        if not fits:
+            candidates = (key for key, value in compact.items() if len(_json(value)) > 512
+                          and not (isinstance(value, dict) and "detail_reference" in value))
+            for key in sorted(candidates, key=lambda name: len(_json(compact[name])), reverse=True):
                 compact[key] = detail(payload[key])
-        if body_fits(compact):
+                fits = body_fits(compact)
+                if fits:
+                    break
+        if fits:
             count = len(compact)
             frame = {**base, "result": compact, "delivery": {"first_item": 1, "last_item": count}}
             view = ResultView((frame,), details, unit, size, count, view_id,
-                              {**base, "result": {}}, ((1, count),), page_size)
-            return ResultView((view.page(),), details, unit, size, count, view_id,
-                              view._envelope, view._ranges, page_size)
+                              {**base, "result": {}}, page_size)
+            return replace(view, pages=(view.page(),))
+        # Tentative compact-root references do not belong to fallback field pages.
+        details.clear()
 
     source_lines = None
-    fragments = None
-    if unit == "lines":
-        source = payload["content"].splitlines(keepends=True)
-        source_lines = len(source)
+    if unit in ("bytes", "lines"):
+        text = payload["content"]
+        lines = text.splitlines(keepends=True)
         extras = {key: bounded(value) for key, value in payload.items() if key != "content"}
-        largest_offset = max(map(len, source), default=0)
-        probe = {"line": len(source), "start": largest_offset, "end": largest_offset,
-                 "text": "𐀀", "line_ending": "\r\n\u2028", "line_complete": False}
-        if not body_fits({"fragments": [probe], **extras}):
-            reference = detail(extras)
-            extras = {"context": {key: reference[key] for key in
-                      ("detail_reference", "action", "detail", "consistency")}}
-        units = []
-        for number, line in enumerate(source, 1):
-            ending = "\r\n" if line.endswith("\r\n") else line[-1:] if line[-1:] in ("\n", "\r", "\v", "\f", "\x1c", "\x1d", "\x1e", "\x85", "\u2028", "\u2029") else ""
-            text = line[:-len(ending)] if ending else line
-            offset = 0
-            while True:
-                def fragment(end: int) -> dict:
-                    return {"line": number, "start": offset, "end": end, "text": text[offset:end],
-                            "line_ending": ending if end == len(text) else "", "line_complete": end == len(text)}
-                # Each character costs at least one canonical byte. Searching
-                # beyond this ceiling repeatedly encodes the unbounded tail.
-                lo, hi = offset, min(len(text), offset + CANONICAL_BODY_BYTES)
-                while lo < hi:
-                    middle = (lo + hi + 1) // 2
-                    if body_fits({"fragments": [fragment(middle)], **extras}):
-                        lo = middle
-                    else:
-                        hi = middle - 1
-                if lo == offset and offset < len(text):
-                    raise ValueError("text fragment metadata exceeds delivery budget")
-                units.append(fragment(lo))
-                offset = lo
-                if offset == len(text):
-                    break
-        fragments = len(units)
-        def body(batch: list) -> dict:
-            result = {"fragments": batch, **extras}
-            content = "".join(item["text"] + item["line_ending"] for item in batch)
-            with_content = {"content": content, **result}
-            return with_content if body_fits(with_content) else result
+
+        def text_body(start: int, end: int) -> dict:
+            return {**extras, "content": text[start:end],
+                    "content_range": {"start": start, "end": end, "total": len(text)}}
+
+        if not body_fits(text_body(0, min(1, len(text)))):
+            extras = {"context": detail(extras)}
+        frames = []
+        start = 0
+        line_index = 0
+        line_end = len(lines[0]) if lines else 0
+        byte_position = 0
+        while start < len(text):
+            # Bound each encoding probe; never encode the unbounded tail.
+            if unit == "lines":
+                stop_line = min(len(lines), line_index + size)
+                stop = line_end + sum(map(len, lines[line_index + 1:stop_line]))
+            else:
+                minimum = len(text[start].encode("utf-8"))
+                if size < minimum:
+                    raise ValueError(f"page_size must be at least {minimum} UTF-8 bytes to fit the next character; increase page_size to {resolve_page_size('bytes')} (the default) for normal reading")
+                stop = min(len(text), start + size)
+            lo, hi = start, min(stop, start + CANONICAL_BODY_BYTES)
+            while lo < hi:
+                middle = (lo + hi + 1) // 2
+                fits_size = unit == "lines" or len(text[start:middle].encode("utf-8")) <= size
+                if fits_size and body_fits(text_body(start, middle)):
+                    lo = middle
+                else:
+                    hi = middle - 1
+            if lo == start:
+                raise ValueError("text page context exceeds delivery budget")
+            if unit == "lines":
+                first_item = line_index + 1
+                last_item = first_item
+                while lo >= line_end and line_index < len(lines):
+                    last_item = line_index + 1
+                    line_index += 1
+                    if line_index < len(lines):
+                        line_end += len(lines[line_index])
+                if line_index < len(lines) and lo > line_end - len(lines[line_index]):
+                    last_item = line_index + 1
+            else:
+                first_item = byte_position + 1
+                byte_position += len(text[start:lo].encode("utf-8"))
+                last_item = byte_position
+            frames.append({**base, "result": text_body(start, lo),
+                           "delivery": {"first_item": first_item, "last_item": last_item}})
+            start = lo
+        empty = {**base, "result": text_body(0, 0)}
+        count = byte_position if unit == "bytes" else len(lines)
+        view = ResultView(tuple(frames), details, unit, size, count, view_id,
+                          empty, page_size, len(lines))
+        return replace(view, pages=tuple(view.page(i + 1) for i in range(len(frames))))
     elif unit == "records":
         units = [bounded(item) for item in payload[record_field]]
         extras = {key: bounded(value) for key, value in payload.items() if key != record_field}
@@ -360,15 +391,10 @@ def build_view(envelope: dict, page_size: int | None = None, unit: str | None = 
         batches.append(current)
     empty = {**base, "result": body([])}
     frames = tuple({**base, "result": body(batch)} for batch in batches)
-    ranges = []
     position = 1
-    for batch in batches:
-        ranges.append((position, position + len(batch) - 1))
+    for frame, batch in zip(frames, batches):
+        frame["delivery"] = {"first_item": position, "last_item": position + len(batch) - 1}
         position += len(batch)
-    for frame, bounds in zip(frames, ranges):
-        frame["delivery"] = {"first_item": bounds[0], "last_item": bounds[1]}
     view = ResultView(frames, details, unit, size, len(units), view_id, empty,
-                      tuple(ranges), page_size, source_lines, fragments)
-    return ResultView(tuple(view.page(index + 1) for index in range(len(frames))), details,
-                      unit, size, len(units), view_id, empty, tuple(ranges), page_size,
-                      source_lines, fragments)
+                      page_size, source_lines)
+    return replace(view, pages=tuple(view.page(index + 1) for index in range(len(frames))))

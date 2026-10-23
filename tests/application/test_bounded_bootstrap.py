@@ -1,18 +1,13 @@
-"""Bootstrap stays bounded while preserving every mandatory instruction."""
-
-import json
-from dataclasses import replace
+"""Bootstrap produces complete canonical text for bounded generic delivery."""
 
 from _application.session.start import SessionStartRequest
 from _application.vault.read_file import VaultReadFileRequest
-from _application.projection import canonical_result_envelope
 from _application.types import DependencyTier
-from _application.results import ErrorCode
 from command_application import application_for
 from test_session_start_owner import _PublishedSessionMirror, _complete_bootstrap, _mark_ready
 
 
-def test_large_bootstrap_matches_complete_mirror_and_detects_changed_source(command_vault_clone, record_property):
+def test_large_bootstrap_returns_complete_mirror_and_refreshes_changed_source(command_vault_clone, record_property):
     root = command_vault_clone.vault_root
     path = root / "_Config/User/preferences-always.md"
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -20,26 +15,13 @@ def test_large_bootstrap_matches_complete_mirror_and_detects_changed_source(comm
     _mark_ready(root)
     mirror = _PublishedSessionMirror(root)
     app = application_for(root, dependency_tier=DependencyTier.MANAGED, session_mirror=mirror)
-    pages = []
-    cursor = None
-    first_cursor = None
-    while True:
-        result = app.invoke(SessionStartRequest(cursor))
-        assert result.status == "ok", result
-        envelope = canonical_result_envelope(result)
-        assert len(json.dumps(envelope, ensure_ascii=False, separators=(",", ":")).encode()) < 16000
-        pages.append(result.result.content)
-        cursor = result.result.range.next_cursor
-        first_cursor = first_cursor or cursor
-        assert result.result.bootstrap_complete == (cursor is None)
-        if cursor is None:
-            break
-    assert len(pages) > 1
-    assert "".join(pages) == (root / ".brain/local/session.md").read_text()
-    assert "FINAL MANDATORY RULE" in "".join(pages)
+    result = app.invoke(SessionStartRequest())
+    assert result.status == "ok", result
+    assert not hasattr(result.result, "bootstrap_complete")
+    assert result.result.content == (root / ".brain/local/session.md").read_text()
+    assert "FINAL MANDATORY RULE" in result.result.content
+    assert not hasattr(result.result, "range")
     path.write_text("New mandatory preference.")
-    conflict = app.invoke(SessionStartRequest(first_cursor))
-    assert conflict.error.code is ErrorCode.CONFLICT
     restarted, rendered = _complete_bootstrap(app, root, mirror, record_property)
     assert restarted["preferences"] == "New mandatory preference."
     assert "New mandatory preference." in rendered
@@ -63,6 +45,3 @@ def test_lean_bootstrap_retains_retrieval_routes_and_all_core_links_are_readable
             request = VaultReadFileRequest(doc["path"])
             page = app.invoke(request)
             assert page.status == "ok", (doc["path"], page)
-            while page.result.range.next_cursor:
-                page = app.invoke(replace(request, cursor=page.result.range.next_cursor))
-                assert page.status == "ok", (doc["path"], page)
