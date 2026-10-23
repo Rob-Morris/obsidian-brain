@@ -315,6 +315,9 @@ def _run(argv, *, stdin, stdout, stderr, context_factory, script_path, owner_att
             message=RESULT_SESSION_UNAVAILABLE_MESSAGE,
             continuation=None, outside_continuation=None,
         )
+    if isinstance(envelope.get("delivery"), dict):
+        from _bootstrap.result_metadata import compact_delivery
+        envelope["delivery"] = compact_delivery(envelope["delivery"])
     delivery = envelope.get("delivery")
     recoverable = not projection.is_error or (isinstance(delivery, dict) and delivery.get("result_id"))
     expose_session_file = credential_file_ready and recoverable

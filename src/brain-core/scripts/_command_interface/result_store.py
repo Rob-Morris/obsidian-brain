@@ -521,7 +521,8 @@ class FileResultStore:
         Optional observation stages this generation's revision and previous
         page observation without writing state. Commit it only after the final
         disclosure check. Empty and out-of-range frames stage no observation.
-        A zero-based unit anchor selects its containing page by binary search
+        A zero-based character (text) or unit (records/fields) anchor selects
+        its containing page by binary search
         under this same lock; no full body or separate-generation map is read.
         Anchor zero selects page one of an empty view.
         """
@@ -543,10 +544,17 @@ class FileResultStore:
                 while low <= high:
                     middle = (low + high) // 2
                     candidate = self._read(path / f'{middle}.json', self.limits.max_page_bytes)
-                    bounds = candidate['delivery']
-                    if anchor + 1 < bounds['first_item']:
+                    payload = candidate.get('result')
+                    content_range = (payload.get('content_range')
+                                     if isinstance(payload, dict) and isinstance(payload.get('content'), str) else None)
+                    if content_range is not None:
+                        first, last = content_range['start'] + 1, content_range['end']
+                    else:
+                        bounds = candidate['delivery']
+                        first, last = bounds['first_item'], bounds['last_item']
+                    if anchor + 1 < first:
                         high = middle - 1
-                    elif anchor + 1 > bounds['last_item']:
+                    elif anchor + 1 > last:
                         low = middle + 1
                     else:
                         page, frame = middle, candidate

@@ -250,10 +250,7 @@ def test_opened_edit_refuses_lossy_bytes_before_writing(command_vault_clone, mon
 
 @pytest.mark.parametrize('kind', ['artefact', 'archive', 'file', 'skill'])
 @pytest.mark.parametrize('encoding,code', [('utf-8-sig', 'utf8_bom'), ('utf-16', 'utf16_bom'), ('utf-32', 'utf32_bom')])
-def test_converted_pages_budget_warnings_and_continuation(command_vault_clone, kind, encoding, code):
-    from dataclasses import replace
-    import json
-    from _application.projection import canonical_result_envelope
+def test_complete_converted_source_preserves_warnings_and_original_revision(command_vault_clone, kind, encoding, code):
     root = command_vault_clone.vault_root
     relative, request = read_target(kind)
     path = root / relative
@@ -262,25 +259,17 @@ def test_converted_pages_budget_warnings_and_continuation(command_vault_clone, k
     raw = text.encode(encoding)
     path.write_bytes(raw)
     app = application_for(root)
-    pages, cursor, first_cursor = [], None, None
-    while True:
-        result = app.invoke(replace(request, cursor=cursor))
-        assert result.status == 'ok', getattr(result, 'error', result)
-        envelope = canonical_result_envelope(result)
-        assert len(json.dumps(envelope, ensure_ascii=False, separators=(",", ":")).encode("utf-8")) <= 16000
-        assert result.result.revision == document_revision(raw)
-        assert any(relative in w.message and code in w.message for w in result.warnings)
-        pages.append(result.result.content)
-        cursor = result.result.range.next_cursor
-        first_cursor = first_cursor or cursor
-        if cursor is None:
-            break
-    assert len(pages) > 1
-    assert ''.join(pages) == text.replace('\r\n', '\n')
-    # The normalised text is identical, but the continuation pins original bytes.
+    result = app.invoke(request)
+    assert result.status == 'ok', getattr(result, 'error', result)
+    assert result.result.revision == document_revision(raw)
+    assert any(relative in w.message and code in w.message for w in result.warnings)
+    assert result.result.content == text.replace('\r\n', '\n')
+    assert not hasattr(result.result, 'range')
     path.write_bytes(text.encode('utf-8'))
-    result = app.invoke(replace(request, cursor=first_cursor))
-    assert result.error.code is ErrorCode.CONFLICT
+    refreshed = app.invoke(request)
+    assert refreshed.status == 'ok'
+    assert refreshed.result.content == result.result.content
+    assert refreshed.result.revision != result.result.revision
     assert path.read_bytes() == text.encode('utf-8')
 
 

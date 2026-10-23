@@ -37,8 +37,10 @@ def test_compatibility_families_are_non_overlapping_and_cover_selected_versions(
     assert manifest.select("0.75.999").adapter_id == "brain-0.75"
     with pytest.raises(ValueError, match="no unique"):
         manifest.select("0.50.0")
+    assert manifest.select("0.76.0").adapter_id == "brain-0.76"
+    assert manifest.select("0.76.999").adapter_id == "brain-0.76"
     with pytest.raises(ValueError, match="no unique"):
-        manifest.select("0.76.0")
+        manifest.select("0.77.0")
 
 
 def test_brain_0_71_changes_only_how_doctor_selects_its_vault():
@@ -225,3 +227,21 @@ def test_brain_0_75_checks_updated_cli_support_baseline():
     gate = next(gate for gate in adapter.health if gate.gate_id == "cli-version")
     assert gate.command == ("brain", "version", "--json")
     assert gate.expected_json["result.full_support_core_version"] == "0.75.0"
+
+
+def test_brain_0_76_preserves_health_gates_and_updates_cli_support_baseline():
+    from dataclasses import replace
+
+    manifest = CompatibilityManifest(MANIFEST)
+    previous, current = manifest.select("0.75.0"), manifest.select("0.76.0")
+    current_cli = next(gate for gate in current.health if gate.gate_id == "cli-version")
+    previous_cli = next(gate for gate in previous.health if gate.gate_id == "cli-version")
+    assert current_cli.expected_json["result.full_support_core_version"] == "0.76.0"
+    baseline = dict(current_cli.expected_json)
+    baseline["result.full_support_core_version"] = previous_cli.expected_json["result.full_support_core_version"]
+    normalised_cli = replace(current_cli, expected_json=baseline)
+    health = tuple(normalised_cli if gate.gate_id == "cli-version" else gate for gate in current.health)
+    assert replace(current, adapter_id=previous.adapter_id,
+                   minimum_version=previous.minimum_version,
+                   maximum_version_exclusive=previous.maximum_version_exclusive,
+                   health=health) == previous

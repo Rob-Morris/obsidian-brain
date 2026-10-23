@@ -84,7 +84,7 @@ python3 .brain-core/scripts/command.py vault check \
 
 ### Agent bootstrap
 
-MCP `session.start` (the `session_start` tool) is the normal bootstrap path. Follow `range.next_cursor` with another call until `bootstrap_complete` is true before ordinary work. If a source revision changes, restart without a cursor.
+MCP `session.start` (the `session_start` tool) is the normal bootstrap path. Follow `delivery.continuation` through `result.read` with the same result session until every page has been retrieved before ordinary work.
 
 When MCP is unavailable, the launcher alternative is:
 

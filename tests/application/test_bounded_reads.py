@@ -1,22 +1,16 @@
-"""Portable text pages preserve exact normalized content and persisted revision."""
-
-from dataclasses import replace
-import json
+"""Source readers leave delivery paging to the generic result boundary."""
 
 import pytest
 
 from _application.artefact.read import ArtefactReadRequest
 from _application.vault.read_file import VaultReadFileRequest
 from _application.resource.read import ReadableResource, ResourceReadRequest
-from _application.results import ErrorCode
-from _application.projection import canonical_result_envelope
-from _application._response_budget import TextCursor
 from _common import document_revision
 from command_application import application_for
 
 
 @pytest.mark.parametrize("kind", ["artefact", "file", "skill"])
-def test_text_windows_round_trip_unicode_and_reject_intervening_edit(command_vault_clone, kind):
+def test_source_readers_return_complete_unicode_and_persisted_revision(command_vault_clone, kind):
     root = command_vault_clone.vault_root
     if kind == "artefact":
         path = root / "Projects/Command Fixture.md"
@@ -31,35 +25,28 @@ def test_text_windows_round_trip_unicode_and_reject_intervening_edit(command_vau
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_bytes(raw)
     app = application_for(root)
-    pages = []
-    cursor = None
-    first_cursor = None
     expected = raw.decode().replace("\r\n", "\n")
-    while True:
-        result = app.invoke(replace(request, cursor=cursor))
-        assert result.status == "ok", result
-        envelope = canonical_result_envelope(result)
-        assert len(json.dumps(envelope, ensure_ascii=False, separators=(",", ":")).encode()) <= 16000
-        assert result.result.revision == document_revision(raw)
-        assert result.result.range.start == sum(map(len, pages))
-        assert result.result.range.end - result.result.range.start == len(result.result.content)
-        assert result.result.range.total_characters == len(expected)
-        pages.append(result.result.content)
-        cursor = result.result.range.next_cursor
-        first_cursor = first_cursor or cursor
-        if cursor is None:
-            break
-    assert len(pages) > 1
-    assert "".join(pages) == expected
-    invalid = app.invoke(replace(request, cursor=TextCursor(document_revision(raw), len(expected) + 1)))
-    assert invalid.error.code is ErrorCode.INVALID_REQUEST
-    path.write_bytes(raw + b"changed")
-    conflict = app.invoke(replace(request, cursor=first_cursor))
-    assert conflict.error.code is ErrorCode.CONFLICT
-    assert conflict.effects == "none"
+    result = app.invoke(request)
+    assert result.status == "ok", result
+    assert result.result.revision == document_revision(raw)
+    assert result.result.content == expected
+    from _application.projection import canonical_result_envelope
+    from _application.result_navigation import build_view
+    envelope = canonical_result_envelope(result)
+    assert type(envelope["result"]["content"]) is str
+    view = build_view(envelope)
+    assert "".join(page["result"]["content"] for page in view.pages) == expected
+    assert not hasattr(result.result, "range")
 
 
-@pytest.mark.parametrize("value", [0, -1, 12001, True, "20"])
-def test_read_window_rejects_invalid_character_limits(value):
-    with pytest.raises(ValueError):
-        ArtefactReadRequest("Example.md", max_characters=value)
+@pytest.mark.parametrize("kind,payload", [
+    ("artefact.read", {"reference": "Example.md", "cursor": None}),
+    ("vault.read-file", {"path": "Example.md", "max_characters": 20}),
+    ("resource.read", {"resource": "skill", "reference": "core:shaping", "cursor": None}),
+    ("session.start", {"cursor": None}),
+    ("vault.read-config", {"max_characters": 20}),
+])
+def test_source_readers_reject_legacy_window_arguments(kind, payload):
+    from _application.registry import current_request_resolver
+    with pytest.raises(ValueError, match="unexpected fields"):
+        current_request_resolver().resolve(kind, payload)

@@ -46,15 +46,18 @@ explicit credentials. Without explicit result-session selection,
 `runtime.status` and `runtime.read-environment` skip retention and result-cache
 write attempts; an existing `--result-session-file` opts them into retention.
 
-Consume generic `delivery.continuation` with `result read` before inspecting
-any semantic payload or following its legacy cursor. Pass the same credential
-file, `result_id` and returned `continuation` in request JSON. The typed
-`ResultReadPayload.envelope` (`result.envelope` on the wire) contains the original
-command page, while the outer envelope carries delivery. Finish all generic
-pages before source cursor continuation. Bootstrap guidance is mandatory in
-full, through `bootstrap_complete`; no truncation or omission is permitted.
+Follow `delivery.continuation` with `result read`, using the same credential
+file and result ID. Initial and subsequent pages use the same originating
+command payload shape. Text appears once in `result.content`, with exact
+character bounds in `content_range`; there is no separate text source cursor.
+Ordinary text uses UTF-8 byte paging (default/max 4,000); an explicit
+`page_unit: "lines"` view uses default 100/max 500 lines, subject to final byte
+caps. Records stay records. Mode/size changes need an anchor or page-zero restart.
+Bootstrap guidance is mandatory in full: finish every delivery page before
+ordinary work. A navigation failure identifies `result.read` separately from
+the retained source outcome.
 
-`result read` takes `result_id`, `page`, `continuation`, `page_size`, `max_pages`,
+`result read` takes `result_id`, `page`, `continuation`, `page_unit`, `page_size`, `max_pages`,
 `detail` and `anchor`; `result search` takes `result_id`, `literal`, `start_page`,
 `start_offset`, `limit` and `scan_pages`. Resume search with both `next_page` and
 `next_offset` until `scan_complete`. Coverage excludes envelope metadata,
@@ -62,6 +65,7 @@ contextual extras and referenced detail bodies; `complete` can remain false
 when `details_skipped` reports unsearched references.
 These are the same typed requests as MCP/CLI, not a
 command execution facade. See the [field contracts and limits](mcp-tools.md#result-sessions-and-delivery).
+Pass `continuation` as the returned opaque versioned string (or null), unchanged with the same result ID and session. Use explicit request controls rather than inspecting or editing the token.
 Each call emits one bounded page, including get-all (`page: 0`). Query selections
 default to 10 pages across calls, retained output to no page-count cap; outside
 selection counts and `outside_continuation` expose further output. Dynamic
@@ -395,10 +399,9 @@ scope, including vault-self MCP registration. The native CLI commands are shown 
 reconciliation inspect existing Grok project MCP registrations and their owned
 startup rules. Standalone workspace bootstrap also accepts `--surface grok`.
 
-Bootstrap and document reads use the same bounded application results in every
-projection. Finish `session.start` pages until `bootstrap_complete` is true.
-For document reads, repeat the same selectors with `cursor: range.next_cursor`
-until null; revisions prevent mixing source versions between pages.
+Bootstrap and document reads use the same single bounded delivery pager in every
+projection. Follow `delivery.continuation` through `result.read`; retained text
+and revision are immutable, and exact delivered ranges prevent skipped text.
 
 ### Router repair contract
 

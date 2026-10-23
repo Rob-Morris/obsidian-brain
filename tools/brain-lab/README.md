@@ -153,7 +153,7 @@ tools/brain-lab/brain-lab --json baseline prepare --request-json \
 
 Preparation uses the selected source's official installer. It checks Core version, CLI/machine health, `brain session start --json`, a direct MCP stdio read-only round trip, and template compliance. A retry occurs only when the selected compatibility manifest explicitly permits a known safe, retryable health response such as cold runtime warm-up.
 
-The 0.74 and 0.75 adapters retain installed-Brain selection and health contracts from
+The 0.74, 0.75 and 0.76 adapters retain installed-Brain selection and health contracts from
 0.73 and checks the new offline CLI metadata through `brain version --json`.
 Bounded result delivery keeps the scalar status/version/health fields used by
 these gates; this smoke does not certify complete bootstrap page traversal.

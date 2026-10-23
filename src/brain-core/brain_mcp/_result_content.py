@@ -10,7 +10,7 @@ import json
 from collections.abc import Mapping
 from dataclasses import asdict
 
-from _bootstrap.result_metadata import Delivery
+from _bootstrap.result_metadata import Delivery, compact_delivery
 
 
 def result_text_wire(
@@ -82,7 +82,7 @@ def delivery_descriptor(**overrides: object) -> dict[str, object]:
     """Transport-local descriptor; unknown counts never imply a fabricated page map."""
     descriptor = asdict(Delivery(status="complete", availability="available", backing="inline"))
     descriptor.update(overrides)
-    return descriptor
+    return compact_delivery(descriptor)
 
 
 def has_catalogue_notice(result: Mapping[str, object]) -> bool:

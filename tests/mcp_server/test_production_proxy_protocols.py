@@ -3,6 +3,7 @@
 import json
 import os
 from pathlib import Path
+import re
 import subprocess
 import sys
 
@@ -216,7 +217,11 @@ def test_incompatible_candidate_keeps_connection_and_can_be_repaired(command_vau
         assert recovered["isError"] is False, recovered
         assert recovered["structuredContent"]["result"]["server"]["refresh"] == "current"
         owner = vault / ".brain-core/scripts/_application/artefact/read.py"
-        owner.write_text(owner.read_text().replace("COMMAND_VERSION: ClassVar[int] = 4", "COMMAND_VERSION: ClassVar[int] = 5"))
+        changed_version = int(re.search(r'COMMAND_VERSION: ClassVar\[int\] = (\d+)', owner.read_text())[1]) + 1
+        changed_owner, count = re.subn(r'(COMMAND_VERSION: ClassVar\[int\] = )(\d+)',
+            lambda match: match[1] + str(changed_version), owner.read_text())
+        assert count == 1, 'fixture must change the actual command contract'
+        owner.write_text(changed_owner)
         version.write_text(version.read_text().strip() + ".changed-contract\n")
         read_params = {"name": "artefact_read", "arguments": {"reference": "Projects/Command Fixture.md"}}
         changed = request("tools/call", read_params)["result"]
@@ -226,7 +231,7 @@ def test_incompatible_candidate_keeps_connection_and_can_be_repaired(command_vau
         request("tools/list", {})
         rediscovered = request("tools/call", read_params)["result"]
         assert rediscovered["isError"] is False
-        assert rediscovered["structuredContent"]["command_version"] == 5
+        assert rediscovered["structuredContent"]["command_version"] == changed_version
     finally:
         process.terminate()
         process.wait(timeout=5)

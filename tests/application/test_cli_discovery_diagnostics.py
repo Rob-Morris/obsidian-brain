@@ -102,12 +102,81 @@ def test_legacy_bound_use_returns_structured_pinned_upgrade_without_writes(comma
     bootstrap = application_for(root, workspace_dir=workspace, dependency_tier=DependencyTier.MANAGED).invoke(SessionStartRequest())
     assert bootstrap.status == "ok", bootstrap.error.message if bootstrap.status == "error" else bootstrap
     content = bootstrap.result.content
-    cursor = bootstrap.result.range.next_cursor
-    while cursor is not None:
-        page = application_for(root, workspace_dir=workspace, dependency_tier=DependencyTier.MANAGED).invoke(SessionStartRequest(cursor=cursor))
-        assert page.status == "ok", page
-        content += page.result.content
-        cursor = page.result.range.next_cursor
+
     assert details["remediation_command"] in content
     assert "upgrade_required" in content
     assert manifest.read_bytes() == original
+
+
+@pytest.mark.parametrize("nested", [False, True])
+def test_description_continuations_keep_source_contract(monkeypatch, nested):
+    initial = {"schema": "brain.command-result/1", "command": "command.describe", "status": "ok",
+               "result_session_file": "/private/context", "delivery": {"result_id": "retained", "continuation": {"page": 2}},
+               "result": {"root_type": "dict", "fields": [{"field": "summary", "value": "A command"}]}}
+    source = {"schema": "brain.command-result/1", "command": "command.describe", "status": "ok",
+              "result": {"root_type": "dict", "fields": [{"field": "dependency_tier", "value": "stdlib"}]},
+              "delivery": {"continuation": None}}
+    frame = ({"schema": "brain.command-result/1", "command": "result.read", "status": "ok",
+              "result": {"envelope": source}, "delivery": source["delivery"]} if nested else source)
+    monkeypatch.setattr(main, "_invoke_application", lambda *_args, **_kwargs: frame)
+    resolved = main._application_description_metadata(None, initial, SimpleNamespace())
+    assert resolved == {"summary": "A command", "dependency_tier": "stdlib"}
+
+
+@pytest.mark.parametrize("legacy_fragments", [False, True])
+def test_description_detail_reads_text_once_across_core_contracts(monkeypatch, legacy_fragments):
+    envelope = {"command": "command.describe", "result_session_file": "/private/context", "delivery": {"result_id": "retained"}}
+    payload = ({"fragments": [{"text": "std", "line_ending": ""}, {"text": "lib", "line_ending": ""}]} if legacy_fragments
+               else {"content": "stdlib", "content_range": {"start": 0, "end": 6, "total": 6}})
+    source = {"schema": "brain.command-result/1", "command": "command.describe", "status": "ok", "result": payload}
+    frame = ({"schema": "brain.command-result/1", "command": "result.read", "status": "ok",
+              "result": {"envelope": source}, "delivery": {"next_detail": None}} if legacy_fragments
+             else {**source, "delivery": {"next_detail": None}})
+    monkeypatch.setattr(main, "_invoke_application", lambda *_args, **_kwargs: frame)
+    assert main._application_detail(None, envelope, "tier", SimpleNamespace()) == "stdlib"
+
+
+@pytest.mark.parametrize("status,exit_code,error", [("ok", 0, None), ("error", 0, {"code": "conflict", "message": "source conflict"}), ("partial", 0, None)])
+def test_retained_process_response_validates_source_result_and_exit(monkeypatch, tmp_path, status, exit_code, error):
+    frame = {"schema": "brain.command-result/1", "command": "artefact.read", "command_version": 5,
+             "status": status, "result": {"content": "text"}, "delivery": {"result_id": "retained"}}
+    if error:
+        frame["error"] = error
+    completed = SimpleNamespace(returncode=exit_code, stdout=json.dumps(frame), stderr="")
+    monkeypatch.setattr(main, "managed_command", lambda *_args, **_kwargs: SimpleNamespace(run=lambda **_options: completed))
+    selected = SelectedBrain(tmp_path, None, "test")
+    common = SimpleNamespace(operator_key=None)
+    assert main._invoke_application(selected, "result.read", {"result_id": "retained"}, common, dependency_tier="stdlib") == frame
+    with pytest.raises(main.CliError, match="retained result identity"):
+        main._invoke_application(selected, "result.read", {"result_id": "other"}, common, dependency_tier="stdlib")
+
+
+def test_retained_process_validation_keeps_navigation_failures_distinct():
+    from _local_cli.execution import validate_application_envelope
+    failure = {"schema": "brain.command-result/1", "command": "result.read", "command_version": 2,
+               "status": "error", "error": {"code": "not_found", "message": "Result expired"}}
+    validate_application_envelope(failure, "result.read", 2, command_version=2, result_id="retained")
+    nested = {"schema": "brain.command-result/1", "command": "result.read", "command_version": 2,
+              "status": "ok", "result": {"envelope": failure}}
+    validate_application_envelope(nested, "result.read", 0, command_version=2, result_id="retained")
+    with pytest.raises(RuntimeError, match="identity changed"):
+        validate_application_envelope(failure, "result.read", 2, command_version=3, result_id="retained")
+    source = {"schema": "brain.command-result/1", "command": "artefact.read", "command_version": 5,
+              "status": "ok", "result": {"content": "text"}, "delivery": {"result_id": "retained"}}
+    with pytest.raises(RuntimeError, match="exit category disagree"):
+        validate_application_envelope(source, "result.read", 2, result_id="retained")
+    with pytest.raises(RuntimeError, match="identity changed"):
+        validate_application_envelope(source, "vault.read-file", 0, result_id="retained")
+
+
+@pytest.mark.parametrize("status,error", [("error", {"code": "conflict", "message": "original source"}), ("partial", None)])
+def test_local_projection_retains_source_outcome_with_successful_navigation(status, error):
+    from _local_cli.execution import LocalExecutionProjection
+    frame = {"schema": "brain.command-result/1", "command": "artefact.read", "command_version": 5,
+             "status": status, "result": {"content": "text"}, "delivery": {"result_id": "retained"}}
+    if error:
+        frame["error"] = error
+    projection = LocalExecutionProjection("application", "result.read", 3, frame,
+        json.dumps(frame), "result.read: ok", False, 0)
+    assert projection.exit_code == 0
+    assert projection.structured_content["status"] == status

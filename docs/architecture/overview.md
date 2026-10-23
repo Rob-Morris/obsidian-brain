@@ -228,7 +228,9 @@ The current CLI refuses application discovery against a pre-cutover Brain but re
 4. If none of those tools can be used, `.brain-core/index.md` routes to `.brain/local/session.md` when present. This is a generated Markdown projection of the canonical bootstrap model, not an independently authored source.
 5. With no usable tools or generated mirror, `.brain-core/md-bootstrap.md` routes through copied core instructions and authored `_Config/router.md` and taxonomy. This fallback works without code execution or compilation.
 
-Complete every tool-backed `session.start` page using `range.next_cursor` until `bootstrap_complete` is true before ordinary work. Router and taxonomy are authoritative configuration inputs; routine agents discover them through the bootstrap's tool routes. The authored Markdown path exposes those inputs directly for manual discovery.
+The shared CLI/MCP delivery boundary projects continuation coordinates as opaque versioned stateless tokens. Callers pass tokens unchanged; explicit request fields control navigation. Tokens are bound to the result/session using the existing credential, add no per-cursor persistence, and never replace ownership or current disclosure checks.
+
+Complete every tool-backed `session.start` delivery page using `result.read` and `delivery.continuation` before ordinary work. Router and taxonomy are authoritative configuration inputs; routine agents discover them through the bootstrap's tool routes. The authored Markdown path exposes those inputs directly for manual discovery.
 
 This runtime contract is distinct from the repository's [contributor bootstrap](../contributor/agents.md).
 
@@ -267,7 +269,9 @@ Local calls bind to installed versions rather than accepting caller-supplied com
 - [CLI](../functional/cli.md)
 - [Scripts](../functional/scripts.md)
 
-Bootstrap and document reads share a 16,000-byte canonical envelope budget.
+Bootstrap and document delivery obey the 8,000-byte canonical envelope and
+32,768-byte encoded tool-result budgets.
 Bootstrap retains mandatory instructions and pages the canonical markdown mirror
 when necessary; type definitions and core documents load on demand. Document
-continuations bind Unicode offsets to source revisions before transport projection.
+pages preserve source revision and Unicode content ranges; opaque delivery
+continuations retain the selected navigation view.

@@ -9,6 +9,8 @@ import time
 
 import pytest
 
+pytest_plugins = ('pytest_failure_log',)
+
 
 # conftest.py files carry no doctests. Excluding them from --doctest-modules
 # collection avoids the dual-conftest "import file mismatch" that prepend

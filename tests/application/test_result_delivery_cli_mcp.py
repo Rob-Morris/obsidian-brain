@@ -88,6 +88,7 @@ async def mcp_call(session, name, arguments):
     assert len(assistant) == 1
     assert json.loads(assistant[0].text) == frame
     assert len(json.dumps(frame, ensure_ascii=False, separators=(",", ":")).encode()) <= 8000
+    assert len(json.dumps(result.model_dump(by_alias=True, exclude_none=True)).encode()) <= 32768
     return frame
 
 
@@ -97,13 +98,39 @@ def error_summary(frame):
 
 
 def text_content(payload):
-    if "content" in payload:
-        return payload["content"]
-    return "".join(item["text"] + item["line_ending"] for item in payload["fragments"])
+    assert "fragments" not in payload
+    return payload["content"]
+
+
+def assert_complete_text(frames, expected):
+    offset = 0
+    total_pages = frames[0]["delivery"]["total_pages"]
+    revision = frames[0]["result"].get("revision")
+    for number, frame in enumerate(frames, 1):
+        payload = frame["result"]
+        chunk = text_content(payload)
+        assert "range" not in payload and "next_cursor" not in payload
+        assert payload["content_range"] == {
+            "start": offset, "end": offset + len(chunk), "total": len(expected),
+        }
+        assert payload.get("revision") == revision
+        delivery = frame["delivery"]
+        assert delivery["page"] == number
+        assert delivery["total_pages"] == total_pages
+        assert delivery["has_more"] == (number < total_pages)
+        assert delivery["status"] == ("truncated" if number < total_pages else "complete")
+        assert delivery["remaining_pages"] == total_pages - number
+        assert delivery["unit"] == "bytes"
+        assert delivery["total_items"] == len(expected.encode("utf-8"))
+        assert delivery.get("fragments") is None
+        offset += len(chunk)
+    assert len(frames) == total_pages
+    assert "".join(text_content(frame["result"]) for frame in frames) == expected
+    assert offset == len(expected)
 
 
 async def mcp_window(session, first, credential):
-    """Finish outer delivery before looking at owner range/next_cursor."""
+    """Follow the single generic delivery continuation to completion."""
     assert first["status"] == "ok", first.get("error")
     assert first["delivery"]["availability"] == "available", (
         first["delivery"]["reason"], first["delivery"]["message"])
@@ -120,45 +147,46 @@ async def mcp_window(session, first, credential):
         assert "result_session" not in frames[-1]
     else:
         pytest.fail("generic delivery did not finish within the test work bound")
-    # Semantic payload access occurs only after all generic continuations.
-    pages = [frames[0]["result"], *(frame["result"]["envelope"]["result"] for frame in frames[1:])]
+    pages = [frame["result"] for frame in frames]
     ranges = [frame["delivery"] for frame in frames]
     assert [item["page"] for item in ranges] == list(range(1, len(frames) + 1))
-    assert not ranges[-1]["has_more_outside_selection"]
-    return "".join(text_content(page) for page in pages), pages[-1], len(frames)
+    assert not ranges[-1].get("has_more_outside_selection", False)
+    return "".join(text_content(page) for page in pages), pages[-1], frames
 
 
-def test_mcp_bootstrap_consumes_both_cursor_layers_and_matches_mandatory_mirror(delivery_vault):
+def test_mcp_bootstrap_single_pager_matches_complete_mandatory_mirror(delivery_vault):
     root, env, preferences, gotchas = delivery_vault
 
     async def exercise():
         async with mcp_client(env) as session:
+            tools = await session.list_tools()
+            schema = next(tool.input_schema for tool in tools.tools if tool.name == "result_read")
+            continuation_schema = schema["properties"]["continuation"]
+            assert set(continuation_schema["type"]) == {"string", "null"}
             first = await mcp_call(session, "session_start", {"brain_session": "new"})
             assert "result_session" in first, error_summary(first)
             credential = first["result_session"]["credential"]
-            chunks = []
-            windows = outer_pages = 0
-            revision = None
-            for _ in range(30):
-                chunk, payload, count = await mcp_window(session, first, credential)
-                chunks.append(chunk)
-                windows += 1
-                outer_pages += count
-                assert payload["range"]["start"] == sum(map(len, chunks[:-1]))
-                assert payload["range"]["end"] == sum(map(len, chunks))
-                revision = revision or payload["revision"]
-                assert payload["revision"] == revision
-                cursor = payload["range"]["next_cursor"]
-                assert payload["bootstrap_complete"] == (cursor is None)
-                if cursor is None:
-                    break
-                first = await mcp_call(session, "session_start", {"brain_session": credential, "cursor": cursor})
-                assert "result_session" not in first
-            else:
-                pytest.fail("bootstrap owner cursor did not finish")
-            complete = "".join(chunks)
-            assert windows > 1 and outer_pages > windows
-            assert len(complete) == payload["range"]["total_characters"]
+            complete, payload, frames = await mcp_window(session, first, credential)
+            assert len(frames) > 1
+            assert_complete_text(frames, complete)
+            lines = await mcp_call(session, "result_read", {
+                "brain_session": credential, "result_id": first["delivery"]["result_id"],
+                "page": 0, "page_unit": "lines", "page_size": 3})
+            assert lines["status"] == "ok", error_summary(lines)
+            assert lines["delivery"]["unit"] == "lines"
+            assert lines["result"]["content"] == "".join(complete.splitlines(keepends=True)[:3])
+            assert isinstance(lines["delivery"]["continuation"], str)
+            following = await mcp_call(session, "result_read", {
+                "brain_session": credential, "result_id": first["delivery"]["result_id"],
+                "continuation": lines["delivery"]["continuation"]})
+            assert following["delivery"]["unit"] == "lines"
+            assert following["delivery"]["page_size"] == 3
+            assert following["delivery"]["page"] == 2
+            wrong = await mcp_call(session, "result_read", {
+                "brain_session": credential, "result_id": first["delivery"]["result_id"],
+                "page": 0, "page_unit": "records"})
+            assert wrong["status"] == "error" and wrong["error"]["code"] == "conflict"
+            assert "bytes, lines" in wrong["error"]["message"]
             assert complete == (root / ".brain/local/session.md").read_text(encoding="utf-8")
             assert preferences in complete and gotchas in complete
             for mandatory in ("## Principles", "## Always Rules", "## Triggers", "## Authorisation"):
@@ -173,7 +201,7 @@ def test_mcp_sessions_isolate_cached_reads_and_write_output_never_replays(delive
     root, env, _, _ = delivery_vault
     path = root / TARGET
     original = path.read_text(encoding="utf-8") + "\n" + "".join(
-        f"Read line {i:04}: colour 雪, escaped \"text\" and \\.\n" for i in range(650))
+        f"Read line {i:04}: colour 雪, escaped \"text\" and \\.\n" for i in range(650)) + ("雪😀\"\\" * 1500)
     path.write_text(original, encoding="utf-8")
 
     async def exercise():
@@ -190,35 +218,20 @@ def test_mcp_sessions_isolate_cached_reads_and_write_output_never_replays(delive
             other = await mcp_call(session, "artefact_read", {"brain_session": two, "reference": TARGET})
             assert other["status"] == "ok"
             assert other["delivery"]["result_id"] != result_id
-            chunks = []
-            windows = outer_pages = 0
-            for _ in range(20):
-                chunk, payload, count = await mcp_window(session, first, one)
-                chunks.append(chunk)
-                windows += 1
-                outer_pages += count
-                cursor = payload["range"]["next_cursor"]
-                if cursor is None:
-                    break
-                first = await mcp_call(session, "artefact_read", {
-                    "brain_session": one, "reference": TARGET, "cursor": cursor,
-                })
-            else:
-                pytest.fail("long artefact source windows did not finish")
-            assert "".join(chunks) == original
-            assert windows > 1 and outer_pages > windows
-            result_id = first["delivery"]["result_id"]
+            complete, payload, frames = await mcp_window(session, first, one)
+            assert_complete_text(frames, original)
+            assert len(frames) > 1
             # This result's source bytes now differ: cache retrieval must still
-            # return the final immutable window without executing artefact.read.
+            # return the complete immutable output without executing artefact.read.
             changed = original.replace("Read line", "Changed line")
             path.write_text(changed, encoding="utf-8")
             cached = await mcp_call(session, "result_read", {
                 "brain_session": one, "result_id": result_id, "page": 0,
             })
             assert cached["status"] == "ok", error_summary(cached)
-            cached_first = {**cached, "result": cached["result"]["envelope"]["result"]}
-            cached_chunk, _, _ = await mcp_window(session, cached_first, one)
-            assert cached_chunk == chunks[-1]
+            cached_chunk, _, cached_frames = await mcp_window(session, cached, one)
+            assert_complete_text(cached_frames, original)
+            assert cached_chunk == complete
             assert "Changed line" not in cached_chunk
             # Both agents used the same canonical read command and principal;
             # the second session's original result still has its own bytes.
@@ -226,7 +239,7 @@ def test_mcp_sessions_isolate_cached_reads_and_write_output_never_replays(delive
                 "brain_session": two, "result_id": other["delivery"]["result_id"], "page": 1,
             })
             assert other_page["status"] == "ok", error_summary(other_page)
-            assert text_content(other_page["result"]["envelope"]["result"]) == text_content(other["result"])
+            assert text_content(other_page["result"]) == text_content(other["result"])
             marker = "\nOnce-only append from the stdio delivery test.\n"
             write = await mcp_call(session, "document_write-body", {
                 "brain_session": one, "document": {"resource": "artefact", "reference": TARGET},
@@ -240,14 +253,13 @@ def test_mcp_sessions_isolate_cached_reads_and_write_output_never_replays(delive
                     "brain_session": one, "result_id": write["delivery"]["result_id"], "page": 0,
                 })
                 assert page["status"] == "ok"
-                assert page["result"]["envelope"]["command"] == "document.write-body"
-                assert page["result"]["envelope"]["status"] == "ok"
+                assert page["command"] == "document.write-body"
                 assert path.read_bytes() == after
             assert after.decode().count(marker) == 1
             # Another originating command did not replace the read slot.
             cached = await mcp_call(session, "result_read", {"brain_session": one, "result_id": result_id, "page": 1})
             assert cached["status"] == "ok"
-            assert text_content(cached["result"]["envelope"]["result"]) == text_content(first["result"])
+            assert text_content(cached["result"]) == text_content(first["result"])
 
     anyio.run(exercise)
 
@@ -268,6 +280,8 @@ def test_cli_private_file_resumes_in_new_process_page_zero_next_and_clear(delive
         assert completed.returncode == expected_code, (
             completed.stderr[-1000:], error_summary(json.loads(completed.stdout)) if completed.stdout else None)
         frame = json.loads(completed.stdout)
+        assert len(json.dumps(frame, ensure_ascii=False, separators=(",", ":")).encode()) <= 8000
+        assert len(completed.stdout.encode("utf-8")) <= 32768
         if session_file.exists():
             secret = session_file.read_text()
             assert secret not in completed.stdout + completed.stderr
@@ -278,16 +292,21 @@ def test_cli_private_file_resumes_in_new_process_page_zero_next_and_clear(delive
     assert Path(issued["result_session_file"]) == session_file
     assert session_file.stat().st_mode & 0o777 == 0o600
     credential = session_file.read_bytes()
+    description = call("command", "describe", {"target_command_id": "result.read"})
+    schema = json.loads(description["result"]["request_schema_json"])
+    continuation_schema = schema["properties"]["continuation"]
+    assert set(continuation_schema["type"]) == {"string", "null"}
+
     source = root / TARGET
     source.write_text(source.read_text() + "\n" + "".join(
-        f"CLI line {i:04}: colour 雪 and escaped \"text\".\n" for i in range(350)), encoding="utf-8")
+        f"CLI line {i:04}: colour 雪 and escaped \"text\".\n" for i in range(350)) + ("雪😀\"\\" * 1500), encoding="utf-8")
     first = call("artefact", "read", {"reference": TARGET})
     result_id = first["delivery"]["result_id"]
     page_zero = call("result", "read", {"result_id": result_id, "page": 0})
     assert page_zero["status"] == "ok"
     assert page_zero["delivery"]["page"] == 1
     assert page_zero["delivery"]["continuation"]
-    assert page_zero["result"]["envelope"]["result"] == first["result"]
+    assert page_zero["result"] == first["result"]
     pages = [page_zero]
     for _ in range(30):
         cursor = pages[-1]["delivery"]["continuation"]
@@ -297,11 +316,17 @@ def test_cli_private_file_resumes_in_new_process_page_zero_next_and_clear(delive
         assert pages[-1]["status"] == "ok"
     else:
         pytest.fail("CLI delivery did not finish within the test work bound")
-    payloads = [page["result"]["envelope"]["result"] for page in pages]
-    complete_window = "".join(text_content(payload) for payload in payloads)
-    window = payloads[-1]["range"]
-    assert complete_window == source.read_text()[window["start"]:window["end"]]
+    assert_complete_text(pages, source.read_text(encoding="utf-8"))
     assert len(pages) > 1
+    lines = call("result", "read", {"result_id": result_id, "page": 0,
+        "page_unit": "lines", "page_size": 3})
+    assert lines["delivery"]["unit"] == "lines"
+    assert lines["result"]["content"] == "".join(source.read_text(encoding="utf-8").splitlines(keepends=True)[:3])
+    byte_view = call("result", "read", {"result_id": result_id,
+        "continuation": lines["delivery"]["continuation"], "page_unit": "bytes",
+        "page_size": 120, "anchor": lines["result"]["content_range"]["end"]})
+    assert byte_view["delivery"]["unit"] == "bytes"
+    assert len(byte_view["result"]["content"].encode("utf-8")) <= 120
     assert session_file.read_bytes() == credential
     source_bytes = source.read_bytes()
     cleared = call("result", "clear")
@@ -315,16 +340,20 @@ def test_cli_private_file_resumes_in_new_process_page_zero_next_and_clear(delive
     assert missing["delivery"]["status"] == missing["delivery"]["availability"] == "unavailable"
     assert missing["delivery"]["reason"] == "result_unavailable"
     assert missing["delivery"]["result_id"] == result_id
-    assert missing["delivery"]["total_items"] is missing["delivery"]["total_pages"] is None
+    assert missing["delivery"].get("total_items") is missing["delivery"].get("total_pages") is None
     assert session_file.read_bytes() == credential
     assert source.read_bytes() == source_bytes
     reused = call("artefact", "read", {"reference": TARGET})
     assert reused["status"] == "ok" and reused["delivery"]["result_id"] != result_id
     malformed = call("result", "read", {"result_id": reused["delivery"]["result_id"],
-        "continuation": {"unexpected": True}}, expected_code=2)
+        "continuation": "t1_malformed"}, expected_code=2)
     assert malformed["error"]["code"] == "conflict" and malformed["error"]["effects"] == "none"
     assert session_file.read_bytes() == credential
     assert source.read_bytes() == source_bytes
+    invalid = call("result", "read", {"result_id": reused["delivery"]["result_id"],
+        "continuation": {"page": 2}}, expected_code=2)
+    assert invalid["error"]["code"] == "invalid_request"
+    assert "opaque token" in invalid["error"]["message"]
 
 
 def test_mcp_clear_preserves_other_sessions_source_and_selected_credential(delivery_vault):
@@ -391,6 +420,6 @@ def test_cli_cp1252_json_preserves_unicode_write_effects_and_retained_outcome(de
     assert written.get("committed_effects")
     after = path.read_bytes()
     replay = call("result", "read", {"result_id": written["delivery"]["result_id"], "page": 0})
-    assert replay["result"]["envelope"]["status"] == "ok"
-    assert replay["result"]["envelope"].get("committed_effects") == written["committed_effects"]
+    assert replay["status"] == "ok"
+    assert replay.get("committed_effects") == written["committed_effects"]
     assert path.read_bytes() == after

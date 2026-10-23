@@ -127,25 +127,27 @@ to recover its output. Use `invocation.read` for uncertain execution outcomes.
 The `delivery` descriptor reports availability, backing,
 consistency/count scope, units, requested/effective page size, item/page counts,
 selection bounds, remaining pages and continuation. Inapplicable counts are
-null. `delivery.status: "truncated"` means more output, not failed execution.
-Follow **generic `delivery.continuation` before inspecting any semantic payload
-or following its legacy cursor**. Call `result_read` with the same `result_id`,
-credential and returned `continuation`. Its `result.envelope` (the typed
-`ResultReadPayload.envelope`) holds the original command page; the outer outcome
-belongs to `result.read`. Delivery metadata is on the outer envelope. Only once
-that delivery is complete should the original payload's cursor be followed.
+omitted. `continuation` is always present (null at the end).
+`delivery.status: "truncated"` means output exists beyond this page or selection, not failed execution. A completed selection can have only earlier pages outside it. Recovery messages distinguish the next selected page, a later selection via `outside_continuation`, and earlier pages available by absolute page number.
+Text appears exactly once in `result.content`. Successful `result_read`
+continuations project the same originating command envelope and payload shape
+as the initial call; navigation failures identify `result.read` and do not
+masquerade as source execution failures. Follow `delivery.continuation` with
+the same result ID and session until complete. Text has no additional source
+cursor. Genuine domain cursors, including graph traversal, retain their rules.
 
-`result.read` v1 accepts:
+`result.read` v2 accepts:
 
 | Field | Contract |
 |---|---|
 | `result_id` | Required owned retained invocation ID. |
 | `page` | Omitted/null follows the continuation, or starts at 1 without one. Explicit positive integers are absolute, including 1; 0 means get-all intent; `"+1"`/`"-1"` are relative to a supplied continuation. Applies to `@outcome` too. |
-| `continuation` | Returned delivery object; preserves view size and selection. |
-| `page_size` | Optional positive size: text defaults to 100, maximum 500; records/fields default to 25, maximum 100. Byte limits can reduce occupancy. |
+| `continuation` | Opaque versioned string token, or null. Pass the returned value unchanged with the same result ID and session; preserves view size and selection. Use explicit request controls to change navigation. |
+| `page_unit` | Optional `bytes`, `lines`, `records` or `fields`. Text defaults to bytes and supports explicit lines; other results accept only their own unit. Continuations preserve the mode. |
+| `page_size` | Text bytes default/maximum 4,000 UTF-8 bytes; explicit lines default 100, maximum 500; records/fields default 25, maximum 100. Final encoding limits can reduce occupancy. |
 | `max_pages` | Positive selection limit across calls, or `"all"` for the complete set. Query selections default to 10 pages; retained output has no default page-count cap. |
-| `anchor` | Zero-based source-unit position when changing page size; page 0 explicitly anchors at the beginning. |
-| `detail` | Returned bounded detail reference, retrieved through this same command. Follow `delivery.next_detail` for further detail pages. |
+| `anchor` | Zero-based text character offset, or record/field position, for anchored navigation or mode/size changes; page 0 explicitly anchors at the beginning. |
+| `detail` | Returned child reference. Text supports the same page/anchor controls; linked structured details use the returned continuation or `delivery.next_detail`, and reject unsupported page/anchor/extent overrides. |
 
 Each call returns at most one response page, including `page: 0`; get-all is
 not a multi-page bundle. Exact physical counts use byte-aware page boundaries.
@@ -156,12 +158,37 @@ open the next selection. A selection preserves its numeric start and limit,
 reapplied to current page counts; it does not freeze membership. An absolute
 read of an existing page outside that extent starts a new selection at that
 page, preserving `max_pages`; relative navigation stays within its selection.
-Pages beyond the current total remain out of range. Resizing
-creates a new view anchored at the supplied position and reapplies that limit.
+Pages beyond the current total remain out of range. Changing `page_unit` or size
+creates a new view anchored at the supplied character/record position and
+reapplies that limit. Supply an anchor, or `page: 0` to explicitly restart.
+Omitting the mode on a continuation keeps its existing mode; it does not switch
+a line view back to bytes. Byte/line switches preserve character coordinates.
 Out-of-range pages report current counts rather than silently substituting a page.
-Oversized text uses Unicode-safe fragments with line number, character offsets
-and newline information; records/fields use bounded detail references rather
-than silently dropping content.
+Default retained/immutable/produced-output metadata values and irrelevant nulls
+are omitted; callers use those defaults when absent. Capped selections carry
+their within/outside bounds; an uncapped full-set view omits redundant selection
+counts. `continuation` remains present, null at the end.
+
+Text pages contain only `content` and compact source context. Their `content_range`
+reports absolute Unicode character bounds and total length, with no continuation
+cursor. Ordinary text defaults to byte paging: `page_size` bounds the UTF-8 bytes
+of content, independently of JSON escaping/context and final response caps. A
+short complete result is returned in one page even if it contains more than 100
+lines. Set `page_unit: "lines"` on `result.read` for explicit line paging; omitted
+size then means 100 lines (maximum 500), still subject to the byte caps. Byte
+mode defaults to its current maximum of 4,000; smaller sizes are supported. A
+size too small for a complete UTF-8 character is refused with minimum-size
+guidance rather than splitting that character or exceeding the request.
+An explicit field page size limits field occupancy; without one, a compact
+structured root retains its single-page shape when it fits. These are distinct
+cached layouts even when the explicit size equals the default, so a prior compact
+read cannot override a requested field count.
+In either text mode, byte caps can split an oversized line safely between
+Unicode characters. Line mode selects logical lines, but does not override the
+response byte cap. Byte pages may also split words or identifiers: join adjacent
+`content` chunks in `content_range` order before extracting values across a
+boundary. No per-line objects or duplicate text are emitted. Records/fields use bounded
+detail references rather than silently dropping content.
 
 Cursor-free `artefact.list` with result delivery enabled produces the full
 filtered summaries for generic paging. Active lists' dynamic pages check the maintained
@@ -183,17 +210,16 @@ outside continuation and an explicit `max_pages: "all"` selection.
 characters), `start_page` (default 1), zero-based `start_offset` (default 0),
 `limit` (default 10, maximum 25) and `scan_pages` (default 10, maximum 50).
 It returns one bounded snippet per matching
-line, text fragment or structured record. `matches` include page/unit `offset`,
+text slice or structured record. `matches` include page/unit `offset`,
 character `column` and line/record identity. Text overlap finds literals crossing
-fragment boundaries, including after resume; one logical line can match in more
-than one fragment. `scanned_pages` counts forward page reads; `overlap_pages`
+page boundaries, including after resume. `scanned_pages` counts forward page reads; `overlap_pages`
 counts additional look-behind reads, bounded at 256 per call. Byte limits can
 stop before `limit`. Resume using `start_page: next_page`,
 `start_offset: next_offset` so no unreturned match is lost. Coverage is derived
 from immutable view metadata on every call; no coverage flag needs to be echoed.
 
 `coverage: retained-body-units` scopes every reply to the retained result body's
-declared lines/fragments, records or structured field units. Search excludes
+declared text slices, records or structured field units. Search excludes
 canonical envelope metadata such as command identity, errors and warnings, and
 contextual payload extras repeated beside line/record units. It does not search
 the entire canonical JSON blob.
@@ -224,28 +250,22 @@ requires current source-query authority separately. See the
 
 ## Bounded bootstrap and document reads
 
-`session.start` returns the complete lean bootstrap when its source
-JSON envelope fits its 16,000-byte document budget. Generic delivery applies
-the stricter final response limits above and can page that source envelope again. It advertises the installed type count
-and shared retrieval routes; use `resource.list` with `resource: "type"` and
-`resource.read` to learn a type before creating it. Core-document references
-carry title and path; load them with `vault.read-file`.
+`session.start` produces the complete canonical bootstrap Markdown that is
+also published as `.brain/local/session.md`. Generic delivery is the sole
+pager. Consume `delivery.continuation` via `result.read` until all guidance is
+retrieved before ordinary work. There is no separate bootstrap-completion flag;
+the generic page metadata describes delivery.
 
-If the full bootstrap exceeds that budget, the same canonical markdown used
-by `.brain/local/session.md` is returned in pages. Consume generic delivery
-first, then repeat `session.start` with
-`cursor: range.next_cursor` until `bootstrap_complete` is true, before ordinary
-work. Mandatory preferences, rules and triggers are preserved across the pages.
-
-`artefact.read` v4, `vault.read-file` v2 and document variants of `resource.read`
-v3 return `revision` and `range` alongside their content. Repeat the same
-request with `cursor: range.next_cursor` until that cursor is null. Each page
-fits the same 16,000-byte source-envelope budget before generic delivery; `max_characters` optionally limits
-the requested window to 1–12,000 Unicode characters. Offsets describe text
-after newline normalisation; revisions identify the persisted source bytes.
-A changed source returns `conflict`: restart without a cursor. These bounds
-apply before MCP, CLI and Python projections, so no transport cuts serialized
-JSON or silently drops the tail. Metadata-only resource variants remain intact.
+`artefact.read`, `vault.read-file` and document variants of
+`resource.read` likewise produce one immutable logical text result with its
+source revision. Their request schemas do not accept legacy `cursor` or
+`max_characters` fields. Generic delivery applies the default byte budget (or the explicitly selected
+retained text view) and the final response cap once. Initial and continuation pages return stable
+`result.content` and an exact delivered `content_range`, so concatenating consecutive
+pages reconstructs the complete text. A new originating read supersedes that
+session's previous invocation of the same command; navigation never rereads the
+source. Metadata-only resource variants remain structured results. `vault.read-config`
+returns redacted structured configuration; it is not a document text reader.
 
 Document reads can decode leading UTF-8 marks and BOM-marked UTF-16/32 without rewriting the source. Every converted page includes a `follow_up_required` warning naming the path and diagnosis within the same byte budget. Revisions still identify the original bytes, so an encoding-only source change invalidates a cursor or prepared read. Truncated or ambiguous text returns a named `conflict` with a recovery action. Document edits that accept a lossless conversion write UTF-8 without a leading mark and report the conversion; they refuse lossy conversion.
 

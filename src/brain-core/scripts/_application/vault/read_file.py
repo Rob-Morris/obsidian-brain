@@ -12,9 +12,7 @@ from .._read_support import (
 )
 from ..context import InvocationContext
 from .._decoding import reject_unexpected
-from .._response_budget import (ContentRange, TextCursor, bounded_text_result,
-    decode_text_cursor, validate_text_window, DEFAULT_TEXT_CHARACTERS, TEXT_WINDOW_DESCRIPTIONS)
-from ..results import ErrorCode
+from ..results import ErrorCode, Ok
 
 
 @dataclass(frozen=True, slots=True)
@@ -22,22 +20,17 @@ class VaultReadFilePayload:
     path: str
     content: str
     revision: str
-    range: ContentRange
 
 
 @dataclass(frozen=True, slots=True)
 class VaultReadFileRequest:
     COMMAND_ID: ClassVar[str] = "vault.read-file"
-    COMMAND_VERSION: ClassVar[int] = 2
+    COMMAND_VERSION: ClassVar[int] = 3
     RESULT_TYPE: ClassVar[type] = VaultReadFilePayload
-    FIELD_DESCRIPTIONS: ClassVar[dict[str, str]] = TEXT_WINDOW_DESCRIPTIONS
 
     path: str
-    cursor: TextCursor | None = None
-    max_characters: int = DEFAULT_TEXT_CHARACTERS
 
     def __post_init__(self) -> None:
-        validate_text_window(self.cursor, self.max_characters)
         if not isinstance(self.path, str) or not self.path.strip():
             raise ValueError("vault.read-file path must be a non-empty string")
 
@@ -64,16 +57,12 @@ def read_result(context: InvocationContext, request: VaultReadFileRequest):
     from ..preparation import observe_document_read
     from .._text_warnings import read_conversion_warnings
 
-    bounded = bounded_text_result(
-        VaultReadFileRequest, result, result.revision,
-        cursor=request.cursor, max_characters=request.max_characters,
+    complete = Ok(
+        request.COMMAND_ID, request.COMMAND_VERSION,
+        VaultReadFilePayload(request.path, result, result.revision),
         warnings=read_conversion_warnings(context, result),
-        payload=lambda content, window: VaultReadFilePayload(
-            request.path, content, result.revision, window,
-        ),
     )
-
-    return observe_document_read(context, bounded, result)
+    return observe_document_read(context, complete, result)
 
 
 def execute(context, request):
@@ -83,10 +72,8 @@ def execute(context, request):
 
 
 def decode(payload: Mapping[str, object]) -> VaultReadFileRequest:
-    reject_unexpected(payload, {"path", "cursor", "max_characters"})
-    return VaultReadFileRequest(payload.get("path"),
-        decode_text_cursor(payload.get("cursor")),
-        payload.get("max_characters", DEFAULT_TEXT_CHARACTERS))
+    reject_unexpected(payload, {"path"})
+    return VaultReadFileRequest(payload.get("path"))
 
 
 def _reader_entry():

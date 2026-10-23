@@ -135,7 +135,7 @@
     },
     {
       "command_id": "artefact.read",
-      "version": 4,
+      "version": 5,
       "owner": "application",
       "classification": "observation",
       "mcp": "artefact_read",
@@ -735,7 +735,7 @@
     },
     {
       "command_id": "resource.read",
-      "version": 3,
+      "version": 4,
       "owner": "application",
       "classification": "observation",
       "mcp": "resource_read",
@@ -771,7 +771,7 @@
     },
     {
       "command_id": "result.read",
-      "version": 1,
+      "version": 2,
       "owner": "application",
       "classification": "observation",
       "mcp": "result_read",
@@ -927,7 +927,7 @@
     },
     {
       "command_id": "session.start",
-      "version": 8,
+      "version": 9,
       "owner": "application",
       "classification": "control",
       "mcp": "session_start",
@@ -1143,7 +1143,7 @@
     },
     {
       "command_id": "vault.read-config",
-      "version": 2,
+      "version": 3,
       "owner": "application",
       "classification": "observation",
       "mcp": "vault_read-config",
@@ -1155,7 +1155,7 @@
     },
     {
       "command_id": "vault.read-file",
-      "version": 2,
+      "version": 3,
       "owner": "application",
       "classification": "observation",
       "mcp": "vault_read-file",
@@ -1337,5 +1337,5 @@
       "authority": "reader"
     }
   ],
-  "fingerprint": "sha256:f1d70bf7c8382af4c96304bd523327c8943844d16b5486416866f6966cb494a7"
+  "fingerprint": "sha256:00b759c643ba026d213f024b04a755f6a3bc85d9c6326dd29e84975f0ca653aa"
 }

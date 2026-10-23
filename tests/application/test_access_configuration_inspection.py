@@ -1,5 +1,5 @@
 """Configuration inspection reports effective access sources without credential material."""
-from dataclasses import asdict, replace
+from dataclasses import replace
 import json
 from types import SimpleNamespace
 
@@ -8,7 +8,7 @@ from _application.access_contracts import (
 )
 from _application._response_budget import encoded_result_size
 from _application.projection import canonical_result_envelope
-from _application.vault.read_config import execute, VaultReadConfigRequest, VaultConfigPage
+from _application.vault.read_config import execute, VaultReadConfigRequest
 
 
 def configuration():
@@ -47,29 +47,25 @@ def test_effective_setting_sources_and_actionable_conflicts_are_public(tmp_path,
     assert encoded_result_size(result) < 16000
 
 
-def test_large_configuration_inspection_pages_complete_json_without_truncation(tmp_path, monkeypatch):
+def test_large_configuration_inspection_returns_complete_redacted_snapshot(tmp_path, monkeypatch):
     value = replace(configuration(), diagnostics=(AccessConfigurationDiagnostic(
         'control_conflict', 'vault.profiles', 'shared', 'Large configuration "é\\' * 2500),))
     ctx = context(tmp_path, monkeypatch, value)
-    cursor, content = None, []
-    while True:
-        result = execute(ctx, VaultReadConfigRequest(cursor=cursor))
-        assert isinstance(result.result, VaultConfigPage)
-        assert encoded_result_size(result) < 16000
-        content.append(result.result.content)
-        cursor = result.result.range.next_cursor
-        if cursor is None:
-            break
-    reconstructed = json.loads(''.join(content))
-    assert reconstructed['access']['diagnostics'][0]['message'] == value.diagnostics[0].message
-    assert len(content) > 1
+    result = execute(ctx, VaultReadConfigRequest())
+    assert result.status == 'ok'
+    assert result.result.access == value
+    envelope = canonical_result_envelope(result)
+    assert envelope['result']['access']['diagnostics'][0]['message'] == value.diagnostics[0].message
+    assert 'private-registration' not in json.dumps(envelope)
+    assert 'private-key-hash' not in json.dumps(envelope)
+    assert not hasattr(result.result, 'range')
 
 
-def test_configuration_change_invalidates_existing_continuation(tmp_path, monkeypatch):
-    value = replace(configuration(), diagnostics=(AccessConfigurationDiagnostic(
-        'control_conflict', 'vault.profiles', 'shared', 'long' * 10000),))
+def test_configuration_refresh_returns_new_complete_snapshot(tmp_path, monkeypatch):
+    value = configuration()
     first = execute(context(tmp_path, monkeypatch, value), VaultReadConfigRequest())
     changed = replace(value, effective_request_policy='allowed', revision='sha256:' + 'b' * 64)
-    result = execute(context(tmp_path, monkeypatch, changed), VaultReadConfigRequest(cursor=first.result.range.next_cursor))
-    assert result.status == 'error'
-    assert result.error.code.value == 'conflict'
+    result = execute(context(tmp_path, monkeypatch, changed), VaultReadConfigRequest())
+    assert result.status == 'ok'
+    assert first.result.access == value
+    assert result.result.access == changed

@@ -41,11 +41,12 @@ output and grants neither permissions nor consent.
 Read `delivery` before the semantic payload. Follow `delivery.continuation`
 with `result_read` (CLI `brain result read`), passing its exact object,
 `delivery.result_id` and the same result credential. The original command page
-is in `result.envelope`; the outer envelope carries delivery. Finish generic
-continuation **before inspecting a semantic payload or following its legacy
-cursor**. Then follow source `range.next_cursor` where present. Complete every
-bootstrap page until `bootstrap_complete` before ordinary work: preferences,
+uses the same payload shape as its initial call. Text uses only this pager.
+Complete every bootstrap delivery page before ordinary work: preferences,
 rules and triggers are mandatory in full, never optional or truncated.
+
+Ordinary text defaults to byte paging; request `page_unit: "lines"` on
+`result.read` for line paging. Queries remain record-based.
 
 Every call returns one bounded page. Get-all (`page: 0`) still needs continuation
 when output does not fit. Query selections default to 10 pages across calls;

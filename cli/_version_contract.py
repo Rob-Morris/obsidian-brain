@@ -6,7 +6,7 @@ import re
 from dataclasses import dataclass
 
 
-CLI_FULL_SUPPORT_CORE_VERSION = "0.75.0"
+CLI_FULL_SUPPORT_CORE_VERSION = "0.76.0"
 
 
 SEMVER_PATTERN = r"(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)"

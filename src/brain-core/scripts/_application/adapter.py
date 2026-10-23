@@ -179,11 +179,7 @@ class ApplicationAdapter:
             if failure.capacity_limits is not None:
                 envelope["delivery"]["capacity_limits"] = failure.capacity_limits
         elif command_id == "result.read" and isinstance(result, Ok):
-            source = deepcopy(result.result.envelope)
-            descriptor = source.pop("delivery", None)
-            envelope = canonical_result_envelope(result)
-            envelope["result"] = {"envelope": source}
-            envelope["delivery"] = descriptor
+            envelope = deepcopy(result.result.envelope)
         elif command_id.startswith("result."):
             from .result_navigation import build_view
             envelope = build_view(canonical_result_envelope(result)).page()

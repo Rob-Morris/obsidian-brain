@@ -189,10 +189,10 @@ CLI transaction owner share those plans; diagnostics and repair recognise
 Grok alongside Claude and Codex. `_bootstrap/agent_skills.py` owns native Grok
 skill adapters through the same marker and backup rules as other clients.
 
-Bootstrap and document reads use the same bounded application results in every
-projection. Finish `session.start` pages until `bootstrap_complete` is true.
-For document reads, repeat the same selectors with `cursor: range.next_cursor`
-until null; revisions prevent mixing source versions between pages.
+Bootstrap and document reads use one generic delivery pager in every projection.
+Follow `delivery.continuation` through `result.read` using the same result session
+until every page has been retrieved. Text appears once in `result.content` with
+exact `content_range` bounds and retains its original source revision.
 
 `_application/_transition_indexes.py` owns completion of router/lexical state
 for artefact creation and lifecycle transitions while their mutation lock is held.

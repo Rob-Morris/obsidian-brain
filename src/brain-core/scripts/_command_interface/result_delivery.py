@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import asdict, replace
+from copy import deepcopy
 import hashlib
 import json
 import uuid
@@ -10,11 +11,14 @@ from threading import Lock
 from _application.consent import ConsentError
 from _application.delivery_failure import DeliveryFailure
 from _application.projection import canonical_result_envelope, unavailable_delivery_envelope as unavailable
-from _application.result_navigation import build_view, resolve_page, select_page
+from _application.result_navigation import (LAYOUT_VERSION, build_view, resolve_page,
+                                           resolve_page_size, select_page)
+from _bootstrap.result_metadata import compact_delivery
 from _application.results import Ok, Error, ErrorCode
 from _application.types import InitialAuthorisationClass
 from _bootstrap.result_capacity import capacity_recovery, representation_recovery
 from .result_store import FileResultStore, ResultStoreError
+from .result_cursor import ResultCursor
 
 
 def _digest(value):
@@ -39,6 +43,7 @@ class ResultDeliverySession:
         """Authenticate a namespace before any source work; keep issuance out of stored bodies."""
         self.store = store
         self.owner = store.authenticate(credential)
+        self._cursor = ResultCursor(credential)
         self.credential = credential if issued else None
         self._before = None
         self._authority = None
@@ -135,7 +140,7 @@ class ResultDeliverySession:
                 raise DeliveryFailure('disclosure_ended', 'Source delivery admission could not be verified.')
             active['finishing'] = True
         try:
-            return self._finish(context, request, result, ticket)
+            return self._project_cursors(self._finish(context, request, result, ticket))
         finally:
             with self._source_lock:
                 self._active_source = None
@@ -169,7 +174,8 @@ class ResultDeliverySession:
             if query and query['revision'] != self._list_before:
                 return unavailable(frame,'Source changed while opening this query; rerun the read.')
             view = build_view(frame, page_size=request.page_size if opening_list else None)
-            key = self._view_key(view.unit,view.page_size)
+            key = self._view_key(view.unit, view.page_size,
+                explicit_fields=view.unit == 'fields' and view.requested_page_size is not None)
             self._authority['default_view'] = key
             try:
                 result_id = self.store.publish(self.owner,ticket,frame,self._authority,query)
@@ -183,8 +189,8 @@ class ResultDeliverySession:
             self._verify_source_disclosure(context, result)
 
     @staticmethod
-    def _view_key(unit,size):
-        return _digest([unit,size])
+    def _view_key(unit, size, *, explicit_fields=False):
+        return _digest([LAYOUT_VERSION, unit, size, unit == 'fields' and explicit_fields])
 
     def _save(self,result_id,key,view,revision):
         """Persist bounded independent pages and detail views, not a whole-body memory cache."""
@@ -194,18 +200,57 @@ class ResultDeliverySession:
         # Nonempty views need only outcome metadata for out-of-range reads.
         if view.pages:
             metadata['empty']['result'] = None
-        self.store.save_view(self.owner,result_id,key,list(view.pages),metadata)
+        pages = deepcopy(list(view.pages))
+        column = 0
+        line_number = 1
+        ended_cr = False
+        for page in pages:
+            payload = page.get('result')
+            content = payload.get('content') if isinstance(payload, dict) else None
+            if view.unit in ('bytes', 'lines') and isinstance(content, str):
+                # Search coordinates stay private to storage, not delivery metadata.
+                page['_text_column'] = column
+                page['_text_line'] = line_number
+                # A CRLF split across pages is one ending, not a new empty line.
+                skip_lf = ended_cr and content.startswith('\n')
+                page['_text_skip_lf'] = skip_lf
+                ended_cr = content.endswith('\r')
+                if skip_lf:
+                    content = content[1:]
+                lines = content.splitlines(keepends=True)
+                endings = ('\n', '\r', '\v', '\f', '\x1c', '\x1d', '\x1e', '\x85', '\u2028', '\u2029')
+                line_number += max(0, len(lines) - (not content.endswith(endings)))
+                if content.endswith(endings):
+                    column = 0
+                elif len(lines) > 1:
+                    column = len(lines[-1])
+                else:
+                    column += len(content)
+        self.store.save_view(self.owner,result_id,key,pages,metadata)
         for detail_id,frame in view.details.items():
-            self.store.save_view(self.owner,result_id,'detail:'+detail_id,[frame],{'detail_id':detail_id})
+            self.store.save_view(self.owner,result_id,'detail:'+detail_id,[frame],
+                {'detail_id':detail_id, 'layout_version': LAYOUT_VERSION, 'navigation_kind': 'linked-detail'})
 
     def _cached_view(self, result_id, key):
         """Treat a missing view as a layout miss, preserving other store failures."""
         try:
-            return self.store.view_metadata(self.owner, result_id, key)
+            metadata = self.store.view_metadata(self.owner, result_id, key)
+            self._check_layout(metadata)
+            if metadata.get('navigation_kind') != 'pages':
+                raise ValueError('This view is a linked detail, not a paged result. Use its detail reference, '
+                    'or omit continuation and restart the result with page 0.')
+            return metadata
         except ResultStoreError as exc:
             if exc.code != 'unavailable':
                 raise
             return None
+
+    @staticmethod
+    def _check_layout(metadata):
+        if metadata.get('layout_version') != LAYOUT_VERSION:
+            raise ValueError('Retained page layout changed; these pages are invalid. '
+                'Run a new read-only source command for current pages. '
+                'Do not rerun a mutation to recover output.')
 
     def _select(self,result_id,key,*,page,start,maximum,query_revision=None,anchor=None,
                 absolute_selection=False):
@@ -219,12 +264,22 @@ class ResultDeliverySession:
             page=start=frame['delivery']['page']
         elif absolute_selection and not within_selection and 1 <= number <= meta['total_pages']:
             start=number
+        frame.pop('_text_column', None)
+        frame.pop('_text_line', None)
+        frame.pop('_text_skip_lf', None)
         frame=select_page(frame,meta,page,start,maximum)
         descriptor=frame['delivery']
         descriptor['source_revision']=meta.get('source_revision')
         descriptor['requested_anchor']=anchor
-        if anchor is not None and descriptor['first_item'] is not None and descriptor['first_item'] <= anchor:
-            descriptor['overlap_notice']='This anchored page includes preceding units; its first_item and last_item show the overlap.'
+        payload = frame.get('result')
+        content_range = (payload.get('content_range')
+                         if isinstance(payload, dict) and isinstance(payload.get('content'), str) else None)
+        first_position = (content_range['start'] if content_range is not None
+                          else descriptor['first_item'] - 1 if descriptor.get('first_item') is not None else None)
+        if anchor is not None and first_position is not None and first_position < anchor:
+            descriptor['overlap_notice'] = ('This anchored page includes preceding characters; content_range shows the overlap.'
+                if content_range is not None else
+                'This anchored page includes preceding units; its first_item and last_item show the overlap.')
         previous = observation.previous_revision if observation else None
         if (query_revision is not None and descriptor['total_pages']
                 and descriptor['status'] != 'out_of_range'
@@ -233,15 +288,31 @@ class ResultDeliverySession:
         else:
             observation = None
         for field in ('continuation','outside_continuation'):
-            if descriptor[field] is not None:
-                descriptor[field].update(result_id=result_id,page_size=meta['page_size'])
+            if descriptor.get(field) is not None:
+                descriptor[field].update(result_id=result_id,page_size=meta['page_size'],page_unit=meta['unit'])
         if descriptor['status']=='truncated':
-            descriptor['message']='Call result.read with result_id and continuation, keeping the same result session.'
+            if descriptor.get('continuation') is not None:
+                descriptor['message']='Call result.read with result_id and continuation, keeping the same result session.'
+            elif descriptor.get('outside_continuation') is not None:
+                descriptor['message']='Selection complete. Use outside_continuation as continuation to read later pages.'
+            else:
+                descriptor['message']='Selection complete. Earlier pages are outside this selection; request an absolute page if needed.'
         return frame, observation
+
+    def _project_cursors(self, frame):
+        """Keep navigation representation at the shared CLI/MCP delivery boundary."""
+        descriptor = frame.get('delivery', {})
+        for field in ('continuation', 'outside_continuation'):
+            if descriptor.get(field) is not None:
+                descriptor[field] = self._cursor.encode(descriptor['result_id'], descriptor[field])
+        return frame
 
     @staticmethod
     def _stamp(frame,result_id,key,revision,changed,*,list_query=False):
         """Expose backing/freshness without changing the originating semantic status."""
+        frame.pop('_text_column', None)
+        frame.pop('_text_line', None)
+        frame.pop('_text_skip_lf', None)
         revision=frame['delivery'].get('source_revision',revision)
         frame['delivery'].update(result_id=result_id,view_id=key,
             backing='query' if revision else 'retained',
@@ -253,6 +324,7 @@ class ResultDeliverySession:
         if isinstance(payload,dict) and isinstance(payload.get('items'),list):
             if 'returned' in payload:payload['returned']=len(payload['items'])
             if 'truncated' in payload:payload['truncated']=bool(payload['truncated'] or frame['delivery']['has_more'] or frame['delivery']['has_more_outside_selection'])
+        frame['delivery'] = compact_delivery(frame['delivery'])
         return frame
 
     def _check(self,context,authority):
@@ -272,161 +344,263 @@ class ResultDeliverySession:
     def read(self,context,request):
         """Retrieve under current authority without exposing backend paths or replaying effects."""
         try:
-            return self._read(context,request)
+            return self._project_cursors(self._read(context,request))
         except ResultStoreError as exc:
+            if exc.code == 'anchor_out_of_range':
+                raise ValueError('Anchor is outside the current view. Supply a valid source position, '
+                    'or omit continuation and restart with page 0 and no anchor.') from None
             raise store_delivery_failure(exc, self.store.limits) from None
 
     def _read(self,context,request):
         """Resolve a view, refresh authorised live queries, then serve one bounded page."""
         meta=self.store.metadata(self.owner,request.result_id)
         self._check(context,meta['authority'])
-        detail_cursor = request.continuation or {}
+        detail_cursor = self._cursor.decode(request.result_id, request.continuation)
+        self._validate_coordinates(detail_cursor)
         detail = request.detail
         inherited_detail = detail_cursor.get('detail')
         if inherited_detail is not None:
-            if (detail_cursor.get('result_id') != request.result_id
-                    or not isinstance(inherited_detail, str) or not 1 <= len(inherited_detail) <= 128):
-                raise ValueError('Detail continuation belongs to another result or is invalid.')
             if detail is not None and detail != inherited_detail:
                 raise ValueError('Explicit detail conflicts with its continuation.')
             detail = inherited_detail
-        if detail is not None:
-            allowed = {'result_id', 'detail', 'view_id', 'selection_id', 'page', 'origin_page',
-                       'start_page', 'max_pages', 'page_size'}
-            if (not isinstance(detail, str) or not 1 <= len(detail) <= 128
-                    or set(detail_cursor) - allowed
-                    or (detail_cursor and detail_cursor.get('result_id') != request.result_id)):
-                raise ValueError('Invalid detail or continuation.')
         if detail == '@outcome':
-            for field in ('page', 'origin_page', 'start_page', 'max_pages', 'page_size'):
-                value = detail_cursor.get(field)
-                if value is not None and (type(value) is not int or not 1 <= value <= 2**63 - 1):
-                    raise ValueError('Outcome continuation counts must be bounded positive integers.')
-            size = request.page_size or detail_cursor.get('page_size', 25)
-            if type(size) is not int or not 1 <= size <= 100:
-                raise ValueError('Outcome page_size must be between 1 and 100.')
-            key = 'outcome:' + str(size)
-            old_key = detail_cursor.get('view_id')
-            if old_key is not None and old_key != 'outcome:' + str(detail_cursor.get('page_size', size)):
-                raise ValueError('Outcome continuation belongs to another view.')
-            if isinstance(request.page, str):
-                origin = detail_cursor.get('origin_page')
-                if origin is None and detail_cursor.get('page') is not None:
-                    origin = detail_cursor['page'] - 1
-                page = resolve_page(request.page, origin)
-            else:
-                page = detail_cursor.get('page', 1) if request.page is None else request.page
-            start = detail_cursor.get('start_page', 1)
-            maximum = request.max_pages if request.max_pages is not None else detail_cursor.get('max_pages')
-            if maximum == 'all':
-                maximum = None
-            anchor = request.anchor
-            if old_key is not None and old_key != key:
-                if anchor is None and request.page != 0:
-                    raise ValueError('Changing outcome page size requires an explicit source anchor.')
-                if anchor is None:
-                    anchor = 0
-            cached = self._cached_view(request.result_id, key)
-            if cached is None:
-                stored = self.store.load(self.owner, request.result_id)['envelope']
-                outcome = {k: stored[k] for k in ('error', 'committed_effects', 'warnings') if k in stored}
-                if stored.get('status') == 'partial' and isinstance(stored.get('result'), dict):
-                    outcome.update(stored['result'])
-                header = {k: stored[k] for k in ('schema', 'command', 'command_version', 'status')}
-                # Full outcome values belong to the traversable body. Carry only
-                # bounded execution truth in the header inherited by every child.
-                if 'committed_effects' in outcome:
-                    effects = outcome['committed_effects']
-                    header['committed_effect_summary'] = {
-                        'count': len(effects) if isinstance(effects, (list, dict)) else None,
-                        'sha256': hashlib.sha256(json.dumps(effects, sort_keys=True,
-                            ensure_ascii=False).encode('utf-8')).hexdigest(),
-                    }
-                if isinstance(stored.get('error'), dict):
-                    header['error'] = {k: stored['error'][k] for k in ('code', 'effects')
-                                       if k in stored['error']}
-                view = build_view({**header, 'warnings': [], 'result': outcome}, page_size=size)
-                self._save(request.result_id, key, view, None)
-            frame, _ = self._select(request.result_id, key, page=page, start=start, maximum=maximum, anchor=anchor,
-                absolute_selection=type(request.page) is int and request.page > 0)
-            for field in ('continuation', 'outside_continuation'):
-                if frame['delivery'].get(field) is not None:
-                    frame['delivery'][field]['detail'] = '@outcome'
-            self._check(context, meta['authority'])
-            return self._stamp(frame, request.result_id, key, None, False)
+            return self._read_outcome(context, request, meta, detail_cursor)
         if detail is not None:
-            frame = self.store.read_view_page(self.owner, request.result_id, 'detail:' + detail, 1)
-            self._check(context, meta['authority'])
-            frame = self._stamp(frame, request.result_id, 'detail:' + detail, None, False)
-            next_detail = frame['delivery'].get('next_detail')
-            frame['delivery']['continuation'] = ({'result_id': request.result_id, 'detail': next_detail}
-                                                 if next_detail is not None else None)
-            frame['delivery']['has_more'] = next_detail is not None
-            frame['delivery']['outside_continuation'] = None
-            frame['delivery']['has_more_outside_selection'] = False
-            return frame
-        cursor=request.continuation or {}
-        allowed={'result_id','view_id','selection_id','page','origin_page','start_page','max_pages','page_size'}
-        if set(cursor)-allowed or (cursor and cursor.get('result_id')!=request.result_id):
-            raise ValueError('Continuation belongs to another result or has invalid fields.')
-        for field in ('page', 'origin_page', 'start_page', 'max_pages', 'page_size'):
-            value = cursor.get(field)
-            if value is not None and (type(value) is not int or not 1 <= value <= 2**63 - 1):
-                raise ValueError('Continuation counts must be bounded positive integers.')
-        for field in ('view_id', 'selection_id'):
-            value = cursor.get(field)
-            if value is not None and (not isinstance(value, str) or not 1 <= len(value) <= 128):
-                raise ValueError('Continuation identity is invalid.')
+            return self._read_detail(context, request, meta, detail, detail_cursor)
+        cursor=detail_cursor
         if cursor and ('page' not in cursor or 'view_id' not in cursor):
             raise ValueError('Continuation requires an addressed page and view.')
-        if isinstance(request.page,str):
-            origin = cursor.get('origin_page')
-            if origin is None and cursor:
-                origin = cursor['page'] - 1
-            page=resolve_page(request.page, origin)
-        else:
-            page=cursor.get('page',1) if request.page is None else request.page
-        start=cursor.get('start_page',1)
-        if type(start) is not int or start<1:raise ValueError('Invalid selection start.')
-        maximum=request.max_pages if request.max_pages is not None else cursor.get('max_pages',10 if meta.get('query') else None)
-        if maximum == 'all': maximum = None
-        if maximum is not None and (type(maximum) is not int or maximum<1):raise ValueError('Invalid selection limit.')
-        size=request.page_size or cursor.get('page_size')
+        page, start, maximum = self._selection(request, cursor, 10 if meta.get('query') else None)
         query=meta.get('query')
-        if query:
-            revision=self._revision(context,query['payload'].get('location','active'))
-        else:revision=None
+        revision=(self._revision(context,query['payload'].get('location','active')) if query else None)
         origin_key=cursor.get('view_id') or meta['authority'].get('default_view')
         origin=self._cached_view(request.result_id,origin_key) if origin_key else None
-        key=self._view_key(origin['unit'],size) if origin and size is not None else origin_key
+        if cursor:
+            if origin is None or cursor.get('page_unit') != origin['unit'] or cursor.get('page_size') != origin['page_size']:
+                raise ValueError('Continuation must pin the current page_unit and page_size; restart with page 0.')
+        unit=request.page_unit or (origin['unit'] if origin else None)
+        supported=('bytes', 'lines') if origin and origin['unit'] in ('bytes', 'lines') else (origin['unit'],) if origin else ()
+        if supported and unit not in supported:
+            raise ValueError('Incompatible page_unit; supported modes: ' + ', '.join(supported) + '.')
+        mode_changed=bool(origin and unit != origin['unit'])
+        size=request.page_size
+        if size is None and not mode_changed:
+            size=cursor.get('page_size', origin['page_size'] if origin else None)
+        if unit is not None:
+            size=resolve_page_size(unit, size)
+        explicit_fields = unit == 'fields' and (request.page_size is not None
+            or bool(origin and origin.get('explicit_field_limit')))
+        key=self._view_key(unit,size,explicit_fields=explicit_fields) if unit and size is not None else origin_key
         cached=origin if key==origin_key else self._cached_view(request.result_id,key)
-        anchor = request.anchor
-        resizing = key != origin_key
+        anchor=request.anchor
+        resizing=key != origin_key
         if resizing and anchor is None and page == 0:
-            anchor = 0
-        if resizing and (cursor or cached is None) and anchor is None:
-            raise ValueError('Changing page size requires an explicit source anchor.')
-        if not cached or (size is not None and size!=cached['page_size']) or (query and cached.get('source_revision')!=revision):
+            anchor=0
+        if resizing and anchor is None:
+            raise ValueError('Changing page unit or size requires an explicit source anchor or page 0 restart.')
+        if not cached or (query and cached.get('source_revision')!=revision):
             if query and query.get('backing', 'query') != 'retained':
                 frame=self._refresh(context,query,revision)
             else:
                 frame=self.store.load(self.owner,request.result_id)['envelope']
-            view=build_view(frame,page_size=size)
-            new_key=self._view_key(view.unit,view.page_size)
-            anchor = 0 if page == 0 and anchor is None and key!=new_key else anchor
+            layout_size = None if unit == 'fields' and not explicit_fields else size
+            view=build_view(frame,page_size=layout_size,unit=unit)
+            new_key=self._view_key(view.unit,view.page_size,
+                explicit_fields=view.unit == 'fields' and view.requested_page_size is not None)
             if key and key!=new_key and anchor is None:
-                raise ValueError('Changing page size requires an explicit source anchor.')
+                if page == 0:
+                    anchor=0
+                else:
+                    raise ValueError('Changing page unit or size requires an explicit source anchor or page 0 restart.')
             key=new_key
             self._save(request.result_id,key,view,revision)
         frame,observation=self._select(request.result_id,key,page=page,start=start,maximum=maximum,
             query_revision=query['revision'] if query else None,anchor=anchor,
             absolute_selection=type(request.page) is int and request.page > 0)
-        changed=bool(frame['delivery']['change_notice'])
+        changed=bool(frame['delivery'].get('change_notice'))
         self._check(context,meta['authority'])
         if observation is not None:
             self.store.commit_page_observation(observation)
-        return self._stamp(frame,request.result_id,key,frame['delivery']['source_revision'],changed,
+        return self._stamp(frame,request.result_id,key,frame['delivery'].get('source_revision'),changed,
                            list_query=query is not None)
+
+    def _read_outcome(self, context, request, meta, detail_cursor):
+        """Page execution truth independently of the retained result body."""
+        if request.page_unit not in (None, 'fields') or (detail_cursor and detail_cursor.get('page_unit') != 'fields'):
+            raise ValueError('Outcome supports page_unit fields only.')
+        size = resolve_page_size('fields', request.page_size if request.page_size is not None
+                                 else detail_cursor.get('page_size'))
+        key = 'outcome:fields:' + str(size)
+        old_key = detail_cursor.get('view_id')
+        if old_key is not None and old_key != 'outcome:fields:' + str(detail_cursor.get('page_size', size)):
+            raise ValueError('Outcome continuation belongs to another view.')
+        page, start, maximum = self._selection(request, detail_cursor)
+        anchor = request.anchor
+        if old_key is not None and old_key != key:
+            if anchor is None and request.page != 0:
+                raise ValueError('Changing outcome page size requires an explicit source anchor.')
+            if anchor is None:
+                anchor = 0
+        cached = self._cached_view(request.result_id, key)
+        if cached is None:
+            stored = self.store.load(self.owner, request.result_id)['envelope']
+            outcome = {k: stored[k] for k in ('error', 'committed_effects', 'warnings') if k in stored}
+            if stored.get('status') == 'partial' and isinstance(stored.get('result'), dict):
+                outcome.update(stored['result'])
+            header = {k: stored[k] for k in ('schema', 'command', 'command_version', 'status')}
+            # Full outcome values belong to the traversable body. Carry only
+            # bounded execution truth in the header inherited by every child.
+            if 'committed_effects' in outcome:
+                effects = outcome['committed_effects']
+                header['committed_effect_summary'] = {
+                    'count': len(effects) if isinstance(effects, (list, dict)) else None,
+                    'sha256': hashlib.sha256(json.dumps(effects, sort_keys=True,
+                        ensure_ascii=False).encode('utf-8')).hexdigest(),
+                }
+            if isinstance(stored.get('error'), dict):
+                header['error'] = {k: stored['error'][k] for k in ('code', 'effects')
+                                   if k in stored['error']}
+            view = build_view({**header, 'warnings': [], 'result': outcome}, page_size=size, unit='fields')
+            self._save(request.result_id, key, view, None)
+        frame, _ = self._select(request.result_id, key, page=page, start=start, maximum=maximum, anchor=anchor,
+            absolute_selection=type(request.page) is int and request.page > 0)
+        for field in ('continuation', 'outside_continuation'):
+            if frame['delivery'].get(field) is not None:
+                frame['delivery'][field]['detail'] = '@outcome'
+        self._check(context, meta['authority'])
+        return self._stamp(frame, request.result_id, key, None, False)
+
+    def _read_detail(self, context, request, meta, detail, detail_cursor):
+        """Resolve a retained child before choosing its immutable or reflowed view."""
+        if detail_cursor.get('view_id', '').startswith('detailview:'):
+            return self._read_text_detail(context, request, meta, detail, None, detail_cursor)
+        if set(detail_cursor) - {'result_id', 'detail', 'page_unit', 'page_size'}:
+            raise ValueError('Linked detail continuations do not carry page coordinates; pass the returned '
+                'continuation unchanged, or omit it and select a text detail with page or anchor.')
+        detail_metadata = self.store.view_metadata(self.owner, request.result_id, 'detail:' + detail)
+        self._check_layout(detail_metadata)
+        frame = self.store.read_view_page(self.owner, request.result_id, 'detail:' + detail, 1)
+        descriptor = frame['delivery']
+        selection_requested = any(value is not None for value in (request.page, request.anchor, request.max_pages))
+        if (isinstance(frame.get('result'), dict) and isinstance(frame['result'].get('content'), str)
+                and (selection_requested
+                     or (request.page_unit is not None and request.page_unit != descriptor['unit'])
+                     or (request.page_size is not None and request.page_size != descriptor['page_size']))):
+            return self._read_text_detail(context, request, meta, detail, frame, detail_cursor)
+        if selection_requested:
+            raise ValueError('This linked structured detail uses its returned continuation. '
+                'Omit page, anchor and max_pages; follow continuation or next_detail.')
+        for name in ('page_unit', 'page_size'):
+            actual = descriptor['unit' if name == 'page_unit' else name]
+            requested = getattr(request, name)
+            inherited = detail_cursor.get(name)
+            if ((requested is not None and requested != actual)
+                    or (inherited is not None and inherited != actual)):
+                raise ValueError(f'This immutable detail supports {name} {actual}; omit this override and follow its detail continuation.')
+        self._check(context, meta['authority'])
+        frame = self._stamp(frame, request.result_id, 'detail:' + detail, None, False)
+        next_detail = frame['delivery'].get('next_detail')
+        frame['delivery']['continuation'] = ({'result_id': request.result_id, 'detail': next_detail,
+            'page_unit': descriptor['unit'], 'page_size': descriptor['page_size']}
+                                             if next_detail is not None else None)
+        frame['delivery']['has_more'] = next_detail is not None
+        frame['delivery']['outside_continuation'] = None
+        frame['delivery']['has_more_outside_selection'] = False
+        frame['delivery'] = compact_delivery(frame['delivery'])
+        return frame
+
+    @staticmethod
+    def _selection(request, cursor, default_maximum=None):
+        """Resolve the same selection semantics for ordinary, detail and outcome views."""
+        page = request.page
+        if isinstance(page, str):
+            origin = cursor.get('origin_page')
+            if origin is None and cursor.get('page') is not None:
+                origin = cursor['page'] - 1
+            page = resolve_page(page, origin)
+        elif page is None:
+            page = cursor.get('page', 1)
+        maximum = request.max_pages if request.max_pages is not None else cursor.get('max_pages', default_maximum)
+        return page, cursor.get('start_page', 1), None if maximum == 'all' else maximum
+
+    @staticmethod
+    def _validate_coordinates(cursor):
+        """Check navigation semantics after the codec establishes shape and binding."""
+        for field in ('page', 'origin_page', 'start_page', 'max_pages', 'page_size'):
+            value = cursor.get(field)
+            if field == 'max_pages' and value is None:
+                continue
+            if field in cursor and (type(value) is not int or not 1 <= value <= 2**63 - 1):
+                raise ValueError('Continuation counts must be bounded positive integers.')
+        for field in ('view_id', 'detail'):
+            value = cursor.get(field)
+            if field in cursor and (not isinstance(value, str) or not 1 <= len(value) <= 128):
+                raise ValueError('Continuation identity is invalid.')
+        if cursor.get('page_unit') not in (None, 'bytes', 'lines', 'records', 'fields'):
+            raise ValueError('Continuation page_unit is invalid.')
+
+    def _read_text_detail(self, context, request, meta, detail, initial, cursor):
+        """Re-layout an immutable text detail without executing its source command."""
+        root = detail.split(':', 1)[0]
+        old_key = cursor.get('view_id')
+        original = self._cached_view(request.result_id, old_key) if old_key else None
+        if old_key and original is None:
+            raise ValueError('Detail view is unavailable; omit continuation and restart this detail with page 0.')
+        inherited = original or initial['delivery']
+        if original is not None:
+            expected = 'detailview:' + _digest([LAYOUT_VERSION, root, original['unit'], original['page_size']])
+            if (old_key != expected or cursor.get('page_unit') != original['unit']
+                    or cursor.get('page_size') != original['page_size']):
+                raise ValueError('Continuation must match this detail, page_unit and page_size; '
+                    'omit continuation and restart the detail with page 0.')
+        unit = request.page_unit or inherited['unit']
+        if unit not in ('bytes', 'lines'):
+            raise ValueError('Incompatible page_unit; supported modes: bytes, lines.')
+        inherited_unit = inherited['unit']
+        size = request.page_size if request.page_size is not None else (
+            inherited['page_size'] if unit == inherited_unit else None)
+        size = resolve_page_size(unit, size)
+        key = 'detailview:' + _digest([LAYOUT_VERSION, root, unit, size])
+        anchor = request.anchor
+        page, start, maximum = self._selection(request, cursor)
+        if unit != inherited_unit or size != inherited['page_size']:
+            if anchor is None and page == 0:
+                anchor = 0
+            if anchor is None:
+                raise ValueError('Changing page unit or size requires an explicit source anchor or page 0 restart.')
+        cached = original if old_key == key else self._cached_view(request.result_id, key)
+        if cached is None:
+            chunks, address, end, seen = [], root, 0, set()
+            while address is not None:
+                if address in seen:
+                    raise ValueError('Retained detail continuation is invalid; do not replay a mutation to recover output.')
+                seen.add(address)
+                item = self.store.read_view_page(self.owner, request.result_id, 'detail:' + address, 1)
+                if initial is None:
+                    initial = item
+                content = item['result']['content']
+                bounds = item['result']['content_range']
+                if bounds['start'] != end:
+                    raise ValueError('Retained detail text is incomplete; do not replay a mutation to recover output.')
+                chunks.append(content)
+                end = bounds['end']
+                address = item['delivery'].get('next_detail')
+            if end != bounds['total']:
+                raise ValueError('Retained detail text is incomplete; do not replay a mutation to recover output.')
+            envelope = deepcopy(initial)
+            envelope.pop('delivery', None)
+            envelope['result']['content'] = ''.join(chunks)
+            envelope['result'].pop('content_range', None)
+            view = build_view(envelope, page_size=size, unit=unit)
+            self._save(request.result_id, key, view, None)
+        frame, _ = self._select(request.result_id, key, page=page,
+            start=start, maximum=maximum, anchor=anchor,
+            absolute_selection=type(request.page) is int and request.page > 0)
+        for field in ('continuation', 'outside_continuation'):
+            if frame['delivery'].get(field) is not None:
+                frame['delivery'][field]['detail'] = root
+        self._check(context, meta['authority'])
+        return self._stamp(frame, request.result_id, key, None, False)
 
     def _refresh(self,context,query,revision):
         """Run a fresh read-only query and reject a mixed projection observation."""
@@ -466,8 +640,8 @@ class ResultDeliverySession:
         """Search retained body units, excluding headers and line/record extras.
 
         Unit offsets never advance past an unreturned match. Text overlap finds
-        literals split across fragments; resume look-behind reads at most 256
-        pages in addition to scan_pages forward reads. Details are not traversed:
+        literals split across text pages; overlap and line-boundary lookups read
+        at most 256 extra pages in addition to scan_pages forward reads. Details are not traversed:
         immutable view metadata determines coverage on every call, so scan_complete
         may be true while complete remains false. No full-envelope load occurs here.
         """
@@ -475,13 +649,12 @@ class ResultDeliverySession:
 
         def units_for(frame):
             payload = frame.get('result')
-            first = frame.get('delivery', {}).get('first_item') or 1
-            if isinstance(payload, dict) and isinstance(payload.get('fragments'), list):
-                return [(fragment['text'], {
-                    'line': fragment['line'], 'character_start': fragment['start'],
-                }) for fragment in payload['fragments']]
+            first = frame.get('_text_line', frame.get('delivery', {}).get('first_item')) or 1
             if isinstance(payload, dict) and isinstance(payload.get('content'), str):
-                payload = payload['content']
+                content = payload['content'][1:] if frame.get('_text_skip_lf') else payload['content']
+                return [(line, {'line': first + index,
+                                'character_start': frame.get('_text_column', 0) if index == 0 else 0})
+                        for index, line in enumerate(content.splitlines())]
             if isinstance(payload, str):
                 return [(line, {'line': first + index, 'character_start': 0})
                         for index, line in enumerate(payload.splitlines())]
@@ -505,6 +678,7 @@ class ResultDeliverySession:
             if not key:
                 raise ValueError('The retained search view is unavailable.')
             view = self.store.view_metadata(self.owner, request.result_id, key)
+            self._check_layout(view)
             record_field = view['record_field']
             total = view['page_count']
             number, offset = request.start_page, request.start_offset
@@ -514,11 +688,48 @@ class ResultDeliverySession:
             stopped = False
             tail, tail_line = '', None
             overlap = len(request.literal) - 1
+            def after_line(line):
+                nonlocal overlap_pages
+                if line >= (view.get('source_lines') or view['total_items']):
+                    return total + 1, 0
+
+                def read_bounds(page):
+                    nonlocal overlap_pages
+                    if overlap_pages >= 256:
+                        raise ValueError('Text navigation is unavailable within the search work budget.')
+                    self._check(context, meta['authority'])
+                    value = self.store.read_view_page(self.owner, request.result_id, key, page)
+                    overlap_pages += 1
+                    return value
+
+                # Find the first page containing the next logical line, skipping
+                # already matched slices without rescanning an unbounded line.
+                low, high = number + 1, total
+                while low < high:
+                    middle = (low + high) // 2
+                    candidate = read_bounds(middle)
+                    candidate_units = units_for(candidate)
+                    last_line = (candidate_units[-1][1].get('line', 0) if candidate_units
+                                 else candidate.get('_text_line', 0))
+                    if last_line <= line:
+                        low = middle + 1
+                    else:
+                        high = middle
+                following_frame = read_bounds(low)
+                following = units_for(following_frame)
+                if not following and following_frame.get('_text_line', 0) > line:
+                    return low, 0
+                for index, (_, location) in enumerate(following):
+                    if location.get('line', 0) > line:
+                        return low, index
+                raise ValueError('The retained text page sequence is incomplete.')
+
             while number <= total and scanned < request.scan_pages and not stopped:
                 self._check(context, meta['authority'])
                 frame = self.store.read_view_page(self.owner, request.result_id, key, number)
                 scanned += 1
                 units = units_for(frame)
+                following_line = None
                 if offset > len(units):
                     raise ValueError('start_offset is outside the retained page; restart at offset 0.')
                 while offset < len(units):
@@ -569,10 +780,15 @@ class ResultDeliverySession:
                         matches.append(match)
                     tail = combined[-overlap:] if overlap and line is not None else ''
                     offset += 1
+                    if column >= 0 and line is not None and offset == len(units):
+                        following_line = after_line(line)
                     if len(matches) >= request.limit:
                         stopped = True
+                    if stopped or following_line is not None:
                         break
-                if offset == len(units):
+                if following_line is not None:
+                    number, offset = following_line
+                elif offset == len(units):
                     number += 1
                     offset = 0
             exhausted = number > total

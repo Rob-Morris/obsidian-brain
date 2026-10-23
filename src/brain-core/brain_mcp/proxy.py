@@ -114,7 +114,7 @@ class StartupFailure:
 # Constants
 # ---------------------------------------------------------------------------
 
-PROXY_VERSION = "0.10.11"
+PROXY_VERSION = "0.10.12"
 _CHILD_PROTOCOL_VERSION = "2026-07-28"
 
 

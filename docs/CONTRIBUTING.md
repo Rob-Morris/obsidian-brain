@@ -395,6 +395,15 @@ make install   # first time — creates venv, installs dependencies
 make test      # runs pytest
 ```
 
+Quiet runs keep their normal console output and print a failure-log path once
+at startup. Each setup, call, teardown or collection failure is written there
+immediately with its traceback and captured output, so an agent can tail the log
+and investigate while the remaining tests continue. The default is a separate
+file per run under `.pytest_cache/d/failure-logs/`; use
+`--failure-log /path/to/failures.log` with pytest to choose a path. Parallel
+workers report through the controller's log. These diagnostic files can contain
+captured test data; they are local evidence, not release artefacts.
+
 Verification is assigned by purpose and execution owner:
 
 | Purpose | Execution owner and command | Coverage and boundary |

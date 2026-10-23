@@ -741,3 +741,47 @@ def test_body_size_is_retention_capacity_not_a_page_representation_limit(store):
         selected, ticket, {'content': 'x' * 5000}, {}))
     assert exc.capacity_scope == 'result' and exc.actual_limit == 4000
     assert exc.representation_scope is None
+
+
+@pytest.mark.parametrize("anchor", [0, 1, 3990, 8000, 11999])
+def test_text_anchor_uses_characters_when_long_line_spans_many_pages(store, anchor):
+    from _application.result_navigation import build_view
+    _, who = owner(store)
+    source = {"status": "ok", "command": "test.read", "result": {"content": "x" * 12000}}
+    view = build_view(source)
+    result_id = publish(store, who, body=source)
+    metadata = {**view.metadata(), "empty": view.page()}
+    store.save_view(who, result_id, "text", list(view.pages), metadata)
+    _, page, _ = store.read_view_selection(who, result_id, "text", 1, anchor=anchor)
+    bounds = page["result"]["content_range"]
+    assert bounds["start"] <= anchor < bounds["end"]
+    if anchor == 0:
+        assert page["delivery"]["page"] == 1
+        assert bounds["start"] == 0
+
+
+def test_text_resize_page_zero_restarts_and_character_anchor_seeks_exact_slice(store):
+    from types import SimpleNamespace
+    from _application.result_navigation import build_view
+    from _application.result.read import ResultReadRequest
+    from _command_interface.result_delivery import ResultDeliverySession
+
+    session = ResultDeliverySession(store, store.issue())
+    source = {"status": "ok", "command": "test.read", "result": {"content": "x" * 18000}}
+    view = build_view(source)
+    key = session._view_key(view.unit, view.page_size)
+    authority = {"command_id": "test.read", "stamp": None, "default_view": key}
+    ticket = store.admit(session.owner, "test.read", "invocation")
+    result_id = store.publish(session.owner, ticket, source, authority)
+    session._save(result_id, key, view, None)
+    service = SimpleNamespace(check_result_delivery=lambda *args: None)
+    context = SimpleNamespace(authorisation=SimpleNamespace(service=service))
+    first = session.read(context, ResultReadRequest(result_id, page=0, page_size=1))
+    assert first["delivery"]["page"] == 1
+    assert first["result"]["content_range"]["start"] == 0
+    assert "overlap_notice" not in first["delivery"]
+    seek = session.read(context, ResultReadRequest(result_id, page_size=2, anchor=8000))
+    bounds = seek["result"]["content_range"]
+    assert bounds["start"] <= 8000 < bounds["end"]
+    assert seek["delivery"]["requested_anchor"] == 8000
+    assert ("overlap_notice" in seek["delivery"]) == (bounds["start"] < 8000)

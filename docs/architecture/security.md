@@ -331,6 +331,13 @@ a source mutation. Without explicit result-session selection, diagnostic
 write attempts. Public result IDs are selectors, not credentials. Relocated
 or replaced Brain/root bindings and foreign principals fail closed.
 
+Delivery continuations are opaque versioned stateless navigation tokens, with
+no per-cursor files. Their MAC binds coordinates to the result ID and result
+session using a key derived from the existing session credential. This detects
+mixed-up or altered tokens; it is neither disclosure authority nor proof of
+exclusive server issuance: a credential holder can construct tokens. Independent
+result ownership and current permission checks remain authoritative.
+
 Every page, detail and literal search validates ownership and current
 permission/disclosure authority before emitting output. Eligible exceptional
 output carries a narrow delivery entitlement bound to that result, result

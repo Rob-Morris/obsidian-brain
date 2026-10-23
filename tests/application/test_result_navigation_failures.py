@@ -92,7 +92,7 @@ def test_real_resize_capacity_refusal_keeps_existing_view_and_recovery(retained)
 def test_malformed_continuation_remains_a_conflict(retained):
     _, _, context, adapter, result_id, _ = retained
     reply = adapter.invoke(context, 'result.read',
-        {'result_id': result_id, 'continuation': {'unexpected': True}}).structured_content
+        {'result_id': result_id, 'continuation': 't1_malformed'}).structured_content
     assert reply['error']['code'] == 'conflict'
     assert reply['error']['effects'] == 'none'
-    assert reply['delivery']['reason'] != 'capacity_exceeded'
+    assert reply['delivery'].get('reason') != 'capacity_exceeded'

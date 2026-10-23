@@ -546,8 +546,7 @@ def test_index_failure_retains_committed_subject_and_exact_mutation_context(scop
 
 
 def test_session_exposes_distinct_canonical_shared_and_local_policy(scoped):
-    from _application.session.start import SessionStartRequest, SessionBootstrapPage
-    from _application._response_budget import encoded_result_size, MODEL_TEXT_BUDGET
+    from _application.session.start import SessionStartRequest
     from _application.types import DependencyTier
     from test_session_start_owner import _mark_ready
 
@@ -556,32 +555,12 @@ def test_session_exposes_distinct_canonical_shared_and_local_policy(scoped):
     app = application_for(root, workspace_dir=workspace, dependency_tier=DependencyTier.MANAGED)
     result = app.invoke(SessionStartRequest())
     assert result.status == "ok", result
-    if isinstance(result.result, SessionBootstrapPage):
-        revision = result.result.revision
-        pages = []
-        while True:
-            assert encoded_result_size(result) < MODEL_TEXT_BUDGET
-            assert result.result.revision == revision
-            pages.append(result.result.content)
-            cursor = result.result.range.next_cursor
-            if cursor is None:
-                assert result.result.bootstrap_complete
-                break
-            result = app.invoke(SessionStartRequest(cursor))
-            assert result.status == "ok", result
-        content = "".join(pages)
-        assert '`workspace`: `workspace/alpha`' in content
-        assert '`shared.parent`: `project/shared`' in content
-        assert '`local.parent`: `project/local`' in content
-        assert '`shared.tags`: `["shared", "both"]`' in content
-        assert '`local.tags`: `["local", "both"]`' in content
-        return
-    policy = result.result.workspace_policy
-    assert policy.workspace == "workspace/alpha"
-    assert policy.shared.parent == "project/shared" and policy.local.parent == "project/local"
-    assert policy.shared.tags == ("shared", "both") and policy.local.tags == ("local", "both")
-    assert result.result.workspace_default_tags == policy.local.tags
-    assert result.result.version == "3"
+    content = result.result.content
+    assert '`workspace`: `workspace/alpha`' in content
+    assert '`shared.parent`: `project/shared`' in content
+    assert '`local.parent`: `project/local`' in content
+    assert '`shared.tags`: `["shared", "both"]`' in content
+    assert '`local.tags`: `["local", "both"]`' in content
 
 
 def test_direct_script_keeps_symbolic_selection_separate_from_trusted_workspace(scoped):

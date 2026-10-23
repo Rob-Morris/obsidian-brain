@@ -283,7 +283,9 @@ def canonical_wire_value(value):
         return value.isoformat()
     if isinstance(value, date):
         return value.isoformat()
-    if value is None or isinstance(value, (str, int, float, bool)):
+    if isinstance(value, str):
+        return str(value)
+    if value is None or isinstance(value, (int, float, bool)):
         return value
     if isinstance(value, Path):
         return str(value)
