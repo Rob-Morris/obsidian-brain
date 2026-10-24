@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
+import subprocess
 import sys
 
 import pytest
@@ -75,3 +77,28 @@ def test_version_metadata_failure_is_actionable_without_traceback(monkeypatch, c
     assert not result.out
     assert "missing Core VERSION" in result.err
     assert "Traceback" not in result.err
+
+
+def test_fresh_version_entry_point_does_not_import_live_owner_implementations(tmp_path):
+    """Cold health probes must not initialise unrelated command implementations."""
+    program = '''
+import importlib.abc
+import sys
+
+class OfflineOnly(importlib.abc.MetaPathFinder):
+    def find_spec(self, fullname, path=None, target=None):
+        if fullname in {'_launcher.owners', '_launcher.lifecycle', '_launcher.doctor',
+                        '_launcher.machine_maintenance', '_launcher.workspace'}:
+            raise AssertionError('offline version imported live owner: ' + fullname)
+
+sys.meta_path.insert(0, OfflineOnly())
+from _local_cli.main import run
+raise SystemExit(run(['--version', '--json']))
+'''
+    environment = {**os.environ, "PYTHONPATH": os.pathsep.join((str(ROOT / "cli"), str(ROOT / "src/brain-core/scripts")))}
+    completed = subprocess.run([sys.executable, "-B", "-c", program], cwd=tmp_path,
+                               env=environment, capture_output=True, text=True, timeout=10)
+    assert completed.returncode == 0, completed.stderr
+    result = json.loads(completed.stdout)
+    assert result["result"]["cli_version"] == read_cli_version_facts(ROOT).cli_version
+    assert result["result"]["launcher_catalogue_fingerprint"] == main.LAUNCHER_CATALOGUE.fingerprint

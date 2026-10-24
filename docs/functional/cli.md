@@ -256,6 +256,8 @@ Selection options are global and mutually constrained:
 
 `brain doctor` (version 3) checks the vault of the Brain this selection names: `--vault`, `--brain`, `--workspace` or `BRAIN_WORKSPACE_DIR`, running inside a vault or a bound workspace folder, or `BRAIN_VAULT_ROOT`. Inside a `brain session run` job, that is the job's Brain. When the ladder reaches only its machine fallbacks (the default Brain, even one that no longer resolves, or nothing at all), Doctor stays machine-wide and reports no vault in scope. A selection that fails before then, such as an unknown `--brain`, a stale workspace binding or a `BRAIN_WORKSPACE_DIR` with no binding, fails Doctor with that selection's own message, as it fails any application command. The ladder passes over a `BRAIN_VAULT_ROOT` that names no installed Brain, for Doctor as for every command; inside a job it is the job's own selection, so it fails there. Its request carries only `actionable` and `severity`; it has no vault field.
 
+Doctor recovers every retained page and nested finding detail from the selected Brain's `vault.check` result before interpreting it. Recovery reuses that invocation's private result session and does not repeat the check or increase public response limits. The check and its recovery share a 120-second deadline. Unavailable, incomplete or unsupported result delivery makes the vault diagnosis unavailable with recovery guidance; it cannot produce an empty healthy diagnosis.
+
 Launcher commands may run without a selected Brain when their schema permits it. Application commands always execute through the selected Brain's own `.brain-core/scripts/command.py`; the machine-global CLI does not import or emulate another Brain's application semantics.
 
 ### Workspace registration and policy
@@ -1023,6 +1025,8 @@ status when inventory coverage is incomplete; it never silently registers.
 
 
 ## Published source selection and offline identity
+
+Version probes read shipped metadata without loading live command owners or initialising machine services. They preserve the same text/JSON version information and do not select a Brain. Installation's CLI health-probe deadline is unchanged.
 
 Normal remote installation selects latest published main and verifies its matching release tag. Exact selection uses `bash install.sh --version X.Y.Z` or native Windows `-Version X.Y.Z`; `latest` is also accepted. Local installers without a selector use their adjacent checkout. Source is resolved once to a commit/tree and recorded in `.brain-source-receipt.json`; retries from that retained checkout verify the receipt without resolving latest again. The selected source supplies installer, template, Core and lifecycle code. Target provenance is recorded separately at `.brain/local/install-source.json`. Local modified/unpublished source is not certified by a version label. Downloads must remain available; this is not an offline-bundle guarantee.
 

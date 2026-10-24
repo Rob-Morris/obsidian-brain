@@ -580,10 +580,12 @@ def run_vault_check(vault_root: Path, *, actionable: bool, severity: str | None)
     target's legacy ``check.py``.
     """
     import json
+    import time
 
     from _common._venv import ROLE_CLI, run_managed
-    from _local_cli.execution import validate_application_envelope
+    from _local_cli.execution import application_process_diagnostic, validate_application_envelope
     from _local_cli.runtime import SelectedBrain, command_python
+    from .doctor_results import complete_check_result
 
     selected = SelectedBrain(vault_root, None, "doctor")
     if not selected.supports_command_interface:
@@ -591,30 +593,64 @@ def run_vault_check(vault_root: Path, *, actionable: bool, severity: str | None)
     payload = {"actionable": actionable}
     if severity is not None:
         payload["severity"] = severity
-    argv = [
+    prefix = [
         str(command_python(selected, "portable")),
         str(selected.command_script),
-        "vault",
-        "check",
-        "--request-json",
-        json.dumps(payload, separators=(",", ":")),
-        "--vault",
-        str(vault_root),
-        "--json",
     ]
+    deadline = time.monotonic() + 120
+
+    def invoke(command, arguments, session_file=None):
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise RuntimeError("vault.check and result recovery exceeded 120 seconds")
+        argv = [*prefix, *command.split("."), "--request-json", json.dumps(arguments, separators=(",", ":")),
+                "--vault", str(vault_root), "--json"]
+        if session_file is not None:
+            argv.extend(("--result-session-file", session_file))
+        try:
+            completed = run_managed(argv, role=ROLE_CLI, capture_output=True, text=True,
+                                    timeout=remaining, check=False)
+        except subprocess.TimeoutExpired as exc:
+            raise RuntimeError("vault.check and result recovery exceeded 120 seconds") from exc
+        try:
+            frame = json.loads(completed.stdout)
+        except json.JSONDecodeError as exc:
+            raise RuntimeError("vault.check did not produce valid JSON output" +
+                               application_process_diagnostic(completed.returncode, completed.stderr)) from exc
+        validate_application_envelope(frame, command, completed.returncode,
+                                      result_id=arguments.get("result_id"))
+        if frame["status"] != "ok":
+            raise RuntimeError("vault.check result unavailable; run brain vault check --json for recovery guidance")
+        return frame
+
+    envelope = invoke("vault.check", payload)
+
+    def read(arguments):
+        session_file = envelope.get("result_session_file")
+        if not isinstance(session_file, str) or not session_file:
+            raise ValueError("vault.check result session unavailable; run brain vault check --json again")
+        frame = invoke("result.read", arguments, session_file)
+        if frame["command"] == "result.read":
+            delivery = frame.get("delivery")
+            if not isinstance(delivery, dict) or delivery.get("result_id") != arguments["result_id"]:
+                raise ValueError("vault.check result identity changed during wrapped recovery")
+            source = frame.get("result")
+            source = source.get("envelope") if isinstance(source, dict) else None
+            if not isinstance(source, dict) or source.get("status") != "ok":
+                raise ValueError("vault.check result source is unavailable during recovery")
+            validate_application_envelope(source, "vault.check", 0,
+                                          command_version=envelope["command_version"])
+            frame = {**source, "delivery": delivery}
+        if (frame["command"] != "vault.check"
+                or frame["command_version"] != envelope["command_version"]):
+            raise ValueError("vault.check result identity changed during recovery")
+        return frame
+
+    result = complete_check_result(envelope, read)
     try:
-        completed = run_managed(argv, role=ROLE_CLI, capture_output=True, text=True, timeout=120, check=False)
-    except subprocess.TimeoutExpired as exc:
-        raise RuntimeError(f"vault.check did not finish within {exc.timeout:.0f} seconds") from exc
-    try:
-        envelope = json.loads(completed.stdout)
-    except json.JSONDecodeError as exc:
-        message = completed.stderr.strip() or "vault.check did not produce valid JSON output"
-        raise RuntimeError(message) from exc
-    validate_application_envelope(envelope, "vault.check", completed.returncode)
-    if envelope["status"] != "ok":
-        raise RuntimeError(envelope["error"]["message"])
-    return _check_envelope(vault_root, envelope["result"], actionable=actionable)
+        return _check_envelope(vault_root, result, actionable=actionable)
+    except (KeyError, TypeError) as exc:
+        raise ValueError("vault.check recovery returned unsupported finding fields") from exc
 
 
 def execute_doctor(context: LauncherContext, request: BrainDoctorRequest):

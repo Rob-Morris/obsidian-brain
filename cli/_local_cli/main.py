@@ -22,7 +22,6 @@ from _common._venv import ROLE_CLI, managed_command
 from launcher_catalogue import LAUNCHER_CATALOGUE
 from _launcher.adapter import LauncherAdapter, project_launcher_result
 from _launcher.discovery import describe_command, list_commands
-from _launcher.owners import LAUNCHER_OWNERS
 from _launcher.version import version_result, version_text
 
 from .discovery import (
@@ -104,6 +103,7 @@ def run(argv: list[str] | None = None) -> int:
 
 
 def _run(argv, attachment) -> int:
+    from _launcher.owners import LAUNCHER_OWNERS
     acquired = None
     acquired_success = False
     argv = list(sys.argv[1:] if argv is None else argv)

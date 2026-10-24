@@ -7,7 +7,7 @@ import json
 import os
 import shlex
 import subprocess
-from typing import Mapping
+from typing import Mapping, TYPE_CHECKING
 
 from launcher_catalogue import LauncherCatalogue
 
@@ -18,7 +18,8 @@ from .invocation import (
     authority_denied_result,
     internal_error_result,
 )
-from .owners import LauncherOwners
+if TYPE_CHECKING:
+    from .owners import LauncherOwners
 from .projection import canonical_wire_value, resolve_request
 
 
@@ -191,16 +192,17 @@ def _exit_code(result) -> int:
 
 def _concise_text(result) -> str:
     if isinstance(result, Ok):
-        from .lifecycle import BrainUpgradePayload
-
         lines = [f"{result.command_id}: ok"]
-        if isinstance(result.result, BrainUpgradePayload):
-            for followup in result.result.followups:
-                command = (
-                    subprocess.list2cmdline(followup.command)
-                    if os.name == "nt" else shlex.join(followup.command)
-                )
-                lines.extend((followup.message, f"Run: {command}"))
+        if result.command_id == "brain.upgrade":
+            from .lifecycle import BrainUpgradePayload
+
+            if isinstance(result.result, BrainUpgradePayload):
+                for followup in result.result.followups:
+                    command = (
+                        subprocess.list2cmdline(followup.command)
+                        if os.name == "nt" else shlex.join(followup.command)
+                    )
+                    lines.extend((followup.message, f"Run: {command}"))
         return "\n".join(lines)
     if isinstance(result, Partial):
         return f"{result.command_id}: partial — {result.error.message}"

@@ -34,9 +34,12 @@ def test_scoped_link_batch_delivers_completed_reply_while_next_scan_is_blocked(c
     with (vault.parent / "link-batch-stderr.log").open("w+b") as stderr:
         frames = []
         phase = "launch"
+        # The phase deadlines below prove reply delivery. Keep the production
+        # watchdog: a one-second override can kill a cold child before discovery.
+        environment = {**os.environ, **command_vault_clone.environment, "BRAIN_CAPTURE_VAULT": str(vault)}
+        environment.pop("BRAIN_PROXY_READ_TIMEOUT", None)
         process = subprocess.Popen([sys.executable, str(SERVER)], cwd=vault,
-            env={**os.environ, **command_vault_clone.environment, "BRAIN_CAPTURE_VAULT": str(vault),
-                 "BRAIN_PROXY_READ_TIMEOUT": "1"},
+            env=environment,
             stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=stderr)
 
         def send(i, method, params):
