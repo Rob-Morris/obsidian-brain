@@ -70,6 +70,7 @@ def _iter_vault_md_files(vault_root):
     ``_``-prefixed directory beneath ``_Temporal`` is descended.
     """
     for dirpath, _dirnames, filenames in os.walk(vault_root):
+        _dirnames[:] = [name for name in _dirnames if name != ".brain"]
         rel_dir = os.path.relpath(dirpath, vault_root)
         if rel_dir != "." and is_system_dir(os.path.basename(dirpath)):
             if not rel_dir.startswith(TEMPORAL_DIR):
@@ -389,7 +390,7 @@ def table_breaking_wikilink_findings(text, rel_path):
     return findings
 
 # Directories to skip entirely when building the vault file index
-INDEX_SKIP_DIRS = {".git", ".obsidian", ".venv", ".brain-core", "__pycache__", "_Archive"}
+INDEX_SKIP_DIRS = {".git", ".obsidian", ".venv", ".brain", ".brain-core", "__pycache__", "_Archive"}
 
 
 def _iter_indexed_vault_files(vault_root):
@@ -475,8 +476,8 @@ def extract_wikilinks(text, literals="exclude"):
 def build_vault_file_index(vault_root):
     """Build a complete file index for wikilink resolution.
 
-    Walks the entire vault (skipping ``.git``, ``.obsidian``, ``.venv``,
-    ``.brain-core``, ``__pycache__``).
+    Walks the content namespace, pruning runtime state in ``.brain`` as well
+    as ``.git``, ``.obsidian``, ``.venv``, ``.brain-core`` and ``__pycache__``.
 
     Returns a dict with:
         md_basenames  — ``{lowercase_stem: [rel_path, …]}`` for ``.md`` files

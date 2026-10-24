@@ -114,7 +114,7 @@ class StartupFailure:
 # Constants
 # ---------------------------------------------------------------------------
 
-PROXY_VERSION = "0.10.12"
+PROXY_VERSION = "0.10.13"
 _CHILD_PROTOCOL_VERSION = "2026-07-28"
 
 
@@ -497,8 +497,16 @@ def _parse_receipt_lookup_response(
         "result",
         "committed_effects",
     }
-    if set(structured) != expected_top:
+    if (not expected_top.issubset(structured)
+            or set(structured) - expected_top - {"delivery", "result_session"}):
         raise ValueError("receipt query command-result shape is invalid")
+    if "delivery" in structured:
+        delivery = structured["delivery"]
+        if (not isinstance(delivery, dict) or delivery.get("status") != "complete"
+                or delivery.get("availability") != "available"
+                or delivery.get("has_more") is not False
+                or delivery.get("superseded", False) is not False):
+            raise ValueError("receipt query output is not completely available")
     if (
         structured["schema"] != "brain.command-result/1"
         or structured["command"] != "invocation.read"

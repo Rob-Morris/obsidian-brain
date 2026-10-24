@@ -847,4 +847,27 @@ message in a `follow_up_required` warning.
 
 Read-only `links.check` continues over readable sources without converting them. Non-standard sources remain reported by `vault.check`. Mutation planning for `links.fix`, including dry runs, requires every selected source to be inspectable and refuses by name before effects.
 
+`links.check(path=...)` opens and analyses only the selected source and shares
+one vault target index between diagnostics and repair proposals. Missing sources
+return `not_found`; paths escaping the selected Brain return `invalid_request`.
+Unscoped checks retain their existing full-vault source policies. Wikilink target
+indexes and source walks prune `.brain` runtime state, so generated result files
+are neither content to scan nor basename targets. Assets and `_Config` files
+remain valid targets.
+
+Read-only link checks apply the public file namespace policy to each source,
+including public aliases: an alias into private runtime state is not scanned.
+The reader binds namespace approval to the canonical source it opens, and scoped
+findings use that source's identity. Scoped sources with no wikilinks or no
+standard text return empty findings without building a vault target index.
+
+MCP application commands run serially in a bounded worker shared by the server's
+tools, leaving the transport free to deliver completed replies while later work
+runs. Cancellation does not release a started handler's worker slot before its
+execution and finalisation finish. The proxy watchdog still detects a child
+that produces no output for its configured inactivity limit; a single long
+operation can still reach that limit. Owned-outcome recovery accepts complete
+`invocation.read` delivery envelopes and retains identity and outcome validation;
+unavailable, truncated or unresolved detail output remains inconclusive.
+
 `vault.check` reports clear `text_encoding` findings and ambiguous `unreadable_file` failures before the router gate. `vault_repair-text` accepts one optional `paths` array of vault-relative files, requires maintainer authority and content authorisation, and supports the normal dry-run preview. It fixes UTF-8/UTF-16/UTF-32 byte-order marks and previews a clear truncated final UTF-8 character. It never guesses legacy encodings or repairs content unattended. Results enumerate committed paths; changed candidates are skipped and write failures retain successful effects as partial results.

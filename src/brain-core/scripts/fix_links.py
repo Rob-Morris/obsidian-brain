@@ -189,7 +189,7 @@ def apply_fixes_to_file(vault_root, rel_path, fixes, links_filter=None):
         vault_root, pattern, replacer, paths=(rel_path,)))
 
 
-def scan_and_resolve(vault_root, router=None, *, for_mutation=True):
+def scan_and_resolve(vault_root, router=None, *, for_mutation=True, file_index=None):
     """Scan for broken wikilinks vault-wide and attempt resolution.
 
     Read-only callers skip non-standard sources; mutation planning requires a
@@ -206,13 +206,21 @@ def scan_and_resolve(vault_root, router=None, *, for_mutation=True):
     if isinstance(router, dict) and "error" in router:
         raise ValueError(router["error"])
 
-    file_index = build_vault_file_index(vault_root)
+    if file_index is None:
+        file_index = build_vault_file_index(vault_root)
     broken, unreadable, failure_details = [], [], []
     temporal_prefixes = discover_temporal_prefixes(file_index["md_basenames"])
     for directory, name in iter_vault_md_files(vault_root):
         path = os.path.relpath(os.path.join(directory, name), vault_root)
+        source = os.path.join(directory, name)
+        if not for_mutation:
+            from _portable.vault_files import resolve_public_vault_file
+            try:
+                source = resolve_public_vault_file(vault_root, path)
+            except ValueError:
+                continue
         try:
-            text = read_exact_file_content(os.path.join(directory, name),
+            text = read_exact_file_content(source,
                                            convert_lossless=for_mutation)
         except (NonStandardVaultTextError, OSError) as exc:
             unreadable.append(f"{path}: {exc}")
@@ -301,6 +309,11 @@ def scan_file(vault_root, rel_path, router=None, *, for_mutation=True):
             file_index=file_index, temporal_prefixes=temporal_prefixes,
         )
 
+    return plan_file_findings(rel_path, findings)
+
+
+def plan_file_findings(rel_path, findings):
+    """Describe repairs from one already-inspected source without reading it again."""
     fixed = []
     ambiguous = []
     unresolvable = []

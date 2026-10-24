@@ -3,15 +3,17 @@
 from __future__ import annotations
 
 from dataclasses import MISSING, fields
+from functools import partial
 import inspect
 import time
 from typing import Annotated, Callable, get_type_hints
 
+import anyio
 from mcp.server import MCPServer
 from mcp.server.mcpserver import Context
 from mcp.server.mcpserver.utilities.func_metadata import FuncMetadata
 from mcp.types import CallToolResult, ToolAnnotations
-from pydantic import Field
+from pydantic import Field, PrivateAttr
 
 from _application.adapter import (
     project_delivery_failure,
@@ -76,6 +78,8 @@ def application_interface_header(
 class _CanonicalInvocationMetadata(FuncMetadata):
     """Route raw MCP arguments through the canonical application resolver."""
 
+    _limiter: anyio.CapacityLimiter = PrivateAttr()
+
     async def call_fn_with_arg_validation(
         self,
         fn,
@@ -88,7 +92,11 @@ class _CanonicalInvocationMetadata(FuncMetadata):
         arguments.update(arguments_to_pass_directly or {})
         if fn_is_async:
             return await fn(**arguments)
-        return fn(**arguments)
+        # Keep command execution serial while the transport delivers completed
+        # replies. AnyIO keeps a started worker shielded through finalisation.
+        return await anyio.to_thread.run_sync(
+            partial(fn, **arguments), limiter=self._limiter, abandon_on_cancel=False,
+        )
 
 
 def register_application_tools(
@@ -103,6 +111,7 @@ def register_application_tools(
     """Register every MCP-eligible application command exactly once."""
 
     adapter = ApplicationAdapter(catalogue, resolver)
+    limiter = anyio.CapacityLimiter(1)
     names = []
     for entry in catalogue.entries:
         if Projection.MCP not in entry.eligible_projections:
@@ -134,6 +143,7 @@ def register_application_tools(
             output_model=generated.output_model,
             wrap_output=generated.wrap_output,
         )
+        tool.fn_metadata._limiter = limiter
         tool.parameters = compact_mcp_annotations(request_schema(entry.request_type))
         if entry.initial_class is not InitialAuthorisationClass.CONTROL:
             tool.parameters["properties"]["brain_operation"] = {

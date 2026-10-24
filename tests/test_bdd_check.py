@@ -127,3 +127,25 @@ def assert_compliance_finding(compliance_result, check_name, rel_path):
 def assert_compliance_info(compliance_result, minimum):
     """Assert the compliance summary info count meets the threshold."""
     assert compliance_result["summary"]["info"] >= minimum
+
+
+@given("a source note linking to a generated runtime result")
+def runtime_link_source(compliance_context):
+    root = compliance_context["vault"]
+    _write_md(root / ".brain/local/results/Runtime Output.md", body="[[Ignored Runtime Link]]")
+    _write_md(root / "Wiki/Scoped.md", body="[[Runtime Output]] [[Reference]]")
+
+
+@when("I check links in the source note", target_fixture="scoped_links")
+def check_scoped_links(compliance_context):
+    from types import SimpleNamespace
+    from _application.links.check import execute, LinksCheckRequest
+    context = SimpleNamespace(selected_brain=SimpleNamespace(vault_root=compliance_context["vault"]))
+    return execute(context, LinksCheckRequest("Wiki/Scoped.md"))
+
+
+@then("the scoped link check reports the generated title as unresolved")
+def assert_scoped_runtime_link(scoped_links):
+    assert scoped_links.status == "ok"
+    assert scoped_links.result.unresolvable_targets == ("Runtime Output",)
+    assert {f.file for f in scoped_links.result.findings} == {"Wiki/Scoped.md"}

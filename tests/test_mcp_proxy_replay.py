@@ -346,6 +346,33 @@ class TestUnexpectedChildOutcomeSafety:
         forwarded, record = proxy._prepare_interface_call(raw)
         return header, forwarded, record
 
+    @pytest.mark.parametrize("variant", ["complete", "truncated", "unavailable", "unknown_field",
+                                         "foreign_outcome", "detail_reference"])
+    def test_outcome_decoder_accepts_only_complete_owned_delivery(self, tmp_path, monkeypatch, variant):
+        proxy, _ = _make_inprocess_proxy(tmp_path, monkeypatch, [])
+        _, _, record = self._accepted(proxy, request_id=399, tool="artefact_create", arguments={})
+        response = _receipt_lookup_response("query", record)
+        envelope = response["result"]["structuredContent"]
+        envelope["delivery"] = {"status": "complete", "availability": "available", "has_more": False,
+                                 "continuation": None}
+        envelope["result_session"] = {"credential": "a" * 64, "instruction": "private"}
+        if variant in {"truncated", "unavailable"}:
+            envelope["delivery"]["status"] = variant
+        elif variant == "unknown_field":
+            envelope["unexpected"] = True
+        elif variant == "foreign_outcome":
+            envelope["result"]["outcome"]["receipt"]["reference"] = {"invocation_id": "other"}
+        elif variant == "detail_reference":
+            envelope["result"]["outcome"] = {"detail_reference": "bounded-but-unread"}
+        if variant == "complete":
+            outcome = proxy_mod._parse_receipt_lookup_response(response, query_id="query", record=record,
+                                                               invocation_read_version=3)
+            assert outcome["execution"] == "succeeded"
+        else:
+            with pytest.raises(ValueError):
+                proxy_mod._parse_receipt_lookup_response(response, query_id="query", record=record,
+                                                        invocation_read_version=3)
+
     @pytest.mark.parametrize("found", [True, False])
     def test_read_only_orphan_queries_owned_outcome_without_replay(self, tmp_path, monkeypatch, found):
         proxy, sent_to_client = _make_inprocess_proxy(tmp_path, monkeypatch, [])

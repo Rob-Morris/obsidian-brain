@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from typing import ClassVar, Mapping
 
 from ..context import InvocationContext
-from ..results import Ok
+from ..results import ErrorCode, Ok, request_error
 
 
 @dataclass(frozen=True, slots=True)
@@ -58,10 +58,41 @@ class LinksCheckRequest:
 
 
 def execute(context: InvocationContext, request: LinksCheckRequest):
-    from _portable.links import check_from_vault
+    from pathlib import Path
+    from _common import (
+        MissingFileResult, build_vault_file_index, check_wikilinks_in_file,
+    )
+    from _common._document_revision import NonStandardVaultTextError
+    from _portable.links import check_from_vault, describe_link_findings
+    from _portable.vault_files import read_vault_file
     import fix_links
 
     root = context.selected_brain.vault_root
+    if request.path is not None:
+        try:
+            text = read_vault_file(root, request.path)
+        except NonStandardVaultTextError:
+            return Ok(LinksCheckRequest.COMMAND_ID, LinksCheckRequest.COMMAND_VERSION,
+                      LinksCheckPayload((), (), (), (), 0, 0))
+        if isinstance(text, MissingFileResult):
+            return request_error(LinksCheckRequest, ErrorCode.NOT_FOUND,
+                                 f"Link-check source is not a file: {request.path}")
+        if isinstance(text, dict):
+            return request_error(LinksCheckRequest, ErrorCode.INVALID_REQUEST, text["error"])
+        if "[[" not in text:
+            return Ok(LinksCheckRequest.COMMAND_ID, LinksCheckRequest.COMMAND_VERSION,
+                      LinksCheckPayload((), (), (), (), 0, 0))
+        rel_path = Path(text.source_path).relative_to(root.resolve()).as_posix()
+        file_index = build_vault_file_index(root)
+        raw = check_wikilinks_in_file(root, rel_path, file_index=file_index, text=text)
+        source_findings = describe_link_findings(rel_path, text, raw)
+        plan = fix_links.plan_file_findings(rel_path, raw)
+    else:
+        file_index = build_vault_file_index(root)
+        source_findings = check_from_vault(root, file_index=file_index)
+        plan = fix_links.scan_and_resolve(
+            str(root), router={}, for_mutation=False, file_index=file_index,
+        )
     findings = tuple(
         LinkFinding(
             check=finding["check"],
@@ -72,13 +103,7 @@ def execute(context: InvocationContext, request: LinksCheckRequest):
             stem=finding.get("stem"),
             fix=finding.get("fix"),
         )
-        for finding in check_from_vault(root)
-        if request.path is None or finding["file"] == request.path
-    )
-    plan = (
-        fix_links.scan_file(str(root), request.path, for_mutation=False)
-        if request.path is not None
-        else fix_links.scan_and_resolve(str(root), router={}, for_mutation=False)
+        for finding in source_findings
     )
     return Ok(
         LinksCheckRequest.COMMAND_ID,
