@@ -9,7 +9,7 @@ import sys
 
 import pytest
 
-from proxy_test_support import _read_until_id
+from proxy_test_support import _read_until_id, _finish_proxy_with_diagnostics
 
 
 SERVER = Path(__file__).resolve().parents[1] / "fixtures/production_mcp_proxy.py"
@@ -18,6 +18,59 @@ MODERN_META = {
     "io.modelcontextprotocol/clientInfo": {"name": "protocol-test", "version": "1"},
     "io.modelcontextprotocol/clientCapabilities": {},
 }
+
+
+@pytest.mark.parametrize("modern", [False, True])
+def test_real_owned_outcome_is_recovered_after_response_loss(command_vault_clone, modern):
+    vault = command_vault_clone.vault_root
+    marker = vault / "lost-mutation-response"
+    adapter = vault / ".brain-core/brain_mcp/_command_adapter.py"
+    original = adapter.read_text()
+    signature = "def _tool_result(projection) -> CallToolResult:\n"
+    assert original.count(signature) == 1
+    adapter.write_text(original.replace(signature, signature +
+        "    from pathlib import Path\n    import os\n"
+        f"    marker = Path({str(marker)!r})\n"
+        "    if projection.result.command_id == 'artefact.create' and not marker.exists():\n"
+        "        marker.touch()\n        os._exit(42)\n"))
+    with (vault.parent / "outcome-recovery-stderr.log").open("w+b") as stderr:
+        frames = []
+        phase = "launch"
+        process = subprocess.Popen([sys.executable, str(SERVER)], cwd=vault,
+            env={**os.environ, **command_vault_clone.environment, "BRAIN_CAPTURE_VAULT": str(vault)},
+            stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=stderr, text=True)
+
+        def request(i, method, params):
+            nonlocal phase
+            if modern:
+                params = {**params, "_meta": MODERN_META}
+            process.stdin.write(json.dumps({"jsonrpc": "2.0", "id": i, "method": method, "params": params}) + "\n")
+            process.stdin.flush()
+            phase = f"reply to {method} id={i} (25s deadline)"
+            messages = _read_until_id(process, i, timeout=25)
+            frames.extend(messages)
+            reply = next((m for m in messages if m.get("id") == i), None)
+            assert reply is not None, f"No reply to id={i} within 25s"
+            return reply
+
+        try:
+            request(1, "server/discover" if modern else "initialize", {} if modern else {
+                "protocolVersion": "2025-06-18", "capabilities": {},
+                "clientInfo": {"name": "owned-outcome", "version": "1"}})
+            if not modern:
+                process.stdin.write('{"jsonrpc":"2.0","method":"notifications/initialized"}\n')
+                process.stdin.flush()
+            result = request(2, "tools/call", {"name": "artefact_create", "arguments": {
+                "type": "thought", "title": "Recovered response"}})["result"]
+            envelope = result["structuredContent"]
+            assert marker.exists()
+            assert envelope["schema"] == "brain.proxy-outcome-resolution/1", envelope
+            assert envelope["outcome"]["execution"] == "succeeded"
+            assert envelope["outcome"]["receipt"]["state"] == "committed"
+            assert result["isError"] is False
+            assert len(list(vault.rglob("*Recovered response.md"))) == 1
+        finally:
+            _finish_proxy_with_diagnostics(process, frames, stderr, phase=phase)
 
 
 @pytest.mark.parametrize("modern", [False, True])

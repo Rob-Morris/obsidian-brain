@@ -3,6 +3,8 @@
 import os
 import logging
 import threading
+import subprocess
+import sys
 import pytest
 from brain_mcp import proxy as proxy_mod
 
@@ -13,7 +15,38 @@ from proxy_test_support import (
     _make_inprocess_proxy,
     _make_inprocess_proxy_with_real_threads,
     _NoOpThread,
+    _read_until_id,
+    _finish_proxy_with_diagnostics,
 )
+
+
+def test_controlled_proxy_cleanup_retains_bounded_stream_and_exit_evidence(tmp_path, capsys):
+    script = (
+        "import json, sys\n"
+        "sys.stderr.write('discarded-prefix-' + 'x' * 6000 + 'stderr-evidence')\n"
+        "sys.stderr.flush()\n"
+        "print(json.dumps({'jsonrpc': '2.0', 'id': 'ready', 'result': {'state': 'ready'}}), flush=True)\n"
+        "sys.stdin.read()\n"
+    )
+    with (tmp_path / "stderr.log").open("w+b") as stderr:
+        process = subprocess.Popen([sys.executable, "-c", script],
+            stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=stderr)
+        frames = []
+        try:
+            frames.extend(_read_until_id(process, "ready", timeout=5))
+            assert any(frame.get("id") == "ready" for frame in frames)
+        finally:
+            _finish_proxy_with_diagnostics(process, frames, stderr, phase="controlled reply (5s deadline)")
+    rendered = capsys.readouterr().out
+    assert process.returncode is not None
+    assert "returncode=" in rendered
+    assert "exit_before_cleanup=" in rendered
+    assert "timeout=None" in rendered
+    assert '"id": "ready"' in rendered
+    assert "stderr-evidence" in rendered
+    assert "discarded-prefix-" not in rendered
+    assert len(rendered) < 5000
+
 
 class _PipeProc:
     def __init__(self, payload: bytes):

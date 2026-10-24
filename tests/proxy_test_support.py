@@ -28,6 +28,40 @@ PROXY_MODULE = "brain_mcp.proxy"
 PYTHON = sys.executable
 
 
+def _finish_proxy_with_diagnostics(process, frames, stderr, *, phase):
+    """Reap a controlled proxy and retain bounded stream/exit evidence for pytest."""
+    import subprocess
+    from brain_test_support import process_diagnostics
+
+    before = process.poll()
+    remaining = b""
+    timeout = None
+    try:
+        if before is None:
+            process.terminate()
+        try:
+            remaining, _ = process.communicate(timeout=5)
+        except subprocess.TimeoutExpired as exc:
+            timeout = exc.timeout
+            remaining = exc.stdout or b""
+            process.kill()
+            remaining, _ = process.communicate(timeout=5)
+            raise
+    finally:
+        stderr.flush()
+        stderr.seek(0, os.SEEK_END)
+        stderr.seek(max(0, stderr.tell() - 4096))
+        pending = getattr(process, "_ndjson_buffer", b"")
+        if isinstance(remaining, bytes):
+            remaining = remaining.decode("utf-8", errors="replace")
+        if isinstance(pending, bytes):
+            pending = pending.decode("utf-8", errors="replace")
+        details = SimpleNamespace(returncode=process.poll(), timeout=timeout,
+            stdout=json.dumps(frames, ensure_ascii=False) + "\npending stdout:\n" + pending + remaining,
+            stderr=stderr.read())
+        print(f"proxy phase={phase}; exit_before_cleanup={before}\n{process_diagnostics(details)}")
+
+
 _GIVE_UP_MSG_FRAGMENT = "recovery attempts"
 
 

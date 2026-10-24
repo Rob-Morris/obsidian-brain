@@ -5,7 +5,10 @@ from __future__ import annotations
 import asyncio
 from datetime import datetime, timedelta
 import json
+from contextvars import ContextVar
+import threading
 
+import anyio
 import pytest
 from mcp.server import MCPServer
 
@@ -499,3 +502,65 @@ def test_stale_workspace_context_returns_structured_local_recovery():
     assert error["details"]["reason"] == "upgrade_required"
     assert error["details"]["supported_version"] == 1
     assert "brain workspace upgrade --brain test-brain" in error["details"]["remediation_command"]
+
+
+def test_worker_preserves_context_and_serialisation_through_cancellation(tmp_path):
+    marker = ContextVar("invocation-marker")
+    release = threading.Event()
+    observed = []
+    overlap = []
+
+    async def exercise():
+        entered = anyio.Event()
+        queued = anyio.Event()
+        scopes = []
+        results = []
+
+        def guard():
+            observed.append(marker.get())
+            if len(observed) > 1 and not release.is_set():
+                overlap.append(marker.get())
+            if len(observed) == 1:
+                anyio.from_thread.run_sync(entered.set)
+                if not release.wait(5):
+                    raise RuntimeError("test did not release the active handler")
+
+        mcp = MCPServer("serial-worker")
+        register_application_tools(mcp, catalogue=current_application_catalogue(),
+            resolver=current_request_resolver(),
+            context_factory=_context_factory(tmp_path, ("command.list", "command.describe")),
+            invocation_guard=guard)
+
+        async def first():
+            marker.set("first")
+            with anyio.CancelScope() as scope:
+                scopes.append(scope)
+                await mcp.call_tool("command_list", {})
+
+        async def second():
+            marker.set("second")
+            queued.set()
+            results.append(await mcp.call_tool("command_describe", {"target_command_id": "command.list"}))
+
+        try:
+            with anyio.fail_after(5):
+                async with anyio.create_task_group() as tasks:
+                    tasks.start_soon(first)
+                    await entered.wait()
+                    scopes[0].cancel()
+                    tasks.start_soon(second)
+                    await queued.wait()
+                    await anyio.sleep(0)
+                    # Cancelling the request must not release its worker slot
+                    # while synchronous work can still mutate shared state.
+                    assert observed == ["first"]
+                    independent, _, _, _ = _registered(tmp_path / "independent", ("command.list",))
+                    assert not (await independent.call_tool("command_list", {})).is_error
+                    release.set()
+            assert observed == ["first", "second"]
+            assert overlap == []
+            assert len(results) == 1 and not results[0].is_error
+        finally:
+            release.set()
+
+    anyio.run(exercise)

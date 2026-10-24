@@ -42,21 +42,26 @@ def _read_exact_file(vault_root, path, *, convert_lossless=False):
 
 
 def read_vault_file(vault_root, path, *, convert_lossless=False):
+    try:
+        resolved = resolve_public_vault_file(vault_root, path)
+    except ValueError as exc:
+        return {"error": str(exc)}
+    if not os.path.isfile(resolved):
+        return MissingFileResult(path)
+    return read_exact_file_content(resolved, convert_lossless=convert_lossless)
+
+
+def resolve_public_vault_file(vault_root, path):
+    """Bind Reader namespace approval to one canonical source before opening it.
+
+    Callers must use the returned path rather than resolve the request again.
+    This follows the existing path-based filesystem contract; it is not a
+    descriptor-level defence against hostile replacement of approved ancestors.
+    """
     if is_archived_path(path):
-        return {
-            "error": (
-                f"'{path}' is archived. Use artefact.read with "
-                'location="archived" instead.'
-            )
-        }
-    public_error = _public_file_error(vault_root, path)
-    if public_error is not None:
-        return {"error": public_error}
-    return _read_exact_file(vault_root, path, convert_lossless=convert_lossless)
-
-
-def _public_file_error(vault_root, path):
-    """Keep Reader exact-file access inside the documented public namespace."""
+        raise ValueError(
+            f"'{path}' is archived. Use artefact.read with location=\"archived\" instead."
+        )
 
     try:
         resolved = Path(
@@ -67,10 +72,10 @@ def _public_file_error(vault_root, path):
         )
         relative = resolved.relative_to(Path(vault_root).resolve())
     except (ValueError, OSError):
-        return "Path escapes vault root"
+        raise ValueError("Path escapes vault root") from None
     parts = relative.parts
     if not parts:
-        return "Path does not identify a public vault file"
+        raise ValueError("Path does not identify a public vault file")
     if parts[0] == ".brain-core":
         permitted = (
             len(parts) == 2 and parts[1] in PUBLIC_BRAIN_CORE_FILES
@@ -78,11 +83,11 @@ def _public_file_error(vault_root, path):
             len(parts) > 2 and parts[1] in PUBLIC_BRAIN_CORE_TREES
         )
         if permitted and not any(part.startswith(".") for part in parts[1:]):
-            return None
-        return "Path is outside the public Brain Core documentation namespace"
+            return resolved
+        raise ValueError("Path is outside the public Brain Core documentation namespace")
     if any(part.startswith(".") for part in parts):
-        return "Path is outside the public vault-file namespace"
-    return None
+        raise ValueError("Path is outside the public vault-file namespace")
+    return resolved
 
 
 def read_archived_artefact(vault_root, path, *, infer_markdown=False, convert_lossless=False):
