@@ -981,6 +981,18 @@ def test_cut_release_imports_the_cut_parser_not_the_running_process_parser(tmp_p
 
 def test_default_prepare_checks_run_real_candidate_checker_and_pytest(tmp_path):
     root, _ = _dev_repo(tmp_path)
+    _write(root, "tools/brain-lab/brain_lab/__init__.py", "")
+    _write(
+        root, "tools/brain-lab/brain_lab/compatibility.py",
+        (Path(__file__).resolve().parents[1] / "tools/brain-lab/brain_lab/compatibility.py").read_text(),
+    )
+    _write(
+        root,
+        "tools/brain-lab/compatibility.json",
+        '{"schema":"brain-lab.compatibility/1","adapters":[{'
+        '"id":"test-release","revision":1,"minimum_version":"1.0.0",'
+        '"maximum_version_exclusive":"2.0.0","install":[],"rehydrate":[],"health":[]}]}'
+    )
     _write(root, "template-vault/README.md", "Fixture vault\n")
     _write(root, "src/scripts/check_repository_contracts.py", """
 from pathlib import Path

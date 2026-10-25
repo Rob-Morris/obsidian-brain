@@ -9,12 +9,17 @@ that release metadata is final. Promotion has its own canary.
 
 [2] **Documentation noticed so far.** Name the docs this change will eventually need, or state that none are apparent yet. Do not block a WIP commit on a full docs sweep.
 
-[3] **Focused verification.** State the change-specific check you ran while
-iterating, or why none was warranted.
+[3] **Verification decision and evidence.** Follow
+`docs/CONTRIBUTING.md#selecting-development-verification`. Record changed inputs,
+affected owners/consumers, applicable earlier evidence, the selected serial
+commands and outcomes, and omitted coverage. Use full serial `make test` for
+broad or uncertain impact; retain relevant slow integration tests. Explain any
+checks invalidated by later edits. Do not present selected or interrupted
+coverage as a full-suite pass. This also applies to WIP.
 
-This records iteration feedback. The separate serial `make test` correctness
-gate still applies after the final edit, including to WIP. `make test-fast`
-excludes ordinary `slow` proxy and repair regressions and is not that gate.
+Candidate preparation and hosted certification retain their full gates.
+`make test-fast` and parallel runs are iteration feedback, not substitutes for
+the selected serial gate.
 
 ## Log
 
@@ -36,5 +41,5 @@ Log format: `[id] Short name: status, comment`
 ```
 [1] Scope: done, only the promotion command and its tests
 [2] Documentation noticed so far: done, contributor workflow docs still need the new command
-[3] Focused verification: done, pytest tests/test_promotion.py
+[3] Verification decision and evidence: done, changed promotion orchestration only; traced prepare/recovery consumers; final diff against HEAD tested with serial pytest tests/test_promotion*.py and tests/repo/test_promotion_canary.py after required setup, all passed with no unexpected skips; no earlier evidence reused; omitted runtime/installer coverage because their inputs and shared execution contracts are unchanged
 ```

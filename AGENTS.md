@@ -19,7 +19,7 @@ ALWAYS READ BEFORE contributing: `docs/contributor/agents.md`
 
 ## Before Committing
 
-1. Run `make test` (uses `.venv` with Python 3.12; run `make install` first if the venv doesn't exist)
+1. Choose and record verification using `docs/CONTRIBUTING.md#selecting-development-verification`: run affected-owner tests serially for bounded changes; run `make test` for broad or uncertain impact. Use `.venv` with Python 3.12 (`make install` first if absent).
 2. Follow `.canaries/pre-commit-development.md` on `dev` (`.canaries/pre-promotion.md` before `promotion.py prepare`)
 3. Never force-add gitignored files. They are ignored for a reason.
 

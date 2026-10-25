@@ -15,12 +15,14 @@ When making or planning changes, choose the smallest workflow tier that safely f
 | `medium` | Multi-file changes within one or two contexts, or work with meaningful edge-case risk | Research -> plan -> implement -> verify -> review | Explicit execution + verification plan, relevant tests, and a docs/canary sweep before hand-off |
 | `large` | Architectural changes, new context boundaries, migrations, bootstrap/security changes, or staged rollouts | Research -> design -> approval -> plan -> implement -> verify -> multi-review -> final review | Full-suite proof, explicit rollout/rollback thinking, and separate review passes for design and implementation |
 
-The tier's verification bar names change-specific evidence. Every development
-commit also follows the serial `make test` routine correctness gate and staged
-repository contracts in the [verification mapping](../CONTRIBUTING.md#testing).
-Focused tests and `make test-fast` are iteration feedback, including for WIP;
-the release's native and dependency certification runs on the exact promotion
-candidate.
+The tier's verification bar names change-specific evidence. Development commits
+follow the [affected-owner selection rubric](../CONTRIBUTING.md#selecting-development-verification):
+run relevant tests serially for bounded changes, full serial `make test` for
+broad or uncertain impact, and staged repository contracts in every case. Record
+existing evidence and the reason before expensive runs. Relevant slow tests
+remain required; `make test-fast` is iteration feedback. Candidate preparation
+and hosted CI retain full serial, native and dependency verification. Selected
+dev coverage accepts later detection of interactions with omitted tests.
 
 ## Tier Notes
 

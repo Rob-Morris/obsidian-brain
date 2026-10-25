@@ -2,7 +2,8 @@
 
 How to contribute to Obsidian Brain. This layer covers contributor-facing product docs, repo workflow guidance, and agent-specific contributor instructions.
 
-Use `make test` for the canonical serial suite and `make lint` for both
+Use the [selection rubric](../CONTRIBUTING.md#selecting-development-verification)
+for dev verification, `make test` for the full serial suite and `make lint` for both
 reusable-script docstrings and supported command API/schema documentation. The
 [agent instructions](agents.md) explain that documentation boundary.
 
