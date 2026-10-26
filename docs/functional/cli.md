@@ -256,6 +256,8 @@ Selection options are global and mutually constrained:
 
 `brain doctor` (version 3) checks the vault of the Brain this selection names: `--vault`, `--brain`, `--workspace` or `BRAIN_WORKSPACE_DIR`, running inside a vault or a bound workspace folder, or `BRAIN_VAULT_ROOT`. Inside a `brain session run` job, that is the job's Brain. When the ladder reaches only its machine fallbacks (the default Brain, even one that no longer resolves, or nothing at all), Doctor stays machine-wide and reports no vault in scope. A selection that fails before then, such as an unknown `--brain`, a stale workspace binding or a `BRAIN_WORKSPACE_DIR` with no binding, fails Doctor with that selection's own message, as it fails any application command. The ladder passes over a `BRAIN_VAULT_ROOT` that names no installed Brain, for Doctor as for every command; inside a job it is the job's own selection, so it fails there. Its request carries only `actionable` and `severity`; it has no vault field.
 
+Doctor recovers every retained page and nested finding detail from the selected Brain's `vault.check` result before interpreting it. Recovery reuses that invocation's private result session and does not repeat the check or increase public response limits. The check and its recovery share a 120-second deadline. Unavailable, incomplete or unsupported result delivery makes the vault diagnosis unavailable with recovery guidance; it cannot produce an empty healthy diagnosis.
+
 Launcher commands may run without a selected Brain when their schema permits it. Application commands always execute through the selected Brain's own `.brain-core/scripts/command.py`; the machine-global CLI does not import or emulate another Brain's application semantics.
 
 ### Workspace registration and policy
@@ -535,6 +537,14 @@ brain --vault /path/to/brain session run -- python3 workflow.py
 The supervisor authenticates before launching the program and pins that Brain and principal. Starting a job grants no exceptional access. Its descendants can prepare an operation with `access.prepare`, explicitly request its reviewed scope with `access.request`, check the decision, then invoke the ordinary command with `--operation ID`. Without that selector, only initial authorisation or an exact-command blanket grant applies. Use `command.describe` for the current preparation and request contracts. The CLI does not request consent automatically, and harness MCP-tool approval rules do not intercept shell commands inside the job.
 
 Consent ends when the root program exits, even if background children remain. A new job starts without exceptional consent. Standalone calls retain configured initial access, but cannot request reusable exceptional grants; their errors direct the caller to start a job. Missing or broken job channels cannot be replaced with a public context ID, copied environment value or repeated credential.
+
+Children normally inherit the job's private result session. If a workflow uses
+an explicit `--result-session-file`, pass the same file to the outer
+`brain session run` and its children; a different child session is rejected.
+The CLI reports the known result-session refusal as an invalid request (exit 2)
+with these remedies, without a traceback or credential contents. Like other CLI
+usage failures, this diagnostic is written to stderr even with `--json`; it is
+not a successful command result and does not run or retry the requested command.
 
 Job transport requires POSIX inherited descriptors. It is verified on macOS; Linux needs its own platform verification. Native Windows private-owner transport is unsupported: CLI jobs are unavailable, and MCP can perform configured initial operations but cannot prepare or grant exceptional consent or retain context reductions. Existing owner loss always fails rather than becoming a standalone call.
 
@@ -978,14 +988,14 @@ user MCP registrations still depend on it.
 
 The installer writes a versioned distribution under the selected prefix and a small platform bootloader under `bin/`:
 
-- Unix-like user install: `~/.local/bin/brain` and `~/.local/lib/brain-cli/6.3.0-<bundle>/`.
-- Native Windows user install: `%LOCALAPPDATA%\Programs\Brain\bin\brain.cmd` and the adjacent `lib\brain-cli\6.3.0-<bundle>\` distribution.
+- Unix-like user install: `~/.local/bin/brain` and `~/.local/lib/brain-cli/6.3.1-<bundle>/`.
+- Native Windows user install: `%LOCALAPPDATA%\Programs\Brain\bin\brain.cmd` and the adjacent `lib\brain-cli\6.3.1-<bundle>\` distribution.
 
 The bundle discriminator includes Core version and a source-content digest, so an unchanged CLI component can safely coexist with another release bundle. The installed bootloader records that exact bundle; source launch uses its adjacent checkout. CLI component version, source identity and machine-local installed integrity are distinct.
 
 The distribution contains the launcher application plus the Brain Core payload needed for install, upgrade and selected-Brain execution. Installation and replacement verify a content manifest and executable identity; failed replacement restores the proven old binary/distribution pair or retains recovery material and reports the outcome as unverified. Failed upgrade results carry every known absolute recovery path in the structural error and durable launcher receipt: residual staging material after a verified rollback is a known partial outcome, while unverified rollback remains outcome-unknown. Standalone human output lists the same paths before the failure message. Once the new pair is verified, failure or interruption while removing an old backup is committed post-upgrade recovery work and never rolls Brain Core back to an older version. Both the launcher result and standalone distribution JSON list the surviving `cleanup_recovery_paths`.
 
-The bootloader requires Python 3.12 or newer. `BRAIN_CLI_VERSION` is `6.3.0`; `BRAIN_INSTALL_REF` is `v0.76.1`.
+The bootloader requires Python 3.12 or newer. `BRAIN_CLI_VERSION` is `6.3.1`; `BRAIN_INSTALL_REF` is `v0.76.2`.
 
 JSON command invocations validate the structural stdout envelope, including
 command identity, version and exit category. Incidental child stderr does not
@@ -1023,6 +1033,8 @@ status when inventory coverage is incomplete; it never silently registers.
 
 
 ## Published source selection and offline identity
+
+Version probes read shipped metadata without loading live command owners or initialising machine services. They preserve the same text/JSON version information and do not select a Brain. Installation's CLI health-probe deadline is unchanged.
 
 Normal remote installation selects latest published main and verifies its matching release tag. Exact selection uses `bash install.sh --version X.Y.Z` or native Windows `-Version X.Y.Z`; `latest` is also accepted. Local installers without a selector use their adjacent checkout. Source is resolved once to a commit/tree and recorded in `.brain-source-receipt.json`; retries from that retained checkout verify the receipt without resolving latest again. The selected source supplies installer, template, Core and lifecycle code. Target provenance is recorded separately at `.brain/local/install-source.json`. Local modified/unpublished source is not certified by a version label. Downloads must remain available; this is not an offline-bundle guarantee.
 

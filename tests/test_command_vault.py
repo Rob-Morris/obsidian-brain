@@ -199,3 +199,29 @@ def test_clone_environment_is_explicit_and_restored(command_vault_clone):
             assert os.environ[name] == value
 
     assert {name: os.environ.get(name) for name in clone.environment} == previous
+
+
+@pytest.mark.parametrize("native_clone", [False, True])
+def test_clone_omits_generated_bytecode_and_preserves_writable_isolation(tmp_path, monkeypatch, native_clone):
+    import shutil
+    source = tmp_path / "baseline"
+    cache = source / "scripts" / "__pycache__"
+    cache.mkdir(parents=True)
+    (cache / "module.pyc").write_bytes(b"generated")
+    (source / "scripts" / "standalone.pyc").write_bytes(b"generated")
+    authored = source / "scripts" / "module.py"
+    authored.write_text("original", encoding="utf-8")
+
+    def clone(source, destination):
+        if not native_clone:
+            return None
+        shutil.copytree(source, destination)
+        return "test-native-clone"
+
+    monkeypatch.setattr(command_vault, "_copy_on_write_clone", clone)
+    result = command_vault.clone_command_vault(SimpleNamespace(vault_root=source), tmp_path / "clone")
+    assert not list(result.vault_root.rglob("__pycache__"))
+    assert not list(result.vault_root.rglob("*.pyc"))
+    (result.vault_root / "scripts" / "module.py").write_text("changed", encoding="utf-8")
+    assert authored.read_text(encoding="utf-8") == "original"
+    assert (cache / "module.pyc").read_bytes() == b"generated"

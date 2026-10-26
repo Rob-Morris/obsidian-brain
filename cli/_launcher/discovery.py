@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import json
+from typing import TYPE_CHECKING
 
 from launcher_catalogue import (
     LAUNCHER_CATALOGUE,
@@ -14,7 +15,8 @@ from launcher_catalogue import (
 
 from .context import ProviderBindings
 from .contracts import ErrorCode, WarningCode, validate_command_id
-from .owners import LAUNCHER_OWNERS, LauncherOwners
+if TYPE_CHECKING:
+    from .owners import LauncherOwners
 from .projection import minimal_request_payload, request_schema, result_schema
 
 
@@ -173,9 +175,13 @@ def describe_command(
     *,
     providers: ProviderBindings = ProviderBindings(),
     catalogue: LauncherCatalogue = LAUNCHER_CATALOGUE,
-    owners: LauncherOwners = LAUNCHER_OWNERS,
+    owners: LauncherOwners | None = None,
 ) -> LauncherCommandDescription:
     """Describe one launcher request/result contract from its owning types."""
+
+    if owners is None:
+        from .owners import LAUNCHER_OWNERS
+        owners = LAUNCHER_OWNERS
 
     entry = next((item for item in catalogue.entries if item.command_id == command_id), None)
     owner = next((item for item in owners.entries if item.command_id == command_id), None)

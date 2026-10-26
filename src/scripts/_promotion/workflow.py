@@ -10,6 +10,7 @@ from typing import Callable, Mapping
 import canary_receipt
 import check_ci
 from . import git, candidates
+from .preflight import check_lab_compatibility
 from .recovery_model import github_repository
 from .model import (
     PromotionError, PromotionRequest, PushUpdate, RemoteHeads, parse_trailers, candidate_message, ref_label, classify_remote, promotion_branch, TIP_TRAILER, ZERO_SHA, SHA_RE, PROMOTION_BRANCH_RE
@@ -82,7 +83,8 @@ def consume_canary(primary: Path) -> None:
 
 
 def default_checks(worktree: Path) -> None:
-    """Run the candidate tree's repository contracts, then the serial test suite."""
+    """Preflight Lab compatibility, then run candidate contracts and the serial suite."""
+    check_lab_compatibility(worktree)
     # make test creates this link. It is gitignored, so a promotion worktree does not have it.
     catalogue_link = worktree / "template-vault" / ".brain-core"
     if not catalogue_link.exists():

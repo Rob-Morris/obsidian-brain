@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from launcher_catalogue import LauncherCatalogue
 
 from .context import LauncherContext, report_failure_safely
@@ -20,7 +22,8 @@ from .contracts import (
     Partial,
     ReceiptState,
 )
-from .owners import LauncherOwners
+if TYPE_CHECKING:
+    from .owners import LauncherOwners
 
 
 class LauncherInvocation:

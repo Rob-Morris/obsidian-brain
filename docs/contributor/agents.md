@@ -102,14 +102,14 @@ failure evidence and retain real integration coverage. Prefer in-process
 decision matrices with representative boundary tests over repeated full-stack
 setup; do not suppress failures with retries or timing slack.
 
-Use serial `make test` for the pre-commit routine correctness gate. The
-[verification mapping](../CONTRIBUTING.md#testing) names each suite's purpose
-and execution owner. `make test-parallel` runs the same suite faster while
-iterating, but does not establish serial ordering; `make test-fast` omits
-`slow` proxy and repair regressions and is also iteration feedback only. Keep
-those ordinary correctness tests in the commit gate even when a WIP change is
-incomplete. Candidate preparation and hosted CI check the exact candidate;
-native release certification belongs there rather than on each dev push.
+Apply [development verification selection](../CONTRIBUTING.md#selecting-development-verification)
+before expensive tests: trace affected owners and consumers, reuse applicable
+passing evidence, run relevant tests serially and record the decision. Broad or
+uncertain changes require full serial `make test`. Relevant slow proxy, repair
+and installer regressions remain in scope; `make test-fast` and parallel runs
+are iteration feedback. A later edit requires the checks it affects, not an
+automatic unrelated suite restart. This applies to WIP too. Candidate preparation
+and hosted CI retain full exact-candidate verification and native certification.
 
 `make lint` is an umbrella for two different documentation contracts. The
 legacy/reusable scripts retain a percentage docstring ratchet; internal

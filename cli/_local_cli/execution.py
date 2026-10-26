@@ -17,6 +17,7 @@ from _launcher.adapter import LauncherAdapter
 from _launcher.context import LauncherContext
 
 from .discovery import ComposedCommandEntry
+from .parser import LocalCliUsageError
 
 
 def machine_json_text(text: str) -> str:
@@ -93,6 +94,21 @@ class SelectedBrainProcess:
 
 
 ProcessRunner = Callable[..., subprocess.CompletedProcess[str]]
+
+
+def reject_invalid_result_session(completed: subprocess.CompletedProcess[str]) -> None:
+    """Preserve the released Core's owned pre-invocation refusal as CLI usage."""
+    evidence = (
+        "command.py: invalid request — invalid result session; select its private file "
+        "or run session start --result-session-file <new-private-path>"
+    )
+    if (completed.returncode == 2 and completed.stdout == ""
+            and completed.stderr == evidence + "\n"):
+        raise LocalCliUsageError(
+            "Invalid result session. Select a valid private result-session file for this Brain. "
+            "In a managed CLI job, omit the child's --result-session-file to inherit the job's session, "
+            "or pass the same --result-session-file to both the outer brain session run and its child."
+        )
 
 
 def application_process_diagnostic(exit_code: int, stderr: str) -> str:
@@ -173,6 +189,7 @@ class ApplicationProcessInvoker:
             check=False,
             **options,
         )
+        reject_invalid_result_session(completed)
         diagnostic = application_process_diagnostic(completed.returncode, completed.stderr)
         if completed.returncode not in range(5):
             raise RuntimeError("selected Brain command returned an invalid exit category" + diagnostic)

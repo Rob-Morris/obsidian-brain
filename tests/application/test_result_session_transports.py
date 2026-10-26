@@ -1758,3 +1758,68 @@ def test_default_no_argument_context_composition_still_issues_one_shot_identity(
         assert first.owner != second.owner
     finally:
         composer.close()
+
+
+@pytest.mark.parametrize('mode', ['inherited', 'child-only', 'shared'])
+def test_cli_job_session_selection_is_actionable_without_traceback(tmp_path, mode):
+    import json
+    import os
+    import shutil
+    import subprocess
+    import sys
+    from _bootstrap.owner_attachment import without_owner_environment
+    from _command_interface.direct import DirectContextComposer
+    from _common._yaml import dump_mapping_text
+
+    if os.name != 'posix':
+        pytest.skip('Managed CLI jobs require POSIX descriptor inheritance')
+    repo = Path(__file__).resolve().parents[2]
+    root = tmp_path / 'Brain'
+    (root / '.brain-core/scripts').mkdir(parents=True)
+    (root / '.brain-core/VERSION').write_text((repo / 'src/brain-core/VERSION').read_text())
+    shutil.copyfile(repo / 'src/brain-core/scripts/command.py', root / '.brain-core/scripts/command.py')
+    (root / '.brain').mkdir()
+    permitted = ['workspace.rebind', *(entry.command_id for entry in current_application_catalogue().entries
+                                     if entry.initial_class.value == 'control')]
+    (root / '.brain/config.yaml').write_text(dump_mapping_text({
+        'vault': {'profiles': {'operator': {'allow': permitted}},
+                  'access': {'request_policy': 'allowed'}}}))
+    composer = DirectContextComposer(vault_root=root)
+    try:
+        credential = composer.compose(command_id='session.start', result_session='new').result_delivery.credential
+    finally:
+        composer.close()
+    private_file = tmp_path / 'private-result-session'
+    script._write_result_session(private_file, credential)
+    env = without_owner_environment()
+    for key in ('BRAIN_VAULT_ROOT', 'BRAIN_WORKSPACE_DIR', 'BRAIN_OPERATOR_KEY'):
+        env.pop(key, None)
+    env.update({
+        'HOME': str(tmp_path / 'home'),
+        'BRAIN_CLI_BINARY': str(repo / 'cli/brain'),
+        'BRAIN_CLI_DISTRIBUTION_ROOT': str(repo),
+        'PYTHONPATH': os.pathsep.join(map(str, (repo / 'cli', repo / 'src/brain-core/scripts', repo / 'src/brain-core'))),
+    })
+    cli = [sys.executable, '-m', '_local_cli.main']
+    child = [*cli, '--vault', str(root), 'access', 'status',
+             '--request-json', '{"target_command_id":"workspace.rebind"}', '--json']
+    outer = [*cli, '--vault', str(root), 'session', 'run']
+    if mode in {'child-only', 'shared'}:
+        child += ['--result-session-file', str(private_file)]
+    if mode == 'shared':
+        outer += ['--result-session-file', str(private_file)]
+    result = subprocess.run([*outer, '--', *child], env=env, capture_output=True, text=True, timeout=60)
+    output = result.stdout + result.stderr
+    assert credential not in output
+    assert 'Traceback' not in output
+    assert private_file.read_text() == credential
+    if mode == 'child-only':
+        assert result.returncode == 2, output
+        assert result.stdout == ''
+        assert 'brain: invalid request' in result.stderr
+        assert "omit the child's --result-session-file" in result.stderr
+        assert 'both the outer brain session run and its child' in result.stderr
+        assert 'entry point and runtime' not in result.stderr
+    else:
+        assert result.returncode == 0, output
+        assert json.loads(result.stdout)['status'] == 'ok'

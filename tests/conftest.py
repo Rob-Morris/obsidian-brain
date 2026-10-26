@@ -9,7 +9,7 @@ import time
 
 import pytest
 
-pytest_plugins = ('pytest_failure_log',)
+pytest_plugins = ('pytest_failure_log', 'pytest_test_resources')
 
 
 # conftest.py files carry no doctests. Excluding them from --doctest-modules

@@ -1,8 +1,8 @@
 #!/bin/bash
 set -euo pipefail
 
-BRAIN_CLI_VERSION="6.3.0"
-BRAIN_INSTALL_REF="v0.76.1"
+BRAIN_CLI_VERSION="6.3.1"
+BRAIN_INSTALL_REF="v0.76.2"
 
 BRAIN_DISTRIBUTION_ID="source"
 

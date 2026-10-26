@@ -11,6 +11,7 @@ from ``brain_test_support`` directly.
 
 import atexit
 import contextlib
+import errno
 import functools
 import os
 from pathlib import Path
@@ -19,7 +20,8 @@ import shutil
 import sys
 import tempfile
 
-TEMPLATE_VAULT_COPY_IGNORE = (".venv", ".pytest_cache", "local")
+TEMPLATE_VAULT_COPY_IGNORE = (".venv", ".pytest_cache", "local", "__pycache__", "*.pyc")
+STORAGE_ERRORS = {value for value in (errno.ENOSPC, getattr(errno, "EDQUOT", None)) if value is not None}
 
 
 def process_diagnostics(completed):
@@ -221,23 +223,24 @@ def write_fake_launcher(path, *, cversion="3.12", venv="none", real_python=None)
     )
 
 
-def copy_install_source(dest):
+def copy_install_source(dest, *, source_root=None):
     """Copy the repo's install entry points into *dest* for install.sh integration tests.
 
     Copies the checked CLI, installers, template-vault/, and src/brain-core/
     to run ``bash install.sh`` against an isolated target.
     """
-    repo_root = Path(__file__).resolve().parents[1]
+    repo_root = Path(source_root) if source_root is not None else Path(__file__).resolve().parents[1]
     dest = Path(dest)
     shutil.copy2(repo_root / "install.sh", dest / "install.sh")
     shutil.copy2(repo_root / "install.ps1", dest / "install.ps1")
-    shutil.copytree(repo_root / "cli", dest / "cli", ignore=shutil.ignore_patterns("__pycache__"))
+    source_only = shutil.ignore_patterns("__pycache__", "*.pyc")
+    shutil.copytree(repo_root / "cli", dest / "cli", ignore=source_only)
     shutil.copytree(
         repo_root / "template-vault",
         dest / "template-vault",
-        ignore=shutil.ignore_patterns(*TEMPLATE_VAULT_COPY_IGNORE),
+        ignore=shutil.ignore_patterns(*TEMPLATE_VAULT_COPY_IGNORE, ".brain-core"),
     )
-    shutil.copytree(repo_root / "src" / "brain-core", dest / "src" / "brain-core")
+    shutil.copytree(repo_root / "src" / "brain-core", dest / "src" / "brain-core", ignore=source_only)
 
 
 def make_searchable_vault(tmp_path):

@@ -158,9 +158,10 @@ requires a new patch release.
 
 ## Dev branch
 
-The lightweight development canary does not waive the current serial `make test`
-requirement before committing. Full hosted CI is deferred to the promotion
-candidate; local pre-commit verification remains a separate policy.
+The development canary records the affected-owner verification decision described
+under [Testing](#testing). Bounded changes use relevant serial tests; broad or
+uncertain impact requires full serial `make test`. Full hosted CI remains on the
+promotion candidate; local verification is a separate gate.
 
 Ordinary work happens on `dev`, or on a short-lived feature branch that is
 merged into `dev` before promotion. Development commits use `WIP:`, `docs:`,
@@ -229,6 +230,12 @@ reports the remaining ledger-to-dev range; push `dev` before preparing again.
 
 Prepare runs the selected cut's `release.py` and imports in an isolated process,
 then checks the actual candidate checkout with the primary Python environment.
+Before repository contracts or the serial suite, preparation uses the candidate's
+own release-fact reader and Brain Lab compatibility selector in an isolated
+process. Incoherent release facts, missing or overlapping version adapters, and
+an explicitly declared adapter CLI support baseline that disagrees with the
+release bundle fail here. This preflight does not replace either verification
+gate or native certification, and does not modify historical adapters.
 The candidate name, Core version, canonical subject, source and tip trailers,
 and release-only tree changes are validated together. Content replay preserves
 source author/committer metadata; synthetic provenance commits use the
@@ -388,12 +395,89 @@ Dependency intent and generator policy live under `dependencies/`; see the
 [dependency workflow](contributor/dependencies.md) for intentional updates,
 offline staged freshness checks and required native release certification.
 
-Run `make test` before committing, after your final edit. Uses `.venv` with Python 3.12. A green run that precedes a later edit — a VERSION bump, a `make sync-template` — says nothing about what you are committing; re-run it. A WIP commit should normally leave this routine correctness suite green for the next contributor.
+Before a dev or feature commit, apply the selection rule below using `.venv`
+with Python 3.12. Verify the final relevant inputs, including generated changes.
+An edit invalidates the checks it can affect; rerun those checks rather than
+automatically repeating unrelated passing suites. Record earlier broad evidence
+and later delta checks separately; do not claim an earlier run tested new code.
 
 ```bash
 make install   # first time — creates venv, installs dependencies
 make test      # runs pytest
 ```
+
+### Selecting development verification
+
+Before starting expensive verification, record the changed inputs, existing
+passing evidence, affected consumers, selected commands and why each is needed.
+Use this rubric for dev and feature commits, including WIP:
+
+1. Trace the changed behaviour to its owner and callers. Include changed tests,
+   the owner's regressions and relevant integration boundaries; include slow
+   tests when they exercise that behaviour. For several bounded owners, take
+   the union. Similar filenames or unchanged installer code alone do not prove
+   that an installer regression is irrelevant: launcher, runtime, defaults and
+   version contracts can be installer inputs too.
+2. Use full serial `make test` when impact is broad or uncertain. Changes to
+   global test isolation, collection/import semantics, dependency versions or
+   widely shared execution/security/bootstrap contracts normally require it.
+   A helper in a shared file may still be bounded when the changed functions
+   and all consumers are traced. Establish scope from that behaviour and its
+   consumer set rather than the containing filename.
+   Presentation-only pytest options do not change collection semantics.
+3. Preserve the selected suite's prerequisites: run `make dev-link` before
+   direct pytest paths that consume the template engine, and provision the
+   documented optional dependencies where relevant. Inspect skips and their
+   reasons; an absent required prerequisite is missing evidence, not a pass.
+   Run the selected tests serially. Do not use `-m 'not slow'`, parallelism or
+   only the previously failing test as a substitute for relevant regressions.
+   Optional semantic-stack and native Docker requirements retain their existing
+   ownership. Selection does not waive a relevant environment requirement.
+4. Run staged repository contracts for every commit. Check changed public API
+   documentation when applicable. Documentation-only changes need the relevant
+   contracts and content checks; shipped bootstrap/configuration is behavioural
+   input, so trace its consumers too.
+5. Record commands, outcomes, input identity and omitted coverage in the
+   development canary. A selected pass is not a full-suite pass and cannot prove
+   ordering against omitted tests. Full serial candidate verification and hosted
+   certification remain required release gates.
+
+Examples of traced consumer sets (recheck references when these owners change):
+
+| Bounded change | Relevant verification |
+|---|---|
+| Promotion orchestration | `tests/test_promotion*.py`, `tests/repo/test_promotion_canary.py`; Lab compatibility changes also include `tests/repo/brain_lab/test_compatibility.py` |
+| Installer-source assembly (`copy_install_source`) | `tests/test_install_fixture.py`, `tests/test_install_script.py`, `tests/test_install_core.py`, `tests/test_install_then_doctor.py`, `tests/test_install_script_vault_registry.py`, `tests/test_install_approvals.py`; shared template ignore changes also include `tests/test_compile_colours.py` |
+| Other owner or helper | Trace its actual consumer closure and record the selected files; if that closure cannot be established confidently, run the full suite |
+
+Do not repeat unchanged successful verification just because a commit was made
+or ancestry changed. Check source, dependencies, relevant environment and the
+meaning of the prior run before reusing evidence. Failed or interrupted runs
+are not passing full gates. Establish safe interruption and recovery before
+stopping expensive work, except when the user explicitly requests an immediate
+pause. Do not silently restart a full suite after interruption or evidence
+mismatch: explain which evidence remains valid and choose the necessary work.
+Promotion preparation currently runs its full candidate suite; this dev policy
+does not add a promotion-evidence receipt or bypass that gate.
+
+### Test diagnostics and timing
+
+The test-resource plugin removes each successful test's owned `tmp_path` only
+after setup, call and teardown have all passed. Failures in any phase and
+interrupted tests retain their scratch evidence. Session-scoped baselines stay
+available for their consumers and final immutability checks. This intentionally
+does not use pytest's built-in `failed` retention policy, which can discard
+setup/teardown failure evidence. For deliberate local inspection of successful
+scratch, disable the plugin with `-p no:pytest_test_resources` (this also disables
+the resource-exhaustion stop). Do not share writable clones or use hard links.
+
+After a failed test reports disk-full/quota exhaustion, the plugin probes the
+test filesystem with a real temporary write. Only confirmed capacity failure
+stops the session, after teardown and failure reporting, with a nonzero exit and
+an explicit statement that remaining tests did not run. Simulated errors on a
+healthy filesystem do not stop it. No automatic rerun is performed. Native
+copy-on-write clones remain preferred; portable copies exclude generated
+bytecode, and native clones discard it before use.
 
 Quiet runs keep their normal console output and print a failure-log path once
 at startup. Each setup, call, teardown or collection failure is written there
@@ -403,13 +487,28 @@ file per run under `.pytest_cache/d/failure-logs/`; use
 `--failure-log /path/to/failures.log` with pytest to choose a path. Parallel
 workers report through the controller's log. These diagnostic files can contain
 captured test data; they are local evidence, not release artefacts.
+Linux CI retains these synthetic-test failure logs and before/after filesystem
+byte/inode diagnostics in a seven-day `linux-test-diagnostics` artifact, including
+on failure. `src/scripts/collect_test_diagnostics.py` snapshots at most eight
+logs of 256 KiB each plus 64 KiB of resource diagnostics, with a manifest naming
+truncation and omitted files. Oversized logs retain their beginning and end;
+the original local logs are unchanged. It does not upload vault trees. A capacity failure writing the log
+leaves the ordinary console report available instead of masking the test result.
+
+Pytest also reports the 20 slowest setup, call and teardown phases by default.
+Use those existing-run measurements before launching another suite for timing.
+Installer-source fixtures copy authored inputs per helper invocation, omit bytecode and
+the redundant template engine link, and retain independent writable copies.
+Keep the template engine link in fixtures that actually use it, such as colour
+compilation; this exclusion belongs specifically to installer-source assembly.
 
 Verification is assigned by purpose and execution owner:
 
 | Purpose | Execution owner and command | Coverage and boundary |
 |---|---|---|
-| Iteration feedback | Contributor: targeted `.venv/bin/python -m pytest ...`, `make test-parallel`, or `make test-fast` | `test-parallel` runs the same suite with pytest-xdist; `test-fast` deselects `slow` tests. Neither result replaces the serial commit gate. |
-| Routine correctness and regression | Contributor before a dev/feature commit: `make test`; promotion prepare: serial `python -m pytest -q` in the exact candidate checkout; Linux CI: `make test` on the candidate SHA | Collects `tests/` and doctests, including proxy forwarding/restart and bare repair subprocess regressions marked `slow`. The serial run also catches ordering-sensitive pollution. Semantic-marked tests run when their optional stack is present and otherwise skip. The native Docker acceptance module has a separate opt-in environment guard. |
+| Iteration feedback | Contributor: targeted pytest, `make test-parallel`, or `make test-fast` | Useful while editing; parallel or globally slow-excluded runs do not replace the selected serial development gate. |
+| Development correctness | Contributor before a dev/feature commit: relevant serial pytest paths, or `make test` for broad/uncertain impact | Apply the selection rubric above, retain relevant slow integration tests and record omitted coverage. |
+| Full correctness and regression | Promotion prepare: serial `python -m pytest -q` in the exact candidate checkout; Linux CI: `make test` on the candidate SHA | Collects `tests/` and doctests, including slow proxy and repair regressions; establishes full-suite ordering evidence. Optional semantic and Docker requirements retain their existing environment guards. |
 | Staged repository integrity | Pre-commit hook, or contributor after staging: `make precommit-check` | Checks the staged snapshot and branch policy. Development omits only the per-commit version-bump predicate; the other contracts still apply. |
 | Changed API and command documentation | Contributor when changing those surfaces: `make lint` | Checks the reusable-script docstring ratchet and supported command schema/façade documentation. |
 | Release certification | Hosted CI for each exact `promotion/vX.Y.Z` candidate: Linux test suite, Windows user smoke, Dependency certification | Linux repeats the routine suite on a clean runner. Windows exercises native install and persisted MCP startup/read/upload. The native dependency matrix checks clean base and semantic/model behaviour on macOS, Linux and Windows. All required workflows must pass before finish; dev pushes do not run them. |

@@ -965,3 +965,53 @@ def test_machine_child_encoding_pairs_utf8_streams_and_decoder(tmp_path, monkeyp
     import os
     assert os.environ["PYTHONIOENCODING"] == "cp1252"
     assert machine_process_options({"env": {}})["env"] == {"PYTHONIOENCODING": "utf-8"}
+
+
+@pytest.mark.parametrize('route', ['execution', 'discovery'])
+def test_released_result_session_refusal_keeps_its_usage_category(tmp_path, monkeypatch, route):
+    from types import SimpleNamespace
+    from _local_cli import main
+    from _local_cli.parser import LocalCliUsageError
+
+    vault = (tmp_path / 'Brain').resolve()
+    script = vault / '.brain-core/scripts/command.py'
+    script.parent.mkdir(parents=True)
+    script.write_text('# selected command owner\n')
+    stderr = ('command.py: invalid request — invalid result session; select its private file '
+              'or run session start --result-session-file <new-private-path>\n')
+    calls = []
+
+    def runner(argv, **options):
+        calls.append(argv)
+        return subprocess.CompletedProcess(argv, 2, '', stderr)
+
+    if route == 'execution':
+        invoke = lambda: ApplicationProcessInvoker(
+            SelectedBrainProcess(vault, Path(sys.executable).resolve()), runner,
+        ).invoke(_entry('application', 'access.status'), {})
+    else:
+        monkeypatch.setattr(main, 'command_python', lambda *_args: Path(sys.executable))
+        monkeypatch.setattr(main, 'managed_command', lambda argv, **_options:
+                            SimpleNamespace(run=lambda **options: runner(argv, **options)))
+        selected = SimpleNamespace(vault_root=vault, command_script=script, workspace=None)
+        invoke = lambda: main._invoke_application(
+            selected, 'command.list', {}, SimpleNamespace(operator_key=None), dependency_tier='bootstrap')
+    with pytest.raises(LocalCliUsageError) as failure:
+        invoke()
+    message = str(failure.value)
+    assert "omit the child's --result-session-file" in message
+    assert 'both the outer brain session run and its child' in message
+    assert 'entry point and runtime' not in message
+    assert len(calls) == 1
+
+
+@pytest.mark.parametrize('stdout,exit_code,suffix', [
+    ('', 4, '\n'), ('{}', 2, '\n'), ('\n', 2, '\n'),
+    ('', 2, ''), ('', 2, '\n\n'), ('', 2, '\n '),
+    ('', 2, '\nSECRET-CREDENTIAL'), ('', 2, '\n' + ' ' * 4096),
+])
+def test_only_exact_owned_preinvocation_refusal_is_usage(stdout, exit_code, suffix):
+    from _local_cli.execution import reject_invalid_result_session
+    evidence = ('command.py: invalid request — invalid result session; select its private file '
+                'or run session start --result-session-file <new-private-path>')
+    reject_invalid_result_session(subprocess.CompletedProcess([], exit_code, stdout, evidence + suffix))
