@@ -538,6 +538,14 @@ The supervisor authenticates before launching the program and pins that Brain an
 
 Consent ends when the root program exits, even if background children remain. A new job starts without exceptional consent. Standalone calls retain configured initial access, but cannot request reusable exceptional grants; their errors direct the caller to start a job. Missing or broken job channels cannot be replaced with a public context ID, copied environment value or repeated credential.
 
+Children normally inherit the job's private result session. If a workflow uses
+an explicit `--result-session-file`, pass the same file to the outer
+`brain session run` and its children; a different child session is rejected.
+The CLI reports the known result-session refusal as an invalid request (exit 2)
+with these remedies, without a traceback or credential contents. Like other CLI
+usage failures, this diagnostic is written to stderr even with `--json`; it is
+not a successful command result and does not run or retry the requested command.
+
 Job transport requires POSIX inherited descriptors. It is verified on macOS; Linux needs its own platform verification. Native Windows private-owner transport is unsupported: CLI jobs are unavailable, and MCP can perform configured initial operations but cannot prepare or grant exceptional consent or retain context reductions. Existing owner loss always fails rather than becoming a standalone call.
 
 Shells normally preserve the inherited channel. Python's `subprocess` closes extra descriptors by default, so a job's Python program must deliberately forward it to trusted Brain subprocesses. The installed Core supplies the forwarding helper:

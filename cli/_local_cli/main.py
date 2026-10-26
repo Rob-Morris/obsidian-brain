@@ -34,6 +34,7 @@ from .discovery import (
 from .execution import (
     ApplicationProcessInvoker,
     application_process_diagnostic,
+    reject_invalid_result_session,
     validate_application_envelope,
     LauncherCommandInvoker,
     LocalCliExecution,
@@ -618,6 +619,7 @@ def _invoke_application(
     options = machine_process_options(attachment.forwarded_process() if attachment is not None else {})
     completed = managed_command(argv, role=ROLE_CLI, env=options.pop("env", None)).run(
         capture_output=True, check=False, **options)
+    reject_invalid_result_session(completed)
     diagnostic = application_process_diagnostic(completed.returncode, completed.stderr)
     if completed.returncode not in range(5):
         raise CliError("selected Brain discovery failed its structural process contract" + diagnostic)
