@@ -6,6 +6,9 @@ import json
 from pathlib import Path
 import shutil
 
+import compile_router
+import pytest
+
 import migrate_to_0_62_4
 import upgrade
 from check import check_living_key_fields
@@ -35,11 +38,26 @@ def _write(path: Path, *, title: str, key: str | None = None) -> None:
 
 
 def _compiled_router(vault: Path) -> None:
-    local = vault / ".brain" / "local"
-    local.mkdir(parents=True, exist_ok=True)
-    (local / "compiled-router.json").write_text(
-        json.dumps(ROUTER), encoding="utf-8"
+    """Model the current compiler output produced before default migrations."""
+    core = vault / ".brain-core"
+    core.mkdir(parents=True, exist_ok=True)
+    (core / "VERSION").write_text("0.62.4\n", encoding="utf-8")
+    (core / "session-core.md").write_text(
+        "# Session Core\n\n## Core Docs\n\n## Standards\n", encoding="utf-8"
     )
+    taxonomy = vault / "_Config/Taxonomy/Living/designs.md"
+    taxonomy.parent.mkdir(parents=True, exist_ok=True)
+    (vault / "_Config/router.md").write_text(
+        "Always:\n- Safe test sources.\n\nConditional:\n", encoding="utf-8"
+    )
+    taxonomy.write_text(
+        "# Designs\n\n## Naming\n\n`{Title}.md` in `Designs/`.\n\n"
+        "## Frontmatter\n\n```yaml\n---\ntype: living/design\ntags: []\nkey:\n---\n```\n",
+        encoding="utf-8",
+    )
+    router = compile_router.compile(str(vault))
+    compile_router.persist_compiled_router(str(vault), router)
+    assert router["meta"]["brain_core_version"] == "0.62.4"
 
 
 def test_backfills_only_keyless_living_records_in_status_folders(tmp_path):
@@ -150,3 +168,25 @@ def test_v054_ledger_runs_new_backfill_without_repairing_inherited_errors(tmp_pa
     assert results[0]["version"] == "0.62.4"
     assert results[0]["status"] == "ok"
     assert recorded["migrations"]["0.62.4"]["status"] == "ok"
+
+
+@pytest.mark.parametrize('producer', [None, '0.1.0'])
+def test_migration_does_not_relabel_or_consume_outdated_router(tmp_path, monkeypatch, producer):
+    target = tmp_path / 'Designs/+Deprecated/Legacy.md'
+    _write(target, title='Legacy')
+    _compiled_router(tmp_path)
+    router_path = tmp_path / '.brain/local/compiled-router.json'
+    payload = json.loads(router_path.read_text())
+    if producer is None:
+        payload.pop('meta')
+    else:
+        payload['meta']['brain_core_version'] = producer
+    router_path.write_text(json.dumps(payload))
+    router_before, target_before = router_path.read_bytes(), target.read_bytes()
+    monkeypatch.setattr(migrate_to_0_62_4, 'read_artefact',
+                        lambda path: pytest.fail('An outdated router reached migration content reads'))
+    result = migrate_to_0_62_4.migrate(str(tmp_path))
+    assert result['status'] == 'error'
+    assert 'producer version is outdated' in result['error']
+    assert router_path.read_bytes() == router_before
+    assert target.read_bytes() == target_before

@@ -360,14 +360,12 @@ def test_run_migrations_does_not_record_blocked_0_50_0_migration_and_halts(tmp_p
         vault / "Designs" / "Broken.md",
         {"type": "living/design", "tags": [], "key": "broken", "parent": "design/missing"},
     )
-    compiled = compile_router.compile(str(vault))
-    (vault / ".brain" / "local" / "compiled-router.json").write_text(
-        json.dumps(compiled, indent=2) + "\n",
-        encoding="utf-8",
-    )
     shutil.rmtree(vault / ".brain-core" / "scripts")
     shutil.copytree(source / "scripts", vault / ".brain-core" / "scripts")
     (vault / ".brain-core" / "VERSION").write_text("0.50.1\n")
+    # Direct runner calls start at the post-compile boundary.
+    compiled = compile_router.compile(str(vault))
+    compile_router.persist_compiled_router(str(vault), compiled)
 
     with pytest.raises(RuntimeError, match=r"Cannot apply migration with blockers: invalid_chains"):
         upgrade._run_migrations(

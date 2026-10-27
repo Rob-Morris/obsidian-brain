@@ -42,6 +42,8 @@ def benchmark_inputs(context, request):
     if request.COMMAND_ID == "retrieval.evaluate":
         import evaluate_search
         path, relative = resolve_brain_path(root, request.benchmark_path, "benchmark_path")
+        if not path.is_file():
+            raise ValueError("benchmark_path must identify an existing regular file")
         return BenchmarkInputs({"benchmark": (path, relative)}, benchmark=evaluate_search.load_benchmark(path))
     import construct_benchmark_fixture as constructor
     paths = construction_paths(root, request)
@@ -51,12 +53,12 @@ def benchmark_inputs(context, request):
 
 
 def benchmark_binding(context, request, *, plan, frozen_inputs=None):
-    from _portable.maintenance_inputs import file_identity, source_manifest
+    from _portable.maintenance_inputs import file_identity, owned_file_identity, source_manifest
 
     root = context.selected_brain.vault_root
     sources = source_manifest(root)
     observations = [ObservedResource("benchmark-sources", "selected-brain", sources["sha256"])]
-    observations.extend(ObservedResource("retrieval-state", path, file_identity(root / path)) for path in CACHE_OUTPUTS)
+    observations.extend(ObservedResource("retrieval-state", path, owned_file_identity(root, path)) for path in CACHE_OUTPUTS)
     observations.extend(ObservedResource("benchmark-" + kind, relative, file_identity(path))
                         for kind, (path, relative) in plan.paths.items())
     observations.append(ObservedResource("parsed-inputs", "benchmark-and-seeds", content_digest(canonical_json(

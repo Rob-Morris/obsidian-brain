@@ -128,14 +128,16 @@ def vault(tmp_path):
 
 
 @pytest.fixture
-def template_vault():
-    """Use the real template vault (read-only)."""
-    path = os.path.abspath(TEMPLATE_VAULT)
-    if not os.path.isdir(path):
-        pytest.skip("template-vault not found")
-    if not os.path.isdir(os.path.join(path, ".brain-core")):
-        pytest.skip(".brain-core not linked — run 'make dev-link'")
-    return path
+def template_vault(tmp_path):
+    """Exercise template content with an isolated, materialised installed Core."""
+    from pathlib import Path
+
+    source = Path(TEMPLATE_VAULT).resolve()
+    path = tmp_path / "installed-template"
+    shutil.copytree(source, path, ignore=shutil.ignore_patterns(".brain-core", "__pycache__"))
+    shutil.copytree(Path(cr.__file__).resolve().parents[1], path / ".brain-core",
+                    ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
+    return str(path)
 
 
 # ---------------------------------------------------------------------------

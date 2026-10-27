@@ -49,6 +49,7 @@ from _common import (
     validate_naming_pattern,
 )
 from _common._artefacts import pattern_has_date_tokens
+from _common._source_access import resolve_public_source
 from _common._frontmatter import _read_frontmatter_stream
 from _common._text_encoding import diagnose_text
 from _lifecycle.router_errors import UnreadableRouterSourceError
@@ -1037,6 +1038,7 @@ def discover_memories(vault_root):
             continue
         path = os.path.join(memories_dir, entry)
         name = entry[:-3]  # strip .md
+        path = resolve_public_source(vault_root, path)
         triggers = _parse_memory_triggers(path)
         rel = os.path.relpath(path, vault_root)
         memories.append({"name": name, "triggers": triggers, "memory_doc": rel})
@@ -1151,7 +1153,8 @@ def living_artefact_source_state(vault_root, artefacts, *, read_fm=None):
         for rel_path in iter_artefact_paths(vault_root, artefact):
             abs_path = os.path.join(vault_root, rel_path)
             try:
-                fields = read_fm(abs_path)
+                source = resolve_public_source(vault_root, abs_path)
+                fields = read_fm(source)
             except (OSError, UnicodeDecodeError):
                 continue
             if is_valid_key(fields.get("key")):
@@ -1170,7 +1173,8 @@ def build_living_artefact_index(vault_root, artefacts, *, return_sources=False):
         for rel_path in iter_artefact_paths(vault_root, artefact):
             abs_path = os.path.join(vault_root, rel_path)
             try:
-                fields = read_frontmatter(abs_path)
+                source = resolve_public_source(vault_root, abs_path)
+                fields = read_frontmatter(source)
             except (OSError, UnicodeDecodeError):
                 continue
 
@@ -1211,17 +1215,18 @@ def compile(vault_root):
 
     def track(rel_path):
         """Track a source file for hashing. Returns absolute path."""
-        abs_path = os.path.join(vault_root, rel_path)
+        if rel_path == os.path.join(".brain-core", "VERSION"):
+            from _bootstrap.owned_paths import owned_file
+            abs_path = owned_file(vault_root, ".brain-core/VERSION")
+        else:
+            abs_path = resolve_public_source(vault_root, rel_path)
         if os.path.isfile(abs_path):
             sources[rel_path] = hash_file(abs_path)
         return abs_path
 
     # Parse router
     router_path = ROUTER_REL_PATH
-    track(router_path)
-    always_rules, conditionals = parse_router(
-        os.path.join(vault_root, router_path)
-    )
+    always_rules, conditionals = parse_router(track(router_path))
 
     # Parse system rules from session-core. A valid `.brain-core/` install is
     # version-bound and atomic; if this file is missing, the install is broken.
@@ -1232,8 +1237,7 @@ def compile(vault_root):
             "Missing required .brain-core/session-core.md. "
             "The .brain-core install is incomplete or broken."
         )
-    track(session_core_path)
-    system_rules, _ = parse_router(session_core_abs)
+    system_rules, _ = parse_router(track(session_core_path))
 
     # Merge: system rules first, vault-specific additions after
     always_rules = system_rules + always_rules
@@ -1260,8 +1264,7 @@ def compile(vault_root):
                 break
 
         if tax_rel:
-            track(tax_rel)
-            parsed = parse_taxonomy_file(os.path.join(vault_root, tax_rel))
+            parsed = parse_taxonomy_file(track(tax_rel))
             parsed["naming"] = finalize_naming_date_sources(
                 parsed.get("naming"), classification, t["key"]
             )
@@ -1363,15 +1366,31 @@ def persist_compiled_router(vault_root, compiled):
     Embedding-sidecar invalidation is the caller's responsibility (router and
     embeddings are separate invalidation domains).
     """
-    output_path = os.path.join(str(vault_root), OUTPUT_PATH)
-    safe_write_json(output_path, compiled, bounds=str(vault_root))
-    compile_colours.generate(vault_root, compiled)
+    from _bootstrap.owned_paths import owned_output_paths
+    from _common import safe_write
+    relatives = (OUTPUT_PATH, compile_colours.OUTPUT_REL, compile_colours.GRAPH_JSON_REL,
+                 session.SESSION_MARKDOWN_REL)
+    paths = dict(zip(relatives, owned_output_paths(vault_root, relatives)))
+    root = str(Path(vault_root).resolve())
+    published = []
+    try:
+        safe_write_json(paths[OUTPUT_PATH], compiled, bounds=root)
+        published.append(OUTPUT_PATH)
+        assignments = compile_colours.compute_colours(compiled)
+        safe_write(paths[compile_colours.OUTPUT_REL], compile_colours.render_css(assignments), bounds=root)
+        published.append(compile_colours.OUTPUT_REL)
+        compile_colours.write_graph_json(root, compile_colours.render_graph_color_groups(assignments))
+        published.append(compile_colours.GRAPH_JSON_REL)
+    except (OSError, ValueError) as exc:
+        exc.committed_paths = tuple(published)
+        raise
+    return tuple(published)
 
 
 def refresh_session_markdown(vault_root, compiled):
     """Refresh the markdown bootstrap mirror from compiled router data."""
     model = session.build_session_model(compiled, str(vault_root))
-    session.persist_session_markdown(model, str(vault_root))
+    return session.persist_session_markdown(model, str(vault_root))
 
 
 # ---------------------------------------------------------------------------

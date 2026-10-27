@@ -108,7 +108,8 @@ class TestTemporaries:
         nested = local / "nested" / "x.json.ab12cd34.tmp"
         for path in (old, young, foreign, nested):
             path.write_text("x")
-        (local / "link.json.ab12cd34.tmp").symlink_to(old)
+        link = local / "link.json.ab12cd34.tmp"
+        link.symlink_to(old)
         stale = (NOW - timedelta(days=2)).timestamp()
         os.utime(old, (stale, stale))
         os.utime(nested, (stale, stale))
@@ -116,13 +117,19 @@ class TestTemporaries:
         # ctime cannot be set; collapse the age rule so the fixture's real ctime qualifies.
         real_now = datetime.now(timezone.utc)
 
+        from _bootstrap.owned_paths import UnsafeFilesystemLayoutError
+
+        with pytest.raises(UnsafeFilesystemLayoutError):
+            find_stranded_temporaries(tmp_path, real_now)
+        assert link.is_symlink() and old.read_text() == "x"
+        link.unlink()
         assert find_stranded_temporaries(tmp_path, real_now) == (), "both mtime and ctime must be older than the threshold"
         assert find_stranded_temporaries(tmp_path / "missing", real_now) == ()
         monkeypatch.setattr(stranded_temporaries, "MINIMUM_AGE", timedelta(0))
         assert find_stranded_temporaries(tmp_path, real_now) == (
             ".brain/local/compiled-router.json.ab12cd34.tmp",
             ".brain/local/retrieval-index.json.ab12cd34.tmp",
-        ), "sorted by name; symlinks, nested files and foreign names never match"
+        ), "sorted by name; nested files and foreign names never match"
 
     def test_a_young_mtime_alone_disqualifies_a_temporary(self, tmp_path):
         local = tmp_path / ".brain" / "local"
@@ -348,3 +355,82 @@ class TestIdentityRule:
         demoted = MaintenanceFinding("x", "error", "a.md", "m", Disposition.JUDGEMENT, owner=Owner.BRAIN, key=key,
                                      subject={"file": "a.md"}, evidence={"k": 1}, identity=Identity.KIND_ONLY, breach="b")
         assert not group_by_family((demoted,))[0].dismissible, "kind-only is the safe floor for any shape"
+
+
+@pytest.mark.parametrize("component", [".brain", ".brain/local"])
+def test_temporary_scope_alias_is_refused_and_reported(tmp_path, component):
+    from _bootstrap.owned_paths import UnsafeFilesystemLayoutError
+    from _bootstrap.diagnostics import collect_temporaries_check_findings
+
+    root = tmp_path / "vault"
+    root.mkdir()
+    other = tmp_path / "synthetic-other"
+    other.mkdir()
+    marker = other / "x.json.ab12cd34.tmp"
+    marker.write_text("unchanged")
+    alias = root / component
+    alias.parent.mkdir(parents=True, exist_ok=True)
+    alias.symlink_to(other, target_is_directory=True)
+    with pytest.raises(UnsafeFilesystemLayoutError):
+        find_stranded_temporaries(root, NOW)
+    findings = collect_temporaries_check_findings(root, now=NOW)
+    assert len(findings) == 1
+    assert findings[0]["code"] == "unsafe_filesystem_layout"
+    assert findings[0]["severity"] == "error"
+    assert str(other) not in findings[0]["message"]
+    assert marker.read_text() == "unchanged"
+
+
+def test_temporary_hardlink_is_not_owned(tmp_path):
+    from _bootstrap.owned_paths import UnsafeFilesystemLayoutError
+
+    local = tmp_path / ".brain/local"
+    local.mkdir(parents=True)
+    ordinary = local / "x.json.ab12cd34.tmp"
+    ordinary.write_text("shared")
+    os.link(ordinary, local / "foreign")
+    now = datetime.now(timezone.utc) + timedelta(days=2)
+    with pytest.raises(UnsafeFilesystemLayoutError):
+        find_stranded_temporaries(tmp_path, now)
+    assert ordinary.read_text() == "shared"
+
+
+def test_temporary_unsafe_layout_is_a_manual_finding_without_classification_breach(tmp_path):
+    from _application.maintenance._detection import classify
+    from _bootstrap.diagnostics import collect_temporaries_check_findings
+
+    (tmp_path / ".brain").write_text("ordinary file in place of a directory")
+    (finding,) = classify(collect_temporaries_check_findings(tmp_path, now=NOW))
+    assert finding.disposition is Disposition.JUDGEMENT
+    assert finding.identity is Identity.SUBJECT
+    assert finding.breach is None
+
+
+@pytest.mark.parametrize("kind", ["symlink", "directory", "fifo"])
+def test_unsafe_atomic_endpoint_is_reported_without_admitting_other_candidates(tmp_path, kind):
+    from _bootstrap.diagnostics import collect_temporaries_check_findings
+    from _bootstrap.owned_paths import UnsafeFilesystemLayoutError
+
+    local = tmp_path / ".brain/local"
+    local.mkdir(parents=True)
+    ordinary = local / "a.json.ab12cd34.tmp"
+    ordinary.write_text("valid synthetic temporary")
+    unsafe = local / "b.json.ab12cd34.tmp"
+    if kind == "symlink":
+        unsafe.symlink_to(ordinary)
+    elif kind == "directory":
+        unsafe.mkdir()
+    else:
+        if not hasattr(os, "mkfifo"):
+            pytest.skip("FIFO unavailable")
+        os.mkfifo(unsafe)
+    now = datetime.now(timezone.utc) + timedelta(days=2)
+    with pytest.raises(UnsafeFilesystemLayoutError):
+        find_stranded_temporaries(tmp_path, now)
+    (finding,) = collect_temporaries_check_findings(tmp_path, now=now)
+    assert finding["code"] == "unsafe_filesystem_layout"
+    assert finding["severity"] == "error"
+    assert "repair" not in finding
+    assert str(tmp_path) not in finding["message"]
+    assert ordinary.read_text() == "valid synthetic temporary"
+    assert unsafe.lstat()

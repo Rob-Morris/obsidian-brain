@@ -8,6 +8,7 @@ import os
 from typing import Literal
 
 from _common import load_compiled_router
+from _bootstrap.owned_paths import owned_file, UnsafeFilesystemLayoutError
 import _semantic.config as semantic_config
 import _semantic.model as semantic_model
 
@@ -15,7 +16,7 @@ import _semantic.model as semantic_model
 TYPE_EMBEDDINGS_REL = os.path.join(".brain", "local", "type-embeddings.npy")
 DOC_EMBEDDINGS_REL = os.path.join(".brain", "local", "doc-embeddings.npy")
 EMBEDDINGS_META_REL = os.path.join(".brain", "local", "embeddings-meta.json")
-EMBEDDINGS_METADATA_VERSION = 2
+EMBEDDINGS_METADATA_VERSION = 3
 ROUTER_SOURCE_HASH_KEY = "router_source_hash"
 EMBEDDING_MODEL = semantic_model.SHIPPED_MODEL_NAME
 EMBEDDING_MODEL_REVISION = semantic_model.SHIPPED_MODEL_REVISION
@@ -25,6 +26,10 @@ EmbeddingSelection = Literal["types", "documents", "all"]
 
 class SemanticEmbeddingsLoadError(RuntimeError):
     """Raised when persisted semantic embeddings state is present but unreadable."""
+
+
+class SemanticEmbeddingsLayoutError(SemanticEmbeddingsLoadError):
+    """Unsafe fixed semantic storage must be restored, never rebuilt through."""
 
 
 class RouterMetadataError(RuntimeError):
@@ -87,25 +92,39 @@ def rank_against(query_vec, matrix, meta_entries, *, filter_fn=None, top_k=None)
 def embeddings_sidecars_present(vault_root):
     """Return True when the persisted semantic-engine sidecars exist on disk."""
     vault_root = str(vault_root)
-    return (
-        os.path.isfile(os.path.join(vault_root, TYPE_EMBEDDINGS_REL))
-        and os.path.isfile(os.path.join(vault_root, DOC_EMBEDDINGS_REL))
-        and os.path.isfile(os.path.join(vault_root, EMBEDDINGS_META_REL))
-    )
+    try:
+        for relative in (TYPE_EMBEDDINGS_REL, DOC_EMBEDDINGS_REL, EMBEDDINGS_META_REL):
+            owned_file(vault_root, relative)
+    except OSError:
+        return False
+    return True
+
+
+def admit_semantic_outputs(vault_root):
+    """Observe the complete fixed semantic destination set before any effects."""
+    from _bootstrap.owned_paths import owned_output_paths
+    relatives = (EMBEDDINGS_META_REL, TYPE_EMBEDDINGS_REL, DOC_EMBEDDINGS_REL)
+    return dict(zip(relatives, owned_output_paths(vault_root, relatives)))
 
 
 def clear_embeddings_outputs(vault_root):
-    """Remove persisted embeddings sidecars (npy + meta json) if they exist."""
-    vault_str = str(vault_root)
+    """Admit every sidecar before withdrawing readiness or removing any array."""
+    from _lifecycle.retrieval_errors import RetrievalPersistenceError
+    paths = admit_semantic_outputs(vault_root)
     removed = []
-    for rel_path in (TYPE_EMBEDDINGS_REL, DOC_EMBEDDINGS_REL, EMBEDDINGS_META_REL):
-        abs_path = os.path.join(vault_str, rel_path)
-        try:
-            os.remove(abs_path)
-            removed.append(rel_path)
-        except FileNotFoundError:
-            continue
-    return removed
+    try:
+        for relative, path in paths.items():
+            try:
+                path.unlink()
+            except FileNotFoundError:
+                continue
+            removed.append(relative)
+    except OSError as exc:
+        error = RetrievalPersistenceError(relative, "clearing semantic sidecars", exc)
+        error.committed_paths = tuple(removed)
+        raise error from exc
+    return [path for path in (TYPE_EMBEDDINGS_REL, DOC_EMBEDDINGS_REL, EMBEDDINGS_META_REL)
+            if path in removed]
 
 
 def semantic_engine_available(
@@ -137,8 +156,8 @@ def embeddings_sidecars_match_manifest(vault_root, manifest):
     if not present or manifest is None:
         return (present, False)
 
-    meta_path = os.path.join(str(vault_root), EMBEDDINGS_META_REL)
     try:
+        meta_path = owned_file(vault_root, EMBEDDINGS_META_REL)
         with open(meta_path, "r", encoding="utf-8") as handle:
             meta = json.load(handle)
     except (OSError, ValueError, json.JSONDecodeError):
@@ -176,7 +195,8 @@ def embeddings_meta_matches_router(meta, router):
     current_router_source_hash = router_source_hash(router)
     if current_router_source_hash is None:
         return False
-    return (meta.get("metadata_version") == EMBEDDINGS_METADATA_VERSION
+    return (isinstance(meta, dict)
+            and meta.get("metadata_version") == EMBEDDINGS_METADATA_VERSION
             and meta.get(ROUTER_SOURCE_HASH_KEY) == current_router_source_hash)
 
 
@@ -227,15 +247,22 @@ def load_embeddings_state(
         ) from exc
 
     vault_root = str(vault_root)
-    type_path = os.path.join(vault_root, TYPE_EMBEDDINGS_REL)
-    doc_path = os.path.join(vault_root, DOC_EMBEDDINGS_REL)
-    meta_path = os.path.join(vault_root, EMBEDDINGS_META_REL)
+    try:
+        meta_path = owned_file(vault_root, EMBEDDINGS_META_REL)
+    except FileNotFoundError:
+        return (None, None, None)
+    except UnsafeFilesystemLayoutError as exc:
+        raise SemanticEmbeddingsLayoutError(str(exc)) from exc
+    except OSError as exc:
+        raise SemanticEmbeddingsLoadError(str(exc)) from exc
 
     meta = None
-    if os.path.isfile(meta_path):
+    if meta_path is not None:
         try:
-            with open(meta_path, "r", encoding="utf-8") as f:
-                loaded = json.load(f)
+            with open(meta_path, "rb") as f:
+                observed = os.fstat(f.fileno())
+                metadata_bytes = f.read()
+            loaded = json.loads(metadata_bytes)
         except (OSError, ValueError, json.JSONDecodeError) as exc:
             raise SemanticEmbeddingsLoadError(
                 f"semantic embeddings metadata is unreadable at {meta_path}: {exc}"
@@ -245,26 +272,65 @@ def load_embeddings_state(
                 f"semantic embeddings metadata at {meta_path} is not a JSON object"
             )
         meta = loaded
-
-    type_embeddings = None
-    if selection in {"types", "all"} and meta is not None and os.path.isfile(type_path):
         try:
-            type_embeddings = np.load(type_path)
+            if not embeddings_meta_matches_current_router(vault_root, meta):
+                return (None, None, None)
+        except RouterMetadataError:
+            return (None, None, None)
+
+    def load_array(relative):
+        try:
+            path = owned_file(vault_root, relative)
+            return np.load(path)
+        except FileNotFoundError:
+            return None
+        except UnsafeFilesystemLayoutError as exc:
+            raise SemanticEmbeddingsLayoutError(str(exc)) from exc
         except (OSError, ValueError) as exc:
+            kind = "type" if relative == TYPE_EMBEDDINGS_REL else "document"
             raise SemanticEmbeddingsLoadError(
-                f"semantic type embeddings are unreadable at {type_path}: {exc}"
+                f"semantic {kind} embeddings are unreadable at {relative}; "
+                "run retrieval.rebuild-semantic."
             ) from exc
 
-    doc_embeddings = None
-    if selection in {"documents", "all"} and meta is not None and os.path.isfile(doc_path):
-        try:
-            doc_embeddings = np.load(doc_path)
-        except (OSError, ValueError) as exc:
-            raise SemanticEmbeddingsLoadError(
-                f"semantic document embeddings are unreadable at {doc_path}: {exc}"
-            ) from exc
+    type_embeddings = (load_array(TYPE_EMBEDDINGS_REL)
+                       if selection in {"types", "all"} and meta is not None else None)
+    doc_embeddings = (load_array(DOC_EMBEDDINGS_REL)
+                      if selection in {"documents", "all"} and meta is not None else None)
 
+    if meta is not None:
+        try:
+            meta_path = owned_file(vault_root, EMBEDDINGS_META_REL)
+            with open(meta_path, "rb") as handle:
+                after = os.fstat(handle.fileno())
+                unchanged = handle.read() == metadata_bytes
+        except UnsafeFilesystemLayoutError as exc:
+            raise SemanticEmbeddingsLayoutError(str(exc)) from exc
+        except OSError:
+            return (None, None, None)
+        identity = lambda item: (item.st_dev, item.st_ino, item.st_size, item.st_mtime_ns)
+        if not unchanged or identity(observed) != identity(after):
+            return (None, None, None)
+        validate_embedding_arrays(meta, type_embeddings, doc_embeddings)
     return (type_embeddings, doc_embeddings, meta)
+
+
+def validate_embedding_arrays(meta, type_embeddings=None, doc_embeddings=None):
+    """Refuse incoherent disk or supplied vectors before they influence a query."""
+    if (not isinstance(meta, dict)
+            or meta.get("metadata_version") != EMBEDDINGS_METADATA_VERSION
+            or meta.get("model") != EMBEDDING_MODEL
+            or meta.get("model_revision") != EMBEDDING_MODEL_REVISION
+            or meta.get("dim") != EMBEDDING_DIM):
+        raise SemanticEmbeddingsLoadError("Semantic metadata is outdated; run retrieval.rebuild-semantic.")
+    for matrix, key in ((type_embeddings, "types"), (doc_embeddings, "documents")):
+        if matrix is None:
+            continue
+        entries = meta.get(key)
+        if (not isinstance(entries, list) or any(not isinstance(entry, dict) for entry in entries)
+                or getattr(matrix, "ndim", None) != 2
+                or matrix.shape != (len(entries), EMBEDDING_DIM)):
+            raise SemanticEmbeddingsLoadError("Semantic array and metadata rows do not match; run retrieval.rebuild-semantic.")
 
 
 def load_doc_embeddings(vault_root):

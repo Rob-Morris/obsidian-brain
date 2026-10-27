@@ -6,7 +6,7 @@ from pathlib import Path
 import sys
 
 from _bootstrap.runtime import step as _step
-from _lifecycle.retrieval_assets import refresh_retrieval_assets
+from _lifecycle.retrieval_assets import RetrievalRefreshIncomplete, refresh_retrieval_assets
 from _lifecycle_common import make_result_envelope
 from _semantic.provision import SEMANTIC_ASSET_REFRESH_ERRORS, format_asset_refresh_error
 
@@ -26,6 +26,9 @@ def rebuild_semantic(vault_root: str | Path, *, dry_run: bool) -> dict:
     else:
         try:
             notes = refresh_retrieval_assets(root, force_embeddings=True)
+        except RetrievalRefreshIncomplete as exc:
+            steps = [_step("semantic_assets", "error", format_asset_refresh_error(exc))]
+            steps[0]["committed_effects"] = list(exc.committed_paths)
         except SEMANTIC_ASSET_REFRESH_ERRORS as exc:
             steps = [_step("semantic_assets", "error", format_asset_refresh_error(exc))]
         else:

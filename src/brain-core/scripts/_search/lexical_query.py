@@ -21,18 +21,24 @@ class IndexNotFoundError(FileNotFoundError):
     """Raised when the persisted lexical retrieval index is missing."""
 
 
+class IndexVersionError(ValueError):
+    """The lexical producer is obsolete; an authorised maintainer must rebuild."""
+
+
 def load_index(vault_root):
     """Load the pre-built retrieval index."""
-    index_path = os.path.join(str(vault_root), OUTPUT_PATH)
-    if not os.path.isfile(index_path):
+    from _bootstrap.owned_paths import owned_file
+    try:
+        index_path = owned_file(vault_root, OUTPUT_PATH)
+    except FileNotFoundError:
         raise IndexNotFoundError(
             f"retrieval index not found at {OUTPUT_PATH}. Run build_index.py first."
-        )
+        ) from None
 
     with open(index_path, "r", encoding="utf-8") as handle:
         index = json.load(handle)
     if index.get("meta", {}).get("index_version") != INDEX_VERSION:
-        raise ValueError("retrieval index schema is outdated; run retrieval.refresh-lexical")
+        raise IndexVersionError("retrieval index schema is outdated; run retrieval.refresh-lexical")
     return index
 
 
@@ -46,6 +52,8 @@ def search(
     attach_snippets_to_results=True,
 ):
     """Score documents against one query using BM25."""
+    if index.get("meta", {}).get("index_version") != INDEX_VERSION:
+        raise IndexVersionError("retrieval index schema is outdated; run retrieval.refresh-lexical")
     query_tokens = tokenise(query)
     if not query_tokens:
         return []

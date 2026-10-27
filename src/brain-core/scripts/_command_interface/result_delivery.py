@@ -229,7 +229,8 @@ class ResultDeliverySession:
         self.store.save_view(self.owner,result_id,key,pages,metadata)
         for detail_id,frame in view.details.items():
             self.store.save_view(self.owner,result_id,'detail:'+detail_id,[frame],
-                {'detail_id':detail_id, 'layout_version': LAYOUT_VERSION, 'navigation_kind': 'linked-detail'})
+                {'detail_id':detail_id, 'layout_version': LAYOUT_VERSION, 'navigation_kind': 'linked-detail',
+                 'source_revision':revision})
 
     def _cached_view(self, result_id, key):
         """Treat a missing view as a layout miss, preserving other store failures."""
@@ -339,7 +340,12 @@ class ResultDeliverySession:
         snapshots=context.derived_snapshots
         if snapshots is None or not hasattr(snapshots,'list_revision'):
             raise ValueError('Dynamic list freshness is unavailable in this context.')
-        return snapshots.list_revision(location)
+        from _application.artefact.list import ArtefactListRequest
+        source = snapshots.list_revision(location)
+        if source is None:
+            raise ValueError('Dynamic list freshness is unavailable in this context.')
+        return 'sha256:' + hashlib.sha256(json.dumps([ArtefactListRequest.COMMAND_ID,
+            ArtefactListRequest.COMMAND_VERSION, source], separators=(',', ':')).encode()).hexdigest()
 
     def read(self,context,request):
         """Retrieve under current authority without exposing backend paths or replaying effects."""
@@ -366,6 +372,19 @@ class ResultDeliverySession:
         if detail == '@outcome':
             return self._read_outcome(context, request, meta, detail_cursor)
         if detail is not None:
+            query = meta.get('query')
+            if query and query.get('backing', 'query') != 'retained':
+                revision = self._revision(context, query['payload'].get('location', 'active'))
+                detail_meta = self.store.view_metadata(self.owner, request.result_id, 'detail:' + detail)
+                if detail_meta.get('source_revision') != revision:
+                    frame = self._refresh(context, query, revision)
+                    view = build_view(frame)
+                    key = self._view_key(view.unit, view.page_size,
+                        explicit_fields=view.unit == 'fields' and view.requested_page_size is not None)
+                    self._save(request.result_id, key, view, revision)
+                    detail_meta = self.store.view_metadata(self.owner, request.result_id, 'detail:' + detail)
+                    if detail_meta.get('source_revision') != revision:
+                        raise ValueError('Live detail changed; restart result.read with page 0.')
             return self._read_detail(context, request, meta, detail, detail_cursor)
         cursor=detail_cursor
         if cursor and ('page' not in cursor or 'view_id' not in cursor):
@@ -569,6 +588,11 @@ class ResultDeliverySession:
             if anchor is None:
                 raise ValueError('Changing page unit or size requires an explicit source anchor or page 0 restart.')
         cached = original if old_key == key else self._cached_view(request.result_id, key)
+        query = meta.get('query')
+        revision = (self._revision(context, query['payload'].get('location', 'active'))
+                    if query and query.get('backing', 'query') != 'retained' else None)
+        if revision is not None and cached and cached.get('source_revision') != revision:
+            cached = None
         if cached is None:
             chunks, address, end, seen = [], root, 0, set()
             while address is not None:
@@ -592,7 +616,7 @@ class ResultDeliverySession:
             envelope['result']['content'] = ''.join(chunks)
             envelope['result'].pop('content_range', None)
             view = build_view(envelope, page_size=size, unit=unit)
-            self._save(request.result_id, key, view, None)
+            self._save(request.result_id, key, view, revision)
         frame, _ = self._select(request.result_id, key, page=page,
             start=start, maximum=maximum, anchor=anchor,
             absolute_selection=type(request.page) is int and request.page > 0)

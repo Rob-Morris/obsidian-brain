@@ -436,7 +436,7 @@ def test_value_error_is_contained_to_the_failing_client(tmp_path, monkeypatch):
 
 
 @pytest.mark.skipif(not hasattr(os, "symlink"), reason="symlinks are unavailable")
-def test_symlinked_home_bounds_errors_are_structured_per_client(tmp_path):
+def test_selected_home_alias_installs_within_its_canonical_boundary(tmp_path):
     real_home = tmp_path / "real-home"
     real_home.mkdir()
     linked_home = tmp_path / "linked-home"
@@ -447,5 +447,8 @@ def test_symlinked_home_bounds_errors_are_structured_per_client(tmp_path):
         client="all",
     )
 
-    assert [step["status"] for step in steps] == ["error", "error", "error"]
-    assert all("outside allowed boundary" in step["message"] for step in steps)
+    assert [step["status"] for step in steps] == ["changed", "changed", "changed"]
+    for client in agent_skills.SUPPORTED_CLIENTS:
+        adapter = _skill_dir(linked_home, client) / "SKILL.md"
+        assert adapter.resolve().is_relative_to(real_home)
+        assert adapter.read_text() == ADAPTER_CONTENT

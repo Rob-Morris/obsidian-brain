@@ -305,11 +305,14 @@ def list_combined_from_vault(
     if "error" in router:
         raise FileNotFoundError(router["error"])
     documents = []
+    excluded_sources = []
     if location in {"active", "all"}:
         index = lexical_query.load_index(vault_root) if index is None else index
         documents.extend(index.get("documents", ()))
     if location in {"archived", "all"}:
         from _portable.vault_files import list_archived_artefacts
 
-        documents.extend(list_archived_artefacts(router, vault_root))
-    return list_artefacts_page({"documents": documents}, router, location=location, **kwargs)
+        documents.extend(list_archived_artefacts(router, vault_root, excluded_sources=excluded_sources))
+    page = list_artefacts_page({"documents": documents}, router, location=location, **kwargs)
+    page["excluded_sources"] = len(excluded_sources)
+    return page

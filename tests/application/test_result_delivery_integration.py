@@ -464,3 +464,44 @@ def test_full_text_has_one_content_value_contiguous_bounds_and_exact_counts(syst
         assert page['status'] == 'ok', page.get('error')
     assert ''.join(pieces) == text
     assert ''.join(pieces).encode('utf-8') == path.read_bytes()
+
+
+def test_old_live_list_revision_refreshes_each_layout_before_reuse(system, monkeypatch):
+    root, context, store, token, invoke = system
+    from _command_interface.result_delivery import ResultDeliverySession
+    index_path = root / '.brain/local/retrieval-index.json'
+    index = json.loads(index_path.read_text())
+    index['documents'] = [dict(path=f'Notes/{i:04}.md', title=f'{i:04}',
+        created='2026-10-20', type='living/note', status='initial') for i in range(120)]
+    index_path.write_text(json.dumps(index))
+    with monkeypatch.context() as old_runtime:
+        old_runtime.setattr(ResultDeliverySession, '_revision', staticmethod(
+            lambda current, location: current.derived_snapshots.list_revision(location)))
+        first = invoke('artefact.list', {'sort': 'title', 'page_size': 10}).structured_content
+        result_id = first['delivery']['result_id']
+        alternate = invoke('result.read', {'result_id': result_id, 'page_size': 20, 'page': 0}).structured_content
+    assert first['status'] == alternate['status'] == 'ok'
+    current = invoke('result.read', {'result_id': result_id, 'page': 1}).structured_content
+    other = invoke('result.read', {'result_id': result_id, 'page_size': 10, 'page': 0}).structured_content
+    assert current['status'] == other['status'] == 'ok'
+    assert current['command_version'] == other['command_version'] == 5
+    assert current['delivery']['source_revision'] != first['delivery']['source_revision']
+    assert other['delivery']['source_revision'] == current['delivery']['source_revision']
+
+
+def test_old_live_list_never_falls_back_when_current_cache_is_rejected(system, monkeypatch):
+    root, context, store, token, invoke = system
+    from _command_interface.result_delivery import ResultDeliverySession
+    with monkeypatch.context() as old_runtime:
+        old_runtime.setattr(ResultDeliverySession, '_revision', staticmethod(
+            lambda current, location: current.derived_snapshots.list_revision(location)))
+        first = invoke('artefact.list', {}).structured_content
+    assert first['status'] == 'ok'
+    index_path = root / '.brain/local/retrieval-index.json'
+    index = json.loads(index_path.read_text())
+    index['meta']['index_version'] = '1.2.0'
+    index_path.write_text(json.dumps(index))
+    refused = invoke('result.read', {'result_id': first['delivery']['result_id'], 'page': 1}).structured_content
+    assert refused['status'] == 'error'
+    assert refused['result'] is None
+    assert 'query_refresh_failed' in refused['error']['message']

@@ -314,6 +314,14 @@ configuration, and internal writers retain narrower separate capabilities.
 
 Files such as `create.py`, `edit.py`, `read.py`, `repair.py`, `session.py`, `upgrade.py` and domain packages remain implementation providers where application or launcher owners use them. Their old independent aggregate parsers and compatibility entry points are not the public command grammar. `permission_admin.py` is a CLI-owned internal subprocess boundary that receives its operator secret only through trusted process context; it is not a direct-script command. `start_shaping.py` is removed; use `shaping.start` through `command.py`.
 
+The optional exact root `README.md` is ordinary infrastructure. Use
+`brain vault read-file --request-json '{"path":"README.md"}'` to obtain content
+and its revision; existing `brain document` commands accept
+`document.resource: "file"` and `document.reference: "README.md"`. Their normal
+revision and content arguments still apply. This does not provide a generic host
+file editor, create the README, add artefact metadata or change bootstrap-file
+discovery. Native direct edits remain valid.
+
 For repository maintenance and last-resort recovery, `compile_router.py` accepts
 an explicit `--vault`; its `--help` path performs no vault discovery or
 compilation. The retained `create.py` compatibility entry point republishes the

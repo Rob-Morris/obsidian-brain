@@ -892,15 +892,17 @@ def render_session_markdown(model):
 
 def persist_session_markdown(model, vault_root):
     """Write the markdown session mirror to `.brain/local/session.md`."""
-    output_path = os.path.join(vault_root, SESSION_MARKDOWN_REL)
+    from _bootstrap.owned_paths import owned_directory, owned_file
+    owned_directory(vault_root, os.path.dirname(SESSION_MARKDOWN_REL), create=True)
+    output_path = owned_file(vault_root, SESSION_MARKDOWN_REL, missing_ok=True,
+                             single_link=True)
     content = render_session_markdown(model)
-    if not os.path.islink(output_path):
-        try:
-            with open(output_path, "r", encoding="utf-8") as handle:
-                if handle.read() == content:
-                    return False
-        except FileNotFoundError:
-            pass
+    try:
+        with open(output_path, "r", encoding="utf-8") as handle:
+            if handle.read() == content:
+                return False
+    except FileNotFoundError:
+        pass
     safe_write(output_path, content, bounds=vault_root)
     return True
 

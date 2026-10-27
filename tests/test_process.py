@@ -346,7 +346,8 @@ class TestResolve:
         )
 
         class FakeEmbeddings:
-            shape = (2, 2)
+            ndim = 2
+            shape = (2, process._semantic.EMBEDDING_DIM)
 
             def __matmul__(self, query_vec):
                 assert query_vec == "query-vector"
@@ -358,6 +359,8 @@ class TestResolve:
                 return ["query-vector"]
 
         monkeypatch.setattr(process._semantic, "get_query_encoder", lambda _vault: FakeModel())
+        current_router = compile_router.compile(str(populated_vault))
+        compile_router.persist_compiled_router(populated_vault, current_router)
 
         result = process.resolve_content(
             populated_router,
@@ -368,6 +371,11 @@ class TestResolve:
             index=None,
             doc_embeddings=FakeEmbeddings(),
             doc_embeddings_meta={
+                "metadata_version": process._semantic.EMBEDDINGS_METADATA_VERSION,
+                "model": process._semantic.EMBEDDING_MODEL,
+                "model_revision": process._semantic.EMBEDDING_MODEL_REVISION,
+                "dim": process._semantic.EMBEDDING_DIM,
+                "router_source_hash": current_router["meta"]["source_hash"],
                 "documents": [
                     {
                         "path": "Wiki/rust-ownership.md",

@@ -231,8 +231,10 @@ def _plant_out_of_bounds_source(root, tmp_path):
 
 
 def case_scan_unreadable(root, local, app):
+    _recompile(root)
+    router = check.load_router(root)
     _plant_out_of_bounds_source(root, local.parent)
-    return "workspace_scan_unreadable", None, None
+    return "workspace_scan_unreadable", None, None, router
 
 
 def case_living_key_fields_missing(root, local, app):
@@ -276,6 +278,14 @@ def case_skill_ownership_unavailable(root, local, app):
     return "skill_ownership_unavailable", file, {"reason": "TrackingError"}, router
 
 
+def case_unsafe_filesystem_layout(root, local, app):
+    """An atomic-shaped directory needs manual repair, never temporary deletion."""
+    _recompile(root)
+    router = check.load_router(root)
+    (root / ".brain/local/unsafe.json.ab12cd34.tmp").mkdir()
+    return "unsafe_filesystem_layout", ".brain/local", None, router
+
+
 CASES = [value for name, value in sorted(globals().items()) if name.startswith("case_")]
 
 
@@ -289,6 +299,8 @@ def test_each_code_declares_exactly_the_evidence_its_row_promises(scoped, case):
         check_name, finding_code = "unreadable_file", code
     elif code == "skill_ownership_unavailable":
         check_name, finding_code = "text_scan", code
+    elif code == "unsafe_filesystem_layout":
+        check_name, finding_code = "temporaries", code
     else:
         check_name, finding_code = "workspace_contract", code
 
@@ -298,6 +310,12 @@ def test_each_code_declares_exactly_the_evidence_its_row_promises(scoped, case):
     assert raw.get("evidence") == evidence and raw["severity"] == "error"
     finding = _classified(raw)
     assert finding.file == file
+    if code == "unsafe_filesystem_layout":
+        assert finding.identity is Identity.SUBJECT
+        assert finding.key == finding_key("brain", "temporaries:unsafe_filesystem_layout", {"file": file})
+        assert finding_fingerprint(finding.key, finding.evidence) == finding.key
+        assert "repair" not in raw
+        assert (root / ".brain/local/unsafe.json.ab12cd34.tmp").is_dir()
     for value in (evidence or {}).values():
         assert not isinstance(value, str) or len(value) < 80, "evidence is a value or a rule, never prose"
 
@@ -390,8 +408,8 @@ def test_living_key_fields_reopens_when_a_missing_key_becomes_a_list_and_a_legac
 
 def test_scan_unreadable_is_listed_at_its_key_claimable_and_never_dismissible(scoped, tmp_path):
     root, _local, _app, _parents = scoped
-    _plant_out_of_bounds_source(root, tmp_path)
     _recompile(root)
+    _plant_out_of_bounds_source(root, tmp_path)
     key = finding_key("brain", "workspace_contract:workspace_scan_unreadable", {"file": None})
 
     item = _item(root, key)
@@ -443,8 +461,8 @@ def test_a_producer_that_breaks_its_promise_degrades_one_finding_and_blocks_noth
 
 def test_a_stored_dismissal_of_a_kind_only_finding_is_pruned_at_retention(scoped, tmp_path):
     root, _local, _app, _parents = scoped
-    _plant_out_of_bounds_source(root, tmp_path)
     _recompile(root)
+    _plant_out_of_bounds_source(root, tmp_path)
     key = finding_key("brain", "workspace_contract:workspace_scan_unreadable", {"file": None})
     (root / DECISIONS).parent.mkdir(parents=True, exist_ok=True)
     (root / DECISIONS).write_text(json.dumps({"schema": "brain.maintenance-decisions/1", "claims": {}, "dismissals": {

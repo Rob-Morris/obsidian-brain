@@ -6,6 +6,8 @@ from functools import lru_cache
 import os
 import re
 
+from _common._source_access import resolve_public_source
+
 
 _section_cache: dict[str, re.Pattern] = {}
 
@@ -17,24 +19,23 @@ def extract_type_description(vault_root, artefact):
         return ""
 
     vault_root_str = str(vault_root)
-    abs_path = os.path.join(vault_root_str, taxonomy_file)
     try:
-        modified = os.path.getmtime(abs_path)
-    except OSError:
+        abs_path = resolve_public_source(vault_root_str, taxonomy_file)
+        modified = os.stat(abs_path).st_mtime_ns
+    except (OSError, ValueError):
         return ""
 
-    return _read_description(vault_root_str, taxonomy_file, modified)
+    return _read_description(vault_root_str, str(abs_path), modified)
 
 
 @lru_cache(maxsize=256)
 def _read_description(vault_root_str, taxonomy_file, modified):
     """Read one taxonomy description, bounded by vault, file, and modification time."""
-    abs_path = os.path.join(vault_root_str, taxonomy_file)
-
     try:
+        abs_path = resolve_public_source(vault_root_str, taxonomy_file)
         with open(abs_path, "r", encoding="utf-8") as handle:
             content = handle.read()
-    except (OSError, UnicodeDecodeError):
+    except (OSError, UnicodeDecodeError, ValueError):
         return ""
 
     parts = []

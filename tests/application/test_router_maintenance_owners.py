@@ -99,7 +99,7 @@ def test_router_refresh_failure_is_known_partial(command_vault_clone, monkeypatc
     assert result.committed_effects[0].subject == ROUTER_PATH
 
 
-def test_router_post_commit_failure_is_honestly_unknown(
+def test_router_invalidation_failure_preserves_known_partial_effects(
     command_vault_clone,
     monkeypatch,
 ):
@@ -111,8 +111,9 @@ def test_router_post_commit_failure_is_honestly_unknown(
     monkeypatch.setattr(router_maintenance, "clear_embeddings_outputs", fail_after_router_write)
     result = application_for(root).invoke(RuntimeRefreshRouterRequest(force=True))
 
-    assert result.error.code is ErrorCode.COMMAND_OUTCOME_UNKNOWN
-    assert result.effects == "unknown"
+    assert result.status == "partial"
+    assert result.error.code is ErrorCode.CONFLICT
+    assert result.committed_effects[0].subject == ROUTER_PATH
     assert (root / ROUTER_PATH).is_file()
 
 
@@ -128,3 +129,60 @@ def test_router_maintenance_transport_is_a_strict_maintainer_command():
     assert entry.retry_class is RetryClass.RECEIPT_REQUIRED
     with pytest.raises(ValueError, match="unexpected fields"):
         current_request_resolver().resolve(command_id, {"rebuild": True})
+
+
+def test_router_failure_receipt_excludes_publications_after_unlock(tmp_path, monkeypatch):
+    from contextlib import contextmanager
+    from types import SimpleNamespace
+    import _common
+    import _application._router_maintenance as owner
+    root = tmp_path
+    (root / '.brain/local').mkdir(parents=True)
+    router = root / ROUTER_PATH
+    router.write_text('opening router')
+    held = []
+
+    @contextmanager
+    def lock(_root):
+        held.append(True)
+        try:
+            yield
+        finally:
+            held.pop()
+            router.write_text('another invocation published after unlock')
+            (root / '.brain/local/retrieval-index.json').write_text('another lexical invocation')
+
+    def fail(*_a, **_kw):
+        assert held
+        raise OSError('synthetic no-effect failure')
+
+    monkeypatch.setattr(_common, 'vault_mutation_lock', lock)
+    monkeypatch.setattr(owner, 'admit_owner', lambda *_a: None)
+    monkeypatch.setattr(router_maintenance, 'maintain_router', fail)
+    context = SimpleNamespace(selected_brain=SimpleNamespace(vault_root=root), dry_run=False)
+    result = owner.execute_router_maintenance(context, RuntimeRefreshRouterRequest(), force=False)
+    assert result.status == 'error' and result.effects == 'none'
+    assert router.read_text() == 'another invocation published after unlock'
+
+
+def test_router_failure_receipt_preserves_publication_owner_paths(tmp_path, monkeypatch):
+    from contextlib import nullcontext
+    from types import SimpleNamespace
+    import _common
+    import _application._router_maintenance as owner
+    root = tmp_path
+    (root / '.brain/local').mkdir(parents=True)
+    (root / ROUTER_PATH).write_text('same observed signature')
+
+    def fail(*_a, **_kw):
+        error = OSError('synthetic publication failure')
+        error.committed_paths = (ROUTER_PATH,)
+        raise error
+
+    monkeypatch.setattr(_common, 'vault_mutation_lock', lambda _root: nullcontext())
+    monkeypatch.setattr(owner, 'admit_owner', lambda *_a: None)
+    monkeypatch.setattr(router_maintenance, 'maintain_router', fail)
+    context = SimpleNamespace(selected_brain=SimpleNamespace(vault_root=root), dry_run=False)
+    result = owner.execute_router_maintenance(context, RuntimeRefreshRouterRequest(), force=False)
+    assert result.status == 'partial'
+    assert tuple(effect.subject for effect in result.committed_effects) == (ROUTER_PATH,)

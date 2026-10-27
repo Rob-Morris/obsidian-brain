@@ -199,3 +199,132 @@ def test_stage_create_preparation_measures_and_hashes_normalised_body(tmp_path, 
     result = stage_body(tmp_path, request.content)
     assert result["bytes"] == binding.review["bytes"]
     assert content_digest(read_staged_body(tmp_path, result["handle"])) == binding.review["sha256"]
+
+
+@pytest.mark.parametrize("operation", ["create", "sweep", "read", "inspect", "discard"])
+@pytest.mark.parametrize("component", [".brain", ".brain/local", ".brain/local/staging"])
+def test_staging_refuses_redirected_ancestor_without_effects(tmp_path, operation, component):
+    from _bootstrap.owned_paths import UnsafeFilesystemLayoutError
+
+    root = tmp_path / "vault"
+    root.mkdir()
+    other = tmp_path / "synthetic-other"
+    other.mkdir()
+    marker = other / ("a" * 32 + ".body")
+    marker.write_text("unchanged")
+    alias = root / component
+    alias.parent.mkdir(parents=True, exist_ok=True)
+    alias.symlink_to(other, target_is_directory=True)
+    operations = {
+        "create": lambda: stage_body(root, "new"),
+        "sweep": lambda: sweep_staged_bodies(root),
+        "read": lambda: read_staged_body(root, "body:" + "a" * 32),
+        "inspect": lambda: _staging.inspect_staged_body(root, "body:" + "a" * 32),
+        "discard": lambda: _staging.discard_staged_body(root, "body:" + "a" * 32),
+    }
+    with pytest.raises(UnsafeFilesystemLayoutError):
+        operations[operation]()
+    assert marker.read_text() == "unchanged"
+    assert list(other.iterdir()) == [marker]
+
+
+def test_foreign_body_names_never_count_or_expire(tmp_path, monkeypatch):
+    directory = tmp_path / _staging.STAGING_DIR
+    directory.mkdir(parents=True)
+    foreign = directory / "foreign.body"
+    foreign.write_text("foreign")
+    os.utime(foreign, (1, 1))
+    monkeypatch.setattr(_staging, "MAX_STAGING_FILES", 1)
+    result = stage_body(tmp_path, "valid")
+    assert result["warnings"]
+    assert foreign.read_text() == "foreign"
+    assert read_staged_body(tmp_path, result["handle"]) == "valid"
+    assert sweep_staged_bodies(tmp_path) == 0
+
+
+@pytest.mark.parametrize("kind", ["symlink", "directory", "hardlink", "fifo"])
+def test_unsafe_owned_record_refuses_before_expiry_cleanup(tmp_path, kind):
+    from _bootstrap.owned_paths import UnsafeFilesystemLayoutError
+
+    created = stage_body(tmp_path, "keep expired")
+    expired = Path(_staging._handle_path(tmp_path, created["handle"]))
+    os.utime(expired, (1, 1))
+    unsafe = expired.parent / ("b" * 32 + ".body")
+    if kind == "symlink":
+        unsafe.symlink_to(expired)
+    elif kind == "directory":
+        unsafe.mkdir()
+    elif kind == "hardlink":
+        os.link(expired, unsafe)
+    else:
+        if not hasattr(os, "mkfifo"):
+            pytest.skip("FIFO unavailable")
+        os.mkfifo(unsafe)
+    with pytest.raises(UnsafeFilesystemLayoutError):
+        stage_body(tmp_path, "refuse")
+    assert expired.read_text() == "keep expired"
+    with pytest.raises(UnsafeFilesystemLayoutError):
+        _staging.inspect_staged_body_for_discard(tmp_path, "body:" + "b" * 32)
+
+
+def test_staging_bounds_all_preparation_and_execution_reads(tmp_path, monkeypatch):
+    result = stage_body(tmp_path, "oversized")
+    monkeypatch.setattr(_staging, "MAX_STAGED_BODY_BYTES", 3)
+    for reader in (read_staged_body, _staging.inspect_staged_body,
+                   _staging.inspect_staged_body_for_discard):
+        with pytest.raises(ValueError, match="maximum"):
+            reader(tmp_path, result["handle"])
+    assert _staging.consume_staged_body(tmp_path, result["handle"])
+
+
+def test_missing_selected_root_is_never_created(tmp_path):
+    root = tmp_path / "missing"
+    with pytest.raises(FileNotFoundError):
+        stage_body(root, "no root")
+    assert not root.exists()
+    assert _staging.inspect_staged_body_for_discard(root, "body:" + "a" * 32) is None
+    assert not _staging.discard_staged_body(root, "body:" + "a" * 32)
+    assert sweep_staged_bodies(root) == 0
+
+
+def test_finalisation_refusal_preserves_committed_success_warning(tmp_path):
+    result = stage_body(tmp_path, "body")
+    path = Path(_staging._handle_path(tmp_path, result["handle"]))
+    path.unlink()
+    path.mkdir()
+    warning = _staging.finalise_staged_body(tmp_path, result["handle"])
+    assert "Mutation succeeded" in warning
+    assert "Unsafe Brain-owned" in warning
+    assert path.is_dir()
+
+
+def test_preparation_leaves_expired_body_intact(tmp_path):
+    result = stage_body(tmp_path, "body")
+    path = Path(_staging._handle_path(tmp_path, result["handle"]))
+    os.utime(path, (1, 1))
+    with pytest.raises(ValueError, match="Expired"):
+        _staging.inspect_staged_body(tmp_path, result["handle"])
+    assert path.read_text() == "body"
+    assert _staging.inspect_staged_body_for_discard(tmp_path, result["handle"]) == b"body"
+
+
+def test_selected_root_alias_remains_supported(tmp_path):
+    root = tmp_path / "canonical"
+    root.mkdir()
+    alias = tmp_path / "selected"
+    alias.symlink_to(root, target_is_directory=True)
+    result = stage_body(alias, "body")
+    assert _staging.inspect_staged_body(alias, result["handle"]) == "body"
+    assert read_staged_body(alias, result["handle"]) == "body"
+    assert _staging.discard_staged_body(alias, result["handle"])
+    assert not _staging.discard_staged_body(alias, result["handle"])
+
+
+def test_observing_absent_staging_never_creates_directories(tmp_path):
+    handle = "body:" + "a" * 32
+    with pytest.raises(ValueError, match="Unknown"):
+        _staging.inspect_staged_body(tmp_path, handle)
+    assert _staging.inspect_staged_body_for_discard(tmp_path, handle) is None
+    assert sweep_staged_bodies(tmp_path) == 0
+    assert not _staging.discard_staged_body(tmp_path, handle)
+    assert not (tmp_path / ".brain").exists()

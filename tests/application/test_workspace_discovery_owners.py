@@ -108,7 +108,7 @@ def test_workspace_tag_edit_refreshes_semantic_filters_without_encoding(command_
     manifest = model.ModelManifest(model.SHIPPED_MODEL_NAME, model.SHIPPED_MODEL_REVISION, "2026-10-15")
     monkeypatch.setattr(model, "load_local_model_with_manifest", lambda *_: (SimpleNamespace(encode=encode), manifest))
     built = search_index.build_index(root)
-    _, vectors, metadata = assets.build_embeddings(root, load_compiled_router(root), built.index["documents"], embedding_parts_by_path=built.embedding_parts_by_path)
+    _, vectors, metadata = assets.build_embeddings(root, load_compiled_router(root), built.index["documents"])
     vector_bytes = (root / runtime.DOC_EMBEDDINGS_REL).read_bytes()
     calls.clear()
     relative = "Projects/Command Fixture.md"
@@ -143,7 +143,7 @@ def test_metadata_only_incremental_status_keeps_vectors(command_vault_clone, mon
     manifest = model.ModelManifest(model.SHIPPED_MODEL_NAME, model.SHIPPED_MODEL_REVISION, "2026-10-15")
     monkeypatch.setattr(model, "load_local_model_with_manifest", lambda *_: (SimpleNamespace(encode=lambda texts, **_: np.zeros((len(texts), runtime.EMBEDDING_DIM))), manifest))
     built = search_index.build_index(root)
-    assets.build_embeddings(root, load_compiled_router(root), built.index["documents"], embedding_parts_by_path=built.embedding_parts_by_path)
+    assets.build_embeddings(root, load_compiled_router(root), built.index["documents"])
     before = (root / runtime.DOC_EMBEDDINGS_REL).read_bytes()
     result = application_for(root).invoke(ArtefactSetStatusRequest("Ideas/Command Fixture Candidate.md", "shaping"))
     assert result.status == "ok", getattr(result, "error", result)

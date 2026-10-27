@@ -926,7 +926,7 @@ class TestDeleteAndCleanLinks:
         assert count == 2
 
     def test_delete_raises_on_missing_file(self, vault):
-        with pytest.raises(FileNotFoundError, match="File not found"):
+        with pytest.raises(FileNotFoundError, match="(?i)file not found"):
             rename.delete_and_clean_links(str(vault), "Wiki/nonexistent.md")
 
     def test_delete_no_references(self, vault):
@@ -1166,7 +1166,7 @@ class TestPathBoundary:
             )
 
     def test_delete_traversal(self, vault):
-        with pytest.raises(ValueError, match="outside allowed boundary"):
+        with pytest.raises(ValueError, match="outside the permitted vault namespace"):
             rename.delete_and_clean_links(str(vault), "../../etc/hosts")
 
 
@@ -1221,18 +1221,49 @@ class TestBrainCoreProtection:
                 str(vault), "Wiki/topic-a.md", ".brain-core/hijack.md",
             )
 
-    def test_rename_source_out_of_brain_core_allowed(self, vault):
-        """Moving a directly named file out of .brain-core remains supported."""
-        bc_file = vault / ".brain-core" / "movable.md"
-        bc_file.write_text("---\ntype: living/wiki\n---\n\ntemp\n")
-        rename.rename_and_update_links(
-            str(vault), ".brain-core/movable.md", "Wiki/rescued.md",
-        )
-        assert (vault / "Wiki" / "rescued.md").exists()
-        assert not bc_file.exists()
+    @pytest.mark.parametrize("relative", [".brain-core/movable.md", ".brain-core/guide.md",
+                                         ".brain-core/skills/example/SKILL.md"])
+    @pytest.mark.parametrize("entrypoint", ["rename", "move"])
+    def test_core_source_removal_is_refused_before_reads_or_effects(self, vault, monkeypatch, relative, entrypoint):
+        import builtins
+        from pathlib import Path
+        from _portable.vault_files import read_vault_file
+
+        source = vault / relative
+        source.parent.mkdir(parents=True, exist_ok=True)
+        source.write_text("---\ntype: living/wiki\n---\n\nSynthetic Core content\n")
+        before = {path: path.read_bytes() for path in vault.rglob("*") if path.is_file()}
+        mode = source.stat().st_mode
+        original_open, original_path_open = builtins.open, Path.open
+
+        def guard(path):
+            if isinstance(path, (str, Path)):
+                assert Path(path).resolve() != source, "Core source opened before move refusal"
+
+        def guarded_open(path, *args, **kwargs):
+            guard(path)
+            return original_open(path, *args, **kwargs)
+
+        def guarded_path_open(path, *args, **kwargs):
+            guard(path)
+            return original_path_open(path, *args, **kwargs)
+
+        with monkeypatch.context() as patches:
+            patches.setattr(builtins, "open", guarded_open)
+            patches.setattr(Path, "open", guarded_path_open)
+            with pytest.raises(ValueError, match="Cannot modify files inside .brain-core/"):
+                if entrypoint == "rename":
+                    rename.rename_and_update_links(str(vault), relative, "Wiki/rescued.md")
+                else:
+                    rename.move_and_update_links(str(vault), [{"source": relative, "dest": "Wiki/rescued.md"}])
+        assert {path: path.read_bytes() for path in vault.rglob("*") if path.is_file()} == before
+        assert source.stat().st_mode == mode
+        assert not (vault / "Wiki/rescued.md").exists()
+        if relative != ".brain-core/movable.md":
+            assert read_vault_file(vault, relative) == before[source].decode()
 
     def test_delete_inside_brain_core(self, vault):
-        with pytest.raises(ValueError, match="Cannot modify files inside .brain-core/"):
+        with pytest.raises(ValueError, match="outside the public Brain Core namespace"):
             rename.delete_and_clean_links(str(vault), ".brain-core/VERSION")
 
     def test_rename_dest_into_brain_core_subdir(self, vault):

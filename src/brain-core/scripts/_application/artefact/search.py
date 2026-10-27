@@ -16,6 +16,7 @@ from .._search_support import (
     SearchPayload,
     catalogue_entry as _catalogue_entry,
     error,
+    exclusion_warnings,
     load_router,
     load_semantic_state,
     search_payload,
@@ -178,6 +179,9 @@ def execute(context: InvocationContext, request: ArtefactSearchRequest):
         request.COMMAND_ID,
         request.COMMAND_VERSION,
         artefact_search_payload(resolved_mode, results, requested_top_k=request.top_k),
+        warnings=exclusion_warnings(
+            len(index.get("meta", {}).get("skipped_paths", ())) if index is not None else 0
+        ) + exclusion_warnings(sum(item.get("snippet") is None for item in results)),
     )
 
 def decode(payload: Mapping[str, object]) -> ArtefactSearchRequest:

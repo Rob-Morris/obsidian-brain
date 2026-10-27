@@ -12,7 +12,8 @@ from typing import Callable
 
 from _common import COMPILED_ROUTER_REL, load_compiled_router
 from _search.lexical_query import load_index
-from _search.paths import OUTPUT_PATH
+from _search.paths import INDEX_VERSION, OUTPUT_PATH
+from _common._router import router_version_matches
 
 
 @dataclass(frozen=True, slots=True)
@@ -36,11 +37,15 @@ class FileDerivedSnapshotStore:
         self._cache: dict[str, _CachedSnapshot] = {}
 
     def load_router(self) -> dict:
-        return self._load(
-            "router",
-            self._root / COMPILED_ROUTER_REL,
-            lambda: load_compiled_router(self._root),
-        )
+        from _bootstrap.owned_paths import UnsafeFilesystemLayoutError
+        try:
+            return self._load(
+                "router",
+                self._root / COMPILED_ROUTER_REL,
+                lambda: load_compiled_router(self._root),
+            )
+        except UnsafeFilesystemLayoutError as exc:
+            return {"error": f"Failed to read compiled router: {exc}"}
 
     def load_lexical_index(self) -> dict:
         return self._load(
@@ -68,21 +73,30 @@ class FileDerivedSnapshotStore:
         """
         if location in {"archived", "all"}:
             return None
-        signatures = [(COMPILED_ROUTER_REL, _signature(self._root / COMPILED_ROUTER_REL))]
+        signatures = [(COMPILED_ROUTER_REL, _signature(self._root / COMPILED_ROUTER_REL, self._root))]
         if location == "active":
-            signatures.append((OUTPUT_PATH, _signature(self._root / OUTPUT_PATH)))
+            signatures.append((OUTPUT_PATH, _signature(self._root / OUTPUT_PATH, self._root)))
         return "sha256:" + hashlib.sha256(json.dumps(signatures).encode()).hexdigest()
 
     def _load(self, name: str, path: Path, loader: Callable[[], dict]) -> dict:
         with self._lock:
-            signature = _signature(path)
+            from _bootstrap.owned_paths import UnsafeFilesystemLayoutError
+            try:
+                signature = _signature(path, self._root)
+            except UnsafeFilesystemLayoutError:
+                self._cache.pop(name, None)
+                raise
             cached = self._cache.get(name)
             if cached is not None and cached.signature == signature:
-                return copy.deepcopy(cached.value)
+                ready = (router_version_matches(self._root, cached.value) if name == "router"
+                         else cached.value.get("meta", {}).get("index_version") == INDEX_VERSION)
+                if ready:
+                    return copy.deepcopy(cached.value)
+                self._cache.pop(name, None)
             for _attempt in range(self._MAX_STABILITY_ATTEMPTS):
-                before = _signature(path)
+                before = _signature(path, self._root)
                 value = loader()
-                after = _signature(path)
+                after = _signature(path, self._root)
                 if before == after:
                     stored = copy.deepcopy(value)
                     self._cache[name] = _CachedSnapshot(after, stored)
@@ -93,8 +107,10 @@ class FileDerivedSnapshotStore:
             )
 
 
-def _signature(path: Path) -> tuple[int, int, int, int] | None:
+def _signature(path: Path, root: Path) -> tuple[int, int, int, int] | None:
+    from _bootstrap.owned_paths import owned_file
     try:
+        path = owned_file(root, path.relative_to(root))
         stat = path.stat()
     except FileNotFoundError:
         return None

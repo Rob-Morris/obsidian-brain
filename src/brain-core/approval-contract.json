@@ -99,7 +99,7 @@
     },
     {
       "command_id": "artefact.list",
-      "version": 4,
+      "version": 5,
       "owner": "application",
       "classification": "observation",
       "mcp": "artefact_list",
@@ -123,7 +123,7 @@
     },
     {
       "command_id": "artefact.outline",
-      "version": 1,
+      "version": 2,
       "owner": "application",
       "classification": "observation",
       "mcp": "artefact_outline",
@@ -135,7 +135,7 @@
     },
     {
       "command_id": "artefact.read",
-      "version": 5,
+      "version": 6,
       "owner": "application",
       "classification": "observation",
       "mcp": "artefact_read",
@@ -339,7 +339,7 @@
     },
     {
       "command_id": "document.replace-text",
-      "version": 2,
+      "version": 3,
       "owner": "application",
       "classification": "content",
       "mcp": "document_replace-text",
@@ -351,7 +351,7 @@
     },
     {
       "command_id": "document.structured-edit",
-      "version": 3,
+      "version": 4,
       "owner": "application",
       "classification": "content",
       "mcp": "document_structured-edit",
@@ -363,7 +363,7 @@
     },
     {
       "command_id": "document.update-frontmatter",
-      "version": 4,
+      "version": 5,
       "owner": "application",
       "classification": "content",
       "mcp": "document_update-frontmatter",
@@ -375,7 +375,7 @@
     },
     {
       "command_id": "document.write-body",
-      "version": 2,
+      "version": 3,
       "owner": "application",
       "classification": "content",
       "mcp": "document_write-body",
@@ -735,7 +735,7 @@
     },
     {
       "command_id": "resource.read",
-      "version": 4,
+      "version": 5,
       "owner": "application",
       "classification": "observation",
       "mcp": "resource_read",
@@ -1337,5 +1337,5 @@
       "authority": "reader"
     }
   ],
-  "fingerprint": "sha256:00b759c643ba026d213f024b04a755f6a3bc85d9c6326dd29e84975f0ca653aa"
+  "fingerprint": "sha256:4112cdccddc70af71546a0d87ed4590a3c9ba942b2e65a800c4a17ba7b214cba"
 }

@@ -192,7 +192,7 @@ DocumentStructuralChange = ReplaceStructure | InsertStructure | DeleteStructure
 @dataclass(frozen=True, slots=True)
 class DocumentStructuredEditRequest(WorkspaceDispositionRequest):
     COMMAND_ID: ClassVar[str] = "document.structured-edit"
-    COMMAND_VERSION: ClassVar[int] = 3
+    COMMAND_VERSION: ClassVar[int] = 4
     RESULT_TYPE: ClassVar[type] = DocumentStructuredEditPayload
     FIELD_DESCRIPTIONS: ClassVar[dict[str, str]] = {
         "document": "Existing editable Brain document.",

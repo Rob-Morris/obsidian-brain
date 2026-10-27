@@ -44,7 +44,7 @@ def load_doc_embeddings_or_unavailable(vault_root, *, loader=None):
         ) from exc
     if doc_embeddings is None or meta is None:
         raise EmbeddingsSidecarsUnavailableError(
-            "semantic retrieval is unavailable: embeddings sidecars are missing"
+            "semantic retrieval is unavailable: embeddings sidecars are missing or outdated; run retrieval.rebuild-semantic"
         )
     try:
         if not semantic_runtime.embeddings_meta_matches_current_router(vault_root, meta):
@@ -81,6 +81,15 @@ def search_semantic(
 
     if doc_embeddings is None or embeddings_meta is None:
         doc_embeddings, embeddings_meta = load_doc_embeddings_or_unavailable(vault_root)
+
+    try:
+        if not semantic_runtime.embeddings_meta_matches_current_router(vault_root, embeddings_meta):
+            raise EmbeddingsSidecarsUnavailableError(
+                "semantic metadata is outdated; run retrieval.rebuild-semantic"
+            )
+        semantic_runtime.validate_embedding_arrays(embeddings_meta, doc_embeddings=doc_embeddings)
+    except (semantic_runtime.RouterMetadataError, semantic_runtime.SemanticEmbeddingsLoadError) as exc:
+        raise EmbeddingsSidecarsUnavailableError(str(exc)) from exc
 
     query_vec = encode_query_or_unavailable(
         vault_root,

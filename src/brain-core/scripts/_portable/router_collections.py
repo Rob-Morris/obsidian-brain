@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from _common import load_compiled_router, read_file_content
+from _common._source_access import read_public_content
+
+from _common import load_compiled_router
 
 
 def list_memories(router, query=None):
@@ -20,7 +22,7 @@ def read_memory_exact(router, vault_root, reference, *, convert_lossless=False):
     )
     if match is None:
         return {"error": f"No memory matching '{reference}'"}
-    return dict(match), read_file_content(vault_root, match["memory_doc"], convert_lossless=convert_lossless)
+    return dict(match), read_public_content(vault_root, match["memory_doc"], convert_lossless=convert_lossless)
 
 
 def list_triggers(router, query=None):

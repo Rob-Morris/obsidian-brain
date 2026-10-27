@@ -125,3 +125,42 @@ def test_stage_transport_and_catalogue_contracts_are_strict():
         resolver.resolve("stage.create", {"content": "body", "body_file": "x"})
     with pytest.raises(ValueError):
         resolver.resolve("stage.discard", {"handle": ""})
+
+
+def test_stage_create_unsafe_layout_is_nonretryable_conflict(command_vault_clone):
+    root = command_vault_clone.vault_root
+    staging = root / _staging.STAGING_DIR
+    staging.parent.mkdir(parents=True, exist_ok=True)
+    staging.mkdir(exist_ok=True)
+    (staging / ("a" * 32 + ".body")).mkdir()
+    result = application_for(root).invoke(StageCreateRequest("refused"))
+    assert result.error.code is ErrorCode.CONFLICT
+    assert result.retryable is False
+    assert result.effects == "none"
+    assert list(staging.iterdir()) == [staging / ("a" * 32 + ".body")]
+
+
+def test_stage_create_foreign_entries_surface_bounded_warning(command_vault_clone):
+    root = command_vault_clone.vault_root
+    staging = root / _staging.STAGING_DIR
+    staging.mkdir(parents=True, exist_ok=True)
+    for name in ("foreign.body", "another.body"):
+        (staging / name).write_text("keep")
+    result = application_for(root).invoke(StageCreateRequest("allowed"))
+    assert result.status == "ok"
+    assert len(result.warnings) == 1
+    assert result.committed_effects[0].kind == "stage.created"
+    assert (staging / "foreign.body").read_text() == "keep"
+
+
+def test_stage_discard_preparation_layout_refusal_is_nonretryable(command_vault_clone):
+    root = command_vault_clone.vault_root
+    staging = root / _staging.STAGING_DIR
+    staging.mkdir(parents=True, exist_ok=True)
+    target = staging / ("a" * 32 + ".body")
+    target.mkdir()
+    result = application_for(root).invoke(StageDiscardRequest("body:" + "a" * 32))
+    assert result.error.code is ErrorCode.CONFLICT
+    assert result.retryable is False
+    assert result.effects == "none"
+    assert target.is_dir()

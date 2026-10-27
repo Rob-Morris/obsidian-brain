@@ -167,6 +167,7 @@ def test_dispositions_and_recovery_scopes():
     # Rows that are not the evidence default; the producer scan below keeps the key set honest (DD-086).
     assert {pair: identity for pair, identity in repair_common.JUDGEMENT_FINDINGS.items()
             if identity is not Identity.EVIDENCE} == {
+        ("temporaries", "unsafe_filesystem_layout"): Identity.SUBJECT,
         ("root_files", None): Identity.SUBJECT,
         ("unreadable_file", "not_utf8"): Identity.SUBJECT,
         ("unreadable_file", "not_text"): Identity.SUBJECT,

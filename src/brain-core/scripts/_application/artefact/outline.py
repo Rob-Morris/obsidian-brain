@@ -31,7 +31,7 @@ class ArtefactOutlinePayload:
 @dataclass(frozen=True, slots=True)
 class ArtefactOutlineRequest:
     COMMAND_ID: ClassVar[str] = "artefact.outline"
-    COMMAND_VERSION: ClassVar[int] = 1
+    COMMAND_VERSION: ClassVar[int] = 2
     RESULT_TYPE: ClassVar[type] = ArtefactOutlinePayload
 
     reference: str
@@ -43,6 +43,7 @@ class ArtefactOutlineRequest:
 
 def read_result(context: InvocationContext, request: ArtefactOutlineRequest):
     from _portable.artefact_outline import outline_from_vault
+    from _common._source_access import SourceAccessError
 
     try:
         result = outline_from_vault(
@@ -51,6 +52,8 @@ def read_result(context: InvocationContext, request: ArtefactOutlineRequest):
         )
     except FileNotFoundError as exc:
         return _error(ErrorCode.NOT_FOUND, str(exc))
+    except SourceAccessError as exc:
+        return _error(ErrorCode.INVALID_REQUEST, str(exc))
     except ValueError as exc:
         message = str(exc)
         if "escapes vault root" in message:

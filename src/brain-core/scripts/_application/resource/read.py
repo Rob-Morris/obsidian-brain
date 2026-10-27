@@ -110,7 +110,7 @@ ResourceReadItem = (
 @dataclass(frozen=True, slots=True)
 class ResourceReadRequest:
     COMMAND_ID: ClassVar[str] = "resource.read"
-    COMMAND_VERSION: ClassVar[int] = 4
+    COMMAND_VERSION: ClassVar[int] = 5
     RESULT_TYPE: ClassVar[type] = ResourceReadItem
     FIELD_DESCRIPTIONS: ClassVar[dict[str, str]] = {
         "resource": "Named resource collection: memory, plugin, skill, style, template, trigger or type.",
@@ -128,10 +128,15 @@ class ResourceReadRequest:
 
 
 def read_result(context: InvocationContext, request: ResourceReadRequest):
-    result = _READERS[request.resource](
-        context.selected_brain.vault_root,
-        request.reference,
-    )
+    from _common._source_access import SourceAccessError
+
+    try:
+        result = _READERS[request.resource](
+            context.selected_brain.vault_root,
+            request.reference,
+        )
+    except SourceAccessError as exc:
+        return _error(ErrorCode.INVALID_REQUEST, str(exc), "reference")
     if isinstance(result, Error):
         return result
     content = getattr(result, "content", None)
@@ -192,11 +197,14 @@ def _read_named(root, reference, resource, item_builder):
 
 
 def _read_template(root, reference):
+    from _common._source_access import SourceAccessError
     from _common import MissingFileResult, PersistedDocumentContent
     from _portable.type_definitions import read_template_exact_from_vault
 
     try:
         result = read_template_exact_from_vault(root, reference, convert_lossless=True)
+    except SourceAccessError:
+        raise
     except (FileNotFoundError, ValueError) as exc:
         raise_nonstandard_text_error(exc)
         return _error(ErrorCode.CONFLICT, str(exc))
@@ -237,11 +245,14 @@ def _read_trigger(root, reference):
 
 
 def _read_type(root, reference):
+    from _common._source_access import SourceAccessError
     from _common import MissingFileResult
     from _portable.type_definitions import read_type_exact_from_vault
 
     try:
         result = read_type_exact_from_vault(root, reference, convert_lossless=True)
+    except SourceAccessError:
+        raise
     except (FileNotFoundError, ValueError) as exc:
         raise_nonstandard_text_error(exc)
         return _error(ErrorCode.CONFLICT, str(exc))

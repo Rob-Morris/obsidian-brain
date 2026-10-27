@@ -712,7 +712,14 @@ def collect_temporaries_check_findings(vault_root: str | Path, *, now=None) -> l
 
     vault_root = Path(vault_root)
     findings: list[dict] = []
-    for rel_path in find_stranded_temporaries(vault_root, now or datetime.now(timezone.utc)):
+    from _bootstrap.owned_paths import UnsafeFilesystemLayoutError
+
+    try:
+        candidates = find_stranded_temporaries(vault_root, now or datetime.now(timezone.utc))
+    except UnsafeFilesystemLayoutError as exc:
+        return [{"check": "temporaries", "code": "unsafe_filesystem_layout",
+                 "severity": "error", "file": ".brain/local", "message": str(exc)}]
+    for rel_path in candidates:
         finding = {
             "check": "temporaries",
             "severity": "info",

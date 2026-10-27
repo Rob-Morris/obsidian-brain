@@ -99,7 +99,7 @@ def test_lexical_rebuild_skips_undecodable_source(command_vault_clone):
     assert (root / "Projects" / "unreadable.md").read_bytes() == b"\xff\xfe\x00\x00"
 
 
-def test_lexical_post_commit_failure_is_honestly_unknown(
+def test_lexical_post_commit_failure_preserves_explicit_partial_effects(
     command_vault_clone,
     monkeypatch,
 ):
@@ -115,8 +115,9 @@ def test_lexical_post_commit_failure_is_honestly_unknown(
     )
     result = application_for(root).invoke(RetrievalRefreshLexicalRequest(force=True))
 
-    assert result.error.code is ErrorCode.COMMAND_OUTCOME_UNKNOWN
-    assert result.effects == "unknown"
+    assert result.status == "partial"
+    assert result.error.code is ErrorCode.CONFLICT
+    assert tuple(effect.subject for effect in result.committed_effects) == (INDEX_PATH,)
     assert (root / INDEX_PATH).is_file()
 
 

@@ -356,7 +356,7 @@ class TestReadArtefact:
             router, str(tmp_path), "artefact", name="../../etc/passwd",
         )
         assert "error" in result
-        assert "escapes vault root" in result["error"]
+        assert "permitted vault namespace" in result["error"]
 
     def test_basename_fallback(self, vault):
         tmp_path, router = vault

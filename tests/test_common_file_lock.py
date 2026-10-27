@@ -10,6 +10,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src" / "brain-core" / "scripts"))
 
 from _common import _file_lock  # noqa: E402
+from _bootstrap.owned_paths import UnsafeFilesystemLayoutError
 
 
 def test_exclusive_file_lock_uses_win32_msvcrt_branch(monkeypatch, tmp_path):
@@ -147,6 +148,55 @@ def test_noncreating_lock_never_restores_removed_parent(tmp_path):
         with _file_lock.exclusive_file_lock(lock_path, create_parent=False):
             pytest.fail("absent owner must not be entered")
     assert not lock_path.parent.exists()
+
+
+def test_vault_lock_initialises_ordinary_workspace_without_core(tmp_path):
+    with _file_lock.vault_mutation_lock(tmp_path):
+        assert (tmp_path / ".brain/local/mutation.lock").is_file()
+
+
+@pytest.mark.parametrize("kind", ["symlink", "hardlink", "directory"])
+def test_vault_lock_refuses_unsafe_endpoint_before_changes(tmp_path, kind):
+    root = tmp_path / "vault"
+    directory = root / ".brain/local"
+    directory.mkdir(parents=True)
+    target = tmp_path / "ordinary"
+    target.write_bytes(b"unchanged")
+    target.chmod(0o640)
+    mode = target.stat().st_mode
+    endpoint = directory / "mutation.lock"
+    if kind == "symlink":
+        endpoint.symlink_to(target)
+    elif kind == "hardlink":
+        os.link(target, endpoint)
+    else:
+        endpoint.mkdir()
+    entered = False
+    with pytest.raises(UnsafeFilesystemLayoutError):
+        with _file_lock.vault_mutation_lock(root):
+            entered = True
+    assert not entered
+    assert target.read_bytes() == b"unchanged"
+    assert target.stat().st_mode == mode
+
+
+def test_vault_lock_refuses_redirected_parent_before_creation(tmp_path):
+    root = tmp_path / "vault"
+    root.mkdir()
+    other = tmp_path / "ordinary"
+    other.mkdir()
+    (root / ".brain").symlink_to(other, target_is_directory=True)
+    with pytest.raises(UnsafeFilesystemLayoutError):
+        with _file_lock.vault_mutation_lock(root):
+            pytest.fail("protected owner was entered")
+    assert not list(other.iterdir())
+
+
+def test_noncreating_vault_lock_preserves_missing_owner_directory(tmp_path):
+    with pytest.raises(FileNotFoundError):
+        with _file_lock.vault_mutation_lock(tmp_path, create_parent=False):
+            pass
+    assert not (tmp_path / ".brain").exists()
 
 
 def test_compatibility_exports_preserve_canonical_lock_identity():

@@ -10,6 +10,7 @@ from .._decoding import OMITTED
 
 
 def session_plan(context, request, router, *, frozen_inputs=None):
+    from _common._source_access import resolve_content_source
     from start_shaping_session import plan_shaping_session, render_transcript_template
     from _common import parse_frontmatter, ensure_parent_tag, canonical_living_artefact_key, read_exact_file_content
     frozen = dict(frozen_inputs or {})
@@ -19,7 +20,7 @@ def session_plan(context, request, router, *, frozen_inputs=None):
     plan = plan_shaping_session(str(root), router, request.target, mode=request.mode.value,
                                _now=now, chosen_transcript=frozen.get("transcript_path"))
     if plan["transcript_exists"]:
-        original, _ = parse_frontmatter(read_exact_file_content(root / plan["transcript_path"], convert_lossless=True))
+        original, _ = parse_frontmatter(read_exact_file_content(resolve_content_source(root, plan["transcript_path"]), convert_lossless=True))
     else:
         source_path = plan["lifecycle"].result["path"] if plan["lifecycle"] else plan["prepared"].resolved_path
         original, _ = parse_frontmatter(render_transcript_template(
@@ -48,7 +49,7 @@ def session_plan(context, request, router, *, frozen_inputs=None):
     target_fields = apply_semantic_tags(lifecycle_fields, effective)
     validate_subject_membership(router, target_fields, reference, target.fields)
     if plan["transcript_exists"]:
-        original, _ = parse_frontmatter(read_exact_file_content(root / plan["transcript_path"], convert_lossless=True))
+        original, _ = parse_frontmatter(read_exact_file_content(resolve_content_source(root, plan["transcript_path"]), convert_lossless=True))
         transcript_fields = apply_semantic_tags(original, effective)
         validate_subject_membership(router, transcript_fields, plan["transcript_path"], original)
     from _common._workspace import workspace_discovery_metadata
@@ -64,6 +65,7 @@ def session_plan(context, request, router, *, frozen_inputs=None):
 
 def semantic_transition(context, router, plan):
     """Adapt final session writes to the existing native semantic plan owner."""
+    from _common._source_access import resolve_content_source
     import os
     import edit
     from _common import parse_frontmatter, serialize_frontmatter, read_exact_file_content
@@ -87,7 +89,7 @@ def semantic_transition(context, router, plan):
         writes[target.resolved_path] = {"path": target.resolved_path, "fields": fields, "body": body}
     if plan["transcript_exists"]:
         path = plan["transcript_path"]
-        content = read_exact_file_content(context.selected_brain.vault_root / path)
+        content = read_exact_file_content(resolve_content_source(context.selected_brain.vault_root, path))
         original, body = parse_frontmatter(content)
         if original != plan["transcript_fields"]:
             content = serialize_frontmatter(plan["transcript_fields"], body=body)
@@ -100,13 +102,13 @@ def semantic_transition(context, router, plan):
 
 
 def session_binding(context, request, *, plan, router, frozen_inputs=None):
-    from _portable.maintenance_inputs import file_identity
+    from _portable.maintenance_inputs import public_file_identity
     from start_shaping_session import _transcript_artefact
 
     root = context.selected_brain.vault_root
     target, transcript = plan["prepared"], plan["transcript_path"]
-    observations = [ObservedResource("shaping-target", target.resolved_path, file_identity(root / target.resolved_path)),
-                    ObservedResource("transcript", transcript, file_identity(root / transcript)),
+    observations = [ObservedResource("shaping-target", target.resolved_path, public_file_identity(root, target.resolved_path)),
+                    ObservedResource("transcript", transcript, public_file_identity(root, transcript)),
                     ObservedResource("transcript-template", plan["transcript_type"],
                                      content_digest(plan["template"]) if plan["template"] else None),
                     ObservedResource("shaping-definition", target.artefact["key"],
@@ -118,7 +120,7 @@ def session_binding(context, request, *, plan, router, frozen_inputs=None):
         parent = fields.get("parent")
         if parent is not None:
             observations.append(ObservedResource("shaping-parent", parent,
-                file_identity(root / router["artefact_index"][parent]["path"])))
+                public_file_identity(root, router["artefact_index"][parent]["path"])))
     lifecycle_review = None
     if plan["semantic_transition"] is not None:
         binding = transition_binding(context, request, plan=plan["semantic_transition"], router=router, frozen_inputs=frozen_inputs)
@@ -146,18 +148,25 @@ SHAPING_SESSION = OperationPreparation(prepare_session)
 
 
 def session_effect_snapshot(context, plan):
-    from ..workspace_transitions import transition_effect_snapshot
-    from _portable.maintenance_inputs import file_identity
-    from ..workspace_transitions import TransitionSnapshot
-    observed = transition_effect_snapshot(context, plan["lifecycle"]) if plan["lifecycle"] else TransitionSnapshot({}, ())
-    paths = set(observed.revisions) | {plan["prepared"].resolved_path, plan["transcript_path"]}
-    return TransitionSnapshot({path: file_identity(context.selected_brain.vault_root / path) for path in paths},
-                              observed.conversions)
+    """Merge session documents with the shared lifecycle source snapshot."""
+    from ..workspace_transitions import (
+        TransitionSnapshot, transition_effect_snapshot, source_effect_snapshot,
+    )
+    observed = (transition_effect_snapshot(context, plan["lifecycle"])
+                if plan["lifecycle"] else TransitionSnapshot({}, ()))
+    paths = {plan["prepared"].resolved_path, plan["transcript_path"]} - observed.revisions.keys()
+    extra = source_effect_snapshot(context, paths)
+    return TransitionSnapshot({**observed.revisions, **extra.revisions}, observed.conversions)
 
 
 def committed_session_effects(context, request, plan, before):
+    from _common._source_access import SourceAccessError
     from ..receipts import CommittedEffect
-    after = session_effect_snapshot(context, plan).revisions
+    try:
+        after = session_effect_snapshot(context, plan).revisions
+    except (SourceAccessError, OSError) as exc:
+        # This observer runs after the mutation has entered its effect phase.
+        raise RuntimeError("Shaping session effects could not be observed safely") from exc
     changed = {path for path, revision in after.items() if revision != before.revisions[path]}
     if plan["lifecycle"]:
         for move in plan["lifecycle"].movement.moves:

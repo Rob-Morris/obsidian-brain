@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from _common import load_compiled_router, read_file_content
+from _common._source_access import read_public_content
+
+from _common import load_compiled_router
 from .skill_resolution import annotate_skill_records, resolve_skill_record
 
 
@@ -49,7 +51,7 @@ def read_named_document(router, vault_root, resource, reference, *, convert_loss
     match = resolve_named_document(router, resource, reference)
     if "error" in match:
         return match
-    return read_file_content(vault_root, match[doc_field], convert_lossless=convert_lossless)
+    return read_public_content(vault_root, match[doc_field], convert_lossless=convert_lossless)
 
 
 def read_named_document_from_vault(vault_root, resource, reference, *, convert_lossless=False):
@@ -61,7 +63,7 @@ def read_named_document_from_vault(vault_root, resource, reference, *, convert_l
     if "error" in match:
         return match
     _router_key, doc_field = _spec(resource)
-    content = read_file_content(vault_root, match[doc_field], convert_lossless=convert_lossless)
+    content = read_public_content(vault_root, match[doc_field], convert_lossless=convert_lossless)
     return match, content
 
 

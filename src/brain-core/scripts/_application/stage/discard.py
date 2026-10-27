@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from _bootstrap.owned_paths import UnsafeFilesystemLayoutError
+
 from .._decoding import reject_unexpected
 
 from dataclasses import dataclass
@@ -57,6 +59,8 @@ def execute(context: InvocationContext, request: StageDiscardRequest):
 
             admit_owner(context, request, prepare)
             discarded = False if context.dry_run else discard_staged_body(vault_root, request.handle)
+    except UnsafeFilesystemLayoutError as exc:
+        return no_effect_error(StageDiscardRequest, ErrorCode.CONFLICT, str(exc))
     except MutationLockError as exc:
         return no_effect_error(
             StageDiscardRequest,

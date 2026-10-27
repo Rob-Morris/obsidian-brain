@@ -20,6 +20,19 @@ MODERN_META = {
 }
 
 
+def refresh_router_after_core_upgrade(vault):
+    """Model upgrade.py's post-commit compile through real router maintenance."""
+    from _common import vault_mutation_lock
+    from _portable.router_maintenance import maintain_router
+
+    with vault_mutation_lock(vault):
+        result = maintain_router(vault, dry_run=False, force=False)
+    assert result.status == "changed", result
+    assert result.reason == "version-drift", result
+    router = json.loads((vault / ".brain/local/compiled-router.json").read_text())
+    assert router["meta"]["brain_core_version"] == (vault / ".brain-core/VERSION").read_text().strip()
+
+
 @pytest.mark.parametrize("modern", [False, True])
 def test_real_owned_outcome_is_recovered_after_response_loss(command_vault_clone, modern):
     vault = command_vault_clone.vault_root
@@ -109,6 +122,7 @@ def test_frozen_protocol_four_negotiates_refresh_then_receives_restart_gate(comm
         before = call("brain_proxy_status")["structuredContent"]["result"]
         version = vault / ".brain-core/VERSION"
         version.write_text(version.read_text().strip() + ".gate-upgrade\n")
+        refresh_router_after_core_upgrade(vault)
         refused = call("artefact_read", {"reference": "Projects/Command Fixture.md"})
         envelope = refused["structuredContent"]
         assert refused["isError"] is True
@@ -204,6 +218,7 @@ def test_production_proxy_delivers_reads_and_mutations(command_vault_clone, prot
         # existing proxy validates and swaps its child, then dispatches once.
         marker = vault / ".brain-core/VERSION"
         marker.write_text(marker.read_text().strip() + ".review\n")
+        refresh_router_after_core_upgrade(vault)
         selected = call("artefact_read", {"reference": "Projects/Command Fixture.md", "brain_operation": operation["operation_id"]})
         assert selected["isError"] is False, selected["structuredContent"].get("error")
         assert selected["structuredContent"]["result"] == envelope["result"]
@@ -217,8 +232,27 @@ def test_production_proxy_delivers_reads_and_mutations(command_vault_clone, prot
         assert refreshed["isError"] is False
         assert refreshed["structuredContent"]["result"]["server"]["loaded"] == marker.read_text().strip()
         assert json.loads(refreshed["content"][0]["text"]) == refreshed["structuredContent"]
+        router_path = vault / ".brain/local/compiled-router.json"
+        stale_router = router_path.read_bytes()
+        stale = call("artefact_read", {"reference": "Projects/Command Fixture.md"})
+        assert stale["isError"] is True
+        refused = stale["structuredContent"]
+        assert refused["error"]["code"] == "conflict", refused
+        assert refused["result"] is None
+        assert refused["error"]["effects"] == "none"
+        assert "producer version is outdated" in refused["error"]["message"]
+        assert "runtime.refresh-router" in refused["error"]["message"]
+        assert router_path.read_bytes() == stale_router, "Reader must not repair derived state"
+        repaired = call("runtime_refresh-router", {})
+        assert repaired["isError"] is False, repaired
+        repaired_envelope = repaired["structuredContent"]
+        assert repaired_envelope["result"]["status"] == "changed"
+        assert repaired_envelope["result"]["reason"] == "version-drift"
+        assert any(effect["subject"] == ".brain/local/compiled-router.json"
+                   for effect in repaired_envelope["committed_effects"])
+        assert json.loads(router_path.read_text())["meta"]["brain_core_version"] == marker.read_text().strip()
         fresh = call("artefact_read", {"reference": "Projects/Command Fixture.md"})
-        assert fresh["isError"] is False
+        assert fresh["isError"] is False, fresh
         assert fresh["structuredContent"]["result"] == envelope["result"]
 
     finally:
@@ -255,6 +289,7 @@ def test_incompatible_candidate_keeps_connection_and_can_be_repaired(command_vau
                            .replace("MAX_PROXY_PROTOCOL = 5", "MAX_PROXY_PROTOCOL = 99"))
         version = vault / ".brain-core/VERSION"
         version.write_text(version.read_text().strip() + ".incompatible\n")
+        refresh_router_after_core_upgrade(vault)
         blocked = call("brain_proxy_refresh")
         assert blocked["isError"] is True
         state = blocked["structuredContent"]["result"]
@@ -276,6 +311,7 @@ def test_incompatible_candidate_keeps_connection_and_can_be_repaired(command_vau
         assert count == 1, 'fixture must change the actual command contract'
         owner.write_text(changed_owner)
         version.write_text(version.read_text().strip() + ".changed-contract\n")
+        refresh_router_after_core_upgrade(vault)
         read_params = {"name": "artefact_read", "arguments": {"reference": "Projects/Command Fixture.md"}}
         changed = request("tools/call", read_params)["result"]
         assert changed["isError"] is True
@@ -335,6 +371,7 @@ def test_changed_discovery_commands_recover_through_host_listing(command_vault_c
         contracts.write_text(updated + "\n")
         version = vault / ".brain-core/VERSION"
         version.write_text(version.read_text().strip() + ".discovery\n")
+        refresh_router_after_core_upgrade(vault)
         refreshed = call("brain_proxy_refresh")["structuredContent"]["result"]
         assert refreshed["server"]["refresh"] == "current"
         assert refreshed["next_action"] == "rediscover_tools"

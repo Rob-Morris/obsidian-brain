@@ -15,6 +15,7 @@ from .vault_files import resolve_public_vault_file
 def check_broken_wikilinks(vault_root, router, file_index=None, *, ctx=None):
     """Check for wikilinks that target non-existent or ambiguous files.
 
+    Private dotfiles and dotfolders are outside the source corpus.
     Infrastructure folders (``_Config``) are excluded from the walk because
     template and taxonomy files contain intentional placeholder wikilinks
     that generate false positives. Those files remain in the file index so
@@ -28,16 +29,20 @@ def check_broken_wikilinks(vault_root, router, file_index=None, *, ctx=None):
     for dirpath, dirnames, filenames in os.walk(vault_root):
         dirnames[:] = [
             d for d in dirnames
-            if d not in INDEX_SKIP_DIRS and d not in {"_Archive", "_Config"}
+            if not d.startswith(".") and d not in INDEX_SKIP_DIRS and d not in {"_Archive", "_Config"}
         ]
         for fname in filenames:
-            if not fname.endswith(".md"):
+            if fname.startswith(".") or not fname.endswith(".md"):
                 continue
             rel_path = os.path.relpath(os.path.join(dirpath, fname), vault_root)
 
             try:
                 source = resolve_public_vault_file(vault_root, rel_path)
-            except ValueError:
+            except (ValueError, OSError):
+                findings.append({
+                    "check": "source_admission", "severity": "warning", "file": rel_path,
+                    "message": "Source excluded; link-check coverage is incomplete.",
+                })
                 continue
             try:
                 if ctx is not None:

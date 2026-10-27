@@ -11,6 +11,14 @@ Contributor standards:
 
 ## Agent Authorisation Contract
 
+File locators, router entries and cache hits are not access authority. Admit the
+final canonical source before opening content; use the existing operation owner
+for ordinary artefact writes, named resources and fixed internal state. Preserve
+explicit local import capabilities rather than adding unchecked fallbacks. New
+or changed routes need supported-success and refusal-before-I/O/effect tests;
+trace all changed consumers under the verification rubric. The canonical recipes
+and policy distinctions live in [the security model](../architecture/security.md#operation-specific-file-authority).
+
 Every ordinary command declares its initial authorisation class and domain-owned
 preparation/admission strategy. Normal content is initially authorised within
 credential permissions; exceptional consent is scoped to the selected Brain and

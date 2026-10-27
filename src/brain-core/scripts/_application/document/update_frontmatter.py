@@ -25,7 +25,7 @@ from ._types import DocumentLocator, decode_document, validate_document_request
 @dataclass(frozen=True, slots=True)
 class DocumentUpdateFrontmatterRequest(WorkspaceDispositionRequest):
     COMMAND_ID: ClassVar[str] = "document.update-frontmatter"
-    COMMAND_VERSION: ClassVar[int] = 4
+    COMMAND_VERSION: ClassVar[int] = 5
     RESULT_TYPE: ClassVar[type] = DocumentFrontmatterUpdatePayload
     FIELD_DESCRIPTIONS: ClassVar[dict[str, str]] = {
         "document": "Existing editable Brain document.",

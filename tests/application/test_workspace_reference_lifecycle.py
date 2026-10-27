@@ -198,9 +198,21 @@ def test_archive_enumeration_never_opens_outside_vault(relevance_only, tmp_path,
 
     import compile_router
     from _common import scan_artefact_key_references
+    from _common._source_access import SourceAccessError
     from _portable.vault_files import list_archived_artefacts
 
     root, _app, paths, _hub = relevance_only
+    router = compile_router.compile(str(root))
+    baseline_references = scan_artefact_key_references(
+        str(root), router, "workspace/reference-target", include_archive=True
+    )
+    assert set(paths) <= {item["path"] for item in baseline_references}
+    baseline_excluded = []
+    baseline_listed = list_archived_artefacts(router, str(root), excluded_sources=baseline_excluded)
+    valid_archives = {path for path in paths if "_Archive" in path.split("/")}
+    assert valid_archives <= {item["path"] for item in baseline_listed}
+    assert baseline_excluded == []
+
     outside = tmp_path / "outside"
     outside.mkdir()
     secret = outside / "Secret.md"
@@ -212,25 +224,41 @@ def test_archive_enumeration_never_opens_outside_vault(relevance_only, tmp_path,
         (archive / "Escape directory").symlink_to(outside, target_is_directory=True)
     (root / "Ideas/Outside owner").symlink_to(outside, target_is_directory=True)
     (root / "Linked type").symlink_to(outside, target_is_directory=True)
-    router = compile_router.compile(str(root))
     router["artefacts"].append({"path": "Linked type", "classification": "living"})
-    original_open = builtins.open
+    original_open, original_path_open = builtins.open, Path.open
+    opened = set()
+
+    def check_source(file):
+        if isinstance(file, (str, bytes, Path)):
+            source = Path(file).resolve()
+            assert not source.is_relative_to(outside.resolve()), file
+            opened.add(source)
 
     def guarded_open(file, *args, **kwargs):
-        if isinstance(file, (str, bytes, Path)):
-            assert not Path(file).resolve().is_relative_to(outside.resolve()), file
+        check_source(file)
         return original_open(file, *args, **kwargs)
 
+    def guarded_path_open(file, *args, **kwargs):
+        check_source(file)
+        return original_path_open(file, *args, **kwargs)
+
     monkeypatch.setattr(builtins, "open", guarded_open)
-    references = scan_artefact_key_references(
-        str(root), router, "workspace/reference-target", include_archive=True
-    )
-    listed = list_archived_artefacts(router, str(root))
-    assert set(paths) <= {item["path"] for item in references}
-    assert {path for path in paths if "_Archive" in path.split("/")} <= {
-        item["path"] for item in listed
-    }
-    assert not any("Escape" in item["path"] for item in [*references, *listed])
+    monkeypatch.setattr(Path, "open", guarded_path_open)
+    with pytest.raises(SourceAccessError):
+        compile_router.compile(str(root))
+    with pytest.raises(SourceAccessError, match="coverage is incomplete"):
+        scan_artefact_key_references(
+            str(root), router, "workspace/reference-target", include_archive=True
+        )
+    excluded = []
+    listed = list_archived_artefacts(router, str(root), excluded_sources=excluded)
+    assert excluded, "read-only listing must acknowledge excluded unsafe sources"
+    assert all(str(outside) not in item for item in excluded)
+    assert valid_archives <= {item["path"] for item in listed}
+    assert not any("Escape" in item["path"] or item["path"].startswith("Linked type/")
+                   for item in listed)
+    assert all((root / item["path"]).resolve().is_relative_to(root.resolve()) for item in listed)
+    assert {(root / path).resolve() for path in valid_archives} <= opened
 
 
 @pytest.mark.parametrize("location", ["_Archive/old", "Ideas/_Archive", "Ideas/Owner/_Archive"])
@@ -280,5 +308,11 @@ def test_archive_roots_outside_vault_are_not_walked(tmp_path, monkeypatch, locat
         path=real_os.path, listdir=real_os.listdir, walk=bounded_walk
     ))
     router = {"artefacts": [{"path": "Ideas", "classification": "living"}]}
-    assert list(_artefacts.iter_archived_artefact_paths(str(root), router)) == []
-    assert list_archived_artefacts(router, str(root)) == []
+    from _common._source_access import SourceAccessError
+    with pytest.raises(SourceAccessError):
+        list(_artefacts.iter_archived_artefact_paths(str(root), router))
+    with pytest.raises(SourceAccessError):
+        list_archived_artefacts(router, str(root))
+    excluded = []
+    assert list_archived_artefacts(router, str(root), excluded_sources=excluded) == []
+    assert excluded

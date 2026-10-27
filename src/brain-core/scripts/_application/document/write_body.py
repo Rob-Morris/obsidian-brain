@@ -33,7 +33,7 @@ class DocumentWriteBodyOperation(str, Enum):
 @dataclass(frozen=True, slots=True)
 class DocumentWriteBodyRequest(WorkspaceDispositionRequest):
     COMMAND_ID: ClassVar[str] = "document.write-body"
-    COMMAND_VERSION: ClassVar[int] = 2
+    COMMAND_VERSION: ClassVar[int] = 3
     RESULT_TYPE: ClassVar[type] = DocumentWriteBodyPayload
     FIELD_DESCRIPTIONS: ClassVar[dict[str, str]] = {
         "document": "Existing editable Brain document.",

@@ -13,110 +13,72 @@ from _common import (
     load_compiled_router,
     parse_frontmatter,
     read_exact_file_content,
-    resolve_and_check_bounds,
 )
 
 from _common._artefacts import iter_archived_artefact_paths
 
 
-PUBLIC_BRAIN_CORE_FILES = frozenset(
-    {"colours.md", "guide.md", "index.md", "md-bootstrap.md", "session-core.md",
-     "plugins.md", "triggers.md"}
-)
-PUBLIC_BRAIN_CORE_TREES = frozenset(
-    {"artefact-library", "client-adapters", "skills", "standards"}
+from _common._source_access import (
+    PUBLIC_BRAIN_CORE_FILES, PUBLIC_BRAIN_CORE_TREES,
+    resolve_public_source, resolve_archive_source, SourceAccessError,
 )
 
 
 def _read_exact_file(vault_root, path, *, convert_lossless=False):
     try:
-        resolved = resolve_and_check_bounds(
-            os.path.join(str(vault_root), path),
-            str(vault_root),
-        )
-    except ValueError:
-        return {"error": "Path escapes vault root"}
-    if not os.path.isfile(resolved):
+        resolved = resolve_archive_source(vault_root, path)
+    except FileNotFoundError:
         return MissingFileResult(path)
+    except SourceAccessError as exc:
+        return {"error": str(exc)}
     return read_exact_file_content(resolved, convert_lossless=convert_lossless)
 
 
 def read_vault_file(vault_root, path, *, convert_lossless=False):
     try:
-        resolved = resolve_public_vault_file(vault_root, path)
-    except ValueError as exc:
-        return {"error": str(exc)}
-    if not os.path.isfile(resolved):
+        resolved = resolve_public_source(vault_root, path)
+    except FileNotFoundError:
         return MissingFileResult(path)
+    except SourceAccessError as exc:
+        return {"error": str(exc)}
     return read_exact_file_content(resolved, convert_lossless=convert_lossless)
 
 
 def resolve_public_vault_file(vault_root, path):
-    """Bind Reader namespace approval to one canonical source before opening it.
-
-    Callers must use the returned path rather than resolve the request again.
-    This follows the existing path-based filesystem contract; it is not a
-    descriptor-level defence against hostile replacement of approved ancestors.
-    """
-    if is_archived_path(path):
-        raise ValueError(
-            f"'{path}' is archived. Use artefact.read with location=\"archived\" instead."
-        )
-
-    try:
-        resolved = Path(
-            resolve_and_check_bounds(
-                os.path.join(str(vault_root), path),
-                str(vault_root),
-            )
-        )
-        relative = resolved.relative_to(Path(vault_root).resolve())
-    except (ValueError, OSError):
-        raise ValueError("Path escapes vault root") from None
-    parts = relative.parts
-    if not parts:
-        raise ValueError("Path does not identify a public vault file")
-    if parts[0] == ".brain-core":
-        permitted = (
-            len(parts) == 2 and parts[1] in PUBLIC_BRAIN_CORE_FILES
-        ) or (
-            len(parts) > 2 and parts[1] in PUBLIC_BRAIN_CORE_TREES
-        )
-        if permitted and not any(part.startswith(".") for part in parts[1:]):
-            return resolved
-        raise ValueError("Path is outside the public Brain Core documentation namespace")
-    if any(part.startswith(".") for part in parts):
-        raise ValueError("Path is outside the public vault-file namespace")
-    return resolved
+    """Compatibility entry point for canonical public regular-file admission."""
+    return resolve_public_source(vault_root, path)
 
 
 def read_archived_artefact(vault_root, path, *, infer_markdown=False, convert_lossless=False):
     if not is_archived_path(path):
         return {"error": f"'{path}' is not in _Archive/"}
-    result = _read_exact_file(vault_root, path, convert_lossless=convert_lossless)
-    if not infer_markdown or path.endswith(".md") or not isinstance(
-        result, MissingFileResult
-    ):
-        return result
-
-    markdown_result = _read_exact_file(vault_root, f"{path}.md", convert_lossless=convert_lossless)
-    if not isinstance(markdown_result, MissingFileResult):
-        return markdown_result
-    return markdown_result
+    candidate = path
+    if infer_markdown and not path.endswith(".md"):
+        try:
+            if not (Path(vault_root) / path).exists():
+                candidate = f"{path}.md"
+        except (OSError, RuntimeError):
+            return {"error": "Cannot select the requested archive source"}
+    return _read_exact_file(vault_root, candidate, convert_lossless=convert_lossless)
 
 
-def list_archived_artefacts(router, vault_root):
+def list_archived_artefacts(router, vault_root, *, excluded_sources=None):
+    """Collect admitted archive sources; callers must acknowledge exclusions."""
     vault_root = str(vault_root)
     results = []
-    for relative in iter_archived_artefact_paths(vault_root, router):
+    excluded = [] if excluded_sources is None else excluded_sources
+    for relative in iter_archived_artefact_paths(vault_root, router, on_excluded=excluded.append):
         absolute = os.path.join(vault_root, relative)
         filename = os.path.basename(relative)
         try:
-            resolved = resolve_and_check_bounds(absolute, vault_root)
+            resolved = resolve_archive_source(vault_root, relative)
             modified = datetime.fromtimestamp(
                 os.path.getmtime(resolved), timezone.utc
             ).isoformat()
-        except (ValueError, OSError):
+        except SourceAccessError:
+            excluded.append(relative)
+            continue
+        except OSError:
             continue
         try:
             content = read_archived_artefact(vault_root, relative, convert_lossless=True)
@@ -142,6 +104,10 @@ def list_archived_artefacts(router, vault_root):
             }
         )
 
+    if excluded_sources is None and excluded:
+        raise SourceAccessError(
+            f"{len(excluded)} archive source(s) excluded; coverage is incomplete"
+        )
     results.sort(
         key=lambda item: (item.get("archiveddate", ""), item["path"].casefold()),
         reverse=True,

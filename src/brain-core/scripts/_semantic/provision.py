@@ -9,7 +9,7 @@ from pathlib import Path
 
 from _bootstrap.runtime import probe_python, step as _step
 from _common._venv import conform_runtime, format_subprocess_error
-from _lifecycle.retrieval_assets import refresh_retrieval_assets
+from _lifecycle.retrieval_assets import RetrievalRefreshIncomplete, refresh_retrieval_assets
 from _lifecycle.retrieval_errors import (
     CompiledRouterUnavailableError,
     RetrievalPersistenceError,
@@ -57,6 +57,7 @@ class SemanticProvisionOutcome:
     assets_changed: bool
     assets_error: str | None
     notes: list[str]
+    assets_committed_paths: tuple[str, ...] = ()
 
 
 def refresh_semantic_assets(vault_root: str | Path) -> list[str]:
@@ -153,6 +154,8 @@ def append_asset_step(steps: list[dict], notes: list[str], outcome: SemanticProv
     """Append a shared semantic asset step from a provision outcome."""
     if outcome.assets_error:
         steps.append(_step("semantic_assets", "error", outcome.assets_error))
+        if outcome.assets_committed_paths:
+            steps[-1]["committed_effects"] = list(outcome.assets_committed_paths)
     elif outcome.assets_changed:
         steps.append(
             _step(
@@ -264,10 +267,14 @@ def provision_semantic_runtime(
     notes: list[str] = list(model_outcome.notes)
     assets_changed = False
     assets_error = None
+    assets_committed_paths = ()
     if refresh_assets:
         try:
             notes.extend(refresh_semantic_assets(vault_root))
             assets_changed = True
+        except RetrievalRefreshIncomplete as exc:
+            assets_error = format_asset_refresh_error(exc)
+            assets_committed_paths = exc.committed_paths
         except SEMANTIC_ASSET_REFRESH_ERRORS as exc:
             assets_error = format_asset_refresh_error(exc)
 
@@ -285,4 +292,5 @@ def provision_semantic_runtime(
         assets_changed=assets_changed,
         assets_error=assets_error,
         notes=notes,
+        assets_committed_paths=assets_committed_paths,
     )

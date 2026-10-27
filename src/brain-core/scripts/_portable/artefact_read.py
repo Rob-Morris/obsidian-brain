@@ -2,14 +2,12 @@
 
 from __future__ import annotations
 
-import os
+from _common._source_access import read_public_content
 
 from _common import (
     is_archived_path,
     load_compiled_router,
     normalize_artefact_key,
-    read_file_content,
-    resolve_and_check_bounds,
     resolve_and_validate_folder,
     resolve_artefact_key_entry,
     resolve_artefact_path,
@@ -23,14 +21,6 @@ _CONFIG_RESOURCE_MAP = {
     "Templates": "template",
     "Plugins": "plugin",
 }
-
-
-def _check_vault_containment(vault_root, rel_path):
-    try:
-        resolve_and_check_bounds(os.path.join(vault_root, rel_path), vault_root)
-    except ValueError:
-        return {"error": "Path escapes vault root"}
-    return None
 
 
 def _resolve_config_resource(vault_root, name, file_index=None):
@@ -57,7 +47,7 @@ def read_artefact(router, vault_root, name=None, *, convert_lossless=False):
         entry = resolve_artefact_key_entry(router, key)
         if not entry:
             return {"error": f"No artefact matching '{name}'"}
-        return read_file_content(vault_root, entry["path"], convert_lossless=convert_lossless)
+        return read_public_content(vault_root, entry["path"], convert_lossless=convert_lossless)
 
     if "/" in name:
         if is_archived_path(name):
@@ -65,7 +55,7 @@ def read_artefact(router, vault_root, name=None, *, convert_lossless=False):
                 "error": f"'{name}' is archived. "
                 "Use artefact.read with location='archived'."
             }
-        return _check_vault_containment(vault_root, name) or read_file_content(
+        return read_public_content(
             vault_root,
             name,
             convert_lossless=convert_lossless,
@@ -81,7 +71,7 @@ def read_artefact(router, vault_root, name=None, *, convert_lossless=False):
                 f"Use {resource}.read instead."
             }
         return {"error": str(exc)}
-    return read_file_content(vault_root, resolved, convert_lossless=convert_lossless)
+    return read_public_content(vault_root, resolved, convert_lossless=convert_lossless)
 
 
 def read_from_vault(vault_root, name, *, convert_lossless=False):

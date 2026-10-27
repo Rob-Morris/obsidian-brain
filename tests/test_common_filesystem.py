@@ -63,6 +63,26 @@ class TestResolveAndCheckBounds:
         result = common.resolve_and_check_bounds(target, tmp_path, follow_symlinks=False)
         assert result == str(target)
 
+    def test_no_follow_still_enforces_canonical_parent_bounds(self, tmp_path):
+        root = tmp_path / "vault"
+        root.mkdir()
+        other = tmp_path / "ordinary"
+        other.mkdir()
+        (root / "alias").symlink_to(other, target_is_directory=True)
+        with pytest.raises(ValueError, match="outside allowed boundary"):
+            common.resolve_and_check_bounds(
+                root / "alias/new", root, follow_symlinks=False
+            )
+        assert not list(other.iterdir())
+
+    def test_no_follow_normalises_in_bound_parent_alias(self, tmp_path):
+        folder = tmp_path / "ordinary"
+        folder.mkdir()
+        (tmp_path / "alias").symlink_to(folder, target_is_directory=True)
+        assert common.resolve_and_check_bounds(
+            tmp_path / "alias/new", tmp_path, follow_symlinks=False
+        ) == str(folder / "new")
+
     def test_prefix_collision(self, tmp_path):
         """'/home/foo' must not match bounds '/home/fo'."""
         bounds = tmp_path / "fo"

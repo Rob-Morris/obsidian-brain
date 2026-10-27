@@ -12,7 +12,7 @@ from .context import InvocationContext
 from ._managed_preparation import MAINTENANCE, maintenance_binding
 from .preparation import admit_owner
 from .receipts import CommittedEffect
-from .results import ErrorCode, Ok
+from .results import CommandError, ErrorCode, Ok, Partial, RequestErrorDetails
 
 
 class LexicalMaintenanceStatus(str, Enum):
@@ -49,15 +49,35 @@ def execute_lexical_maintenance(
     )
     from _portable.lexical_maintenance import maintain_lexical_index
 
+    from _lifecycle.retrieval_assets import _asset_signatures
+    from _common._source_access import SourceAccessError
     root = context.selected_brain.vault_root
+    paths = (".brain/local/retrieval-index.json", ".brain/local/embeddings-meta.json",
+             ".brain/local/type-embeddings.npy", ".brain/local/doc-embeddings.npy")
     try:
         with vault_mutation_lock(root):
             admit_owner(context, request, maintenance_binding)
-            result = maintain_lexical_index(
-                root,
-                dry_run=context.dry_run,
-                force=force,
-            )
+            from _bootstrap.owned_paths import owned_output_paths
+            try:
+                owned_output_paths(root, paths)
+                before = _asset_signatures(root, paths)
+            except OSError as exc:
+                return no_effect_error(type(request), ErrorCode.CONFLICT, str(exc))
+            try:
+                result = maintain_lexical_index(
+                    root,
+                    dry_run=context.dry_run,
+                    force=force,
+                )
+            except (OSError, SourceAccessError, RetrievalPersistenceError) as exc:
+                after = _asset_signatures(root, paths)
+                changed = tuple(path for path in paths if before[path] != after[path])
+                if changed:
+                    message = "Lexical maintenance published derived state but follow-up work failed. Inspect the receipt before running retrieval.refresh-lexical again."
+                    return Partial(request.COMMAND_ID, request.COMMAND_VERSION,
+                        CommandError(ErrorCode.CONFLICT, message, RequestErrorDetails(None, message)),
+                        tuple(CommittedEffect(request.COMMAND_ID, path) for path in changed))
+                return no_effect_error(type(request), ErrorCode.CONFLICT, str(exc))
     except MutationLockError as exc:
         return no_effect_error(
             type(request),
@@ -65,8 +85,6 @@ def execute_lexical_maintenance(
             public_mutation_error_message(exc),
             retryable=True,
         )
-    except (UnreadableRetrievalSourceError, RetrievalPersistenceError) as exc:
-        return no_effect_error(type(request), ErrorCode.CONFLICT, str(exc))
 
     status = LexicalMaintenanceStatus(result.status)
     payload = LexicalMaintenancePayload(
@@ -79,7 +97,8 @@ def execute_lexical_maintenance(
         result.sidecars_removed,
     )
     effects = (
-        (CommittedEffect(request.COMMAND_ID, ".brain/local/retrieval-index.json"),)
+        tuple(CommittedEffect(request.COMMAND_ID, path) for path in
+              (".brain/local/retrieval-index.json", *result.sidecars_removed))
         if status is LexicalMaintenanceStatus.CHANGED
         else ()
     )

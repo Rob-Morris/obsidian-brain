@@ -11,7 +11,10 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 import os
 from pathlib import Path
-import stat
+
+from _bootstrap.owned_paths import (
+    owned_directory, validate_owned_record,
+)
 
 
 LOCAL_STATE_REL = Path(".brain") / "local"
@@ -24,16 +27,17 @@ def find_stranded_temporaries(vault_root: str | Path, now: datetime) -> tuple[st
     Only top-level regular files directly under ``.brain/local`` qualify: no
     descent, symlinks never followed, the name must match the shared
     atomic-write rule, and both ``mtime`` and ``ctime`` must be older than
-    ``MINIMUM_AGE``.
+    ``MINIMUM_AGE``. An unsafe atomic-shaped endpoint refuses the complete
+    inventory, so checks cannot describe an excluded unsafe object as clean.
     """
     from _common._filesystem import is_atomic_write_temporary
 
     if now.tzinfo is None:
         raise ValueError("stranded-temporaries clock must be timezone-aware")
-    directory = Path(vault_root) / LOCAL_STATE_REL
     try:
+        directory = owned_directory(vault_root, LOCAL_STATE_REL)
         names = os.listdir(directory)
-    except (FileNotFoundError, NotADirectoryError):
+    except FileNotFoundError:
         return ()
     threshold = (now - MINIMUM_AGE).astimezone(timezone.utc).timestamp()
     stranded = []
@@ -44,8 +48,7 @@ def find_stranded_temporaries(vault_root: str | Path, now: datetime) -> tuple[st
             info = os.lstat(directory / name)
         except FileNotFoundError:
             continue
-        if not stat.S_ISREG(info.st_mode):
-            continue
+        validate_owned_record(info, LOCAL_STATE_REL / name, single_link=True)
         if info.st_mtime >= threshold or info.st_ctime >= threshold:
             continue
         stranded.append((LOCAL_STATE_REL / name).as_posix())

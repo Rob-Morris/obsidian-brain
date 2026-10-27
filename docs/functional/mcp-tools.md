@@ -271,6 +271,22 @@ Document reads can decode leading UTF-8 marks and BOM-marked UTF-16/32 without r
 
 Encoding recovery actions respect the shared text-check inventory. Files outside that set, including shipped Core and source-managed skills, receive path/diagnosis and restoration instructions rather than a `vault.repair-text` action that cannot repair them. If inventory inspection fails, the refusal names that failure and asks for access to be restored before retrying.
 
+### Optional root README editing
+
+Root `README.md` is an allowed ordinary file, not a typed artefact or a Core-owned
+generated document. Read it with `vault.read-file` and use the returned revision
+with the existing `document.write-body`, `document.replace-text`,
+`document.structured-edit` or `document.update-frontmatter` command. Select
+`document: {resource: "file", reference: "README.md"}`; the other arguments keep
+their existing meanings. No other generic file reference is accepted.
+
+Text edits do not add YAML to a README without frontmatter. Explicit frontmatter
+updates remain explicit. File edits do not assign an artefact key, workspace or
+parent, run lifecycle moves, or accept artefact link-fixing options. Canonical
+source/destination checks and revision conflicts remain enforced. Brain does not
+create, install or synchronise this optional file, and native direct editing is
+also valid.
+
 ## Permissions and instance authorisation
 
 Document mutations preflight artefact lifecycle consequences, including derived
@@ -510,7 +526,7 @@ Historical Claude Code, Codex CLI and Grok captures verify fresh and resumed dis
 
 The application projection now shares repeated shapes with local `$defs`/`$ref`, preserving descriptions and defaults at each use. Equivalent numeric unions, string enums and identical discriminator branches are compacted without changing typed requests or validation. Examples still use the inline schema. Graph cursors remain structured. Only the accepted-but-unused disposition argument on `artefact.create` was removed; the other 16 native consumers retain it.
 
-The full application-inventory target is **20,000 tokens**, superseding the former 16,384 headroom gate. The current pinned whole-array replay measures **21,465 Claude / 21,501 Codex tokens** for 90 application tools: **both exceed the target**. This excludes the proxy's three recovery tools and is not measured host loading or billed usage. The current capture records the target, excess and those exact measured regression baselines. Tests prevent unexplained growth and verify the known excess; passing them does not certify target compliance or current-harness compatibility.
+The full application-inventory target is **20,000 tokens**, superseding the former 16,384 headroom gate. The current pinned whole-array replay measures **21,164 Claude / 21,221 Codex tokens** for 93 application tools: **both exceed the target**. This excludes the proxy's three recovery tools and is not measured host loading or billed usage. The current capture records the target and excess; the measured regression baselines remain **21,465 Claude / 21,501 Codex tokens**. Tests prevent unexplained growth and verify the known excess; passing them does not certify target compliance or current-harness compatibility.
 
 Every tool retains the hard **3,072-token maximum**. The ordinary compact target remains 512; reviewed exceptions are:
 

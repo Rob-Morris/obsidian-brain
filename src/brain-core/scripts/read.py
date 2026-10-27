@@ -22,12 +22,15 @@ from _common import (
     load_compiled_router as _load_compiled_router,
     MissingFileResult,
     normalize_artefact_key,
-    read_file_content,
     resolve_artefact_key_entry,
     resolve_and_check_bounds,
     resolve_and_validate_folder,
     resolve_artefact_path,
 )
+from _common._source_access import SourceAccessError, read_public_content
+
+# Retain the maintenance module's existing guarded reader entry point.
+read_file_content = read_public_content
 from _portable.artefact_read import read_artefact as _portable_read_artefact
 from _portable.named_documents import read_named_document as _portable_read_named_document
 from _portable.router_views import (
@@ -74,7 +77,7 @@ def read_named_resource(router, vault_root, resource_label, name, router_key, do
     match = next((i for i in items if i["name"] == name), None)
     if not match:
         return {"error": f"No {resource_label} matching '{name}'"}
-    return read_file_content(vault_root, match[doc_field])
+    return read_public_content(vault_root, match[doc_field])
 
 
 def read_type(router, vault_root, name=None):
@@ -129,7 +132,7 @@ def read_memory(router, vault_root, name=None):
     if not matches:
         return {"error": f"No memory matching '{name}'"}
     if len(matches) == 1:
-        return read_file_content(vault_root, matches[0]["memory_doc"])
+        return read_public_content(vault_root, matches[0]["memory_doc"])
     return matches
 
 
@@ -146,11 +149,14 @@ def read_router_meta(router, vault_root, name=None):
 def read_artefact(router, vault_root, name=None):
     """Read an artefact file by relative path or basename.
 
-    Full relative paths (containing '/') read any file in the vault directly.
+    Full relative paths read only admitted public content.
     Bare basenames are resolved via wikilink-style lookup and validated against
     artefact folders.
     """
-    return _portable_read_artefact(router, vault_root, name)
+    try:
+        return _portable_read_artefact(router, vault_root, name)
+    except SourceAccessError as exc:
+        return {"error": str(exc)}
 
 
 # Mapping from _Config/ subfolder to the canonical read-command noun.
@@ -191,7 +197,7 @@ def read_file(router, vault_root, name=None):
         entry = resolve_artefact_key_entry(router, key)
         if not entry:
             return {"error": f"No artefact matching '{name}'"}
-        return read_file_content(vault_root, entry["path"])
+        return read_public_content(vault_root, entry["path"])
 
     if "/" in name:
         if is_archived_path(name):
@@ -199,12 +205,12 @@ def read_file(router, vault_root, name=None):
                 "error": f"'{name}' is archived. "
                 "Use artefact.read with location='archived'."
             }
-        return _check_vault_containment(vault_root, name) or read_file_content(vault_root, name)
+        return _check_vault_containment(vault_root, name) or read_public_content(vault_root, name)
 
     # Try artefact folders first
     try:
         resolved, _ = resolve_and_validate_folder(vault_root, router, name)
-        return read_file_content(vault_root, resolved)
+        return read_public_content(vault_root, resolved)
     except ValueError:
         pass
 

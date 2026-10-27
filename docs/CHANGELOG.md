@@ -8,6 +8,7 @@ Never edit past changelog entries. Only add new entries at the top.
 
 | Version | Date | Summary |
 |---|---|---|
+| [v0.76.3](changelog/v0.76.3.md) | 2026-10-27 | Guard Brain file access and support unmanaged README edits |
 | [v0.76.2](changelog/v0.76.2.md) | 2026-10-26 | Recover Doctor findings and bound CI fixture storage |
 | [v0.76.1](changelog/v0.76.1.md) | 2026-10-24 | Keep scoped link checks bounded and MCP replies responsive |
 | [v0.76.0](changelog/v0.76.0.md) | 2026-10-23 | Deliver compact byte pages through opaque result continuations |

@@ -548,6 +548,8 @@ def plan_semantic_document(context, request, router, opened, intent, body, *, ef
 
 
 def _may_contain_wikilinks(opened, intent: DocumentMutationIntent, body: str) -> bool:
+    if opened.resource == "file":
+        return False
     if "[[" in opened.body or "[[" in repr(opened.fields) or "[[" in body:
         return True
     if isinstance(intent, DocumentReplaceTextIntent):
@@ -655,6 +657,8 @@ def _revision_conflict(request_type, request, message: str) -> Error:
             "artefact.read",
             (CommandArgument("reference", document.reference),),
         )
+    elif document.resource.value == "file":
+        next_action = CommandNextAction("vault.read-file", (CommandArgument("path", "README.md"),))
     else:
         next_action = CommandNextAction(
             "resource.read",

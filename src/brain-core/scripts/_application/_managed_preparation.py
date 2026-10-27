@@ -11,7 +11,7 @@ CACHE_OUTPUTS = (".brain/local/compiled-router.json", ".brain/local/retrieval-in
 
 
 def maintenance_binding(context, request, *, frozen_inputs=None):
-    from _portable.maintenance_inputs import file_identity, source_manifest
+    from _portable.maintenance_inputs import owned_file_identity, source_manifest
 
     root = context.selected_brain.vault_root
     manifest = source_manifest(root)
@@ -24,14 +24,14 @@ def maintenance_binding(context, request, *, frozen_inputs=None):
     elif command == "runtime.warmup":
         outputs = (*CACHE_OUTPUTS, ".brain/local/runtime-status.json")
     observations = [ObservedResource("maintenance-sources", "selected-brain", manifest["sha256"])]
-    observations.extend(ObservedResource("maintenance-output", path, file_identity(root / path))
+    observations.extend(ObservedResource("maintenance-output", path, owned_file_identity(root, path))
                         for path in outputs)
     # Router refresh also rewrites the canonical rendered session documents.
     if command in {"runtime.refresh-router", "runtime.warmup", "retrieval.enable",
                    "retrieval.repair-semantic", "retrieval.rebuild-semantic"}:
         from session import SESSION_MARKDOWN_REL
         observations.append(ObservedResource("session-output", SESSION_MARKDOWN_REL,
-                                              file_identity(root / SESSION_MARKDOWN_REL)))
+                                              owned_file_identity(root, SESSION_MARKDOWN_REL)))
     frozen = dict(frozen_inputs or {})
     frozen["maintenance_sources"] = manifest
     return bind_operation(request, observations=observations, frozen_inputs=frozen,

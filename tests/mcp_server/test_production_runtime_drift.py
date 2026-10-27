@@ -10,7 +10,7 @@ import time
 import pytest
 
 from proxy_test_support import _read_until_id
-from test_production_proxy_protocols import MODERN_META
+from test_production_proxy_protocols import MODERN_META, refresh_router_after_core_upgrade
 
 
 FIXTURES = Path(__file__).resolve().parents[1] / "fixtures"
@@ -78,6 +78,9 @@ def test_runtime_upgrade_drains_then_handoffs_both_processes(command_vault_clone
         requirements.write_text(requirements.read_text() + "\n# dependency upgrade fixture\n")
         version = vault / ".brain-core/VERSION"
         version.write_text(version.read_text().strip() + ".runtime\n")
+        # A committed Core upgrade recompiles the router before normal reads,
+        # including the already-entered read released later in this test.
+        refresh_router_after_core_upgrade(vault)
         if failure != "missing-runtime":
             subprocess.run([sys.executable, str(FIXTURES / "managed_proxy_runtime.py"), str(vault)],
                            check=True, capture_output=True, text=True)
