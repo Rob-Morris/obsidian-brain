@@ -37,7 +37,11 @@ def check_broken_wikilinks(vault_root, router, file_index=None, *, ctx=None):
 
             try:
                 source = resolve_public_vault_file(vault_root, rel_path)
-            except ValueError:
+            except (ValueError, OSError):
+                findings.append({
+                    "check": "source_admission", "severity": "warning", "file": rel_path,
+                    "message": "Source excluded; link-check coverage is incomplete.",
+                })
                 continue
             try:
                 if ctx is not None:

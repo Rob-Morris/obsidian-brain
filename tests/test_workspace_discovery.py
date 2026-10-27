@@ -50,6 +50,7 @@ def test_shared_projection_separates_membership_from_association():
 @pytest.fixture
 def corpus(tmp_path):
     vault = make_searchable_vault(tmp_path)
+    (vault / "_Config/router.md").write_text("Always:\n- Safe test sources.\n\nConditional:\n")
     for path in vault.rglob("*.md"):
         if path.parts[-2] in {"Wiki", "Designs", "Logs"}:
             path.unlink()
@@ -59,7 +60,8 @@ def corpus(tmp_path):
         ("Wiki/Other.md", "living/wiki", "workspace/other", []),
     ]
     for path, type_name, workspace, tags in docs:
-        (vault / path).write_text("---\n" + f"type: {type_name}\nkey: bug\ncreated: 2026-10-15\nstatus: active\n" + (f"workspace: {workspace}\n" if workspace else "") + f"tags: {json.dumps(tags)}\n---\n\nA reproducible bug in the client.\n")
+        key = "other" if path.endswith("/Other.md") else "bug"
+        (vault / path).write_text("---\n" + f"type: {type_name}\nkey: {key}\ncreated: 2026-10-15\nstatus: active\n" + (f"workspace: {workspace}\n" if workspace else "") + f"tags: {json.dumps(tags)}\n---\n\nA reproducible bug in the client.\n")
     return vault
 
 
@@ -86,9 +88,12 @@ def semantic_stack(monkeypatch):
 
 
 def build_semantic(vault):
+    import compile_router
+
     built = lexical_index.build_index(vault)
-    router = {"meta": {"source_hash": "sha256:test"}, "artefacts": []}
-    _, vectors, metadata = assets.build_embeddings(vault, router, built.index["documents"], embedding_parts_by_path=built.embedding_parts_by_path)
+    router = compile_router.compile(vault)
+    compile_router.persist_compiled_router(vault, router)
+    _, vectors, metadata = assets.build_embeddings(vault, router, built.index["documents"])
     return built, router, vectors, metadata
 
 
@@ -154,15 +159,15 @@ def test_metadata_refresh_reuses_vectors_and_matches_full_build(corpus, semantic
     encoder.calls.clear()
     bug = corpus / "Wiki/Bug.md"
     bug.write_text(bug.read_text().replace("workspace/barbican", "workspace/new-owner").replace("workspace/subcortex", "workspace/new-related"))
-    parsed = lexical_index.index_update(built.index, corpus, "Wiki/Bug.md")
+    lexical_index.index_update(built.index, corpus, "Wiki/Bug.md")
     full = lexical_index.build_index(corpus)
     assert sorted(built.index["documents"], key=lambda x: x["path"]) == sorted(full.index["documents"], key=lambda x: x["path"])
-    _, refreshed_vectors, refreshed = assets.refresh_embeddings_outputs(corpus, router, built.index["documents"], embedding_parts_by_path=full.embedding_parts_by_path)
+    _, refreshed_vectors, refreshed = assets.refresh_embeddings_outputs(corpus, router, built.index["documents"])
     assert encoder.calls == []
     row = next(doc for doc in refreshed["documents"] if doc["path"] == "Wiki/Bug.md")
     assert row["primary_workspace"] == "workspace/new-owner"
     assert row["relevant_workspaces"] == ["workspace/new-owner", "workspace/new-related"]
-    _, full_vectors, full_meta = assets.build_embeddings(corpus, router, full.index["documents"], embedding_parts_by_path=full.embedding_parts_by_path)
+    _, full_vectors, full_meta = assets.build_embeddings(corpus, router, full.index["documents"])
     by_path = lambda meta: {doc["path"]: {k:v for k,v in doc.items() if k != "index"} for doc in meta["documents"]}
     assert by_path(refreshed) == by_path(full_meta)
     for i, doc in enumerate(refreshed["documents"]):
@@ -171,7 +176,7 @@ def test_metadata_refresh_reuses_vectors_and_matches_full_build(corpus, semantic
     encoder.calls.clear()
     bug.write_text(bug.read_text() + "\nNew body content.\n")
     updated = lexical_index.build_index(corpus)
-    assets.refresh_embeddings_outputs(corpus, router, updated.index["documents"], embedding_parts_by_path=updated.embedding_parts_by_path)
+    assets.refresh_embeddings_outputs(corpus, router, updated.index["documents"])
     assert sum(map(len, encoder.calls)) == 1
 
 
@@ -210,7 +215,16 @@ def test_metadata_refresh_refuses_changed_body_and_type_resources(corpus, semant
     assert assets.refresh_document_metadata(corpus, router, built.index["documents"])
     changed = deepcopy(built.index["documents"])
     changed[0]["embedding_source_hash"] = "changed"
+    # Supplied fingerprints cannot override the freshly admitted source.
+    assert assets.refresh_document_metadata(corpus, router, changed)
+    path = corpus / runtime.EMBEDDINGS_META_REL
+    original_metadata = path.read_bytes()
+    source = corpus / changed[0]["path"]
+    original_source = source.read_text()
+    source.write_text(original_source + "\nChanged current body.\n")
     assert not assets.refresh_document_metadata(corpus, router, changed)
+    assert path.read_bytes() == original_metadata
+    source.write_text(original_source)
     assert not assets.refresh_document_metadata(corpus, {**router, "artefacts": [{"key": "new-type"}]}, built.index["documents"])
     assert not assets.refresh_document_metadata(corpus, router, built.index["documents"][:-1])
 
@@ -229,7 +243,7 @@ def test_old_semantic_metadata_refresh_builds_current_filters(corpus, semantic_s
     path.write_text(json.dumps(old))
     assert not assets.refresh_document_metadata(corpus, router, built.index["documents"])
     encoder.calls.clear()
-    _, _, refreshed = assets.refresh_embeddings_outputs(corpus, router, built.index["documents"], embedding_parts_by_path=built.embedding_parts_by_path)
+    _, _, refreshed = assets.refresh_embeddings_outputs(corpus, router, built.index["documents"])
     assert encoder.calls
     assert runtime.embeddings_meta_matches_router(refreshed, router)
     assert next(doc for doc in refreshed["documents"] if doc["path"] == "Wiki/Bug.md")["primary_workspace"] == "workspace/barbican"
@@ -300,5 +314,11 @@ def test_archive_read_and_listing_never_open_outside_vault(tmp_path, monkeypatch
     monkeypatch.setattr(vault_files, "read_exact_file_content", safe_read)
     monkeypatch.setattr(vault_files, "os", SimpleNamespace(
         path=vault_files.os.path, walk=safe_walk, listdir=safe_listdir))
-    assert vault_files.read_archived_artefact(vault, reference) == {"error": "Path escapes vault root"}
-    assert vault_files.list_archived_artefacts({"artefacts": [{"path": "Wiki"}]}, vault) == []
+    from _common._source_access import SourceAccessError
+    result = vault_files.read_archived_artefact(vault, reference)
+    assert "error" in result and str(outside) not in result["error"]
+    with pytest.raises(SourceAccessError):
+        vault_files.list_archived_artefacts({"artefacts": [{"path": "Wiki"}]}, vault)
+    excluded = []
+    assert vault_files.list_archived_artefacts({"artefacts": [{"path": "Wiki"}]}, vault, excluded_sources=excluded) == []
+    assert excluded

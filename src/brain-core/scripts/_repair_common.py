@@ -156,6 +156,7 @@ REPAIR_SCOPES: Mapping[str, RepairFamily] = _table(
 # Detection demotes a finding that breaks its row's promise, or an unlisted
 # error, to kind-only and reports the breach; the repair-table test is the gate.
 JUDGEMENT_FINDINGS: Mapping[tuple[str, str | None], Identity] = MappingProxyType({
+    ("temporaries", "unsafe_filesystem_layout"): Identity.SUBJECT,
     ("unreadable_file", "os_error"): Identity.EVIDENCE,
     ("unreadable_file", "not_utf8"): Identity.SUBJECT,
     ("unreadable_file", "not_text"): Identity.SUBJECT,

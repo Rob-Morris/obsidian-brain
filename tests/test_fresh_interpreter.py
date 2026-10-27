@@ -53,12 +53,33 @@ def test_run_lifecycle_surfaces_owner_exceptions_as_typed_errors(tmp_path):
 def test_rebuild_semantic_reports_a_missing_model_as_an_error_step(command_vault_clone):
     pytest.importorskip("numpy")
 
-    result = rebuild_semantic(command_vault_clone.vault_root, dry_run=False)
+    import compile_colours
+    import compile_router
+    import session
+    from _search.paths import OUTPUT_PATH as INDEX_PATH
+    root = command_vault_clone.vault_root
+    paths = (compile_router.OUTPUT_PATH, compile_colours.OUTPUT_REL,
+             compile_colours.GRAPH_JSON_REL, session.SESSION_MARKDOWN_REL, INDEX_PATH)
 
-    assert result["status"] == "error"
-    assert result["steps"][0]["name"] == "semantic_assets"
-    assert result["steps"][0]["status"] == "error"
-    assert "semantic model" in result["steps"][0]["message"]
+    def identity(relative):
+        path = root / relative
+        if not path.exists():
+            return None
+        info = path.stat()
+        return info.st_ino, info.st_mtime_ns, info.st_size
+
+    before = {path: identity(path) for path in paths}
+    result = rebuild_semantic(root, dry_run=False)
+
+    assert result["status"] == "partial"
+    step = result["steps"][0]
+    assert step["name"] == "semantic_assets"
+    assert step["status"] == "error"
+    assert "semantic model" in step["message"]
+    actual = [path for path in paths if before[path] != identity(path)]
+    assert step["committed_effects"] == actual
+    assert {compile_router.OUTPUT_PATH, INDEX_PATH}.issubset(actual)
+    assert all((root / path).is_file() for path in actual)
 
 
 def test_run_lifecycle_reports_missing_reply(tmp_path, monkeypatch):

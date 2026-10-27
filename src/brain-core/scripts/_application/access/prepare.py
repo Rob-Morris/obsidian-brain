@@ -73,7 +73,20 @@ def prepared_result(payload):
 def execute(context, request):
     preparation = request.preparation
     if isinstance(preparation, PrepareCommand):
-        payload = context.access.prepare(preparation.command_id, preparation.arguments)
+        from _bootstrap.owned_paths import UnsafeFilesystemLayoutError
+        from ..results import CommandError, Error, ErrorCode, InstructionNextAction, RequestErrorDetails
+
+        try:
+            payload = context.access.prepare(preparation.command_id, preparation.arguments)
+        except UnsafeFilesystemLayoutError as exc:
+            # The coordinator discards temporary pins before propagating a
+            # planner refusal; no prepared operation has been published.
+            return Error(request.COMMAND_ID, request.COMMAND_VERSION, CommandError(
+                ErrorCode.CONFLICT, str(exc), RequestErrorDetails(None, str(exc)),
+                next_action=InstructionNextAction(
+                    "Restore the named local filesystem layout, then prepare the operation again."
+                ),
+            ))
         validate_consent_request_size(OperationConsent(payload.operation_id, payload.digest, payload.review))
         result = prepared_result(payload)
     else:

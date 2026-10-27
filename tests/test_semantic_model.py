@@ -20,6 +20,24 @@ def _make_vault(tmp_path):
     return tmp_path
 
 
+def _current_array_metadata(vault):
+    core = vault / ".brain-core"
+    core.mkdir()
+    (core / "VERSION").write_text("test-guarded\n")
+    router_meta = {"brain_core_version": "test-guarded", "source_hash": "sha256:array-fixture"}
+    (vault / ".brain/local/compiled-router.json").write_text(json.dumps({"meta": router_meta}))
+    metadata = {
+        "metadata_version": semantic_runtime.EMBEDDINGS_METADATA_VERSION,
+        "model": semantic_runtime.EMBEDDING_MODEL,
+        "model_revision": semantic_runtime.EMBEDDING_MODEL_REVISION,
+        "dim": semantic_runtime.EMBEDDING_DIM,
+        "router_source_hash": router_meta["source_hash"],
+        "documents": [{}], "types": [{}],
+    }
+    (vault / semantic_runtime.EMBEDDINGS_META_REL).write_text(json.dumps(metadata))
+    return metadata
+
+
 def _manifest():
     return semantic_model.ModelManifest(
         model_name=semantic_model.SHIPPED_MODEL_NAME,
@@ -354,14 +372,16 @@ def test_load_embeddings_state_raises_on_corrupt_document_array(tmp_path):
     meta_path = vault / semantic_runtime.EMBEDDINGS_META_REL
     doc_path = vault / semantic_runtime.DOC_EMBEDDINGS_REL
     meta_path.parent.mkdir(parents=True, exist_ok=True)
-    meta_path.write_text('{"documents": [], "types": []}', encoding="utf-8")
+    _current_array_metadata(vault)
     doc_path.write_bytes(b"not-a-numpy-array")
 
     with pytest.raises(
         semantic_runtime.SemanticEmbeddingsLoadError,
         match="semantic document embeddings are unreadable",
-    ):
+    ) as error:
         semantic_runtime.load_embeddings_state(vault)
+    assert "pickle" not in str(error.value)
+    assert "retrieval.rebuild-semantic" in str(error.value)
 
 
 @pytest.mark.semantic
@@ -372,27 +392,27 @@ def test_load_embeddings_state_skips_unrequested_arrays(tmp_path):
     type_path = vault / semantic_runtime.TYPE_EMBEDDINGS_REL
     doc_path = vault / semantic_runtime.DOC_EMBEDDINGS_REL
     meta_path.parent.mkdir(parents=True, exist_ok=True)
-    meta_path.write_text('{"documents": [], "types": []}', encoding="utf-8")
+    expected_metadata = _current_array_metadata(vault)
 
-    np.save(type_path, np.array([[1.0]]))
+    np.save(type_path, np.ones((1, semantic_runtime.EMBEDDING_DIM)))
     doc_path.write_bytes(b"unreadable but unrequested")
     type_embeddings, doc_embeddings, metadata = semantic_runtime.load_embeddings_state(
         vault,
         selection="types",
     )
-    assert type_embeddings.shape == (1, 1)
+    assert type_embeddings.shape == (1, semantic_runtime.EMBEDDING_DIM)
     assert doc_embeddings is None
-    assert metadata == {"documents": [], "types": []}
+    assert metadata == expected_metadata
 
     type_path.write_bytes(b"unreadable but unrequested")
-    np.save(doc_path, np.array([[2.0]]))
+    np.save(doc_path, np.full((1, semantic_runtime.EMBEDDING_DIM), 2.0))
     type_embeddings, doc_embeddings, metadata = semantic_runtime.load_embeddings_state(
         vault,
         selection="documents",
     )
     assert type_embeddings is None
-    assert doc_embeddings.shape == (1, 1)
-    assert metadata == {"documents": [], "types": []}
+    assert doc_embeddings.shape == (1, semantic_runtime.EMBEDDING_DIM)
+    assert metadata == expected_metadata
 
 def test_router_source_hash_reads_string_from_router_meta():
     assert semantic_runtime.router_source_hash({"meta": {"source_hash": "sha256:router"}}) == "sha256:router"

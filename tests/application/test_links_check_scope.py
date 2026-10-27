@@ -100,7 +100,7 @@ def test_scoped_check_reads_and_analyses_only_its_source(tmp_path, monkeypatch):
         "broken_wikilinks", "ambiguous_wikilinks", "table_wikilink_alias"}
 
 
-@pytest.mark.parametrize("path, code", [("Wiki/Missing.md", "not_found"), ("Wiki", "not_found"),
+@pytest.mark.parametrize("path, code", [("Wiki/Missing.md", "not_found"), ("Wiki", "invalid_request"),
                                         ("../Outside.md", "invalid_request")])
 def test_scoped_check_rejects_unavailable_or_escaping_sources(tmp_path, path, code):
     (tmp_path / "Wiki").mkdir()
@@ -171,14 +171,15 @@ def test_public_read_opens_the_approved_source_when_the_requested_alias_changes(
     private.write_text("[[Private retained title]]")
     alias = tmp_path / "Wiki/Alias.md"
     alias.symlink_to(public)
-    resolve, read = vault_files.resolve_and_check_bounds, vault_files.read_exact_file_content
+    resolve, read = vault_files.resolve_public_source, vault_files.read_exact_file_content
     switched = False
     opened = []
 
-    def resolve_then_switch(path, root, **kwargs):
+    def resolve_then_switch(root, reference, **kwargs):
         nonlocal switched
-        approved = resolve(path, root, **kwargs)
-        if Path(path) == alias and not switched:
+        approved = resolve(root, reference, **kwargs)
+        assert approved == public, "admission must return the canonical public target"
+        if Path(root) / reference == alias and not switched:
             switched = True
             alias.unlink()
             alias.symlink_to(private)
@@ -189,10 +190,11 @@ def test_public_read_opens_the_approved_source_when_the_requested_alias_changes(
         assert Path(path) == public, "the approved public source must supply the bytes"
         return read(path, **kwargs)
 
-    monkeypatch.setattr(vault_files, "resolve_and_check_bounds", resolve_then_switch)
+    monkeypatch.setattr(vault_files, "resolve_public_source", resolve_then_switch)
     monkeypatch.setattr(vault_files, "read_exact_file_content", approved_read)
     result = _check(tmp_path, "Wiki/Alias.md")
     assert result.status == "ok"
+    assert switched and alias.resolve() == private
     assert opened == [public]
     assert [(f.file, f.stem) for f in result.result.findings] == [("Wiki/Public.md", "Public missing title")]
 
@@ -229,10 +231,17 @@ def test_link_check_does_not_open_private_sources_through_public_aliases(tmp_pat
     else:
         assert result.status == "ok"
         assert result.result.unresolvable_targets == ("Public missing title",)
-        assert {f.file for f in result.result.findings} == {"Wiki/Public.md"}
+        assert {(f.file, f.check, f.severity, f.stem) for f in result.result.findings} == {
+            ("Wiki/Public.md", "broken_wikilinks", "warning", "Public missing title"),
+            ("Wiki/Alias.md", "source_admission", "warning", None),
+        }
+        excluded = next(f for f in result.result.findings if f.check == "source_admission")
+        assert excluded.message == "Source excluded; link-check coverage is incomplete."
+        assert result.result.warnings == 2
+        assert "Private retained title" not in repr(result.result)
 
 
-def test_cached_compliance_link_check_rejects_private_alias_before_cache_read(tmp_path):
+def test_cached_compliance_link_check_rejects_private_alias_before_cache_read(tmp_path, monkeypatch):
     import check
     import _portable.links as portable
     (tmp_path / "Wiki").mkdir()
@@ -241,9 +250,22 @@ def test_cached_compliance_link_check_rejects_private_alias_before_cache_read(tm
     private.parent.mkdir(parents=True)
     private.write_text("[[Private retained title]]")
     (tmp_path / "Wiki/Alias.md").symlink_to(private)
+    path_open = Path.open
+
+    def public_open(path, *args, **kwargs):
+        assert path.resolve() != private, "a private source was opened before the cache read"
+        return path_open(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "open", public_open)
     context = check.CheckContext(str(tmp_path), {})
     findings = portable.check_broken_wikilinks(str(tmp_path), {}, ctx=context)
-    assert {(f["file"], f.get("stem")) for f in findings} == {("Wiki/Public.md", "Public missing title")}
+    assert {(f["file"], f["check"], f["severity"], f.get("stem")) for f in findings} == {
+        ("Wiki/Public.md", "broken_wikilinks", "warning", "Public missing title"),
+        ("Wiki/Alias.md", "source_admission", "warning", None),
+    }
+    excluded = next(f for f in findings if f["check"] == "source_admission")
+    assert excluded["message"] == "Source excluded; link-check coverage is incomplete."
+    assert "Private retained title" not in repr(findings)
     assert not any(path.resolve() == private for path in context._text_cache)
 
 

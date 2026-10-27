@@ -6,6 +6,7 @@ import time
 import pytest
 
 from _bootstrap.consent_state import MemoryStateStore
+from _bootstrap.owned_paths import UnsafeFilesystemLayoutError
 from _command_interface.consent_staging import ConsentContentPins
 import _command_interface.consent_staging as pins_module
 from _staging import (
@@ -91,7 +92,7 @@ def test_symlink_staging_cannot_be_preparation_input(tmp_path):
     path = _handle_path(str(tmp_path), handle)
     os.unlink(path)
     os.symlink(__file__, path)
-    with pytest.raises(ValueError, match="regular"):
+    with pytest.raises(UnsafeFilesystemLayoutError, match="Unsafe Brain-owned filesystem layout"):
         inspect_staged_body(str(tmp_path), handle)
 
 

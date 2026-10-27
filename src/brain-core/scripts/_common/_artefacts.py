@@ -3,8 +3,10 @@
 import json
 import os
 import re
+from pathlib import Path
 from datetime import date, datetime, timezone
 
+from ._source_access import resolve_public_source, resolve_archive_source, read_public_content, SourceAccessError
 from ._document_revision import decode_persisted_document
 from ._frontmatter import parse_frontmatter
 from ._naming_contract import validate_naming_pattern
@@ -787,7 +789,7 @@ def living_key_set(vault_root, router, artefact, *, exclude_path=None):
             continue
         if artefact_type_prefix(art) != type_prefix:
             continue
-        content = read_file_content(vault_root, rel_path)
+        content = read_public_content(vault_root, rel_path)
         if isinstance(content, MissingFileResult):
             continue
         fields, _ = parse_frontmatter(content)
@@ -797,7 +799,7 @@ def living_key_set(vault_root, router, artefact, *, exclude_path=None):
     return keys
 
 
-def iter_archived_artefact_paths(vault_root, router):
+def iter_archived_artefact_paths(vault_root, router, *, on_excluded=None):
     """Yield bounded Markdown paths in current and legacy archive locations."""
     from ._filesystem import resolve_and_check_bounds
 
@@ -808,7 +810,10 @@ def iter_archived_artefact_paths(vault_root, router):
         try:
             return resolve_and_check_bounds(path, vault_root)
         except (ValueError, OSError):
-            return None
+            if on_excluded is not None:
+                on_excluded("archive-directory")
+                return None
+            raise SourceAccessError("Archive inventory contains an unsafe directory; coverage is incomplete") from None
 
     def directory(path):
         resolved = bounded(path)
@@ -886,8 +891,6 @@ def scan_artefact_key_reference_index(vault_root, router, *, include_archive=Fal
     """
     from ._document_revision import NonStandardVaultTextError, UnreadableVaultTextFilesError, vault_text_failure
 
-    from ._filesystem import resolve_and_check_bounds
-
     references, unreadable = {}, []
     paths = iter_artefact_markdown_files(
         vault_root, router, classifications={"living", "temporal"}, include_status_folders=True
@@ -898,11 +901,13 @@ def scan_artefact_key_reference_index(vault_root, router, *, include_archive=Fal
         paths = chain(paths, iter_archived_artefact_paths(vault_root, router))
     for rel_path in paths:
         try:
-            resolve_and_check_bounds(os.path.join(vault_root, rel_path), vault_root)
-        except ValueError:
+            resolver = (resolve_archive_source if include_archive and "_Archive" in Path(rel_path).parts
+                        else resolve_public_source)
+            source = resolver(vault_root, rel_path)
+            content = read_exact_file_content(source, convert_lossless=True)
+        except SourceAccessError as exc:
+            unreadable.append((rel_path, "source_refused", str(exc)))
             continue
-        try:
-            content = read_file_content(vault_root, rel_path, convert_lossless=True)
         except (NonStandardVaultTextError, OSError) as exc:
             unreadable.append(vault_text_failure(rel_path, exc))
             continue
@@ -960,7 +965,7 @@ def resolve_parent_reference(vault_root, router, parent):
     resolved_path, parent_art = resolve_and_validate_folder(vault_root, router, parent)
     if parent_art.get("classification") != "living":
         raise ValueError("parent must resolve to a living artefact")
-    content = read_file_content(vault_root, resolved_path)
+    content = read_public_content(vault_root, resolved_path)
     if isinstance(content, MissingFileResult):
         raise StaleArtefactIndexError(
             f"resolved parent {resolved_path} is missing on disk"

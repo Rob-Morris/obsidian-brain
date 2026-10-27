@@ -11,6 +11,13 @@ import sys
 import time
 from typing import Iterator
 
+from .owned_paths import (
+    UnsafeFilesystemLayoutError,
+    owned_directory,
+    owned_file,
+    validate_owned_record,
+)
+
 
 class MutationLockError(RuntimeError):
     """A vault mutation lock could not be acquired safely."""
@@ -35,6 +42,7 @@ def exclusive_file_lock(
     timeout: float | None = None,
     follow_symlinks: bool = True,
     create_parent: bool = True,
+    single_link: bool = False,
 ) -> Iterator[None]:
     """Hold an exclusive file lock on ``lock_path`` for this process.
 
@@ -50,9 +58,18 @@ def exclusive_file_lock(
     flags = os.O_RDWR | os.O_CREAT
     if not follow_symlinks:
         flags |= getattr(os, "O_NOFOLLOW", 0)
-    descriptor = os.open(path, flags, 0o600)
+    try:
+        descriptor = os.open(path, flags, 0o600)
+    except OSError as exc:
+        if single_link and exc.errno == errno.ELOOP:
+            raise UnsafeFilesystemLayoutError(".brain/local/mutation.lock") from None
+        raise
     try:
         opened = os.fstat(descriptor)
+        if single_link:
+            validate_owned_record(
+                opened, ".brain/local/mutation.lock", single_link=True
+            )
         if not stat.S_ISREG(opened.st_mode):
             raise OSError(f"lock endpoint is not a regular file: {path}")
         if not follow_symlinks:
@@ -150,6 +167,7 @@ def exclusive_file_lock(
             fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
 
 
+@contextlib.contextmanager
 def vault_mutation_lock(
     vault_root: str | Path, *, timeout: float = 30.0, create_parent: bool = True
 ) -> contextlib.AbstractContextManager[None]:
@@ -158,8 +176,13 @@ def vault_mutation_lock(
     ``create_parent=False`` refuses with ``FileNotFoundError`` rather than
     recreating a ``.brain/local`` directory that has gone.
     """
-    return exclusive_file_lock(
-        Path(vault_root) / ".brain" / "local" / "mutation.lock",
-        timeout=timeout,
-        create_parent=create_parent,
+    root = Path(vault_root).resolve()
+    owned_directory(root, ".brain/local", create=create_parent)
+    path = owned_file(
+        root, ".brain/local/mutation.lock", missing_ok=True, single_link=True
     )
+    with exclusive_file_lock(
+        path, timeout=timeout, create_parent=False,
+        follow_symlinks=False, single_link=True,
+    ):
+        yield

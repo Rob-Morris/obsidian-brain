@@ -91,6 +91,7 @@ def resource_search(
     router = load_router(context, type(request))
     if isinstance(router, Error):
         return router
+    excluded = []
     try:
         results = search_resource(
             router,
@@ -98,6 +99,7 @@ def resource_search(
             resource,
             request.query,
             top_k=request.top_k,
+            excluded=excluded,
         )
     except (OSError, UnreadableRetrievalSourceError, ValueError) as exc:
         return error(type(request), ErrorCode.CONFLICT, str(exc), None)
@@ -105,7 +107,17 @@ def resource_search(
         request.COMMAND_ID,
         request.COMMAND_VERSION,
         search_payload("lexical", results, requested_top_k=request.top_k),
+        warnings=exclusion_warnings(len(excluded)),
     )
+
+
+def exclusion_warnings(count):
+    """Report bounded degraded discovery through the existing result channel."""
+    from .results import CommandWarning, WarningCode
+    if not count:
+        return ()
+    return (CommandWarning(WarningCode.DEGRADED_CAPABILITY,
+        f"{count} source(s) excluded from search; coverage is incomplete."),)
 
 
 def search_payload(mode: str, results, *, requested_top_k: int) -> SearchPayload:
@@ -188,7 +200,12 @@ def load_semantic_state(
             selection=selection,
         )
         if metadata is None:
-            raise RuntimeError("semantic embeddings metadata is missing")
+            raise RuntimeError("semantic embeddings metadata is missing or outdated; run retrieval.rebuild-semantic")
+        if selection in {"types", "all"} and type_embeddings is None:
+            raise RuntimeError("semantic type embeddings are missing; run retrieval.rebuild-semantic")
+        if selection in {"documents", "all"} and doc_embeddings is None:
+            raise RuntimeError("semantic document embeddings are missing; run retrieval.rebuild-semantic")
+        semantic_runtime.validate_embedding_arrays(metadata, type_embeddings, doc_embeddings)
         if not semantic_runtime.embeddings_meta_matches_router(metadata, router):
             raise RuntimeError(
                 "semantic embeddings were built for a different compiled router"

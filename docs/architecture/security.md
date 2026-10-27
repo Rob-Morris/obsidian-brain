@@ -28,8 +28,11 @@ bypass review matching even for space-free paths. MCP support is independent;
 existing shell policy is preserved for explicit ownership-safe cleanup, not
 silently declared safe. See the managed-approval support and recovery contract.
 
-Every write path is resolved through `resolve_and_check_bounds(path, bounds)` before
-any I/O begins.
+Content sources and destinations are admitted before their content is opened or
+an effect starts. A router entry, derived index path or tool permission is not
+filesystem authority. Vault-bound writers use
+`resolve_and_check_bounds(path, bounds)`; fixed internal operations additionally
+validate their owned directory chain and record type.
 
 **What it does:**
 
@@ -40,15 +43,70 @@ any I/O begins.
    the system temp directory and bounds-checked against it, not the vault root.)
 3. Appends `os.sep` before the prefix test so `/vault` never accidentally matches
    `/vault-other`.
-4. Raises `ValueError` if the resolved path falls outside bounds, or if
-   `follow_symlinks=False` and the path is a symlink.
+4. Raises `ValueError` if the resolved path falls outside bounds, including in
+   no-follow mode. `follow_symlinks=False` separately rejects a final symlink;
+   it does not permit an ancestor alias to escape the canonical boundary.
 
 **Why it matters:** An agent-supplied path such as `../../etc/passwd` or a symlink
 pointing outside the vault would otherwise silently escape the vault tree. Resolving
 symlinks before any path test closes that escape route.
 
-The bounds check is the first thing `safe_write()` does, so no I/O ever starts for
-an out-of-bounds path.
+The bounds check precedes directory creation, callbacks and temporary writes in
+`safe_write()`. Use the returned canonical path rather than reopening the
+unchecked spelling. This is path-based protection against unsafe static layouts,
+not descriptor-level confinement against hostile concurrent filesystem changes.
+Canonical aliases above the selected root remain supported.
+
+### Operation-specific file authority
+
+| Operation | Authority before content access or effects |
+|---|---|
+| Public content reads, search snippets and content ingestion | Final canonical public namespace, after key/basename/extension resolution; private dot paths and canonical archive components are excluded; explicit public Core resources remain readable |
+| Archive-aware owners | Separate canonical archive scope, including supported legacy locations; an archive-looking spelling alone is insufficient |
+| Named resources and document edits | Existing named selection plus canonical source admission; readable Core content does not grant Core write access |
+| Ordinary artefact writes | Canonical content destination policy through the artefact writer; public readability alone is not edit authority |
+| Lock, staging and temporary cleanup | Fixed owned directory components and regular record endpoints, with owner-specific names and lifecycle; no redirection, even within the vault |
+| Configuration, receipts and installation metadata | Existing explicit internal capabilities; public-content rules do not apply to every low-level byte read |
+| Caller-local file import | Explicit local import authority; modern MCP content inputs do not accept arbitrary server filesystem paths |
+
+Directory/record validation is launcher-safe in `_bootstrap/owned_paths.py`.
+It does not impose private ownership/mode rules on ordinary workspace directories;
+the stronger private-file owner keeps its own contract. Fixed mutation locks also
+reject multiply linked records before permission or content changes. Generic
+locks retain their separate defaults, contention and owner-lifetime semantics.
+
+Unsafe internal layouts produce content-safe, non-retryable refusals rather than
+busy/retry guidance or automatic repair. Preparation performs no cleanup.
+Post-commit staging cleanup failures remain warnings on the committed mutation;
+other partial/uncertain effects retain their existing receipts. Read-only scans
+must report excluded unsafe candidates as degraded coverage, not a clean complete
+inventory. Mutation worksets requiring complete reference inspection refuse before
+effects instead of silently skipping candidates.
+
+### Derived content and recovery
+
+Router, lexical and semantic producer-version checks apply before cached content,
+tokens or vectors are used, including resident snapshots and reuse paths. Old
+content cannot become trusted through a metadata-only version update. Live list
+page revisions include current command semantics, so an unchanged dataset cannot
+revive a pre-change cached projection.
+
+Reader commands never acquire maintenance authority to repair stale assets.
+Recovery uses existing `runtime.refresh-router`, `retrieval.refresh-lexical` and
+`retrieval.rebuild-semantic` commands with their current permissions and admission.
+Lexical use remains independent of optional semantic provisioning; explicit
+semantic/hybrid requests retain their existing unavailable-state behaviour.
+Historical owner-bound retained output is not automatically purged or replayed,
+and this policy cannot erase information already disclosed.
+
+### Root README
+
+An optional exact root `README.md` is ordinary infrastructure, not an artefact or
+a generated Core file. Read it with `vault.read-file`; edit it with existing
+document commands using `resource: file`, `reference: README.md` and its read
+revision. No other generic file target is admitted. These edits do not attach
+artefact identity, workspace defaults or lifecycle behaviour. The same canonical
+source/destination guards apply; README support is not arbitrary host file access.
 
 See: [DD-031: Path security model](decisions/dd-031-path-security-model.md)
 

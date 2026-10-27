@@ -155,6 +155,7 @@ def test_document_mutation_schemas_preserve_typed_intents_and_revisions():
     assert schema["properties"]["fix_links"]["default"] is False
     assert schema["properties"]["document"]["properties"]["resource"]["enum"] == [
         "artefact",
+        "file",
         "memory",
         "skill",
         "style",

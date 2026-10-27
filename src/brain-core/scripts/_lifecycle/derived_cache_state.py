@@ -52,10 +52,14 @@ def inspect_router_cache(
     import compile_router
 
     vault_root = Path(vault_root)
-    router_path = vault_root / compile_router.OUTPUT_PATH
     rel_path = compile_router.OUTPUT_PATH
-    if not router_path.is_file():
+    from _bootstrap.owned_paths import owned_file
+    try:
+        router_path = owned_file(vault_root, rel_path)
+    except FileNotFoundError:
         return CacheState(True, "missing", rel_path)
+    except OSError:
+        return CacheState(True, "unsafe-layout", rel_path)
 
     try:
         data = json.loads(router_path.read_text(encoding="utf-8"))
@@ -69,6 +73,9 @@ def inspect_router_cache(
     meta = data.get("meta", {})
     if not isinstance(meta, dict):
         return CacheState(True, "invalid-metadata", rel_path)
+    from _common._router import router_version_matches
+    if not router_version_matches(vault_root, data):
+        return CacheState(True, "version-drift", rel_path)
     compiled_at = meta.get("compiled_at")
     sources = meta.get("sources", {})
     if not compiled_at or not isinstance(sources, dict) or not sources:
@@ -110,7 +117,22 @@ def inspect_router_cache(
                 return CacheState(True, f"{key}-count-drift", rel_path, data)
 
     for source_rel_path, expected_hash in sources.items():
-        abs_path = vault_root / source_rel_path
+        try:
+            if Path(source_rel_path).parts == (".brain-core", "VERSION"):
+                from _bootstrap.owned_paths import owned_file
+                abs_path = owned_file(vault_root, ".brain-core/VERSION")
+            else:
+                from _common._source_access import resolve_public_source
+                abs_path = resolve_public_source(vault_root, source_rel_path)
+        except FileNotFoundError:
+            source = Path(source_rel_path)
+            if source.is_absolute() or source.anchor or ".." in source.parts:
+                return CacheState(True, "source-unavailable", rel_path)
+            reason = ("artefact-index-source-unreadable"
+                      if source_rel_path in artefact_index_source_paths else "missing-source")
+            return CacheState(True, reason, rel_path, data, source_rel_path)
+        except (OSError, ValueError):
+            return CacheState(True, "source-unavailable", rel_path)
         if source_rel_path in artefact_index_source_paths:
             if not inventory_required:
                 continue
@@ -202,8 +224,12 @@ def require_fresh_compiled_router(vault_root: str | Path) -> dict[str, Any]:
     if state.stale:
         if state.source_path is not None:
             from _common import read_exact_file_content
-            source = Path(vault_root) / state.source_path
-            if source.is_file():
+            from _common._source_access import SourceAccessError, resolve_public_source
+            try:
+                source = resolve_public_source(vault_root, state.source_path)
+            except (SourceAccessError, FileNotFoundError):
+                pass
+            else:
                 read_exact_file_content(source)
         raise RouterCacheUnavailable(state)
     return dict(state.payload or {})
@@ -224,10 +250,14 @@ def inspect_lexical_cache(vault_root: str | Path) -> CacheState:
     import _search.paths as search_paths
 
     vault_root = Path(vault_root)
-    index_path = vault_root / search_paths.OUTPUT_PATH
     rel_path = search_paths.OUTPUT_PATH
-    if not index_path.is_file():
+    from _bootstrap.owned_paths import owned_file
+    try:
+        index_path = owned_file(vault_root, rel_path)
+    except FileNotFoundError:
         return CacheState(True, "missing", rel_path)
+    except OSError:
+        return CacheState(True, "unsafe-layout", rel_path)
 
     try:
         data = json.loads(index_path.read_text(encoding="utf-8"))
@@ -242,7 +272,7 @@ def inspect_lexical_cache(vault_root: str | Path) -> CacheState:
     if not isinstance(meta, dict):
         return CacheState(True, "invalid-metadata", rel_path, data)
     if meta.get("index_version") != search_paths.INDEX_VERSION:
-        return CacheState(True, "version-drift", rel_path, data)
+        return CacheState(True, "version-drift", rel_path)
 
     built_at = meta.get("built_at")
     if not built_at:

@@ -2,19 +2,21 @@
 
 from __future__ import annotations
 
+from _common._source_access import resolve_public_source
+
 from datetime import datetime, timezone
-import os
 import hashlib
 import json
+from pathlib import Path
 from typing import Any, Mapping, Sequence
 
-from _common import read_artefact, safe_write_json, safe_write_via
+from _common import safe_write_json, safe_write_via
 from _common._workspace import workspace_discovery_metadata
-from _lifecycle.document_parts import EmbeddingParts, embedding_parts_from_body
+from _lifecycle.document_parts import (read_embedding_document, current_document_type_hints,
+                                       document_type_hint)
 from _lifecycle.retrieval_errors import (
     RetrievalPersistenceError,
     SemanticRuntimeUnavailableError,
-    UnreadableRetrievalSourceError,
 )
 import _semantic.model as semantic_model
 import _semantic.runtime as semantic_runtime
@@ -47,16 +49,20 @@ def _safe_save_npy(vault_root, rel_path, array):
     """Persist a NumPy array atomically via the shared write primitive."""
     numpy = _require_numpy()
     vault_str = str(vault_root)
-    abs_path = os.path.join(vault_str, rel_path)
+    from _bootstrap.owned_paths import owned_output_paths
+    relative = Path(rel_path)
+    if relative.is_absolute():
+        relative = relative.relative_to(Path(vault_root).resolve())
+    abs_path, = owned_output_paths(vault_root, (relative,))
     try:
         return safe_write_via(
-            abs_path,
+            str(abs_path),
             lambda handle: numpy.save(handle, array),
             bounds=vault_str,
         )
     except (OSError, ValueError) as exc:
         raise RetrievalPersistenceError(
-            rel_path,
+            relative.as_posix(),
             "writing semantic embeddings sidecar",
             exc,
         ) from exc
@@ -69,6 +75,8 @@ def _build_type_corpus(vault_root, router: Mapping[str, Any]):
     type_meta = []
     type_desc_by_frontmatter = {}
     for i, artefact in enumerate(artefacts):
+        if artefact.get("taxonomy_file"):
+            resolve_public_source(vault_root, artefact["taxonomy_file"])
         desc = extract_type_description(vault_root, artefact)
         if not desc:
             desc = artefact.get("type", artefact.get("key", ""))
@@ -91,19 +99,17 @@ def _build_doc_corpus(
     documents: Sequence[Mapping[str, Any]],
     *,
     type_desc_by_frontmatter: Mapping[str, str],
-    embedding_parts_by_path: Mapping[str, EmbeddingParts] | None,
 ):
     """Return document texts and metadata for semantic sidecar generation."""
     doc_texts = []
     doc_meta = []
-    for doc in documents:
-        embedding_parts = _load_embedding_parts(
-            vault_root,
-            doc["path"],
-            embedding_parts_by_path,
-        )
-        if embedding_parts is None:
+    hints = current_document_type_hints(vault_root)
+    for supplied in documents:
+        parsed = read_embedding_document(vault_root, supplied["path"],
+            type_hint=document_type_hint(supplied["path"], hints))
+        if parsed is None:
             continue
+        doc, embedding_parts = parsed
         type_desc = type_desc_by_frontmatter.get(doc["type"], doc["type"])
         parts = [doc["title"], doc["type"], type_desc]
         if embedding_parts.headings:
@@ -130,32 +136,32 @@ def _build_doc_corpus(
 
 
 def _persist_embeddings_outputs(vault_root, type_embeddings, doc_embeddings, meta):
-    """Persist semantic sidecar arrays and metadata with typed write failures."""
-    vault_str = str(vault_root)
+    """Admit all outputs first; withdraw readiness before publishing arrays."""
+    paths = semantic_runtime.admit_semantic_outputs(vault_root)
+    published = []
+    relative = semantic_runtime.EMBEDDINGS_META_REL
+    operation = "preparing semantic embeddings sidecar directory"
     try:
-        os.makedirs(
-            os.path.join(vault_str, os.path.dirname(semantic_runtime.TYPE_EMBEDDINGS_REL)),
-            exist_ok=True,
-        )
-    except (OSError, ValueError) as exc:
-        raise RetrievalPersistenceError(
-            os.path.dirname(semantic_runtime.TYPE_EMBEDDINGS_REL),
-            "preparing semantic embeddings sidecar directory",
-            exc,
-        ) from exc
-
-    _safe_save_npy(vault_root, semantic_runtime.TYPE_EMBEDDINGS_REL, type_embeddings)
-    _safe_save_npy(vault_root, semantic_runtime.DOC_EMBEDDINGS_REL, doc_embeddings)
-
-    meta_path = os.path.join(vault_str, semantic_runtime.EMBEDDINGS_META_REL)
-    try:
-        safe_write_json(meta_path, meta, bounds=vault_str)
-    except (OSError, ValueError) as exc:
-        raise RetrievalPersistenceError(
-            semantic_runtime.EMBEDDINGS_META_REL,
-            "writing semantic embeddings metadata",
-            exc,
-        ) from exc
+        paths[relative].parent.mkdir(parents=True, exist_ok=True)
+        operation = "withdrawing semantic readiness before array publication"
+        try:
+            paths[relative].unlink()
+        except FileNotFoundError:
+            pass
+        else:
+            published.append(relative)
+        for relative, array in ((semantic_runtime.TYPE_EMBEDDINGS_REL, type_embeddings),
+                                (semantic_runtime.DOC_EMBEDDINGS_REL, doc_embeddings)):
+            operation = "writing semantic embeddings sidecar"
+            _safe_save_npy(vault_root, paths[relative], array)
+            published.append(relative)
+        relative = semantic_runtime.EMBEDDINGS_META_REL
+        operation = "writing semantic embeddings metadata"
+        safe_write_json(paths[relative], meta, bounds=str(vault_root))
+    except (OSError, ValueError, RetrievalPersistenceError) as exc:
+        error = RetrievalPersistenceError(relative, operation, exc)
+        error.committed_paths = tuple(dict.fromkeys(published))
+        raise error from exc
 
 
 def _text_hash(text):
@@ -174,10 +180,9 @@ def build_embeddings(
     vault_root,
     router: Mapping[str, Any],
     documents: Sequence[Mapping[str, Any]],
-    *,
-    embedding_parts_by_path: Mapping[str, EmbeddingParts] | None = None,
 ):
     """Compute embeddings for type descriptions and documents."""
+    semantic_runtime.admit_semantic_outputs(vault_root)
     _require_numpy()
 
     type_texts, type_meta, type_desc_by_frontmatter = _build_type_corpus(vault_root, router)
@@ -185,7 +190,6 @@ def build_embeddings(
         vault_root,
         documents,
         type_desc_by_frontmatter=type_desc_by_frontmatter,
-        embedding_parts_by_path=embedding_parts_by_path,
     )
 
     model, manifest = semantic_model.load_local_model_with_manifest(vault_root)
@@ -199,56 +203,31 @@ def build_embeddings(
     return (type_embeddings, doc_embeddings, meta)
 
 
-def _load_embedding_parts(
-    vault_root,
-    rel_path,
-    embedding_parts_by_path: Mapping[str, EmbeddingParts] | None,
-):
-    """Return embedding text fragments for one path, using cached parts when available."""
-    if embedding_parts_by_path is not None:
-        cached = embedding_parts_by_path.get(rel_path)
-        if cached is not None:
-            return cached
-
-    abs_path = os.path.join(str(vault_root), rel_path)
-    try:
-        _, body = read_artefact(abs_path)
-    except UnicodeDecodeError:
-        return None
-    except OSError as exc:
-        raise UnreadableRetrievalSourceError(
-            rel_path,
-            "building semantic embeddings",
-            exc,
-        ) from exc
-    return embedding_parts_from_body(body)
-
-
 def refresh_embeddings_outputs(
     vault_root,
     router: Mapping[str, Any],
     documents: Sequence[Mapping[str, Any]],
-    *,
-    embedding_parts_by_path: Mapping[str, EmbeddingParts] | None = None,
 ):
     """Refresh semantic sidecars for the current router and lexical document set."""
+    semantic_runtime.admit_semantic_outputs(vault_root)
     # Reuse only vectors whose exact encoder inputs and model identity match.
     manifest = semantic_model.inspect_model_state(vault_root).manifest
     old_types = old_docs = old_meta = None
     try:
         old_types, old_docs, old_meta = semantic_runtime.load_embeddings_state(vault_root)
+    except semantic_runtime.SemanticEmbeddingsLayoutError:
+        raise
     except semantic_runtime.SemanticEmbeddingsLoadError:
         pass
     if (manifest is None or old_meta is None or old_types is None or old_docs is None
+            or old_meta.get("metadata_version") != semantic_runtime.EMBEDDINGS_METADATA_VERSION
             or old_meta.get("model") != manifest.model_name
             or old_meta.get("model_revision") != manifest.revision
             or old_meta.get("dim") != semantic_runtime.EMBEDDING_DIM):
-        return build_embeddings(vault_root, router, documents,
-                                embedding_parts_by_path=embedding_parts_by_path)
+        return build_embeddings(vault_root, router, documents)
     type_texts, type_meta, descriptions = _build_type_corpus(vault_root, router)
     doc_texts, doc_meta = _build_doc_corpus(
         vault_root, documents, type_desc_by_frontmatter=descriptions,
-        embedding_parts_by_path=embedding_parts_by_path,
     )
     numpy = _require_numpy()
     type_hashes = [_text_hash(text) for text in type_texts]
@@ -311,10 +290,13 @@ def refresh_document_metadata(vault_root, router, documents):
     Source fingerprints and type-resource identity prove that every vector's
     encoder inputs are unchanged. Otherwise the caller invalidates the sidecars.
     """
-    meta_path = os.path.join(str(vault_root), semantic_runtime.EMBEDDINGS_META_REL)
+    from _bootstrap.owned_paths import owned_output_paths, UnsafeFilesystemLayoutError
     try:
+        meta_path, = owned_output_paths(vault_root, (semantic_runtime.EMBEDDINGS_META_REL,))
         with open(meta_path, encoding="utf-8") as handle:
             meta = json.load(handle)
+    except UnsafeFilesystemLayoutError:
+        raise
     except (OSError, ValueError):
         return False
     if (not isinstance(meta, dict)
@@ -324,7 +306,14 @@ def refresh_document_metadata(vault_root, router, documents):
     old_documents = meta.get("documents")
     if not isinstance(old_documents, list):
         return False
-    by_path = {doc["path"]: doc for doc in documents}
+    by_path = {}
+    hints = current_document_type_hints(vault_root)
+    for supplied in documents:
+        parsed = read_embedding_document(vault_root, supplied["path"],
+            type_hint=document_type_hint(supplied["path"], hints))
+        if parsed is None:
+            return False
+        by_path[supplied["path"]] = parsed[0]
     if len(by_path) != len(old_documents):
         return False
     updated = []

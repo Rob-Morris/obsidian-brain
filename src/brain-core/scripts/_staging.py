@@ -8,11 +8,15 @@ import secrets
 import time
 from pathlib import Path
 
+from _bootstrap.owned_paths import (
+    UnsafeFilesystemLayoutError, owned_directory, owned_file,
+)
 from _common import resolve_body_file, safe_write
 from _common._text_encoding import strip_leading_byte_order_marks
 
 
 STAGING_DIR = os.path.join(".brain", "local", "staging")
+_FILENAME_RE = re.compile(r"[a-f0-9]{32}\.body")
 _HANDLE_RE = re.compile(r"^body:([a-f0-9]{32})$")
 MAX_STAGED_BODY_BYTES = 16 * 1024 * 1024
 MAX_STAGING_BYTES = 64 * 1024 * 1024
@@ -35,11 +39,37 @@ def validate_staged_body_handle(handle):
     return handle
 
 
-def _iter_staged_bodies(directory):
-    """Yield only files that belong to the staged-body handle namespace."""
+def _inventory(vault_root):
+    directory = owned_directory(vault_root, STAGING_DIR)
+    records = []
+    foreign = False
     for item in directory.iterdir():
-        if item.is_file() and item.suffix == ".body":
-            yield item
+        if not _FILENAME_RE.fullmatch(item.name):
+            foreign = True
+            continue
+        try:
+            path = owned_file(vault_root, Path(STAGING_DIR) / item.name, single_link=True)
+            records.append((path, path.stat()))
+        except FileNotFoundError:
+            continue
+    return records, foreign
+
+
+def _bounded_bytes(path):
+    with path.open("rb") as stream:
+        body = stream.read(MAX_STAGED_BODY_BYTES + 1)
+    if len(body) > MAX_STAGED_BODY_BYTES:
+        raise ValueError(f"Staged body exceeds maximum of {MAX_STAGED_BODY_BYTES} bytes")
+    return body
+
+
+def _bounded_text(path):
+    return _bounded_bytes(path).decode("utf-8").replace("\r\n", "\n").replace("\r", "\n")
+
+
+def _owned_handle(vault_root, handle):
+    path = Path(_handle_path(vault_root, handle))
+    return owned_file(vault_root, Path(STAGING_DIR) / path.name, single_link=True)
 
 
 def stage_body(vault_root, content):
@@ -49,33 +79,40 @@ def stage_body(vault_root, content):
         raise ValueError(
             f"Staged body is {encoded_size} bytes; maximum is {MAX_STAGED_BODY_BYTES}"
         )
-    staging_dir = Path(vault_root) / STAGING_DIR
-    staging_dir.mkdir(parents=True, exist_ok=True)
-    sweep_staged_bodies(vault_root)
-    existing = list(_iter_staged_bodies(staging_dir))
-    total_bytes = sum(item.stat().st_size for item in existing)
-    if len(existing) >= MAX_STAGING_FILES or total_bytes + encoded_size > MAX_STAGING_BYTES:
+    owned_directory(vault_root, STAGING_DIR, create=True)
+    existing, foreign = _inventory(vault_root)
+    cutoff = time.time() - STAGING_TTL_SECONDS
+    retained = [(path, info) for path, info in existing if info.st_mtime >= cutoff]
+    total_bytes = sum(info.st_size for _, info in retained)
+    if len(retained) >= MAX_STAGING_FILES or total_bytes + encoded_size > MAX_STAGING_BYTES:
         raise ValueError(
             "Brain staging limit reached; consume or discard existing body handles"
         )
     token = secrets.token_hex(16)
     handle = f"body:{token}"
-    path = _handle_path(vault_root, handle)
-    Path(path).parent.mkdir(parents=True, exist_ok=True)
+    path = owned_file(vault_root, Path(STAGING_DIR) / f"{token}.body",
+                      missing_ok=True, single_link=True)
+    # Validate the entire inventory before any expiry cleanup or creation.
+    for item, info in existing:
+        if info.st_mtime < cutoff:
+            item.unlink(missing_ok=True)
     safe_write(path, content, bounds=vault_root)
-    return {"handle": handle, "bytes": encoded_size, "expires_in_seconds": STAGING_TTL_SECONDS}
+    result = {"handle": handle, "bytes": encoded_size, "expires_in_seconds": STAGING_TTL_SECONDS}
+    if foreign:
+        result["warnings"] = ("Unrecognised entries in .brain/local/staging were left untouched and excluded from staging quotas.",)
+    return result
 
 
 def read_staged_body(vault_root, handle):
-    path = _handle_path(vault_root, handle)
+    validate_staged_body_handle(handle)
     try:
-        staged_path = Path(path)
+        staged_path = _owned_handle(vault_root, handle)
         if staged_path.stat().st_mtime < time.time() - STAGING_TTL_SECONDS:
             staged_path.unlink(missing_ok=True)
             raise ValueError(
                 f"Expired body_handle '{handle}'. Stage the content again."
             )
-        return staged_path.read_text(encoding="utf-8")
+        return _bounded_text(staged_path)
     except FileNotFoundError:
         raise ValueError(
             f"Unknown or already-consumed body_handle '{handle}'. Stage the content again."
@@ -84,26 +121,21 @@ def read_staged_body(vault_root, handle):
 
 def inspect_staged_body(vault_root, handle):
     """Read preparation input without deleting expired handles or changing state."""
-    path = Path(_handle_path(vault_root, handle))
+    validate_staged_body_handle(handle)
     try:
-        if path.is_symlink() or not path.is_file():
-            raise ValueError("Staged preparation input must be a regular file.")
+        path = _owned_handle(vault_root, handle)
         if path.stat().st_mtime < time.time() - STAGING_TTL_SECONDS:
             raise ValueError(f"Expired body_handle '{handle}'. Stage the content again.")
-        return path.read_text(encoding="utf-8")
+        return _bounded_text(path)
     except FileNotFoundError:
         raise ValueError(f"Unknown body_handle '{handle}'. Stage the content again.") from None
 
 
 def inspect_staged_body_for_discard(vault_root, handle):
     """Observe even an expired discard target without deleting it; absence is valid."""
-    path = Path(_handle_path(vault_root, handle))
-    if path.is_symlink():
-        raise ValueError("Staged discard target must be a regular file.")
+    validate_staged_body_handle(handle)
     try:
-        if path.exists() and not path.is_file():
-            raise ValueError("Staged discard target must be a regular file.")
-        return path.read_bytes()
+        return _bounded_bytes(_owned_handle(vault_root, handle))
     except FileNotFoundError:
         return None
 
@@ -122,9 +154,9 @@ def resolve_mutation_body(vault_root, *, body="", body_file="", body_handle=""):
 
 
 def consume_staged_body(vault_root, handle):
-    path = _handle_path(vault_root, handle)
+    validate_staged_body_handle(handle)
     try:
-        os.unlink(path)
+        _owned_handle(vault_root, handle).unlink()
     except FileNotFoundError:
         return False
     return True
@@ -137,18 +169,19 @@ def discard_staged_body(vault_root, handle):
 
 def sweep_staged_bodies(vault_root, *, now=None):
     """Remove expired staging files and return the number discarded."""
-    directory = Path(vault_root) / STAGING_DIR
-    if not directory.is_dir():
+    try:
+        records, _foreign = _inventory(vault_root)
+    except FileNotFoundError:
         return 0
     cutoff = (time.time() if now is None else now) - STAGING_TTL_SECONDS
     removed = 0
-    for item in _iter_staged_bodies(directory):
-        try:
-            if item.stat().st_mtime < cutoff:
+    for item, info in records:
+        if info.st_mtime < cutoff:
+            try:
                 item.unlink()
                 removed += 1
-        except FileNotFoundError:
-            continue
+            except FileNotFoundError:
+                continue
     return removed
 
 
@@ -158,8 +191,10 @@ def finalise_staged_body(vault_root, handle):
         return None
     try:
         consumed = consume_staged_body(vault_root, handle)
-    except OSError as exc:
+    except UnsafeFilesystemLayoutError as exc:
         return f"Mutation succeeded, but staged body cleanup failed: {exc}"
+    except OSError:
+        return "Mutation succeeded, but staged body cleanup failed in .brain/local/staging."
     if not consumed:
         return "Mutation succeeded; the staged body handle was already absent."
     return None

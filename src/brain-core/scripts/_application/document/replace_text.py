@@ -43,7 +43,7 @@ DocumentReplaceTextMatch = UniqueMatch | OccurrenceMatch | AllMatches
 @dataclass(frozen=True, slots=True)
 class DocumentReplaceTextRequest(WorkspaceDispositionRequest):
     COMMAND_ID: ClassVar[str] = "document.replace-text"
-    COMMAND_VERSION: ClassVar[int] = 2
+    COMMAND_VERSION: ClassVar[int] = 3
     RESULT_TYPE: ClassVar[type] = DocumentReplaceTextPayload
     FIELD_DESCRIPTIONS: ClassVar[dict[str, str]] = {
         "document": "Existing editable Brain document.",

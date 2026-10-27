@@ -6,6 +6,7 @@ from collections import namedtuple
 from dataclasses import dataclass
 
 from ._artefacts import read_exact_file_content
+from ._source_access import resolve_content_source, SourceAccessError
 from ._document_revision import NonStandardVaultTextError, UnreadableVaultTextFilesError, vault_text_failure
 
 from ._vault import is_system_dir, TEMPORAL_DIR
@@ -70,14 +71,14 @@ def _iter_vault_md_files(vault_root):
     ``_``-prefixed directory beneath ``_Temporal`` is descended.
     """
     for dirpath, _dirnames, filenames in os.walk(vault_root):
-        _dirnames[:] = [name for name in _dirnames if name != ".brain"]
+        _dirnames[:] = [name for name in _dirnames if not name.startswith(".")]
         rel_dir = os.path.relpath(dirpath, vault_root)
         if rel_dir != "." and is_system_dir(os.path.basename(dirpath)):
             if not rel_dir.startswith(TEMPORAL_DIR):
                 _dirnames[:] = []
                 continue
         for fname in filenames:
-            if fname.endswith(".md"):
+            if not fname.startswith(".") and fname.endswith(".md"):
                 yield dirpath, fname
 
 
@@ -239,9 +240,19 @@ def plan_wikilink_rewrites(vault_root, pattern, replacement, *, paths=None,
     overrides = overrides or {}
     for path in sorted(set(candidates)):
         try:
+            source = resolve_content_source(vault_root, path)
+            if read_snapshot is not None and path in read_snapshot:
+                from pathlib import Path
+                snapshot_source = getattr(read_snapshot[path], "source_path", None)
+                if snapshot_source is None or Path(snapshot_source).resolve() != source:
+                    raise SourceAccessError("Snapshot does not identify the admitted source")
             before = (read_snapshot[path] if read_snapshot is not None and path in read_snapshot
                       else read_exact_file_content(
-                          os.path.join(vault_root, path), convert_lossless=True))
+                          source, convert_lossless=True))
+        except SourceAccessError as exc:
+            unreadable.append(f"{path}: {exc}")
+            failures.append((path, "source_refused", str(exc)))
+            continue
         except NonStandardVaultTextError as exc:
             unreadable.append(f"{path}: {exc.code}; {exc.remedy}")
             failures.append(vault_text_failure(path, exc))
@@ -880,8 +891,13 @@ def check_wikilinks_in_file(
     all_basenames_complete = file_index.get("all_basenames_complete", True)
     md_relpaths = file_index["md_relpaths"]
 
+    try:
+        fpath = resolve_content_source(vault_root, rel_path)
+    except FileNotFoundError:
+        if text is None:
+            return []
+        raise
     if text is None:
-        fpath = os.path.join(vault_root, rel_path)
         try:
             text = read_exact_file_content(fpath, convert_lossless=True)
         except FileNotFoundError:

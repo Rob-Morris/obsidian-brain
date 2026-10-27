@@ -159,7 +159,10 @@ def _execute_lifecycle(context, request, *, operation: str, owner, **kwargs):
 
 
 def _committed_effects(command_id: str, result: dict, *, fallback: bool = False):
-    subjects: list[str] = []
+    subjects: list[str] = [
+        path for item in result.get("steps") or ()
+        for path in item.get("committed_effects", ())
+    ]
     changed = {
         item.get("name")
         for item in result.get("steps") or ()

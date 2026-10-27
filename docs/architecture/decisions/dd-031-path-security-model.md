@@ -3,6 +3,16 @@
 **Status:** Implemented
 **Extended by:** DD-059
 
+**Refinement — command source and fixed-state guards:** Canonical containment
+also applies in final-link no-follow mode. Source admission must finish key,
+basename and extension resolution before the selected bytes are opened. Public,
+archive, named-resource and fixed-internal capabilities remain separate; router
+entries and cached locators do not confer access. Fixed lock/staging/cleanup
+directories reject redirected components before enumeration or effects, while
+host aliases above a selected canonical root remain supported. See the current
+[security model](../security.md#operation-specific-file-authority) for ownership,
+read/write policy, derived-cache recovery and the bounded static-layout guarantee.
+
 ## Context
 
 The MCP server accepts file paths from agents and writes to the vault filesystem. Without boundaries, a malicious or confused agent could write to system directories, follow symlinks out of the vault, or modify brain-core's own scripts. The security model must handle three distinct concerns:

@@ -338,7 +338,7 @@ class TestBuildIndex:
         index = built_index(vault)
         meta = index["meta"]
         assert meta["brain_core_version"] == "1.0.0"
-        assert meta["index_version"] == "1.2.0"
+        assert meta["index_version"] == "1.3.0"
         assert "built_at" in meta
         assert meta["document_count"] == 4
 
@@ -463,7 +463,7 @@ class TestIncrementalIndex:
         raw = b"\xff\xfe\x00\x00"
         path.write_bytes(raw)
         result = build_index(vault)
-        assert "Wiki/broken.md" not in result.embedding_parts_by_path
+        assert "Wiki/broken.md" not in {doc["path"] for doc in result.index["documents"]}
         assert all(doc["path"] != "Wiki/broken.md" for doc in result.index["documents"])
         assert result.index["meta"]["document_count"] == 4
         assert path.read_bytes() == raw
@@ -689,7 +689,7 @@ class TestBuildEmbeddings:
 
 class TestEmbeddingsOutputs:
     @pytest.mark.parametrize("undecodable", [False, True])
-    def test_build_embeddings_uses_cached_embedding_parts(self, vault, monkeypatch, undecodable):
+    def test_build_embeddings_reads_current_source_once(self, vault, monkeypatch, undecodable):
         class FakeNumpy:
             @staticmethod
             def zeros(shape):
@@ -720,17 +720,20 @@ class TestEmbeddingsOutputs:
             (vault / "Wiki" / "broken.md").write_bytes(b"\xff\xfe\x00\x00")
         build_result = build_index(vault)
         index = build_result.index
-        monkeypatch.setattr(
-            semantic_assets,
-            "read_artefact",
-            lambda *_args, **_kwargs: pytest.fail("build_embeddings should use cached embedding parts"),
-        )
+        import _common
+        reads = []
+        original_read = _common.read_artefact
+
+        def read(path):
+            reads.append(Path(path).relative_to(vault).as_posix())
+            return original_read(path)
+
+        monkeypatch.setattr(_common, "read_artefact", read)
 
         result = semantic_assets.build_embeddings(
             vault,
             {"artefacts": [], "meta": {"source_hash": "sha256:test-source-hash"}},
             index["documents"],
-            embedding_parts_by_path=build_result.embedding_parts_by_path,
         )
 
         assert result is not None
@@ -738,14 +741,15 @@ class TestEmbeddingsOutputs:
         assert len(embeddings) == len(meta["documents"]) == 4
         assert [doc["index"] for doc in meta["documents"]] == list(range(4))
         assert all(doc["path"] != "Wiki/broken.md" for doc in meta["documents"])
-        assert set(build_result.embedding_parts_by_path) == {
+        assert len(reads) == len(index["documents"])
+        assert set(reads) == {
             "Wiki/python-basics.md",
             "Wiki/rust-ownership.md",
             "Designs/brain-tooling.md",
             "_Temporal/Logs/20260315-retrieval-research.md",
         }
 
-    def test_build_embeddings_propagates_missing_uncached_document_reads(self, vault, monkeypatch):
+    def test_build_embeddings_propagates_missing_source_reads(self, vault, monkeypatch):
 
         with pytest.raises(
             retrieval_errors.UnreadableRetrievalSourceError,
@@ -763,7 +767,6 @@ class TestEmbeddingsOutputs:
                         "status": "active",
                     }
                 ],
-                embedding_parts_by_path={},
             )
         assert "while building semantic embeddings" in str(exc.value)
 
@@ -907,14 +910,18 @@ class TestEmbeddingsOutputs:
         )
 
         with pytest.raises(
-            retrieval_errors.CompiledRouterUnavailableError,
+            retrieval_assets.RetrievalRefreshIncomplete,
             match="compiled router is unavailable: compiled router missing while building semantic embeddings",
-        ):
+        ) as exc:
             retrieval_assets.persist_retrieval_outputs(
                 vault,
                 built_index(vault),
                 force_embeddings=True,
             )
+
+        assert isinstance(exc.value.__cause__, retrieval_errors.CompiledRouterUnavailableError)
+        assert exc.value.committed_paths == (OUTPUT_PATH,)
+        assert (vault / OUTPUT_PATH).is_file()
 
     def test_persist_outputs_clears_stale_sidecars_when_process_disabled(self, vault):
         for rel_path in (
@@ -968,14 +975,18 @@ class TestEmbeddingsOutputs:
         )
 
         with pytest.raises(
-            retrieval_errors.SemanticRuntimeUnavailableError,
+            retrieval_assets.RetrievalRefreshIncomplete,
             match="numpy is not installed",
-        ):
+        ) as exc:
             retrieval_assets.persist_retrieval_outputs(
                 vault,
                 built_index(vault),
                 router={"artefacts": []},
             )
+        assert isinstance(exc.value.__cause__, retrieval_errors.SemanticRuntimeUnavailableError)
+        assert exc.value.committed_paths == (OUTPUT_PATH,)
+        assert (vault / OUTPUT_PATH).is_file()
+
 
     def test_persist_outputs_raises_runtime_unavailable_in_strict_mode(self, vault, monkeypatch):
         monkeypatch.setattr(
@@ -990,15 +1001,19 @@ class TestEmbeddingsOutputs:
         )
 
         with pytest.raises(
-            retrieval_errors.SemanticRuntimeUnavailableError,
+            retrieval_assets.RetrievalRefreshIncomplete,
             match="numpy is not installed",
-        ):
+        ) as exc:
             retrieval_assets.persist_retrieval_outputs(
                 vault,
                 built_index(vault),
                 router={"artefacts": []},
                 force_embeddings=True,
             )
+        assert isinstance(exc.value.__cause__, retrieval_errors.SemanticRuntimeUnavailableError)
+        assert exc.value.committed_paths == (OUTPUT_PATH,)
+        assert (vault / OUTPUT_PATH).is_file()
+
 
 
 class TestBuildIndexCli:
@@ -1070,18 +1085,14 @@ class TestBuildIndexCli:
         assert not (vault / OUTPUT_PATH).exists()
 
 
-@pytest.mark.parametrize("cached", [False, True])
-def test_semantic_corpus_skips_undecodable_parts_and_aligns_rows(vault, cached):
+def test_semantic_corpus_skips_undecodable_sources_and_aligns_rows(vault):
     result = build_index(vault)
     docs = result.index["documents"]
     broken = docs[0]["path"]
     raw = b"\xff\xfe\x00\x00"
     (vault / broken).write_bytes(raw)
-    cache = dict(result.embedding_parts_by_path) if cached else None
-    if cache is not None:
-        cache.pop(broken)
     texts, meta = semantic_assets._build_doc_corpus(
-        vault, docs, type_desc_by_frontmatter={}, embedding_parts_by_path=cache,
+        vault, docs, type_desc_by_frontmatter={},
     )
     assert len(texts) == len(meta) == len(docs) - 1
     assert [entry["index"] for entry in meta] == list(range(len(meta)))
@@ -1089,13 +1100,14 @@ def test_semantic_corpus_skips_undecodable_parts_and_aligns_rows(vault, cached):
     assert (vault / broken).read_bytes() == raw
 
 
-def test_loaded_state_refresh_skips_undecodable_document_without_rereading(vault, monkeypatch):
+def test_loaded_state_refresh_reads_each_current_source_once(vault, monkeypatch):
     docs = built_index(vault)["documents"]
     broken = docs[0]["path"]
     raw = b"\xff\xfe\x00\x00"
     (vault / broken).write_bytes(raw)
     reads = []
-    original_read = retrieval_assets.read_artefact
+    import _common
+    original_read = _common.read_artefact
 
     def read(path):
         reads.append(path)
@@ -1110,13 +1122,11 @@ def test_loaded_state_refresh_skips_undecodable_document_without_rereading(vault
         def encode(self, texts, normalize_embeddings=True):
             return [[float(i)] for i, _ in enumerate(texts)]
 
-    monkeypatch.setattr(retrieval_assets, "read_artefact", read)
+    monkeypatch.setattr(_common, "read_artefact", read)
     monkeypatch.setattr(retrieval_assets, "embeddings_should_refresh", lambda *a, **kw: True)
     monkeypatch.setattr(semantic_assets, "np", FakeNumpy())
     monkeypatch.setattr(semantic_assets.semantic_model, "load_local_model_with_manifest",
                         lambda root: (FakeModel(), _model_manifest()))
-    monkeypatch.setattr(semantic_assets, "read_artefact",
-                        lambda *a: pytest.fail("Materialised parts must not be reread"))
     saved = []
     monkeypatch.setattr(semantic_assets, "_persist_embeddings_outputs",
                         lambda *args: saved.append(args))
@@ -1141,7 +1151,8 @@ def test_loaded_state_refresh_retains_named_os_failure(vault, monkeypatch):
     def fail(path):
         raise OSError("read refused")
 
-    monkeypatch.setattr(retrieval_assets, "read_artefact", fail)
+    import _common
+    monkeypatch.setattr(_common, "read_artefact", fail)
     with pytest.raises(retrieval_errors.UnreadableRetrievalSourceError,
                        match=docs[0]["path"]) as exc:
         retrieval_assets.refresh_embeddings_for_loaded_state(vault, {}, docs)

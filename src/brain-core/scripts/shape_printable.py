@@ -17,6 +17,7 @@ Usage (CLI):
 
 import json
 import os
+from _common._source_access import resolve_public_source
 import re
 import shutil
 import subprocess
@@ -60,7 +61,7 @@ def _read_template(vault_root):
     ]
     for path in paths:
         if os.path.isfile(path):
-            with open(path, "r", encoding="utf-8") as f:
+            with open(resolve_public_source(vault_root, path), "r", encoding="utf-8") as f:
                 return f.read()
     return None
 
@@ -74,7 +75,7 @@ def _resolve_support_path(vault_root, filename):
     ]
     for path in paths:
         if os.path.isfile(path):
-            return path
+            return str(resolve_public_source(vault_root, path))
     return None
 
 
@@ -172,7 +173,7 @@ def _render_pdf(vault_root, markdown_abs, params):
             ),
         }
 
-    with open(markdown_abs, "r", encoding="utf-8") as f:
+    with open(resolve_public_source(vault_root, markdown_abs), "r", encoding="utf-8") as f:
         content = f.read()
 
     frontmatter, _body = parse_frontmatter(content)

@@ -22,7 +22,6 @@ from _common import (
     parse_frontmatter,
     PartialApplyError,
     public_mutation_error_message,
-    read_file_content,
     read_exact_file_content,
     reconcile_fields_for_render,
     render_filename_or_default,
@@ -37,6 +36,8 @@ from _common import (
     vault_mutation_lock,
 )
 from _lifecycle.derived_cache_state import load_fresh_compiled_router
+from _common._source_access import read_public_content, resolve_content_source
+from _common._filesystem import validate_artefact_write_target
 
 
 SHAPING_MODES = ("brainstorm", "refine", "discover")
@@ -160,10 +161,11 @@ def _linked_transcripts(
                 rel_path, transcript_artefact, layout_fields
             ):
                 continue
-            abs_path = os.path.join(vault_root, rel_path)
-            if not os.path.isfile(abs_path):
+            try:
+                source = resolve_content_source(vault_root, rel_path)
+                transcript = read_exact_file_content(source)
+            except FileNotFoundError:
                 continue
-            transcript = read_exact_file_content(abs_path)
             if not _transcript_names_source(transcript, source_path, file_index):
                 continue
             matches.append(rel_path)
@@ -195,9 +197,8 @@ def _choose_transcript_path(
     if len(linked) > 1:
         source_counts = {}
         for rel_path in linked:
-            transcript_abs = os.path.join(vault_root, rel_path)
             source_counts[rel_path] = _transcript_source_count(
-                read_exact_file_content(transcript_abs), file_index)
+                read_exact_file_content(resolve_content_source(vault_root, rel_path)), file_index)
         widest_count = max(source_counts.values())
         widest = [
             rel_path
@@ -215,9 +216,12 @@ def _choose_transcript_path(
 
     stem = os.path.splitext(filename)[0]
     candidate = os.path.join(folder, filename)
-    candidate_abs = os.path.join(vault_root, candidate)
-    if os.path.isfile(candidate_abs):
-        existing = read_exact_file_content(candidate_abs)
+    try:
+        candidate_source = resolve_content_source(vault_root, candidate)
+    except FileNotFoundError:
+        candidate_source = None
+    if candidate_source is not None:
+        existing = read_exact_file_content(candidate_source)
         if _transcript_names_source(existing, source_path, file_index):
             return candidate, True
         filename = unique_filename(os.path.join(vault_root, folder), stem)
@@ -231,7 +235,7 @@ def _read_transcript_template(vault_root, artefact):
         raise FileNotFoundError(
             "Shaping transcript type has no configured template_file"
         )
-    content = read_file_content(vault_root, template_path)
+    content = read_public_content(vault_root, template_path)
     if isinstance(content, MissingFileResult):
         raise FileNotFoundError(
             f"Shaping transcript template not found at '{template_path}'"
@@ -310,9 +314,11 @@ def _prepare_shaping_target(vault_root, router, target):
     resolved_path, artefact = resolve_and_validate_folder(
         vault_root, router, target.strip()
     )
-    source_content = read_file_content(vault_root, resolved_path)
-    if isinstance(source_content, MissingFileResult):
-        raise FileNotFoundError(f"Cannot read target: {source_content}")
+    try:
+        source = resolve_content_source(vault_root, resolved_path)
+        source_content = read_exact_file_content(source)
+    except FileNotFoundError:
+        raise FileNotFoundError(f"Cannot read target: file not found: {resolved_path}") from None
     fields, body = parse_frontmatter(source_content)
 
     shaping = artefact.get("shaping")
@@ -348,6 +354,8 @@ def plan_shaping_session(vault_root, router, target, *, mode, _now=None, _prepar
         vault_root, router, target
     )
     resolved_path = prepared.resolved_path
+    # A supplied prepared target is a snapshot, not current filesystem authority.
+    resolve_content_source(vault_root, resolved_path)
     artefact = prepared.artefact
     fields = prepared.fields
     body = prepared.body
@@ -383,7 +391,8 @@ def plan_shaping_session(vault_root, router, target, *, mode, _now=None, _prepar
         if transcript_exists
         else _read_transcript_template(vault_root, transcript_artefact)
     )
-    transcript_abs = os.path.join(vault_root, transcript_path)
+    validate_artefact_write_target(os.path.join(vault_root, transcript_path), vault_root)
+    validate_artefact_write_target(os.path.join(vault_root, resolved_path), vault_root)
 
     status_behaviour = prepared.status_behaviour
     status_changed = (
@@ -432,7 +441,10 @@ def start_shaping_session(
             lifecycle = edit.apply_artefact_transition(vault_root, plan["lifecycle"])
             lifecycle_applied = True
             target_path = lifecycle["path"]
-            refreshed = read_file_content(vault_root, target_path)
+            try:
+                refreshed = read_exact_file_content(resolve_content_source(vault_root, target_path))
+            except FileNotFoundError:
+                refreshed = MissingFileResult(target_path)
             if isinstance(refreshed, MissingFileResult):
                 raise PartialApplyError(
                     f"shaping session partially applied — lifecycle updated "
@@ -449,7 +461,7 @@ def start_shaping_session(
             f"{now.strftime('%H:%M')}\n"
         )
         if transcript_exists:
-            transcript_content = read_exact_file_content(transcript_abs)
+            transcript_content = read_exact_file_content(resolve_content_source(vault_root, transcript_path))
             if "transcript_fields" in plan:
                 existing_fields, transcript_body = parse_frontmatter(transcript_content)
                 if existing_fields != plan["transcript_fields"]:

@@ -67,6 +67,39 @@ def test_persist_session_markdown_skips_byte_identical_write(tmp_path, monkeypat
     assert writes == []
 
 
+@pytest.mark.parametrize("kind", ["record", "parent"])
+def test_session_mirror_refuses_redirected_scope_before_read_or_write(tmp_path, monkeypatch, kind):
+    import builtins
+    from _bootstrap.owned_paths import UnsafeFilesystemLayoutError
+
+    root = tmp_path / "vault"
+    root.mkdir()
+    ordinary = tmp_path / "ordinary"
+    ordinary.mkdir()
+    sentinel = ordinary / "session.md"
+    sentinel.write_text("Unrelated synthetic content")
+    if kind == "record":
+        directory = root / ".brain/local"
+        directory.mkdir(parents=True)
+        (directory / "session.md").symlink_to(sentinel)
+    else:
+        (root / ".brain").mkdir()
+        (root / ".brain/local").symlink_to(ordinary, target_is_directory=True)
+    original = builtins.open
+
+    def observed(path, *args, **kwargs):
+        if isinstance(path, (str, Path)) and Path(path).resolve() == sentinel:
+            pytest.fail("mirror refusal opened unrelated content")
+        return original(path, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "open", observed)
+    monkeypatch.setattr(session, "render_session_markdown", lambda _: "Generated session\n")
+    with pytest.raises(UnsafeFilesystemLayoutError):
+        session.persist_session_markdown({}, root)
+    assert sentinel.read_text() == "Unrelated synthetic content"
+    assert set(ordinary.iterdir()) == {sentinel}
+
+
 class TestBuildSessionModel:
     def test_includes_only_the_bounded_static_command_route(self, tmp_path):
         (tmp_path / ".brain-core").mkdir()

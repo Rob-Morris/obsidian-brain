@@ -42,11 +42,9 @@ def resolve_and_check_bounds(path, bounds, *, follow_symlinks=True):
     Raises ValueError if the target resolves outside bounds or if
     *follow_symlinks* is False and the path is a symlink.
     """
-    target = str(path)
-    if follow_symlinks:
-        target = os.path.realpath(target)
-    elif os.path.islink(target):
+    if not follow_symlinks and os.path.islink(path):
         raise ValueError(f"Refusing to follow symlink: {path}")
+    target = os.path.realpath(str(path))
 
     real_bounds = os.path.realpath(str(bounds))
     # Append os.sep so "/home/foo" doesn't match "/home/foobar"

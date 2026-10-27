@@ -92,7 +92,8 @@ def find_vault_root(vault_arg=None):
 
 def read_version(vault_root):
     """Read brain-core version from the canonical VERSION file."""
-    version_file = os.path.join(str(vault_root), ".brain-core", "VERSION")
+    from _bootstrap.owned_paths import owned_file
+    version_file = owned_file(vault_root, ".brain-core/VERSION")
     with open(version_file, "r", encoding="utf-8") as f:
         return f.read().strip()
 

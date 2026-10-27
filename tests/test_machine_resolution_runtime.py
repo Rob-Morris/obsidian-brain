@@ -42,6 +42,7 @@ def test_resolution_runtime_deploys_stdlib_resolver_and_version_stamp(tmp_path, 
     assert (runtime_root / "_text_content.py").is_file()
     assert (runtime_root / "_common" / "_text_encoding.py").is_file()
     assert (runtime_root / "_bootstrap" / "workspace_binding.py").is_file()
+    assert (runtime_root / "_bootstrap" / "owned_paths.py").is_file()
     assert (runtime_root / "_common" / "_vault.py").is_file()
     assert not (runtime_root / "_common" / "__init__.py").exists()
 
@@ -64,7 +65,7 @@ def test_resolution_runtime_deploys_stdlib_resolver_and_version_stamp(tmp_path, 
     assert payload["session_resolution"]["code"] == "no_brain"
 
 
-@pytest.mark.parametrize("missing_source", ("_common/_vault.py", "_common/_text_encoding.py", "_text_content.py"))
+@pytest.mark.parametrize("missing_source", ("_common/_vault.py", "_common/_text_encoding.py", "_text_content.py", "_bootstrap/owned_paths.py"))
 def test_resolution_runtime_refuses_partial_deploy_when_source_closure_missing(tmp_path, missing_source):
     scripts = tmp_path / "scripts"
     shutil.copytree(SCRIPTS_DIR, scripts)
@@ -82,6 +83,28 @@ def test_resolution_runtime_refuses_partial_deploy_when_source_closure_missing(t
     assert result["changed_files"] == []
     assert existing_entry.read_text() == "old runtime\n"
     assert deployed_version(runtime_root) is None
+
+
+def test_resolution_runtime_refreshes_owned_paths_without_version_change(tmp_path):
+    scripts = tmp_path / "scripts"
+    for relative, _destination in _DEPLOY_FILES:
+        source = scripts / relative
+        source.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(SCRIPTS_DIR / relative, source)
+    runtime_root = tmp_path / "runtime"
+    ensure_resolution_runtime(scripts, runtime_root=runtime_root)
+    version = deployed_version(runtime_root)
+    relative = "_bootstrap/owned_paths.py"
+    source = scripts / relative
+    source.write_bytes(source.read_bytes() + b"\n# Synthetic dependency refresh.\n")
+
+    result = ensure_resolution_runtime(scripts, runtime_root=runtime_root)
+
+    assert result["status"] == "changed"
+    assert result["changed_files"] == [relative]
+    assert (runtime_root / relative).read_bytes() == source.read_bytes()
+    assert deployed_version(runtime_root) == version
+    assert ensure_resolution_runtime(scripts, runtime_root=runtime_root)["status"] == "noop"
 
 
 def test_deployed_resolution_runtime_import_closure_is_self_contained(tmp_path):

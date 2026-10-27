@@ -30,16 +30,16 @@ def render_plan(context, request, *, frozen_inputs=None):
 
 def render_binding(context, request, *, plan, frozen_inputs=None):
     from _common import parse_frontmatter
-    from _portable.maintenance_inputs import file_identity
+    from _portable.maintenance_inputs import file_identity, public_file_identity
     root = context.selected_brain.vault_root
     owner, params = render_owner(request)
     folder = "Presentations" if plan.kind == "presentation" else "Printables"
     pdf = f"_Assets/Generated/{folder}/{Path(plan.path).stem}.pdf"
-    observations = [ObservedResource("render-source", plan.source, file_identity(root / plan.source)),
-                    ObservedResource("render-document", plan.path, file_identity(root / plan.path)),
+    observations = [ObservedResource("render-source", plan.source, public_file_identity(root, plan.source)),
+                    ObservedResource("render-document", plan.path, public_file_identity(root, plan.path)),
                     ObservedResource("render-content", plan.path, content_digest(plan.content))]
     if request.render:
-        observations.append(ObservedResource("render-pdf", pdf, file_identity(root / pdf)))
+        observations.append(ObservedResource("render-pdf", pdf, public_file_identity(root, pdf)))
     support, tools = {}, {}
     if plan.kind == "presentation":
         support["theme"] = owner._resolve_theme_path(str(root))

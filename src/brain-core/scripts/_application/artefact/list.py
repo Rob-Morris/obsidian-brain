@@ -60,7 +60,7 @@ class ArtefactListPayload:
 @dataclass(frozen=True, slots=True)
 class ArtefactListRequest:
     COMMAND_ID: ClassVar[str] = "artefact.list"
-    COMMAND_VERSION: ClassVar[int] = 4
+    COMMAND_VERSION: ClassVar[int] = 5
     FIELD_DESCRIPTIONS: ClassVar[dict[str, str]] = {
         "workspace": "Optional canonical workspace/{key} discovery filter; does not grant authority or require an existing active target. Omit for vault-wide discovery.",
         "workspace_match": "Match primary membership or relevant membership (primary plus canonical workspace tags).",
@@ -114,21 +114,23 @@ class ArtefactListRequest:
 def execute(context: InvocationContext, request: ArtefactListRequest):
     from _common import artefact_type_prefix, make_artefact_key
     from _portable.artefact_listing import list_combined_from_vault
-    from _search.lexical_query import IndexNotFoundError
+    from _search.lexical_query import IndexNotFoundError, IndexVersionError, load_index
+    from .._search_support import exclusion_warnings, load_router
 
+    router = load_router(context, ArtefactListRequest)
+    if isinstance(router, Error):
+        return router
+    index = None
     try:
         snapshots = context.derived_snapshots
+        if request.location in {ArtefactListLocation.ACTIVE, ArtefactListLocation.ALL}:
+            index = (snapshots.load_lexical_index() if snapshots is not None
+                     else load_index(context.selected_brain.vault_root))
         page = list_combined_from_vault(
             context.selected_brain.vault_root,
             location=request.location.value,
-            router=(snapshots.load_router() if snapshots is not None else None),
-            index=(
-                snapshots.load_lexical_index()
-                if snapshots is not None
-                and request.location
-                in {ArtefactListLocation.ACTIVE, ArtefactListLocation.ALL}
-                else None
-            ),
+            router=router,
+            index=index,
             type_filter=request.type_filter,
             since=request.since,
             until=request.until,
@@ -142,7 +144,7 @@ def execute(context: InvocationContext, request: ArtefactListRequest):
             sort=request.sort.value,
             cursor=request.cursor,
         )
-    except (FileNotFoundError, IndexNotFoundError) as exc:
+    except (FileNotFoundError, IndexNotFoundError, IndexVersionError) as exc:
         return _error(ErrorCode.CONFLICT, str(exc), None)
     except (TypeError, ValueError) as exc:
         return _error(ErrorCode.INVALID_REQUEST, str(exc), None)
@@ -184,6 +186,10 @@ def execute(context: InvocationContext, request: ArtefactListRequest):
             truncated=page["truncated"],
             next_cursor=page["next_cursor"],
             omitted_missing_created=page["omitted_missing_created"],
+        ),
+        warnings=exclusion_warnings(
+            (len(index.get("meta", {}).get("skipped_paths", ())) if index is not None else 0)
+            + page.get("excluded_sources", 0)
         ),
     )
 

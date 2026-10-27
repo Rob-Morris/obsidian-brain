@@ -199,6 +199,21 @@ class TestSearch:
 
 
 class TestSemanticSearch:
+    @pytest.fixture(autouse=True)
+    def ready_router(self, vault):
+        import compile_router
+        (vault / "_Config/router.md").write_text("Always:\n- Test rule\n")
+        router = compile_router.compile(vault)
+        output = vault / ".brain/local/compiled-router.json"
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_text(json.dumps(router))
+        self.router = router
+
+    @staticmethod
+    def _vector(values):
+        np = pytest.importorskip("numpy")
+        return np.pad(np.asarray(values, dtype=float), (0, semantic_runtime.EMBEDDING_DIM - len(values)))
+
     def _write_doc(
         self,
         vault,
@@ -226,6 +241,12 @@ class TestSemanticSearch:
 
     def _doc_meta(self, index):
         return {
+            "metadata_version": semantic_runtime.EMBEDDINGS_METADATA_VERSION,
+            "router_source_hash": self.router["meta"]["source_hash"],
+            "model": semantic_runtime.EMBEDDING_MODEL,
+            "model_revision": semantic_runtime.EMBEDDING_MODEL_REVISION,
+            "dim": semantic_runtime.EMBEDDING_DIM,
+            "types": [],
             "documents": [
                 {
                     "path": doc["path"],
@@ -240,7 +261,7 @@ class TestSemanticSearch:
 
     def _aligned_vectors(self, index, path_vectors):
         np = pytest.importorskip("numpy")
-        return np.array([path_vectors[doc["path"]] for doc in index["documents"]], dtype=float)
+        return np.stack([self._vector(path_vectors[doc["path"]]) for doc in index["documents"]])
 
     def _default_vectors(self, index, base_vector):
         return {doc["path"]: list(base_vector) for doc in index["documents"]}
@@ -294,7 +315,7 @@ class TestSemanticSearch:
         monkeypatch.setattr(
             semantic_query,
             "encode_query_or_unavailable",
-            lambda _vault, _query, *, query_encoder=None: np.array([1.0, 0.0]),
+            lambda _vault, _query, *, query_encoder=None: self._vector([1.0, 0.0]),
         )
         vectors = self._aligned_vectors(
             index,
@@ -325,7 +346,7 @@ class TestSemanticSearch:
         monkeypatch.setattr(
             semantic_query,
             "encode_query_or_unavailable",
-            lambda _vault, _query, *, query_encoder=None: np.array([1.0, 0.0]),
+            lambda _vault, _query, *, query_encoder=None: self._vector([1.0, 0.0]),
         )
         vectors = self._aligned_vectors(
             index,
@@ -369,16 +390,15 @@ class TestSemanticSearch:
         local_dir = vault / ".brain" / "local"
         local_dir.mkdir(parents=True, exist_ok=True)
         (local_dir / "compiled-router.json").write_text(
-            json.dumps({"meta": {"source_hash": "sha256:current-router"}}),
+            json.dumps({"meta": {"brain_core_version": "1.0.0", "source_hash": "sha256:current-router"}}),
             encoding="utf-8",
         )
-        np.save(vault / semantic_runtime.DOC_EMBEDDINGS_REL, np.zeros((1, 2)))
+        np.save(vault / semantic_runtime.DOC_EMBEDDINGS_REL, np.zeros((0, semantic_runtime.EMBEDDING_DIM)))
         (vault / semantic_runtime.EMBEDDINGS_META_REL).write_text(
             json.dumps(
                 {
+                    **self._doc_meta({"documents": []}),
                     semantic_runtime.ROUTER_SOURCE_HASH_KEY: "sha256:stale-router",
-                    "documents": [],
-                    "types": [],
                 }
             ),
             encoding="utf-8",
@@ -386,7 +406,7 @@ class TestSemanticSearch:
 
         with pytest.raises(
             search_mode.SearchModeUnavailableError,
-            match="built for a different compiled router",
+            match="sidecars are missing or outdated",
         ):
             semantic_query.load_doc_embeddings_or_unavailable(vault)
 
@@ -403,8 +423,10 @@ class TestSemanticSearch:
             semantic_query.search_semantic(
                 "brain",
                 vault,
-                doc_embeddings=np.array([[1.0, 0.0]]),
-                embeddings_meta={"documents": [{"path": "Wiki/python-basics.md"}]},
+                doc_embeddings=np.stack([self._vector([1.0, 0.0])]),
+                embeddings_meta=self._doc_meta({"documents": [{
+                    "path": "Wiki/python-basics.md", "title": "python-basics", "type": "living/wiki",
+                }]}),
             )
 
     @pytest.mark.semantic
@@ -413,7 +435,7 @@ class TestSemanticSearch:
         monkeypatch.setattr(
             semantic_query,
             "encode_query_or_unavailable",
-            lambda _vault, _query, *, query_encoder=None: np.array([1.0, 0.0]),
+            lambda _vault, _query, *, query_encoder=None: self._vector([1.0, 0.0]),
         )
         vectors = self._aligned_vectors(
             index,
@@ -539,7 +561,7 @@ class TestSemanticSearch:
         monkeypatch.setattr(
             semantic_query,
             "encode_query_or_unavailable",
-            lambda _vault, _query, *, query_encoder=None: np.array([1.0, 0.0]),
+            lambda _vault, _query, *, query_encoder=None: self._vector([1.0, 0.0]),
         )
 
         no_bonus = pytest.MonkeyPatch()
@@ -615,7 +637,7 @@ class TestSemanticSearch:
         monkeypatch.setattr(
             semantic_query,
             "encode_query_or_unavailable",
-            lambda _vault, _query, *, query_encoder=None: np.array([1.0, 0.0]),
+            lambda _vault, _query, *, query_encoder=None: self._vector([1.0, 0.0]),
         )
         query = "authoritative design for the MCP server tool surface"
 
@@ -714,7 +736,7 @@ class TestSemanticSearch:
         monkeypatch.setattr(
             semantic_query,
             "encode_query_or_unavailable",
-            lambda _vault, _query, *, query_encoder=None: np.array([1.0, 0.0]),
+            lambda _vault, _query, *, query_encoder=None: self._vector([1.0, 0.0]),
         )
         monkeypatch.setattr(hybrid_query, "SEMANTIC_CHAMPION_BONUS", 0.0)
         query = (

@@ -8,6 +8,21 @@ import _command_interface.derived_snapshots as snapshots
 import pytest
 
 
+@pytest.fixture(autouse=True)
+def installed_producer(tmp_path):
+    core = tmp_path / ".brain-core"
+    core.mkdir()
+    (core / "VERSION").write_text("test-producer")
+
+
+def ready_router(**values):
+    return {"meta": {"brain_core_version": "test-producer"}, **values}
+
+
+def ready_index(**values):
+    return {"meta": {"index_version": snapshots.INDEX_VERSION}, **values}
+
+
 def test_router_and_index_snapshots_reparse_only_after_file_change(
     tmp_path,
     monkeypatch,
@@ -22,11 +37,11 @@ def test_router_and_index_snapshots_reparse_only_after_file_change(
 
     def load_router(_root):
         calls["router"] += 1
-        return {"router": router_path.read_text(encoding="utf-8")}
+        return ready_router(router=router_path.read_text(encoding="utf-8"))
 
     def load_index(_root):
         calls["index"] += 1
-        return {"index": index_path.read_text(encoding="utf-8")}
+        return ready_index(index=index_path.read_text(encoding="utf-8"))
 
     monkeypatch.setattr(snapshots, "load_compiled_router", load_router)
     monkeypatch.setattr(snapshots, "load_index", load_index)
@@ -43,8 +58,8 @@ def test_router_and_index_snapshots_reparse_only_after_file_change(
     router_path.write_text("router-two-longer", encoding="utf-8")
     index_path.write_text("index-two-longer", encoding="utf-8")
 
-    assert store.load_router() == {"router": "router-two-longer"}
-    assert store.load_lexical_index() == {"index": "index-two-longer"}
+    assert store.load_router() == ready_router(router="router-two-longer")
+    assert store.load_lexical_index() == ready_index(index="index-two-longer")
     assert calls == {"router": 2, "index": 2}
 
 
@@ -59,12 +74,12 @@ def test_explicit_invalidation_drops_only_named_snapshot(tmp_path, monkeypatch):
     monkeypatch.setattr(
         snapshots,
         "load_compiled_router",
-        lambda _root: {"load": calls.__setitem__("router", calls["router"] + 1)},
+        lambda _root: ready_router(load=calls.__setitem__("router", calls["router"] + 1)),
     )
     monkeypatch.setattr(
         snapshots,
         "load_index",
-        lambda _root: {"load": calls.__setitem__("index", calls["index"] + 1)},
+        lambda _root: ready_index(load=calls.__setitem__("index", calls["index"] + 1)),
     )
     store = snapshots.FileDerivedSnapshotStore(root)
     store.load_router()
@@ -94,14 +109,14 @@ def test_snapshot_publication_waits_for_matching_content_and_signature(
         replacement = next(replacements)
         if replacement is not None:
             router_path.write_text(replacement, encoding="utf-8")
-        return {"router": value}
+        return ready_router(router=value)
 
     monkeypatch.setattr(snapshots, "load_compiled_router", load_router)
     store = snapshots.FileDerivedSnapshotStore(root)
 
-    assert store.load_router() == {"router": "C-longest"}
+    assert store.load_router() == ready_router(router="C-longest")
     assert calls == ["A", "B-longer", "C-longest"]
-    assert store.load_router() == {"router": "C-longest"}
+    assert store.load_router() == ready_router(router="C-longest")
     assert calls == ["A", "B-longer", "C-longest"]
 
 
@@ -119,7 +134,7 @@ def test_unstable_snapshot_fails_without_publishing_mismatched_state(
         value = router_path.read_text(encoding="utf-8")
         calls.append(value)
         router_path.write_text(value + "-changed", encoding="utf-8")
-        return {"router": value}
+        return ready_router(router=value)
 
     monkeypatch.setattr(snapshots, "load_compiled_router", load_router)
     store = snapshots.FileDerivedSnapshotStore(root)
@@ -139,7 +154,7 @@ def test_callers_cannot_mutate_cached_nested_snapshot_state(tmp_path, monkeypatc
 
     def load_router(_root):
         calls.append("load")
-        return {"nested": {"values": ["original"]}}
+        return ready_router(nested={"values": ["original"]})
 
     monkeypatch.setattr(snapshots, "load_compiled_router", load_router)
     store = snapshots.FileDerivedSnapshotStore(root)
@@ -150,6 +165,6 @@ def test_callers_cannot_mutate_cached_nested_snapshot_state(tmp_path, monkeypatc
     list.append(first["nested"]["values"], "base-method-mutation")
     copied = copy.deepcopy(first)
 
-    assert store.load_router() == {"nested": {"values": ["original"]}}
+    assert store.load_router() == ready_router(nested={"values": ["original"]})
     assert copied == first
     assert calls == ["load"]

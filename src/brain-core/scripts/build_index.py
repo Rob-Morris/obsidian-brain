@@ -96,7 +96,6 @@ def main():
             vault_root,
             index,
             config=cfg,
-            embedding_parts_by_path=build_result.embedding_parts_by_path,
         )
     except (
         UnreadableRetrievalSourceError,

@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
+from _common._source_access import SourceAccessError, resolve_public_source
+
 from dataclasses import dataclass
 from datetime import datetime, timezone
 import os
-import hashlib
-import json
 from pathlib import Path
 from typing import Any
 
@@ -21,7 +21,7 @@ from _common import (
     scan_temporal_types,
 )
 
-from _lifecycle.document_parts import EmbeddingParts, embedding_parts_from_body
+from _lifecycle.document_parts import EmbeddingParts, embedding_parts_from_body, embedding_source_hash, effective_document_type
 from _lifecycle.retrieval_errors import (
     RetrievalPersistenceError,
     UnreadableRetrievalSourceError,
@@ -43,10 +43,9 @@ class ParsedDocument:
 
 @dataclass(frozen=True)
 class IndexBuildResult:
-    """A built lexical index plus the cached embedding parts for its documents."""
+    """One complete lexical index built from admitted sources."""
 
     index: dict[str, Any]
-    embedding_parts_by_path: dict[str, EmbeddingParts]
 
 
 def _valid_frontmatter_date(value, fallback=None):
@@ -81,6 +80,7 @@ def parse_doc(
     vault_str = str(vault_root)
     abs_path = os.path.join(vault_str, rel_path)
     try:
+        abs_path = resolve_public_source(vault_root, rel_path)
         fields, body = read_artefact(abs_path)
     except FileNotFoundError as exc:
         if missing_ok:
@@ -112,16 +112,14 @@ def parse_doc(
     for token in tokens:
         tf[token] = tf.get(token, 0) + 1
 
-    doc_type = fields.get("type", type_hint or "")
+    doc_type = effective_document_type(fields, type_hint)
     title_tokens = tokenise(title) + tokenise(doc_type)
     title_tf = {}
     for token in title_tokens:
         title_tf[token] = title_tf.get(token, 0) + 1
 
     embedding_parts = embedding_parts_from_body(body)
-    embedding_source_hash = hashlib.sha256(json.dumps(
-        [title, doc_type, embedding_parts.headings, embedding_parts.body_head]
-    ).encode("utf-8")).hexdigest()
+    source_hash = embedding_source_hash(title, doc_type, embedding_parts)
     return ParsedDocument(
         doc={
             "path": rel_path,
@@ -135,7 +133,7 @@ def parse_doc(
             "status": fields.get("status"),
             "created": _valid_frontmatter_date(fields.get("created")),
             "modified": _valid_frontmatter_date(fields.get("modified"), modified),
-            "embedding_source_hash": embedding_source_hash,
+            "embedding_source_hash": source_hash,
             "doc_length": len(tokens),
             "tf": tf,
             "title_tf": title_tf,
@@ -192,25 +190,27 @@ def _apply_doc_to_corpus_stats(index, doc, delta):
 
 
 def _build_index_result(vault_root) -> IndexBuildResult:
-    """Build the lexical index plus cached embedding parts for its documents."""
+    """Build a complete lexical index from admitted sources."""
     version = read_version(vault_root)
     all_types = scan_living_types(vault_root) + scan_temporal_types(vault_root)
 
     documents = []
     skipped_paths = []
-    embedding_parts_by_path: dict[str, EmbeddingParts] = {}
     for type_info in all_types:
         for rel_path in iter_artefact_paths(vault_root, type_info):
-            parsed = parse_doc(
-                vault_root,
-                rel_path,
-                type_hint=type_info["type"],
-            )
+            try:
+                parsed = parse_doc(
+                    vault_root,
+                    rel_path,
+                    type_hint=type_info["type"],
+                )
+            except SourceAccessError:
+                skipped_paths.append(rel_path)
+                continue
             if parsed is None:
                 skipped_paths.append(rel_path)
                 continue
             documents.append(parsed.doc)
-            embedding_parts_by_path[rel_path] = parsed.embedding_parts
 
     index = {
         "meta": {
@@ -233,17 +233,18 @@ def _build_index_result(vault_root) -> IndexBuildResult:
         "documents": documents,
     }
     _recompute_corpus_stats(index)
-    return IndexBuildResult(index=index, embedding_parts_by_path=embedding_parts_by_path)
+    return IndexBuildResult(index=index)
 
 
 def build_index(vault_root) -> IndexBuildResult:
-    """Build the lexical index plus cached embedding parts for its documents."""
+    """Build a complete lexical index from admitted sources."""
     return _build_index_result(vault_root)
 
 
 def persist_retrieval_index(vault_root, index) -> None:
     """Persist the lexical retrieval index JSON to disk."""
-    output_path = os.path.join(str(vault_root), OUTPUT_PATH)
+    from _bootstrap.owned_paths import owned_output_paths
+    output_path, = owned_output_paths(vault_root, (OUTPUT_PATH,))
     try:
         safe_write_json(output_path, index, bounds=str(vault_root))
     except (OSError, ValueError) as exc:
@@ -256,6 +257,8 @@ def persist_retrieval_index(vault_root, index) -> None:
 
 def index_update(index, vault_root, rel_path, type_hint=None) -> ParsedDocument | None:
     """Upsert a document and return its parsed document plus embedding parts."""
+    if index.get("meta", {}).get("index_version") != INDEX_VERSION:
+        raise ValueError("retrieval index schema is outdated; run retrieval.refresh-lexical")
     parsed = parse_doc(
         vault_root,
         rel_path,

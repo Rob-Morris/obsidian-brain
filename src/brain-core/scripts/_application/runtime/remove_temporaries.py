@@ -6,6 +6,8 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import ClassVar, Mapping
 
+from _bootstrap.owned_paths import UnsafeFilesystemLayoutError, owned_file
+
 from .._decoding import decode_empty
 from .._mutation_support import derived_cache_maintenance_entry, no_effect_error
 from ..context import InvocationContext
@@ -44,7 +46,10 @@ def temporaries_binding(context, request, *, frozen_inputs=None):
     root = context.selected_brain.vault_root
     observations = []
     for rel_path in _candidates(context):
-        info = (root / rel_path).lstat()
+        try:
+            info = owned_file(root, rel_path, single_link=True).lstat()
+        except FileNotFoundError:
+            continue
         observations.append(ObservedResource("temporary-file", rel_path, f"{info.st_dev}:{info.st_ino}:{info.st_mtime_ns}"))
     return bind_operation(
         request,
@@ -78,14 +83,18 @@ def execute(context: InvocationContext, request: RuntimeRemoveTemporariesRequest
                 return Ok(request.COMMAND_ID, request.COMMAND_VERSION,
                           RuntimeRemoveTemporariesPayload(status, True, planned))
             for rel_path in planned:
-                target = root / rel_path
                 try:
+                    target = owned_file(root, rel_path, single_link=True)
                     target.unlink()
                 except FileNotFoundError:
                     continue
+                except UnsafeFilesystemLayoutError as exc:
+                    return _failure(request, str(exc), removed)
                 except OSError as exc:
                     return _failure(request, f"could not remove {rel_path}: {exc}", removed)
                 removed.append(rel_path)
+    except UnsafeFilesystemLayoutError as exc:
+        return _failure(request, str(exc), removed)
     except MutationLockError as exc:
         return no_effect_error(type(request), ErrorCode.CONFLICT, public_mutation_error_message(exc), retryable=True)
 

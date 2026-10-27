@@ -557,6 +557,8 @@ def test_unknown_sibling_is_reported_unknown_naming_the_sibling_and_never_follow
 
 
 def test_last_pass_write_failure_after_a_commit_is_partial_with_a_warning(command_vault_clone, monkeypatch):
+    import compile_colours
+    import session
     root = command_vault_clone.vault_root
     (root / ROUTER).unlink()
 
@@ -569,7 +571,11 @@ def test_last_pass_write_failure_after_a_commit_is_partial_with_a_warning(comman
     assert result.status == "partial"
     assert result.warnings[0].code.value == "follow_up_required"
     assert "disk full" in result.warnings[0].message
-    assert [effect.kind for effect in result.committed_effects] == ["runtime.refresh-router"]
+    assert {effect.kind for effect in result.committed_effects} == {"runtime.refresh-router"}
+    assert {effect.subject for effect in result.committed_effects} == {
+        ROUTER, compile_colours.OUTPUT_REL, compile_colours.GRAPH_JSON_REL,
+        session.SESSION_MARKDOWN_REL,
+    }
 
 
 def test_detection_failure_blocks_last_pass_and_re_emits_conflict(command_vault_clone, monkeypatch):

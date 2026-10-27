@@ -14,6 +14,7 @@ parser retained here is an internal maintenance and repository-test entry point.
 import argparse
 import json
 import os
+from _common._source_access import resolve_named_destination, read_public_content
 import sys
 from datetime import datetime, timezone
 from dataclasses import dataclass
@@ -43,7 +44,6 @@ from _common import (
     public_mutation_error_message,
     parse_leading_frontmatter,
     parse_frontmatter,
-    read_file_content,
     reconcile_fields_for_render,
     render_filename_or_default,
     resolve_and_validate_folder,
@@ -372,6 +372,7 @@ def plan_named_resource_creation(vault_root, router, resource, name, body, front
 def _plan_config_resource(vault_root, resource, rel_path, name, body, frontmatter, exclusive=True):
     _reject_leading_body_frontmatter(body, resource_label=f"{resource.capitalize()} resource")
     check_write_allowed(rel_path)
+    resolve_named_destination(vault_root, rel_path)
     if exclusive and os.path.lexists(os.path.join(vault_root, rel_path)):
         raise ValueError(f"{resource.capitalize()} '{name}' already exists at {rel_path}")
     content = serialize_frontmatter(dict(frontmatter) if frontmatter else {}, body=body)
@@ -381,7 +382,7 @@ def _plan_config_resource(vault_root, resource, rel_path, name, body, frontmatte
 def apply_named_resource_creation(vault_root, plan):
     """Write the same resolved target and bytes that were validated."""
     try:
-        safe_write(os.path.join(vault_root, plan.path), plan.content,
+        safe_write(resolve_named_destination(vault_root, plan.path), plan.content,
                    bounds=vault_root, exclusive=plan.exclusive)
     except FileExistsError:
         raise ValueError(f"{plan.resource.capitalize()} '{plan.name}' already exists at {plan.path}") from None
@@ -423,6 +424,7 @@ def _plan_template(vault_root, router, name, body, frontmatter):
         )
     _require_full_document_frontmatter(body, resource_label="Template resource")
     check_write_allowed(rel_path)
+    resolve_named_destination(vault_root, rel_path)
     abs_path = os.path.join(vault_root, rel_path)
     return NamedResourceCreationPlan(rel_path, "template", name, body, False)
 
@@ -440,7 +442,7 @@ def _read_template(vault_root, artefact):
     if not template_ref:
         return {}, ""
 
-    content = read_file_content(vault_root, template_ref)
+    content = read_public_content(vault_root, template_ref)
     if isinstance(content, MissingFileResult):
         return {}, ""
 

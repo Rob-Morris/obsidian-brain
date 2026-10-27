@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from _common._source_access import SourceAccessError, resolve_public_source
+
 import os
 
 from _common import FM_RE
@@ -27,6 +29,7 @@ def _read_file_body(vault_root, rel_path):
     """Read a file and return the body with frontmatter stripped."""
     abs_path = os.path.join(str(vault_root), rel_path)
     try:
+        abs_path = resolve_public_source(vault_root, rel_path)
         with open(abs_path, "r", encoding="utf-8") as handle:
             text = handle.read()
     except UnicodeDecodeError:
@@ -41,7 +44,7 @@ def _read_file_body(vault_root, rel_path):
     return text[fm_match.end():] if fm_match else text
 
 
-def search_resource(router, vault_root, resource, query, top_k=DEFAULT_TOP_K):
+def search_resource(router, vault_root, resource, query, top_k=DEFAULT_TOP_K, *, excluded=None):
     """Search a non-artefact resource by text matching on name plus file content."""
     if resource == "artefact":
         raise ValueError("Use lexical_query.search() for artefact search, not search_resource().")
@@ -71,7 +74,12 @@ def search_resource(router, vault_root, resource, query, top_k=DEFAULT_TOP_K):
 
         file_body = ""
         if doc_field and item.get(doc_field):
-            file_body = _read_file_body(vault_root, item[doc_field])
+            try:
+                file_body = _read_file_body(vault_root, item[doc_field])
+            except SourceAccessError:
+                if excluded is not None:
+                    excluded.append(item[doc_field])
+                continue
             if file_body is None:
                 continue
             searchable += " " + file_body

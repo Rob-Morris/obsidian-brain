@@ -275,7 +275,7 @@ def check_root_files(vault_root, router, *, ctx=None):
         known_folders.add(top)
 
     for entry in sorted(os.listdir(vault_root)):
-        if entry in ROOT_BOOTSTRAP_VARIANTS or entry in ROOT_ALLOW_OTHER:
+        if entry == "README.md" or entry in ROOT_BOOTSTRAP_VARIANTS or entry in ROOT_ALLOW_OTHER:
             continue
         if entry.startswith(".") or entry.startswith("_"):
             continue

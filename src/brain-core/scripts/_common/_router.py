@@ -12,14 +12,34 @@ COMPILED_ROUTER_REL = os.path.join(".brain", "local", "compiled-router.json")
 
 def load_compiled_router(vault_root):
     """Load compiled router JSON. Returns dict or error dict."""
-    router_path = os.path.join(str(vault_root), COMPILED_ROUTER_REL)
-    if not os.path.isfile(router_path):
+    from _bootstrap.owned_paths import owned_file
+    try:
+        router_path = owned_file(vault_root, COMPILED_ROUTER_REL)
+    except FileNotFoundError:
         return {"error": f"Compiled router not found at {COMPILED_ROUTER_REL}. Run compile_router.py first."}
+    except OSError as exc:
+        return {"error": f"Failed to read compiled router: {exc}"}
     try:
         with open(router_path, "r", encoding="utf-8") as f:
-            return json.load(f)
+            router = json.load(f)
+        if not router_version_matches(vault_root, router):
+            return {"error": "Compiled router producer version is outdated. Run runtime.refresh-router."}
+        return router
     except (json.JSONDecodeError, OSError) as e:
         return {"error": f"Failed to read compiled router: {e}"}
+
+
+def router_version_matches(vault_root, router):
+    """Observe the installed producer version before exposing derived content."""
+    from . import read_version
+    if not isinstance(router, dict) or not isinstance(router.get("meta"), dict):
+        return False
+    try:
+        version = read_version(vault_root)
+    except (OSError, UnicodeDecodeError):
+        return False
+    return bool(version and version != "unknown"
+                and router["meta"].get("brain_core_version") == version)
 
 
 def validate_artefact_folder(vault_root, router, path):
@@ -75,7 +95,9 @@ def _name_encoded_identity(vault_root, router, key):
     if artefact is None:
         return
     for path in iter_artefact_paths(vault_root, artefact, include_status_folders=True):
-        content = read_exact_file_content(os.path.join(vault_root, path), convert_lossless=True)
+        from ._source_access import resolve_public_source
+        source = resolve_public_source(vault_root, path)
+        content = read_exact_file_content(source, convert_lossless=True)
         fields, _ = parse_frontmatter(content)
         if canonical_living_artefact_key(artefact, fields) == key and content.conversion_code:
             raise NonStandardVaultTextError(path, content.conversion_code)

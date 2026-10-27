@@ -24,7 +24,8 @@ def test_active_revision_observes_only_router_and_lexical_projection(tmp_path, m
     calls = []
     version = [1]
 
-    def signature(path):
+    def signature(path, root):
+        assert root == tmp_path
         calls.append(path)
         return (1, 2, 3, version[0])
 

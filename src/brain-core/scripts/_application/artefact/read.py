@@ -29,7 +29,7 @@ class ArtefactLocation(str, Enum):
 @dataclass(frozen=True, slots=True)
 class ArtefactReadRequest:
     COMMAND_ID: ClassVar[str] = "artefact.read"
-    COMMAND_VERSION: ClassVar[int] = 5
+    COMMAND_VERSION: ClassVar[int] = 6
     RESULT_TYPE: ClassVar[type] = ArtefactReadPayload
 
     reference: str
@@ -47,18 +47,22 @@ def read_result(context: InvocationContext, request: ArtefactReadRequest):
     from _portable.artefact_read import read_from_vault
     from _portable.vault_files import read_archived_artefact
 
-    if request.location is ArtefactLocation.ARCHIVED:
-        result = read_archived_artefact(
-            context.selected_brain.vault_root,
-            request.reference,
-            convert_lossless=True,
-        )
-    else:
-        result = read_from_vault(
-            context.selected_brain.vault_root,
-            request.reference,
-            convert_lossless=True,
-        )
+    from _common._source_access import SourceAccessError
+    try:
+        if request.location is ArtefactLocation.ARCHIVED:
+            result = read_archived_artefact(
+                context.selected_brain.vault_root,
+                request.reference,
+                convert_lossless=True,
+            )
+        else:
+            result = read_from_vault(
+                context.selected_brain.vault_root,
+                request.reference,
+                convert_lossless=True,
+            )
+    except SourceAccessError as exc:
+        return _error(ErrorCode.INVALID_REQUEST, str(exc))
     if isinstance(result, MissingFileResult):
         return _error(ErrorCode.NOT_FOUND, result.message)
     if isinstance(result, dict) and "error" in result:

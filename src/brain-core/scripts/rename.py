@@ -11,6 +11,7 @@ internal maintenance and repository-test entry point.
 import argparse
 import json
 import os
+from _common._source_access import resolve_public_source, resolve_content_source
 import sys
 from dataclasses import dataclass, field
 
@@ -102,6 +103,9 @@ def validate_move_path_request(
             "Move source resolves into a different filesystem scope: "
             f"{source} -> {canonical_source}"
         )
+
+    # A move removes its source; public Core readability does not authorise that.
+    check_not_in_brain_core(source, vault_root)
 
     attachment_move = (
         allow_attachment_paths
@@ -616,7 +620,7 @@ def _validate_destination_naming(vault_root, router, source, dest, abs_source):
         return
     if not os.path.exists(abs_source):
         return
-    text = read_exact_file_content(abs_source, convert_lossless=True)
+    text = read_exact_file_content(resolve_content_source(vault_root, abs_source), convert_lossless=True)
     fields, _ = parse_frontmatter(text)
     filename = os.path.basename(dest)
     if not validate_filename(naming, fields or {}, filename):
@@ -631,13 +635,12 @@ def _living_key_for_delete(vault_root, router, path, abs_path):
         return None
     art = validate_artefact_folder(vault_root, router, path)
     fields, _body = parse_frontmatter(
-        read_exact_file_content(abs_path))
+        read_exact_file_content(resolve_public_source(vault_root, abs_path)))
     return canonical_living_artefact_key(art, fields)
 
 
 def _preflight_delete_path(vault_root, path):
-    abs_path = os.path.join(vault_root, path)
-    resolve_and_check_bounds(abs_path, vault_root)
+    abs_path = str(resolve_public_source(vault_root, path))
     check_not_in_brain_core(path, vault_root)
     check_write_allowed(path)
     if is_archived_path(path):

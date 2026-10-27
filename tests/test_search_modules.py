@@ -266,7 +266,6 @@ def test_retrieval_assets_refresh_retrieval_assets_returns_note_list(vault, monk
         "build_index",
         lambda _vault: search_index_mod.IndexBuildResult(
             index={"documents": []},
-            embedding_parts_by_path={},
         ),
     )
     monkeypatch.setattr(
@@ -293,7 +292,6 @@ def test_retrieval_assets_refresh_retrieval_assets_reports_refreshed_sidecars(va
         "build_index",
         lambda _vault: search_index_mod.IndexBuildResult(
             index={"documents": []},
-            embedding_parts_by_path={},
         ),
     )
     monkeypatch.setattr(
@@ -320,7 +318,6 @@ def test_retrieval_assets_refresh_retrieval_assets_forces_embeddings_when_reques
         "build_index",
         lambda _vault: search_index_mod.IndexBuildResult(
             index={"documents": []},
-            embedding_parts_by_path={},
         ),
     )
     monkeypatch.setattr(
@@ -350,7 +347,6 @@ def test_retrieval_assets_refresh_retrieval_assets_raises_when_runtime_is_unavai
         "build_index",
         lambda _vault: search_index_mod.IndexBuildResult(
             index={"documents": []},
-            embedding_parts_by_path={},
         ),
     )
     monkeypatch.setattr(
@@ -365,10 +361,11 @@ def test_retrieval_assets_refresh_retrieval_assets_raises_when_runtime_is_unavai
     )
 
     with pytest.raises(
-        retrieval_assets.SemanticRuntimeUnavailableError,
+        retrieval_assets.RetrievalRefreshIncomplete,
         match="numpy is not installed",
-    ):
+    ) as exc:
         retrieval_assets.refresh_retrieval_assets(vault, force_embeddings=True)
+    assert compile_router.OUTPUT_PATH in exc.value.committed_paths
 
 
 def test_retrieval_assets_refresh_retrieval_assets_wraps_router_compile_failures(vault, monkeypatch):
@@ -417,7 +414,6 @@ def test_retrieval_assets_refresh_retrieval_assets_warns_when_session_markdown_r
         "build_index",
         lambda _vault: search_index_mod.IndexBuildResult(
             index={"documents": []},
-            embedding_parts_by_path={},
         ),
     )
     monkeypatch.setattr(
@@ -436,42 +432,22 @@ def test_retrieval_assets_refresh_retrieval_assets_warns_when_session_markdown_r
     ]
 
 
-def test_retrieval_assets_refresh_embeddings_for_loaded_state_materialises_parts(vault, monkeypatch):
+def test_loaded_state_refresh_delegates_fresh_source_reading_to_semantic_owner(vault, monkeypatch):
     seen = {}
 
-    def fake_refresh(
-        vault_root,
-        router,
-        documents,
-        *,
-        embedding_parts_by_path=None,
-    ):
-        seen["vault_root"] = str(vault_root)
-        seen["document_count"] = len(documents)
-        seen["parts"] = embedding_parts_by_path
+    def fake_refresh(vault_root, router, documents):
+        seen["documents"] = documents
         return ("types", "docs", {"documents": [], "types": []})
 
     monkeypatch.setattr(retrieval_assets, "embeddings_should_refresh", lambda *_a, **_k: True)
-    monkeypatch.setattr(
-        retrieval_assets.semantic_assets,
-        "refresh_embeddings_outputs",
-        fake_refresh,
-    )
-
-    index = search_index_mod.build_index(vault).index
-    result = retrieval_assets.refresh_embeddings_for_loaded_state(
-        vault,
-        {"artefacts": []},
-        index["documents"],
-        embedding_parts_by_path=None,
-    )
-
+    monkeypatch.setattr(retrieval_assets.semantic_assets, "refresh_embeddings_outputs", fake_refresh)
+    docs = search_index_mod.build_index(vault).index["documents"]
+    import _common
+    monkeypatch.setattr(_common, "read_artefact", lambda *_a: pytest.fail(
+        "loaded-state orchestration must not make an obsolete first corpus read"))
+    result = retrieval_assets.refresh_embeddings_for_loaded_state(vault, {"artefacts": []}, docs)
     assert result == ("types", "docs", {"documents": [], "types": []})
-    assert seen["vault_root"] == str(vault)
-    assert seen["document_count"] == len(index["documents"])
-    assert set(seen["parts"]) == {doc["path"] for doc in index["documents"]}
-    for parts in seen["parts"].values():
-        assert parts.body_head or parts.headings
+    assert seen["documents"] is docs
 
 
 def test_search_modules_import_without_semantic_imports():

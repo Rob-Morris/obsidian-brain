@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
+from _common._source_access import read_public_content
+
 from _common import (
     load_compiled_router,
     markdown_rel_path,
     match_artefact,
-    read_file_content,
 )
 
 
@@ -46,7 +47,7 @@ def read_type_exact(router, vault_root, type_key, *, convert_lossless=False):
         return metadata
     taxonomy_path = metadata.get("taxonomy_file")
     definition = (
-        read_file_content(vault_root, taxonomy_path, convert_lossless=convert_lossless) if taxonomy_path else None
+        read_public_content(vault_root, taxonomy_path, convert_lossless=convert_lossless) if taxonomy_path else None
     )
     return metadata, definition
 
@@ -84,7 +85,7 @@ def read_template_exact(router, vault_root, type_key, *, convert_lossless=False)
     template_path = metadata.get("template_file")
     if not template_path:
         return {"error": f"Artefact type '{type_key}' has no template file"}
-    return metadata, read_file_content(vault_root, template_path, convert_lossless=convert_lossless)
+    return metadata, read_public_content(vault_root, template_path, convert_lossless=convert_lossless)
 
 
 def read_type_compatible(router, type_reference):
@@ -100,7 +101,7 @@ def read_template_compatible(router, vault_root, type_reference):
         return {"error": f"No artefact matching '{type_reference}'"}
     if not match.get("template_file"):
         return {"error": f"Artefact '{type_reference}' has no template file"}
-    return read_file_content(vault_root, match["template_file"])
+    return read_public_content(vault_root, match["template_file"])
 
 
 def _load(vault_root):

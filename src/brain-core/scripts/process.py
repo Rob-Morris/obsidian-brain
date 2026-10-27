@@ -22,6 +22,7 @@ from _taxonomy_descriptions import extract_type_description
 from _search.filters import SearchFilters
 from _search.lexical import tokenise
 import _search.lexical_query as lexical_query
+from _search.paths import INDEX_VERSION
 
 import create as create_mod
 import edit as edit_mod
@@ -95,6 +96,12 @@ def _classify_embedding(
         return None
 
     try:
+        _semantic.validate_embedding_arrays(type_embeddings_meta, type_embeddings=type_embeddings)
+        if not _semantic.embeddings_meta_matches_current_router(vault_root, type_embeddings_meta):
+            return None
+    except (_semantic.SemanticEmbeddingsLoadError, _semantic.RouterMetadataError):
+        return None
+    try:
         query_vec = _semantic.encode_query(
             vault_root,
             content,
@@ -134,7 +141,7 @@ def _classify_embedding(
 
 def _classify_bm25(router, vault_root, content, index):
     """Classify via IDF-weighted token overlap against type descriptions."""
-    if index is None:
+    if index is None or index.get("meta", {}).get("index_version") != INDEX_VERSION:
         return None
 
     content_tokens = tokenise(content)
@@ -385,6 +392,12 @@ def _embedding_search(
     query_encoder=None,
 ):
     """Search for similar documents via embeddings, filtered by type."""
+    try:
+        _semantic.validate_embedding_arrays(doc_embeddings_meta, doc_embeddings=doc_embeddings)
+        if not _semantic.embeddings_meta_matches_current_router(vault_root, doc_embeddings_meta):
+            return []
+    except (_semantic.SemanticEmbeddingsLoadError, _semantic.RouterMetadataError):
+        return []
     try:
         query_vec = _semantic.encode_query(
             vault_root,

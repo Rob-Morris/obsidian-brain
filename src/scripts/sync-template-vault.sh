@@ -7,16 +7,15 @@
 # detects and resolves that drift using sync_definitions.py, which is the
 # canonical tool for comparing artefact-library sources to vault _Config.
 #
-# template-vault/.brain-core is a symlink to ../src/brain-core for dev
-# convenience. sync_definitions.py reads from .brain-core/artefact-library/
-# (via the symlink) and writes only to _Config/ and .brain/tracking.json —
-# never into .brain-core/ itself, so the symlink is safe.
+# The repository devlink stays unchanged. An isolated authored-source assembly
+# supplies ordinary installed Core inputs for validation. Apply publishes only
+# managed _Config definitions and tracking, never temporary-root runtime outputs.
 #
 # Modes:
 #   (default / --check)  Report drift. Exits 0 if in sync, 1 if drift, 2 on error.
 #   --apply              Canonical maintenance flow:
 #                        1. force-sync template-vault definitions/tracking
-#                        2. recompile the template vault router
+#                        2. validate compilation in the isolated assembly
 #                        Refuses to run if template-vault/ has uncommitted changes
 #                        (workflow hygiene — keeps the post-apply diff reviewable).
 #
@@ -29,6 +28,7 @@
 # `uninstalled` are ignored — those are intentional starter-vault exclusions.
 
 set -euo pipefail
+export PYTHONDONTWRITEBYTECODE=1
 
 MODE=check
 for arg in "$@"; do
@@ -91,14 +91,33 @@ if [ "$MODE" = apply ]; then
     fi
 fi
 
+# This is an explicit repository source assembly, never an installed-vault
+# alias allowance. Refuse an unexpected link before assembling any source.
+if [ ! -L "$TEMPLATE_VAULT/.brain-core" ]; then
+    echo "error: template-vault/.brain-core must be the repository devlink." >&2
+    exit 2
+fi
+"$PYTHON_BIN" - "$TEMPLATE_VAULT/.brain-core" "$BRAIN_CORE" <<'PYCORE'
+from pathlib import Path
+import sys
+if Path(sys.argv[1]).resolve() != Path(sys.argv[2]).resolve():
+    raise SystemExit("error: template-vault/.brain-core is not the repository Core source")
+PYCORE
+
+ASSEMBLY=$(mktemp -d "${TMPDIR:-/tmp}/brain-template-source.XXXXXX")
+trap 'rm -rf "$ASSEMBLY"' EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+"$PYTHON_BIN" "$SCRIPT_DIR/template_source_assembly.py" assemble "$REPO_ROOT" "$ASSEMBLY"
+
 if [ "$MODE" = check ]; then
-    STATUS_JSON=$("$PYTHON_BIN" "$SYNC_SCRIPT" --vault "$TEMPLATE_VAULT" --status --json 2>&1) || {
+    STATUS_JSON=$("$PYTHON_BIN" "$SYNC_SCRIPT" --vault "$ASSEMBLY" --status --json 2>&1) || {
         echo "error: sync_definitions.py --status failed:" >&2
         echo "$STATUS_JSON" >&2
         exit 2
     }
 
-    SUMMARY=$(STATUS_JSON="$STATUS_JSON" python3 -c '
+    SUMMARY=$(STATUS_JSON="$STATUS_JSON" "$PYTHON_BIN" -c '
 import json, os
 data = json.loads(os.environ["STATUS_JSON"])
 types = data.get("types", {})
@@ -146,20 +165,15 @@ else:
     echo
     echo "Drift may be file content (_Config/ differs from upstream) or stale"
     echo "tracking metadata (.brain/tracking.json records older installed hashes"
-    echo "even though content now matches). --apply resolves both and recompiles."
+    echo "even though content now matches). --apply resolves both and validates compilation."
     echo
     echo "To resolve: run '$0 --apply', then review and stage template-vault/ changes."
     exit 1
 fi
 
-# Apply mode: canonical maintenance flow.
-# Writes to template-vault/_Config/, template-vault/.brain/tracking.json,
-# and template-vault/.brain/local/compiled-router.json.
-"$PYTHON_BIN" "$SYNC_SCRIPT" --vault "$TEMPLATE_VAULT" --force
-(
-    cd "$TEMPLATE_VAULT"
-    "$PYTHON_BIN" "$COMPILE_SCRIPT"
-)
+# Publish only managed definitions/tracking after isolated compilation succeeds.
+# Ignored runtime router/session outputs are deliberately not refreshed here.
+"$PYTHON_BIN" "$SCRIPT_DIR/template_source_assembly.py" apply "$REPO_ROOT" "$ASSEMBLY"
 
 echo
 echo "Changed files in template-vault/:"

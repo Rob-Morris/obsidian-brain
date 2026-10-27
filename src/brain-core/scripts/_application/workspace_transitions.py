@@ -14,10 +14,33 @@ class TransitionSnapshot:
     conversions: tuple[tuple[str, str], ...]
 
 
-def transition_effect_snapshot(context, plan):
-    """Observe revisions and conversions in the same concrete-source read."""
+def source_effect_snapshot(context, paths, *, text_writes=()):
+    """Observe admitted concrete sources once, retaining absent move endpoints."""
     from .preparation import content_digest
     from _common._text_encoding import diagnose_text
+    from _common._source_access import resolve_content_source, SourceAccessError
+
+    text_writes = set(text_writes)
+    revisions, conversions = {}, []
+    for path in sorted(set(paths)):
+        try:
+            source = resolve_content_source(context.selected_brain.vault_root, path)
+            raw = source.read_bytes()
+        except FileNotFoundError:
+            revisions[path] = None
+            continue
+        except OSError:
+            raise SourceAccessError("Cannot observe transition source revision") from None
+        revisions[path] = content_digest(raw)
+        if path in text_writes:
+            diagnosis = diagnose_text(raw)
+            if diagnosis is not None and diagnosis.lossless:
+                conversions.append((path, diagnosis.code))
+    return TransitionSnapshot(revisions, tuple(conversions))
+
+
+def transition_effect_snapshot(context, plan):
+    """Select the lifecycle workset for the shared admitted-source snapshot."""
     from rename import DeletePlan
     movement = plan if isinstance(plan, DeletePlan) else plan.movement
     paths = set(getattr(movement, "paths", ()))
@@ -26,21 +49,16 @@ def transition_effect_snapshot(context, plan):
     paths.update(text_writes)
     for move in getattr(movement, "moves", ()):
         paths.update((move["source"], move["dest"]))
-    revisions, conversions = {}, []
-    for path in sorted(paths):
-        source = context.selected_brain.vault_root / path
-        raw = source.read_bytes() if source.is_file() else None
-        revisions[path] = content_digest(raw) if raw is not None else None
-        if path in text_writes and raw is not None:
-            diagnosis = diagnose_text(raw)
-            if diagnosis is not None and diagnosis.lossless:
-                conversions.append((path, diagnosis.code))
-    return TransitionSnapshot(revisions, tuple(conversions))
+    return source_effect_snapshot(context, paths, text_writes=text_writes)
 
 
 def committed_transition_effects(context, request, plan, before):
     from .receipts import CommittedEffect
-    after = transition_effect_snapshot(context, plan).revisions
+    from _common._source_access import SourceAccessError
+    try:
+        after = transition_effect_snapshot(context, plan).revisions
+    except (SourceAccessError, OSError) as exc:
+        raise RuntimeError("Transition effects could not be observed safely") from exc
     changed = {path for path, revision in after.items() if revision != before.revisions[path]}
     movement = getattr(plan, "movement", plan)
     for move in getattr(movement, "moves", ()):
@@ -91,7 +109,9 @@ def prepare_workspace_transition(context, request, router, plan):
     from .workspace_reassignment import WorkspaceReassignmentPlan
     if isinstance(plan, WorkspaceReassignmentPlan):
         return plan.transition, plan.mutation_context
-    from _common import parse_frontmatter, read_exact_file_content, serialize_frontmatter, document_revision_at
+    from _common import parse_frontmatter, read_exact_file_content, serialize_frontmatter
+    from _common._source_access import resolve_content_source
+    from _portable.maintenance_inputs import public_file_identity
     from _common._workspace import membership, require_workspace, validate_ownership, OwnershipRuleError, workspace_discovery_metadata
     from rename import DeletePlan
 
@@ -102,7 +122,7 @@ def prepare_workspace_transition(context, request, router, plan):
     planned_metadata_paths = set(writes)
     subjects = []
     for path in paths:
-        before, body = parse_frontmatter(read_exact_file_content(root / path, convert_lossless=True))
+        before, body = parse_frontmatter(read_exact_file_content(resolve_content_source(root, path), convert_lossless=True))
         after = None if deleting else dict(writes.get(path, {"fields": before})["fields"])
         if after is not None and before.get("type") == after.get("type") == "living/workspace" and before.get("key") != after.get("key"):
             if "workspace" in after:
@@ -159,9 +179,10 @@ def prepare_workspace_transition(context, request, router, plan):
             if after.get("parent") != before.get("parent"):
                 raise ValueError("This semantic transition must preserve the subject's parent")
         parent = after.get("parent")
-        if parent in index and (root / index[parent]["path"]).exists():
-            parent_sources[parent] = ObservedResource("workspace-parent", parent,
-                document_revision_at(root / index[parent]["path"]))
+        if parent in index:
+            revision = public_file_identity(root, index[parent]["path"])
+            if revision is not None:
+                parent_sources[parent] = ObservedResource("workspace-parent", parent, revision)
         updated = apply_semantic_tags(after, effective) if applies_policy_tags(request.COMMAND_ID) else after
         relevant.update(workspace_discovery_metadata(updated)["relevant_workspaces"])
         if path in planned_metadata_paths or updated != after:

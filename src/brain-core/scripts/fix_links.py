@@ -15,6 +15,7 @@ Usage:
 
 import json
 import os
+from _common._source_access import resolve_public_source, resolve_content_source, SourceAccessError
 import sys
 from datetime import datetime, timezone
 from dataclasses import dataclass
@@ -112,7 +113,7 @@ def _attach_wikilink_warnings(vault_root, result, apply_fixes=False, file_index=
     vault_root = str(vault_root)
     try:
         text = read_exact_file_content(
-            os.path.join(vault_root, path), convert_lossless=True)
+            resolve_content_source(vault_root, path), convert_lossless=True)
     except OSError:
         raise
     if "[[" not in text:
@@ -212,20 +213,15 @@ def scan_and_resolve(vault_root, router=None, *, for_mutation=True, file_index=N
     temporal_prefixes = discover_temporal_prefixes(file_index["md_basenames"])
     for directory, name in iter_vault_md_files(vault_root):
         path = os.path.relpath(os.path.join(directory, name), vault_root)
-        source = os.path.join(directory, name)
-        if not for_mutation:
-            from _portable.vault_files import resolve_public_vault_file
-            try:
-                source = resolve_public_vault_file(vault_root, path)
-            except ValueError:
-                continue
         try:
+            source = (resolve_content_source(vault_root, path) if for_mutation else
+                      resolve_public_source(vault_root, path))
             text = read_exact_file_content(source,
                                            convert_lossless=for_mutation)
-        except (NonStandardVaultTextError, OSError) as exc:
+        except (SourceAccessError, NonStandardVaultTextError, OSError) as exc:
             unreadable.append(f"{path}: {exc}")
             from _common import vault_text_failure
-            failure_details.append(vault_text_failure(path, exc))
+            failure_details.append((path, "source_refused", str(exc)) if isinstance(exc, SourceAccessError) else vault_text_failure(path, exc))
             continue
         findings = check_wikilinks_in_file(
             vault_root, path, file_index=file_index,
@@ -274,6 +270,8 @@ def scan_and_resolve(vault_root, router=None, *, for_mutation=True, file_index=N
             })
 
     return {
+        "excluded_sources": len(unreadable),
+        "warnings": ([f"Could not inspect {len(unreadable)} source file(s); link coverage is incomplete"] if unreadable else []),
         "fixed": fixed,
         "ambiguous": ambiguous,
         "unresolvable": unresolvable,
@@ -297,7 +295,7 @@ def scan_file(vault_root, rel_path, router=None, *, for_mutation=True):
     temporal_prefixes = discover_temporal_prefixes(file_index["md_basenames"])
 
     try:
-        text = read_exact_file_content(os.path.join(vault_root, rel_path),
+        text = read_exact_file_content((resolve_content_source(vault_root, rel_path) if for_mutation else resolve_public_source(vault_root, rel_path)),
                                        convert_lossless=for_mutation)
     except (NonStandardVaultTextError, OSError):
         if for_mutation:

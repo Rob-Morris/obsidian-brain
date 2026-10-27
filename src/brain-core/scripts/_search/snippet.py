@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from _common._source_access import resolve_public_source
+
 import os
 import re
 
@@ -20,9 +22,10 @@ def extract_snippet(vault_root, rel_path, query_tokens, length=SNIPPET_LENGTH, *
     if body is None:
         abs_path = os.path.join(str(vault_root), rel_path)
         try:
+            abs_path = resolve_public_source(vault_root, rel_path)
             with open(abs_path, "r", encoding="utf-8") as handle:
                 text = handle.read()
-        except (OSError, UnicodeDecodeError):
+        except (OSError, UnicodeDecodeError, ValueError):
             # Snippets are presentation-only; omit local detail rather than
             # failing the whole search result.
             return None

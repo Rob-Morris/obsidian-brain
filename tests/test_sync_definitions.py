@@ -859,14 +859,29 @@ class TestTemplateVaultSync:
     vault, then commit the result.
     """
 
-    @pytest.fixture
-    def template_vault(self):
-        path = os.path.abspath(TEMPLATE_VAULT)
-        if not os.path.isdir(path):
+    @pytest.fixture(scope="class")
+    def template_vault(self, tmp_path_factory, command_vault_baseline):
+        """Pair exact template content with the curated installed Core baseline."""
+        from pathlib import Path
+
+        path = Path(TEMPLATE_VAULT).resolve()
+        if not path.is_dir():
             pytest.skip("template-vault not found")
-        if not os.path.isdir(os.path.join(path, ".brain-core")):
-            pytest.skip(".brain-core not linked — run 'make dev-link'")
-        return path
+        destination = tmp_path_factory.mktemp("installed-template") / "vault"
+
+        def source_entries(directory, names):
+            directory = Path(directory)
+            if directory == path:
+                return [".brain-core"]
+            if directory == path / ".brain":
+                return ["local"]
+            return []
+
+        shutil.copytree(path, destination, symlinks=True, ignore=source_entries)
+        shutil.copytree(command_vault_baseline.vault_root / ".brain-core",
+                        destination / ".brain-core", symlinks=True)
+        assert not (destination / ".brain-core").is_symlink()
+        return str(destination)
 
     def test_no_drift(self, template_vault):
         """All installed template-vault types should classify as in_sync."""

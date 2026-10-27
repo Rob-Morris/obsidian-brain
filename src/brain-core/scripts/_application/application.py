@@ -19,6 +19,7 @@ from .results import (
 from .types import Availability, EffectClass, InitialAuthorisationClass
 from _lifecycle.derived_cache_state import RouterCacheUnavailable
 from .results import router_cache_error
+from _bootstrap.owned_paths import UnsafeFilesystemLayoutError
 
 
 class CommandApplication:
@@ -66,6 +67,15 @@ class CommandApplication:
                 admission.admit_query(request)
             result = entry.executor(context, request)
             self._validate_result(entry, result)
+        except UnsafeFilesystemLayoutError as exc:
+            if control_intent is not None or (
+                admission is not None and (admission.entered or admission.intent_recorded)
+            ):
+                result = self._unknown_result(entry)
+            else:
+                result = Error(command_id, version, CommandError(
+                    ErrorCode.CONFLICT, str(exc), RequestErrorDetails(None, str(exc)),
+                ), retryable=False)
         except RouterCacheUnavailable as exc:
             if control_intent is not None or (admission is not None and admission.entered):
                 result = self._unknown_result(entry)

@@ -71,14 +71,36 @@ class TestPlan:
         sources = [move["source"] for move in migration._planned_moves(str(vault))]
         assert not any("_Archive" in source for source in sources)
 
-    def test_hidden_directories_are_neither_planned_nor_reported(self, vault):
+    def test_hidden_directories_are_neither_planned_nor_reported(self, vault, monkeypatch):
+        import builtins
+
         hidden = vault / "_Temporal" / ".trash" / "2026-01" / "20260101-log.md"
         _write(hidden, LOG)
+        before = hidden.read_bytes()
         sources = [move["source"] for move in migration._planned_moves(str(vault))]
         assert not any(".trash" in source for source in sources)
-        migration.migrate(str(vault))
+        original_open, original_path_open = builtins.open, Path.open
+
+        def check_source(path):
+            if isinstance(path, (str, Path)):
+                assert not Path(path).resolve().is_relative_to(hidden.parent), "hidden corpus was opened"
+
+        def guarded_open(path, *args, **kwargs):
+            check_source(path)
+            return original_open(path, *args, **kwargs)
+
+        def guarded_path_open(path, *args, **kwargs):
+            check_source(path)
+            return original_path_open(path, *args, **kwargs)
+
+        with monkeypatch.context() as guard:
+            guard.setattr(builtins, "open", guarded_open)
+            guard.setattr(Path, "open", guarded_path_open)
+            assert not any(".trash" in path for path in migration.prospective_effects(str(vault)))
+            result = migration.migrate(str(vault))
+        assert result["status"] == "ok"
         assert migration._remaining_month_dirs(str(vault)) == []
-        assert hidden.is_file()
+        assert hidden.read_bytes() == before
 
     def test_symlinked_source_is_refused(self, vault, tmp_path_factory):
         outside = tmp_path_factory.mktemp("outside") / "elsewhere.md"
@@ -263,3 +285,26 @@ class TestRestartability:
         assert (vault / "_Temporal" / "Logs" / "project~brain" / "20260402-log.md").is_file()
         assert (vault / "Projects" / "Brain.md").read_text() == converged_links
         assert migration.migrate(str(vault)) == {"status": "skipped", "moves": [], "links_updated": 0}
+
+
+def test_hidden_pruning_does_not_exclude_redirected_public_source(vault, monkeypatch):
+    import builtins
+    from _common._source_access import SourceAccessError
+
+    private = vault / '.brain/private/Synthetic.md'
+    _write(private, LOG)
+    alias = vault / 'Projects/Alias.md'
+    alias.symlink_to(private)
+    candidates = {str((Path(directory) / filename).relative_to(vault))
+                  for directory, filename in migration.iter_vault_md_files(str(vault))}
+    assert 'Projects/Alias.md' in candidates
+    original_open = builtins.open
+    def guarded_open(path, *args, **kwargs):
+        if isinstance(path, (str, Path)):
+            assert Path(path).resolve() != private, 'Redirected public source was opened'
+        return original_open(path, *args, **kwargs)
+    monkeypatch.setattr(builtins, 'open', guarded_open)
+    with pytest.raises(SourceAccessError):
+        migration.migrate(str(vault))
+    assert (vault / '_Temporal/Logs/2026-03/20260301-log.md').is_file()
+    assert (vault / search_paths.OUTPUT_PATH).read_text() == '{}'

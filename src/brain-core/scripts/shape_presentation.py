@@ -17,6 +17,7 @@ Usage (CLI):
 
 import json
 import os
+from _common._source_access import resolve_public_source
 import subprocess
 import sys
 from datetime import datetime, timezone
@@ -51,7 +52,7 @@ def _read_template(vault_root):
     ]
     for path in paths:
         if os.path.isfile(path):
-            with open(path, "r", encoding="utf-8") as f:
+            with open(resolve_public_source(vault_root, path), "r", encoding="utf-8") as f:
                 return f.read()
     return None
 
@@ -65,7 +66,7 @@ def _resolve_theme_path(vault_root):
     ]
     for path in paths:
         if os.path.isfile(path):
-            return path
+            return str(resolve_public_source(vault_root, path))
     return None
 
 

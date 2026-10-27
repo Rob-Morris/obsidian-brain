@@ -16,19 +16,19 @@
   "clients": {
     "claude-code": {
       "budget": {
-        "over_target_tokens": 1124,
+        "over_target_tokens": 1164,
         "regression_baseline_tokens": 21465,
         "regression_exceeded": false,
         "target_exceeded": true,
         "target_tokens": 20000
       },
-      "catalogue_hash": "sha256:886f7bda9d8994ecca924b53dbe2ddc10d0227b46a94802d0a6bfb531d45026b",
+      "catalogue_hash": "sha256:da9439a7f0c47719795561e975ffc0ae37626c625e3c9efabfc066ac512334fd",
       "client_version": "2.1.270",
-      "maximum_tool_tokens": 1465,
+      "maximum_tool_tokens": 1475,
       "projector": "claude-code-model-tool-declaration/2.1.270",
       "projector_source": "captured model request plus deterministic replay",
-      "raw_bytes": 95362,
-      "tokens": 21124,
+      "raw_bytes": 95518,
+      "tokens": 21164,
       "tool_count": 93,
       "tools": {
         "access_prepare": {
@@ -194,28 +194,28 @@
           "tokens": 115
         },
         "document_replace-text": {
-          "projected_declaration_hash": "sha256:a935425d5500c1eb99d8e870f2fddbd888e08dcfedfffaef4dc85e1e863b81e9",
-          "raw_bytes": 2620,
-          "source_schema_hash": "sha256:c9e954850d7397bc99a61fe7703c3a8b605d75131a6085c1ade8e22abab73e6e",
-          "tokens": 567
+          "projected_declaration_hash": "sha256:d101ea87fa405270b49351e15b567005d5989456b69d7e2c93a1fb260b82897b",
+          "raw_bytes": 2659,
+          "source_schema_hash": "sha256:248be95100dfab9ef4030d93266f0fd00bc965d1e2c064c07bb77a5f82a31eaf",
+          "tokens": 577
         },
         "document_structured-edit": {
-          "projected_declaration_hash": "sha256:06d518135a26f5854767c203feab11436950ecc173ca11caac515a3de47a2e4a",
-          "raw_bytes": 5649,
-          "source_schema_hash": "sha256:4ee3b8fc0425a349d3b7564a5de580335e10675f1552af859459f8e0cbd15818",
-          "tokens": 1465
+          "projected_declaration_hash": "sha256:705b7ab21617059e2e894b56a6723e689762e32071c17100cbec031d26175d70",
+          "raw_bytes": 5688,
+          "source_schema_hash": "sha256:7db840914f2368d8c4b2949514a60087c899232be6fcd8e6e49e525d069fdcb5",
+          "tokens": 1475
         },
         "document_update-frontmatter": {
-          "projected_declaration_hash": "sha256:e265d8c9d60c84ebc0356d3f8f98ad7cc74bbf8f2196e6af8e32cb58af36ec8e",
-          "raw_bytes": 2234,
-          "source_schema_hash": "sha256:71f1a441afa89710db8d6e55171f2f1141d5baeb7fbc504cefe964d3406a6596",
-          "tokens": 479
+          "projected_declaration_hash": "sha256:4650b4bc39e0ecc2195801ba2a22d78ff11ce3a0d6b24a8dba114891f1aa9837",
+          "raw_bytes": 2273,
+          "source_schema_hash": "sha256:47e4ff82930cf2cc442657abce721f1d13b964070cb491c86c9024bc95ce1070",
+          "tokens": 489
         },
         "document_write-body": {
-          "projected_declaration_hash": "sha256:28e1ec2a0fb6bbd17adb140d68196222c323ec2048e61af5134077ebe71f8e2b",
-          "raw_bytes": 2592,
-          "source_schema_hash": "sha256:e4daef3ad514b53482f53fb0da266109106959b4ec4c0755258d94dd59d13541",
-          "tokens": 551
+          "projected_declaration_hash": "sha256:7bcc3851507137e6b5f30069e628d4514cb01c1bb5e8956dae377543672a7711",
+          "raw_bytes": 2631,
+          "source_schema_hash": "sha256:1d1b92f367f82c4cc1790db67dc885d0528b4bab9b20df8d2d4044cf571425ce",
+          "tokens": 561
         },
         "history_cleanup": {
           "projected_declaration_hash": "sha256:dde137514d998c45c844e1d393a9ce51e2b147ea81dd6d5972c27424a7040070",
@@ -594,19 +594,19 @@
     },
     "codex-cli": {
       "budget": {
-        "over_target_tokens": 1181,
+        "over_target_tokens": 1221,
         "regression_baseline_tokens": 21501,
         "regression_exceeded": false,
         "target_exceeded": true,
         "target_tokens": 20000
       },
-      "catalogue_hash": "sha256:f01dbe5166cd23f15f2b9cba353eaf974f14cc9462acbaf8a84e0a367fe8844b",
+      "catalogue_hash": "sha256:6b6f2f9d3a550dde1d1ac96c5e7b02025fe9d494f5a3d222ed888e9f982c22d4",
       "client_version": "0.154.0",
-      "maximum_tool_tokens": 1462,
+      "maximum_tool_tokens": 1472,
       "projector": "codex-cli-responses-function-declaration/0.154.0",
       "projector_source": "captured model request plus deterministic replay",
-      "raw_bytes": 96465,
-      "tokens": 21181,
+      "raw_bytes": 96621,
+      "tokens": 21221,
       "tool_count": 93,
       "tools": {
         "access_prepare": {
@@ -772,28 +772,28 @@
           "tokens": 123
         },
         "document_replace-text": {
-          "projected_declaration_hash": "sha256:4fda481ba4fa77e9057dbda3cdfd46da8804a9c5f634b5f38a3a8816e7f2a1c7",
-          "raw_bytes": 2616,
-          "source_schema_hash": "sha256:c9e954850d7397bc99a61fe7703c3a8b605d75131a6085c1ade8e22abab73e6e",
-          "tokens": 564
+          "projected_declaration_hash": "sha256:5cd16e479358c90814100fbcd7bedbfd134fa0d3aa991df4f435513f5eacbb1e",
+          "raw_bytes": 2655,
+          "source_schema_hash": "sha256:248be95100dfab9ef4030d93266f0fd00bc965d1e2c064c07bb77a5f82a31eaf",
+          "tokens": 574
         },
         "document_structured-edit": {
-          "projected_declaration_hash": "sha256:5f8cf385252d07fd24ef49d4ace0356474bb8fdf8819ae44b0af6ee6b9e8be2f",
-          "raw_bytes": 5645,
-          "source_schema_hash": "sha256:4ee3b8fc0425a349d3b7564a5de580335e10675f1552af859459f8e0cbd15818",
-          "tokens": 1462
+          "projected_declaration_hash": "sha256:297d933880b51b8722e35d512a934335367905a2841feacb3648e05ce8a5f0d3",
+          "raw_bytes": 5684,
+          "source_schema_hash": "sha256:7db840914f2368d8c4b2949514a60087c899232be6fcd8e6e49e525d069fdcb5",
+          "tokens": 1472
         },
         "document_update-frontmatter": {
-          "projected_declaration_hash": "sha256:21ab4a52801e800211594b64f38b6e5c7c362009ecfe1504b370048f6decd05d",
-          "raw_bytes": 2246,
-          "source_schema_hash": "sha256:71f1a441afa89710db8d6e55171f2f1141d5baeb7fbc504cefe964d3406a6596",
-          "tokens": 480
+          "projected_declaration_hash": "sha256:fbe99b20f66d332705fecd49b2eadfb681175183cddb471d9499d8fd2a27583b",
+          "raw_bytes": 2285,
+          "source_schema_hash": "sha256:47e4ff82930cf2cc442657abce721f1d13b964070cb491c86c9024bc95ce1070",
+          "tokens": 490
         },
         "document_write-body": {
-          "projected_declaration_hash": "sha256:739cf3db2dd6bd487803eb712ba155b007883c131193aeed70477b6ea57b9616",
-          "raw_bytes": 2588,
-          "source_schema_hash": "sha256:e4daef3ad514b53482f53fb0da266109106959b4ec4c0755258d94dd59d13541",
-          "tokens": 548
+          "projected_declaration_hash": "sha256:b5a8c97d2d1906dfc1aba18b3f7e295aca81829afca4c6e9c10cdb6e2014b432",
+          "raw_bytes": 2627,
+          "source_schema_hash": "sha256:1d1b92f367f82c4cc1790db67dc885d0528b4bab9b20df8d2d4044cf571425ce",
+          "tokens": 558
         },
         "history_cleanup": {
           "projected_declaration_hash": "sha256:b0d4726a2e86890291f6976029b70e0bb4610e4d231ddbfeed0aaa678b0a90ab",
@@ -1183,9 +1183,9 @@
   "interface_epoch": 3,
   "mcp_sdk_version": "2.0.0",
   "raw_fastmcp": {
-    "catalogue_hash": "sha256:dc8d6de4e852b9f3d3acb6b6a5827f34ba74445404c0ddbbf5ba5fcc37596b6a",
-    "raw_bytes": 94246,
-    "tokens": 20659,
+    "catalogue_hash": "sha256:ded29f9d94fc906841766ae7acdc825e8925b35acb19866afe7d764b5b40a7b8",
+    "raw_bytes": 94402,
+    "tokens": 20699,
     "tool_count": 93
   },
   "schema": "brain.command-interface-granular-mcp-projection/1",

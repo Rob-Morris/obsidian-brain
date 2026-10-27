@@ -5,21 +5,43 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
-from _common import load_compiled_router, read_artefact
-from _lifecycle.document_parts import EmbeddingParts, embedding_parts_from_body
+from _common import load_compiled_router
 from _lifecycle.retrieval_errors import (
     CompiledRouterUnavailableError,
     RetrievalPersistenceError,
     SemanticRuntimeUnavailableError,
-    UnreadableRetrievalSourceError,
 )
 import _semantic.assets as semantic_assets
 import _semantic.config as semantic_config
 import _semantic.runtime as semantic_runtime
+import _semantic.model as semantic_model
 import _search.index as search_index
 import _search.paths as search_paths
 import compile_router
 import session
+
+
+class RetrievalRefreshIncomplete(RetrievalPersistenceError):
+    """A refresh failed after publishing some independent retrieval outputs."""
+
+    def __init__(self, cause, committed_paths):
+        self.committed_paths = tuple(committed_paths)
+        super().__init__(".brain/local", "refreshing retrieval assets", cause)
+
+
+def _asset_signatures(root, paths=None):
+    if paths is None:
+        paths = (compile_router.OUTPUT_PATH, search_paths.OUTPUT_PATH,
+                 semantic_runtime.EMBEDDINGS_META_REL, semantic_runtime.TYPE_EMBEDDINGS_REL,
+                 semantic_runtime.DOC_EMBEDDINGS_REL)
+    result = {}
+    for path in paths:
+        try:
+            info = (Path(root) / path).stat()
+            result[path] = (info.st_dev, info.st_ino, info.st_mtime_ns, info.st_size)
+        except FileNotFoundError:
+            result[path] = None
+    return result
 
 
 def drop_path_keyed_retrieval_caches(vault_root) -> list[str]:
@@ -31,15 +53,21 @@ def drop_path_keyed_retrieval_caches(vault_root) -> list[str]:
     paths that no longer exist. Removing them makes the next lexical/semantic
     repair see ``missing`` and rebuild.
     """
-    vault_str = str(vault_root)
-    removed: list[str] = []
+    from _bootstrap.owned_paths import owned_output_paths
+    relatives = (search_paths.OUTPUT_PATH, semantic_runtime.TYPE_EMBEDDINGS_REL,
+                 semantic_runtime.DOC_EMBEDDINGS_REL, semantic_runtime.EMBEDDINGS_META_REL)
+    paths = dict(zip(relatives, owned_output_paths(vault_root, relatives)))
+    removed = []
     try:
-        (Path(vault_str) / search_paths.OUTPUT_PATH).unlink()
-        removed.append(search_paths.OUTPUT_PATH)
-    except FileNotFoundError:
-        pass
-    removed.extend(semantic_runtime.clear_embeddings_outputs(vault_str))
-    return removed
+        for relative in (semantic_runtime.EMBEDDINGS_META_REL, *relatives[:-1]):
+            try:
+                paths[relative].unlink()
+            except FileNotFoundError:
+                continue
+            removed.append(relative)
+    except OSError as exc:
+        raise RetrievalRefreshIncomplete(exc, removed) from exc
+    return [relative for relative in relatives if relative in removed]
 
 
 def embeddings_should_refresh(vault_root, *, config=None) -> bool:
@@ -59,28 +87,36 @@ def persist_retrieval_outputs(
     index: Mapping[str, Any],
     *,
     router: Mapping[str, Any] | None = None,
-    embedding_parts_by_path: Mapping[str, EmbeddingParts] | None = None,
     force_embeddings: bool = False,
     config=None,
 ):
     """Persist lexical state and refresh semantic sidecars when enabled."""
-    search_index.persist_retrieval_index(vault_root, index)
-    if not force_embeddings and not embeddings_should_refresh(vault_root, config=config):
-        semantic_runtime.clear_embeddings_outputs(vault_root)
-        return None
-    if router is None:
-        router = load_compiled_router(vault_root)
-        if router.get("error"):
-            raise CompiledRouterUnavailableError(
-                f"compiled router is unavailable: {router['error']}",
-                operation="building semantic embeddings",
-            )
-    return semantic_assets.refresh_embeddings_outputs(
-        vault_root,
-        router,
-        index["documents"],
-        embedding_parts_by_path=embedding_parts_by_path,
-    )
+    from _bootstrap.owned_paths import owned_output_paths
+    relatives = (search_paths.OUTPUT_PATH, semantic_runtime.EMBEDDINGS_META_REL,
+                 semantic_runtime.TYPE_EMBEDDINGS_REL, semantic_runtime.DOC_EMBEDDINGS_REL)
+    owned_output_paths(vault_root, relatives)
+    published = []
+    try:
+        search_index.persist_retrieval_index(vault_root, index)
+        published.append(search_paths.OUTPUT_PATH)
+        if not force_embeddings and not embeddings_should_refresh(vault_root, config=config):
+            semantic_runtime.clear_embeddings_outputs(vault_root)
+            return None
+        if router is None:
+            router = load_compiled_router(vault_root)
+            if router.get("error"):
+                raise CompiledRouterUnavailableError(
+                    f"compiled router is unavailable: {router['error']}",
+                    operation="building semantic embeddings",
+                )
+        return semantic_assets.refresh_embeddings_outputs(vault_root, router, index["documents"])
+    except (OSError, ValueError, RetrievalPersistenceError, CompiledRouterUnavailableError,
+            SemanticRuntimeUnavailableError, semantic_model.SemanticModelError,
+            semantic_runtime.SemanticEmbeddingsLoadError) as exc:
+        committed = (*published, *getattr(exc, "committed_paths", ()))
+        if committed:
+            raise RetrievalRefreshIncomplete(exc, dict.fromkeys(committed)) from exc
+        raise
 
 
 def refresh_embeddings_for_loaded_state(
@@ -88,7 +124,6 @@ def refresh_embeddings_for_loaded_state(
     router: Mapping[str, Any],
     documents: Sequence[Mapping[str, Any]],
     *,
-    embedding_parts_by_path: Mapping[str, EmbeddingParts] | None = None,
     config=None,
 ):
     """Refresh semantic sidecars for already-loaded router/index state.
@@ -99,14 +134,10 @@ def refresh_embeddings_for_loaded_state(
     if not embeddings_should_refresh(vault_root, config=config):
         semantic_runtime.clear_embeddings_outputs(vault_root)
         return None
-    if embedding_parts_by_path is None:
-        embedding_parts_by_path = _materialise_embedding_parts_by_path(vault_root, documents)
-        documents = [doc for doc in documents if doc["path"] in embedding_parts_by_path]
     return semantic_assets.refresh_embeddings_outputs(
         vault_root,
         router,
         documents,
-        embedding_parts_by_path=embedding_parts_by_path,
     )
 
 
@@ -115,7 +146,31 @@ def refresh_retrieval_assets(
     *,
     force_embeddings: bool = False,
 ) -> list[str]:
-    """Refresh router, lexical retrieval assets, and semantic sidecars when requested."""
+    """Refresh independently published assets, retaining known partial effects."""
+    from _common._source_access import SourceAccessError
+    from _bootstrap.owned_paths import owned_output_paths
+    relatives = (compile_router.OUTPUT_PATH, compile_router.compile_colours.OUTPUT_REL,
+                 compile_router.compile_colours.GRAPH_JSON_REL, session.SESSION_MARKDOWN_REL,
+                 search_paths.OUTPUT_PATH, semantic_runtime.EMBEDDINGS_META_REL,
+                 semantic_runtime.TYPE_EMBEDDINGS_REL, semantic_runtime.DOC_EMBEDDINGS_REL)
+    owned_output_paths(vault_root, relatives)
+    published = []
+    try:
+        return _refresh_retrieval_assets(vault_root, force_embeddings=force_embeddings,
+                                         published=published)
+    except (OSError, ValueError, RetrievalPersistenceError,
+            CompiledRouterUnavailableError, SemanticRuntimeUnavailableError,
+            semantic_model.SemanticModelError, semantic_runtime.SemanticEmbeddingsLoadError) as exc:
+        committed = (*published, *getattr(exc, "committed_paths", ()))
+        if committed:
+            raise RetrievalRefreshIncomplete(exc, dict.fromkeys(committed)) from exc
+        if isinstance(exc, SourceAccessError):
+            raise CompiledRouterUnavailableError(str(exc), operation="refreshing retrieval assets") from exc
+        raise
+
+
+def _refresh_retrieval_assets(vault_root, *, force_embeddings=False, published):
+    """Build and publish in dependency order under the caller's mutation lock."""
     vault_root = Path(vault_root)
     notes = []
     # Wrap only boundary-shape failures here. If compile/persist/session starts
@@ -128,14 +183,16 @@ def refresh_retrieval_assets(
             f"compiled router refresh failed: {exc}",
             operation="refreshing retrieval assets",
         ) from exc
-    _persist_step(
+    router_outputs = _persist_step(
         compile_router.OUTPUT_PATH,
         "persisting compiled router",
         lambda: compile_router.persist_compiled_router(str(vault_root), compiled),
     )
+    published.extend(router_outputs or (compile_router.OUTPUT_PATH,))
     notes.append("Compiled router refreshed.")
     try:
-        compile_router.refresh_session_markdown(str(vault_root), compiled)
+        if compile_router.refresh_session_markdown(str(vault_root), compiled):
+            published.append(session.SESSION_MARKDOWN_REL)
     except (OSError, ValueError) as exc:
         notes.append(
             f"Warning: failed to refresh {session.SESSION_MARKDOWN_REL}: {exc}"
@@ -148,7 +205,6 @@ def refresh_retrieval_assets(
         str(vault_root),
         index,
         router=compiled,
-        embedding_parts_by_path=build_result.embedding_parts_by_path,
         force_embeddings=force_embeddings,
     )
     if embeddings_result is None:
@@ -163,27 +219,6 @@ def _persist_step(rel_path, operation, fn):
     try:
         return fn()
     except (OSError, ValueError) as exc:
-        raise RetrievalPersistenceError(rel_path, operation, exc) from exc
-
-
-def _materialise_embedding_parts_by_path(
-    vault_root,
-    documents: Sequence[Mapping[str, Any]],
-) -> dict[str, EmbeddingParts]:
-    """Build embedding parts for loaded documents when no cache was threaded through."""
-    parts_by_path = {}
-    for doc in documents:
-        rel_path = doc["path"]
-        abs_path = Path(vault_root) / rel_path
-        try:
-            _, body = read_artefact(str(abs_path))
-        except UnicodeDecodeError:
-            continue
-        except OSError as exc:
-            raise UnreadableRetrievalSourceError(
-                rel_path,
-                "building semantic embeddings",
-                exc,
-            ) from exc
-        parts_by_path[rel_path] = embedding_parts_from_body(body)
-    return parts_by_path
+        error = RetrievalPersistenceError(rel_path, operation, exc)
+        error.committed_paths = getattr(exc, "committed_paths", ())
+        raise error from exc

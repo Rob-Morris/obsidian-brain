@@ -11,6 +11,7 @@ import argparse
 from dataclasses import dataclass, replace
 import json
 import os
+from _common._source_access import resolve_public_source, resolve_content_source, resolve_named_destination, resolve_readme_source, read_public_content
 import re
 import sys
 
@@ -54,7 +55,6 @@ from _common import (
     parse_leading_frontmatter,
     parse_frontmatter,
     read_exact_file_content,
-    read_file_content,
     iter_artefact_markdown_files,
     replace_artefact_key_references,
     reconcile_fields_for_render,
@@ -111,6 +111,7 @@ class OpenDocument:
     artefact: dict | None
     revision: str
     conversion_code: str | None = None
+    has_frontmatter: bool = True
 
 _VALID_SCOPES = {
     "body": {
@@ -161,12 +162,19 @@ def open_document(
 ):
     """Open and parse one editable document with its exact persisted revision."""
     vault_root = str(vault_root)
+    if resource == "file":
+        abs_path = resolve_readme_source(vault_root, reference)
+        content = read_exact_file_content(abs_path, convert_lossless=True)
+        fields, body = parse_frontmatter(content)
+        return OpenDocument(resource, reference, reference, str(abs_path), fields, body,
+                            None, content.revision, content.conversion_code,
+                            parse_leading_frontmatter(content) is not None)
     if resource == "artefact":
         resolved_path, artefact = resolve_and_validate_folder(
             vault_root, router, reference
         )
         check_write_allowed(resolved_path)
-        abs_path = os.path.join(vault_root, resolved_path)
+        abs_path = str(resolve_content_source(vault_root, resolved_path))
         try:
             content = read_exact_file_content(abs_path, convert_lossless=True)
         except FileNotFoundError:
@@ -207,7 +215,9 @@ def open_document(
         and rel_path.startswith(".brain-core/skills/")
     ):
         check_write_allowed(rel_path)
-    abs_path = os.path.join(vault_root, rel_path)
+    abs_path = str(resolve_public_source(vault_root, rel_path))
+    if not (allow_core_skill_read and resource == "skill" and rel_path.startswith(".brain-core/skills/")):
+        abs_path = str(resolve_named_destination(vault_root, rel_path))
     try:
         content = read_exact_file_content(abs_path, convert_lossless=True)
     except FileNotFoundError:
@@ -793,7 +803,7 @@ def _apply_body_operation(existing_body, operation, body, *, target=None,
 # Resource-aware editing (Phase 5)
 # ---------------------------------------------------------------------------
 
-EDITABLE_RESOURCES = RESOURCE_KINDS
+EDITABLE_RESOURCES = (*RESOURCE_KINDS, "file")
 
 _LIFECYCLE_FIELD_COMMANDS = {
     "parent": "artefact.reparent",
@@ -935,34 +945,8 @@ def plan_parent_projection_repair(vault_root, router, path, *, reference_index=N
 def current_document_revision(vault_root, router, resource="artefact", *,
                               path=None, name=None):
     """Return the exact persisted revision of one editable Brain document."""
-    vault_root = str(vault_root)
-    if resource == "artefact":
-        if not path:
-            raise ValueError("path is required when resource='artefact'")
-        _resolved, abs_path, _fields, _body, _art = _open_artefact(
-            vault_root, router, path
-        )
-        return document_revision_at(abs_path)
-    if resource not in EDITABLE_RESOURCES:
-        raise ValueError(
-            f"Resource '{resource}' is not an editable Brain document. "
-            f"Editable resources: {', '.join(EDITABLE_RESOURCES)}"
-        )
-    if not name:
-        raise ValueError(f"resource '{resource}' requires a reference")
-    rel_path = (
-        resolve_named_document_path(router, resource, name)
-        if resource == "skill"
-        else config_resource_rel_path(router, resource, name)
-    )
-    check_write_allowed(rel_path)
-    abs_path = os.path.join(vault_root, rel_path)
-    try:
-        return document_revision_at(abs_path)
-    except FileNotFoundError:
-        raise FileNotFoundError(
-            f"{resource.capitalize()} '{name}' not found at {rel_path}"
-        ) from None
+    reference = path if resource == "artefact" else name
+    return open_document(vault_root, router, resource, reference).revision
 
 
 @dataclass(frozen=True, slots=True)
@@ -1010,7 +994,14 @@ def plan_document_edit(opened, *, operation="edit", body="", frontmatter_changes
                                     target, selector, scope)
         _reject_leading_body_frontmatter(body, resource_label=f"{opened.resource.capitalize()} resource")
     mode = "edit" if operation == "delete_section" else operation
-    _merge_frontmatter(fields, frontmatter_changes, mode)
+    if opened.resource == "file":
+        for key, value in (frontmatter_changes or {}).items():
+            if value is None:
+                fields.pop(key, None)
+            else:
+                fields[key] = value
+    else:
+        _merge_frontmatter(fields, frontmatter_changes, mode)
     if opened.resource == "artefact":
         ensure_parent_tag(fields)
     new_body, resolved = _apply_body_operation(opened.body, operation, body,
@@ -1046,8 +1037,12 @@ def apply_document_edit(vault_root, router, plan, *, fix_links=False, file_index
                                             file_index=file_index)
         result["revision"] = document_revision_at(os.path.join(vault_root, result["path"]))
     else:
-        safe_write(opened.abs_path, serialize_frontmatter(plan.fields, body=plan.new_body),
-                   bounds=vault_root)
+        target = (resolve_readme_source(vault_root, opened.reference) if opened.resource == "file"
+                  else resolve_named_destination(vault_root, opened.path))
+        content = (plan.new_body if opened.resource == "file" and not opened.has_frontmatter
+                   and plan.frontmatter_changes is None else
+                   serialize_frontmatter(plan.fields, body=plan.new_body))
+        safe_write(target, content, bounds=vault_root)
         result = _result_payload(opened.path, opened.path, plan.operation,
                                  opened.body, plan.new_body, resolved=plan.resolved,
                                  scope=plan.scope)
@@ -1222,9 +1217,7 @@ def _plan_reference_mutation(
         rel_path = ref["path"]
         if rel_path in skip_paths:
             continue
-        content = read_file_content(vault_root, rel_path, convert_lossless=True)
-        if isinstance(content, MissingFileResult):
-            _raise_stale_index_missing(rel_path, operation)
+        content = read_exact_file_content(resolve_content_source(vault_root, rel_path), convert_lossless=True)
         fields, body = parse_frontmatter(content)
         if not replace_artefact_key_references(
             fields, old_key, new_key,
@@ -1338,7 +1331,7 @@ def _plan_descendant_moves(
             and (op.get("art") or {}).get("classification") == "living"
         )
         if is_living_parent_ref and op["path"] not in indexed_descendant_paths:
-            read_exact_file_content(os.path.join(vault_root, op["path"]))
+            read_exact_file_content(resolve_content_source(vault_root, op["path"]))
             _raise_unindexed_parent_reference(op["path"], old_key, operation)
     for entry in indexed_descendants:
         rel_path = entry["path"]
@@ -1347,7 +1340,7 @@ def _plan_descendant_moves(
             fields = op["fields"]
             desc_art = op["art"]
         else:
-            content = read_file_content(vault_root, rel_path, convert_lossless=True)
+            content = read_public_content(vault_root, rel_path, convert_lossless=True)
             if isinstance(content, MissingFileResult):
                 _raise_stale_index_missing(rel_path, operation)
             fields, _body = parse_frontmatter(content)
@@ -1392,7 +1385,7 @@ def _plan_temporal_reference_moves(
             fields = op["fields"]
             art = op.get("art") or {}
         else:
-            content = read_file_content(vault_root, rel_path, convert_lossless=True)
+            content = read_public_content(vault_root, rel_path, convert_lossless=True)
             if isinstance(content, MissingFileResult):
                 _raise_stale_index_missing(rel_path, operation)
             fields, _body = parse_frontmatter(content)
@@ -1952,7 +1945,7 @@ def plan_convert(vault_root, router, path, target_type, parent=None, recursive=F
     if not os.path.isfile(abs_source):
         raise FileNotFoundError(f"File not found: {path}")
 
-    content = read_exact_file_content(abs_source, convert_lossless=True)
+    content = read_exact_file_content(resolve_public_source(vault_root, abs_source), convert_lossless=True)
     fields, body = parse_frontmatter(content)
     _require_indexed_encoding(vault_root, router, path, source_art, fields, content)
     title = _derive_title_from_path(source_art, fields, path)
@@ -2173,10 +2166,10 @@ def _archive_destination(path, art, today, fields):
 
 def _read_open_path(vault_root, router, path):
     resolved_path, art = resolve_and_validate_folder(vault_root, router, path)
-    abs_path = os.path.join(vault_root, resolved_path)
+    abs_path = str(resolve_content_source(vault_root, resolved_path))
     if not os.path.isfile(abs_path):
         raise FileNotFoundError(f"File not found: {resolved_path}")
-    content = read_exact_file_content(abs_path, convert_lossless=True)
+    content = read_exact_file_content(resolve_content_source(vault_root, abs_path), convert_lossless=True)
     fields, body = parse_frontmatter(content)
     _require_indexed_encoding(vault_root, router, resolved_path, art, fields, content)
     return resolved_path, abs_path, fields, body, art
@@ -2225,7 +2218,7 @@ def _move_plan_for_reparent(vault_root, router, child_entries, target_parent, *,
             rel_path = entry["path"]
             content = read_snapshot.get(rel_path)
             if content is None:
-                content = read_file_content(vault_root, rel_path, convert_lossless=True)
+                content = read_public_content(vault_root, rel_path, convert_lossless=True)
                 if isinstance(content, MissingFileResult):
                     _raise_stale_index_missing(rel_path, "reparent")
             fields, body = parse_frontmatter(content)
@@ -2306,7 +2299,7 @@ def plan_reparent_children(vault_root, router, source, to_marker=None, *, to_pro
     for rel_path in sorted(living_paths | backlink_paths):
         try:
             child_content = read_exact_file_content(
-                os.path.join(vault_root, rel_path), convert_lossless=True)
+                resolve_content_source(vault_root, rel_path), convert_lossless=True)
         except (NonStandardVaultTextError, OSError) as exc:
             failures.append(vault_text_failure(rel_path, exc))
             continue
@@ -2437,7 +2430,7 @@ def _plan_unarchive_entry(vault_root, router, path):
     abs_path = os.path.join(vault_root, path)
     if not os.path.isfile(abs_path):
         raise FileNotFoundError(f"File not found: {path}")
-    content = read_exact_file_content(abs_path, convert_lossless=True)
+    content = read_exact_file_content(resolve_content_source(vault_root, abs_path), convert_lossless=True)
     fields, body = parse_frontmatter(content)
     art = resolve_type(router, fields.get("type"))
     filename = os.path.basename(path)

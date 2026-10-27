@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from _text_content import strip_leading_byte_order_marks
 
+from _bootstrap.owned_paths import UnsafeFilesystemLayoutError
+
 from .._decoding import reject_unexpected
 
 from dataclasses import dataclass
@@ -12,7 +14,7 @@ from typing import ClassVar, Mapping
 from .._mutation_support import contributor_mutation_entry, no_effect_error
 from ..context import InvocationContext
 from ..receipts import CommittedEffect
-from ..results import ErrorCode, Ok
+from ..results import CommandWarning, ErrorCode, Ok, WarningCode
 
 
 @dataclass(frozen=True, slots=True)
@@ -58,6 +60,8 @@ def execute(context: InvocationContext, request: StageCreateRequest):
             _body_size(request)
             admit_owner(context, request, prepare)
             result = stage_body(vault_root, request.content)
+    except UnsafeFilesystemLayoutError as exc:
+        return no_effect_error(StageCreateRequest, ErrorCode.CONFLICT, str(exc))
     except MutationLockError as exc:
         return no_effect_error(
             StageCreateRequest,
@@ -82,6 +86,8 @@ def execute(context: InvocationContext, request: StageCreateRequest):
         request.COMMAND_VERSION,
         payload,
         committed_effects=(CommittedEffect("stage.created", payload.handle),),
+        warnings=tuple(CommandWarning(WarningCode.FOLLOW_UP_REQUIRED, message)
+                       for message in result.get("warnings", ())),
     )
 
 

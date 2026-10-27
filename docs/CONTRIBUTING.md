@@ -450,6 +450,15 @@ Examples of traced consumer sets (recheck references when these owners change):
 | Installer-source assembly (`copy_install_source`) | `tests/test_install_fixture.py`, `tests/test_install_script.py`, `tests/test_install_core.py`, `tests/test_install_then_doctor.py`, `tests/test_install_script_vault_registry.py`, `tests/test_install_approvals.py`; shared template ignore changes also include `tests/test_compile_colours.py` |
 | Other owner or helper | Trace its actual consumer closure and record the selected files; if that closure cannot be established confidently, run the full suite |
 
+File-access changes additionally trace source selection, inference, cache reuse,
+preparation, execution and post-commit cleanup. Include the applicable canonical
+filesystem/owned-path/lock tests and every changed content, staging, retrieval or
+maintenance owner. Negative cases must observe refusal before prohibited content
+reads or effects, alongside supported positive cases; a final error alone is not
+proof. Preserve the separate policies in the [security model](architecture/security.md#operation-specific-file-authority).
+Native Windows object/lock cases must be included in the existing smoke job's
+explicit invocation; mocked Windows branches are not equivalent evidence.
+
 Do not repeat unchanged successful verification just because a commit was made
 or ancestry changed. Check source, dependencies, relevant environment and the
 meaning of the prior run before reusing evidence. Failed or interrupted runs

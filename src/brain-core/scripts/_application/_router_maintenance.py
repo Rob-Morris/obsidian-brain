@@ -45,11 +45,47 @@ def execute_router_maintenance(
     from _portable.router_maintenance import maintain_router
     from _lifecycle.router_errors import UnreadableRouterSourceError
 
+    from _lifecycle.retrieval_assets import _asset_signatures
+    from _lifecycle.retrieval_errors import RetrievalPersistenceError
+    from _bootstrap.owned_paths import owned_output_paths
+    import compile_colours
+    import session
     root = context.selected_brain.vault_root
+    paths = (".brain/local/compiled-router.json", compile_colours.OUTPUT_REL,
+             compile_colours.GRAPH_JSON_REL, session.SESSION_MARKDOWN_REL,
+             ".brain/local/embeddings-meta.json", ".brain/local/type-embeddings.npy",
+             ".brain/local/doc-embeddings.npy")
+    effects = ()
     try:
         with vault_mutation_lock(root):
             admit_owner(context, request, maintenance_binding)
-            result = maintain_router(root, dry_run=context.dry_run, force=force)
+            try:
+                owned_output_paths(root, paths)
+                before = _asset_signatures(root, paths)
+            except OSError as exc:
+                return no_effect_error(type(request), ErrorCode.CONFLICT, str(exc))
+            try:
+                result = maintain_router(root, dry_run=context.dry_run, force=force)
+            except UnreadableRouterSourceError:
+                raise
+            except (OSError, ValueError, RetrievalPersistenceError) as exc:
+                declared = set(getattr(exc, "committed_paths", ()))
+                if not declared.issubset(paths):
+                    raise
+                after = _asset_signatures(root, paths)
+                changed = tuple(path for path in paths
+                                if path in declared or before[path] != after[path])
+                if changed:
+                    message = "Router maintenance published derived state but follow-up work failed. Inspect the receipt before running runtime.refresh-router again."
+                    return Partial(request.COMMAND_ID, request.COMMAND_VERSION,
+                        CommandError(ErrorCode.CONFLICT, message, RequestErrorDetails(None, message)),
+                        tuple(CommittedEffect(request.COMMAND_ID, path) for path in changed))
+                return no_effect_error(type(request), ErrorCode.CONFLICT, str(exc))
+            if result.status in {"changed", "partial"}:
+                after = _asset_signatures(root, paths)
+                known = {".brain/local/compiled-router.json", *result.sidecars_removed}
+                effects = tuple(CommittedEffect(request.COMMAND_ID, path) for path in paths
+                                if path in known or before[path] != after[path])
     except MutationLockError as exc:
         return no_effect_error(
             type(request),
@@ -71,7 +107,7 @@ def execute_router_maintenance(
         return Partial(
             request.COMMAND_ID, request.COMMAND_VERSION,
             router_partial_error(result),
-            (CommittedEffect(request.COMMAND_ID, ".brain/local/compiled-router.json"),),
+            effects,
         )
     status = RouterMaintenanceStatus(result.status)
     payload = RouterMaintenancePayload(
@@ -81,11 +117,6 @@ def execute_router_maintenance(
         result.forced,
         result.sidecars_removed,
         result.session_refreshed,
-    )
-    effects = (
-        (CommittedEffect(request.COMMAND_ID, ".brain/local/compiled-router.json"),)
-        if status is RouterMaintenanceStatus.CHANGED
-        else ()
     )
     return Ok(
         request.COMMAND_ID,
