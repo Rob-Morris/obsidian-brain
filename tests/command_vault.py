@@ -347,8 +347,19 @@ def clone_command_vault(
     started = time.perf_counter()
     strategy = _copy_on_write_clone(baseline.vault_root, destination)
     if strategy is None:
-        shutil.copytree(baseline.vault_root, destination)
+        shutil.copytree(baseline.vault_root, destination,
+                        ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
         strategy = "portable-copy"
+    else:
+        for directory, dirs, files in os.walk(destination, followlinks=False):
+            for name in shutil.ignore_patterns("__pycache__", "*.pyc")(directory, dirs + files):
+                path = Path(directory) / name
+                if path.is_symlink() or path.is_file():
+                    path.unlink()
+                else:
+                    shutil.rmtree(path)
+                if name in dirs:
+                    dirs.remove(name)
 
     state_root = destination.parent / f".{destination.name}-state"
     config_home = state_root / "config"

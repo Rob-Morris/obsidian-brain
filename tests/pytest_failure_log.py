@@ -4,6 +4,8 @@ import tempfile
 
 import pytest
 
+from brain_test_support import STORAGE_ERRORS
+
 
 def pytest_addoption(parser):
     parser.addoption('--failure-log', metavar='PATH',
@@ -43,11 +45,18 @@ class FailureLog:
             return
         # Closing each append makes the complete report available to a tailer
         # before the next test begins, including when this run is interrupted.
-        with self.path.open('a', encoding='utf-8') as stream:
-            stream.write(f'\n=== {report.nodeid} [{getattr(report, "when", "collection")}] ===\n')
-            stream.write(str(report.longrepr) + '\n')
-            for name, content in report.sections:
-                stream.write(f'--- {name} ---\n{content}\n')
+        try:
+            with self.path.open('a', encoding='utf-8') as stream:
+                stream.write(f'\n=== {report.nodeid} [{getattr(report, "when", "collection")}] ===\n')
+                stream.write(str(report.longrepr) + '\n')
+                for name, content in report.sections:
+                    stream.write(f'--- {name} ---\n{content}\n')
+        except OSError as exc:
+            if exc.errno not in STORAGE_ERRORS:
+                raise
+            terminal = self.config.pluginmanager.getplugin('terminalreporter')
+            if terminal is not None:
+                terminal.write_line('Failure log unavailable: filesystem capacity exhausted; see console failure report.')
 
     def pytest_runtest_logreport(self, report):
         self._record(report)

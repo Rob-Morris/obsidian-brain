@@ -1,9 +1,12 @@
 """A quiet test process publishes diagnostics before the remaining tests finish."""
 import os
+import errno
 from pathlib import Path
 import subprocess
 import sys
 import time
+
+import pytest
 
 
 def run_pytest(tmp_path, content):
@@ -79,3 +82,27 @@ def test_collection_failure_is_logged(tmp_path):
         if process.poll() is None:
             process.kill()
             process.communicate(timeout=5)
+
+
+@pytest.mark.parametrize("error", sorted({errno.ENOSPC, getattr(errno, 'EDQUOT', errno.ENOSPC), errno.EACCES}))
+def test_log_capacity_failure_preserves_reporting_but_other_io_errors_surface(error):
+    from types import SimpleNamespace
+    from pytest_failure_log import FailureLog
+
+    messages = []
+    terminal = SimpleNamespace(write_line=messages.append)
+    config = SimpleNamespace(pluginmanager=SimpleNamespace(getplugin=lambda name: terminal))
+
+    class UnwritableLog:
+        def open(self, *args, **kwargs):
+            raise OSError(error, 'controlled log failure')
+
+    report = SimpleNamespace(failed=True, nodeid='example', when='call',
+                             longrepr='original failure', sections=[])
+    logger = FailureLog(config, UnwritableLog())
+    if error == errno.EACCES:
+        with pytest.raises(OSError):
+            logger.pytest_runtest_logreport(report)
+    else:
+        logger.pytest_runtest_logreport(report)
+        assert messages == ['Failure log unavailable: filesystem capacity exhausted; see console failure report.']

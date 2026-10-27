@@ -462,6 +462,23 @@ does not add a promotion-evidence receipt or bypass that gate.
 
 ### Test diagnostics and timing
 
+The test-resource plugin removes each successful test's owned `tmp_path` only
+after setup, call and teardown have all passed. Failures in any phase and
+interrupted tests retain their scratch evidence. Session-scoped baselines stay
+available for their consumers and final immutability checks. This intentionally
+does not use pytest's built-in `failed` retention policy, which can discard
+setup/teardown failure evidence. For deliberate local inspection of successful
+scratch, disable the plugin with `-p no:pytest_test_resources` (this also disables
+the resource-exhaustion stop). Do not share writable clones or use hard links.
+
+After a failed test reports disk-full/quota exhaustion, the plugin probes the
+test filesystem with a real temporary write. Only confirmed capacity failure
+stops the session, after teardown and failure reporting, with a nonzero exit and
+an explicit statement that remaining tests did not run. Simulated errors on a
+healthy filesystem do not stop it. No automatic rerun is performed. Native
+copy-on-write clones remain preferred; portable copies exclude generated
+bytecode, and native clones discard it before use.
+
 Quiet runs keep their normal console output and print a failure-log path once
 at startup. Each setup, call, teardown or collection failure is written there
 immediately with its traceback and captured output, so an agent can tail the log
@@ -470,6 +487,13 @@ file per run under `.pytest_cache/d/failure-logs/`; use
 `--failure-log /path/to/failures.log` with pytest to choose a path. Parallel
 workers report through the controller's log. These diagnostic files can contain
 captured test data; they are local evidence, not release artefacts.
+Linux CI retains these synthetic-test failure logs and before/after filesystem
+byte/inode diagnostics in a seven-day `linux-test-diagnostics` artifact, including
+on failure. `src/scripts/collect_test_diagnostics.py` snapshots at most eight
+logs of 256 KiB each plus 64 KiB of resource diagnostics, with a manifest naming
+truncation and omitted files. Oversized logs retain their beginning and end;
+the original local logs are unchanged. It does not upload vault trees. A capacity failure writing the log
+leaves the ordinary console report available instead of masking the test result.
 
 Pytest also reports the 20 slowest setup, call and teardown phases by default.
 Use those existing-run measurements before launching another suite for timing.

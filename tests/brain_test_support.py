@@ -11,6 +11,7 @@ from ``brain_test_support`` directly.
 
 import atexit
 import contextlib
+import errno
 import functools
 import os
 from pathlib import Path
@@ -20,6 +21,7 @@ import sys
 import tempfile
 
 TEMPLATE_VAULT_COPY_IGNORE = (".venv", ".pytest_cache", "local", "__pycache__", "*.pyc")
+STORAGE_ERRORS = {value for value in (errno.ENOSPC, getattr(errno, "EDQUOT", None)) if value is not None}
 
 
 def process_diagnostics(completed):

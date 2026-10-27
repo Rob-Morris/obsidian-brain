@@ -34,5 +34,32 @@ jobs:
       - name: Install dependencies
         run: make install
 
+      - name: Record initial filesystem capacity
+        run: |
+          mkdir -p "$RUNNER_TEMP/brain-ci"
+          { date -u; df -h . /tmp; df -i . /tmp; } > "$RUNNER_TEMP/brain-ci/resources.log"
+
       - name: Run test suite
         run: make test
+
+      - name: Record final filesystem capacity
+        if: always()
+        run: |
+          mkdir -p "$RUNNER_TEMP/brain-ci"
+          { date -u; df -h . /tmp; df -i . /tmp; } >> "$RUNNER_TEMP/brain-ci/resources.log"
+
+      - name: Preserve test failure diagnostics
+        if: always()
+        run: |
+          python src/scripts/collect_test_diagnostics.py \
+            --failure-logs .pytest_cache/d/failure-logs \
+            --resource-log "$RUNNER_TEMP/brain-ci/resources.log" \
+            --destination "$RUNNER_TEMP/brain-ci/snapshot"
+
+      - name: Upload bounded test diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-test-diagnostics
+          path: ${{ runner.temp }}/brain-ci/snapshot
+          retention-days: 7
