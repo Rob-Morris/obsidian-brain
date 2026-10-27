@@ -15,6 +15,31 @@ def _check(root, path=None):
                    LinksCheckRequest(path))
 
 
+@pytest.mark.parametrize("cached", [False, True])
+def test_link_check_prunes_hidden_onboarding_sources(tmp_path, monkeypatch, cached):
+    import check
+    import _portable.links as portable
+
+    (tmp_path / "Public.md").write_text("[[Missing public title]]")
+    rule = tmp_path / ".grok/rules/brain.md"
+    rule.parent.mkdir(parents=True)
+    rule.write_text("[[Private onboarding title]]")
+    (tmp_path / ".hidden.md").write_text("[[Private root title]]")
+    walk = os.walk
+
+    def public_walk(root):
+        for row in walk(root):
+            assert not any(part.startswith(".") for part in Path(row[0]).relative_to(tmp_path).parts)
+            yield row
+
+    monkeypatch.setattr(portable, "os", SimpleNamespace(path=os.path, walk=public_walk))
+    context = check.CheckContext(str(tmp_path), {}) if cached else None
+    findings = portable.check_broken_wikilinks(str(tmp_path), {}, ctx=context)
+    assert [(item["file"], item["check"]) for item in findings] == [
+        ("Public.md", "broken_wikilinks"),
+    ]
+
+
 @pytest.mark.parametrize("scoped", [True, False])
 def test_link_check_prunes_runtime_state_and_builds_one_index(tmp_path, monkeypatch, scoped):
     (tmp_path / "Wiki").mkdir()
