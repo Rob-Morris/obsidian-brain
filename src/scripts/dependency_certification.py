@@ -60,21 +60,26 @@ def smoke(vault: Path, semantic: bool) -> None:
     asyncio.run(mcp_smoke(vault))
     if semantic:
         import numpy as np
-        from _semantic.model import provision_semantic_model, get_query_encoder
+        import compile_router
+        from _semantic.assets import build_embeddings
+        from _semantic.model import provision_semantic_model
         from _search.semantic_query import search_semantic
 
         provision_semantic_model(vault)
-        encoder = get_query_encoder(vault)
         texts = ["Apples and oranges are fruit grown in an orchard.",
                  "A mechanic repairs car engines in a garage."]
-        vectors = encoder.encode(texts, normalize_embeddings=True)
+        documents = [{"path": f"Notes/{i}.md"} for i in range(len(texts))]
+        for document, text in zip(documents, texts):
+            path = vault / document["path"]
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(f"---\ntype: living/note\n---\n# {text}\n\n{text}\n", encoding="utf-8")
+        router = compile_router.compile(vault)
+        compile_router.persist_compiled_router(vault, router)
+        _, vectors, _ = build_embeddings(vault, router, documents)
         if vectors.shape != (2, 384) or not np.isfinite(vectors).all():
             raise RuntimeError("semantic encoder produced invalid vectors")
-        documents = [{"path": f"Notes/{i}.md", "title": text, "type": "living/note"}
-                     for i, text in enumerate(texts)]
         results = search_semantic("fruit trees in an orchard", vault,
-                                  doc_embeddings=vectors, embeddings_meta={"documents": documents},
-                                  query_encoder=encoder, attach_snippets_to_results=False)
+                                  attach_snippets_to_results=False)
         if not results or results[0]["path"] != "Notes/0.md":
             raise RuntimeError(f"semantic search ranked the wrong document: {results}")
 

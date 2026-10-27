@@ -11,6 +11,7 @@ import shutil
 import subprocess
 import sys
 import tarfile
+from types import SimpleNamespace
 
 import pytest
 
@@ -22,6 +23,37 @@ from check_repository_contracts import WorkingTreeView
 
 
 ROOT = Path(__file__).resolve().parents[1]
+
+
+def test_semantic_certification_builds_current_assets_before_search(command_vault_clone, monkeypatch):
+    import numpy as np
+    from _semantic import model, runtime
+    from _common import load_compiled_router
+
+    async def mcp_smoke(vault):
+        pass
+
+    class Encoder:
+        def encode(self, texts, **kwargs):
+            vectors = np.zeros((len(texts), runtime.EMBEDDING_DIM), dtype=np.float32)
+            for row, text in enumerate(texts):
+                vectors[row, 0 if "fruit" in text or "orchard" in text else 1] = 1
+            return vectors
+
+    encoder = Encoder()
+    manifest = SimpleNamespace(model_name=model.SHIPPED_MODEL_NAME,
+                               revision=model.SHIPPED_MODEL_REVISION)
+    monkeypatch.setattr(dependency_certification, "mcp_smoke", mcp_smoke)
+    monkeypatch.setattr(model, "provision_semantic_model", lambda *_: None)
+    monkeypatch.setattr(model, "load_local_model_with_manifest", lambda *_: (encoder, manifest))
+    monkeypatch.setattr(model, "get_query_encoder", lambda *_: encoder)
+
+    vault = command_vault_clone.vault_root
+    dependency_certification.smoke(vault, True)
+    _, vectors, metadata = runtime.load_embeddings_state(vault, selection="documents")
+    assert runtime.embeddings_meta_matches_router(metadata, load_compiled_router(vault))
+    assert vectors.shape == (2, runtime.EMBEDDING_DIM)
+    assert [item["path"] for item in metadata["documents"]] == ["Notes/0.md", "Notes/1.md"]
 
 
 def copy_contract(tmp_path):
