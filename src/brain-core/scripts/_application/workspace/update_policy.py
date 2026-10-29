@@ -106,6 +106,8 @@ def execute(context, request):
             path, fields, body, policy, binding, changed, conversion_code = plan_policy(context, request)
             context.admission.admit(binding)
             if changed and not context.dry_run:
+                from _bootstrap.branch_guard import checkpoint
+                checkpoint(context.selected_brain.vault_root)
                 fields["modified"] = context.clock.now().isoformat()
                 safe_write_artefact(path, serialize_frontmatter(fields, body=body), bounds=context.selected_brain.vault_root)
                 relative = str(path.relative_to(context.selected_brain.vault_root))

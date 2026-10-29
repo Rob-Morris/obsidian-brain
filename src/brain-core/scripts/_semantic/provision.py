@@ -225,11 +225,12 @@ def provision_semantic_runtime(
     python_executable: str,
     runtime_ok: bool | None = None,
     refresh_assets: bool = True,
+    lock_held: bool = False,
 ) -> SemanticProvisionOutcome:
     """Ensure the semantic runtime is usable and optionally refresh semantic assets."""
     supported, unsupported_reason = semantic_runtime_supported_platform()
     if not supported:
-        semantic_config.set_semantic_engine_installed(vault_root, installed=False)
+        semantic_config.set_semantic_engine_installed(vault_root, installed=False, lock_held=lock_held)
         raise SemanticProvisionError(
             unsupported_reason or "semantic runtime is unsupported on this platform"
         )
@@ -239,21 +240,21 @@ def provision_semantic_runtime(
         runtime_probe = probe_python(python_executable, modules=SEMANTIC_RUNTIME_MODULES)
         runtime_ok = bool(runtime_probe.get("ok"))
     if not runtime_ok:
-        semantic_config.set_semantic_engine_installed(vault_root, installed=False)
+        semantic_config.set_semantic_engine_installed(vault_root, installed=False, lock_held=lock_held)
     try:
         runtime_changed = bool(sync_runtime_packages(python_executable)) or not runtime_ok
     except subprocess.SubprocessError as exc:
-        semantic_config.set_semantic_engine_installed(vault_root, installed=False)
+        semantic_config.set_semantic_engine_installed(vault_root, installed=False, lock_held=lock_held)
         raise SemanticProvisionError(
             "Semantic runtime dependency conformance failed: "
             + format_subprocess_error(exc)
         ) from exc
     except (OSError, ValueError) as exc:
-        semantic_config.set_semantic_engine_installed(vault_root, installed=False)
+        semantic_config.set_semantic_engine_installed(vault_root, installed=False, lock_held=lock_held)
         raise SemanticProvisionError(f"Semantic runtime dependency conformance failed: {exc}") from exc
     runtime_probe = probe_python(python_executable, modules=SEMANTIC_RUNTIME_MODULES)
     if not runtime_probe.get("ok"):
-        semantic_config.set_semantic_engine_installed(vault_root, installed=False)
+        semantic_config.set_semantic_engine_installed(vault_root, installed=False, lock_held=lock_held)
         raise SemanticProvisionError(
             "Semantic runtime dependency installation completed, but required modules are still unavailable."
         )
@@ -261,7 +262,7 @@ def provision_semantic_runtime(
     try:
         model_outcome = semantic_model.provision_semantic_model(vault_root)
     except semantic_model.SemanticModelProvisionError as exc:
-        semantic_config.set_semantic_engine_installed(vault_root, installed=False)
+        semantic_config.set_semantic_engine_installed(vault_root, installed=False, lock_held=lock_held)
         raise SemanticProvisionError(str(exc)) from exc
 
     notes: list[str] = list(model_outcome.notes)
@@ -282,6 +283,7 @@ def provision_semantic_runtime(
     marker_changed = semantic_config.set_semantic_engine_installed(
         vault_root,
         installed=marker_installed,
+        lock_held=lock_held,
     )
 
     return SemanticProvisionOutcome(

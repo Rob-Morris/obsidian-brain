@@ -8,7 +8,7 @@ from typing import Generic, Literal, TypeVar
 
 from .receipts import CommittedEffect, OutcomeReference
 from .runtime_status import RuntimeProgressDetails
-from .types import DependencyTier, Locality, SnapshotFreshness, validate_command_id
+from .types import BranchGuardDetails, DependencyTier, Locality, SnapshotFreshness, validate_command_id
 
 
 RESULT_SCHEMA = "brain.command-result/1"
@@ -157,10 +157,12 @@ class InternalErrorDetails:
 @dataclass(frozen=True, slots=True)
 class OutcomeUnknownDetails:
     reference: OutcomeReference
+    branch_guard: BranchGuardDetails | None = None
 
 
 ErrorDetails = (
     RequestErrorDetails
+    | BranchGuardDetails
     | CacheErrorDetails
     | WorkspaceCompatibilityDetails
     | CapabilityUnavailableDetails

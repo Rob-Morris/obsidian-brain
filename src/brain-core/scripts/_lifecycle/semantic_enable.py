@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+from contextlib import nullcontext
 import sys
 from pathlib import Path
 
+from _bootstrap import branch_guard
+from _bootstrap.file_lock import vault_mutation_lock
 from _bootstrap.runtime import step as _step
 from _lifecycle_common import make_result_envelope
 import _semantic.config as semantic_config
@@ -28,8 +31,8 @@ def _result(
     )
 
 
-def _apply_flag(vault_root: Path, steps: list[dict]) -> None:
-    changed = semantic_config.set_semantic_retrieval_enabled(vault_root, enabled=True)
+def _apply_flag(vault_root: Path, steps: list[dict], *, lock_held: bool) -> None:
+    changed = semantic_config.set_semantic_retrieval_enabled(vault_root, enabled=True, lock_held=lock_held)
     steps.append(
         _step(
             "semantic_config",
@@ -113,15 +116,23 @@ def enable_semantic(
     provision: bool,
     bootstrap_steps: list[dict] | None = None,
     dry_run: bool = False,
+    lock_held: bool = False,
 ) -> dict:
-    """Enable semantic retrieval and optionally converge its managed runtime."""
+    """Enable retrieval, reusing an application parent's lock when delegated."""
+    lock = nullcontext() if lock_held or dry_run else vault_mutation_lock(vault_root)
+    with lock, branch_guard.operation(vault_root):
+        return _enable_semantic(vault_root, provision=provision,
+                                bootstrap_steps=bootstrap_steps, dry_run=dry_run)
+
+
+def _enable_semantic(vault_root, *, provision, bootstrap_steps, dry_run):
     root = Path(vault_root)
     steps = list(bootstrap_steps or ())
     if dry_run:
         return _plan_enable(root, steps, provision=provision)
 
     notes: list[str] = []
-    _apply_flag(root, steps)
+    _apply_flag(root, steps, lock_held=True)
     if not provision:
         notes.append(
             "Runtime provisioning was skipped (--no-provision). "
@@ -136,6 +147,7 @@ def enable_semantic(
             root,
             python_executable=sys.executable,
             refresh_assets=True,
+            lock_held=True,
         )
     except semantic_provision.SemanticProvisionError as exc:
         steps.append(_step("semantic_runtime", "error", str(exc)))

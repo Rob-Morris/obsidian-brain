@@ -9,6 +9,8 @@ pair. All paths are derived from validated slugs inside fixed definition roots.
 
 from __future__ import annotations
 
+from _bootstrap import branch_guard
+
 from _common import read_exact_file_content
 
 import argparse
@@ -148,43 +150,58 @@ class DefinitionPlan:
 
 def apply_definition_plan(vault_root, plan):
     """Apply validated definition bytes, preserving type-bundle rollback."""
-    folder = os.path.join(vault_root, plan.artefact_folder) if plan.artefact_folder else None
-    created_folder = bool(folder and not os.path.isdir(folder))
-    if created_folder:
-        os.makedirs(folder)
-    committed = []
-    try:
-        for write in plan.writes:
-            safe_write(os.path.join(vault_root, write.path), write.content,
-                       bounds=vault_root, follow_symlinks=True, exclusive=write.exclusive)
-            committed.append(write)
-    except BaseException:
-        for write in reversed(committed):
-            if write.before_content is not None:
-                safe_write(os.path.join(vault_root, write.path), write.before_content,
-                           bounds=vault_root)
-            else:
+    with branch_guard.operation(vault_root):
+        folder = os.path.join(vault_root, plan.artefact_folder) if plan.artefact_folder else None
+        created_folder = bool(folder and not os.path.isdir(folder))
+        if created_folder:
+            branch_guard.checkpoint(vault_root)
+            os.makedirs(folder)
+        committed = []
+        try:
+            for write in plan.writes:
+                branch_guard.checkpoint(vault_root)
+                safe_write(os.path.join(vault_root, write.path), write.content,
+                           bounds=vault_root, follow_symlinks=True, exclusive=write.exclusive)
+                committed.append(write)
+        except branch_guard.BranchGuardError as exc:
+            for write in committed:
+                exc.record_completed("write", write.path)
+            if created_folder:
+                exc.facts["retained_folder"] = plan.artefact_folder
+                exc.record_completed("write", plan.artefact_folder)
+            raise
+        except BaseException:
+            for write in reversed(committed):
+                if write.before_content is not None:
+                    branch_guard.checkpoint(vault_root)
+                    safe_write(os.path.join(vault_root, write.path), write.before_content,
+                               bounds=vault_root)
+                else:
+                    try:
+                        branch_guard.checkpoint(vault_root)
+                        os.unlink(os.path.join(vault_root, write.path))
+                    except OSError:
+                        pass
+            if created_folder:
                 try:
-                    os.unlink(os.path.join(vault_root, write.path))
+                    branch_guard.checkpoint(vault_root)
+                    os.rmdir(folder)
                 except OSError:
                     pass
-        if created_folder:
-            try:
-                os.rmdir(folder)
-            except OSError:
-                pass
-        raise
-    return dict(plan.result)
+            raise
+        return dict(plan.result)
 
 
 def write_definition(vault_root, **kwargs):
     """Create or replace through the shared pure definition planner."""
-    return apply_definition_plan(vault_root, plan_write_definition(vault_root, **kwargs))
+    with branch_guard.operation(vault_root):
+        return apply_definition_plan(vault_root, plan_write_definition(vault_root, **kwargs))
 
 
 def update_trigger(vault_root, **kwargs):
     """Change one trigger through the shared pure rule planner."""
-    return apply_definition_plan(vault_root, plan_update_trigger(vault_root, **kwargs))
+    with branch_guard.operation(vault_root):
+        return apply_definition_plan(vault_root, plan_update_trigger(vault_root, **kwargs))
 
 
 def _plan_type_bundle(

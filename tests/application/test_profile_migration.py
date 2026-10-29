@@ -156,9 +156,9 @@ def test_exact_legacy_builtins_become_catalogue_derived_granular_profiles():
     assert {name: len(value["allow"]) for name, value in result.profiles.items()} == {
         "reader": 40,
         "contributor": 75,
-        "maintainer": 101,
-        "operator": 108,
-        "administrator": 109,
+        "maintainer": 102,
+        "operator": 109,
+        "administrator": 110,
     }
     assert [change.strategy for change in result.changes] == [
         "builtin",
@@ -324,9 +324,9 @@ def test_v055_upgrade_migration_writes_all_five_builtin_profiles(tmp_path):
     } == {
         "reader": 40,
         "contributor": 75,
-        "maintainer": 101,
-        "operator": 108,
-        "administrator": 109,
+        "maintainer": 102,
+        "operator": 109,
+        "administrator": 110,
     }
     assert migrated["vault"]["brain_name"] == "Test Brain"
     assert migrated["defaults"] == {"default_profile": "operator"}

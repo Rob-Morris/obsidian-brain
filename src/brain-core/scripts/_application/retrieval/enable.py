@@ -5,6 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import ClassVar, Mapping
 
+from _bootstrap import branch_guard
+
 from .._decoding import decode_empty
 from .._semantic_maintenance import (
     SemanticMaintenancePayload,
@@ -22,7 +24,8 @@ class RetrievalEnableRequest:
 
 
 def execute(context: InvocationContext, request: RetrievalEnableRequest):
-    return execute_enable(context, request)
+    with branch_guard.operation(context.selected_brain.vault_root):
+        return execute_enable(context, request)
 
 
 def decode(payload: Mapping[str, object]) -> RetrievalEnableRequest:

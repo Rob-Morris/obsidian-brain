@@ -1700,97 +1700,101 @@ def construct_fixture(
     semantic_seeds=None,
     hybrid_seeds=None,
 ):
-    vault_root = Path(vault_root)
-    targets = {**DEFAULT_TARGETS, **(targets or {})}
-    fixture_out = Path(fixture_out)
-    if audit_out is None:
-        fixture_name = fixture_out.name
-        if fixture_name.endswith(".json"):
-            audit_name = fixture_name[:-5] + ".audit.json"
+    from _bootstrap.branch_guard import operation, checkpoint
+    with operation(vault_root):
+        vault_root = Path(vault_root)
+        targets = {**DEFAULT_TARGETS, **(targets or {})}
+        fixture_out = Path(fixture_out)
+        if audit_out is None:
+            fixture_name = fixture_out.name
+            if fixture_name.endswith(".json"):
+                audit_name = fixture_name[:-5] + ".audit.json"
+            else:
+                audit_name = fixture_name + ".audit.json"
+            audit_out = fixture_out.with_name(audit_name)
         else:
-            audit_name = fixture_name + ".audit.json"
-        audit_out = fixture_out.with_name(audit_name)
-    else:
-        audit_out = Path(audit_out)
+            audit_out = Path(audit_out)
 
-    if index is None:
-        index = lexical_query.load_index(vault_root)
-    if config is None:
-        config = _retrieval_embeddings.load_config_checked(vault_root)
+        if index is None:
+            index = lexical_query.load_index(vault_root)
+        if config is None:
+            config = _retrieval_embeddings.load_config_checked(vault_root)
 
-    semantic_available, semantic_error = search_mode.mode_available(
-        vault_root,
-        "semantic",
-        config=config,
-        doc_embeddings=doc_embeddings,
-        embeddings_meta=embeddings_meta,
-    )
-    if semantic_available and (doc_embeddings is None or embeddings_meta is None):
-        doc_embeddings, embeddings_meta = semantic_query.load_doc_embeddings_or_unavailable(
+        semantic_available, semantic_error = search_mode.mode_available(
             vault_root,
-            loader=_retrieval_embeddings.load_doc_embeddings,
-        )
-    if semantic_available and query_encoder is None:
-        query_encoder = _retrieval_embeddings.get_query_encoder(vault_root)
-
-    candidates = mine_candidates(
-        vault_root,
-        index,
-        semantic_strategy=semantic_strategy,
-        semantic_seed_file=semantic_seed_file,
-        hybrid_seed_file=hybrid_seed_file,
-        semantic_seeds=semantic_seeds,
-        hybrid_seeds=hybrid_seeds,
-    )
-    candidates = _prune_candidates_for_audit(candidates)
-    audits = [
-        _audit_candidate(
-            index,
-            vault_root,
-            candidate,
+            "semantic",
             config=config,
             doc_embeddings=doc_embeddings,
             embeddings_meta=embeddings_meta,
-            query_encoder=query_encoder,
-            semantic_available=semantic_available,
         )
-        for candidate in candidates
-    ]
-    _annotate_semantic_variant_diagnostics(audits)
-    fixture_cases, summary = _select_cases(audits, targets)
-    fixture = _build_fixture(vault_root.name, fixture_cases)
+        if semantic_available and (doc_embeddings is None or embeddings_meta is None):
+            doc_embeddings, embeddings_meta = semantic_query.load_doc_embeddings_or_unavailable(
+                vault_root,
+                loader=_retrieval_embeddings.load_doc_embeddings,
+            )
+        if semantic_available and query_encoder is None:
+            query_encoder = _retrieval_embeddings.get_query_encoder(vault_root)
 
-    audit = {
-        "generated_at": now_iso(),
-        "vault_root": str(vault_root),
-        "fixture_out": str(fixture_out),
-        "audit_out": str(audit_out),
-        "targets": targets,
-        "semantic_available": semantic_available,
-        "semantic_error": semantic_error,
-        "semantic_strategy": semantic_strategy,
-        "semantic_seed_file": str(semantic_seed_file) if semantic_seed_file else None,
-        "hybrid_seed_file": str(hybrid_seed_file) if hybrid_seed_file else None,
-        "summary": summary,
-        "candidate_count": len(audits),
-        "admitted_case_count": len(fixture_cases),
-        "candidates": audits,
-    }
+        candidates = mine_candidates(
+            vault_root,
+            index,
+            semantic_strategy=semantic_strategy,
+            semantic_seed_file=semantic_seed_file,
+            hybrid_seed_file=hybrid_seed_file,
+            semantic_seeds=semantic_seeds,
+            hybrid_seeds=hybrid_seeds,
+        )
+        candidates = _prune_candidates_for_audit(candidates)
+        audits = [
+            _audit_candidate(
+                index,
+                vault_root,
+                candidate,
+                config=config,
+                doc_embeddings=doc_embeddings,
+                embeddings_meta=embeddings_meta,
+                query_encoder=query_encoder,
+                semantic_available=semantic_available,
+            )
+            for candidate in candidates
+        ]
+        _annotate_semantic_variant_diagnostics(audits)
+        fixture_cases, summary = _select_cases(audits, targets)
+        fixture = _build_fixture(vault_root.name, fixture_cases)
 
-    safe_write_json(str(fixture_out), fixture)
-    safe_write_json(str(audit_out), audit)
+        audit = {
+            "generated_at": now_iso(),
+            "vault_root": str(vault_root),
+            "fixture_out": str(fixture_out),
+            "audit_out": str(audit_out),
+            "targets": targets,
+            "semantic_available": semantic_available,
+            "semantic_error": semantic_error,
+            "semantic_strategy": semantic_strategy,
+            "semantic_seed_file": str(semantic_seed_file) if semantic_seed_file else None,
+            "hybrid_seed_file": str(hybrid_seed_file) if hybrid_seed_file else None,
+            "summary": summary,
+            "candidate_count": len(audits),
+            "admitted_case_count": len(fixture_cases),
+            "candidates": audits,
+        }
 
-    return {
-        "fixture_out": str(fixture_out),
-        "audit_out": str(audit_out),
-        "fixture_case_count": len(fixture_cases),
-        "summary": summary,
-        "semantic_available": semantic_available,
-        "semantic_error": semantic_error,
-        "semantic_strategy": semantic_strategy,
-        "semantic_seed_file": str(semantic_seed_file) if semantic_seed_file else None,
-        "hybrid_seed_file": str(hybrid_seed_file) if hybrid_seed_file else None,
-    }
+        checkpoint(vault_root)
+        safe_write_json(str(fixture_out), fixture)
+        checkpoint(vault_root)
+        safe_write_json(str(audit_out), audit)
+
+        return {
+            "fixture_out": str(fixture_out),
+            "audit_out": str(audit_out),
+            "fixture_case_count": len(fixture_cases),
+            "summary": summary,
+            "semantic_available": semantic_available,
+            "semantic_error": semantic_error,
+            "semantic_strategy": semantic_strategy,
+            "semantic_seed_file": str(semantic_seed_file) if semantic_seed_file else None,
+            "hybrid_seed_file": str(hybrid_seed_file) if hybrid_seed_file else None,
+        }
 
 
 def _build_parser():

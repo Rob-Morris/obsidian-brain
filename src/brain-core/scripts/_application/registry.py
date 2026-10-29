@@ -77,6 +77,7 @@ from .type import sync as type_sync
 from .vault import repair_text as vault_repair_text
 from .vault import check as vault_check
 from .vault import read_config as vault_read_config
+from .vault import configure_branch_guard as vault_configure_branch_guard
 from .vault import read_router as vault_read_router
 from .vault import read_file as vault_read_file
 from .workspace import configure_bootstrap as workspace_configure_bootstrap
@@ -213,6 +214,7 @@ _COMMAND_OWNERS = (
     vault_check,
     vault_repair_text,
     vault_read_config,
+    vault_configure_branch_guard,
     vault_read_router,
     vault_read_file,
     workspace_configure_bootstrap,
@@ -229,9 +231,12 @@ _COMMAND_OWNERS = (
 
 
 def current_application_catalogue():
-    return build_application_catalogue(
+    from .branch_effects import validate_branch_effect_coverage
+    catalogue = build_application_catalogue(
         tuple(owner.catalogue_entry() for owner in _COMMAND_OWNERS)
     )
+    validate_branch_effect_coverage(entry.command_id for entry in catalogue.entries)
+    return catalogue
 
 
 def current_request_resolver():

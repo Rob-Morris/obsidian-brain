@@ -12,6 +12,10 @@ from _common._yaml import (
 )
 
 
+def test_empty_root_mapping_round_trips_the_emitted_representation():
+    assert load_mapping_text(dump_mapping_text({})) == {}
+
+
 def test_load_mapping_text_supports_real_brain_config_shape():
     data = load_mapping_text(
         """

@@ -11,6 +11,8 @@ use the granular ``<resource>.create`` commands through ``command.py``; the
 parser retained here is an internal maintenance and repository-test entry point.
 """
 
+from _bootstrap import branch_guard
+
 import argparse
 import json
 import os
@@ -256,48 +258,55 @@ def plan_artefact_creation(vault_root, router, type_key, title, body="",
 
 def apply_artefact_creation(vault_root, router, plan, *, fix_links=False, file_index=None):
     """Apply the already resolved creation plan, without choosing a new identity."""
-    vault_root = str(vault_root)
-    rel_path, content, title = plan.path, plan.content, plan.title
-    artefact, fields = plan.artefact, plan.fields
-    resolved_parent, parent_context = plan.parent, plan.parent_context
-    abs_path = os.path.join(vault_root, rel_path)
-    safe_write_artefact(abs_path, content, bounds=vault_root, exclusive=True)
+    with branch_guard.operation(vault_root):
+        vault_root = str(vault_root)
+        rel_path, content, title = plan.path, plan.content, plan.title
+        artefact, fields = plan.artefact, plan.fields
+        resolved_parent, parent_context = plan.parent, plan.parent_context
+        abs_path = os.path.join(vault_root, rel_path)
+        branch_guard.checkpoint(vault_root)
+        safe_write_artefact(abs_path, content, bounds=vault_root, exclusive=True)
 
-    artefact_index = router.get("artefact_index")
-    if artefact_index is not None and artefact.get("classification") == "living":
-        canonical_key = make_artefact_key(
-            artefact_type_prefix(artefact), fields["key"]
-        )
-        entry = living_artefact_index_entry(artefact, rel_path, fields)
-        artefact_index[canonical_key] = entry
-        parent_key = entry.get("parent")
-        if parent_key in artefact_index:
-            indexed_parent = artefact_index[parent_key]
-            indexed_parent["children_count"] = (
-                indexed_parent.get("children_count", 0) + 1
+        artefact_index = router.get("artefact_index")
+        if artefact_index is not None and artefact.get("classification") == "living":
+            canonical_key = make_artefact_key(
+                artefact_type_prefix(artefact), fields["key"]
             )
+            entry = living_artefact_index_entry(artefact, rel_path, fields)
+            artefact_index[canonical_key] = entry
+            parent_key = entry.get("parent")
+            if parent_key in artefact_index:
+                indexed_parent = artefact_index[parent_key]
+                indexed_parent["children_count"] = (
+                    indexed_parent.get("children_count", 0) + 1
+                )
 
-    result = {
-        "path": rel_path,
-        "type": fields["type"],
-        "title": title,
-    }
-    if fields.get("key"):
-        result["key"] = fields["key"]
-    if resolved_parent:
-        result["parent"] = resolved_parent
-    if parent_context:
-        result["parent_context"] = parent_context
-    _fix_links.attach_wikilink_warnings(vault_root, result, apply_fixes=fix_links, file_index=file_index)
-    return result
+        result = {
+            "path": rel_path,
+            "type": fields["type"],
+            "title": title,
+        }
+        if fields.get("key"):
+            result["key"] = fields["key"]
+        if resolved_parent:
+            result["parent"] = resolved_parent
+        if parent_context:
+            result["parent_context"] = parent_context
+        try:
+            _fix_links.attach_wikilink_warnings(vault_root, result, apply_fixes=fix_links, file_index=file_index)
+        except branch_guard.BranchGuardError as exc:
+            exc.record_completed("write", rel_path)
+            raise
+        return result
 
 
 def create_artefact(vault_root, router, type_key, title, body="", frontmatter_overrides=None, parent=None, key=None, template_vars=None, fix_links=False, file_index=None):
     """Create an artefact through one shared planning and application path."""
-    plan = plan_artefact_creation(vault_root, router, type_key, title, body,
-                                  frontmatter_overrides, parent, key, template_vars)
-    return apply_artefact_creation(vault_root, router, plan, fix_links=fix_links,
-                                   file_index=file_index)
+    with branch_guard.operation(vault_root):
+        plan = plan_artefact_creation(vault_root, router, type_key, title, body,
+                                      frontmatter_overrides, parent, key, template_vars)
+        return apply_artefact_creation(vault_root, router, plan, fix_links=fix_links,
+                                       file_index=file_index)
 
 
 
@@ -329,26 +338,27 @@ def create_resource(vault_root, router, resource="artefact", **kwargs):
     Raises:
         ValueError: If resource is not creatable or required params are missing.
     """
-    if resource == "artefact":
-        return create_artefact(vault_root, router, **kwargs)
+    with branch_guard.operation(vault_root):
+        if resource == "artefact":
+            return create_artefact(vault_root, router, **kwargs)
 
-    if resource not in CREATABLE_RESOURCES:
-        raise ValueError(
-            f"Resource '{resource}' is not creatable by a canonical command. "
-            f"Creatable resources: {', '.join(CREATABLE_RESOURCES)}"
-        )
+        if resource not in CREATABLE_RESOURCES:
+            raise ValueError(
+                f"Resource '{resource}' is not creatable by a canonical command. "
+                f"Creatable resources: {', '.join(CREATABLE_RESOURCES)}"
+            )
 
-    name = kwargs.get("name")
-    body = kwargs.get("body")
-    frontmatter = kwargs.get("frontmatter")
+        name = kwargs.get("name")
+        body = kwargs.get("body")
+        frontmatter = kwargs.get("frontmatter")
 
-    if not name:
-        raise ValueError(f"{resource}.create requires a name.")
-    if not body:
-        raise ValueError(f"{resource}.create requires content.")
+        if not name:
+            raise ValueError(f"{resource}.create requires a name.")
+        if not body:
+            raise ValueError(f"{resource}.create requires content.")
 
-    plan = plan_named_resource_creation(vault_root, router, resource, name, body, frontmatter)
-    return apply_named_resource_creation(vault_root, plan)
+        plan = plan_named_resource_creation(vault_root, router, resource, name, body, frontmatter)
+        return apply_named_resource_creation(vault_root, plan)
 
 
 @dataclass(frozen=True, slots=True)
@@ -381,12 +391,14 @@ def _plan_config_resource(vault_root, resource, rel_path, name, body, frontmatte
 
 def apply_named_resource_creation(vault_root, plan):
     """Write the same resolved target and bytes that were validated."""
-    try:
-        safe_write(resolve_named_destination(vault_root, plan.path), plan.content,
-                   bounds=vault_root, exclusive=plan.exclusive)
-    except FileExistsError:
-        raise ValueError(f"{plan.resource.capitalize()} '{plan.name}' already exists at {plan.path}") from None
-    return {"path": plan.path, "resource": plan.resource, "name": plan.name}
+    with branch_guard.operation(vault_root):
+        try:
+            branch_guard.checkpoint(vault_root)
+            safe_write(resolve_named_destination(vault_root, plan.path), plan.content,
+                       bounds=vault_root, exclusive=plan.exclusive)
+        except FileExistsError:
+            raise ValueError(f"{plan.resource.capitalize()} '{plan.name}' already exists at {plan.path}") from None
+        return {"path": plan.path, "resource": plan.resource, "name": plan.name}
 
 
 def _plan_skill(vault_root, router, name, body, frontmatter):
@@ -569,6 +581,9 @@ def main(argv=None):
                         "Created resource and refreshed the compiled router, but "
                         "a derived-state follow-up remains; run runtime.refresh-router."
                     )
+            except branch_guard.BranchGuardError as exc:
+                exc.record_completed("write", result["path"])
+                raise
             except Exception:
                 # The content effect is already committed. Report a follow-up
                 # instead of presenting a failed create that callers may retry.

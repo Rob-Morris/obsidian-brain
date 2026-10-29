@@ -58,7 +58,7 @@ def _reachable_properties(schema):
 
 def test_every_projected_tool_has_strict_valid_described_schema():
     tools = _tools()
-    assert len(tools) == 93
+    assert len(tools) == 94
     entries = {project_identity(e.command_id).mcp_tool: e for e in current_application_catalogue().entries}
     for tool in tools:
         authored = dict(_reachable_properties(expand_local_schema(request_schema(entries[tool.name].request_type))))

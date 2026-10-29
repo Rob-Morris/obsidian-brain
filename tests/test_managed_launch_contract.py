@@ -28,6 +28,7 @@ OWNER = {
 }
 
 ALLOWED = {
+    "src/brain-core/scripts/_bootstrap/branch_guard.py::_git": "bounded read-only Git branch observation",
     "cli/_acquisition.py::_git": "git source acquisition",
     "cli/_distribution.py::ensure_cli": "installed CLI bounded read-only health probe",
     "src/brain-core/scripts/_common/_venv.py::_python_tag_for_launcher": "base launcher version probe",

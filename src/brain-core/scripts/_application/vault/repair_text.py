@@ -113,6 +113,7 @@ def prepare(context, request, *, frozen_inputs=None):
 
 def execute(context, request):
     from _common import MutationLockError, vault_mutation_lock
+    from _bootstrap.branch_guard import BranchGuardError, checkpoint
     from _lifecycle.text_files import iter_vault_text_files
     root = Path(context.selected_brain.vault_root)
     effects, files, warnings, failures = [], [], [], []
@@ -136,6 +137,7 @@ def execute(context, request):
             inventory = set(iter_vault_text_files(root))
             for item in plan:
                 try:
+                    checkpoint(root)
                     if item.path not in inventory or not repair_candidate(root, item.path, item.digest.removeprefix("sha256:"), item.diagnosis.fixed_bytes):
                         files.append(item.preview("skipped: changed"))
                         warnings.append(CommandWarning(WarningCode.FOLLOW_UP_REQUIRED,
@@ -169,6 +171,12 @@ def execute(context, request):
                 return no_effect_error(RepairTextRequest, ErrorCode.CONFLICT, message)
             return Ok(request.COMMAND_ID, request.COMMAND_VERSION,
                       TextRepairPayload(False, tuple(files)), tuple(effects), tuple(warnings))
+    except BranchGuardError as exc:
+        from ..application import branch_guard_error_result
+        refusal = branch_guard_error_result(request.COMMAND_ID, request.COMMAND_VERSION, exc)
+        if effects:
+            return Partial(request.COMMAND_ID, request.COMMAND_VERSION, refusal.error, tuple(effects), tuple(warnings))
+        return refusal
     except (MutationLockError, OSError, ValueError) as exc:
         if effects:
             error = (replace(pending_error, message=pending_error.message + "; " + str(exc)) if pending_error else

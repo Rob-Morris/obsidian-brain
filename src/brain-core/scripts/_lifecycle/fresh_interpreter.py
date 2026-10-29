@@ -20,6 +20,7 @@ import subprocess
 import sys
 
 from _common._venv import run_managed
+from _bootstrap import branch_guard
 
 
 SCRIPTS_DIR = Path(__file__).resolve().parents[1]
@@ -55,6 +56,8 @@ def run_lifecycle_in_fresh_interpreter(
     """
     target = _target_for(owner)
     request = {"target": target, "vault_root": str(vault_root), "kwargs": kwargs}
+    env = dict(os.environ)
+    env[branch_guard.CONTEXT_ENV] = branch_guard.export_context(vault_root)
     try:
         completed = run_managed(
             [
@@ -64,6 +67,7 @@ def run_lifecycle_in_fresh_interpreter(
                 str(SCRIPTS_DIR),
             ],
             input=json.dumps(request),
+            env=env,
             capture_output=True,
             text=True,
             timeout=timeout,
@@ -94,10 +98,17 @@ def run_lifecycle_in_fresh_interpreter(
         error = payload["error"]
         if (
             not isinstance(error, dict)
-            or set(error) != {"type", "message"}
-            or not all(isinstance(value, str) for value in error.values())
+            or set(error) not in ({"type", "message"}, {"type", "message", "reason", "facts"})
+            or not isinstance(error.get("type"), str)
+            or not isinstance(error.get("message"), str)
         ):
             raise FreshInterpreterError(f"{target} returned an invalid error envelope")
+        if "reason" in error:
+            if (error["type"] != "BranchGuardError" or not isinstance(error["reason"], str)
+                    or not isinstance(error["facts"], dict)):
+                raise FreshInterpreterError(f"{target} returned invalid branch refusal evidence")
+            branch_guard.retain_context_loss(vault_root)
+            raise branch_guard.BranchGuardError(error["reason"], error["facts"])
         raise FreshInterpreterError(f"{target} failed with {error['type']}: {error['message']}")
     if not isinstance(payload["result"], dict):
         raise FreshInterpreterError(f"{target} returned an invalid lifecycle result")
@@ -112,7 +123,10 @@ def run_target_from_stdin() -> None:
             function = _resolve_target(request["target"])
             reply = {"result": function(request["vault_root"], **request["kwargs"])}
         except Exception as exc:  # the parent re-raises this as a typed error
-            reply = {"error": {"type": type(exc).__name__, "message": str(exc)}}
+            error = {"type": type(exc).__name__, "message": str(exc)}
+            if isinstance(exc, branch_guard.BranchGuardError):
+                error.update(reason=exc.reason, facts=exc.facts)
+            reply = {"error": error}
         reply_stream.write(json.dumps(reply))
 
 

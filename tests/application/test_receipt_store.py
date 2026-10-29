@@ -95,7 +95,14 @@ def test_receipt_model_cannot_store_request_results_or_credentials():
         "state",
         "recorded_at",
         "committed_effects",
+        "branch_guard",
     }
+    from _application.types import BranchGuardDetails, GuardRecoveryLocation
+    assert {field.name for field in fields(BranchGuardDetails)} == {
+        "reason", "vault", "repository", "observed_branch", "allowed_branches",
+        "committed_paths", "recovery_locations", "truncated", "inspection_command",
+    }
+    assert {field.name for field in fields(GuardRecoveryLocation)} == {"kind", "path"}
 
 
 def test_receipt_policy_rejects_unbounded_or_non_positive_values():

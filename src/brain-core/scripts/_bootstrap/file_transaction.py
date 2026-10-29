@@ -232,6 +232,8 @@ def apply_file_changes(changes: tuple[FileChange, ...], *, before_write=None) ->
 
         for directory in created_dirs:
             try:
+                if before_write is not None:
+                    before_write()
                 directory.rmdir()
             except FileNotFoundError:
                 pass

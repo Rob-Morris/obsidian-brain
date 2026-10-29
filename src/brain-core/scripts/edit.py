@@ -7,6 +7,8 @@ semantics. Public callers use granular commands through ``command.py``; the
 parser retained here is an internal maintenance and repository-test entry point.
 """
 
+from _bootstrap import branch_guard
+
 import argparse
 from dataclasses import dataclass, replace
 import json
@@ -481,9 +483,11 @@ def _merge_frontmatter(fields, changes, operation, *, effective_at=None):
 
 def _save_artefact(abs_path, fields, new_body, vault_root):
     """Set modified timestamp, serialize, and write."""
-    fields["modified"] = now_iso()
-    new_content = serialize_frontmatter(fields, body=new_body)
-    safe_write_artefact(abs_path, new_content, bounds=vault_root)
+    with branch_guard.operation(vault_root):
+        fields["modified"] = now_iso()
+        new_content = serialize_frontmatter(fields, body=new_body)
+        branch_guard.checkpoint(vault_root)
+        safe_write_artefact(abs_path, new_content, bounds=vault_root)
 
 
 # ---------------------------------------------------------------------------
@@ -883,8 +887,9 @@ def plan_lifecycle_field(vault_root, router, path, field, value, *, effective_at
 
 def update_lifecycle_field(vault_root, router, path, field, value):
     """Apply an explicit lifecycle field through the shared invariant planner."""
-    return apply_artefact_transition(vault_root, plan_lifecycle_field(
-        vault_root, router, path, field, value))
+    with branch_guard.operation(vault_root):
+        return apply_artefact_transition(vault_root, plan_lifecycle_field(
+            vault_root, router, path, field, value))
 
 
 def plan_parent_projection_repair(vault_root, router, path, *, reference_index=None):
@@ -1029,28 +1034,30 @@ def plan_document_lifecycle(vault_root, router, plan, *, effective_at=None):
 
 def apply_document_edit(vault_root, router, plan, *, fix_links=False, file_index=None):
     """Persist a validated transform without executing its selection a second time."""
-    opened = plan.opened
-    if opened.resource == "artefact":
-        plan = plan_document_lifecycle(vault_root, router, plan)
-        result = apply_artefact_transition(vault_root, plan.artefact_transition)
-        _fix_links.attach_wikilink_warnings(vault_root, result, apply_fixes=fix_links,
-                                            file_index=file_index)
-        result["revision"] = document_revision_at(os.path.join(vault_root, result["path"]))
-    else:
-        target = (resolve_readme_source(vault_root, opened.reference) if opened.resource == "file"
-                  else resolve_named_destination(vault_root, opened.path))
-        content = (plan.new_body if opened.resource == "file" and not opened.has_frontmatter
-                   and plan.frontmatter_changes is None else
-                   serialize_frontmatter(plan.fields, body=plan.new_body))
-        safe_write(target, content, bounds=vault_root)
-        result = _result_payload(opened.path, opened.path, plan.operation,
-                                 opened.body, plan.new_body, resolved=plan.resolved,
-                                 scope=plan.scope)
-        result["revision"] = document_revision_at(opened.abs_path)
-    if plan.match_count is not None:
-        result["match_count"] = plan.match_count
-        result["replacement_count"] = plan.replacement_count
-    return result
+    with branch_guard.operation(vault_root):
+        opened = plan.opened
+        if opened.resource == "artefact":
+            plan = plan_document_lifecycle(vault_root, router, plan)
+            result = apply_artefact_transition(vault_root, plan.artefact_transition)
+            _fix_links.attach_wikilink_warnings(vault_root, result, apply_fixes=fix_links,
+                                                file_index=file_index)
+            result["revision"] = document_revision_at(os.path.join(vault_root, result["path"]))
+        else:
+            target = (resolve_readme_source(vault_root, opened.reference) if opened.resource == "file"
+                      else resolve_named_destination(vault_root, opened.path))
+            content = (plan.new_body if opened.resource == "file" and not opened.has_frontmatter
+                       and plan.frontmatter_changes is None else
+                       serialize_frontmatter(plan.fields, body=plan.new_body))
+            branch_guard.checkpoint(vault_root)
+            safe_write(target, content, bounds=vault_root)
+            result = _result_payload(opened.path, opened.path, plan.operation,
+                                     opened.body, plan.new_body, resolved=plan.resolved,
+                                     scope=plan.scope)
+            result["revision"] = document_revision_at(opened.abs_path)
+        if plan.match_count is not None:
+            result["match_count"] = plan.match_count
+            result["replacement_count"] = plan.replacement_count
+        return result
 
 
 def edit_resource(vault_root, router, resource="artefact", operation="edit",
@@ -1060,24 +1067,25 @@ def edit_resource(vault_root, router, resource="artefact", operation="edit",
                   match_occurrence=None, replace_all=False,
                   opened=None, prepared_plan=None):
     """Resolve, plan and apply a document edit through one transform owner."""
-    vault_root = str(vault_root)
-    if resource != "artefact" and resource not in EDITABLE_RESOURCES:
-        raise ValueError(f"Resource '{resource}' is not editable via document.structured-edit. "
-                         f"Editable resources: {', '.join(EDITABLE_RESOURCES)}")
-    reference = path if resource == "artefact" else name
-    if not reference:
-        raise ValueError("path is required when resource='artefact'" if resource == "artefact"
-                         else f"document.structured-edit for resource '{resource}' requires a reference.")
-    document = opened or open_document(vault_root, router, resource, reference)
-    _validate_open_document(document, resource, reference)
-    plan = prepared_plan or plan_document_edit(
-        document, operation=operation, body=body, frontmatter_changes=frontmatter_changes,
-        target=target, selector=selector, scope=scope, old_text=old_text,
-        new_text=new_text, match_occurrence=match_occurrence, replace_all=replace_all)
-    if plan.opened != document:
-        raise ValueError("prepared edit refers to a different opened document")
-    return apply_document_edit(vault_root, router, plan,
-                                fix_links=fix_links, file_index=file_index)
+    with branch_guard.operation(vault_root):
+        vault_root = str(vault_root)
+        if resource != "artefact" and resource not in EDITABLE_RESOURCES:
+            raise ValueError(f"Resource '{resource}' is not editable via document.structured-edit. "
+                             f"Editable resources: {', '.join(EDITABLE_RESOURCES)}")
+        reference = path if resource == "artefact" else name
+        if not reference:
+            raise ValueError("path is required when resource='artefact'" if resource == "artefact"
+                             else f"document.structured-edit for resource '{resource}' requires a reference.")
+        document = opened or open_document(vault_root, router, resource, reference)
+        _validate_open_document(document, resource, reference)
+        plan = prepared_plan or plan_document_edit(
+            document, operation=operation, body=body, frontmatter_changes=frontmatter_changes,
+            target=target, selector=selector, scope=scope, old_text=old_text,
+            new_text=new_text, match_occurrence=match_occurrence, replace_all=replace_all)
+        if plan.opened != document:
+            raise ValueError("prepared edit refers to a different opened document")
+        return apply_document_edit(vault_root, router, plan,
+                                    fix_links=fix_links, file_index=file_index)
 
 
 def _validate_open_document(opened, resource, reference):
@@ -1243,32 +1251,38 @@ def _plan_reference_mutation(
 
 def _write_frontmatter_mutations(vault_root, operations, *, operation):
     """Write planned frontmatter mutations and report the committed set."""
-    written = []
-    for op in operations:
-        try:
-            safe_write_active_or_archived_artefact(
-                os.path.join(vault_root, op["path"]),
-                serialize_frontmatter(op["fields"], body=op["body"]),
-                bounds=vault_root,
-            )
-        except ValueError as exc:
-            if not written:
+    with branch_guard.operation(vault_root):
+        written = []
+        for op in operations:
+            try:
+                branch_guard.checkpoint(vault_root)
+                safe_write_active_or_archived_artefact(
+                    os.path.join(vault_root, op["path"]),
+                    serialize_frontmatter(op["fields"], body=op["body"]),
+                    bounds=vault_root,
+                )
+            except branch_guard.BranchGuardError as exc:
+                for path in written:
+                    exc.record_completed("write", path)
                 raise
-            raise PartialApplyError(
-                f"{operation} partially applied — "
-                f"files written {written}, failed at {op['path']}: {exc}"
-            ) from exc
-        except OSError as exc:
-            if not written:
-                raise OSError(
-                    f"{operation} failed before writing {op['path']}: {exc}"
+            except ValueError as exc:
+                if not written:
+                    raise
+                raise PartialApplyError(
+                    f"{operation} partially applied — "
+                    f"files written {written}, failed at {op['path']}: {exc}"
                 ) from exc
-            raise PartialApplyError(
-                f"{operation} partially applied — "
-                f"files written {written}, failed at {op['path']}: {exc}"
-            ) from exc
-        written.append(op["path"])
-    return written
+            except OSError as exc:
+                if not written:
+                    raise OSError(
+                        f"{operation} failed before writing {op['path']}: {exc}"
+                    ) from exc
+                raise PartialApplyError(
+                    f"{operation} partially applied — "
+                    f"files written {written}, failed at {op['path']}: {exc}"
+                ) from exc
+            written.append(op["path"])
+        return written
 
 
 def _raise_stale_index_missing(rel_path, operation):
@@ -1518,6 +1532,11 @@ def _prune_committed_attachment_scope_move(
         return
     try:
         attachment_upload.prune_vacated_attachment_scope(vault_root, old_key)
+    except branch_guard.BranchGuardError as exc:
+        exc.facts["applied_attachment_moves"] = list(attachment_moves)
+        for move in attachment_moves:
+            exc.record_completed("move", move["source"], destination=move["dest"])
+        raise
     except OSError as exc:
         old_scope = attachment_upload.attachment_scope_rel_dir(old_key).as_posix()
         raise PartialApplyError(
@@ -1704,9 +1723,10 @@ def _finish_artefact(vault_root, router, abs_path, fields, old_body, new_body, p
                      frontmatter_changes, operation, *, old_fields=None,
                      resolved=None, scope=None):
     """Apply the single lifecycle plan shared by document and explicit field owners."""
-    return apply_artefact_transition(vault_root, plan_finish_artefact(
-        vault_root, router, abs_path, fields, old_body, new_body, path, art,
-        frontmatter_changes, operation, old_fields=old_fields, resolved=resolved, scope=scope))
+    with branch_guard.operation(vault_root):
+        return apply_artefact_transition(vault_root, plan_finish_artefact(
+            vault_root, router, abs_path, fields, old_body, new_body, path, art,
+            frontmatter_changes, operation, old_fields=old_fields, resolved=resolved, scope=scope))
 
 
 # ---------------------------------------------------------------------------
@@ -1779,45 +1799,47 @@ def apply_to_artefact(operation, vault_root, router, path, body="",
     ``edit_artefact``/``append_to_artefact``/``prepend_to_artefact``/
     ``delete_section_artefact`` functions are thin wrappers around this.
     """
-    body, scope = _prepare_artefact_operation(
-        operation,
-        body,
-        frontmatter_changes,
-        target,
-        selector,
-        scope,
-    )
-    opened = _open_artefact(vault_root, router, path)
-    return _apply_to_open_artefact(
-        operation,
-        vault_root,
-        router,
-        opened,
-        body,
-        frontmatter_changes=frontmatter_changes,
-        target=target,
-        selector=selector,
-        scope=scope,
-    )
+    with branch_guard.operation(vault_root):
+        body, scope = _prepare_artefact_operation(
+            operation,
+            body,
+            frontmatter_changes,
+            target,
+            selector,
+            scope,
+        )
+        opened = _open_artefact(vault_root, router, path)
+        return _apply_to_open_artefact(
+            operation,
+            vault_root,
+            router,
+            opened,
+            body,
+            frontmatter_changes=frontmatter_changes,
+            target=target,
+            selector=selector,
+            scope=scope,
+        )
 
 
 def replace_text_in_artefact(vault_root, router, path, *, old_text, new_text,
                              target=None, selector=None, scope=None,
                              match_occurrence=None, replace_all=False):
     """Replace exact text in an artefact body without rewriting its surroundings."""
-    opened = _open_artefact(vault_root, router, path)
-    return _replace_text_in_open_artefact(
-        vault_root,
-        router,
-        opened,
-        old_text=old_text,
-        new_text=new_text,
-        target=target,
-        selector=selector,
-        scope=scope,
-        match_occurrence=match_occurrence,
-        replace_all=replace_all,
-    )
+    with branch_guard.operation(vault_root):
+        opened = _open_artefact(vault_root, router, path)
+        return _replace_text_in_open_artefact(
+            vault_root,
+            router,
+            opened,
+            old_text=old_text,
+            new_text=new_text,
+            target=target,
+            selector=selector,
+            scope=scope,
+            match_occurrence=match_occurrence,
+            replace_all=replace_all,
+        )
 
 
 def _replace_text_in_open_artefact(
@@ -2117,8 +2139,9 @@ def plan_convert(vault_root, router, path, target_type, parent=None, recursive=F
 
 def convert_artefact(vault_root, router, path, target_type, parent=None, recursive=False):
     """Convert metadata, ownership and paths through one validated transition plan."""
-    return apply_artefact_transition(vault_root, plan_convert(
-        vault_root, router, path, target_type, parent, recursive))
+    with branch_guard.operation(vault_root):
+        return apply_artefact_transition(vault_root, plan_convert(
+            vault_root, router, path, target_type, parent, recursive))
 
 
 # ---------------------------------------------------------------------------
@@ -2326,8 +2349,9 @@ def plan_reparent_children(vault_root, router, source, to_marker=None, *, to_pro
 
 def reparent_children(vault_root, router, source, to_marker=None, *, to_provided=False):
     """Reparent the selected direct children through one validated transition plan."""
-    return apply_artefact_transition(vault_root, plan_reparent_children(
-        vault_root, router, source, to_marker, to_provided=to_provided))
+    with branch_guard.operation(vault_root):
+        return apply_artefact_transition(vault_root, plan_reparent_children(
+            vault_root, router, source, to_marker, to_provided=to_provided))
 
 
 @dataclass(frozen=True, slots=True)
@@ -2364,21 +2388,27 @@ def plan_artefact_transition(vault_root, router, *, operation, writes, moves,
 
 def apply_artefact_transition(vault_root, plan):
     """Persist a validated metadata/movement plan through existing effect owners."""
-    from rename import apply_move_and_links
+    with branch_guard.operation(vault_root):
+        from rename import apply_move_and_links
 
-    written = _write_frontmatter_mutations(vault_root, plan.writes, operation=plan.operation)
-    try:
-        result = apply_move_and_links(vault_root, plan.movement)
-    except (PartialApplyError, FileNotFoundError, FileExistsError, ValueError, OSError) as exc:
-        if not written:
+        written = _write_frontmatter_mutations(vault_root, plan.writes, operation=plan.operation)
+        try:
+            result = apply_move_and_links(vault_root, plan.movement)
+            if plan.attachment_cleanup_key and plan.attachment_moves:
+                _prune_committed_attachment_scope_move(vault_root, plan.attachment_cleanup_key,
+                                                       plan.attachment_moves, operation=plan.operation)
+        except branch_guard.BranchGuardError as exc:
+            exc.facts["committed_metadata_paths"] = list(written)
+            for path in written:
+                exc.record_completed("write", path)
             raise
-        raise PartialApplyError(
-            f"{plan.operation} partially applied — metadata files written {written}; "
-            f"move failure: {exc}") from exc
-    if plan.attachment_cleanup_key and plan.attachment_moves:
-        _prune_committed_attachment_scope_move(vault_root, plan.attachment_cleanup_key,
-                                               plan.attachment_moves, operation=plan.operation)
-    return {**plan.result, "links_updated": result["links_updated"]}
+        except (PartialApplyError, FileNotFoundError, FileExistsError, ValueError, OSError) as exc:
+            if not written:
+                raise
+            raise PartialApplyError(
+                f"{plan.operation} partially applied — metadata files written {written}; "
+                f"move failure: {exc}") from exc
+        return {**plan.result, "links_updated": result["links_updated"]}
 
 
 def plan_archive(vault_root, router, path, recursive=False, *, effective_at=None):
@@ -2422,7 +2452,8 @@ def plan_archive(vault_root, router, path, recursive=False, *, effective_at=None
 
 def archive_artefact(vault_root, router, path, recursive=False):
     """Archive any artefact while preserving lifecycle state and ownership."""
-    return apply_artefact_transition(vault_root, plan_archive(vault_root, router, path, recursive))
+    with branch_guard.operation(vault_root):
+        return apply_artefact_transition(vault_root, plan_archive(vault_root, router, path, recursive))
 
 
 def _plan_unarchive_entry(vault_root, router, path):
@@ -2541,7 +2572,8 @@ def plan_unarchive(vault_root, router, path, recursive=False, *, effective_at=No
 
 def unarchive_artefact(vault_root, router, path, recursive=False):
     """Restore one archived artefact or subtree through current metadata projection."""
-    return apply_artefact_transition(vault_root, plan_unarchive(vault_root, router, path, recursive))
+    with branch_guard.operation(vault_root):
+        return apply_artefact_transition(vault_root, plan_unarchive(vault_root, router, path, recursive))
 
 
 # ---------------------------------------------------------------------------

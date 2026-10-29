@@ -40,6 +40,7 @@ class Role:
 
 # Reasons apply to existing persisted text, not newly supplied inline content.
 NO_TEXT = {
+    'vault.configure-branch-guard': 'Patches typed local policy YAML under CAS; it has no corpus Markdown/document TEXT role.',
     'history.cleanup': 'Removes typed semantic JSON payloads; authored Markdown remains read-only.',
     'history.configure': 'Writes local capture-policy JSON; no persisted vault TEXT mutation.',
     'history.correct': 'Publishes typed correction/event JSON; no authored Markdown mutation.',
@@ -52,7 +53,7 @@ NO_TEXT = {
     'relationship.undefine': 'Removes local contract JSON and dispositions semantic records; no Markdown mutation.',
 
     'retrieval.construct-benchmark': 'Writes benchmark and audit JSON; corpus Markdown is read-only, no persisted vault text mutation role.',
-    'retrieval.enable': 'Writes operational semantic configuration/runtime/cache assets; corpus Markdown is read-only.',
+    'retrieval.enable': 'Writes typed local feature settings and runtime/cache assets; corpus Markdown is read-only.',
     'retrieval.rebuild-semantic': 'Rebuilds binary/JSON semantic cache assets; corpus Markdown is read-only.',
     'retrieval.refresh-lexical': 'Rebuilds operational lexical JSON; corpus Markdown is read-only.',
     'retrieval.repair-semantic': 'Repairs operational semantic runtime/cache assets; corpus Markdown is read-only.',

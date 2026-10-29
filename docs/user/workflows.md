@@ -604,3 +604,24 @@ router and listing indexes themselves; no manual refresh between moves is needed
 
 `runtime.status` records warm-up progress. Its `ready` state is not proof that
 caches are still current; use its `router_check` action for a blocked write.
+
+### Working with a branch-protected vault
+
+A configured branch guard refuses durable Brain edits and Core lifecycle
+changes on an ineligible branch. Reads, check/Doctor, outcome inspection,
+rebuildable caches and supporting registry/client mechanisms remain useful.
+Regenerating a PDF from existing Markdown remains available; creating its
+editable Markdown is protected. Durable repair obeys the same policy as editing.
+
+Inspect `brain vault read-config --json` before changing policy. Select the
+intended checkout/branch, or deliberately use the Maintainer configuration
+command with the returned local-file revision. Repair never accepts the current
+branch, broadens the list or disables protection automatically. Moving outside
+Git makes retained policy dormant; moving back evaluates the same names.
+
+If a branch or policy changes during an operation, Brain refuses the next
+protected phase and retains outcome/recovery evidence. Inspect that outcome
+before retrying. Returning to an allowed branch does not authorise blind
+rollback. A Git-only backup normally excludes ignored local policy. This is
+accident prevention: external editors and arbitrary concurrent Git switches
+remain outside its guarantee.

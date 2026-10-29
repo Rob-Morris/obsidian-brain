@@ -169,6 +169,12 @@ def _merge_config(template: dict, vault_cfg: dict, local_cfg: dict) -> dict:
     defaults zone: template, then vault, then local with type-based merge.
     """
     result = {}
+    for source, document in (("shipped defaults", template), (".brain/config.yaml", vault_cfg)):
+        if "branch_guard" in document:
+            warnings.warn(
+                f"config: {source} contains 'branch_guard' which is ignored. "
+                "Only .brain/local/config.yaml can configure the vault branch guard."
+            )
 
     # --- vault zone: shared authoritative ---
     base_vault = _mapping_zone(template, "template", "vault")

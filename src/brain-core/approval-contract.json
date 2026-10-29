@@ -483,7 +483,7 @@
     },
     {
       "command_id": "invocation.read",
-      "version": 3,
+      "version": 4,
       "owner": "application",
       "classification": "control",
       "mcp": "invocation_read",
@@ -1142,8 +1142,20 @@
       "authority": "reader"
     },
     {
+      "command_id": "vault.configure-branch-guard",
+      "version": 1,
+      "owner": "application",
+      "classification": "content",
+      "mcp": "vault_configure-branch-guard",
+      "cli": [
+        "vault",
+        "configure-branch-guard"
+      ],
+      "authority": "maintainer"
+    },
+    {
       "command_id": "vault.read-config",
-      "version": 3,
+      "version": 4,
       "owner": "application",
       "classification": "observation",
       "mcp": "vault_read-config",
@@ -1337,5 +1349,5 @@
       "authority": "reader"
     }
   ],
-  "fingerprint": "sha256:4112cdccddc70af71546a0d87ed4590a3c9ba942b2e65a800c4a17ba7b214cba"
+  "fingerprint": "sha256:2e7e118066ffbfb3aecf081571a9323f3839a278357abbe544c6f625fd13e493"
 }

@@ -2,6 +2,13 @@
 
 Migration scripts run automatically during CLI upgrade (`upgrade.py` or `install.sh`). They handle vault-level data transformations that can't be done by simply copying new files.
 
+Migration handlers are internal to the upgrade runner, not supported standalone
+commands or public Python mutation entry points. The runner supplies the shared
+vault lock and original branch-guard operation, and checkpoints before each
+handler. New handlers must checkpoint that same operation before meaningful
+durable write/delete batches. They must not start a fresh branch baseline or
+restore snapshots after observed context loss; retain recovery evidence instead.
+
 Each successful or skipped migration is recorded in `.brain/local/migrations.json` straight after it runs. The runner selects only migrations above the installed `.brain-core/VERSION`, up to the target, whose ledger key is not yet recorded, so reinstalling `.brain-core/` into the same vault does not replay historical migrations. Nothing re-runs a recorded migration: `upgrade.py --force` re-applies the same version's core and selects no migration, and a correction ships as a new migration. `.brain-core/VERSION` is written last, after every migration. Before a migration may change a path, the runner journals that path's original bytes write-ahead, outside the vault, so a failure or a kill is rolled back (by the run itself, or by the next upgrade from the journal) and the migration reruns from the pre-run state. The runner holds the vault mutation lock from before the migrations until `VERSION` is written, and the lock is not re-entrant: a migration must not take it, in process or through a subprocess, or it deadlocks against the run it belongs to.
 
 Ledger keys are target-aware:

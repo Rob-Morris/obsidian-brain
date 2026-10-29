@@ -232,4 +232,11 @@ if ($exitCode -ne 0) {
     exit $exitCode
 }
 
+if (-not $NonInteractive -and (Test-Path -LiteralPath (Join-Path $VaultPath ".brain-core/scripts/_bootstrap/branch_guard.py"))) {
+    & $python (Join-Path $VaultPath ".brain-core/scripts/configure.py") branch-guard --interactive --vault $VaultPath
+    if ($LASTEXITCODE -ne 0) {
+        Write-Warning "Optional branch guard setup was not completed; inspect vault.read-config before retrying explicit configuration."
+    }
+}
+
 exit 0

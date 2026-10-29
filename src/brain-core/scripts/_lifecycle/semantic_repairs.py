@@ -233,6 +233,8 @@ def repair_semantic(
     vault_root: Path,
     dry_run: bool,
     bootstrap_steps: list[dict] | None = None,
+    *,
+    lock_held: bool = False,
 ) -> dict:
     steps = list(bootstrap_steps or [])
     state = inspect_semantic(vault_root)
@@ -297,6 +299,7 @@ def repair_semantic(
             python_executable=sys.executable,
             runtime_ok=state["dependencies_ok"],
             refresh_assets=sidecars_need_refresh or model_needs_provision,
+            lock_held=lock_held,
         )
     except semantic_provision.SemanticProvisionError as exc:
         steps.append(_step("semantic_runtime", "error", str(exc)))

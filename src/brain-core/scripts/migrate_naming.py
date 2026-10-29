@@ -15,6 +15,8 @@ Usage:
     python3 migrate_naming.py --vault /path/to/vault
 """
 
+from _bootstrap import branch_guard
+
 import json
 import os
 import re
@@ -233,26 +235,28 @@ def plan_naming_migration(vault_root, router=None, dry_run=False):
 
 def apply_naming_migration(vault_root, plan):
     """Apply the complete admitted batch and report any partial move set explicitly."""
-    import rename
+    with branch_guard.operation(vault_root):
+        import rename
 
-    if plan.movement is None or plan.result["dry_run"]:
+        if plan.movement is None or plan.result["dry_run"]:
+            return dict(plan.result)
+        try:
+            rename.apply_move_and_links(vault_root, plan.movement)
+        except PartialApplyError as exc:
+            applied = getattr(exc, "applied", ())
+            failed = getattr(exc, "failed", None) or (plan.movement.moves[0] if plan.movement.moves else {})
+            details = [{"source": item["source"], "dest": item["dest"],
+                        "links_updated": plan.link_counts[item["source"]]} for item in applied]
+            return {**plan.result, "renamed": len(details), "details": details, "error_count": 1,
+                    "errors": [{"file": failed.get("source", "vault"), "target": failed.get("dest", "vault"),
+                                "error": str(exc), "partial_apply": True}]}
         return dict(plan.result)
-    try:
-        rename.apply_move_and_links(vault_root, plan.movement)
-    except PartialApplyError as exc:
-        applied = getattr(exc, "applied", ())
-        failed = getattr(exc, "failed", None) or (plan.movement.moves[0] if plan.movement.moves else {})
-        details = [{"source": item["source"], "dest": item["dest"],
-                    "links_updated": plan.link_counts[item["source"]]} for item in applied]
-        return {**plan.result, "renamed": len(details), "details": details, "error_count": 1,
-                "errors": [{"file": failed.get("source", "vault"), "target": failed.get("dest", "vault"),
-                            "error": str(exc), "partial_apply": True}]}
-    return dict(plan.result)
 
 
 def migrate_vault(vault_root, router=None, dry_run=False):
     """Plan and apply naming migration against one consistent starting namespace."""
-    return apply_naming_migration(vault_root, plan_naming_migration(vault_root, router, dry_run))
+    with branch_guard.operation(vault_root):
+        return apply_naming_migration(vault_root, plan_naming_migration(vault_root, router, dry_run))
 
 
 # ---------------------------------------------------------------------------

@@ -887,3 +887,24 @@ operation can still reach that limit. Owned-outcome recovery accepts complete
 unavailable, truncated or unresolved detail output remains inconclusive.
 
 `vault.check` reports clear `text_encoding` findings and ambiguous `unreadable_file` failures before the router gate. `vault_repair-text` accepts one optional `paths` array of vault-relative files, requires maintainer authority and content authorisation, and supports the normal dry-run preview. It fixes UTF-8/UTF-16/UTF-32 byte-order marks and previews a clear truncated final UTF-8 character. It never guesses legacy encodings or repairs content unattended. Results enumerate committed paths; changed candidates are skipped and write failures retain successful effects as partial results.
+
+### `vault.configure-branch-guard`
+
+Selected-Brain-local, normal-content Maintainer mutation. Required inputs are
+`allowed_branches` (a nonempty unique literal branch list or null for explicit
+removal) and `expected_revision` (the complete local-file revision from
+`vault.read-config`). Returns typed `changed` and `branch_guard` state plus
+truthful committed effects. Explicit configuration is available on blocked
+branches without weakening permission checks. Inspect through existing
+`vault.read-config`; see [configuration](config.md#vault-local-git-branch-guard).
+
+Branch refusals retain bounded typed reason, branch and recovery-path facts.
+Unknown outcomes preserve these under `error.details.branch_guard` and retain
+`invocation.read` as the next action; persisted receipts also include the guard
+diagnostic and its `vault.read-config` inspection command. A diagnostic's known
+`committed_paths` does not imply that every effect of an unknown outcome is known.
+
+Proxy **0.10.14** preserves these diagnostics during owned response-loss recovery.
+`invocation.read` v4 accepts the base receipt or an optional `branch_guard` field
+(null or bounded typed diagnostics); v3 retains the exact legacy receipt shape.
+Identity, admission attribution and committed-effect checks still apply.

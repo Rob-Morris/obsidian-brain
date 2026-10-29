@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+from _bootstrap import branch_guard
+
 import argparse
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -289,11 +291,13 @@ def render_transcript_link(fields, body, transcript_stem, transcript_display, mo
     return new_content
 
 def _add_transcript_link(abs_path, vault_root, fields, body, transcript_stem, transcript_display, modified):
-    content = render_transcript_link(fields, body, transcript_stem, transcript_display, modified)
-    if content is None:
-        return False
-    safe_write_artefact(abs_path, content, bounds=vault_root)
-    return True
+    with branch_guard.operation(vault_root):
+        content = render_transcript_link(fields, body, transcript_stem, transcript_display, modified)
+        if content is None:
+            return False
+        branch_guard.checkpoint(vault_root)
+        safe_write_artefact(abs_path, content, bounds=vault_root)
+        return True
 
 
 def _validate_mode(requested_mode):
@@ -419,130 +423,141 @@ def start_shaping_session(
     _plan=None,
 ):
     """Validate and apply the mechanical opening of one shaping session."""
-    vault_root = str(vault_root)
-    plan = _plan or plan_shaping_session(vault_root, router, target, mode=mode,
-                                         _now=_now, _prepared_target=_prepared_target)
-    prepared, now = plan["prepared"], plan["now"]
-    resolved_path, artefact = prepared.resolved_path, prepared.artefact
-    fields, body = prepared.fields, prepared.body
-    file_index = plan["file_index"]
-    session_mode, transcript_type = plan["mode"], plan["transcript_type"]
-    transcript_path, transcript_exists = plan["transcript_path"], plan["transcript_exists"]
-    template = plan["template"]
-    transcript_abs = os.path.join(vault_root, transcript_path)
-    status_behaviour, status_changed = prepared.status_behaviour, plan["status_changed"]
-    lifecycle_applied = False
-    transcript_changed = False
-    target_path = resolved_path
-    operation_error = None
-    operation_cause = None
-    try:
-        if status_changed:
-            lifecycle = edit.apply_artefact_transition(vault_root, plan["lifecycle"])
-            lifecycle_applied = True
-            target_path = lifecycle["path"]
-            try:
-                refreshed = read_exact_file_content(resolve_content_source(vault_root, target_path))
-            except FileNotFoundError:
-                refreshed = MissingFileResult(target_path)
-            if isinstance(refreshed, MissingFileResult):
-                raise PartialApplyError(
-                    f"shaping session partially applied — lifecycle updated "
-                    f"'{resolved_path}' but the resolved target cannot be read at "
-                    f"'{target_path}'"
-                )
-            fields, body = parse_frontmatter(refreshed)
-        target_metadata_changed = False
-        if "target_fields" in plan:
-            target_metadata_changed = fields != plan["target_fields"]
-            fields = dict(plan["target_fields"])
-        session_heading = (
-            f"\n\n## {session_mode.capitalize()} session start — "
-            f"{now.strftime('%H:%M')}\n"
-        )
-        if transcript_exists:
-            transcript_content = read_exact_file_content(resolve_content_source(vault_root, transcript_path))
-            if "transcript_fields" in plan:
-                existing_fields, transcript_body = parse_frontmatter(transcript_content)
-                if existing_fields != plan["transcript_fields"]:
-                    transcript_content = serialize_frontmatter(plan["transcript_fields"], body=transcript_body)
-            safe_write_artefact(
-                transcript_abs,
-                transcript_content.rstrip() + session_heading,
-                bounds=vault_root,
-            )
-            transcript_changed = True
-            transcript_operation = "appended"
-        else:
-            transcript_content = render_transcript_template(template, target_path, artefact["key"], now)
-            if "transcript_fields" in plan:
-                _, transcript_body = parse_frontmatter(transcript_content)
-                transcript_content = serialize_frontmatter(plan["transcript_fields"], body=transcript_body)
-            safe_write_artefact(
-                transcript_abs,
-                transcript_content.rstrip() + session_heading,
-                bounds=vault_root,
-            )
-            transcript_changed = True
-            transcript_operation = "created"
-
-        transcript_stem = os.path.splitext(transcript_path)[0]
-        transcript_display = os.path.splitext(os.path.basename(transcript_path))[0]
-        backlink_changed = _add_transcript_link(
-            os.path.join(vault_root, target_path),
-            vault_root,
-            fields,
-            body,
-            transcript_stem,
-            transcript_display,
-            now.isoformat(),
-        )
-        if target_metadata_changed and not backlink_changed:
-            safe_write_artefact(os.path.join(vault_root, target_path),
-                               serialize_frontmatter(fields, body=body), bounds=vault_root)
-    except PartialApplyError as exc:
-        operation_error = exc
-        operation_cause = exc.__cause__
-    except Exception as exc:
-        if not lifecycle_applied and not transcript_changed:
-            raise
-        durable = [target_path] if lifecycle_applied else []
-        if transcript_changed:
-            durable.append(transcript_path)
-        operation_error = PartialApplyError(
-            "shaping session partially applied — durable files "
-            f"{durable}; session write failed: {exc}"
-        )
-        operation_cause = exc
-
-    if lifecycle_applied or plan.get("reconcile_indexes"):
-        from _portable.transition_indexes import reconcile_artefact_indexes, IndexRefreshIncomplete
+    with branch_guard.operation(vault_root):
+        vault_root = str(vault_root)
+        plan = _plan or plan_shaping_session(vault_root, router, target, mode=mode,
+                                             _now=_now, _prepared_target=_prepared_target)
+        prepared, now = plan["prepared"], plan["now"]
+        resolved_path, artefact = prepared.resolved_path, prepared.artefact
+        fields, body = prepared.fields, prepared.body
+        file_index = plan["file_index"]
+        session_mode, transcript_type = plan["mode"], plan["transcript_type"]
+        transcript_path, transcript_exists = plan["transcript_path"], plan["transcript_exists"]
+        template = plan["template"]
+        transcript_abs = os.path.join(vault_root, transcript_path)
+        status_behaviour, status_changed = prepared.status_behaviour, plan["status_changed"]
+        lifecycle_applied = False
+        transcript_changed = False
+        target_path = resolved_path
+        operation_error = None
+        operation_cause = None
         try:
-            reconcile_artefact_indexes(vault_root)
-        except IndexRefreshIncomplete as exc:
-            durable = (target_path, transcript_path) if transcript_changed else (target_path,)
-            raise IndexRefreshIncomplete(exc.command_id, router_result=exc.router_result,
-                                         committed_paths=durable, operation_error=operation_error) from exc
-    if operation_error is not None:
-        raise operation_error from operation_cause
+            if status_changed:
+                lifecycle = edit.apply_artefact_transition(vault_root, plan["lifecycle"])
+                lifecycle_applied = True
+                target_path = lifecycle["path"]
+                try:
+                    refreshed = read_exact_file_content(resolve_content_source(vault_root, target_path))
+                except FileNotFoundError:
+                    refreshed = MissingFileResult(target_path)
+                if isinstance(refreshed, MissingFileResult):
+                    raise PartialApplyError(
+                        f"shaping session partially applied — lifecycle updated "
+                        f"'{resolved_path}' but the resolved target cannot be read at "
+                        f"'{target_path}'"
+                    )
+                fields, body = parse_frontmatter(refreshed)
+            target_metadata_changed = False
+            if "target_fields" in plan:
+                target_metadata_changed = fields != plan["target_fields"]
+                fields = dict(plan["target_fields"])
+            session_heading = (
+                f"\n\n## {session_mode.capitalize()} session start — "
+                f"{now.strftime('%H:%M')}\n"
+            )
+            if transcript_exists:
+                transcript_content = read_exact_file_content(resolve_content_source(vault_root, transcript_path))
+                if "transcript_fields" in plan:
+                    existing_fields, transcript_body = parse_frontmatter(transcript_content)
+                    if existing_fields != plan["transcript_fields"]:
+                        transcript_content = serialize_frontmatter(plan["transcript_fields"], body=transcript_body)
+                branch_guard.checkpoint(vault_root)
+                safe_write_artefact(
+                    transcript_abs,
+                    transcript_content.rstrip() + session_heading,
+                    bounds=vault_root,
+                )
+                transcript_changed = True
+                transcript_operation = "appended"
+            else:
+                transcript_content = render_transcript_template(template, target_path, artefact["key"], now)
+                if "transcript_fields" in plan:
+                    _, transcript_body = parse_frontmatter(transcript_content)
+                    transcript_content = serialize_frontmatter(plan["transcript_fields"], body=transcript_body)
+                branch_guard.checkpoint(vault_root)
+                safe_write_artefact(
+                    transcript_abs,
+                    transcript_content.rstrip() + session_heading,
+                    bounds=vault_root,
+                )
+                transcript_changed = True
+                transcript_operation = "created"
 
-    target_changed = status_changed or backlink_changed or target_metadata_changed
-    changed_paths = [transcript_path]
-    if target_changed:
-        changed_paths.insert(0, target_path)
-    return {
-        "status": "ok",
-        "resolved_target_path": resolved_path,
-        "target_path": target_path,
-        "target_path_changed": target_path != resolved_path,
-        "transcript_path": transcript_path,
-        "type": transcript_type,
-        "mode": session_mode,
-        "status_behaviour": status_behaviour,
-        "status_changed": status_changed,
-        "transcript_operation": transcript_operation,
-        "changed_paths": changed_paths,
-    }
+            transcript_stem = os.path.splitext(transcript_path)[0]
+            transcript_display = os.path.splitext(os.path.basename(transcript_path))[0]
+            backlink_changed = _add_transcript_link(
+                os.path.join(vault_root, target_path),
+                vault_root,
+                fields,
+                body,
+                transcript_stem,
+                transcript_display,
+                now.isoformat(),
+            )
+            if target_metadata_changed and not backlink_changed:
+                branch_guard.checkpoint(vault_root)
+                safe_write_artefact(os.path.join(vault_root, target_path),
+                                   serialize_frontmatter(fields, body=body), bounds=vault_root)
+        except PartialApplyError as exc:
+            operation_error = exc
+            operation_cause = exc.__cause__
+        except branch_guard.BranchGuardError as exc:
+            durable = [target_path] if lifecycle_applied else []
+            if transcript_changed:
+                durable.append(transcript_path)
+            for path in durable:
+                exc.record_completed("write", path)
+            raise
+        except Exception as exc:
+            if not lifecycle_applied and not transcript_changed:
+                raise
+            durable = [target_path] if lifecycle_applied else []
+            if transcript_changed:
+                durable.append(transcript_path)
+            operation_error = PartialApplyError(
+                "shaping session partially applied — durable files "
+                f"{durable}; session write failed: {exc}"
+            )
+            operation_cause = exc
+
+        if lifecycle_applied or plan.get("reconcile_indexes"):
+            from _portable.transition_indexes import reconcile_artefact_indexes, IndexRefreshIncomplete
+            try:
+                reconcile_artefact_indexes(vault_root)
+            except IndexRefreshIncomplete as exc:
+                durable = (target_path, transcript_path) if transcript_changed else (target_path,)
+                raise IndexRefreshIncomplete(exc.command_id, router_result=exc.router_result,
+                                             committed_paths=durable, operation_error=operation_error) from exc
+        if operation_error is not None:
+            raise operation_error from operation_cause
+
+        target_changed = status_changed or backlink_changed or target_metadata_changed
+        changed_paths = [transcript_path]
+        if target_changed:
+            changed_paths.insert(0, target_path)
+        return {
+            "status": "ok",
+            "resolved_target_path": resolved_path,
+            "target_path": target_path,
+            "target_path_changed": target_path != resolved_path,
+            "transcript_path": transcript_path,
+            "type": transcript_type,
+            "mode": session_mode,
+            "status_behaviour": status_behaviour,
+            "status_changed": status_changed,
+            "transcript_operation": transcript_operation,
+            "changed_paths": changed_paths,
+        }
 
 
 def _build_parser():

@@ -36,6 +36,7 @@ def _receipt_lookup_response(
     *,
     state: str = "committed",
     found: bool = True,
+    invocation_read_version: int = 4,
 ) -> dict:
     reference = {"invocation_id": record.invocation_id}
     receipt = None
@@ -61,7 +62,7 @@ def _receipt_lookup_response(
             "structuredContent": {
                 "schema": "brain.command-result/1",
                 "command": "invocation.read",
-                "command_version": 3,
+                "command_version": invocation_read_version,
                 "status": "ok",
                 "warnings": [],
                 "result": {
@@ -351,7 +352,7 @@ class TestUnexpectedChildOutcomeSafety:
     def test_outcome_decoder_accepts_only_complete_owned_delivery(self, tmp_path, monkeypatch, variant):
         proxy, _ = _make_inprocess_proxy(tmp_path, monkeypatch, [])
         _, _, record = self._accepted(proxy, request_id=399, tool="artefact_create", arguments={})
-        response = _receipt_lookup_response("query", record)
+        response = _receipt_lookup_response("query", record, invocation_read_version=3)
         envelope = response["result"]["structuredContent"]
         envelope["delivery"] = {"status": "complete", "availability": "available", "has_more": False,
                                  "continuation": None}

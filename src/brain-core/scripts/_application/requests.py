@@ -84,6 +84,7 @@ from .type.sync import TypeSyncRequest
 from .vault.check import VaultCheckRequest
 from .vault.repair_text import RepairTextRequest
 from .vault.read_config import VaultReadConfigRequest
+from .vault.configure_branch_guard import VaultConfigureBranchGuardRequest
 from .vault.read_router import VaultReadRouterRequest
 from .vault.read_file import VaultReadFileRequest
 from .workspace.configure_bootstrap import WorkspaceConfigureBootstrapRequest
@@ -239,6 +240,7 @@ __all__ = (
     "VaultCheckRequest",
     "RepairTextRequest",
     "VaultReadConfigRequest",
+    "VaultConfigureBranchGuardRequest",
     "VaultReadFileRequest",
     "VaultReadRouterRequest",
     "WorkspaceConfigureBootstrapRequest",
@@ -533,7 +535,7 @@ class CommandDescribeRequest:
 @dataclass(frozen=True, slots=True)
 class InvocationReadRequest:
     COMMAND_ID: ClassVar[str] = "invocation.read"
-    COMMAND_VERSION: ClassVar[int] = 3
+    COMMAND_VERSION: ClassVar[int] = 4
     RESULT_TYPE: ClassVar[type] = InvocationReadPayload
     MINIMAL_EXAMPLE: ClassVar[dict[str, str]] = {"invocation_id": "example"}
 
@@ -646,6 +648,7 @@ CommandRequest = (
     | VaultCheckRequest
     | RepairTextRequest
     | VaultReadConfigRequest
+    | VaultConfigureBranchGuardRequest
     | VaultReadRouterRequest
     | VaultReadFileRequest
     | WorkspaceConfigureBootstrapRequest

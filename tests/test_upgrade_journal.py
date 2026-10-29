@@ -250,14 +250,8 @@ def test_a_kill_at_every_pre_commit_point_is_undone_by_the_next_run(tmp_path, si
     assert result["status"] == "ok", result
     assert _version(vault) == "2.0.0"
     assert not _journal_dir(vault).exists()
-    if site == "before_version":
-        # The journal closed before the kill: the content is committed under the
-        # old VERSION, the ledger records the migration, and the rerun finishes it.
-        assert "interrupted_previous_upgrade" in _codes(result)
-        assert "recovered_interrupted_upgrade" not in _codes(result)
-        assert "migrations" not in result, "the recorded migration does not rerun"
-        assert (vault / ".brain" / "local" / "count.txt").read_text() == "1"
-        return
+    # The journal now remains available through VERSION publication, so even
+    # a kill immediately before that witness restores and reruns safely.
     assert "recovered_interrupted_upgrade" in _codes(result)
     assert [item["version"] for item in result["migrations"] if item["version"] == "2.0.0"] == ["2.0.0"]
     assert (vault / ".brain" / "local" / "count.txt").read_text() == "1", "the migration reran once from the restored state"
@@ -1075,6 +1069,7 @@ def _convert_authorisation(root: Path, monkeypatch, *, kill_at: int | None = Non
         return write
 
     with monkeypatch.context() as patched:
+        patched.setattr(migrate_to_0_68_0, "patch_local_config", killing(migrate_to_0_68_0.patch_local_config))
         patched.setattr(migrate_to_0_68_0, "safe_write", killing(migrate_to_0_68_0.safe_write))
         patched.setattr(migrate_to_0_68_0, "safe_write_json", killing(migrate_to_0_68_0.safe_write_json))
         try:

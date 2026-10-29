@@ -108,6 +108,7 @@ FINAL_COMMAND_IDS = (
     "type.status",
     "type.sync",
     "vault.check",
+    "vault.configure-branch-guard",
     "vault.read-config",
     "vault.read-file",
     "vault.read-router",

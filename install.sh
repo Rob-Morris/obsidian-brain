@@ -949,6 +949,19 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# Optional local branch protection; never infer a policy noninteractively.
+# The existing configuration owner offers this only for an applicable Git vault.
+# Upgrades preserve the user's current local capability configuration.
+# ---------------------------------------------------------------------------
+
+if [ "$UPGRADE_MODE" = false ] && [ "$NON_INTERACTIVE" = false ] && [ -n "$PYTHON" ] && [ -f "$VAULT_PATH/.brain-core/scripts/_bootstrap/branch_guard.py" ]; then
+    if ! "$PYTHON" "$VAULT_PATH/.brain-core/scripts/configure.py" branch-guard --interactive --vault "$VAULT_PATH"; then
+        warn "Optional branch guard setup was not completed; the vault remains installed."
+        info "Inspect vault.read-config before retrying explicit branch guard configuration."
+    fi
+fi
+
+# ---------------------------------------------------------------------------
 # Optional semantic retrieval setup
 # ---------------------------------------------------------------------------
 

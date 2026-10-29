@@ -13,6 +13,8 @@ Usage:
     python3 fix_links.py --vault /path        # explicit vault path
 """
 
+from _bootstrap import branch_guard
+
 import json
 import os
 from _common._source_access import resolve_public_source, resolve_content_source, SourceAccessError
@@ -93,19 +95,22 @@ def attach_wikilink_warnings(vault_root, result, apply_fixes=False, file_index=N
     link-presence check. The index is then overlaid with the just-written file.
     Pass ``None`` (the default) to build the index from the vault on demand.
     """
-    path = result.get("path")
-    if not path:
-        return
-    try:
-        _attach_wikilink_warnings(
-            vault_root,
-            result,
-            apply_fixes=apply_fixes,
-            file_index=file_index,
-        )
-    except Exception as exc:
-        if apply_fixes:
-            raise WikilinkProcessingError(path, exc) from exc
+    with branch_guard.operation(vault_root):
+        path = result.get("path")
+        if not path:
+            return
+        try:
+            _attach_wikilink_warnings(
+                vault_root,
+                result,
+                apply_fixes=apply_fixes,
+                file_index=file_index,
+            )
+        except branch_guard.BranchGuardError:
+            raise
+        except Exception as exc:
+            if apply_fixes:
+                raise WikilinkProcessingError(path, exc) from exc
 
 
 def _attach_wikilink_warnings(vault_root, result, apply_fixes=False, file_index=None):
@@ -173,21 +178,22 @@ def apply_fixes_to_file(vault_root, rel_path, fixes, links_filter=None):
     Returns:
         Number of wikilink substitutions made in the file.
     """
-    if not fixes:
-        return 0
-
-    if links_filter is not None:
-        wanted = set(links_filter)
-        fixes = [f for f in fixes if f["target"] in wanted]
+    with branch_guard.operation(vault_root):
         if not fixes:
             return 0
 
-    stem_map = {item["target"]: item["resolved_to"] for item in fixes}
-    pattern = build_wikilink_pattern(*stem_map.keys())
-    replacer = make_wikilink_replacer(stem_map)
+        if links_filter is not None:
+            wanted = set(links_filter)
+            fixes = [f for f in fixes if f["target"] in wanted]
+            if not fixes:
+                return 0
 
-    return apply_wikilink_rewrites(vault_root, plan_wikilink_rewrites(
-        vault_root, pattern, replacer, paths=(rel_path,)))
+        stem_map = {item["target"]: item["resolved_to"] for item in fixes}
+        pattern = build_wikilink_pattern(*stem_map.keys())
+        replacer = make_wikilink_replacer(stem_map)
+
+        return apply_wikilink_rewrites(vault_root, plan_wikilink_rewrites(
+            vault_root, pattern, replacer, paths=(rel_path,)))
 
 
 def scan_and_resolve(vault_root, router=None, *, for_mutation=True, file_index=None):
@@ -375,9 +381,10 @@ def plan_link_fixes(vault_root, *, path=None, links_filter=(), router=None):
 
 def apply_link_fix_plan(vault_root, plan, *, dry_run=False):
     """Return the planned observation or persist exactly its matching writes."""
-    require_readable_wikilink_plan(plan.rewrites)
-    substitutions = 0 if dry_run else apply_wikilink_rewrites(vault_root, plan.rewrites)
-    return {**plan.result, "substitutions": substitutions}
+    with branch_guard.operation(vault_root):
+        require_readable_wikilink_plan(plan.rewrites)
+        substitutions = 0 if dry_run else apply_wikilink_rewrites(vault_root, plan.rewrites)
+        return {**plan.result, "substitutions": substitutions}
 
 
 def apply_fixes(vault_root, fix_list):
@@ -390,13 +397,14 @@ def apply_fixes(vault_root, fix_list):
     Returns:
         total number of wikilink substitutions made
     """
-    if not fix_list:
-        return 0
+    with branch_guard.operation(vault_root):
+        if not fix_list:
+            return 0
 
-    stem_map = {item["target"]: item["resolved_to"] for item in fix_list}
-    pattern = build_wikilink_pattern(*stem_map.keys())
-    replacer = make_wikilink_replacer(stem_map)
-    return replace_wikilinks_in_vault(vault_root, pattern, replacer)
+        stem_map = {item["target"]: item["resolved_to"] for item in fix_list}
+        pattern = build_wikilink_pattern(*stem_map.keys())
+        replacer = make_wikilink_replacer(stem_map)
+        return replace_wikilinks_in_vault(vault_root, pattern, replacer)
 
 
 # ---------------------------------------------------------------------------

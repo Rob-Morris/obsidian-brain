@@ -16,20 +16,20 @@
   "clients": {
     "claude-code": {
       "budget": {
-        "over_target_tokens": 1164,
+        "over_target_tokens": 1334,
         "regression_baseline_tokens": 21465,
         "regression_exceeded": false,
         "target_exceeded": true,
         "target_tokens": 20000
       },
-      "catalogue_hash": "sha256:da9439a7f0c47719795561e975ffc0ae37626c625e3c9efabfc066ac512334fd",
+      "catalogue_hash": "sha256:d9719fa661187874d6e52f9324fb0670cc09aab574b8a74545f986ed3a83e8d2",
       "client_version": "2.1.270",
       "maximum_tool_tokens": 1475,
       "projector": "claude-code-model-tool-declaration/2.1.270",
       "projector_source": "captured model request plus deterministic replay",
-      "raw_bytes": 95518,
-      "tokens": 21164,
-      "tool_count": 93,
+      "raw_bytes": 96357,
+      "tokens": 21334,
+      "tool_count": 94,
       "tools": {
         "access_prepare": {
           "projected_declaration_hash": "sha256:4f250373e284cfd7464ba096a03fedbd7bc9c99b85fc61019cb18df3ba737aed",
@@ -541,6 +541,12 @@
           "source_schema_hash": "sha256:7219128644e453972ab266965c68158842d4e24980bc929cfb47efb61887ab5d",
           "tokens": 144
         },
+        "vault_configure-branch-guard": {
+          "projected_declaration_hash": "sha256:35ae2c9840e67ef9b96540869a174262e154b063f728c67f3f380a582d6ca828",
+          "raw_bytes": 838,
+          "source_schema_hash": "sha256:878a4052663c2b76736725de1c1c55bee86c557eaf0f11ddb32510666605c83a",
+          "tokens": 171
+        },
         "vault_read-config": {
           "projected_declaration_hash": "sha256:f30708100bef9fab7f495af9215b64c631f65ae87c18ebb8724d1d350bc4a97d",
           "raw_bytes": 430,
@@ -594,20 +600,20 @@
     },
     "codex-cli": {
       "budget": {
-        "over_target_tokens": 1221,
+        "over_target_tokens": 1397,
         "regression_baseline_tokens": 21501,
         "regression_exceeded": false,
         "target_exceeded": true,
         "target_tokens": 20000
       },
-      "catalogue_hash": "sha256:6b6f2f9d3a550dde1d1ac96c5e7b02025fe9d494f5a3d222ed888e9f982c22d4",
+      "catalogue_hash": "sha256:2a7de7fa27daffd2bea57150b4e46ddf48d2ac4ccb9a1f5208db40df6b3caf40",
       "client_version": "0.154.0",
       "maximum_tool_tokens": 1472,
       "projector": "codex-cli-responses-function-declaration/0.154.0",
       "projector_source": "captured model request plus deterministic replay",
-      "raw_bytes": 96621,
-      "tokens": 21221,
-      "tool_count": 93,
+      "raw_bytes": 97500,
+      "tokens": 21397,
+      "tool_count": 94,
       "tools": {
         "access_prepare": {
           "projected_declaration_hash": "sha256:2cafd312daec73ed7a35d63e36b6c5de82e5369d3739720b845a9422d301e324",
@@ -1119,6 +1125,12 @@
           "source_schema_hash": "sha256:7219128644e453972ab266965c68158842d4e24980bc929cfb47efb61887ab5d",
           "tokens": 136
         },
+        "vault_configure-branch-guard": {
+          "projected_declaration_hash": "sha256:c2b7ad2165c39f086b4a9067da3ca695766664b19225bfa5ac5b712e9d216783",
+          "raw_bytes": 878,
+          "source_schema_hash": "sha256:878a4052663c2b76736725de1c1c55bee86c557eaf0f11ddb32510666605c83a",
+          "tokens": 177
+        },
         "vault_read-config": {
           "projected_declaration_hash": "sha256:99053186cf71686dfabeb8714ea4a8c787ecdaf3988255d872d3e4e980539d36",
           "raw_bytes": 470,
@@ -1183,10 +1195,10 @@
   "interface_epoch": 3,
   "mcp_sdk_version": "2.0.0",
   "raw_fastmcp": {
-    "catalogue_hash": "sha256:ded29f9d94fc906841766ae7acdc825e8925b35acb19866afe7d764b5b40a7b8",
-    "raw_bytes": 94402,
-    "tokens": 20699,
-    "tool_count": 93
+    "catalogue_hash": "sha256:012b12e57c1e8facd17754cb1c426209b7a092e67ae4465bd0867bb01bb1b845",
+    "raw_bytes": 95229,
+    "tokens": 20864,
+    "tool_count": 94
   },
   "schema": "brain.command-interface-granular-mcp-projection/1",
   "tokeniser": "tiktoken/0.12.0:o200k_base"

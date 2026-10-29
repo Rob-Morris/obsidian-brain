@@ -175,7 +175,11 @@ def execute_document_mutation(
     from _staging import finalise_staged_body
     import edit
     import fix_links
-    from ._transition_indexes import reconcile_transition_indexes, TransitionIndexesIncomplete
+    from ._transition_indexes import (
+        BranchGuardPartial, branch_partial_effects,
+        reconcile_transition_indexes, TransitionIndexesIncomplete,
+    )
+    from _bootstrap.branch_guard import BranchGuardError
 
     if context.dry_run:
         return no_effect_error(
@@ -279,6 +283,11 @@ def execute_document_mutation(
                         reconcile_transition_indexes(context)
                     elif context.derived_snapshots is not None:
                         context.derived_snapshots.invalidate()
+            except BranchGuardError as exc:
+                if not exc.completed_effects:
+                    raise
+                relationship_native.retain_context_loss(context)
+                raise BranchGuardPartial(exc) from exc
             except FileNotFoundError as exc:
                 if semantic_plan is not None:
                     raise PartialApplyError(str(exc) + "; inspect history.repair operation " + semantic_plan.operation) from exc
@@ -314,12 +323,14 @@ def execute_document_mutation(
                        mutation_context=effective)
     except PartialApplyError as exc:
         from ._transition_indexes import transition_error, combine_transition_errors
-        effects = committed_transition_effects(context, request, plan.artefact_transition, effects_before)
+        effects = (committed_transition_effects(context, request, plan.artefact_transition, effects_before)
+                   if plan.artefact_transition is not None else ())
         effects += relationship_native.committed_effects(context, semantic_plan)
         try:
             reconcile_transition_indexes(context)
         except PartialApplyError as index_error:
             exc = combine_transition_errors(exc, index_error)
+        effects = tuple(dict.fromkeys((*effects, *branch_partial_effects(exc, request.COMMAND_ID))))
         if not effects:
             raise MutationOutcomeUncertain(str(exc)) from exc
         return WorkspaceMutationPartial(request.COMMAND_ID, request.COMMAND_VERSION,

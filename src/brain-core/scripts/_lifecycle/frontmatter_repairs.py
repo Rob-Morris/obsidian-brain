@@ -89,33 +89,36 @@ def normalize_duplicate_frontmatter_documents(
     effective_at=None,
 ) -> dict:
     """Merge duplicate frontmatter blocks across vault artefacts."""
-    vault_root = Path(vault_root)
-    findings = (prepared_findings if prepared_findings is not None
-                else plan_duplicate_frontmatter_documents(vault_root, effective_at=effective_at))
-    if not findings:
+    from _bootstrap.branch_guard import operation, checkpoint
+    with operation(vault_root):
+        vault_root = Path(vault_root)
+        findings = (prepared_findings if prepared_findings is not None
+                    else plan_duplicate_frontmatter_documents(vault_root, effective_at=effective_at))
+        if not findings:
+            return {
+                "status": "skipped",
+                "dry_run": dry_run,
+                "updated": 0,
+                "files": [],
+                "actions": [],
+            }
+
+        files = [item["file"] for item in findings]
+        actions = [f"normalised duplicate frontmatter in {rel_path}" for rel_path in files]
+        if not dry_run:
+            for item in findings:
+                fields = dict(item["merged_fields"])
+                checkpoint(vault_root)
+                safe_write_active_or_archived_artefact(
+                    str(vault_root / item["file"]),
+                    serialize_frontmatter(fields, body=item["body"]),
+                    bounds=str(vault_root),
+                )
+
         return {
-            "status": "skipped",
+            "status": "ok",
             "dry_run": dry_run,
-            "updated": 0,
-            "files": [],
-            "actions": [],
+            "updated": len(findings),
+            "files": files,
+            "actions": actions,
         }
-
-    files = [item["file"] for item in findings]
-    actions = [f"normalised duplicate frontmatter in {rel_path}" for rel_path in files]
-    if not dry_run:
-        for item in findings:
-            fields = dict(item["merged_fields"])
-            safe_write_active_or_archived_artefact(
-                str(vault_root / item["file"]),
-                serialize_frontmatter(fields, body=item["body"]),
-                bounds=str(vault_root),
-            )
-
-    return {
-        "status": "ok",
-        "dry_run": dry_run,
-        "updated": len(findings),
-        "files": files,
-        "actions": actions,
-    }

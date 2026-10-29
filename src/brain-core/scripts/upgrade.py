@@ -39,6 +39,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
+from _bootstrap import branch_guard
+
 from _bootstrap.upgrade_journal import (
     RecoveryStore,
     RestoreReport,
@@ -369,6 +371,7 @@ def _copy_core_except_version(source: str, target: str, diff: dict) -> tuple[lis
             continue
         src = os.path.join(source, rel)
         dst = os.path.join(target, rel)
+        branch_guard.checkpoint(os.path.dirname(target))
         _ensure_directory(os.path.dirname(dst), changed_dirs)
         shutil.copy2(src, dst)
         copied.append(dst)
@@ -376,11 +379,13 @@ def _copy_core_except_version(source: str, target: str, diff: dict) -> tuple[lis
             changed_dirs.add(os.path.dirname(dst))
     for rel in diff["files_removed"]:
         abs_path = os.path.join(target, rel)
+        branch_guard.checkpoint(os.path.dirname(target))
         os.remove(abs_path)
         changed_dirs.add(os.path.dirname(abs_path))
         dir_path = os.path.dirname(abs_path)
         try:
             while dir_path != target:
+                branch_guard.checkpoint(os.path.dirname(target))
                 os.rmdir(dir_path)  # only removes if empty
                 dir_path = os.path.dirname(dir_path)
         except OSError:
@@ -408,6 +413,7 @@ def _commit_version(target: str, version_file: _VersionFile) -> Optional[str]:
                 return None
     except OSError:
         pass
+    branch_guard.checkpoint(os.path.dirname(target))
     write_durably(version_path, version_file.content, file_mode=version_file.mode)
     try:
         _fsync_directories((target,))
@@ -704,6 +710,9 @@ class _MigrationImportContext:
         """Return loaded module keys owned by this scripts tree."""
         managed = []
         for key in sys.modules:
+            # Bootstrap operation identity must survive managed import isolation.
+            if key == "_bootstrap" or key.startswith("_bootstrap."):
+                continue
             for name in self.module_names:
                 if key == name or key.startswith(f"{name}."):
                     managed.append(key)
@@ -889,6 +898,7 @@ def _run_migrations(
                         versions=predecessors,
                     )
                     results.extend(predecessor_results)
+                branch_guard.checkpoint(vault_root)
                 if target == _DEFAULT_MIGRATION_TARGET:
                     result = handler(vault_root)
                 else:
@@ -915,7 +925,7 @@ def _run_migrations(
             ledger = _record_migration_result(
                 vault_root, ledger, version_str, script_path, result, target=target,
             )
-        except MigrationResultError:
+        except (MigrationResultError, branch_guard.BranchGuardError):
             raise
         except Exception as e:
             raise RuntimeError(
@@ -1025,6 +1035,7 @@ def _parse_migration_ledger(raw: bytes, ledger_path: str) -> dict:
 def _write_migration_ledger(vault_root: str, ledger: dict) -> None:
     """Persist the local migration ledger."""
     ledger_path = os.path.join(vault_root, _MIGRATION_LEDGER_FILE)
+    branch_guard.checkpoint(vault_root)
     _safe_write(ledger_path, json.dumps(ledger, indent=2) + "\n")
 
 
@@ -1197,6 +1208,7 @@ def _restore_brain_core(backup_dir: str, target: str) -> None:
     for rel in current_files - backup_files:
         abs_path = os.path.join(target, rel)
         try:
+            branch_guard.checkpoint(os.path.dirname(target))
             os.remove(abs_path)
         except OSError:
             pass
@@ -1205,6 +1217,7 @@ def _restore_brain_core(backup_dir: str, target: str) -> None:
     for rel in backup_files:
         src = os.path.join(backup_src, rel)
         dst = os.path.join(target, rel)
+        branch_guard.checkpoint(os.path.dirname(target))
         os.makedirs(os.path.dirname(dst), exist_ok=True)
         shutil.copy2(src, dst)
 
@@ -1214,6 +1227,7 @@ def _restore_brain_core(backup_dir: str, target: str) -> None:
     for dirpath, dirnames, _filenames in os.walk(target, topdown=False):
         for dirname in dirnames:
             try:
+                branch_guard.checkpoint(os.path.dirname(target))
                 os.rmdir(os.path.join(dirpath, dirname))
             except OSError:
                 pass
@@ -1486,8 +1500,8 @@ def _recover_leftover_journal(
     """Restore or discard a journal a killed run left behind; returns (recovery, error).
 
     ``VERSION`` classifies the journal. A version-changing run whose target is
-    now installed committed: it closed its journal before the witness was
-    written, so a leftover one is a failed discard and restoring it would undo
+    now installed committed: VERSION witnesses its completed effects, so a
+    leftover journal is a failed discard and restoring it would undo
     recorded migrations; it is discarded. A journal whose old version is the
     installed one belongs to a run that never committed and is restored (a
     same-version run never changes ``VERSION`` and runs no migration, so its
@@ -1508,6 +1522,9 @@ def _recover_leftover_journal(
         )
     if journal is None:
         return None, None
+    if not dry_run:
+        with branch_guard.operation(vault_root, recovery=journal.header.get("branch_guard_context", {})):
+            branch_guard.checkpoint(vault_root)
     if journal.old_version != journal.new_version and installed_version == journal.new_version:
         recovery = {"action": "discarded", "journal": journal.directory}
         if dry_run:
@@ -1665,6 +1682,7 @@ def _validate_compile(vault_root: str) -> Optional[str]:
         # Internal upgrade validation is already running from a known-good
         # Python environment; do not recurse into managed-runtime bootstrap.
         env[SKIP_BOOTSTRAP_ENV] = "1"
+        env[branch_guard.CONTEXT_ENV] = branch_guard.export_context(vault_root)
         proc = subprocess.run(
             [sys.executable, script],
             cwd=vault_root,
@@ -1759,6 +1777,8 @@ def _post_upgrade_sync(
         if dry_run:
             return {"sync_preview": sync_result}
         return {"sync_result": sync_result}
+    except branch_guard.BranchGuardError:
+        raise
     except Exception as e:
         return {"sync_error": f"Definition sync failed: {e}"}
 
@@ -2240,6 +2260,7 @@ def _run_repair_scope_after_upgrade(
             capture_output=True,
             text=True,
             timeout=timeout,
+            env={**os.environ, branch_guard.CONTEXT_ENV: branch_guard.export_context(vault_root)},
         )
     except subprocess.TimeoutExpired:
         return {**summary, "outcome": "error", "message": f"timed out after {timeout:g}s"}
@@ -2408,11 +2429,13 @@ def upgrade(
     Flow, under the vault mutation lock: recover a leftover journal → content
     guard → same-version decision → cutover preparation → backup → copy
     (every core file except VERSION) → compile (validate) → migrate →
-    reconcile skills → cutover → close the journal → write VERSION. Then,
+    reconcile skills → cutover → write VERSION → close the journal. Then,
     after the lock is released: sync definitions and compile the router.
-    ``VERSION`` is the commit witness: until it is written every failure
-    restores the backup and the write-ahead rollback journal, and a killed
-    run is restored from that journal by the next run before it proceeds.
+    ``VERSION`` is the commit witness. Before it is written, ordinary failures
+    restore the backup and write-ahead journal only while guard continuity
+    remains verified. Context loss refuses restoration and retains the journal,
+    backup and bounded loss evidence. Interrupted recovery must validate that
+    evidence before replay; present branch or VERSION equality is insufficient.
     A dry run takes no lock and writes nothing. On non-dry-run success, the
     upgrader also orchestrates central-runtime provisioning and post-upgrade
     retrieval-asset repair via `repair.py lexical` or `repair.py semantic`.
@@ -2448,6 +2471,32 @@ def upgrade(
         ``recovery`` whatever its own outcome, because the recovery is an
         effect of its own.
     """
+    with branch_guard.operation(vault_root) as operation:
+        try:
+            return _upgrade_in_operation(
+                vault_root, source, force=force, dry_run=dry_run, sync=sync,
+                sync_deps=sync_deps, commit_callback=commit_callback,
+                prepare_cutover=prepare_cutover, workspace_callback=workspace_callback,
+            )
+        except branch_guard.BranchGuardError as exc:
+            journal = UpgradeJournal.load(vault_root)
+            paths = []
+            if journal is not None:
+                journal.retain_guard_context(operation.evidence())
+                paths = [journal.directory, *journal.header.get("recovery_paths", [])]
+            result = _refusal(_read_version(os.path.join(vault_root, BRAIN_CORE_DIR)),
+                              _read_version(source) or "unknown",
+                              reason=exc.reason, message=str(exc))
+            result["branch_guard"] = dict(exc.facts)
+            if paths:
+                result.update(rollback_verified=False, recovery_paths=paths)
+            return result
+
+
+def _upgrade_in_operation(
+    vault_root, source, *, force, dry_run, sync, sync_deps,
+    commit_callback, prepare_cutover, workspace_callback,
+):
     # Validate source
     if not os.path.isdir(source):
         return {"status": "error", "message": f"Source directory not found: {source}"}
@@ -2491,7 +2540,7 @@ def upgrade(
                 result["workspace_upgrade"] = _workspace_no_work()
                 return result
         result["core_skipped"] = True
-        result = _reconcile_after_commit(vault_root, result, _progress_writer(vault_root, result),
+        result = _guarded_reconcile_after_commit(vault_root, result, _progress_writer(vault_root, result),
                                         sync=sync, sync_deps=sync_deps,
                                         workspace_callback=workspace_callback, source=source)
         if result["status"] == "skipped":
@@ -2499,7 +2548,7 @@ def upgrade(
         return result
     if result["status"] != "ok":
         return result
-    return _reconcile_after_commit(vault_root, result, _progress_writer(vault_root, result),
+    return _guarded_reconcile_after_commit(vault_root, result, _progress_writer(vault_root, result),
                                    sync=sync, sync_deps=sync_deps,
                                    workspace_callback=workspace_callback, source=source)
 
@@ -2803,6 +2852,7 @@ def _apply_upgrade(
     except (OSError, ValueError) as exc:
         return _refusal(old_version, new_version, reason="source_receipt", message=f"Upgrade refused — invalid source receipt: {exc}")
 
+    branch_guard.checkpoint(vault_root)
     try:
         journal = UpgradeJournal.open(vault_root, old_version, new_version)
     except OSError as exc:
@@ -2847,6 +2897,10 @@ def _apply_upgrade(
         shutil.rmtree(backup_dir, ignore_errors=True)
         return refused("Upgrade refused — Brain Core backup verification failed.")
 
+    journal.header["recovery_paths"] = [backup_dir]
+    with branch_guard.operation(vault_root) as operation:
+        journal.retain_guard_context(operation.evidence())
+
     ledger_path = os.path.join(vault_root, _MIGRATION_LEDGER_FILE)
     broad_stages: set[str] = set()
 
@@ -2878,6 +2932,19 @@ def _apply_upgrade(
     def _rollback(msg, *, migration_result: Optional[dict] = None):
         warnings = []
         try:
+            branch_guard.checkpoint(vault_root)
+        except branch_guard.BranchGuardError as exc:
+            with branch_guard.operation(vault_root) as operation:
+                journal.retain_guard_context(operation.evidence())
+            stopped = _unverified_rollback_result(
+                old_version, new_version, f"Upgrade stopped; rollback refused — {exc}",
+                RestoreReport(False, errors=(str(exc),)), [backup_dir, journal.directory],
+                brain_core="unverified", recovery_backup=backup_dir,
+            )
+            stopped.update(reason=exc.reason, branch_guard=dict(exc.facts))
+            _write_upgrade_log(vault_root, stopped)
+            return stopped
+        try:
             report = _restore_journal(journal, ledger_path, RecoveryStore.for_vault(vault_root))
         except Exception as exc:
             # A journal that cannot be read back is reported, and the Core is
@@ -2885,6 +2952,7 @@ def _apply_upgrade(
             report = RestoreReport(False, errors=(f"rollback journal: {exc}",), recovery_paths=(journal.directory,))
         errors = list(report.errors)
         try:
+            branch_guard.checkpoint(vault_root)
             _restore_brain_core(backup_dir, target)
         except BaseException as exc:
             errors.append(f"Brain Core: {exc}")
@@ -2913,6 +2981,8 @@ def _apply_upgrade(
                 },
             }
         else:
+            with branch_guard.operation(vault_root) as operation:
+                journal.retain_guard_context(operation.evidence())
             err_result = _unverified_rollback_result(
                 old_version, new_version,
                 f"Upgrade rollback is incomplete or unverified — {msg}",
@@ -2947,6 +3017,7 @@ def _apply_upgrade(
         # that every run may change.
         journal.capture(JOURNAL_STAGE_PRE_COMPILE, [ledger_path])
         journal.capture_tree(JOURNAL_STAGE_PRE_COMPILE, os.path.join(vault_root, ".brain"))
+        branch_guard.checkpoint(vault_root)
         write_source(Path(vault_root), selected_source)
         result["install_source"] = selected_source
         progress(STAGE_VALIDATE_COMPILE, "Validating the upgraded router/compiler state")
@@ -3019,6 +3090,7 @@ def _apply_upgrade(
                 os.path.join(vault_root, "_Config", "Skills", skill_name),
             )
 
+        branch_guard.checkpoint(vault_root)
         reconciled_skills = reconcile_core_overrides(vault_root, lock_held=True)
         if reconciled_skills:
             result["skill_reconciliation"] = [
@@ -3059,6 +3131,7 @@ def _apply_upgrade(
 
     if commit_callback is not None:
         try:
+            branch_guard.checkpoint(vault_root)
             result["cutover_commit"] = commit_callback(result)
         except Exception as exc:
             rolled_back = _rollback(f"coordinated cutover commit failed: {exc}")
@@ -3100,24 +3173,21 @@ def _commit(
     journal: UpgradeJournal,
     progress,
 ) -> dict:
-    """Close the journal, then write VERSION; from here nothing rolls back.
+    """Write VERSION and close the journal; from here nothing rolls back.
 
     Every migration is recorded, the skills are reconciled and the cutover
     is committed, so nothing remains that a rollback would need to undo: the
-    journal closes before the witness is written. A kill between the two
-    leaves content the ledger fully records under the old VERSION, which the
-    next run finishes like a failed VERSION write. A journal that could not
-    be closed is left for VERSION to witness; the next run discards it.
+    journal remains available through the last branch check and VERSION write.
+    A guard refusal retains its evidence; a successful write witnesses the
+    commit even if closing the journal subsequently fails.
     """
     from _command_interface.authorisation_migration import discard_template_capture
 
     old_version = result["old_version"]
     new_version = result["new_version"]
 
+    branch_guard.checkpoint(vault_root)
     progress(STAGE_VERSION_COMMIT, "Committing the upgraded Brain Core version")
-    _discard_journal(journal, result.setdefault("warnings", []), witnessed=True)
-    if not result["warnings"]:
-        del result["warnings"]
     try:
         not_durable = _commit_version(target, version_file)
     except OSError as exc:
@@ -3132,9 +3202,13 @@ def _commit(
             f"Upgrade {old_version or '(none)'} → {new_version} applied, but its "
             "VERSION could not be written; rerun the same upgrade."
         )
+        _discard_journal(journal, result.setdefault("warnings", []), witnessed=True)
         shutil.rmtree(backup_dir, ignore_errors=True)
         _write_upgrade_log(vault_root, result)
         return result
+    _discard_journal(journal, result.setdefault("warnings", []), witnessed=True)
+    if not result["warnings"]:
+        del result["warnings"]
     if not_durable is not None:
         result.setdefault("warnings", []).append({
             "stage": STAGE_VERSION_COMMIT,
@@ -3196,6 +3270,18 @@ def _workspace_phase_has_work(vault_root):
     rows = workspace_registry.decode_registry(raw) if raw is not None else {}
     plan.validate()
     return bool(rows)
+
+
+def _guarded_reconcile_after_commit(vault_root, result, progress, **kwargs):
+    try:
+        return _reconcile_after_commit(vault_root, result, progress, **kwargs)
+    except branch_guard.BranchGuardError as exc:
+        result.update(status="partial", reason=exc.reason, branch_guard=dict(exc.facts),
+                      message=f"Core upgrade committed; protected reconciliation stopped: {exc}")
+        with branch_guard.operation(vault_root) as operation:
+            result["branch_guard_context"] = operation.evidence()
+        _write_upgrade_log(vault_root, result)
+        return result
 
 
 def _reconcile_after_commit(

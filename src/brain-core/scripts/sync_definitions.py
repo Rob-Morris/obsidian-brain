@@ -24,6 +24,8 @@ Sync rules:
   - --status: read-only. Classifies every library type by its vault state.
 """
 
+from _bootstrap import branch_guard
+
 import argparse
 import hashlib
 import json
@@ -218,8 +220,10 @@ def load_tracking(vault_root: str) -> dict:
 
 def save_tracking(vault_root: str, tracking: dict) -> None:
     """Write .brain/tracking.json."""
-    path = os.path.join(vault_root, TRACKING_PATH)
-    safe_write_json(path, tracking, bounds=vault_root)
+    with branch_guard.operation(vault_root):
+        path = os.path.join(vault_root, TRACKING_PATH)
+        branch_guard.checkpoint(vault_root)
+        safe_write_json(path, tracking, bounds=vault_root)
 
 
 def load_preferences(vault_root: str) -> dict:
@@ -643,11 +647,12 @@ def plan_convention_updates(
 
 def apply_convention_updates(vault_root, tracking, library_types, *, dry_run):
     """Apply convention rewrites from the shared pure planner."""
-    updated, warnings, errors, writes = plan_convention_updates(
-        vault_root, tracking, library_types, dry_run=dry_run)
-    if not dry_run:
-        _apply_definition_copies(vault_root, writes)
-    return updated, warnings, errors
+    with branch_guard.operation(vault_root):
+        updated, warnings, errors, writes = plan_convention_updates(
+            vault_root, tracking, library_types, dry_run=dry_run)
+        if not dry_run:
+            _apply_definition_copies(vault_root, writes)
+        return updated, warnings, errors
 
 
 def format_sync_updated(item: dict) -> str:
@@ -697,30 +702,42 @@ class DefinitionSyncPlan:
 
 
 def _apply_definition_copies(vault_root, copies):
-    for item in copies:
-        target = Path(vault_root) / item.target
-        target.parent.mkdir(parents=True, exist_ok=True)
-        # Source bytes were captured by the planner, so apply cannot copy a later revision.
-        from _common import safe_write_via
-        safe_write_via(str(target), lambda handle: handle.write(item.content), bounds=str(vault_root))
+    with branch_guard.operation(vault_root):
+        committed = []
+        for item in copies:
+            target = Path(vault_root) / item.target
+            try:
+                branch_guard.checkpoint(vault_root)
+                target.parent.mkdir(parents=True, exist_ok=True)
+                # Apply the bytes captured by the planner, not a later revision.
+                from _common import safe_write_via
+                branch_guard.checkpoint(vault_root)
+                safe_write_via(str(target), lambda handle: handle.write(item.content), bounds=str(vault_root))
+            except branch_guard.BranchGuardError as exc:
+                for path in committed:
+                    exc.record_completed("write", path)
+                raise
+            committed.append(item.target)
 
 
 def apply_definition_sync(vault_root, plan):
     """Apply planned bytes and merge only selected tracking entries under the owner lock."""
-    if not plan.result["dry_run"]:
-        _apply_definition_copies(vault_root, plan.copies)
-        for folder in plan.folders:
-            (Path(vault_root) / folder).mkdir(parents=True, exist_ok=True)
-        if plan.tracking is not None:
-            tracking = load_tracking(vault_root)
-            from copy import deepcopy
-            original = deepcopy(tracking)
-            for key in plan.type_keys:
-                if key in plan.tracking["installed"]:
-                    tracking["installed"][key] = plan.tracking["installed"][key]
-            if tracking != original or not (Path(vault_root) / TRACKING_PATH).exists():
-                save_tracking(vault_root, tracking)
-    return dict(plan.result)
+    with branch_guard.operation(vault_root):
+        if not plan.result["dry_run"]:
+            _apply_definition_copies(vault_root, plan.copies)
+            for folder in plan.folders:
+                branch_guard.checkpoint(vault_root)
+                (Path(vault_root) / folder).mkdir(parents=True, exist_ok=True)
+            if plan.tracking is not None:
+                tracking = load_tracking(vault_root)
+                from copy import deepcopy
+                original = deepcopy(tracking)
+                for key in plan.type_keys:
+                    if key in plan.tracking["installed"]:
+                        tracking["installed"][key] = plan.tracking["installed"][key]
+                if tracking != original or not (Path(vault_root) / TRACKING_PATH).exists():
+                    save_tracking(vault_root, tracking)
+        return dict(plan.result)
 
 
 def plan_sync_definitions(
@@ -941,8 +958,9 @@ def plan_sync_definitions(
 
 def sync_definitions(vault_root, *, dry_run=False, force=False, types=None, preference=None):
     """Classify once, then apply the same managed definition plan."""
-    return apply_definition_sync(vault_root, plan_sync_definitions(
-        vault_root, dry_run=dry_run, force=force, types=types, preference=preference))
+    with branch_guard.operation(vault_root):
+        return apply_definition_sync(vault_root, plan_sync_definitions(
+            vault_root, dry_run=dry_run, force=force, types=types, preference=preference))
 
 
 # ---------------------------------------------------------------------------

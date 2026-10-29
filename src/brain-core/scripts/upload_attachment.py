@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+from _bootstrap import branch_guard
+
 import argparse
 import base64
 import binascii
@@ -213,20 +215,28 @@ def prune_vacated_attachment_scope(
     vault_root: str | os.PathLike[str], artefact_key: str | None
 ) -> None:
     """Remove empty directories left after a successful attachment-scope move."""
-    if not artefact_key:
-        return
-    root = Path(vault_root).resolve()
-    rel_dir = attachment_scope_rel_dir(artefact_key)
-    scope_dir = root / rel_dir
-    if not scope_dir.exists():
-        return
-    _reject_symlinked_attachment_path(root, rel_dir)
-    for dirpath, _dirnames, _filenames in os.walk(scope_dir, topdown=False):
-        try:
-            Path(dirpath).rmdir()
-        except OSError as exc:
-            if exc.errno != errno.ENOENT:
+    with branch_guard.operation(vault_root):
+        if not artefact_key:
+            return
+        root = Path(vault_root).resolve()
+        rel_dir = attachment_scope_rel_dir(artefact_key)
+        scope_dir = root / rel_dir
+        if not scope_dir.exists():
+            return
+        _reject_symlinked_attachment_path(root, rel_dir)
+        removed = []
+        for dirpath, _dirnames, _filenames in os.walk(scope_dir, topdown=False):
+            try:
+                branch_guard.checkpoint(vault_root)
+                Path(dirpath).rmdir()
+                removed.append(Path(dirpath).relative_to(root).as_posix())
+            except branch_guard.BranchGuardError as exc:
+                for path in removed:
+                    exc.record_completed("delete", path)
                 raise
+            except OSError as exc:
+                if exc.errno != errno.ENOENT:
+                    raise
 
 
 def validate_attachment_name(name: str) -> str:
@@ -347,37 +357,40 @@ def upload_attachment(
     content: bytes,
 ) -> dict:
     """Create one retry-safe file beneath a derived attachment scope."""
-    plan = plan_attachment_upload(
-        vault_root,
-        router,
-        destination_key=destination_key,
-        name=name,
-        content=content,
-    )
-    return apply_attachment_upload(vault_root, plan)
+    with branch_guard.operation(vault_root):
+        plan = plan_attachment_upload(
+            vault_root,
+            router,
+            destination_key=destination_key,
+            name=name,
+            content=content,
+        )
+        return apply_attachment_upload(vault_root, plan)
 
 
 def apply_attachment_upload(vault_root, plan: AttachmentUploadPlan) -> dict:
     """Apply the validated attachment destination and bytes without resolving again."""
-    if not plan.would_create and not _existing_attachment_matches(plan.target, plan.content):
-        raise FileExistsError(f"Attachment changed since validation: {plan.path}")
-    if plan.would_create:
-        safe_write_via(
-            plan.target,
-            lambda handle: handle.write(plan.content),
-            mode="wb",
-            bounds=Path(vault_root).resolve(),
-            follow_symlinks=False,
-            exclusive=True,
-        )
-    return {
-        "destination": plan.destination,
-        "path": plan.path,
-        "embed": plan.embed,
-        "bytes": plan.bytes,
-        "sha256": plan.sha256,
-        "created": plan.would_create,
-    }
+    with branch_guard.operation(vault_root):
+        if not plan.would_create and not _existing_attachment_matches(plan.target, plan.content):
+            raise FileExistsError(f"Attachment changed since validation: {plan.path}")
+        if plan.would_create:
+            branch_guard.checkpoint(vault_root)
+            safe_write_via(
+                plan.target,
+                lambda handle: handle.write(plan.content),
+                mode="wb",
+                bounds=Path(vault_root).resolve(),
+                follow_symlinks=False,
+                exclusive=True,
+            )
+        return {
+            "destination": plan.destination,
+            "path": plan.path,
+            "embed": plan.embed,
+            "bytes": plan.bytes,
+            "sha256": plan.sha256,
+            "created": plan.would_create,
+        }
 
 
 def plan_attachment_upload(
@@ -432,13 +445,14 @@ def upload_attachment_base64(
     content_base64: str,
 ) -> dict:
     """Decode and upload one attachment for transport-oriented callers."""
-    return upload_attachment(
-        vault_root,
-        router,
-        destination_key=destination_key,
-        name=name,
-        content=decode_attachment_base64(content_base64),
-    )
+    with branch_guard.operation(vault_root):
+        return upload_attachment(
+            vault_root,
+            router,
+            destination_key=destination_key,
+            name=name,
+            content=decode_attachment_base64(content_base64),
+        )
 
 
 def main(argv=None):

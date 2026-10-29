@@ -12,7 +12,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from _bootstrap import mcp_transport
+from _bootstrap import mcp_transport, branch_guard
 from _bootstrap.runtime import step as _step
 from _bootstrap.workspace_scaffold import GitInspectionError, ensure_brain_ignore_rules
 from _common import ensure_central_venv, format_subprocess_error, vault_requirements_path
@@ -77,9 +77,18 @@ def _resolve_vault_root(raw_vault_root: str | Path) -> Path:
     return vault_root.resolve()
 
 
+def _guarded_copy(vault_root):
+    def copy(source, destination):
+        branch_guard.checkpoint(vault_root)
+        return shutil.copy2(source, destination)
+    return copy
+
+
 def _copy_tree_contents(source: Path, destination: Path, *, ignore=None) -> None:
+    branch_guard.checkpoint(destination)
     destination.mkdir(parents=True, exist_ok=True)
-    shutil.copytree(source, destination, dirs_exist_ok=True, ignore=ignore)
+    shutil.copytree(source, destination, dirs_exist_ok=True, ignore=ignore,
+                    copy_function=_guarded_copy(destination))
 
 
 def _remove_existing(path: Path) -> None:
@@ -90,13 +99,20 @@ def _remove_existing(path: Path) -> None:
 
 
 def _install_brain_core(vault_root: Path, brain_core_source: Path) -> None:
+    with branch_guard.operation(vault_root):
+        return _install_brain_core_in_operation(vault_root, brain_core_source)
+
+
+def _install_brain_core_in_operation(vault_root: Path, brain_core_source: Path) -> None:
     target = vault_root / ".brain-core"
+    branch_guard.checkpoint(vault_root)
     _remove_existing(target)
-    shutil.copytree(brain_core_source, target)
+    branch_guard.checkpoint(vault_root)
+    shutil.copytree(brain_core_source, target, copy_function=_guarded_copy(vault_root))
 
 
 def _scrub_machine_local_template_state(vault_root: Path) -> None:
-    for rel in (".pytest_cache", ".venv", ".brain/local"):
+    for rel in (".pytest_cache", ".venv"):
         path = vault_root / rel
         if path.exists() or path.is_symlink():
             _remove_existing(path)
@@ -119,13 +135,28 @@ def _scrub_machine_local_template_state(vault_root: Path) -> None:
 
 
 def _scaffold_fresh_vault(vault_root: Path, source_root: Path) -> None:
+    with branch_guard.operation(vault_root):
+        return _scaffold_fresh_vault_in_operation(vault_root, source_root)
+
+
+def _scaffold_fresh_vault_in_operation(vault_root: Path, source_root: Path) -> None:
     template = _source_template_vault(source_root)
-    _copy_tree_contents(template, vault_root, ignore=TEMPLATE_COPY_IGNORE)
+    def ignore(directory, names):
+        ignored = set(TEMPLATE_COPY_IGNORE(directory, names))
+        if Path(directory) == template / ".brain":
+            ignored.add("local")
+        return ignored
+    _copy_tree_contents(template, vault_root, ignore=ignore)
     _scrub_machine_local_template_state(vault_root)
     _install_brain_core(vault_root, _source_brain_core(source_root))
 
 
 def _scaffold_existing_vault(vault_root: Path, source_root: Path) -> None:
+    with branch_guard.operation(vault_root):
+        return _scaffold_existing_vault_in_operation(vault_root, source_root)
+
+
+def _scaffold_existing_vault_in_operation(vault_root: Path, source_root: Path) -> None:
     template = _source_template_vault(source_root)
     _install_brain_core(vault_root, _source_brain_core(source_root))
 
@@ -133,18 +164,20 @@ def _scaffold_existing_vault(vault_root: Path, source_root: Path) -> None:
         source = template / rel
         destination = vault_root / rel
         if source.is_dir() and not destination.exists():
-            shutil.copytree(source, destination)
+            branch_guard.checkpoint(vault_root)
+            shutil.copytree(source, destination, copy_function=_guarded_copy(vault_root))
 
     if not (vault_root / "AGENTS.md").exists() and not (vault_root / "Agents.md").exists():
-        shutil.copy2(template / "AGENTS.md", vault_root / "AGENTS.md")
+        _guarded_copy(vault_root)(template / "AGENTS.md", vault_root / "AGENTS.md")
     if not (vault_root / "CLAUDE.md").exists():
-        shutil.copy2(template / "CLAUDE.md", vault_root / "CLAUDE.md")
+        _guarded_copy(vault_root)(template / "CLAUDE.md", vault_root / "CLAUDE.md")
 
     snippet = template / ".obsidian" / "snippets" / "brain-folder-colours.css"
     if snippet.exists():
         snippet_target = vault_root / ".obsidian" / "snippets" / snippet.name
+        branch_guard.checkpoint(vault_root)
         snippet_target.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(snippet, snippet_target)
+        _guarded_copy(vault_root)(snippet, snippet_target)
     (vault_root / ".brain" / "local").mkdir(parents=True, exist_ok=True)
     (vault_root / ".brain" / "local" / ".gitkeep").touch()
 
@@ -294,6 +327,15 @@ def install_vault_action(
 ) -> dict:
     """Install Brain into a vault path using Python-owned install policy."""
     vault_root = _resolve_vault_root(vault_root)
+    with branch_guard.operation(vault_root):
+        return _install_vault_in_operation(
+            vault_root, source_root=source_root, launcher=launcher,
+            mcp_scope=mcp_scope, client=client, brain_id=brain_id,
+        )
+
+
+def _install_vault_in_operation(vault_root, *, source_root, launcher, mcp_scope, client, brain_id):
+    vault_root = _resolve_vault_root(vault_root)
     source_root = Path(source_root).resolve() if source_root is not None else _default_source_root()
     launcher_path = _resolve_launcher_arg(launcher)
 
@@ -344,18 +386,30 @@ def install_vault_action(
         steps.append(_step("install_source", "error", f"Could not verify selected source metadata: {exc}"))
         return result()
 
+    scaffold_started = False
     try:
+        branch_guard.checkpoint(vault_root)
+        scaffold_started = True
         if _is_existing_non_brain_vault(vault_root):
             _scaffold_existing_vault(vault_root, source_root)
             steps.append(_step("vault_scaffold", "changed", "Installed Brain into existing vault."))
         else:
             _scaffold_fresh_vault(vault_root, source_root)
             steps.append(_step("vault_scaffold", "changed", "Created Brain vault scaffold."))
+    except branch_guard.BranchGuardError as exc:
+        steps.append(_step("vault_scaffold", "error", str(exc), reason=exc.reason,
+                           branch_guard=dict(exc.facts)))
+        # A tree copy can stop after earlier files landed; do not claim a clean refusal.
+        if scaffold_started:
+            steps[-1]["committed_effects"] = [{"subject": f"directory:{vault_root}"}]
+        notes.append("Inspect the destination before retrying; no automatic snapshot restore was attempted.")
+        return result()
     except OSError as exc:
         steps.append(_step("vault_scaffold", "error", f"Could not scaffold vault: {exc}"))
         return result()
 
     try:
+        branch_guard.checkpoint(vault_root)
         paths = write_source(vault_root, selected_source)
         steps.append(_step("install_source", "changed" if paths else "noop", "Recorded selected Core source.",
                            committed_effects=[{"subject": f"file:{path}"} for path in paths]))

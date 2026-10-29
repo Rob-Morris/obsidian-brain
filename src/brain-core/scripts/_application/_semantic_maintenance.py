@@ -94,14 +94,16 @@ def _execute_lifecycle(context, request, *, operation: str, owner, **kwargs):
         vault_mutation_lock,
     )
     from _lifecycle import fresh_interpreter
+    from _bootstrap import branch_guard
 
     root = context.selected_brain.vault_root
     try:
-        with vault_mutation_lock(root):
+        with vault_mutation_lock(root), branch_guard.operation(root):
             admit_owner(context, request, maintenance_binding)
             result = fresh_interpreter.run_lifecycle_in_fresh_interpreter(
                 owner,
                 root,
+                **({"lock_held": True} if operation in {"enable", "repair"} else {}),
                 **kwargs,
             )
     except MutationLockError as exc:

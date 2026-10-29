@@ -102,6 +102,20 @@ owner that is not allowlisted there with a reason, so external tools (git, `ps`,
 client binaries) go on the allowlist and Python launches go through the owner.
 See [DD-081](../architecture/decisions/dd-081-named-runtime-interpreters.md).
 
+## Vault mutation continuity
+
+New application owners must declare their effect in
+`_application/branch_effects.py`; registry assembly checks exact coverage.
+Durable content/configuration/Core writers also need native operation scopes and
+checkpoints at apply, delete and recovery boundaries, including supported direct
+Python/script routes. Reuse the original context through helpers and children;
+never recapture permission for rollback after observed branch/policy loss.
+Keep existing namespace and permission guards intact. Classify mixed effects
+explicitly: cache, receipt, registry and runtime-support writes remain available.
+Use representative effect tests and deterministic between-write switches rather
+than an installed-runtime fixture for every declaration. See
+[branch eligibility](../architecture/security.md#vault-local-branch-eligibility).
+
 ## Testing Workflow
 
 Before writing tests, follow [Writing reliable tests](../CONTRIBUTING.md#writing-reliable-tests):

@@ -122,7 +122,10 @@ def execute_transition(
     apply_plan,
     effect_subjects=None,
 ):
-    from ._transition_indexes import combine_transition_errors, transition_error
+    from ._transition_indexes import (
+        BranchGuardPartial, branch_partial_effects, combine_transition_errors, transition_error,
+    )
+    from _bootstrap.branch_guard import BranchGuardError
     from _common import (
         MutationLockError,
         NonStandardVaultTextError,
@@ -163,6 +166,11 @@ def execute_transition(
                 effects_before = transition_effect_snapshot(context, plan)
                 raw_result = apply_plan(vault_root, plan)
                 relationship_native.complete(context, semantic_plan)
+            except BranchGuardError as exc:
+                if not exc.completed_effects:
+                    raise
+                relationship_native.retain_context_loss(context)
+                partial_error = BranchGuardPartial(exc)
             except PartialApplyError as exc:
                 partial_error = exc
             from ._transition_indexes import reconcile_transition_indexes
@@ -190,6 +198,7 @@ def execute_transition(
         return no_effect_error(type(request), ErrorCode.INVALID_REQUEST, message)
     except PartialApplyError as exc:
         effects += relationship_native.committed_effects(context, semantic_plan)
+        effects = tuple(dict.fromkeys((*effects, *branch_partial_effects(exc, request.COMMAND_ID))))
         if not effects:
             raise RuntimeError("Transition reported partial effects without an observable committed subject") from exc
         return WorkspaceMutationPartial(

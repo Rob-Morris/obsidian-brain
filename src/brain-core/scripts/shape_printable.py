@@ -15,6 +15,8 @@ Usage (CLI):
     python3 shape_printable.py --source "path/to/source.md" --slug "my-brief" --vault /path/to/vault
 """
 
+from _bootstrap import branch_guard
+
 import json
 import os
 from _common._source_access import resolve_public_source
@@ -276,34 +278,36 @@ def plan_shape(vault_root, params, *, effective_at=None):
 
 def shape(vault_root, params, *, _plan=None):
     """Create a printable artefact and optionally render it to PDF."""
-    vault_root = str(vault_root)
-    try:
-        plan = _plan or plan_shape(vault_root, params)
-    except (FileNotFoundError, ValueError) as exc:
-        return {"error": str(exc)}
-    rel_path, created = plan.path, plan.created
-    abs_path = os.path.join(vault_root, rel_path)
-    if created:
-        safe_write_artefact(abs_path, plan.content, bounds=vault_root)
+    with branch_guard.operation(vault_root):
+        vault_root = str(vault_root)
+        try:
+            plan = _plan or plan_shape(vault_root, params)
+        except (FileNotFoundError, ValueError) as exc:
+            return {"error": str(exc)}
+        rel_path, created = plan.path, plan.created
+        abs_path = os.path.join(vault_root, rel_path)
+        if created:
+            branch_guard.checkpoint(vault_root)
+            safe_write_artefact(abs_path, plan.content, bounds=vault_root)
 
-    result = {
-        "status": "ok",
-        "path": rel_path,
-        "created": created,
-    }
+        result = {
+            "status": "ok",
+            "path": rel_path,
+            "created": created,
+        }
 
-    render = coerce_bool(params.get("render"), True)
-    if not render:
-        result["rendered"] = False
+        render = coerce_bool(params.get("render"), True)
+        if not render:
+            result["rendered"] = False
+            return result
+
+        render_result = _render_pdf(vault_root, abs_path, params)
+        if render_result.get("status") == "partial":
+            result["status"] = "partial"
+        for key, value in render_result.items():
+            if key != "status":
+                result[key] = value
         return result
-
-    render_result = _render_pdf(vault_root, abs_path, params)
-    if render_result.get("status") == "partial":
-        result["status"] = "partial"
-    for key, value in render_result.items():
-        if key != "status":
-            result[key] = value
-    return result
 
 
 def main():

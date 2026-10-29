@@ -137,6 +137,9 @@ def test_windows_installer_static_wiring_uses_python_core_launcher():
     assert '"--launcher", $python' in script
     assert '"--mcp-scope", $McpScope' in script
     assert '"--client", $Client' in script
+    assert 'if (-not $NonInteractive -and (Test-Path -LiteralPath' in script
+    assert '.brain-core/scripts/_bootstrap/branch_guard.py' in script
+    assert 'branch-guard --interactive --vault $VaultPath' in script
     assert "install.sh" not in script
     assert 'install.ps1" %*' in cmd
 
@@ -327,10 +330,10 @@ def test_install_enable_semantic_uses_real_configure_boundary(tmp_path):
                 notes: list[str]
 
 
-            def provision_semantic_runtime(vault_root, *, python_executable, runtime_ok=None, refresh_assets=True):
+            def provision_semantic_runtime(vault_root, *, python_executable, runtime_ok=None, refresh_assets=True, lock_held=False):
                 vault = Path(vault_root)
                 (vault / "semantic-provision-ran.txt").write_text(f"{python_executable}\\n", encoding="utf-8")
-                marker_changed = semantic_config.set_semantic_engine_installed(vault_root, installed=True)
+                marker_changed = semantic_config.set_semantic_engine_installed(vault_root, installed=True, lock_held=lock_held)
                 return SemanticProvisionOutcome(
                     runtime_changed=False,
                     model_outcome=_FakeModelOutcome(downloaded=False, manifest_changed=False),
