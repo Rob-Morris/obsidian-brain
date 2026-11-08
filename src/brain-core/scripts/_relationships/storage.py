@@ -12,7 +12,9 @@ from pathlib import Path
 import sqlite3
 import uuid
 
-from _bootstrap.file_transaction import FilePlan, apply_file_changes
+from _bootstrap import branch_guard
+from _bootstrap.file_transaction import FilePlan, FileTransactionError, apply_file_changes
+from _bootstrap.owned_paths import owned_output_paths
 from .model import Conflict, MAX_WORK, canonical, digest, identifier, node_key, slot_key, endpoint, validate_definition
 
 
@@ -150,15 +152,26 @@ class Store:
         return digest(path.read_bytes()) if path.exists() else None
 
     def write(self, records, removals=()):
-        plan = FilePlan()
-        for record in records:
-            record = {**record, "schema": SCHEMA}
-            content = canonical(record) + "\n"
-            decode(content.encode("utf-8"))
-            plan.write_text(self.path(record["kind"], record["id"]), content)
-        for kind, identity in removals:
-            plan.delete(self.path(kind, identity))
-        apply_file_changes(plan.changes())
+        with branch_guard.operation(self.root) as guard:
+            plan = FilePlan()
+            for record in records:
+                record = {**record, "schema": SCHEMA}
+                content = canonical(record) + "\n"
+                decode(content.encode("utf-8"))
+                plan.write_text(self.path(record["kind"], record["id"]), content)
+            for kind, identity in removals:
+                plan.delete(self.path(kind, identity))
+            try:
+                apply_file_changes(plan.changes(), before_write=lambda: branch_guard.checkpoint(self.root))
+            except FileTransactionError as exc:
+                cause = exc.__cause__
+                if isinstance(cause, branch_guard.BranchGuardError):
+                    raise cause from None
+                if guard.lost:
+                    raise branch_guard.BranchGuardError(
+                        "unverified-recovery-context", {"vault": str(self.root)}
+                    ) from exc
+                raise
 
     @contextmanager
     def connection(self):
@@ -335,6 +348,18 @@ class Store:
             return [dict(row) for row in rows]
 
     def publish(self, operation, records, events=(), removals=()):
+        """Keep one checkout context across every durable publication phase."""
+        with branch_guard.operation(self.root):
+            previous = self.read("operation", operation)
+            recovery = self._recovery_evidence(previous) if previous else None
+            with branch_guard.operation(self.root, recovery=recovery) as guard:
+                try:
+                    return self._publish(operation, records, events, removals, guard.evidence())
+                except branch_guard.BranchGuardError:
+                    self._retain_guard_loss(operation, guard.evidence())
+                    raise
+
+    def _publish(self, operation, records, events, removals, evidence):
         """Persist admitted inputs first; only publish success after projection reconciliation."""
         self.initialise()
         previous = self.read("operation", operation) or {}
@@ -342,7 +367,8 @@ class Store:
                                                for item in (*records, *events)})
         originals.update({kind + ":" + identity: self.revision(kind, identity) for kind, identity in removals})
         journal = {**previous, "kind": "operation", "id": operation, "state": "pending", "records": records,
-                   "events": list(events), "removals": list(removals), "originals": originals}
+                   "events": list(events), "removals": list(removals), "originals": originals,
+                   "branch_guard": evidence}
         self.write([journal])
         self.write(records, removals)
         journal["state"] = "state-committed"
@@ -374,6 +400,21 @@ class Store:
         return receipt
 
     def repair(self, operation):
+        with branch_guard.operation(self.root):
+            journal = self.read("operation", operation)
+            if journal is None:
+                raise ValueError("unknown operation")
+            if journal["state"] == "complete":
+                return 0
+            with branch_guard.operation(self.root, recovery=self._recovery_evidence(journal)) as guard:
+                try:
+                    branch_guard.checkpoint(self.root)
+                    return self._repair(operation)
+                except branch_guard.BranchGuardError:
+                    self._retain_guard_loss(operation, guard.evidence())
+                    raise
+
+    def _repair(self, operation):
         journal = self.read("operation", operation)
         if journal is None:
             raise ValueError("unknown operation")
@@ -451,6 +492,19 @@ class Store:
 
     def abandon(self, operation, reason):
         """Resolve a failed intent only with exact proof of unchanged before-state."""
+        with branch_guard.operation(self.root):
+            journal = self.read("operation", operation)
+            if journal is None or journal["state"] in ("complete", "abandoned"):
+                raise Conflict("only an unresolved operation may be abandoned")
+            with branch_guard.operation(self.root, recovery=self._recovery_evidence(journal)) as guard:
+                try:
+                    branch_guard.checkpoint(self.root)
+                    return self._abandon(operation, reason)
+                except branch_guard.BranchGuardError:
+                    self._retain_guard_loss(operation, guard.evidence())
+                    raise
+
+    def _abandon(self, operation, reason):
         journal = self.read("operation", operation)
         if journal is None or journal["state"] in ("complete", "abandoned"):
             raise Conflict("only an unresolved operation may be abandoned")
@@ -470,3 +524,24 @@ class Store:
         self.write([journal])
         self.reconcile([journal])
         return {"operation": operation, "state": "abandoned", "reason": reason, "state_replayed": False}
+
+    def _guard_loss_path(self, operation):
+        identity = digest(identifier(operation).encode("utf-8")).removeprefix("sha256:")
+        path, = owned_output_paths(self.root, (".brain/local/relationship-recovery/" + identity + ".json",))
+        return path
+
+    def _retain_guard_loss(self, operation, evidence):
+        # Outcome evidence is an allowed support mechanism, never a replay of
+        # protected journal/content state into a checkout whose context was lost.
+        evidence = {**evidence, "lost": True}
+        plan = FilePlan()
+        plan.write_text(self._guard_loss_path(operation), canonical(evidence) + "\n")
+        apply_file_changes(plan.changes(), before_write=lambda: self._guard_loss_path(operation))
+
+    def _recovery_evidence(self, journal):
+        path = self._guard_loss_path(journal["id"])
+        if path.exists():
+            # Even corrupt refusal evidence must never become fresh authority.
+            return {"lost": True}
+        evidence = journal.get("branch_guard", {})
+        return evidence if isinstance(evidence, dict) else {}

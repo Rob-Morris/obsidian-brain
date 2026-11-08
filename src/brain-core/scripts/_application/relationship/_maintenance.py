@@ -2,12 +2,16 @@
 
 from dataclasses import replace
 
+from _bootstrap import branch_guard
+from _bootstrap.file_transaction import FileTransactionError
+
 from _relationships.storage import Store
 from _relationships.model import Conflict, digest
 from .._mutation_support import maintainer_mutation_entry, no_effect_error
 from ..preparation import OperationPreparation, ObservedResource, bind_operation
 from ..receipts import CommittedEffect
-from ..results import ErrorCode, Ok, Partial, CommandError, RequestErrorDetails
+from ..results import ErrorCode, Error, Ok, Partial, CommandError, CommandNextAction, RequestErrorDetails
+from ..types import BranchGuardDetails
 from ._types import GraphResult
 
 
@@ -29,7 +33,7 @@ def execute(context, request):
     effects = ()
     before = {}
     try:
-        with vault_mutation_lock(store.root):
+        with vault_mutation_lock(store.root), branch_guard.operation(store.root):
             context.admission.admit(prepare(context, request, frozen_inputs=context.admission.frozen_inputs))
             if hasattr(request, "operation"):
                 journal = store.read("operation", request.operation)
@@ -48,14 +52,18 @@ def execute(context, request):
                 result = store.refresh(budget=request.work_budget, cursor=request.cursor)
                 effects = (CommittedEffect(request.COMMAND_ID, "relationship-projection"),)
             generation, stale = store.generation()
-    except (ValueError, OSError, MutationLockError) as exc:
+    except (ValueError, OSError, MutationLockError, branch_guard.BranchGuardError, FileTransactionError) as exc:
         changed = [str(path.relative_to(store.root)) for path, previous in before.items()
                    if (digest(path.read_bytes()) if path.exists() else None) != previous]
+        details = BranchGuardDetails.from_error(exc) if isinstance(exc, branch_guard.BranchGuardError) else None
         if changed:
             message = str(exc) + "; recovery/projection effects committed; inspect and retry the same maintenance operation"
             return Partial(request.COMMAND_ID, request.COMMAND_VERSION,
-                           CommandError(ErrorCode.CONFLICT, message, RequestErrorDetails(None, message)),
+                           CommandError(ErrorCode.CONFLICT, message, details or RequestErrorDetails(None, message)),
                            tuple(CommittedEffect(request.COMMAND_ID, path) for path in changed))
+        if details is not None:
+            return Error(request.COMMAND_ID, request.COMMAND_VERSION,
+                         CommandError(ErrorCode.CONFLICT, str(exc), details, CommandNextAction("vault.read-config")))
         return no_effect_error(type(request), ErrorCode.CONFLICT, str(exc))
     return Ok(request.COMMAND_ID, request.COMMAND_VERSION,
               GraphResult((result,), complete=result.get("complete", True) and not stale, generation=generation), committed_effects=effects)

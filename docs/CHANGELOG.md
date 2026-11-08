@@ -6,8 +6,32 @@ Version-by-version release history for Obsidian Brain. Every shipped version has
 
 Never edit past changelog entries. Only add new entries at the top.
 
+## Unreleased
+
+**Summary:** Protect embedded Brain checkouts with vault-local branch guards
+
+- Add `vault.configure-branch-guard` and typed `vault.read-config.branch_guard`
+  inspection; `.brain/local/config.yaml` owns the policy and whole-file CAS.
+- Protect durable native/application/lifecycle phases with
+  `_bootstrap.branch_guard.operation` and `checkpoint`, retaining context-loss
+  evidence and refusing blind cross-branch rollback. Cache, receipt, registry
+  and generated-client mechanisms remain available.
+- Add optional `configure.py branch-guard --interactive`, check/Doctor findings,
+  ignored-source warnings in `config.py` and application coverage in
+  `tests/test_branch_guard_application.py`.
+- Advance the MCP proxy to **0.10.14**: owned response-loss recovery accepts
+  bounded branch-guard diagnostics from `invocation.read` v4 while preserving
+  the exact legacy v3 receipt shape.
+- Advance `cli/brain` and `cli/brain.cmd` to CLI **6.3.2** for lifecycle enforcement
+  when shipped. Core remains **0.76.3** during development; the first enforcing
+  Core is the **next release after 0.76.3**, not yet released. Existing older
+  binaries do not enforce the policy. Promotion assigns the Core release version.
+
+## Released versions
+
 | Version | Date | Summary |
 |---|---|---|
+| [v0.76.4](changelog/v0.76.4.md) | 2026-11-08 | Protect embedded Brain checkouts with vault-local branch guards |
 | [v0.76.3](changelog/v0.76.3.md) | 2026-10-27 | Guard Brain file access and support unmanaged README edits |
 | [v0.76.2](changelog/v0.76.2.md) | 2026-10-26 | Recover Doctor findings and bound CI fixture storage |
 | [v0.76.1](changelog/v0.76.1.md) | 2026-10-24 | Keep scoped link checks bounded and MCP replies responsive |

@@ -15,6 +15,8 @@ Usage (CLI):
     python3 shape_presentation.py --source "path/to/source.md" --slug "my-deck" --vault /path/to/vault
 """
 
+from _bootstrap import branch_guard
+
 import json
 import os
 from _common._source_access import resolve_public_source
@@ -180,39 +182,41 @@ def shape(vault_root, params, *, _plan=None):
     Returns:
         Dict with status, path, and optionally pdf_path / preview_pid.
     """
-    vault_root = str(vault_root)
-    try:
-        plan = _plan or plan_shape(vault_root, params)
-    except (FileNotFoundError, ValueError) as exc:
-        return {"error": str(exc)}
-    rel_path, created = plan.path, plan.created
-    abs_path = os.path.join(vault_root, rel_path)
-    theme_path = _resolve_theme_path(vault_root)
-    if created:
-        safe_write_artefact(abs_path, plan.content, bounds=vault_root)
+    with branch_guard.operation(vault_root):
+        vault_root = str(vault_root)
+        try:
+            plan = _plan or plan_shape(vault_root, params)
+        except (FileNotFoundError, ValueError) as exc:
+            return {"error": str(exc)}
+        rel_path, created = plan.path, plan.created
+        abs_path = os.path.join(vault_root, rel_path)
+        theme_path = _resolve_theme_path(vault_root)
+        if created:
+            branch_guard.checkpoint(vault_root)
+            safe_write_artefact(abs_path, plan.content, bounds=vault_root)
 
-    render = coerce_bool(params.get("render"), True)
-    preview = coerce_bool(params.get("preview"), True)
+        render = coerce_bool(params.get("render"), True)
+        preview = coerce_bool(params.get("preview"), True)
 
-    result = {
-        "status": "ok",
-        "path": rel_path,
-        "created": created,
-    }
-    if theme_path:
-        result["theme_path"] = os.path.relpath(theme_path, vault_root)
-    if render:
-        render_result = _render_pdf(vault_root, abs_path, theme_path)
-        _merge_sub_result(result, render_result)
-        if render_result.get("marp_missing"):
-            preview = False
-    else:
-        result["rendered"] = False
+        result = {
+            "status": "ok",
+            "path": rel_path,
+            "created": created,
+        }
+        if theme_path:
+            result["theme_path"] = os.path.relpath(theme_path, vault_root)
+        if render:
+            render_result = _render_pdf(vault_root, abs_path, theme_path)
+            _merge_sub_result(result, render_result)
+            if render_result.get("marp_missing"):
+                preview = False
+        else:
+            result["rendered"] = False
 
-    if preview:
-        _merge_sub_result(result, _launch_preview(abs_path, theme_path))
+        if preview:
+            _merge_sub_result(result, _launch_preview(abs_path, theme_path))
 
-    return result
+        return result
 
 
 # ---------------------------------------------------------------------------

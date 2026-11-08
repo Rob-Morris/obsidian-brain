@@ -8,6 +8,8 @@ Provides the domain operations exposed by content.classify, content.resolve, and
   ingest     — Full pipeline: classify -> resolve -> create/update.
 """
 
+from _bootstrap import branch_guard
+
 import math
 import os
 from collections import Counter
@@ -549,20 +551,22 @@ def plan_ingestion(
 
 def apply_ingestion_plan(router, vault_root, prepared):
     """Apply exactly the create/append target selected by the observational planner."""
-    result = dict(prepared)
-    plan = result.pop("plan", None)
-    if result["action_taken"] == "created":
-        create_mod.apply_artefact_creation(vault_root, router, plan)
-    elif result["action_taken"] == "updated":
-        edit_mod.apply_document_edit(vault_root, router, plan)
-    return result
+    with branch_guard.operation(vault_root):
+        result = dict(prepared)
+        plan = result.pop("plan", None)
+        if result["action_taken"] == "created":
+            create_mod.apply_artefact_creation(vault_root, router, plan)
+        elif result["action_taken"] == "updated":
+            edit_mod.apply_document_edit(vault_root, router, plan)
+        return result
 
 
 def ingest_content(router, vault_root, content, title=None, type_hint=None, index=None,
                    type_embeddings=None, type_embeddings_meta=None, doc_embeddings=None,
                    doc_embeddings_meta=None, query_encoder=None, classification_mode="auto"):
     """Classify and resolve once, then apply that validated ingestion plan."""
-    prepared = plan_ingestion(router, vault_root, content, title, type_hint, index,
-                              type_embeddings, type_embeddings_meta, doc_embeddings,
-                              doc_embeddings_meta, query_encoder, classification_mode)
-    return apply_ingestion_plan(router, vault_root, prepared)
+    with branch_guard.operation(vault_root):
+        prepared = plan_ingestion(router, vault_root, content, title, type_hint, index,
+                                  type_embeddings, type_embeddings_meta, doc_embeddings,
+                                  doc_embeddings_meta, query_encoder, classification_mode)
+        return apply_ingestion_plan(router, vault_root, prepared)

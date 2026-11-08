@@ -99,6 +99,8 @@ def inspect_machine_runtime_state(
     for brain in discovery["brains"]:
         runtime = classify_brain_runtime(brain["path"], launcher_python=launcher_python)
         repair_findings = bootstrap_diagnostics.collect_registry_check_findings(brain["path"])
+        from _bootstrap.branch_diagnostics import branch_guard_findings
+        repair_findings.extend(branch_guard_findings(brain["path"]))
         # MCP checks compare against the canonical managed Python, which an unreadable contract cannot name.
         # Skipping them also hides this Brain's MCP findings that need no runtime until the Brain is upgraded.
         if runtime["status"] != RUNTIME_CONTRACT_UNAVAILABLE:

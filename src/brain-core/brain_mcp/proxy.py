@@ -58,6 +58,7 @@ if __name__ == "__main__" and sys.argv[1:2] not in (["--check-handoff"], ["--han
             except OSError:
                 pass
 
+from _bootstrap.branch_guard_details import decode_branch_guard
 from _bootstrap.runtime import same_executable_path
 from _bootstrap.consent_owner import ConsentOwner
 from _bootstrap.file_lock import MutationLockError
@@ -114,7 +115,7 @@ class StartupFailure:
 # Constants
 # ---------------------------------------------------------------------------
 
-PROXY_VERSION = "0.10.13"
+PROXY_VERSION = "0.10.14"
 _CHILD_PROTOCOL_VERSION = "2026-07-28"
 
 
@@ -561,10 +562,16 @@ def _parse_receipt_lookup_response(
     if outcome["config_revision"] is not None:
         raise ValueError("MCP outcome cannot claim permission administration")
     receipt = outcome["receipt"]
-    if not isinstance(receipt, dict) or set(receipt) != {
+    receipt_keys = {
         "reference", "command_id", "command_version", "state", "recorded_at", "committed_effects"
-    }:
+    }
+    accepted_shapes = (receipt_keys,)
+    if invocation_read_version == 4:
+        accepted_shapes += (receipt_keys | {"branch_guard"},)
+    if not isinstance(receipt, dict) or set(receipt) not in accepted_shapes:
         raise ValueError("outcome receipt shape is invalid")
+    if "branch_guard" in receipt:
+        decode_branch_guard(receipt["branch_guard"])
     _validate_outcome_identity(receipt, record, reference)
     if _outcome_timestamp(receipt["recorded_at"]) < admitted_at:
         raise ValueError("final outcome predates its admission intent")

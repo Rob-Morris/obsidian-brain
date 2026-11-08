@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from _bootstrap import branch_guard
+
 from .._decoding import reject_unexpected
 
 from dataclasses import dataclass
@@ -83,6 +85,11 @@ class RetrievalConstructBenchmarkRequest:
 
 
 def execute(context: InvocationContext, request: RetrievalConstructBenchmarkRequest):
+    with branch_guard.operation(context.selected_brain.vault_root):
+        return _execute(context, request)
+
+
+def _execute(context: InvocationContext, request: RetrievalConstructBenchmarkRequest):
     from _common import (
         MutationLockError,
         check_write_allowed,
@@ -139,6 +146,7 @@ def execute(context: InvocationContext, request: RetrievalConstructBenchmarkRequ
             semantic_seed_abs = plan.paths.get("semantic", (None, None))[0]
             hybrid_seed_abs = plan.paths.get("hybrid", (None, None))[0]
             admit_owner(context, request, benchmark_binding, plan=plan)
+            branch_guard.checkpoint(root)
             result = constructor.construct_fixture(
                 root,
                 fixture_out=fixture_abs,

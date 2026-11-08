@@ -347,6 +347,11 @@ exact scope fields and preview/apply contract.
 binding identity. Parents must be non-terminal living artefacts in the same
 workspace. Tags and links express association without adoption.
 
+Local metadata updates remain available when the selected vault's branch guard
+blocks durable vault mutations: they change the caller's workspace manifest.
+Workspace hub creation and shared policy updates remain protected. Existing
+permissions and admission requirements apply to all of these operations.
+
 Create and shared policy support MCP, CLI, script and Python projections.
 Register, rebind, unregister and local metadata require local filesystem access
 and have no MCP projection. MCP list/read return canonical metadata and zero,
@@ -988,14 +993,14 @@ user MCP registrations still depend on it.
 
 The installer writes a versioned distribution under the selected prefix and a small platform bootloader under `bin/`:
 
-- Unix-like user install: `~/.local/bin/brain` and `~/.local/lib/brain-cli/6.3.1-<bundle>/`.
-- Native Windows user install: `%LOCALAPPDATA%\Programs\Brain\bin\brain.cmd` and the adjacent `lib\brain-cli\6.3.1-<bundle>\` distribution.
+- Unix-like user install: `~/.local/bin/brain` and `~/.local/lib/brain-cli/6.3.2-<bundle>/`.
+- Native Windows user install: `%LOCALAPPDATA%\Programs\Brain\bin\brain.cmd` and the adjacent `lib\brain-cli\6.3.2-<bundle>\` distribution.
 
 The bundle discriminator includes Core version and a source-content digest, so an unchanged CLI component can safely coexist with another release bundle. The installed bootloader records that exact bundle; source launch uses its adjacent checkout. CLI component version, source identity and machine-local installed integrity are distinct.
 
 The distribution contains the launcher application plus the Brain Core payload needed for install, upgrade and selected-Brain execution. Installation and replacement verify a content manifest and executable identity; failed replacement restores the proven old binary/distribution pair or retains recovery material and reports the outcome as unverified. Failed upgrade results carry every known absolute recovery path in the structural error and durable launcher receipt: residual staging material after a verified rollback is a known partial outcome, while unverified rollback remains outcome-unknown. Standalone human output lists the same paths before the failure message. Once the new pair is verified, failure or interruption while removing an old backup is committed post-upgrade recovery work and never rolls Brain Core back to an older version. Both the launcher result and standalone distribution JSON list the surviving `cleanup_recovery_paths`.
 
-The bootloader requires Python 3.12 or newer. `BRAIN_CLI_VERSION` is `6.3.1`; `BRAIN_INSTALL_REF` is `v0.76.3`.
+The bootloader requires Python 3.12 or newer. `BRAIN_CLI_VERSION` is `6.3.2`; `BRAIN_INSTALL_REF` is `v0.76.4`. This CLI increment is in development; promotion assigns the next install ref. Branch-guard Core enforcement starts in the next release after 0.76.3, not yet released.
 
 JSON command invocations validate the structural stdout envelope, including
 command identity, version and exit category. Incidental child stderr does not
@@ -1061,3 +1066,25 @@ the `.cmd` launcher. Replace the operator-key placeholder with the original key
 when present; inspect the original outcome before retrying a mutation.
 
 Selected-source lifecycle delegation preserves the original Brain/workspace environment selectors as explicit handoff inputs. Code-origin variables are rebuilt for the selected snapshot; unrelated machine-command delegation still removes ambient destination selectors.
+
+### Configure a vault's optional branch guard
+
+Inspect the selected vault with `brain vault read-config --json`. Then invoke
+`brain vault configure-branch-guard --request-json` with an explicit JSON object:
+
+```json
+{"allowed_branches":["dev/recipromancer"],"expected_revision":"missing"}
+```
+
+Use the actual `branch_guard.local_config_revision` returned by inspection;
+`missing` applies only when the local file is absent. To disable, explicitly
+supply `"allowed_branches": null` with the current revision. This Maintainer
+command is also available through MCP `vault_configure-branch-guard`, direct
+`command.py vault configure-branch-guard` and the typed Python request façade.
+All routes select the vault through existing selectors, with no new target field.
+
+The local configuration wrapper also supports
+`configure.py branch-guard --allowed-branches '["dev/recipromancer"]'
+--expected-revision <revision>`. Explicit `--interactive` offers the current
+named branch only inside Git; declining writes nothing. Noninteractive calls
+never choose a branch automatically. See [configuration](config.md#vault-local-git-branch-guard).

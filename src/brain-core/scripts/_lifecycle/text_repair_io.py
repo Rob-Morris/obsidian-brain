@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from _bootstrap import branch_guard
+
 from contextlib import ExitStack, contextmanager
 import hashlib
 import os
@@ -91,6 +93,7 @@ def _posix_repair(root, parts, expected_digest, fixedbytes):
                     return False
                 if not _matches(_posix_read(parent, parts[-1]), expected_digest):
                     return False
+                branch_guard.checkpoint(root)
                 os.replace(temporary, parts[-1], src_dir_fd=parent, dst_dir_fd=parent)
                 committed = True
                 if not _parent_current(edges):
@@ -340,6 +343,7 @@ def _windows_repair(root, parts, expected_digest, fixedbytes):
                         native.validate(stage, directory=False)
                         _windows_validate_directories(native, directories)
                         original.close()
+                        branch_guard.checkpoint(root)
                         native.rename(stage, parent, parts[-1])
                         committed = True
                         return True
@@ -380,16 +384,17 @@ def repair_candidate(root: str | Path, relative: str, expected_digest: str,
     Post-commit failures carry committed=True; False means no target replacement.
     This is not a compare-and-swap against concurrent edits of the final file.
     """
-    try:
-        root, parts = _paths(root, relative)
-        if os.name == "posix":
-            return _posix_repair(root, parts, expected_digest, fixedbytes)
-        if os.name == "nt":
-            return _windows_repair(root, parts, expected_digest, fixedbytes)
-        raise ValueError(f"unsupported platform: {os.name}")
-    except TextRepairIOError:
-        raise
-    except FileNotFoundError:
-        return False
-    except (OSError, ValueError) as exc:
-        raise TextRepairIOError(relative, exc) from exc
+    with branch_guard.operation(root):
+        try:
+            root, parts = _paths(root, relative)
+            if os.name == "posix":
+                return _posix_repair(root, parts, expected_digest, fixedbytes)
+            if os.name == "nt":
+                return _windows_repair(root, parts, expected_digest, fixedbytes)
+            raise ValueError(f"unsupported platform: {os.name}")
+        except TextRepairIOError:
+            raise
+        except FileNotFoundError:
+            return False
+        except (OSError, ValueError) as exc:
+            raise TextRepairIOError(relative, exc) from exc

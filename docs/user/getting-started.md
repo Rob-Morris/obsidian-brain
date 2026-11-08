@@ -547,3 +547,17 @@ status when inventory coverage is incomplete; it never silently registers.
 Use `bash install.sh --version X.Y.Z --non-interactive --skip-mcp /path/to/brain` for an exact published release (`latest` selects published main). Native Windows uses `./install.ps1 -Version X.Y.Z -NonInteractive -SkipMcp -VaultPath C:\Brains\Example`. Without a selector, an installer in a complete local checkout uses that checkout; remote installation defaults to latest published source. A published release's permanent tag must match its stored Core version and certified commit. Source selection and the resolved receipt are shared by installer, template and Core; missing/conflicting tags fail rather than silently falling back.
 
 A healthy machine-global CLI is preserved. Explicit `--replace-cli` / `-ReplaceCli` requests changing it; selecting a Core version alone does not. `brain install` / `brain upgrade` also accept `version` or `source_root` and `replace_cli` in request JSON. CLI bootstrap failure stops before creating a new target vault and reports retry/repair guidance; later runtime provisioning and optional MCP setup retain their separate follow-up outcomes. Offline `brain --version` reports CLI identity, distributed-with Core and the advisory full-support baseline. Earlier-release interoperability is best-effort; no dedicated offline bundle is promised. See [CLI contract](../functional/cli.md) for the detailed contract.
+
+### Optional protection for a Git-embedded Brain
+
+For a vault inside a Git working tree, you can restrict Brain's durable edits
+to explicitly chosen branches. Run `python3 .brain-core/scripts/configure.py
+branch-guard --interactive --vault /path/to/vault` to review the selected vault,
+repository and current branch and optionally accept that branch. Skipping is
+normal. Noninteractive setup leaves policy unset unless explicitly configured;
+Brain never initialises Git or infers permission to accept a branch.
+
+Each checkout needs its own ignored local policy. Workspace registration only
+selects a Brain and never transfers policy. Every caller of a shared physical
+checkout uses that checkout's policy. See
+[branch configuration](../functional/config.md#vault-local-git-branch-guard).

@@ -26,6 +26,7 @@ from _application.receipts import (
     ReceiptState,
     PermissionChange,
 )
+from _bootstrap.branch_guard_details import decode_branch_guard as _decode_branch_guard
 from _common import safe_write_json
 from _common._file_lock import exclusive_file_lock
 
@@ -299,7 +300,9 @@ def _validate_existing_directory(root: Path, directory: Path) -> bool:
 
 
 def _encode(receipt: OutcomeReceipt) -> dict[str, object]:
+    from dataclasses import asdict
     return {
+        **({"branch_guard": asdict(receipt.branch_guard)} if receipt.branch_guard is not None else {}),
         "schema": RECEIPT_SCHEMA,
         "invocation_id": receipt.reference.invocation_id,
         "command_id": receipt.command_id,
@@ -350,7 +353,7 @@ def _decode_index(raw: object) -> dict[str, datetime]:
 
 
 def _decode(raw: object) -> OutcomeReceipt:
-    if not isinstance(raw, dict) or set(raw) != _RECEIPT_KEYS:
+    if not isinstance(raw, dict) or set(raw) not in (_RECEIPT_KEYS, _RECEIPT_KEYS | {"branch_guard"}):
         raise ValueError("outcome receipt has an invalid object shape")
     if raw["schema"] != RECEIPT_SCHEMA:
         raise ValueError("outcome receipt schema is unsupported")
@@ -384,6 +387,7 @@ def _decode(raw: object) -> OutcomeReceipt:
         state,
         recorded_at,
         tuple(committed),
+        _decode_branch_guard(raw.get("branch_guard")),
     )
 
 

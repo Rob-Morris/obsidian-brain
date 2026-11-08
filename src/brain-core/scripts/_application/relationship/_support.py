@@ -3,13 +3,17 @@
 from dataclasses import replace
 import uuid
 
+from _bootstrap import branch_guard
+from _bootstrap.file_transaction import FileTransactionError
+
 from _relationships.model import Conflict, digest
 from _relationships.service import Service
 from _relationships.storage import Store
 from .._mutation_support import contributor_mutation_entry, maintainer_mutation_entry, no_effect_error
 from ..preparation import OperationPreparation, ObservedResource, bind_operation
 from ..receipts import CommittedEffect
-from ..results import ErrorCode, Ok, Partial, CommandError, RequestErrorDetails
+from ..results import ErrorCode, Error, Ok, Partial, CommandError, CommandNextAction, RequestErrorDetails
+from ..types import BranchGuardDetails
 from ._types import GraphResult
 
 
@@ -40,27 +44,32 @@ def execute(context, request, method):
     before = {}
     store = Store(context.selected_brain.vault_root)
     try:
-        with vault_mutation_lock(store.root):
+        with vault_mutation_lock(store.root), branch_guard.operation(store.root):
             prepared, binding = plan(context, request, method, context.admission.frozen_inputs)
             context.admission.admit(binding)
-            before = {(item["kind"], item["id"]): store.revision(item["kind"], item["id"])
-                      for item in [*prepared.records, *prepared.events]}
+            targets = {(item["kind"], item["id"]) for item in [*prepared.records, *prepared.events]}
+            targets.update(tuple(item) for item in prepared.removals)
+            before = {key: store.revision(*key) for key in targets}
             if not context.dry_run and (prepared.records or prepared.events or prepared.removals):
                 store.publish(prepared.operation, prepared.records, prepared.events, prepared.removals)
             generation, stale = store.generation()
-    except (ValueError, OSError, MutationLockError) as exc:
+    except (ValueError, OSError, MutationLockError, branch_guard.BranchGuardError, FileTransactionError) as exc:
         effects = []
         if prepared:
-            for item in [*prepared.records, *prepared.events]:
-                if store.revision(item["kind"], item["id"]) != before.get((item["kind"], item["id"])):
-                    effects.append(CommittedEffect(request.COMMAND_ID, item["kind"] + ":" + item["id"]))
+            for (kind, identity), revision in before.items():
+                if store.revision(kind, identity) != revision:
+                    effects.append(CommittedEffect(request.COMMAND_ID, kind + ":" + identity))
             if store.read("operation", prepared.operation) is not None:
                 effects.append(CommittedEffect("semantic.recovery", prepared.operation))
-        code = ErrorCode.CONFLICT if isinstance(exc, (Conflict, MutationLockError)) else ErrorCode.INVALID_REQUEST
+        code = ErrorCode.CONFLICT if isinstance(exc, (Conflict, MutationLockError, branch_guard.BranchGuardError, FileTransactionError)) else ErrorCode.INVALID_REQUEST
+        details = BranchGuardDetails.from_error(exc) if isinstance(exc, branch_guard.BranchGuardError) else None
         if effects:
             message = str(exc) + "; inspect invocation receipt, then history.repair operation " + prepared.operation
             return Partial(request.COMMAND_ID, request.COMMAND_VERSION,
-                           CommandError(code, message, RequestErrorDetails(None, message)), tuple(effects))
+                           CommandError(code, message, details or RequestErrorDetails(None, message)), tuple(effects))
+        if details is not None:
+            return Error(request.COMMAND_ID, request.COMMAND_VERSION,
+                         CommandError(code, str(exc), details, CommandNextAction("vault.read-config")))
         return no_effect_error(type(request), code, str(exc))
     records = prepared.result.get("items", [prepared.result])
     return Ok(request.COMMAND_ID, request.COMMAND_VERSION,

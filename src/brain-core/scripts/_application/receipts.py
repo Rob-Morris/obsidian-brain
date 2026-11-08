@@ -9,7 +9,7 @@ import re
 from threading import RLock
 from typing import Protocol
 
-from .types import validate_command_id
+from .types import BranchGuardDetails, validate_command_id
 
 
 class ReceiptState(str, Enum):
@@ -51,6 +51,7 @@ class OutcomeReceipt:
     state: ReceiptState
     recorded_at: datetime
     committed_effects: tuple[CommittedEffect, ...] = ()
+    branch_guard: BranchGuardDetails | None = None
 
     def __post_init__(self) -> None:
         validate_command_id(self.command_id)

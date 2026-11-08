@@ -1191,11 +1191,11 @@ def test_machine_main_renders_migrate_json(monkeypatch, tmp_path, capsys, fake_h
     legacy_python = vault / ".venv" / "bin" / "python"
     _install_central_runtime(legacy_python)
 
-    def _fake_run(argv, *, env, capture_output, text, timeout, check):
+    def _fake_run(argv, *, env=None, capture_output, text, timeout, check):
         payload = {"scope": argv[2], "status": "planned", "steps": []}
         return subprocess.CompletedProcess(argv, 0, json.dumps(payload), "")
 
-    monkeypatch.setattr("_machine.maintenance.subprocess.run", _fake_run)
+    monkeypatch.setattr("_machine.maintenance.run_managed", _fake_run)
 
     assert machine.main(
         [

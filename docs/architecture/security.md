@@ -764,3 +764,40 @@ metadata and records each accepted invocation itself. Legacy initialization
 and modern request-scoped discovery establish the same contract; replacement
 re-establishes it before protocol replay or receipt lookup. Receipt queries also carry
 a new proxy-owned invocation identity in the negotiated protocol era.
+
+## Vault-local branch eligibility
+
+Branch guarding supplements operation-specific file authority and consent.
+The selected vault's ignored local configuration is the sole authority; caller
+bindings, shared defaults and compiled routers cannot widen it. Eligibility
+never grants permission, and permission never waives eligibility. Explicit
+Maintainer guard configuration is the narrow policy-recovery exception.
+
+`_bootstrap.branch_guard` owns bounded Git observation, local-policy evaluation
+and typed operation continuity. Protected and mixed-effect application invocations
+capture context after permission preflight; ordinary reads and support-only
+commands avoid unused Git observations. Native effect owners reuse that context and
+checkpoint immediately before meaningful durable apply/delete/recovery phases.
+Fresh children receive private exported context; recovery uses persisted bounded
+evidence. Context variables provide nesting without intercepting filesystem I/O.
+Local-file patches share the vault lock and compare whole-file revisions, while
+continuity pins the logical guard subsection so support-marker changes do not
+invalidate themselves.
+
+`_application/branch_effects.py` declares every registered owner. Registry
+assembly rejects missing/stale declarations. Mixed render and maintenance
+commands gate actual durable phases, while caches, receipts, consent, result
+retention and binding/registry mechanisms remain available. Caller-local
+`workspace.update-metadata` changes workspace manifest defaults and descriptive
+links and remains allowed; workspace hub creation and shared
+`workspace.update-policy` changes are protected. Native checkpoints
+are still required: application classification alone does not guard direct
+Python/script effects. Known partial effects are enumerated; uncertain outcomes
+retain the existing invocation-inspection contract. Observed context loss is
+sticky and must escape blind snapshot restoration.
+
+This sampled guard provides workflow accident prevention, not external-writer
+coordination or a security boundary against local edits. Allowed-A to allowed-B
+changes refuse the next protected phase; an away-and-back switch between
+samples can escape detection. Older binaries without enforcement and
+cross-branch migration/version compatibility remain outside the guarantee.

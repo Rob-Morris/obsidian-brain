@@ -109,7 +109,11 @@ def test_portable_path_contract_stays_stdlib_only_across_planes():
 
 def test_upgrade_journal_and_state_home_stay_stdlib_only_below_bootstrap():
     """The launcher reads a vault's rollback journal at its own version, and upgrade.py loads it while it replaces the scripts tree."""
-    for relative in ("_bootstrap/upgrade_journal.py", "_bootstrap/paths.py"):
+    for relative in (
+        "_bootstrap/upgrade_journal.py", "_bootstrap/paths.py",
+        "_bootstrap/branch_guard.py", "_bootstrap/local_config.py",
+        "_bootstrap/yaml_engine.py", "_bootstrap/branch_diagnostics.py",
+    ):
         path = APPLICATION_ROOT.parent / relative
         offenders = _imports(path) - set(sys.stdlib_module_names) - {"_bootstrap"}
 

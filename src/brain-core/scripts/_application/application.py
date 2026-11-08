@@ -49,10 +49,31 @@ class CommandApplication:
             self._report("preflight", command_id, exc)
             return internal_error_result(context, command_id, version)
 
+        from _bootstrap import branch_guard
+        from .branch_effects import branch_effect
+        from .types import BranchEffect
+        try:
+            if context.dry_run or branch_effect(command_id) not in {
+                BranchEffect.PROTECTED, BranchEffect.MIXED,
+            }:
+                return self._invoke_owner(context, entry, request)
+            with branch_guard.operation(context.selected_brain.vault_root):
+                return self._invoke_owner(context, entry, request)
+        except branch_guard.BranchGuardError as exc:
+            return branch_guard_error_result(command_id, version, exc)
+
+    def _invoke_owner(self, context, entry, request):
+        from _bootstrap import branch_guard
+        from .branch_effects import branch_effect
+        from .types import BranchEffect
+
+        command_id, version = entry.command_id, entry.command_version
         control = entry.initial_class is InitialAuthorisationClass.CONTROL
         admission = None
         control_intent = None
         try:
+            if not context.dry_run and branch_effect(command_id) is BranchEffect.PROTECTED:
+                branch_guard.checkpoint(context.selected_brain.vault_root)
             if control:
                 from .access.prepare import AccessPrepareRequest, InspectOperation
                 if context.operation_id is not None:
@@ -67,6 +88,16 @@ class CommandApplication:
                 admission.admit_query(request)
             result = entry.executor(context, request)
             self._validate_result(entry, result)
+        except branch_guard.BranchGuardError as exc:
+            from .relationship._native import retain_context_loss
+            try:
+                retain_context_loss(context)
+            except Exception as retention_error:
+                self._report("branch-guard.recovery-evidence", command_id, retention_error)
+            if control_intent is not None or (admission is not None and admission.intent_recorded):
+                result = self._unknown_result(entry, guard_error=exc)
+            else:
+                result = branch_guard_error_result(command_id, version, exc)
         except UnsafeFilesystemLayoutError as exc:
             if control_intent is not None or (
                 admission is not None and (admission.entered or admission.intent_recorded)
@@ -173,14 +204,17 @@ class CommandApplication:
             if isinstance(result, Partial) or (isinstance(result, Error) and result.effects == "unknown"):
                 raise ValueError("read-only command cannot report possible domain effects")
 
-    def _unknown_result(self, entry):
+    def _unknown_result(self, entry, *, guard_error=None):
         if entry.effect_class is EffectClass.NONE:
             return internal_error_result(self._context, entry.command_id, entry.command_version)
+        from .types import BranchGuardDetails
+        guard_details = BranchGuardDetails.from_error(guard_error) if guard_error is not None else None
         reference = OutcomeReference(self._context.invocation_id)
         return Error(entry.command_id, entry.command_version, CommandError(
             ErrorCode.COMMAND_OUTCOME_UNKNOWN,
+            ((str(guard_error) + " ") if guard_error is not None else "") +
             "Execution may have entered; inspect the owned invocation outcome before any further action.",
-            OutcomeUnknownDetails(reference), next_action=CommandNextAction("invocation.read", (
+            OutcomeUnknownDetails(reference, guard_details), next_action=CommandNextAction("invocation.read", (
                 CommandArgument("invocation_id", reference.invocation_id),))),
             effects="unknown",
             outcome_reference=reference)
@@ -254,3 +288,10 @@ def internal_error_result(context: InvocationContext, command_id: str, command_v
     """Return correlation-safe diagnostics for unexpected application/adapter failure."""
     return Error(command_id, command_version, CommandError(ErrorCode.INTERNAL_ERROR,
         "The command failed unexpectedly.", InternalErrorDetails(context.correlation_id)))
+
+
+def branch_guard_error_result(command_id, version, error):
+    from .types import BranchGuardDetails
+    return Error(command_id, version, CommandError(
+        ErrorCode.CONFLICT, str(error), BranchGuardDetails.from_error(error),
+        next_action=CommandNextAction("vault.read-config")), retryable=False)

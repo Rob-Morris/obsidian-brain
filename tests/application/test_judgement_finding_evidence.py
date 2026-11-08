@@ -286,6 +286,18 @@ def case_unsafe_filesystem_layout(root, local, app):
     return "unsafe_filesystem_layout", ".brain/local", None, router
 
 
+def case_ineligible(root, local, app):
+    import subprocess
+    from _bootstrap.branch_guard import configure_guard
+    from _bootstrap.local_config import read_local_config
+    environment = {key: value for key, value in os.environ.items() if not key.startswith("GIT_")}
+    subprocess.run(["git", "-C", str(root), "init", "-q", "-b", "main"],
+                   check=True, capture_output=True, env=environment)
+    configure_guard(root, ["dev"], read_local_config(root).revision)
+    return "ineligible", ".brain/local/config.yaml", {
+        "status": "blocked", "reason": "branch-not-allowed", "branch": "main", "allowed_branches": ["dev"]}
+
+
 CASES = [value for name, value in sorted(globals().items()) if name.startswith("case_")]
 
 
@@ -301,6 +313,8 @@ def test_each_code_declares_exactly_the_evidence_its_row_promises(scoped, case):
         check_name, finding_code = "text_scan", code
     elif code == "unsafe_filesystem_layout":
         check_name, finding_code = "temporaries", code
+    elif code == "ineligible":
+        check_name, finding_code = "branch_guard", code
     else:
         check_name, finding_code = "workspace_contract", code
 

@@ -19,6 +19,10 @@ class Admission:
         self.frozen_inputs = binding.frozen_inputs
         self.calls = []
 
+    @property
+    def entered(self):
+        return bool(self.calls)
+
     def admit(self, binding):
         if binding.digest != self.binding.digest:
             raise ValueError("prepared operation changed")

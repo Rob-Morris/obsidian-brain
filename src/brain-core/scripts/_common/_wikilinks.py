@@ -284,10 +284,20 @@ def apply_wikilink_rewrites(vault_root, plan):
         validate_artefact_write_target(
             os.path.join(vault_root, write.path), vault_root
         )
-    for write in plan.writes:
-        safe_write_active_or_archived_artefact(
-            os.path.join(vault_root, write.path), write.after, bounds=vault_root
-        )
+    from _bootstrap.branch_guard import BranchGuardError, operation, checkpoint
+    with operation(vault_root):
+        committed = []
+        try:
+            for write in plan.writes:
+                checkpoint(vault_root)
+                safe_write_active_or_archived_artefact(
+                    os.path.join(vault_root, write.path), write.after, bounds=vault_root
+                )
+                committed.append(write.path)
+        except BranchGuardError as exc:
+            for path in committed:
+                exc.record_completed("write", path)
+            raise
     return sum(write.substitutions for write in plan.writes)
 
 

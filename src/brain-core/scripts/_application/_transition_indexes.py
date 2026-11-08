@@ -3,6 +3,15 @@
 from dataclasses import replace
 from _common import PartialApplyError, public_mutation_error_message
 from .results import CommandError, CommandNextAction, CommandArgument, ErrorCode, RequestErrorDetails
+from .types import BranchGuardDetails
+
+
+class BranchGuardPartial(PartialApplyError):
+    """Known native effects committed before a typed branch refusal."""
+
+    def __init__(self, refusal, message=None):
+        self.refusal = refusal
+        super().__init__(message or str(refusal))
 
 
 class TransitionIndexesIncomplete(PartialApplyError):
@@ -17,8 +26,21 @@ def transition_error(exc):
     """Preserve a precise maintenance action alongside known content effects."""
     if isinstance(exc, TransitionIndexesIncomplete):
         return exc.error
+    if isinstance(exc, BranchGuardPartial):
+        return CommandError(ErrorCode.CONFLICT, str(exc),
+                            BranchGuardDetails.from_error(exc.refusal),
+                            CommandNextAction("vault.read-config"))
     return CommandError(ErrorCode.CONFLICT, public_mutation_error_message(exc),
                         RequestErrorDetails(None, public_mutation_error_message(exc)))
+
+
+def branch_partial_effects(exc, command_id):
+    """Keep known native subjects even when they are outside a transition snapshot."""
+    from .receipts import CommittedEffect
+    details = transition_error(exc).details
+    if not isinstance(details, BranchGuardDetails):
+        return ()
+    return tuple(CommittedEffect(command_id, path) for path in details.committed_paths)
 
 
 def reconcile_transition_indexes(context, *, lexical_before=None, changed_paths=()):
@@ -51,6 +73,9 @@ def index_refresh_error(exc):
 def combine_transition_errors(original, maintenance):
     """Keep the repair action when both content application and completion fail."""
     error = transition_error(maintenance)
+    original_error = transition_error(original)
     return TransitionIndexesIncomplete(replace(
         error, message=public_mutation_error_message(original) + " " + error.message,
+        details=(original_error.details if isinstance(original_error.details, BranchGuardDetails)
+                 else error.details),
     ))

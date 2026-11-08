@@ -174,7 +174,7 @@ def test_command_describe_returns_installed_identity_or_not_found(tmp_path):
     assert found.result.command_id == "invocation.read"
     assert found.result.catalogue_schema == "brain.command-catalogue/1"
     assert found.result.catalogue_fingerprint == build_application_catalogue().fingerprint
-    assert found.result.command_version == 3
+    assert found.result.command_version == 4
     assert found.result.owner.value == "application"
     assert found.result.request_schema_json
     assert found.result.result_schema_json

@@ -4,7 +4,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum
+from typing import Literal
 import re
+
+from _bootstrap.branch_guard_details import BranchGuardDetails, GuardRecoveryLocation
 
 
 _COMMAND_ID = re.compile(
@@ -127,3 +130,26 @@ class SnapshotFreshness(str, Enum):
     FRESH = "fresh"
     STALE = "stale"
     UNKNOWN = "unknown"
+
+
+class BranchEffect(str, Enum):
+    ALLOWED = "allowed"
+    PROTECTED = "protected"
+    MIXED = "mixed"
+    CONFIGURATION = "configuration"
+
+
+@dataclass(frozen=True, slots=True)
+class BranchGuardState:
+    status: Literal["unconfigured", "dormant", "eligible", "blocked", "invalid", "unavailable"]
+    local_config_revision: str | None
+    allowed_branches: tuple[str, ...]
+    repository: str | None
+    observed_branch: str | None
+    reason: str | None
+
+    @classmethod
+    def from_inspection(cls, value):
+        return cls(value["status"], value["local_config_revision"],
+                   tuple(value["allowed_branches"]), value["repository"],
+                   value["observed_branch"], value["reason"])

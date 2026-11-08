@@ -64,7 +64,8 @@ def test_application_header_is_exact_catalogue_derived_mcp_mapping():
         if Projection.MCP in entry.eligible_projections
     )
 
-    assert len(header.tools) == len(eligible) == 93
+    assert len(header.tools) == len(eligible) == 94
+    assert dict(header.tools)["vault_configure-branch-guard"].command_id == "vault.configure-branch-guard"
     assert {name: tool.command_id for name, tool in header.tools
             if name.startswith(("relationship_", "history_"))} == {
         "history_cleanup": "history.cleanup",

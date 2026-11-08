@@ -26,6 +26,9 @@ import tempfile
 from typing import Iterable, Optional
 
 from _bootstrap.paths import state_home
+from _bootstrap import branch_guard
+from _bootstrap.local_config import read_local_config, patch_local_config, LocalConfigError
+from _bootstrap.yaml_engine import load_yaml_text, dump_yaml_text, YamlError
 
 SCHEMA = "brain.upgrade-journal/1"
 RECOVERY_SCHEMA = "brain.upgrade-recovery/1"
@@ -234,10 +237,18 @@ class UpgradeJournal:
         A journal already present is refused, because the caller recovers it
         first; a headerless remnant is removed, because its blobs may be torn.
         """
+        with branch_guard.operation(vault_root):
+            return cls._open_in_operation(vault_root, old_version, new_version)
+
+    @classmethod
+    def _open_in_operation(cls, vault_root, old_version, new_version):
         directory = journal_directory(vault_root)
         if os.path.exists(os.path.join(directory, HEADER_FILE)):
             raise FileExistsError(f"a rollback journal is already present at {directory}")
         if os.path.isdir(directory):
+            # No header means no replay authority; still retain the remnant if
+            # the current operation has lost its admitted checkout context.
+            branch_guard.checkpoint(vault_root)
             shutil.rmtree(directory)
         blobs = os.path.join(directory, BLOBS_DIR)
         make_directories_durably(blobs)
@@ -249,10 +260,17 @@ class UpgradeJournal:
             "old_version": old_version,
             "new_version": new_version,
             "started_at": datetime.now(timezone.utc).isoformat(),
+            "branch_guard_context": json.loads(branch_guard.export_context(vault_root)),
         }
         write_durably(os.path.join(directory, HEADER_FILE), (json.dumps(header, indent=2) + "\n").encode("utf-8"))
         fsync_directories((directory,))
         return cls(directory, header, os.path.abspath(vault_root))
+
+    def retain_guard_context(self, evidence: dict) -> None:
+        """Persist observed loss before returning, so branch restoration cannot bless replay."""
+        self.header["branch_guard_context"] = evidence
+        write_durably(self.header_path, (json.dumps(self.header, indent=2) + "\n").encode("utf-8"))
+        fsync_directories((self.directory,))
 
     @classmethod
     def load(cls, vault_root: str) -> Optional["UpgradeJournal"]:
@@ -271,6 +289,7 @@ class UpgradeJournal:
             or header.get("schema") != SCHEMA
             or not isinstance(header.get("vault"), str)
             or not isinstance(header.get("new_version"), str)
+            or ("branch_guard_context" in header and not isinstance(header["branch_guard_context"], dict))
             or not (header.get("old_version") is None or isinstance(header["old_version"], str))
         ):
             raise UpgradeJournalUnreadable(f"{header_path}: not an upgrade journal header")
@@ -428,7 +447,8 @@ class UpgradeJournal:
         return {"exists": True, "content": self._blob_bytes(digest)} if digest is not None else {"exists": False}
 
     def discard(self) -> None:
-        """Remove the header durably first, so a kill mid-removal leaves a remnant, then the rest."""
+        """Remove the header durably first, retaining evidence if continuity was lost."""
+        branch_guard.checkpoint(self.vault)
         try:
             os.remove(self.header_path)
         except FileNotFoundError:
@@ -534,6 +554,41 @@ def _current_bytes(path: str) -> Optional[bytes]:
         return None
 
 
+def _preserve_current_guard(snapshots, roots, vault_root):
+    local = read_local_config(vault_root)
+    path = str(local.path)
+    relevant = path in snapshots or any(_within(path, root) for root in roots)
+    if not relevant:
+        return snapshots, roots, None
+    snapshots = dict(snapshots)
+    roots = {root: set(dirs) for root, dirs in roots.items()}
+    state = snapshots.get(path, {"exists": False})
+    document = {}
+    if state.get("exists"):
+        try:
+            document = load_yaml_text(state["content"].decode("utf-8"), source="upgrade local-config snapshot")
+        except (UnicodeError, YamlError) as exc:
+            raise UpgradeJournalUnreadable("Cannot preserve current guard in malformed local-config snapshot") from exc
+        if not isinstance(document, dict):
+            raise UpgradeJournalUnreadable("Local-config snapshot is not a mapping")
+    document.pop("branch_guard", None)
+    if "branch_guard" in local.document:
+        document["branch_guard"] = local.document["branch_guard"]
+    if state.get("exists") or document:
+        snapshots[path] = {"exists": True, "content": dump_yaml_text(document).encode("utf-8")}
+        # A policy created since capture owns its parent directories too.
+        for root, dirs in roots.items():
+            parent = os.path.dirname(path)
+            while _within(parent, root):
+                dirs.add(parent)
+                if parent == root:
+                    break
+                parent = os.path.dirname(parent)
+    elif path in snapshots:
+        snapshots[path] = {"exists": False}
+    return snapshots, roots, (local, document)
+
+
 def restore_snapshots(
     snapshots: dict[str, dict],
     *,
@@ -550,9 +605,18 @@ def restore_snapshots(
     durable. Apply: restore the files, then remove the unknown files, then the
     unknown directories bottom-up, and verify the result. Every failure is
     attempted past and reported, with the journalled bytes kept for the paths
-    whose restore failed.
+    whose restore failed. Branch refusal stops the remaining effects instead.
+
+    This is an internal restoration primitive. Production vault replay enters
+    through ``restore_journal`` with its mandatory vault-bound RecoveryStore,
+    operation evidence and mutation lock. ``store=None`` is only for isolated
+    snapshot tests; it supplies neither vault identity nor replay admission.
     """
     roots = roots or {}
+    config_restore = None
+    if store is not None:
+        branch_guard.checkpoint(store.vault)
+        snapshots, roots, config_restore = _preserve_current_guard(snapshots, roots, store.vault)
     errors: list[str] = []
     recovery_paths: list[str] = []
     restored: set[str] = set()
@@ -613,24 +677,50 @@ def restore_snapshots(
     # Apply.
     for path, content in writes.items():
         try:
-            os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
-            write_durably(path, content)
+            if store is not None:
+                branch_guard.checkpoint(store.vault)
+            if config_restore is not None and path == str(config_restore[0].path):
+                local, document = config_restore
+                def update(current):
+                    current.clear()
+                    current.update(document)
+                after = patch_local_config(store.vault, update, expected_revision=local.revision, lock_held=True)
+                if after.revision == local.revision and path in foreign:
+                    # A logical no-op retains the admitted original bytes,
+                    # including their YAML key order and formatting.
+                    snapshots[path] = {"exists": True, "content": foreign[path]}
+            else:
+                os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+                write_durably(path, content)
             restored.add(path)
+        except branch_guard.BranchGuardError:
+            raise
         except BaseException as exc:
             if _current_bytes(path) != content:
                 fail("restore original file", path, exc, snapshots[path])
     for path in removals:
         try:
+            if store is not None:
+                branch_guard.checkpoint(store.vault)
+                if config_restore is not None and path == str(config_restore[0].path):
+                    if read_local_config(store.vault).revision != config_restore[0].revision:
+                        raise LocalConfigError("Local configuration changed during recovery")
             os.remove(path)
             restored.add(path)
         except FileNotFoundError:
             continue
+        except branch_guard.BranchGuardError:
+            raise
         except BaseException as exc:
             fail("remove introduced file", path, exc)
     for path in prunes:
         try:
+            if store is not None:
+                branch_guard.checkpoint(store.vault)
             os.rmdir(path)
             restored.add(path)
+        except branch_guard.BranchGuardError:
+            raise
         except BaseException as exc:
             if os.path.exists(path):
                 fail("remove new directory", path, exc)
@@ -675,6 +765,25 @@ def restore_journal(journal: UpgradeJournal, ledger_path: str, store: RecoverySt
     verified before its predecessor restores older bytes over the same paths.
     Blob bytes are read one stage at a time.
     """
+    with branch_guard.operation(journal.vault, recovery=journal.header.get("branch_guard_context", {})) as operation:
+        try:
+            branch_guard.checkpoint(journal.vault)
+            # Validate policy preservation before even the ledger can be rewound.
+            local_path = str(read_local_config(journal.vault).path)
+            for stage in STAGES:
+                _files, roots = journal.stage_entries(stage)
+                state = journal.path_state(stage, local_path)
+                snapshots = {} if state is None else {local_path: state}
+                _preserve_current_guard(snapshots, roots, journal.vault)
+            return _restore_admitted_journal(journal, ledger_path, store)
+        except branch_guard.BranchGuardError:
+            journal.retain_guard_context(operation.evidence())
+            raise
+        except LocalConfigError as exc:
+            raise UpgradeJournalUnreadable("Cannot preserve current local policy during recovery") from exc
+
+
+def _restore_admitted_journal(journal, ledger_path, store):
     ledger_path = journal._canonical(ledger_path)
     report = RestoreReport(True)
     ledger = journal.path_state(STAGE_PRE_COMPILE, ledger_path)

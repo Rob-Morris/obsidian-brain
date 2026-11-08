@@ -24,6 +24,10 @@ class MatchingAdmission:
         self.expected = binding.digest
         self.calls = 0
 
+    @property
+    def entered(self):
+        return self.calls > 0
+
     def admit(self, binding):
         if binding.digest != self.expected:
             raise ValueError("prepared operation changed")

@@ -254,7 +254,15 @@ def invocation_outcome(entry, context, result) -> InvocationOutcome:
         execution, state = ExecutionState.UNKNOWN, ReceiptState.UNKNOWN
     else:
         execution, state = ExecutionState.FAILED, ReceiptState.NONE
+    from .types import BranchGuardDetails
+    from .results import OutcomeUnknownDetails
+    guard_details = None
+    if isinstance(result, (Partial, Error)):
+        if isinstance(result.error.details, BranchGuardDetails):
+            guard_details = result.error.details
+        elif isinstance(result.error.details, OutcomeUnknownDetails):
+            guard_details = result.error.details.branch_guard
     receipt = OutcomeReceipt(OutcomeReference(context.invocation_id),
                              entry.command_id, entry.command_version,
-                             state, context.clock.now(), effects)
+                             state, context.clock.now(), effects, guard_details)
     return InvocationOutcome(receipt, execution)

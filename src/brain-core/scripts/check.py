@@ -1098,7 +1098,9 @@ def run_checks(vault_root, router=None, *, workspace_dir=None):
     """
     inspect_derived_cache = router is None
     ctx = CheckContext(vault_root, router)
-    text_findings = check_unreadable_files(vault_root, ctx=ctx)
+    from _bootstrap.branch_diagnostics import branch_guard_findings
+    text_findings = branch_guard_findings(vault_root)
+    text_findings.extend(check_unreadable_files(vault_root, ctx=ctx))
     text_findings.extend(check_text_encoding(vault_root, ctx=ctx))
     derived_findings = []
     if router is None:

@@ -8,6 +8,8 @@ then renames/removes the file itself. Public callers use ``artefact.rename`` or
 internal maintenance and repository-test entry point.
 """
 
+from _bootstrap import branch_guard
+
 import argparse
 import json
 import os
@@ -480,49 +482,74 @@ def plan_move_and_links(vault_root, moves, *, router=None, allow_archive_paths=F
                          allow_archive_paths, allow_attachment_paths)
 
 
+def _record_completed_backlinks(refusal, links):
+    """A successful rewrite phase remains committed if a later phase refuses."""
+    for write in links.writes:
+        refusal.record_completed("write", write.path)
+
+
 def apply_move_and_links(vault_root, plan):
     """Apply admitted link writes and moves, preserving partial-apply reporting."""
-    for move in plan.ordered:
-        validate_move_path_request(
-            vault_root, os.path.relpath(move["abs_source"], vault_root),
-            os.path.relpath(move["abs_dest"], vault_root),
-            allow_archive_paths=plan.allow_archive_paths,
-            allow_attachment_paths=plan.allow_attachment_paths,
-        )
-    links_updated = apply_wikilink_rewrites(vault_root, plan.links)
-    applied = []
-    for move in plan.ordered:
-        try:
-            dest_dir = os.path.dirname(move["abs_dest"])
-            if dest_dir:
-                os.makedirs(dest_dir, exist_ok=True)
-            os.rename(move["abs_source"], move["abs_dest"])
-        except OSError as exc:
-            raise MoveApplyError(applied, move, exc) from exc
-        applied.append({"source": move["source"], "dest": move["dest"]})
+    with branch_guard.operation(vault_root):
+        for move in plan.ordered:
+            validate_move_path_request(
+                vault_root, os.path.relpath(move["abs_source"], vault_root),
+                os.path.relpath(move["abs_dest"], vault_root),
+                allow_archive_paths=plan.allow_archive_paths,
+                allow_attachment_paths=plan.allow_attachment_paths,
+            )
+        links_updated = apply_wikilink_rewrites(vault_root, plan.links)
+        applied = []
+        for move in plan.ordered:
+            try:
+                branch_guard.checkpoint(vault_root)
+                dest_dir = os.path.dirname(move["abs_dest"])
+                if dest_dir:
+                    os.makedirs(dest_dir, exist_ok=True)
+                branch_guard.checkpoint(vault_root)
+                os.rename(move["abs_source"], move["abs_dest"])
+            except branch_guard.BranchGuardError as exc:
+                _record_completed_backlinks(exc, plan.links)
+                exc.facts["applied_moves"] = list(applied)
+                exc.facts["links_updated"] = links_updated
+                for item in applied:
+                    exc.record_completed("move", item["source"], destination=item["dest"])
+                raise
+            except OSError as exc:
+                raise MoveApplyError(applied, move, exc) from exc
+            applied.append({"source": move["source"], "dest": move["dest"]})
 
-    if plan.prune_router is not None:
-        prune_vacated_owner_folders(
-            vault_root, [move["source"] for move in applied], plan.prune_router
-        )
+        if plan.prune_router is not None:
+            try:
+                prune_vacated_owner_folders(
+                    vault_root, [move["source"] for move in applied], plan.prune_router
+                )
+            except branch_guard.BranchGuardError as exc:
+                _record_completed_backlinks(exc, plan.links)
+                exc.facts["applied_moves"] = list(applied)
+                exc.facts["links_updated"] = links_updated
+                for item in applied:
+                    exc.record_completed("move", item["source"], destination=item["dest"])
+                raise
 
-    return {
-        "moves": [
-            {"source": move["source"], "dest": move["dest"]}
-            for move in plan.moves
-        ],
-        "applied": applied,
-        "links_updated": links_updated,
-    }
+        return {
+            "moves": [
+                {"source": move["source"], "dest": move["dest"]}
+                for move in plan.moves
+            ],
+            "applied": applied,
+            "links_updated": links_updated,
+        }
 
 
 
 def move_and_update_links(vault_root, moves, *, allow_archive_paths=False,
                           allow_attachment_paths=False, prune_router=None):
     """Plan and apply a batch move; link writes precede moves and may partially commit."""
-    return apply_move_and_links(vault_root, plan_move_and_links(
-        vault_root, moves, allow_archive_paths=allow_archive_paths,
-        allow_attachment_paths=allow_attachment_paths, prune_router=prune_router))
+    with branch_guard.operation(vault_root):
+        return apply_move_and_links(vault_root, plan_move_and_links(
+            vault_root, moves, allow_archive_paths=allow_archive_paths,
+            allow_attachment_paths=allow_attachment_paths, prune_router=prune_router))
 
 
 def rename_and_update_links(
@@ -561,11 +588,12 @@ def rename_and_update_links(
         ValueError: If the destination filename violates the target type's
                     naming contract.
     """
-    result = apply_move_and_links(vault_root, plan_move_and_links(
-        vault_root, [{"source": source, "dest": dest}], router=router,
-        allow_archive_paths=allow_archive_paths, prune_router=prune_router,
-    ))
-    return result["links_updated"]
+    with branch_guard.operation(vault_root):
+        result = apply_move_and_links(vault_root, plan_move_and_links(
+            vault_root, [{"source": source, "dest": dest}], router=router,
+            allow_archive_paths=allow_archive_paths, prune_router=prune_router,
+        ))
+        return result["links_updated"]
 
 
 def plan_artefact_rename(vault_root, router, source, dest):
@@ -592,15 +620,17 @@ def plan_artefact_rename(vault_root, router, source, dest):
 
 def apply_artefact_rename(vault_root, plan):
     """Apply one validated artefact rename."""
-    result = apply_move_and_links(vault_root, plan)
-    move = plan.moves[0]
-    return {"old_path": move["source"], "new_path": move["dest"],
-            "links_updated": result["links_updated"]}
+    with branch_guard.operation(vault_root):
+        result = apply_move_and_links(vault_root, plan)
+        move = plan.moves[0]
+        return {"old_path": move["source"], "new_path": move["dest"],
+                "links_updated": result["links_updated"]}
 
 
 def rename_artefact(vault_root, router, source, dest):
     """Rename within one configured type while preserving wikilinks."""
-    return apply_artefact_rename(vault_root, plan_artefact_rename(vault_root, router, source, dest))
+    with branch_guard.operation(vault_root):
+        return apply_artefact_rename(vault_root, plan_artefact_rename(vault_root, router, source, dest))
 
 
 def _validate_destination_naming(vault_root, router, source, dest, abs_source):
@@ -724,30 +754,48 @@ def plan_artefact_delete(vault_root, path, router=None, recursive=False, *, prun
 
 def apply_artefact_delete(vault_root, plan):
     """Apply admitted backlink writes and deletes with partial-effect reporting."""
-    links_replaced = apply_wikilink_rewrites(vault_root, plan.links)
-    removed = []
-    for rel_path, abs_delete_path in zip(plan.paths, plan.abs_paths):
-        try:
-            os.remove(abs_delete_path)
-        except OSError as exc:
-            raise PartialApplyError(
-                f"delete set partially applied — links already rewritten; "
-                f"removed {removed}, failed at {rel_path}: {exc}"
-            ) from exc
-        removed.append(rel_path)
-    if plan.prune_router is not None:
-        prune_vacated_owner_folders(vault_root, removed, plan.prune_router)
-    return {"links_replaced": links_replaced,
-            "orphaned_attachment_scopes": list(plan.orphaned_attachment_scopes),
-            "deleted": removed}
+    with branch_guard.operation(vault_root):
+        links_replaced = apply_wikilink_rewrites(vault_root, plan.links)
+        removed = []
+        for rel_path, abs_delete_path in zip(plan.paths, plan.abs_paths):
+            try:
+                branch_guard.checkpoint(vault_root)
+                os.remove(abs_delete_path)
+            except branch_guard.BranchGuardError as exc:
+                _record_completed_backlinks(exc, plan.links)
+                exc.facts["deleted_paths"] = list(removed)
+                exc.facts["links_replaced"] = links_replaced
+                for path in removed:
+                    exc.record_completed("delete", path)
+                raise
+            except OSError as exc:
+                raise PartialApplyError(
+                    f"delete set partially applied — links already rewritten; "
+                    f"removed {removed}, failed at {rel_path}: {exc}"
+                ) from exc
+            removed.append(rel_path)
+        if plan.prune_router is not None:
+            try:
+                prune_vacated_owner_folders(vault_root, removed, plan.prune_router)
+            except branch_guard.BranchGuardError as exc:
+                _record_completed_backlinks(exc, plan.links)
+                exc.facts["deleted_paths"] = list(removed)
+                exc.facts["links_replaced"] = links_replaced
+                for path in removed:
+                    exc.record_completed("delete", path)
+                raise
+        return {"links_replaced": links_replaced,
+                "orphaned_attachment_scopes": list(plan.orphaned_attachment_scopes),
+                "deleted": removed}
 
 
 def delete_and_clean_links(vault_root, path, router=None, recursive=False, *,
                            return_details=False, prune_router=None):
     """Delete a selected artefact subtree and strike through its backlinks."""
-    result = apply_artefact_delete(vault_root, plan_artefact_delete(
-        vault_root, path, router, recursive, prune_router=prune_router))
-    return result if return_details else result["links_replaced"]
+    with branch_guard.operation(vault_root):
+        result = apply_artefact_delete(vault_root, plan_artefact_delete(
+            vault_root, path, router, recursive, prune_router=prune_router))
+        return result if return_details else result["links_replaced"]
 
 
 # ---------------------------------------------------------------------------

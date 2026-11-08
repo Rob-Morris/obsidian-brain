@@ -313,6 +313,22 @@ def _configure_semantic_enable(
     )
 
 
+def branch_guard_setup_request(vault_root, *, ask=input, emit=print):
+    """Offer optional protection only for a named branch in the selected Git vault."""
+    from _bootstrap.branch_guard import inspect_guard
+
+    state = inspect_guard(vault_root)
+    if state["status"] != "unconfigured" or not state["repository"] or not state["observed_branch"]:
+        return None
+    emit(f"Selected vault: {Path(vault_root).resolve()}")
+    emit(f"Repository: {state['repository']}; branch: {state['observed_branch']}")
+    emit("Optional branch protection affects every Brain caller of this checkout.")
+    if ask("Allow protected mutations only on this branch? [y/N] ").strip().lower() not in {"y", "yes"}:
+        return None
+    return {"allowed_branches": [state["observed_branch"]],
+            "expected_revision": state["local_config_revision"]}
+
+
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     vault_parent = make_vault_parent_parser()
     parser = argparse.ArgumentParser(
@@ -320,6 +336,16 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         parents=[vault_parent],
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
+
+    guard = subparsers.add_parser(
+        "branch-guard", help="Explicitly configure the selected vault's optional Git branch guard.",
+        parents=[make_vault_parent_parser()],
+    )
+    guard.add_argument("--interactive", action="store_true", help="Offer the current named Git branch; skipping writes nothing.")
+    guard.add_argument("--allowed-branches", help="JSON list of literal branches, or null to explicitly remove the policy.")
+    guard.add_argument("--expected-revision", help="Local-file revision from vault.read-config.")
+    guard.add_argument("--json", action="store_true", help="Emit canonical JSON.")
+    guard.add_argument("--dry-run", action="store_true", help="Preview without changing policy.")
 
     semantic = subparsers.add_parser(
         "semantic",
@@ -527,6 +553,39 @@ def configure_mcp_action(
 
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
+
+    if args.command == "branch-guard":
+        vault_root = find_vault_root(getattr(args, "vault", None))
+        try:
+            if args.interactive:
+                if args.allowed_branches is not None or args.expected_revision is not None:
+                    raise ValueError("--interactive cannot be combined with explicit policy arguments")
+                if args.dry_run:
+                    from _command_interface.script import run
+                    forwarded = ["vault", "read-config", "--vault", str(vault_root)]
+                    if args.json:
+                        forwarded.append("--json")
+                    return run(forwarded)
+                request = branch_guard_setup_request(vault_root)
+                if request is None:
+                    print("Branch guard unchanged; optional setup skipped.")
+                    return 0
+            else:
+                if args.allowed_branches is None or not args.expected_revision:
+                    raise ValueError("Supply --allowed-branches and --expected-revision, or explicitly choose --interactive")
+                request = {"allowed_branches": json.loads(args.allowed_branches),
+                           "expected_revision": args.expected_revision}
+        except (OSError, ValueError, RuntimeError) as exc:
+            print(str(exc), file=sys.stderr)
+            return 2
+        from _command_interface.script import run
+        forwarded = ["vault", "configure-branch-guard", "--vault", str(vault_root),
+                     "--request-json", json.dumps(request)]
+        if args.json:
+            forwarded.append("--json")
+        if args.dry_run:
+            forwarded.append("--dry-run")
+        return run(forwarded)
 
     if args.command == "approvals":
         from _bootstrap.machine_cli import invoke

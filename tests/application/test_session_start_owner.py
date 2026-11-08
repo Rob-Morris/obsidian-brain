@@ -99,7 +99,7 @@ def test_session_start_returns_typed_bootstrap_and_refreshes_mirror(
     catalogue = bootstrap["command_catalogue"]
     assert catalogue["schema"] == "brain.command-catalogue/1"
     assert catalogue["interface_epoch"] == 3
-    assert catalogue["installed_application_command_count"] == 109
+    assert catalogue["installed_application_command_count"] == 110
     assert catalogue["list"].startswith("Use command.list")
     assert catalogue["describe"].startswith("Use command.describe")
     assert "context" not in bootstrap

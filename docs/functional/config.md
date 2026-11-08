@@ -638,3 +638,39 @@ Client behaviour references: [MCP](https://docs.x.ai/build/features/mcp-servers)
 [rules](https://docs.x.ai/build/features/project-rules),
 [hooks](https://docs.x.ai/build/features/hooks), and
 [skills](https://docs.x.ai/build/features/skills-plugins-marketplaces).
+
+## Vault-local Git branch guard
+
+First enforcing Core: the next release after 0.76.3, not yet released. CLI
+lifecycle enforcement ships with CLI 6.3.2. Older toolchains are outside this
+guarantee; installing only a newer CLI does not add checkpoints to older Core.
+
+Optional accident prevention for a vault embedded in a Git working tree lives
+only in ignored `.brain/local/config.yaml`:
+
+```yaml
+branch_guard:
+  allowed_branches: [dev/recipromancer]
+```
+
+The section accepts exactly a nonempty list of unique literal branch names.
+Shared configuration and shipped defaults cannot supply this policy; their
+`branch_guard` sections are ignored with a diagnostic. Absence is unconfigured;
+a present null/empty/malformed section is invalid. Names remain fixed across
+branch switches, moves and repairs. Outside Git, retained policy is dormant.
+Git observation failures never prove repository absence.
+
+`vault.read-config` includes typed `branch_guard` inspection with `status`,
+`local_config_revision`, `allowed_branches`, `repository`, `observed_branch`
+and `reason`. States are unconfigured, dormant, eligible, blocked, invalid and
+unavailable. It exposes no raw local settings. Check and Doctor also report
+branch findings without automatic policy repair.
+
+The selected-vault Maintainer command `vault.configure-branch-guard` takes
+required `allowed_branches` (list, or null to remove the section) and
+`expected_revision` from inspection. It atomically patches only this section,
+compares the whole local-file revision and preserves unrelated settings. A
+no-op has no committed effects. Explicit configuration remains available on a
+blocked branch; it still requires normal permissions and admission. Whole-file
+YAML corruption or unreadability requires file/permission repair before a
+preserving patch can proceed. No force flag bypasses this requirement.

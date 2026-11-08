@@ -264,6 +264,11 @@ def admit_owner(context, request, planner, **inputs) -> None:
     admission = context.admission
     if admission is None:
         raise RuntimeError("command owner requires explicit invocation admission")
+    from .branch_effects import branch_effect
+    from .types import BranchEffect
+    if not context.dry_run and branch_effect(request.COMMAND_ID) is BranchEffect.PROTECTED:
+        from _bootstrap.branch_guard import checkpoint
+        checkpoint(context.selected_brain.vault_root)
     binding = None
     if admission.requires_binding:
         binding = planner(context, request,

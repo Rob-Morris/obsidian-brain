@@ -63,6 +63,10 @@ class RecordingAdmission:
         self.calls = []
         self.pins = {}
 
+    @property
+    def entered(self):
+        return bool(self.calls)
+
     def read_pinned(self, source_key):
         return self.pins.get(source_key)
 

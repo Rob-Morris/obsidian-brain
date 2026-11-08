@@ -11,6 +11,8 @@ import re
 import shutil
 from typing import ClassVar
 
+from _bootstrap import branch_guard
+
 from .context import LauncherContext
 from .approvals import ApprovalClient, ApprovalScope, ApprovalSurface
 from .cutover import CutoverPreflight, CutoverPreflightError, preflight as cutover_preflight
@@ -405,6 +407,11 @@ def _install_preview(context: LauncherContext, request: BrainInstallRequest, sou
 
 
 def execute_install(context: LauncherContext, request: BrainInstallRequest):
+    with branch_guard.operation(request.vault_root):
+        return _execute_install(context, request)
+
+
+def _execute_install(context: LauncherContext, request: BrainInstallRequest):
     source = _source(context, request)
     if source is None:
         return _distribution_unavailable(type(request))
@@ -489,7 +496,7 @@ def execute_install(context: LauncherContext, request: BrainInstallRequest):
 def _system_paths(vault: Path) -> tuple[Path, ...]:
     return tuple(
         path
-        for path in (vault / ".brain-core", vault / ".brain", vault / ".venv")
+        for path in (vault / ".brain-core", vault / ".venv", vault / ".brain")
         if path.exists() or path.is_symlink()
     )
 
@@ -562,6 +569,19 @@ def _map_effects(command_id: str, results) -> list[CommittedEffect]:
 
 
 def execute_uninstall(context: LauncherContext, request: BrainUninstallRequest):
+    effects = []
+    with branch_guard.operation(context.current_vault or context.caller_dir):
+        try:
+            return _execute_uninstall(context, request, effects)
+        except branch_guard.BranchGuardError as exc:
+            error = CommandError(ErrorCode.CONFLICT, str(exc), RequestErrorDetails(None, exc.reason),
+                                 InstructionNextAction("Inspect the current checkout and recorded effects before retrying uninstall."))
+            if effects:
+                return Partial(request.COMMAND_ID, request.COMMAND_VERSION, error, tuple(effects))
+            return Error(request.COMMAND_ID, request.COMMAND_VERSION, error)
+
+
+def _execute_uninstall(context: LauncherContext, request: BrainUninstallRequest, effects):
     vault = context.current_vault
     if vault is None:
         return no_effect_error(type(request), ErrorCode.NOT_FOUND, "No current Brain is selected.", "current_vault")
@@ -572,14 +592,18 @@ def execute_uninstall(context: LauncherContext, request: BrainUninstallRequest):
     from .registry import BrainUnregisterRequest, execute_unregister
 
     paths = _system_paths(vault)
+    if not context.dry_run:
+        branch_guard.checkpoint(vault)
     cleanup_results, cleanup_plan = _mcp_cleanup(context)
-    effects = _map_effects(request.COMMAND_ID, cleanup_results)
+    effects.extend(_map_effects(request.COMMAND_ID, cleanup_results))
     failed_cleanup = next((result for result in cleanup_results if isinstance(result, (Error, Partial))), None)
     if failed_cleanup is not None:
         if effects:
             return Partial(request.COMMAND_ID, request.COMMAND_VERSION, failed_cleanup.error, tuple(effects))
         return Error(request.COMMAND_ID, request.COMMAND_VERSION, failed_cleanup.error)
 
+    if not context.dry_run:
+        branch_guard.checkpoint(vault)
     registry_result = execute_unregister(context, BrainUnregisterRequest(vault),
                                          registration_plan=cleanup_plan if context.dry_run else None)
     effects.extend(_map_effects(request.COMMAND_ID, (registry_result,)))
@@ -609,6 +633,7 @@ def execute_uninstall(context: LauncherContext, request: BrainUninstallRequest):
 
     removed: list[str] = []
     for path in paths:
+        branch_guard.checkpoint(vault)
         try:
             shutil.rmtree(path)
         except OSError as exc:
@@ -920,6 +945,11 @@ def _reconciliation_recovery_paths(result: dict) -> tuple[str, ...]:
 
 
 def execute_upgrade(context: LauncherContext, request: BrainUpgradeRequest):
+    with branch_guard.operation(context.current_vault or context.caller_dir):
+        return _execute_upgrade(context, request)
+
+
+def _execute_upgrade(context: LauncherContext, request: BrainUpgradeRequest):
     source = _source(context, request)
     vault = context.current_vault
     if source is None:

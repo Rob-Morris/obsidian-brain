@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from _bootstrap import branch_guard
+
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import nullcontext
 from copy import deepcopy
@@ -158,18 +160,19 @@ def add_git_skill(
     before_write=None,
 ) -> SkillMutation:
     """Install a new Git-managed package into the user substrate."""
-    root = Path(vault_root)
-    try:
-        with checkout_source(
-            repository,
-            skill_path=skill_path,
-            configured_ref=resolved_commit or configured_ref,
-        ) as source:
-            from dataclasses import replace
-            source = replace(source, configured_ref=configured_ref)
-            return _install_new_managed(root, source, core_lineage=None, before_write=before_write)
-    except (GitSourceError, OSError, ValueError) as exc:
-        raise SkillLibraryError(str(exc)) from exc
+    with branch_guard.operation(vault_root):
+        root = Path(vault_root)
+        try:
+            with checkout_source(
+                repository,
+                skill_path=skill_path,
+                configured_ref=resolved_commit or configured_ref,
+            ) as source:
+                from dataclasses import replace
+                source = replace(source, configured_ref=configured_ref)
+                return _install_new_managed(root, source, core_lineage=None, before_write=before_write)
+        except (GitSourceError, OSError, ValueError) as exc:
+            raise SkillLibraryError(str(exc)) from exc
 
 
 def update_skill(
@@ -182,65 +185,68 @@ def update_skill(
     before_write=None,
 ) -> SkillMutation:
     """Update the user entry, materialising a core-only source when needed."""
-    root = Path(vault_root)
-    skill_name = validate_skill_name(name)
-    tracking = load_tracking(root)
-    user_path = root / USER_SKILLS_REL / skill_name
-    if user_path.exists() or user_path.is_symlink():
-        record = tracking["managed"].get(skill_name)
-        if not isinstance(record, dict):
-            raise SkillLibraryError(
-                f"user skill {skill_name!r} has no configured update source"
-            )
-        return _update_existing(root, skill_name, record, to_commit, replace_conflict,
-                                resolved_commit=resolved_commit, before_write=before_write)
+    with branch_guard.operation(vault_root):
+        root = Path(vault_root)
+        skill_name = validate_skill_name(name)
+        tracking = load_tracking(root)
+        user_path = root / USER_SKILLS_REL / skill_name
+        if user_path.exists() or user_path.is_symlink():
+            record = tracking["managed"].get(skill_name)
+            if not isinstance(record, dict):
+                raise SkillLibraryError(
+                    f"user skill {skill_name!r} has no configured update source"
+                )
+            return _update_existing(root, skill_name, record, to_commit, replace_conflict,
+                                    resolved_commit=resolved_commit, before_write=before_write)
 
-    core_path = root / CORE_SKILLS_REL / skill_name
-    if not core_path.is_dir() or core_path.is_symlink():
-        raise SkillLibraryError(f"skill not found: {skill_name}")
-    descriptor = load_core_manifest(root).get(skill_name)
-    if descriptor is None:
-        raise SkillLibraryError(
-            f"core skill {skill_name!r} has no configured external update source"
-        )
-    ref = to_commit or str(descriptor["configured_ref"])
-    try:
-        with checkout_source(
-            str(descriptor["repository"]),
-            skill_path=str(descriptor["skill_path"]),
-            configured_ref=resolved_commit or ref,
-            expected_name=skill_name,
-        ) as source:
-            from dataclasses import replace
-            source = replace(source, configured_ref=ref)
-            return _install_new_managed(root, source, core_lineage=skill_name, before_write=before_write)
-    except (GitSourceError, OSError, ValueError) as exc:
-        raise SkillLibraryError(str(exc)) from exc
+        core_path = root / CORE_SKILLS_REL / skill_name
+        if not core_path.is_dir() or core_path.is_symlink():
+            raise SkillLibraryError(f"skill not found: {skill_name}")
+        descriptor = load_core_manifest(root).get(skill_name)
+        if descriptor is None:
+            raise SkillLibraryError(
+                f"core skill {skill_name!r} has no configured external update source"
+            )
+        ref = to_commit or str(descriptor["configured_ref"])
+        try:
+            with checkout_source(
+                str(descriptor["repository"]),
+                skill_path=str(descriptor["skill_path"]),
+                configured_ref=resolved_commit or ref,
+                expected_name=skill_name,
+            ) as source:
+                from dataclasses import replace
+                source = replace(source, configured_ref=ref)
+                return _install_new_managed(root, source, core_lineage=skill_name, before_write=before_write)
+        except (GitSourceError, OSError, ValueError) as exc:
+            raise SkillLibraryError(str(exc)) from exc
 
 
 def detach_skill(vault_root: str | Path, *, name: str, before_write=None) -> SkillMutation:
     """Retain a user package while removing its external update ownership."""
-    root = Path(vault_root)
-    skill_name = validate_skill_name(name)
-    with vault_mutation_lock(root):
-        tracking = load_tracking(root)
-        record = tracking["managed"].get(skill_name)
-        if not isinstance(record, dict):
-            raise SkillLibraryError(f"managed user skill not found: {skill_name}")
-        package = _require_user_snapshot(root, skill_name)
-        updated = deepcopy(tracking)
-        del updated["managed"][skill_name]
-        if before_write is not None:
-            before_write(None)
-        write_tracking(root, updated)
-    return SkillMutation(
-        skill_name,
-        SkillMutationAction.DETACHED,
-        SkillState.USER_OWNED,
-        package.package_sha256,
-        None,
-        (str(Path(".brain") / "skill-sources.json"),),
-    )
+    with branch_guard.operation(vault_root):
+        root = Path(vault_root)
+        skill_name = validate_skill_name(name)
+        with vault_mutation_lock(root):
+            tracking = load_tracking(root)
+            record = tracking["managed"].get(skill_name)
+            if not isinstance(record, dict):
+                raise SkillLibraryError(f"managed user skill not found: {skill_name}")
+            package = _require_user_snapshot(root, skill_name)
+            updated = deepcopy(tracking)
+            del updated["managed"][skill_name]
+            if before_write is not None:
+                before_write(None)
+            branch_guard.checkpoint(root)
+            write_tracking(root, updated)
+        return SkillMutation(
+            skill_name,
+            SkillMutationAction.DETACHED,
+            SkillState.USER_OWNED,
+            package.package_sha256,
+            None,
+            (str(Path(".brain") / "skill-sources.json"),),
+        )
 
 
 def materialise_core_skill_for_edit(
@@ -248,60 +254,71 @@ def materialise_core_skill_for_edit(
 ) -> SkillMutation | None:
     """Copy a core-only package into user space before a supported edit."""
 
-    root = Path(vault_root)
-    skill_name = validate_skill_name(name)
-    user_path = root / USER_SKILLS_REL / skill_name
-    if user_path.exists() or user_path.is_symlink():
-        return None
-    core = _optional_snapshot(root / CORE_SKILLS_REL / skill_name, skill_name)
-    if core is None:
-        return None
-    descriptor = load_core_manifest(root).get(skill_name)
-    lock = nullcontext() if lock_held else vault_mutation_lock(root)
-    with lock:
+    with branch_guard.operation(vault_root):
+        root = Path(vault_root)
+        skill_name = validate_skill_name(name)
+        user_path = root / USER_SKILLS_REL / skill_name
         if user_path.exists() or user_path.is_symlink():
             return None
-        _install_snapshot(root, core, replace=False, archive_existing=False)
-        changed = [str(USER_SKILLS_REL / skill_name)]
-        if descriptor is not None:
-            tracking = load_tracking(root)
-            record = _record(
-                source_repository=str(descriptor["repository"]),
-                source_skill_path=str(descriptor["skill_path"]),
-                configured_ref=str(descriptor["configured_ref"]),
-                resolved_commit=str(descriptor.get("resolved_commit") or "unknown"),
-                source=core,
-                core_lineage=skill_name,
-            )
-            tracking["managed"][skill_name] = record
-            try:
-                write_tracking(root, tracking)
-            except BaseException:
-                _rollback_install(root, user_path, None, False)
-                raise
-            changed.append(str(Path(".brain") / "skill-sources.json"))
-        else:
-            tracking = load_tracking(root)
-            tracking["core_overrides"][skill_name] = {
-                "core_lineage": skill_name,
-                "installed_baseline_sha256": core.package_sha256,
-                "installed_manifest": manifest_value(core),
-                "materialised_at": _now(),
-            }
-            try:
-                write_tracking(root, tracking)
-            except BaseException:
-                _rollback_install(root, user_path, None, False)
-                raise
-            changed.append(str(Path(".brain") / "skill-sources.json"))
-    return SkillMutation(
-        skill_name,
-        SkillMutationAction.MATERIALISED_FOR_EDIT,
-        SkillState.LOCALLY_CUSTOMISED,
-        core.package_sha256,
-        str(descriptor.get("resolved_commit")) if descriptor else None,
-        tuple(changed),
-    )
+        core = _optional_snapshot(root / CORE_SKILLS_REL / skill_name, skill_name)
+        if core is None:
+            return None
+        descriptor = load_core_manifest(root).get(skill_name)
+        lock = nullcontext() if lock_held else vault_mutation_lock(root)
+        with lock:
+            if user_path.exists() or user_path.is_symlink():
+                return None
+            _install_snapshot(root, core, replace=False, archive_existing=False)
+            changed = [str(USER_SKILLS_REL / skill_name)]
+            if descriptor is not None:
+                tracking = load_tracking(root)
+                record = _record(
+                    source_repository=str(descriptor["repository"]),
+                    source_skill_path=str(descriptor["skill_path"]),
+                    configured_ref=str(descriptor["configured_ref"]),
+                    resolved_commit=str(descriptor.get("resolved_commit") or "unknown"),
+                    source=core,
+                    core_lineage=skill_name,
+                )
+                tracking["managed"][skill_name] = record
+                try:
+                    branch_guard.checkpoint(root)
+                    write_tracking(root, tracking)
+                except branch_guard.BranchGuardError as exc:
+                    exc.record_completed("write", str(user_path.relative_to(root)))
+                    raise
+                except BaseException:
+                    branch_guard.checkpoint(root)
+                    _rollback_install(root, user_path, None, False)
+                    raise
+                changed.append(str(Path(".brain") / "skill-sources.json"))
+            else:
+                tracking = load_tracking(root)
+                tracking["core_overrides"][skill_name] = {
+                    "core_lineage": skill_name,
+                    "installed_baseline_sha256": core.package_sha256,
+                    "installed_manifest": manifest_value(core),
+                    "materialised_at": _now(),
+                }
+                try:
+                    branch_guard.checkpoint(root)
+                    write_tracking(root, tracking)
+                except branch_guard.BranchGuardError as exc:
+                    exc.record_completed("write", str(user_path.relative_to(root)))
+                    raise
+                except BaseException:
+                    branch_guard.checkpoint(root)
+                    _rollback_install(root, user_path, None, False)
+                    raise
+                changed.append(str(Path(".brain") / "skill-sources.json"))
+        return SkillMutation(
+            skill_name,
+            SkillMutationAction.MATERIALISED_FOR_EDIT,
+            SkillState.LOCALLY_CUSTOMISED,
+            core.package_sha256,
+            str(descriptor.get("resolved_commit")) if descriptor else None,
+            tuple(changed),
+        )
 
 
 def reconcile_core_overrides(
@@ -312,41 +329,53 @@ def reconcile_core_overrides(
     ``lock_held`` is for the upgrader, which holds the vault mutation lock
     across its whole pre-commit span; the lock is not re-entrant.
     """
-    root = Path(vault_root)
-    reconciled: list[CoreReconciliation] = []
-    lock = nullcontext() if lock_held else vault_mutation_lock(root)
-    with lock:
-        tracking = load_tracking(root)
-        updated = deepcopy(tracking)
-        for name, _record, collection, _user, _core in _eligible_core_overrides(
-            root,
-            root / CORE_SKILLS_REL,
-            tracking,
-        ):
-            archive = _archive_destination(root, name, "converged")
-            archive.parent.mkdir(parents=True, exist_ok=True)
-            os.replace(root / USER_SKILLS_REL / name, archive)
-            del updated[collection][name]
-            try:
-                write_tracking(root, updated)
-            except BaseException:
+    with branch_guard.operation(vault_root):
+        root = Path(vault_root)
+        reconciled: list[CoreReconciliation] = []
+        lock = nullcontext() if lock_held else vault_mutation_lock(root)
+        with lock:
+            tracking = load_tracking(root)
+            updated = deepcopy(tracking)
+            for name, _record, collection, _user, _core in _eligible_core_overrides(
+                root,
+                root / CORE_SKILLS_REL,
+                tracking,
+            ):
+                archive = _archive_destination(root, name, "converged")
+                branch_guard.checkpoint(root)
+                archive.parent.mkdir(parents=True, exist_ok=True)
+                branch_guard.checkpoint(root)
+                os.replace(root / USER_SKILLS_REL / name, archive)
+                del updated[collection][name]
                 try:
-                    os.replace(archive, root / USER_SKILLS_REL / name)
-                except BaseException as rollback_exc:
-                    raise SkillMutationOutcomeUncertain(
-                        f"could not restore collapsed override for {name!r}"
-                    ) from rollback_exc
-                raise
-            cleanup_warning = _trim_backups(root, name)
-            reconciled.append(
-                CoreReconciliation(
-                    name,
-                    CoreReconciliationAction.COLLAPSED_TO_CORE,
-                    str(archive.relative_to(root)),
-                    cleanup_warning,
+                    branch_guard.checkpoint(root)
+                    write_tracking(root, updated)
+                except branch_guard.BranchGuardError as exc:
+                    exc.facts["retained_archive"] = str(archive.relative_to(root))
+                    exc.record_completed("move", str(USER_SKILLS_REL / name),
+                                         destination=str(archive.relative_to(root)))
+                    raise
+                except BaseException:
+                    branch_guard.checkpoint(root)
+                    try:
+                        branch_guard.checkpoint(root)
+                        os.replace(archive, root / USER_SKILLS_REL / name)
+                    except BaseException as rollback_exc:
+                        branch_guard.checkpoint(root)
+                        raise SkillMutationOutcomeUncertain(
+                            f"could not restore collapsed override for {name!r}"
+                        ) from rollback_exc
+                    raise
+                cleanup_warning = _trim_backups(root, name)
+                reconciled.append(
+                    CoreReconciliation(
+                        name,
+                        CoreReconciliationAction.COLLAPSED_TO_CORE,
+                        str(archive.relative_to(root)),
+                        cleanup_warning,
+                    )
                 )
-            )
-    return tuple(reconciled)
+        return tuple(reconciled)
 
 
 def preview_core_override_reconciliation(
@@ -500,238 +529,285 @@ def _record_source_check(updated, name, record, check):
 
 
 def _install_new_managed(root, source, *, core_lineage, before_write=None):
-    name = source.package.name
-    with vault_mutation_lock(root):
-        destination = root / USER_SKILLS_REL / name
-        if destination.exists() or destination.is_symlink():
-            raise SkillLibraryError(f"user skill already exists: {name}")
-        tracking = load_tracking(root)
-        if name in tracking["managed"]:
-            raise SkillLibraryError(f"managed skill tracking already exists: {name}")
-        record = _record(
-            source_repository=source.repository,
-            source_skill_path=source.skill_path,
-            configured_ref=source.configured_ref,
-            resolved_commit=source.resolved_commit,
-            source=source.package,
-            core_lineage=core_lineage,
+    with branch_guard.operation(root):
+        name = source.package.name
+        with vault_mutation_lock(root):
+            destination = root / USER_SKILLS_REL / name
+            if destination.exists() or destination.is_symlink():
+                raise SkillLibraryError(f"user skill already exists: {name}")
+            tracking = load_tracking(root)
+            if name in tracking["managed"]:
+                raise SkillLibraryError(f"managed skill tracking already exists: {name}")
+            record = _record(
+                source_repository=source.repository,
+                source_skill_path=source.skill_path,
+                configured_ref=source.configured_ref,
+                resolved_commit=source.resolved_commit,
+                source=source.package,
+                core_lineage=core_lineage,
+            )
+            if before_write is not None:
+                before_write(source)
+            changed, backup, cleanup_warning = _commit_package_and_tracking(
+                root,
+                source.package,
+                tracking,
+                record,
+                replace=False,
+                archive_existing=False,
+            )
+        return SkillMutation(
+            name,
+            SkillMutationAction.INSTALLED,
+            SkillState.IN_SYNC,
+            source.package.package_sha256,
+            source.resolved_commit,
+            changed,
+            backup,
+            cleanup_warning,
         )
-        if before_write is not None:
-            before_write(source)
-        changed, backup, cleanup_warning = _commit_package_and_tracking(
-            root,
-            source.package,
-            tracking,
-            record,
-            replace=False,
-            archive_existing=False,
-        )
-    return SkillMutation(
-        name,
-        SkillMutationAction.INSTALLED,
-        SkillState.IN_SYNC,
-        source.package.package_sha256,
-        source.resolved_commit,
-        changed,
-        backup,
-        cleanup_warning,
-    )
 
 
 def _update_existing(root, name, record, to_commit, replace_conflict, *, resolved_commit=None, before_write=None):
-    ref = to_commit or str(record["configured_ref"])
-    try:
-        with checkout_source(
-            str(record["repository"]),
-            skill_path=str(record["skill_path"]),
-            configured_ref=resolved_commit or ref,
-            expected_name=name,
-        ) as source:
-            with vault_mutation_lock(root):
-                tracking = load_tracking(root)
-                current_record = tracking["managed"].get(name)
-                if not isinstance(current_record, dict):
-                    raise SkillLibraryError(f"managed skill tracking disappeared: {name}")
-                current = _require_user_snapshot(root, name)
-                baseline = str(current_record["installed_baseline_sha256"])
-                source_baseline = str(current_record["source_package_sha256"])
-                transition = _classify_transition(
-                    current=current.package_sha256,
-                    installed_baseline=baseline,
-                    source_baseline=source_baseline,
-                    available_source=source.package.package_sha256,
-                )
-                if transition is _SkillTransition.LOCAL_ONLY:
-                    raise SkillLibraryError(
-                        f"skill {name!r} is locally customised and upstream is unchanged"
+    with branch_guard.operation(root):
+        ref = to_commit or str(record["configured_ref"])
+        try:
+            with checkout_source(
+                str(record["repository"]),
+                skill_path=str(record["skill_path"]),
+                configured_ref=resolved_commit or ref,
+                expected_name=name,
+            ) as source:
+                with vault_mutation_lock(root):
+                    tracking = load_tracking(root)
+                    current_record = tracking["managed"].get(name)
+                    if not isinstance(current_record, dict):
+                        raise SkillLibraryError(f"managed skill tracking disappeared: {name}")
+                    current = _require_user_snapshot(root, name)
+                    baseline = str(current_record["installed_baseline_sha256"])
+                    source_baseline = str(current_record["source_package_sha256"])
+                    transition = _classify_transition(
+                        current=current.package_sha256,
+                        installed_baseline=baseline,
+                        source_baseline=source_baseline,
+                        available_source=source.package.package_sha256,
                     )
-                if transition is _SkillTransition.INCONSISTENT_BASELINES:
-                    raise SkillLibraryError(
-                        f"skill {name!r} tracking baselines disagree with the installed package"
-                    )
-                if before_write is not None:
-                    before_write(source)
-                if transition is _SkillTransition.MATCHES_SOURCE:
-                    updated_record = _record_from_existing(current_record, source)
-                    tracking["managed"][name] = updated_record
-                    write_tracking(root, tracking)
-                    return SkillMutation(
-                        name,
-                        SkillMutationAction.REBASELINED,
-                        SkillState.IN_SYNC,
-                        current.package_sha256,
-                        source.resolved_commit,
-                        (str(Path(".brain") / "skill-sources.json"),),
-                    )
-                if transition is _SkillTransition.CONFLICT and not replace_conflict:
-                    current_record["available_commit"] = source.resolved_commit
-                    current_record["available_package_sha256"] = (
-                        source.package.package_sha256
-                    )
-                    current_record["last_checked_at"] = _now()
-                    current_record["source_error"] = None
-                    tracking["managed"][name] = current_record
-                    conflict_path, previous_conflict = _stage_conflict(
-                        root,
-                        current,
-                        current_record,
-                        source.package,
-                        source.resolved_commit,
-                    )
-                    try:
+                    if transition is _SkillTransition.LOCAL_ONLY:
+                        raise SkillLibraryError(
+                            f"skill {name!r} is locally customised and upstream is unchanged"
+                        )
+                    if transition is _SkillTransition.INCONSISTENT_BASELINES:
+                        raise SkillLibraryError(
+                            f"skill {name!r} tracking baselines disagree with the installed package"
+                        )
+                    if before_write is not None:
+                        before_write(source)
+                    if transition is _SkillTransition.MATCHES_SOURCE:
+                        updated_record = _record_from_existing(current_record, source)
+                        tracking["managed"][name] = updated_record
+                        branch_guard.checkpoint(root)
                         write_tracking(root, tracking)
-                    except BaseException as exc:
+                        return SkillMutation(
+                            name,
+                            SkillMutationAction.REBASELINED,
+                            SkillState.IN_SYNC,
+                            current.package_sha256,
+                            source.resolved_commit,
+                            (str(Path(".brain") / "skill-sources.json"),),
+                        )
+                    if transition is _SkillTransition.CONFLICT and not replace_conflict:
+                        current_record["available_commit"] = source.resolved_commit
+                        current_record["available_package_sha256"] = (
+                            source.package.package_sha256
+                        )
+                        current_record["last_checked_at"] = _now()
+                        current_record["source_error"] = None
+                        tracking["managed"][name] = current_record
+                        conflict_path, previous_conflict = _stage_conflict(
+                            root,
+                            current,
+                            current_record,
+                            source.package,
+                            source.resolved_commit,
+                        )
                         try:
-                            _rollback_conflict_stage(
-                                conflict_path, previous_conflict
+                            branch_guard.checkpoint(root)
+                            write_tracking(root, tracking)
+                        except branch_guard.BranchGuardError as exc:
+                            exc.facts["retained_conflict_stage"] = str(conflict_path.relative_to(root))
+                            exc.facts["retained_previous_conflict"] = (
+                                str(previous_conflict.relative_to(root)) if previous_conflict else None
                             )
-                        except BaseException as rollback_exc:
-                            raise SkillMutationOutcomeUncertain(
-                                f"could not recover failed conflict staging for {name!r}"
-                            ) from rollback_exc
-                        raise
-                    cleanup_warning = _cleanup_displaced_conflict(previous_conflict)
-                    detail = (
-                        "Local and upstream packages both changed. The upstream "
-                        "candidate and comparison metadata were staged without "
-                        "changing the installed user skill."
+                            exc.record_completed("write", str(conflict_path.relative_to(root)))
+                            if previous_conflict is not None:
+                                exc.record_completed("move", str(conflict_path.relative_to(root)),
+                                                     destination=str(previous_conflict.relative_to(root)))
+                            raise
+                        except BaseException as exc:
+                            branch_guard.checkpoint(root)
+                            try:
+                                _rollback_conflict_stage(
+                                    root, conflict_path, previous_conflict
+                                )
+                            except BaseException as rollback_exc:
+                                branch_guard.checkpoint(root)
+                                raise SkillMutationOutcomeUncertain(
+                                    f"could not recover failed conflict staging for {name!r}"
+                                ) from rollback_exc
+                            raise
+                        try:
+                            cleanup_warning = _cleanup_displaced_conflict(root, previous_conflict)
+                        except branch_guard.BranchGuardError as exc:
+                            exc.record_completed("write", str(conflict_path.relative_to(root)))
+                            exc.record_completed("write", ".brain/skill-sources.json")
+                            if previous_conflict is not None:
+                                exc.record_completed("move", str(conflict_path.relative_to(root)),
+                                                     destination=str(previous_conflict.relative_to(root)))
+                            raise
+                        detail = (
+                            "Local and upstream packages both changed. The upstream "
+                            "candidate and comparison metadata were staged without "
+                            "changing the installed user skill."
+                        )
+                        if cleanup_warning is not None:
+                            detail = f"{detail} {cleanup_warning}"
+                        return SkillMutation(
+                            name,
+                            SkillMutationAction.CONFLICT_STAGED,
+                            SkillState.CONFLICT,
+                            current.package_sha256,
+                            source.resolved_commit,
+                            (
+                                str(conflict_path.relative_to(root)),
+                                str(Path(".brain") / "skill-sources.json"),
+                            ),
+                            None,
+                            detail,
+                        )
+                    updated_record = _record_from_existing(current_record, source)
+                    archive_existing = transition is _SkillTransition.CONFLICT
+                    changed, backup, cleanup_warning = _commit_package_and_tracking(
+                        root,
+                        source.package,
+                        tracking,
+                        updated_record,
+                        replace=True,
+                        archive_existing=archive_existing,
                     )
-                    if cleanup_warning is not None:
-                        detail = f"{detail} {cleanup_warning}"
-                    return SkillMutation(
-                        name,
-                        SkillMutationAction.CONFLICT_STAGED,
-                        SkillState.CONFLICT,
-                        current.package_sha256,
-                        source.resolved_commit,
-                        (
-                            str(conflict_path.relative_to(root)),
-                            str(Path(".brain") / "skill-sources.json"),
-                        ),
-                        None,
-                        detail,
-                    )
-                updated_record = _record_from_existing(current_record, source)
-                archive_existing = transition is _SkillTransition.CONFLICT
-                changed, backup, cleanup_warning = _commit_package_and_tracking(
-                    root,
-                    source.package,
-                    tracking,
-                    updated_record,
-                    replace=True,
-                    archive_existing=archive_existing,
+                return SkillMutation(
+                    name,
+                    (
+                        SkillMutationAction.REPLACED
+                        if archive_existing
+                        else SkillMutationAction.UPDATED
+                    ),
+                    SkillState.IN_SYNC,
+                    source.package.package_sha256,
+                    source.resolved_commit,
+                    changed,
+                    backup,
+                    cleanup_warning,
                 )
-            return SkillMutation(
-                name,
-                (
-                    SkillMutationAction.REPLACED
-                    if archive_existing
-                    else SkillMutationAction.UPDATED
-                ),
-                SkillState.IN_SYNC,
-                source.package.package_sha256,
-                source.resolved_commit,
-                changed,
-                backup,
-                cleanup_warning,
-            )
-    except (GitSourceError, OSError, ValueError) as exc:
-        raise SkillLibraryError(str(exc)) from exc
+        except (GitSourceError, OSError, ValueError) as exc:
+            raise SkillLibraryError(str(exc)) from exc
 
 
 def _stage_conflict(root, current, record, upstream, resolved_commit):
-    conflict_root = root / CONFLICTS_REL
-    if conflict_root.is_symlink():
-        raise SkillLibraryError(f"skill conflict root is a symlink: {conflict_root}")
-    conflict_root.mkdir(parents=True, exist_ok=True)
-    destination = conflict_root / current.name
-    if destination.is_symlink():
-        raise SkillLibraryError(f"skill conflict destination is a symlink: {destination}")
-    temporary = conflict_root / f".{current.name}.brain-stage-{uuid.uuid4().hex}"
-    temporary.mkdir()
-    previous = None
-    staged = False
-    try:
-        copy_package(upstream, temporary / "upstream")
-        metadata = {
-            "schema_version": 1,
-            "skill": current.name,
-            "baseline_package_sha256": record["installed_baseline_sha256"],
-            "local_package_sha256": current.package_sha256,
-            "upstream_package_sha256": upstream.package_sha256,
-            "upstream_commit": resolved_commit,
-            "local_changes": _changed_manifest_paths(
-                record.get("installed_manifest"), current
-            ),
-            "upstream_changes": _changed_manifest_paths(
-                record.get("installed_manifest"), upstream
-            ),
-            "local_upstream_differences": _snapshot_difference_paths(
-                current, upstream
-            ),
-            "staged_at": _now(),
-        }
-        safe_write_json(
-            temporary / "comparison.json",
-            metadata,
-            bounds=temporary,
-            follow_symlinks=False,
-        )
-        if destination.exists():
-            previous = conflict_root / f".{current.name}.previous-{uuid.uuid4().hex}"
-            os.replace(destination, previous)
-        os.replace(temporary, destination)
-        staged = True
-    except BaseException:
-        shutil.rmtree(temporary, ignore_errors=True)
-        if staged:
-            shutil.rmtree(destination, ignore_errors=True)
-        if previous is not None and previous.exists() and not destination.exists():
-            try:
-                os.replace(previous, destination)
-            except BaseException as rollback_exc:
-                raise SkillMutationOutcomeUncertain(
-                    f"could not restore prior conflict stage for {current.name!r}"
-                ) from rollback_exc
-        raise
-    return destination, previous
+    with branch_guard.operation(root):
+        conflict_root = root / CONFLICTS_REL
+        if conflict_root.is_symlink():
+            raise SkillLibraryError(f"skill conflict root is a symlink: {conflict_root}")
+        branch_guard.checkpoint(root)
+        conflict_root.mkdir(parents=True, exist_ok=True)
+        destination = conflict_root / current.name
+        if destination.is_symlink():
+            raise SkillLibraryError(f"skill conflict destination is a symlink: {destination}")
+        temporary = conflict_root / f".{current.name}.brain-stage-{uuid.uuid4().hex}"
+        temporary.mkdir()
+        previous = None
+        staged = False
+        try:
+            copy_package(upstream, temporary / "upstream")
+            metadata = {
+                "schema_version": 1,
+                "skill": current.name,
+                "baseline_package_sha256": record["installed_baseline_sha256"],
+                "local_package_sha256": current.package_sha256,
+                "upstream_package_sha256": upstream.package_sha256,
+                "upstream_commit": resolved_commit,
+                "local_changes": _changed_manifest_paths(
+                    record.get("installed_manifest"), current
+                ),
+                "upstream_changes": _changed_manifest_paths(
+                    record.get("installed_manifest"), upstream
+                ),
+                "local_upstream_differences": _snapshot_difference_paths(
+                    current, upstream
+                ),
+                "staged_at": _now(),
+            }
+            safe_write_json(
+                temporary / "comparison.json",
+                metadata,
+                bounds=temporary,
+                follow_symlinks=False,
+            )
+            if destination.exists():
+                previous = conflict_root / f".{current.name}.previous-{uuid.uuid4().hex}"
+                branch_guard.checkpoint(root)
+                os.replace(destination, previous)
+            branch_guard.checkpoint(root)
+            os.replace(temporary, destination)
+            staged = True
+        except branch_guard.BranchGuardError as exc:
+            exc.facts["retained_stage"] = str(temporary.relative_to(root))
+            exc.facts["retained_previous_conflict"] = str(previous.relative_to(root)) if previous else None
+            if previous is not None and previous.exists():
+                exc.record_completed("move", str(destination.relative_to(root)),
+                                     destination=str(previous.relative_to(root)))
+            raise
+        except BaseException:
+            shutil.rmtree(temporary, ignore_errors=True)
+            if staged:
+                branch_guard.checkpoint(root)
+                shutil.rmtree(destination, ignore_errors=True)
+            if previous is not None and previous.exists() and not destination.exists():
+                try:
+                    branch_guard.checkpoint(root)
+                    os.replace(previous, destination)
+                except branch_guard.BranchGuardError:
+                    raise
+                except BaseException as rollback_exc:
+                    raise SkillMutationOutcomeUncertain(
+                        f"could not restore prior conflict stage for {current.name!r}"
+                    ) from rollback_exc
+            raise
+        return destination, previous
 
 
-def _rollback_conflict_stage(destination, previous):
-    if destination.exists() and not destination.is_symlink():
-        shutil.rmtree(destination)
-    if previous is not None and previous.exists():
-        os.replace(previous, destination)
+def _rollback_conflict_stage(root, destination, previous):
+    with branch_guard.operation(root):
+        if destination.exists() and not destination.is_symlink():
+            branch_guard.checkpoint(root)
+            shutil.rmtree(destination)
+        if previous is not None and previous.exists():
+            branch_guard.checkpoint(root)
+            os.replace(previous, destination)
 
 
-def _cleanup_displaced_conflict(previous):
-    if previous is None:
+def _cleanup_displaced_conflict(root, previous):
+    with branch_guard.operation(root):
+        if previous is None:
+            return None
+        try:
+            branch_guard.checkpoint(root)
+            shutil.rmtree(previous)
+        except branch_guard.BranchGuardError as exc:
+            exc.facts["retained_previous_conflict"] = str(previous.relative_to(root))
+            raise
+        except OSError as exc:
+            return f"Prior conflict-stage cleanup did not complete: {exc}"
         return None
-    try:
-        shutil.rmtree(previous)
-    except OSError as exc:
-        return f"Prior conflict-stage cleanup did not complete: {exc}"
-    return None
 
 
 def _changed_manifest_paths(baseline_value, snapshot):
@@ -811,85 +887,124 @@ def _commit_package_and_tracking(
     replace,
     archive_existing,
 ):
-    name = snapshot.name
-    old_tracking = deepcopy(tracking)
-    updated = deepcopy(tracking)
-    updated["managed"][name] = record
-    destination = root / USER_SKILLS_REL / name
-    backup = _install_snapshot(
-        root,
-        snapshot,
-        replace=replace,
-        archive_existing=archive_existing,
-    )
-    try:
-        write_tracking(root, updated)
-    except BaseException:
+    with branch_guard.operation(root):
+        name = snapshot.name
+        old_tracking = deepcopy(tracking)
+        updated = deepcopy(tracking)
+        updated["managed"][name] = record
+        destination = root / USER_SKILLS_REL / name
+        backup = _install_snapshot(
+            root,
+            snapshot,
+            replace=replace,
+            archive_existing=archive_existing,
+        )
         try:
-            _rollback_install(root, destination, backup, replace)
-            write_tracking(root, old_tracking)
-        except BaseException as rollback_exc:
-            raise SkillMutationOutcomeUncertain(
-                f"could not recover failed skill installation for {name!r}"
-            ) from rollback_exc
-        raise
-    changed = [str(USER_SKILLS_REL / name), str(Path(".brain") / "skill-sources.json")]
-    cleanup_warning = None
-    if backup is not None:
-        changed.append(str(backup.relative_to(root)))
-        cleanup_warning = _trim_backups(root, name)
-    return (
-        tuple(changed),
-        str(backup.relative_to(root)) if backup else None,
-        cleanup_warning,
-    )
+            branch_guard.checkpoint(root)
+            write_tracking(root, updated)
+        except branch_guard.BranchGuardError as exc:
+            exc.record_completed("write", str(destination.relative_to(root)))
+            if backup is not None:
+                exc.record_completed("move", str(destination.relative_to(root)),
+                                     destination=str(backup.relative_to(root)))
+            exc.facts["retained_backup"] = str(backup.relative_to(root)) if backup else None
+            raise
+        except BaseException:
+            branch_guard.checkpoint(root)
+            try:
+                _rollback_install(root, destination, backup, replace)
+                branch_guard.checkpoint(root)
+                write_tracking(root, old_tracking)
+            except BaseException as rollback_exc:
+                branch_guard.checkpoint(root)
+                raise SkillMutationOutcomeUncertain(
+                    f"could not recover failed skill installation for {name!r}"
+                ) from rollback_exc
+            raise
+        changed = [str(USER_SKILLS_REL / name), str(Path(".brain") / "skill-sources.json")]
+        cleanup_warning = None
+        if backup is not None:
+            changed.append(str(backup.relative_to(root)))
+            try:
+                cleanup_warning = _trim_backups(root, name)
+            except branch_guard.BranchGuardError as exc:
+                exc.record_completed("write", str(destination.relative_to(root)))
+                exc.record_completed("write", ".brain/skill-sources.json")
+                exc.record_completed("move", str(destination.relative_to(root)),
+                                     destination=str(backup.relative_to(root)))
+                raise
+        return (
+            tuple(changed),
+            str(backup.relative_to(root)) if backup else None,
+            cleanup_warning,
+        )
 
 
 def _install_snapshot(root, snapshot, *, replace, archive_existing):
-    skills_root = root / USER_SKILLS_REL
-    if skills_root.is_symlink():
-        raise SkillLibraryError(f"user skill root is a symlink: {skills_root}")
-    skills_root.mkdir(parents=True, exist_ok=True)
-    destination = skills_root / snapshot.name
-    if destination.is_symlink():
-        raise SkillLibraryError(f"user skill destination is a symlink: {destination}")
-    if destination.exists() and not replace:
-        raise SkillLibraryError(f"user skill already exists: {snapshot.name}")
-    temporary = skills_root / f".{snapshot.name}.brain-stage-{uuid.uuid4().hex}"
-    copy_package(snapshot, temporary)
-    backup = None
-    try:
-        if destination.exists():
-            backup = _archive_destination(
-                root,
-                snapshot.name,
-                "pre-reconcile" if archive_existing else "previous",
-            )
-            backup.parent.mkdir(parents=True, exist_ok=True)
-            os.replace(destination, backup)
-        os.replace(temporary, destination)
-    except BaseException:
-        if temporary.exists():
-            shutil.rmtree(temporary, ignore_errors=True)
-        if backup is not None and backup.exists() and not destination.exists():
-            try:
-                os.replace(backup, destination)
-            except BaseException as rollback_exc:
-                raise SkillMutationOutcomeUncertain(
-                    f"could not restore previous package for {snapshot.name!r}"
-                ) from rollback_exc
-        raise
-    return backup
+    with branch_guard.operation(root):
+        skills_root = root / USER_SKILLS_REL
+        if skills_root.is_symlink():
+            raise SkillLibraryError(f"user skill root is a symlink: {skills_root}")
+        branch_guard.checkpoint(root)
+        skills_root.mkdir(parents=True, exist_ok=True)
+        destination = skills_root / snapshot.name
+        if destination.is_symlink():
+            raise SkillLibraryError(f"user skill destination is a symlink: {destination}")
+        if destination.exists() and not replace:
+            raise SkillLibraryError(f"user skill already exists: {snapshot.name}")
+        temporary = skills_root / f".{snapshot.name}.brain-stage-{uuid.uuid4().hex}"
+        copy_package(snapshot, temporary)
+        backup = None
+        try:
+            if destination.exists():
+                backup = _archive_destination(
+                    root,
+                    snapshot.name,
+                    "pre-reconcile" if archive_existing else "previous",
+                )
+                branch_guard.checkpoint(root)
+                backup.parent.mkdir(parents=True, exist_ok=True)
+                branch_guard.checkpoint(root)
+                os.replace(destination, backup)
+            branch_guard.checkpoint(root)
+            os.replace(temporary, destination)
+        except branch_guard.BranchGuardError as exc:
+            exc.facts["retained_stage"] = str(temporary.relative_to(root))
+            exc.facts["retained_backup"] = str(backup.relative_to(root)) if backup else None
+            if backup is not None and backup.exists():
+                exc.record_completed("move", str(destination.relative_to(root)),
+                                     destination=str(backup.relative_to(root)))
+            raise
+        except BaseException:
+            branch_guard.checkpoint(root)
+            if temporary.exists():
+                shutil.rmtree(temporary, ignore_errors=True)
+            if backup is not None and backup.exists() and not destination.exists():
+                try:
+                    branch_guard.checkpoint(root)
+                    os.replace(backup, destination)
+                except BaseException as rollback_exc:
+                    branch_guard.checkpoint(root)
+                    raise SkillMutationOutcomeUncertain(
+                        f"could not restore previous package for {snapshot.name!r}"
+                    ) from rollback_exc
+            raise
+        return backup
 
 
 def _rollback_install(root, destination, backup, replace):
-    if destination.exists() and not destination.is_symlink():
-        rollback = root / BACKUPS_REL / f".{destination.name}.rollback-{uuid.uuid4().hex}"
-        rollback.parent.mkdir(parents=True, exist_ok=True)
-        os.replace(destination, rollback)
-        shutil.rmtree(rollback, ignore_errors=True)
-    if replace and backup is not None and backup.exists():
-        os.replace(backup, destination)
+    with branch_guard.operation(root):
+        if destination.exists() and not destination.is_symlink():
+            rollback = root / BACKUPS_REL / f".{destination.name}.rollback-{uuid.uuid4().hex}"
+            branch_guard.checkpoint(root)
+            rollback.parent.mkdir(parents=True, exist_ok=True)
+            branch_guard.checkpoint(root)
+            os.replace(destination, rollback)
+            branch_guard.checkpoint(root)
+            shutil.rmtree(rollback, ignore_errors=True)
+        if replace and backup is not None and backup.exists():
+            branch_guard.checkpoint(root)
+            os.replace(backup, destination)
 
 
 def _archive_destination(root, name, label):
@@ -906,21 +1021,30 @@ def _archive_destination(root, name, label):
 
 
 def _trim_backups(root, name):
-    backup_root = root / BACKUPS_REL
-    try:
-        candidates = sorted(
-            (
-                path
-                for path in backup_root.iterdir()
-                if path.name.startswith(f"{name}.") and path.is_dir() and not path.is_symlink()
-            ),
-            key=lambda path: path.stat().st_mtime,
-        )
-        for path in candidates[:-MAX_BACKUPS_PER_SKILL]:
-            shutil.rmtree(path)
-    except OSError as exc:
-        return f"Backup cleanup for {name!r} did not complete: {exc}"
-    return None
+    with branch_guard.operation(root):
+        backup_root = root / BACKUPS_REL
+        removed = []
+        try:
+            candidates = sorted(
+                (
+                    path
+                    for path in backup_root.iterdir()
+                    if path.name.startswith(f"{name}.") and path.is_dir() and not path.is_symlink()
+                ),
+                key=lambda path: path.stat().st_mtime,
+            )
+            for path in candidates[:-MAX_BACKUPS_PER_SKILL]:
+                branch_guard.checkpoint(root)
+                shutil.rmtree(path)
+                removed.append(str(path.relative_to(root)))
+        except branch_guard.BranchGuardError as exc:
+            exc.facts["deleted_backup_paths"] = removed
+            for path in removed:
+                exc.record_completed("delete", path)
+            raise
+        except OSError as exc:
+            return f"Backup cleanup for {name!r} did not complete: {exc}"
+        return None
 
 
 def _skill_names(root, tracking, core_sources):

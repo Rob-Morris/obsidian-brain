@@ -5,8 +5,9 @@ from __future__ import annotations
 import importlib
 import os
 
-from _common import safe_write_via
-from _common._yaml import YamlError, dump_mapping_text, load_mapping_file
+from _bootstrap import branch_guard
+from _bootstrap.local_config import LocalConfigError, patch_local_config
+from _common._yaml import YamlError
 
 
 LOCAL_CONFIG_REL = os.path.join(".brain", "local", "config.yaml")
@@ -81,23 +82,25 @@ def semantic_engine_installed(vault_root, *, config=None):
     )
 
 
-def set_semantic_engine_installed(vault_root, installed=True):
+def set_semantic_engine_installed(vault_root, installed=True, *, lock_held=False):
     """Write the local semantic-engine provisioning marker if this is a vault."""
     return _update_local_semantic_config(
         vault_root,
         local_runtime_updates={SEMANTIC_ENGINE_INSTALLED_FLAG: bool(installed)},
+        lock_held=lock_held,
     )
 
 
-def set_semantic_retrieval_enabled(vault_root, enabled=True):
+def set_semantic_retrieval_enabled(vault_root, enabled=True, *, lock_held=False):
     """Write the local semantic retrieval flag for this vault."""
     return _update_local_semantic_config(
         vault_root,
         flag_updates={SEMANTIC_RETRIEVAL_FLAG: bool(enabled)},
+        lock_held=lock_held,
     )
 
 
-def set_semantic_flags(vault_root, *, retrieval=None, processing=None):
+def set_semantic_flags(vault_root, *, retrieval=None, processing=None, lock_held=False):
     """Write local semantic feature flags, leaving any None-valued flag unchanged."""
     flag_updates = {}
     if retrieval is not None:
@@ -106,7 +109,7 @@ def set_semantic_flags(vault_root, *, retrieval=None, processing=None):
         flag_updates[SEMANTIC_PROCESSING_FLAG] = bool(processing)
     if not flag_updates:
         return False
-    return _update_local_semantic_config(vault_root, flag_updates=flag_updates)
+    return _update_local_semantic_config(vault_root, flag_updates=flag_updates, lock_held=lock_held)
 
 
 def _update_local_semantic_config(
@@ -114,61 +117,43 @@ def _update_local_semantic_config(
     *,
     flag_updates=None,
     local_runtime_updates=None,
+    lock_held=False,
 ):
-    """Persist semantic local-config updates if this is a vault."""
-    vault_root = str(vault_root)
-    if not os.path.isdir(os.path.join(vault_root, ".brain")):
+    """Patch fresh local settings, guarding authored flags but not support markers.
+
+    Lifecycle callers holding the shared mutation lock (including in a parent
+    interpreter) pass ``lock_held=True`` rather than acquiring it a second time.
+    """
+    if not os.path.isdir(os.path.join(str(vault_root), ".brain")):
         return False
-
-    config_path = os.path.join(vault_root, LOCAL_CONFIG_REL)
-    os.makedirs(os.path.dirname(config_path), exist_ok=True)
-
-    try:
-        data = load_mapping_file(config_path)
-    except FileNotFoundError:
-        data = {}
-    except YamlError as exc:
-        raise SemanticConfigLoadError(
-            f"failed to load local semantic config: {exc}"
-        ) from exc
-    if not isinstance(data, dict):
-        data = {}
-
-    defaults = data.get("defaults")
-    if not isinstance(defaults, dict):
-        defaults = {}
-        data["defaults"] = defaults
-
     changed = False
 
-    if flag_updates:
-        flags = defaults.get("flags")
-        if not isinstance(flags, dict):
-            flags = {}
-            defaults["flags"] = flags
-            changed = True
-        for key, value in flag_updates.items():
-            if flags.get(key) != value:
-                flags[key] = value
-                changed = True
+    def update(data):
+        nonlocal changed
+        defaults = data.get("defaults")
+        if not isinstance(defaults, dict):
+            defaults = {}
+            data["defaults"] = defaults
+        for section, updates in (("flags", flag_updates), ("local_runtime", local_runtime_updates)):
+            if not updates:
+                continue
+            values = defaults.get(section)
+            if not isinstance(values, dict):
+                values = {}
+                defaults[section] = values
+            for key, value in updates.items():
+                if values.get(key) != value:
+                    values[key] = value
+                    changed = True
 
-    if local_runtime_updates:
-        local_runtime = defaults.get("local_runtime")
-        if not isinstance(local_runtime, dict):
-            local_runtime = {}
-            defaults["local_runtime"] = local_runtime
-            changed = True
-        for key, value in local_runtime_updates.items():
-            if local_runtime.get(key) != value:
-                local_runtime[key] = value
-                changed = True
-
-    if not changed:
-        return False
-
-    safe_write_via(
-        config_path,
-        lambda handle: handle.write(dump_mapping_text(data)),
-        mode="w",
-    )
-    return True
+    try:
+        # Capture before reading or planning settings; the callback runs while
+        # the central patch owner holds the shared vault lock.
+        with branch_guard.operation(vault_root):
+            patch_local_config(
+                vault_root, update, lock_held=lock_held,
+                before_write=(lambda: branch_guard.checkpoint(vault_root)) if flag_updates else None,
+            )
+    except LocalConfigError as exc:
+        raise SemanticConfigLoadError(f"failed to load local semantic config: {exc}") from exc
+    return changed

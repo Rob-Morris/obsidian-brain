@@ -13,6 +13,7 @@ from .._read_support import (
 )
 from ..context import InvocationContext
 from ..results import ErrorCode, Ok
+from ..types import BranchGuardState
 
 
 @dataclass(frozen=True, slots=True)
@@ -26,12 +27,13 @@ class VaultConfigPayload:
     artefact_sync_exclusions: tuple[str, ...]
     warnings: tuple[str, ...]
     access: AccessConfiguration
+    branch_guard: BranchGuardState
 
 
 @dataclass(frozen=True, slots=True)
 class VaultReadConfigRequest:
     COMMAND_ID: ClassVar[str] = "vault.read-config"
-    COMMAND_VERSION: ClassVar[int] = 3
+    COMMAND_VERSION: ClassVar[int] = 4
     RESULT_TYPE: ClassVar[type] = VaultConfigPayload
 
 
@@ -74,6 +76,7 @@ def execute(context: InvocationContext, request: VaultReadConfigRequest):
             "Invalid config: defaults.exclude.artefact_sync must be a string list",
             None,
         )
+    from _bootstrap.branch_guard import inspect_guard
     payload = VaultConfigPayload(
         brain_name=str(vault.get("brain_name") or ""),
         default_profile=str(defaults.get("default_profile") or ""),
@@ -84,6 +87,7 @@ def execute(context: InvocationContext, request: VaultReadConfigRequest):
         artefact_sync_exclusions=tuple(str(item) for item in exclusions),
         warnings=tuple(str(item.message) for item in captured),
         access=context.access.configuration(),
+        branch_guard=BranchGuardState.from_inspection(inspect_guard(context.selected_brain.vault_root)),
     )
     return Ok(request.COMMAND_ID, request.COMMAND_VERSION, payload)
 

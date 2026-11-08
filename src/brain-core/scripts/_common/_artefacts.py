@@ -496,7 +496,7 @@ def _is_within(path, root):
         return False
 
 
-def _rmdir_empty_subtree(directory):
+def _rmdir_empty_subtree(directory, *, before_remove):
     """Remove every rmdir-empty directory strictly beneath ``directory``, deepest first.
 
     ``os.rmdir`` is the atomic emptiness check: any real content, including
@@ -508,6 +508,7 @@ def _rmdir_empty_subtree(directory):
         if dirpath == directory:
             continue
         try:
+            before_remove()
             os.rmdir(dirpath)
         except OSError:
             continue
@@ -538,33 +539,37 @@ def prune_vacated_owner_folders(vault_root, source_paths, router):
       folders.
 
     Each distinct vacated directory is processed once however many sources it
-    contributed. Filesystem failures are never raised: a committed move set
-    must not turn into a reported failure because tidying could not finish.
+    contributed. Ordinary filesystem failures are best effort. A branch guard
+    refusal propagates: a committed move must report incomplete tidying without
+    removing content folders in a changed checkout.
     """
-    roots = artefact_territory_roots(vault_root, router)
-    vault_abs = os.path.abspath(vault_root)
-    stop_dirs = roots | {vault_abs}
-    archive_root = os.path.abspath(os.path.join(vault_root, "_Archive"))
-    descent_stops = stop_dirs | {
-        os.path.join(archive_root, os.path.relpath(root, vault_abs))
-        for root in roots
-        if root != archive_root
-    }
-    vacated = dict.fromkeys(
-        os.path.abspath(os.path.join(vault_root, os.path.dirname(source_path)))
-        for source_path in source_paths
-    )
-    for current in vacated:
-        if not any(_is_within(current, root) for root in roots):
-            continue
-        if current not in descent_stops and not os.path.islink(current):
-            _rmdir_empty_subtree(current)
-        while current not in stop_dirs and _is_within(current, vault_abs):
-            try:
-                os.rmdir(current)
-            except OSError:
-                break
-            current = os.path.dirname(current)
+    from _bootstrap.branch_guard import operation, checkpoint
+    with operation(vault_root):
+        roots = artefact_territory_roots(vault_root, router)
+        vault_abs = os.path.abspath(vault_root)
+        stop_dirs = roots | {vault_abs}
+        archive_root = os.path.abspath(os.path.join(vault_root, "_Archive"))
+        descent_stops = stop_dirs | {
+            os.path.join(archive_root, os.path.relpath(root, vault_abs))
+            for root in roots
+            if root != archive_root
+        }
+        vacated = dict.fromkeys(
+            os.path.abspath(os.path.join(vault_root, os.path.dirname(source_path)))
+            for source_path in source_paths
+        )
+        for current in vacated:
+            if not any(_is_within(current, root) for root in roots):
+                continue
+            if current not in descent_stops and not os.path.islink(current):
+                _rmdir_empty_subtree(current, before_remove=lambda: checkpoint(vault_root))
+            while current not in stop_dirs and _is_within(current, vault_abs):
+                try:
+                    checkpoint(vault_root)
+                    os.rmdir(current)
+                except OSError:
+                    break
+                current = os.path.dirname(current)
 
 
 INCIDENTAL_ENTRIES = frozenset({".DS_Store", "Thumbs.db"})
@@ -683,47 +688,51 @@ def remove_empty_artefact_folders(vault_root, router, paths):
     ``{"path", "status": "removed" | "skipped" | "failed", "reason",
     "removed": [entries actually removed]}``.
     """
-    vault_root = str(vault_root)
-    boundaries = artefact_territory_roots(vault_root, router)
-    outcomes = []
+    from _bootstrap.branch_guard import operation, checkpoint
+    with operation(vault_root):
+        vault_root = str(vault_root)
+        boundaries = artefact_territory_roots(vault_root, router)
+        outcomes = []
 
-    def outcome(path, status, reason=None, removed=()):
-        outcomes.append({
-            "path": path,
-            "status": status,
-            "reason": reason,
-            "removed": list(removed),
-        })
+        def outcome(path, status, reason=None, removed=()):
+            outcomes.append({
+                "path": path,
+                "status": status,
+                "reason": reason,
+                "removed": list(removed),
+            })
 
-    for rel_path in paths:
-        abs_dir = os.path.join(vault_root, rel_path)
-        if os.path.islink(abs_dir) or (os.path.lexists(abs_dir) and not os.path.isdir(abs_dir)):
-            outcome(rel_path, "skipped", "path is no longer a plain directory")
-            continue
-        if not os.path.isdir(abs_dir):
-            outcome(rel_path, "skipped", "directory no longer exists")
-            continue
-        try:
-            finding, _descendants = _classify_empty_folder(abs_dir, vault_root, boundaries)
-        except OSError as exc:
-            outcome(rel_path, "failed", f"could not re-scan: {exc}")
-            continue
-        if finding is None:
-            outcome(rel_path, "skipped", "directory is no longer vacated-empty")
-            continue
-        removed = []
-        try:
-            for rel_file in finding["junk_files"]:
-                os.remove(os.path.join(vault_root, rel_file))
-                removed.append(rel_file)
-            for rel_dir in reversed(finding["directories"]):
-                os.rmdir(os.path.join(vault_root, rel_dir))
-                removed.append(rel_dir)
-        except OSError as exc:
-            outcome(rel_path, "failed", str(exc), removed)
-            continue
-        outcome(rel_path, "removed", None, removed)
-    return outcomes
+        for rel_path in paths:
+            abs_dir = os.path.join(vault_root, rel_path)
+            if os.path.islink(abs_dir) or (os.path.lexists(abs_dir) and not os.path.isdir(abs_dir)):
+                outcome(rel_path, "skipped", "path is no longer a plain directory")
+                continue
+            if not os.path.isdir(abs_dir):
+                outcome(rel_path, "skipped", "directory no longer exists")
+                continue
+            try:
+                finding, _descendants = _classify_empty_folder(abs_dir, vault_root, boundaries)
+            except OSError as exc:
+                outcome(rel_path, "failed", f"could not re-scan: {exc}")
+                continue
+            if finding is None:
+                outcome(rel_path, "skipped", "directory is no longer vacated-empty")
+                continue
+            removed = []
+            try:
+                for rel_file in finding["junk_files"]:
+                    checkpoint(vault_root)
+                    os.remove(os.path.join(vault_root, rel_file))
+                    removed.append(rel_file)
+                for rel_dir in reversed(finding["directories"]):
+                    checkpoint(vault_root)
+                    os.rmdir(os.path.join(vault_root, rel_dir))
+                    removed.append(rel_dir)
+            except OSError as exc:
+                outcome(rel_path, "failed", str(exc), removed)
+                continue
+            outcome(rel_path, "removed", None, removed)
+        return outcomes
 
 
 def ensure_tags_list(fields):
