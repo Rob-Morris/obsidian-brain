@@ -536,6 +536,8 @@ covers authored source, dependencies and hashed environment; declare ignored or
 external files/directories with repeatable `run --input PATH`. Declare symlinked
 directory targets separately. State must be outside source/input directories or
 under `.pytest_cache`; it must not become an input to its own fingerprint.
+Per-invocation metadata such as `CODEX_TOOL_CALL_ID` is excluded from that
+environment identity; verification configuration remains part of it.
 Input changes during or after a run require reassessment rather than automatic
 reuse. Genuine failures require diagnosis and fresh verification. Collection/
 session errors or unknown shared cleanup require a fresh selected-scope run;

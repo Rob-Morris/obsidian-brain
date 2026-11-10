@@ -134,7 +134,8 @@ def input_identity(root: Path, extra: list[str], environment: dict[str, str]) ->
     digest.update(sys.version.encode())
     packages = sorted((d.metadata["Name"], d.version) for d in importlib.metadata.distributions())
     digest.update(json.dumps(packages).encode())
-    ignored = {RUN_ENV, "PWD", "OLDPWD", "SHLVL", "_", "PYTEST_CURRENT_TEST"}
+    # A new agent tool invocation must not invalidate otherwise identical inputs.
+    ignored = {RUN_ENV, "PWD", "OLDPWD", "SHLVL", "_", "PYTEST_CURRENT_TEST", "CODEX_TOOL_CALL_ID"}
     digest.update(json.dumps({k: v for k, v in environment.items() if k not in ignored}, sort_keys=True).encode())
     return digest.hexdigest()
 

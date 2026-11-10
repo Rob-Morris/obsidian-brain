@@ -261,6 +261,18 @@ def test_legitimate_skip_phase_shapes_are_preserved(tmp_path, phases):
     assert outcomes(tmp_path, scope)["a"]["outcome"] == "skipped"
 
 
+def test_input_identity_ignores_codex_call_metadata_but_tracks_verification_inputs(tmp_path):
+    root = source(tmp_path, "python")
+    env = {**child_environment(root), "CODEX_TOOL_CALL_ID": "first-call",
+           "BRAIN_TEST_NON_TMP_ROOT": str(tmp_path / "native-root-a")}
+    original = input_identity(root, [], env)
+    assert input_identity(root, [], {**env, "CODEX_TOOL_CALL_ID": "next-call"}) == original
+    assert input_identity(root, [], {**env, "BRAIN_TEST_NON_TMP_ROOT": str(tmp_path / "native-root-b")}) != original
+    case = root / "test_cases.py"
+    case.write_text(case.read_text() + "\n# changed authored verification input\n")
+    assert input_identity(root, [], env) != original
+
+
 def test_declared_directory_inputs_include_contents_and_reject_symlink_traversal(tmp_path):
     root = source(tmp_path, "python")
     external = tmp_path / "data"
