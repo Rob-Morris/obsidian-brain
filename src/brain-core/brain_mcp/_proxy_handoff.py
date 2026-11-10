@@ -9,6 +9,8 @@ import select
 import socket
 import stat
 import tempfile
+import sys
+import time
 
 
 HANDOFF_VERSION = 3
@@ -40,6 +42,29 @@ class RawLineReader:
             self.remainder = os.read(self.fd, READ_CHUNK)
             if not self.remainder:
                 return b"".join(chunks)
+
+    def readline_timed(self, timeout: float) -> bytes:
+        """Bound a complete pipe frame, preserving partial bytes between attempts.
+
+        Windows anonymous pipes use Python 3.12's nonblocking descriptor support;
+        their owner sets that mode before calling this method.
+        """
+        deadline = time.monotonic() + timeout
+        while not self.line_ready and not self.eof:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise TimeoutError("child reply frame timed out")
+            if sys.platform != "win32" and not select.select([self.fd], [], [], remaining)[0]:
+                raise TimeoutError("child reply frame timed out")
+            try:
+                data = os.read(self.fd, READ_CHUNK)
+            except BlockingIOError:
+                time.sleep(min(.01, remaining))
+                continue
+            self.eof = not data
+            self.remainder += data
+        head, separator, self.remainder = self.remainder.partition(b"\n")
+        return head + separator
 
     def readline_interruptible(self, wake_fd: int) -> bytes | None:
         """Keep partial input owned while lifecycle completion wakes the reader."""

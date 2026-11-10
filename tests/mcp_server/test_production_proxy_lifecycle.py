@@ -15,6 +15,71 @@ from mcp_server.test_production_proxy_protocols import MODERN_META, SERVER
 
 
 @pytest.mark.parametrize("modern", [False, True])
+def test_child_health_keeps_real_blocked_worker_alive(command_vault_clone, modern):
+    vault = command_vault_clone.vault_root
+    waiting, release, pongs = (vault / name for name in ("health-waiting", "health-release", "health-pongs"))
+    owner = vault / ".brain-core/scripts/_application/links/check.py"
+    signature = "def execute(context: InvocationContext, request: LinksCheckRequest):\n"
+    original = owner.read_text()
+    assert original.count(signature) == 1
+    owner.write_text(original.replace(signature, signature +
+        "    from pathlib import Path\n    import time\n"
+        f"    Path({str(waiting)!r}).touch()\n"
+        "    deadline = time.monotonic() + 15\n"
+        f"    while not Path({str(release)!r}).exists():\n"
+        "        if time.monotonic() >= deadline:\n"
+        "            raise RuntimeError('health test was not released')\n"
+        "        time.sleep(.01)\n"))
+    proxy_source = vault / ".brain-core/brain_mcp/proxy.py"
+    text = proxy_source.read_text()
+    needle = "self._health = ChildHealth(max(0.05, _get_read_timeout()))"
+    assert text.count(needle) == 1
+    proxy_source.write_text(text.replace(needle, "self._health = ChildHealth(.25)"))
+    health = vault / ".brain-core/brain_mcp/_child_health.py"
+    text = health.read_text()
+    prefix, consume = text.split("    def consume(", 1)
+    needle = "                self._pending = None\n"
+    assert consume.count(needle) == 1
+    consume = consume.replace(needle,
+        "                from pathlib import Path\n"
+        f"                marker = Path({str(pongs)!r})\n"
+        "                marker.write_text(str(int(marker.read_text()) + 1) if marker.exists() else '1')\n" + needle)
+    health.write_text(prefix + "    def consume(" + consume)
+    with (vault.parent / "child-health-stderr.log").open("w+b") as stderr:
+        frames = []
+        process = subprocess.Popen([sys.executable, str(SERVER)], cwd=vault,
+            env={**os.environ, **command_vault_clone.environment, "BRAIN_CAPTURE_VAULT": str(vault)},
+            stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=stderr)
+        def send(identifier, method, params):
+            if modern:
+                params = {**params, "_meta": MODERN_META}
+            process.stdin.write((json.dumps({"jsonrpc": "2.0", "id": identifier,
+                "method": method, "params": params}) + "\n").encode())
+            process.stdin.flush()
+        try:
+            send(1, "server/discover" if modern else "initialize", {} if modern else {
+                "protocolVersion": "2025-06-18", "capabilities": {},
+                "clientInfo": {"name": "child-health", "version": "1"}})
+            frames.extend(_read_until_id(process, 1, timeout=20))
+            assert any(m.get("id") == 1 and "result" in m for m in frames)
+            if not modern:
+                process.stdin.write(b'{"jsonrpc":"2.0","method":"notifications/initialized"}\n')
+                process.stdin.flush()
+            send(2, "tools/call", {"name": "links_check", "arguments": {"path": "Projects/Command Fixture.md"}})
+            assert _wait_for(waiting.exists, timeout=10)
+            assert _wait_for(lambda: pongs.exists() and int(pongs.read_text() or '0') >= 4, timeout=10)
+            assert not release.exists() and process.poll() is None
+            release.touch()
+            frames.extend(_read_until_id(process, 2, timeout=15))
+            response = next(m for m in frames if m.get("id") == 2)
+            assert response["result"]["structuredContent"]["status"] == "ok"
+            assert not any(str(m.get("id", "")).startswith("brain-proxy-health-") for m in frames)
+        finally:
+            release.touch()
+            _finish_proxy_with_diagnostics(process, frames, stderr, phase="real child health")
+
+
+@pytest.mark.parametrize("modern", [False, True])
 def test_scoped_link_batch_delivers_completed_reply_while_next_scan_is_blocked(command_vault_clone, modern):
     vault = command_vault_clone.vault_root
     waiting, release = vault / "scan-waiting", vault / "release-scan"
@@ -195,11 +260,13 @@ def test_blocked_startup_activates_same_session_and_preserves_streams(command_va
             assert call("brain_proxy_refresh")["isError"] is False
             assert not any(event["method"] == "notifications/tools/list_changed" for event in notifications)
     finally:
+        failed = sys.exc_info()[0] is not None
         process.stdin.close()
         try:
             process.wait(timeout=10)
         except subprocess.TimeoutExpired:
             process.kill()
             process.wait(timeout=5)
-        if process.returncode:
-            print(process.stderr.read().decode(errors="replace")[-5000:])
+        if failed or process.returncode:
+            os.set_blocking(process.stderr.fileno(), False)
+            print((process.stderr.read(5000) or b"").decode(errors="replace"))

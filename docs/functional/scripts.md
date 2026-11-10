@@ -299,6 +299,12 @@ Local Python integrations can use `brain_application.local.LocalContextComposer(
 
 ## Internal script modules
 
+`src/scripts/dev_tests.py` is an opt-in contributor runner, separate from the
+Brain application/CLI command catalogue. It supervises serial POSIX pytest,
+supports status/finish/interrupt/whole-test follow-up, and retains recoverable
+development evidence. See [controlling long development tests](../CONTRIBUTING.md#controlling-long-development-tests)
+for its arguments, cleanup contract and unchanged release-gate boundary.
+
 `compile_router.py` and `define.py` share taxonomy parsing. Filename patterns in
 simple and advanced `## Naming` contracts reject absolute paths, POSIX/Windows
 separators, drive prefixes and dot traversal segments before definition writes

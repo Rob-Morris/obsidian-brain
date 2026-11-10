@@ -880,9 +880,15 @@ standard text return empty findings without building a vault target index.
 MCP application commands run serially in a bounded worker shared by the server's
 tools, leaving the transport free to deliver completed replies while later work
 runs. Cancellation does not release a started handler's worker slot before its
-execution and finalisation finish. The proxy watchdog still detects a child
-that produces no output for its configured inactivity limit; a single long
-operation can still reach that limit. Owned-outcome recovery accepts complete
+execution and finalisation finish. An independent proxy health owner checks the
+actual child while requests are in flight. It uses legacy ping or modern child
+discovery, with matching reply identity and the canonical interface validator;
+proxy-local client pings and unrelated output do not renew child health.
+Responsive long operations have no universal execution deadline. A failed
+bounded probe retires the child through normal owned-outcome recovery, without
+blind mutation replay. Partial pipe frames are retained across bounded reads,
+including native Windows anonymous pipes. Host/client request deadlines and
+command-owned external-work limits remain separate. Owned-outcome recovery accepts complete
 `invocation.read` delivery envelopes and retains identity and outcome validation;
 unavailable, truncated or unresolved detail output remains inconclusive.
 
