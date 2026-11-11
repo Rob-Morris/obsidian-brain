@@ -1,6 +1,6 @@
 # Brain Reference
 
-This development checkout references Brain Core 0.76.4 and CLI 6.3.2. Vault-local branch guards first enforce in the next Core release after 0.76.3 (not yet released), with CLI lifecycle enforcement in the developing CLI when shipped. Exact command schemas, examples and availability come from the installed Brain rather than a duplicated hand-maintained inventory.
+This development checkout references Brain Core 0.76.4 and CLI 6.3.2. Vault-local branch guards are supported from Core 0.76.4, with CLI lifecycle enforcement from CLI 6.3.2. Exact command schemas, examples and availability come from the installed Brain rather than a duplicated hand-maintained inventory.
 
 Optional [managed approvals](../functional/approvals.md) cover normal reads/writes
 in selected clients and surfaces. They preserve user overrides and do not change

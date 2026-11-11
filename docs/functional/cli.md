@@ -1000,7 +1000,7 @@ The bundle discriminator includes Core version and a source-content digest, so a
 
 The distribution contains the launcher application plus the Brain Core payload needed for install, upgrade and selected-Brain execution. Installation and replacement verify a content manifest and executable identity; failed replacement restores the proven old binary/distribution pair or retains recovery material and reports the outcome as unverified. Failed upgrade results carry every known absolute recovery path in the structural error and durable launcher receipt: residual staging material after a verified rollback is a known partial outcome, while unverified rollback remains outcome-unknown. Standalone human output lists the same paths before the failure message. Once the new pair is verified, failure or interruption while removing an old backup is committed post-upgrade recovery work and never rolls Brain Core back to an older version. Both the launcher result and standalone distribution JSON list the surviving `cleanup_recovery_paths`.
 
-The bootloader requires Python 3.12 or newer. `BRAIN_CLI_VERSION` is `6.3.2`; `BRAIN_INSTALL_REF` is `v0.76.4`. This CLI increment is in development; promotion assigns the next install ref. Branch-guard Core enforcement starts in the next release after 0.76.3, not yet released.
+The bootloader requires Python 3.12 or newer. `BRAIN_CLI_VERSION` is `6.3.2`; `BRAIN_INSTALL_REF` is `v0.76.4`. Vault-local branch guards are supported from Core 0.76.4, with CLI lifecycle enforcement from CLI 6.3.2.
 
 JSON command invocations validate the structural stdout envelope, including
 command identity, version and exit category. Incidental child stderr does not
