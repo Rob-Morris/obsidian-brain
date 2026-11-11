@@ -3,6 +3,7 @@ import os
 from pathlib import Path
 import tempfile
 import threading
+from types import SimpleNamespace
 
 import pytest
 
@@ -169,7 +170,7 @@ class TestSafeWrite:
         def failing_replace(src, dst):
             raise OSError("simulated failure")
 
-        monkeypatch.setattr("os.replace", failing_replace)
+        monkeypatch.setattr(_filesystem, "os", SimpleNamespace(**{**vars(os), "replace": failing_replace}))
         with pytest.raises(OSError, match="simulated failure"):
             common.safe_write(target, "content")
         remaining = list(tmp_path.iterdir())
@@ -185,7 +186,7 @@ class TestSafeWrite:
             barrier.wait(timeout=2)
             return real_fsync(fd)
 
-        monkeypatch.setattr("_common._filesystem.os.fsync", synced_fsync)
+        monkeypatch.setattr(_filesystem, "os", SimpleNamespace(**{**vars(os), "fsync": synced_fsync}))
 
         def writer(content):
             try:
