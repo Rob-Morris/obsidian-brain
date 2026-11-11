@@ -89,6 +89,7 @@ def pytest_collection_finish(session):
     atomic_json(session.config._control_directory / "scope.json", {
         "run_id": launch["run_id"], "identity": launch["identity"],
         "nodeids": nodes})
+    session.config._control_node_indexes = {node: index for index, node in enumerate(nodes)}
 
 
 def pytest_collection_modifyitems(config, items):
@@ -133,7 +134,7 @@ def pytest_runtest_protocol(item, nextitem):
             outcome = terminal_outcome(attempt.reports, attempt.interrupted)
             append_outcome(attempt.directory, {
                 "run_id": attempt.launch["run_id"], "identity": attempt.launch["identity"],
-                "attempt_id": attempt.attempt_id, "nodeid": item.nodeid,
+                "attempt_id": attempt.attempt_id, "node_index": config._control_node_indexes[item.nodeid],
                 "outcome": outcome, "phases": attempt.reports, "reason": attempt.reason,
                 "cleanup_confirmed": cleanup_ok})
             command = attempt.request()

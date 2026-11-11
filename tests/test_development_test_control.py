@@ -10,7 +10,7 @@ import time
 
 import pytest
 
-from _test_control.records import atomic_json, outcomes, read_json, summary
+from _test_control.records import MAX_RECORD, append_outcome, atomic_json, outcomes, read_json, summary
 from _test_control.records import input_identity
 from _test_control.runner import combined, request, child_environment
 
@@ -117,7 +117,7 @@ def wait_for(state, child, name, timeout=15):
 def finish(child, state, expected):
     try:
         out, err = child.communicate(timeout=20)
-        assert child.returncode == expected, (out, err, list(state.glob('*')))
+        assert child.returncode == expected, (out[-4096:], err[-4096:], list(state.glob('*')))
         return out, err
     finally:
         if child.poll() is None:
@@ -238,6 +238,39 @@ def test_torn_record_never_credits_pass_and_foreign_record_refused(tmp_path):
     path.write_text(json.dumps({**good, "identity": "foreign"}) + "\n")
     with pytest.raises(ValueError, match="foreign"):
         outcomes(tmp_path, scope)
+
+
+def test_manifest_reference_preserves_large_unicode_identity_in_bounded_record(tmp_path):
+    node = "test_case[" + "λ" * MAX_RECORD + "]"
+    scope = {"run_id": "run", "identity": "inputs", "nodeids": ["other", node]}
+    record = {"run_id": "run", "identity": "inputs", "node_index": 1, "attempt_id": "one",
+              "outcome": "passed", "phases": {"setup": "passed", "call": "passed", "teardown": "passed"}}
+    append_outcome(tmp_path, record)
+    assert (tmp_path / "outcomes.jsonl").stat().st_size < MAX_RECORD
+    assert outcomes(tmp_path, scope)[node]["nodeid"] == node
+
+
+@pytest.mark.parametrize("reference", [{"node_index": -1}, {"node_index": 2}, {"node_index": True},
+    {"node_index": "1"}, {"node_index": 0, "nodeid": "a"}])
+def test_invalid_or_ambiguous_manifest_reference_cannot_credit_pass(tmp_path, reference):
+    scope = {"run_id": "run", "identity": "inputs", "nodeids": ["a", "b"]}
+    record = {"run_id": "run", "identity": "inputs", "attempt_id": "one", "outcome": "passed",
+              "phases": {"setup": "passed", "call": "passed", "teardown": "passed"}, **reference}
+    append_outcome(tmp_path, record)
+    with pytest.raises(ValueError, match="reference"):
+        outcomes(tmp_path, scope)
+
+
+def test_controlled_pytest_preserves_oversized_parametrized_node_identity(tmp_path):
+    root = source(tmp_path, "python")
+    (root / "test_cases.py").write_text("import pytest\n@pytest.mark.parametrize('value', [True], ids=[" +
+        repr("λ" * MAX_RECORD) + "])\ndef test_large(value):\n    assert value\n")
+    state = tmp_path / "run"
+    finish(launch(root, state), state, 0)
+    node, = summary(state)["scope"]["nodeids"]
+    assert len(node) > MAX_RECORD
+    assert summary(state)["completed"] == [node]
+    assert (state / "outcomes.jsonl").stat().st_size < MAX_RECORD
 
 
 @pytest.mark.parametrize("phases", [None, {}, {"setup": "passed", "call": "failed", "teardown": "passed"},
@@ -438,7 +471,8 @@ def test_forced_stop_during_append_preserves_prior_pass_and_followup_scope(tmp_p
         def pytest_configure(config):
             original = plugin.append_outcome
             def append(directory, record):
-                if record['nodeid'].endswith('test_01_long') and not (directory / 'disable-fault').exists():
+                nodes = json.loads((directory / 'scope.json').read_text())['nodeids']
+                if nodes[record['node_index']].endswith('test_01_long') and not (directory / 'disable-fault').exists():
                     with (directory / 'outcomes.jsonl').open('ab', buffering=0) as stream:
                         payload = json.dumps(record).encode()
                         stream.write(payload[:len(payload)//2])

@@ -524,9 +524,12 @@ When wrap-up stops the run, the original budget includes final session cleanup.
 
 The exact collected scope is saved before tests; terminal outcomes are appended
 before the next test, and the controller writes a receipt even if pytest never
-reaches session finish. Interrupted/torn records cannot credit a pass. Operator
-interruption is distinct from a normal failure or legitimate applicability
-skip. Partial runs remain non-green; a successful status query is not a gate.
+reaches session finish. Test names live in the scope manifest; bounded outcome
+records reference positions in that run's manifest, so large parametrized IDs
+retain their exact identity. Interrupted/torn records cannot credit a pass.
+Operator interruption is distinct from a normal failure or legitimate
+applicability skip. Partial runs remain non-green; a successful status query is
+not a gate.
 Combining passes also requires a matching normal-exit marker written only after
 `pytest.main()` returns through session and plugin finalisation.
 

@@ -39,8 +39,11 @@ tests. Unsupported distributed/loop modes are refused before their runners start
 
 Persist exact selection/input identity before tests, append bounded terminal
 attempt evidence before the next test, and let the surviving controller write
-the terminal receipt. Recovery does not depend on session finish. Only complete,
-consistent phase evidence can credit a pass or a legitimate applicability skip.
+the terminal receipt. Recovery does not depend on session finish.
+Terminal records address exact test IDs by their position in the run manifest;
+large parametrized names are stored once. Older raw-ID records remain readable.
+Only complete, consistent phase evidence can credit a pass or a legitimate
+applicability skip.
 An interrupted final append stays outstanding. Preserve genuine failures and
 collection/session errors rather than erasing them with a later pass.
 A matching normal-exit marker is emitted only after `pytest.main()` returns

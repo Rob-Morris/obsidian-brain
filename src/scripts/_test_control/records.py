@@ -70,8 +70,15 @@ def outcomes(directory: Path, scope: dict) -> dict[str, dict]:
             record = json.loads(line)
             if not isinstance(record, dict):
                 raise ValueError("Invalid test outcome record")
-            node = record.get("nodeid")
-            if (record.get("run_id") != scope["run_id"] or node not in selected
+            if "node_index" in record:
+                index = record["node_index"]
+                if type(index) is not int or not 0 <= index < len(scope["nodeids"]) or "nodeid" in record:
+                    raise ValueError("Invalid or ambiguous manifest test reference")
+                node = scope["nodeids"][index]
+            else:
+                # Earlier run files contain raw IDs; retain readable history.
+                node = record.get("nodeid")
+            if (record.get("run_id") != scope["run_id"] or not isinstance(node, str) or node not in selected
                     or record.get("identity") != scope["identity"]
                     or record.get("outcome") not in {"passed", "skipped", "failed", "interrupted", "unresolved"}
                     or not isinstance(record.get("attempt_id"), str) or not record["attempt_id"] or node in result):
@@ -89,7 +96,7 @@ def outcomes(directory: Path, scope: dict) -> dict[str, dict]:
                     or not isinstance(record.get("reason"), str) or not record["reason"].strip()
                     or not isinstance(record.get("cleanup_confirmed"), bool)):
                 raise ValueError("Interruption lacks terminal cleanup evidence")
-            result[node] = record
+            result[node] = {**record, "nodeid": node}
     return result
 
 
