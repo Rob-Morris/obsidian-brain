@@ -451,6 +451,8 @@ def test_quiescence_refuses_pending_output_and_exec_failure_reaps_child(tmp_path
             item.set()
     relay._writer_thread_handle = threading.Thread(target=writer)
     relay._writer_thread_handle.start()
+    relay._health_thread_handle = threading.Thread(target=relay._health_loop)
+    relay._health_thread_handle.start()
     try:
         result = relay._replace_idle_image(123, state())
         if pending_output:
@@ -461,6 +463,8 @@ def test_quiescence_refuses_pending_output_and_exec_failure_reaps_child(tmp_path
             assert child.readline() == b"pending\n"
         else:
             assert result == "proxy_exec_failed"
+            assert relay._health_stop.is_set()
+            assert not relay._health_thread_handle.is_alive()
             assert owner._closed
             assert relay._handoff_state == state()
             with pytest.raises(ChildProcessError):
@@ -469,6 +473,8 @@ def test_quiescence_refuses_pending_output_and_exec_failure_reaps_child(tmp_path
         child.kill()
         child.reap(5)
         owner.close()
+        relay._health_stop.set()
+        relay._health_thread_handle.join(5)
         relay._outbound.put(None)
         relay._writer_thread_handle.join(5)
 
@@ -540,12 +546,16 @@ def test_blocked_writer_refuses_handoff_without_losing_queued_output(tmp_path, m
         owner.close()
 
 
-def test_reader_discards_old_child_frame_selected_before_swap(tmp_path, monkeypatch):
+def test_reader_discards_old_child_frame_read_before_swap(tmp_path, monkeypatch):
     relay = proxy.Proxy(sys.executable, "brain_mcp.server", str(tmp_path))
     child, replacement = _FakeChild(), _FakeChild()
     child.stdout_fd = 123
     child.line_ready = True
-    child.readline = lambda: pytest.fail("retired child's selected output was read")
+    reads = []
+    def read_old():
+        reads.append(True)
+        return b'{"jsonrpc":"2.0","method":"notifications/tools/list_changed"}\n'
+    child.readline = read_old
     relay._initial_protocol_selected.set()
     selected = False
     def current_child():
@@ -557,37 +567,83 @@ def test_reader_discards_old_child_frame_selected_before_swap(tmp_path, monkeypa
         return replacement
     monkeypatch.setattr(relay, "_get_child", current_child)
     relay._reader_thread()
+    assert reads == [True]
     assert relay._outbound.empty() and not relay._server_requests
 
 
-def test_windows_idle_blocking_read_does_not_own_publication_gate(tmp_path, monkeypatch):
+def test_handoff_refuses_frame_owned_by_reader_before_publication(tmp_path, monkeypatch):
     relay = proxy.Proxy(sys.executable, "brain_mcp.server", str(tmp_path))
     child = _FakeChild()
     relay._child = child
     relay._initial_protocol_selected.set()
+    monkeypatch.setattr(proxy, "HANDOFF_TIMEOUT", .02)
     entered, release = threading.Event(), threading.Event()
     def read():
         entered.set()
         assert release.wait(3)
+        relay._shutdown = True
         return b'{"jsonrpc":"2.0","method":"notifications/tools/list_changed"}\n'
     child.readline = read
-    monkeypatch.setattr(proxy.sys, "platform", "win32")
     reader = threading.Thread(target=relay._reader_thread)
     reader.start()
     try:
         assert entered.wait(3)
-        assert relay._publication_gate.acquire(timeout=.2), "idle Windows read blocked server replacement"
-        try:
-            relay._child = _FakeChild()
-            relay._shutdown = True
-        finally:
-            relay._publication_gate.release()
+        assert relay._replace_idle_image(123, state()) == "server_busy"
+        assert not child.killed
     finally:
         relay._shutdown = True
         release.set()
         reader.join(3)
     assert not reader.is_alive()
+    assert relay._outbound.get_nowait()["method"] == "notifications/tools/list_changed"
     assert relay._outbound.empty()
+
+
+@pytest.mark.parametrize("code", [None, "request_cancelled", "proxy_handoff_preflight_failed"])
+def test_admitted_lifecycle_owns_next_publication_turn_and_releases_reader(tmp_path, code):
+    relay = proxy.Proxy(sys.executable, "brain_mcp.server", str(tmp_path))
+    relay._client_protocol = "modern"
+    relay._initial_protocol_selected.set()
+    child = _FakeChild()
+    relay._child = child
+    entered, release, resumed = threading.Event(), threading.Event(), threading.Event()
+    reads = []
+    def read(timeout):
+        reads.append(True)
+        if len(reads) == 1:
+            entered.set()
+            assert release.wait(3)
+        else:
+            resumed.set()
+            relay._shutdown = True
+        raise TimeoutError()
+    child.read_reply = read
+    relay._send_to_client = lambda value: None
+    relay._proxy_status = lambda: {}
+    reader = threading.Thread(target=relay._reader_thread)
+    reader.start()
+    try:
+        assert entered.wait(3)
+        assert relay._admit_lifecycle(lifecycle_request("brain_proxy_restart"), None) is None
+        pending = relay._pending_lifecycle
+        release.set()
+        assert relay._publication_gate.acquire(timeout=2)
+        try:
+            assert reads == [True]
+            assert not relay._lifecycle_idle.is_set()
+            # Prepared handoff deliberately clears pending before replacement.
+            if code == "proxy_handoff_preflight_failed":
+                relay._pending_lifecycle = None
+        finally:
+            relay._publication_gate.release()
+        relay._complete_lifecycle(pending, code)
+        assert resumed.wait(3)
+    finally:
+        relay._shutdown = True
+        relay._lifecycle_idle.set()
+        release.set()
+        reader.join(3)
+    assert not reader.is_alive()
 
 
 @pytest.mark.parametrize("method", ["server/discover", "tools/list", "tools/call"])

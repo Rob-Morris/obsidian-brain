@@ -11,6 +11,7 @@ import textwrap
 import threading
 import time
 from types import SimpleNamespace
+from _test_control import checkpoint
 from brain_mcp import proxy as proxy_mod
 from brain_mcp._command_adapter import application_interface_header
 from _application.registry import current_application_catalogue
@@ -175,8 +176,10 @@ def _read_json_messages(
     results: list[dict] = []
     buf = getattr(proc, "_ndjson_buffer", b"")
     deadline = time.monotonic() + timeout
+    idle_until = time.monotonic() + idle if idle is not None else deadline
 
     while time.monotonic() < deadline:
+        controlled = checkpoint("waiting for proxy output")
         while b"\n" in buf:
             raw_line, buf = buf.split(b"\n", 1)
             line = raw_line.strip()
@@ -197,13 +200,19 @@ def _read_json_messages(
         remaining = deadline - time.monotonic()
         if remaining <= 0:
             break
-        wait = min(idle, remaining) if idle is not None else remaining
+        wait = min(idle_until - time.monotonic(), remaining) if idle is not None else remaining
+        if wait <= 0:
+            break
+        if controlled:
+            wait = min(.1, wait)
         ready, _, _ = select.select([fd], [], [], wait)
         if not ready:
-            break
+            continue
         chunk = os.read(fd, 4096)
         if not chunk:
             break
+        if idle is not None:
+            idle_until = time.monotonic() + idle
         buf += chunk
 
     proc._ndjson_buffer = buf
@@ -305,6 +314,7 @@ def _wait_for(predicate, *, timeout: float = 2.0, interval: float = 0.01) -> boo
     """Poll until predicate() is truthy or timeout elapses."""
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
+        checkpoint("waiting for proxy condition")
         if predicate():
             return True
         time.sleep(interval)
@@ -425,6 +435,9 @@ class _FakeChild:
     def send_control(self, obj: dict, **kwargs) -> None:
         self.send(obj)
 
+    def read_reply(self, timeout):
+        return self.readline()
+
     def poll(self) -> int | None:
         if self._poll_index < len(self._poll_values):
             value = self._poll_values[self._poll_index]
@@ -444,6 +457,9 @@ class _ReadableFakeChild(_FakeChild):
         super().__init__(poll_values=[None, 0])
         self._lines = list(lines)
         self.stdout_fd = 123
+
+    def read_reply(self, timeout):
+        return self.readline()
 
     def readline(self) -> bytes | None:
         if self._lines:

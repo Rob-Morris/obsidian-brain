@@ -3,6 +3,7 @@
 import hashlib
 import os
 from contextlib import contextmanager
+from types import SimpleNamespace
 
 import pytest
 
@@ -11,6 +12,13 @@ from _lifecycle import text_repair_io as io
 
 def digest(data):
     return hashlib.sha256(data).hexdigest()
+
+
+@pytest.fixture
+def repair_os(monkeypatch):
+    binding = SimpleNamespace(**vars(os))
+    monkeypatch.setattr(io, 'os', binding)
+    return binding
 
 
 @pytest.fixture
@@ -84,7 +92,7 @@ def test_symlink_refusal(candidate, tmp_path, link_at):
 @pytest.mark.skipif(os.name != 'posix', reason='POSIX deterministic pathname race')
 @pytest.mark.parametrize('boundary', ['digest', 'stage', 'replace'])
 @pytest.mark.parametrize('destination', ['outside', 'protected'])
-def test_parent_swap_never_writes_redirected_subject(candidate, tmp_path, monkeypatch,
+def test_parent_swap_never_writes_redirected_subject(candidate, tmp_path, monkeypatch, repair_os,
                                                      boundary, destination):
     root, target = candidate
     other = tmp_path / 'outside' if destination == 'outside' else root / '.brain-core'
@@ -109,14 +117,14 @@ def test_parent_swap_never_writes_redirected_subject(candidate, tmp_path, monkey
         def fsync(fd):
             real(fd)
             swap()
-        monkeypatch.setattr(os, 'fsync', fsync)
+        monkeypatch.setattr(repair_os, 'fsync', fsync)
     else:
         real = os.replace
         def replace(src, dst, **kwargs):
             swap()
             assert kwargs['src_dir_fd'] == kwargs['dst_dir_fd']
             real(src, dst, **kwargs)
-        monkeypatch.setattr(os, 'replace', replace)
+        monkeypatch.setattr(repair_os, 'replace', replace)
     if boundary == 'replace':
         with pytest.raises(io.TextRepairIOError, match='committed to original directory') as error:
             io.repair_candidate(root, 'Notes/note.md', digest(b'original\r\n'), b'fixed')
@@ -131,7 +139,7 @@ def test_parent_swap_never_writes_redirected_subject(candidate, tmp_path, monkey
 
 
 @pytest.mark.parametrize('failure', ['write', 'fsync', 'replace'])
-def test_write_failure_cleans_temporary(candidate, monkeypatch, failure):
+def test_write_failure_cleans_temporary(candidate, monkeypatch, repair_os, failure):
     root, target = candidate
     def fail(*args, **kwargs):
         raise OSError('injected disk failure')
@@ -146,11 +154,11 @@ def test_write_failure_cleans_temporary(candidate, monkeypatch, failure):
                     yield FailingWriter()
                 else:
                     yield stream
-        monkeypatch.setattr(os, 'fdopen', fdopen)
+        monkeypatch.setattr(repair_os, 'fdopen', fdopen)
     elif failure == 'replace' and os.name == 'nt':
         monkeypatch.setattr(io._WindowsHandles, 'rename', fail)
     else:
-        monkeypatch.setattr(os, failure, fail)
+        monkeypatch.setattr(repair_os, failure, fail)
     with pytest.raises(io.TextRepairIOError, match='Notes/note.md') as error:
         io.repair_candidate(root, 'Notes/note.md', digest(target.read_bytes()), b'fixed')
     assert error.value.committed is False
@@ -159,7 +167,7 @@ def test_write_failure_cleans_temporary(candidate, monkeypatch, failure):
 
 
 @pytest.mark.skipif(os.name != 'posix', reason='POSIX final-file staging race')
-def test_final_symlink_at_staging_never_truncates(candidate, tmp_path, monkeypatch):
+def test_final_symlink_at_staging_never_truncates(candidate, tmp_path, monkeypatch, repair_os):
     root, target = candidate
     protected = tmp_path / 'protected.md'
     protected.write_bytes(b'protected')
@@ -168,7 +176,7 @@ def test_final_symlink_at_staging_never_truncates(candidate, tmp_path, monkeypat
         real(fd)
         target.unlink()
         target.symlink_to(protected)
-    monkeypatch.setattr(os, 'fsync', fsync)
+    monkeypatch.setattr(repair_os, 'fsync', fsync)
     with pytest.raises(io.TextRepairIOError):
         io.repair_candidate(root, 'Notes/note.md', digest(b'original\r\n'), b'')
     assert protected.read_bytes() == b'protected'
@@ -203,7 +211,7 @@ def test_non_regular_refused_without_blocking(candidate):
 
 
 @pytest.mark.skipif(os.name != 'posix', reason='POSIX descriptor ownership')
-def test_exception_closes_every_descriptor(candidate, monkeypatch):
+def test_exception_closes_every_descriptor(candidate, monkeypatch, repair_os):
     root, target = candidate
     opened = set()
     real_open, real_close = os.open, os.close
@@ -216,9 +224,9 @@ def test_exception_closes_every_descriptor(candidate, monkeypatch):
         opened.remove(fd)
     def fail(fd):
         raise OSError('disk failure')
-    monkeypatch.setattr(os, 'open', tracked_open)
-    monkeypatch.setattr(os, 'close', tracked_close)
-    monkeypatch.setattr(os, 'fsync', fail)
+    monkeypatch.setattr(repair_os, 'open', tracked_open)
+    monkeypatch.setattr(repair_os, 'close', tracked_close)
+    monkeypatch.setattr(repair_os, 'fsync', fail)
     with pytest.raises(io.TextRepairIOError):
         io.repair_candidate(root, 'Notes/note.md', digest(b'original\r\n'), b'fixed')
     assert not opened
@@ -226,7 +234,7 @@ def test_exception_closes_every_descriptor(candidate, monkeypatch):
 
 
 @pytest.mark.skipif(os.name != 'posix', reason='POSIX anchored root identity')
-def test_root_swapped_during_staging_skips(candidate, tmp_path, monkeypatch):
+def test_root_swapped_during_staging_skips(candidate, tmp_path, monkeypatch, repair_os):
     root, target = candidate
     outside = tmp_path / 'outside'
     (outside / 'Notes').mkdir(parents=True)
@@ -238,7 +246,7 @@ def test_root_swapped_during_staging_skips(candidate, tmp_path, monkeypatch):
         real(fd)
         root.rename(detached)
         root.symlink_to(outside, target_is_directory=True)
-    monkeypatch.setattr(os, 'fsync', fsync)
+    monkeypatch.setattr(repair_os, 'fsync', fsync)
     assert not io.repair_candidate(root, 'Notes/note.md', digest(b'original\r\n'), b'fixed')
     assert protected.read_bytes() == b'protected'
     assert (detached / 'Notes' / 'note.md').read_bytes() == b'original\r\n'
@@ -246,13 +254,13 @@ def test_root_swapped_during_staging_skips(candidate, tmp_path, monkeypatch):
 
 
 @pytest.mark.skipif(os.name != 'posix', reason='POSIX concurrent final-file edit')
-def test_final_changed_during_staging_skips(candidate, monkeypatch):
+def test_final_changed_during_staging_skips(candidate, monkeypatch, repair_os):
     root, target = candidate
     real = os.fsync
     def fsync(fd):
         real(fd)
         target.write_bytes(b'changed')
-    monkeypatch.setattr(os, 'fsync', fsync)
+    monkeypatch.setattr(repair_os, 'fsync', fsync)
     assert not io.repair_candidate(root, 'Notes/note.md', digest(b'original\r\n'), b'fixed')
     assert target.read_bytes() == b'changed'
     assert list(target.parent.iterdir()) == [target]
@@ -340,7 +348,7 @@ def test_named_error_defaults_to_uncommitted():
 @pytest.mark.skipif(os.name != 'posix', reason='POSIX post-replace validation and cleanup')
 @pytest.mark.parametrize('boundary', ['validation', 'close'])
 @pytest.mark.parametrize('failure', [OSError, FileNotFoundError])
-def test_posix_post_replace_failure_keeps_committed(candidate, monkeypatch, boundary, failure):
+def test_posix_post_replace_failure_keeps_committed(candidate, monkeypatch, repair_os, boundary, failure):
     root, target = candidate
     real_replace, real_close, real_current = os.replace, os.close, io._parent_current
     written = False
@@ -359,8 +367,8 @@ def test_posix_post_replace_failure_keeps_committed(candidate, monkeypatch, boun
         if boundary == 'validation' and written:
             raise failure('post-replace validation failure')
         return real_current(edges)
-    monkeypatch.setattr(os, 'replace', replace)
-    monkeypatch.setattr(os, 'close', close)
+    monkeypatch.setattr(repair_os, 'replace', replace)
+    monkeypatch.setattr(repair_os, 'close', close)
     monkeypatch.setattr(io, '_parent_current', current)
     with pytest.raises(io.TextRepairIOError) as error:
         io.repair_candidate(root, 'Notes/note.md', digest(b'original\r\n'), b'fixed')
@@ -566,7 +574,7 @@ def test_windows_native_rename_failure_maps_status_and_cleans_stage(candidate, m
 
 
 @pytest.mark.skipif(os.name != 'nt', reason='Native staged CRT descriptor close after commit')
-def test_windows_stage_close_failure_is_committed(candidate, monkeypatch):
+def test_windows_stage_close_failure_is_committed(candidate, monkeypatch, repair_os):
     root, target = candidate
     real_rename, real_close = io._WindowsHandles.rename, os.close
     written = False
@@ -583,7 +591,7 @@ def test_windows_stage_close_failure_is_committed(candidate, monkeypatch):
             raised = True
             raise OSError('post-commit staged descriptor close failure')
     monkeypatch.setattr(io._WindowsHandles, 'rename', rename)
-    monkeypatch.setattr(os, 'close', close)
+    monkeypatch.setattr(repair_os, 'close', close)
     with pytest.raises(io.TextRepairIOError) as error:
         io.repair_candidate(root, 'Notes/note.md', digest(b'original\r\n'), b'fixed')
     assert error.value.committed is True

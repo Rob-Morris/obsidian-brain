@@ -2,7 +2,7 @@
 set -euo pipefail
 
 BRAIN_CLI_VERSION="6.3.2"
-BRAIN_INSTALL_REF="v0.76.4"
+BRAIN_INSTALL_REF="v0.76.5"
 
 BRAIN_DISTRIBUTION_ID="source"
 

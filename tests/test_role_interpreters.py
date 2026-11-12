@@ -345,8 +345,11 @@ def test_failed_probe_or_crash_leaves_no_role_file(central_root, monkeypatch, fa
 
     monkeypatch.setattr(_venv.subprocess, "run", probe)
     if failure == "crashed":
+        def fail_replace(*_args):
+            raise OSError("disk full")
+
         monkeypatch.setattr(_venv.subprocess, "run", lambda argv, **kw: subprocess.CompletedProcess(argv, 0))
-        monkeypatch.setattr(_venv.os, "replace", lambda *_args: (_ for _ in ()).throw(OSError("disk full")))
+        monkeypatch.setattr(_venv, "os", SimpleNamespace(**{**vars(os), "replace": fail_replace}))
 
     _venv.ensure_role_interpreters(venv_dir)
 

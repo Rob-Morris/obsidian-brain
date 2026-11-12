@@ -10,6 +10,7 @@ import sys
 import pytest
 
 from proxy_test_support import _read_until_id, _finish_proxy_with_diagnostics
+from _test_control import register_cleanup
 
 
 SERVER = Path(__file__).resolve().parents[1] / "fixtures/production_mcp_proxy.py"
@@ -52,6 +53,10 @@ def test_real_owned_outcome_is_recovered_after_response_loss(command_vault_clone
         process = subprocess.Popen([sys.executable, str(SERVER)], cwd=vault,
             env={**os.environ, **command_vault_clone.environment, "BRAIN_CAPTURE_VAULT": str(vault)},
             stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=stderr, text=True)
+        # This scenario owns only the cloned vault, captured file and process;
+        # its finally block drains the process before fixture teardown completes.
+        register_cleanup(lambda: process.poll() is not None and process.stdout.closed
+                         and process.stdin.closed and stderr.closed)
 
         def request(i, method, params):
             nonlocal phase

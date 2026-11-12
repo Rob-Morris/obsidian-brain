@@ -90,6 +90,7 @@ from ._result_content import (
     delivery_descriptor, guard_tool_result, has_catalogue_notice,
     redact_debug_wire_body, result_text_wire,
 )
+from ._child_health import ChildHealth
 from ._proxy_controls import (
     CONTROL_TOOLS, REFRESH_TOOL, RESTART_TOOL, STATUS_TOOL,
     add_control_discovery, control_response, modern_identity_request, reconnect_guidance,
@@ -115,7 +116,7 @@ class StartupFailure:
 # Constants
 # ---------------------------------------------------------------------------
 
-PROXY_VERSION = "0.10.14"
+PROXY_VERSION = "0.10.15"
 _CHILD_PROTOCOL_VERSION = "2026-07-28"
 
 
@@ -157,7 +158,6 @@ _CHILD_ALIVE_RESET_SECS = 60  # reset backoff if child lives this long
 _EXIT_CODE_VERSION_DRIFT = 10
 _EXIT_CODE_CLEAN = 0
 _READER_SELECT_TIMEOUT = 30  # seconds; override with BRAIN_PROXY_READ_TIMEOUT
-_HANG_CONSECUTIVE_LIMIT = 3  # kill child after this many timeouts with in-flight requests
 _MAX_REPLAY_DEPTH = 1  # cap replay to prevent infinite drift loops
 _VERSION_CHECK_INTERVAL = 5  # seconds; override with BRAIN_PROXY_VERSION_CHECK_INTERVAL
 _GUIDANCE_BINDING = "Fix the binding or machine default, then restart MCP."
@@ -181,40 +181,12 @@ _RECOVERY_THREAD_CRASHED_MSG = _unrecoverable_msg("proxy recovery thread crashed
 
 
 def _read_child_line_with_timeout(child: "ChildProcess", timeout: int) -> bytes | None:
-    """Read one child stdout line with a timeout.
-
-    Unix can wait on pipe fds with select.  Windows select only supports
-    sockets, so pipe reads run in a daemon helper thread and the caller waits
-    on the queue.  A timed-out Windows read may leave that daemon blocked until
-    the child pipe closes; this is acceptable for the initialize handshake and
-    avoids wedging the proxy on a healthy child.
-    """
-    if sys.platform == "win32":
-        result: queue.Queue[bytes | None] = queue.Queue(maxsize=1)
-
-        def read_once() -> None:
-            try:
-                result.put(child.readline())
-            except OSError:
-                result.put(None)
-
-        reader = threading.Thread(target=read_once, daemon=True, name="child-line-timeout")
-        reader.start()
-        try:
-            return result.get(timeout=timeout)
-        except queue.Empty:
-            return None
-
-    fd = child.stdout_fd
-    if fd is None:
-        return None
+    """Read one complete child frame without an abandoned pipe reader."""
     try:
-        ready = [fd] if child.line_ready else select.select([fd], [], [], timeout)[0]
-    except (ValueError, OSError):
+        return child.read_reply(timeout)
+    except (OSError, TimeoutError):
         return None
-    if not ready:
-        return None
-    return child.readline()
+
 
 # ---------------------------------------------------------------------------
 # Logging setup
@@ -806,8 +778,9 @@ class ChildProcess:
                 stderr=subprocess.PIPE,
                 **options,
             )
-        if sys.platform != "win32":
-            self._stdout_reader = RawLineReader(self._proc.stdout.fileno())
+        if sys.platform == "win32":
+            os.set_blocking(self._proc.stdout.fileno(), False)
+        self._stdout_reader = RawLineReader(self._proc.stdout.fileno())
         # Forward child stderr to proxy stderr in a background thread
         self._stderr_thread = threading.Thread(
             target=self._relay_stderr, daemon=True, name="child-stderr"
@@ -883,6 +856,11 @@ class ChildProcess:
         assert self._proc is not None and self._proc.stdout is not None
         line = self._stdout_reader.readline() if self._stdout_reader else self._proc.stdout.readline()
         return line if line else None
+
+    def read_reply(self, timeout: float) -> bytes | None:
+        """Return a complete frame or EOF, retaining partial frames on timeout."""
+        assert self._stdout_reader is not None
+        return self._stdout_reader.readline_timed(timeout) or None
 
     @property
     def line_ready(self) -> bool:
@@ -983,6 +961,8 @@ class Proxy:
         self._initial_protocol_lock = threading.Lock()
         self._public_session: dict | None = None
         self._publication_gate = threading.Lock()
+        self._lifecycle_idle = threading.Event()
+        self._lifecycle_idle.set()
         self._server_requests: dict[str, tuple[ChildProcess, int | str]] = {}
         self._handoff_state: dict | None = None
         self._handoff_error = "proxy_exec_failed"
@@ -1043,6 +1023,9 @@ class Proxy:
         self._outbound: queue.Queue[dict | threading.Event | None] = queue.Queue()
         self._writer_thread_handle: threading.Thread | None = None
         self._reader_thread_handle: threading.Thread | None = None
+        self._health_thread_handle: threading.Thread | None = None
+        self._health_stop = threading.Event()
+        self._health = ChildHealth(max(0.05, _get_read_timeout()))
         self._recovery_thread_handle: threading.Thread | None = None
         # Monotonic write-once: only ever flips False → True. Concurrent
         # setters are safe because every writer is setting the same value.
@@ -1090,6 +1073,44 @@ class Proxy:
         self._start_writer_loop()
         self._start_recovery_loop()
         self._start_reader_loop()
+        if self._health_thread_handle is None:
+            self._health_thread_handle = threading.Thread(target=self._health_loop, daemon=True, name="child-health")
+            self._health_thread_handle.start()
+
+    def _health_loop(self) -> None:
+        """Probe the child outside the application worker and pipe reader."""
+        while not self._health_stop.wait(min(0.5, self._health.interval)):
+            if self._shutdown:
+                return
+            child = self._get_child()
+            with self._inflight_lock:
+                busy = bool(self._inflight_requests)
+            if self._client_protocol == "legacy" and self._init_response is None:
+                busy = False
+            action = self._health.poll(child, busy, time.monotonic(), modern=self._client_protocol == "modern")
+            if action is None or child is not self._get_child():
+                continue
+            if action.kind == "stop":
+                _log().error("child failed bounded responsiveness probe; retiring child")
+                self._retire_unresponsive_child(child)
+            else:
+                try:
+                    child.send_control(_internal_request(action.method, action.request_id, {},
+                        modern=self._client_protocol == "modern"), timeout=min(1.0, self._health.interval))
+                except (OSError, TimeoutError):
+                    self._retire_unresponsive_child(child)
+
+    def _retire_unresponsive_child(self, child: ChildProcess) -> None:
+        """Own termination through reaping, independent of retained child pipes."""
+        child.kill()
+        try:
+            child.reap(HANDOFF_TIMEOUT)
+        except subprocess.TimeoutExpired:
+            _log().error("unresponsive child could not be reaped; shutting down proxy")
+            self._owner_close_timeout = HANDOFF_TIMEOUT
+            self._initiate_shutdown()
+            return
+        self._signal_recovery(1, child=child)
 
     def _recovery_thread_is_dead(self) -> bool:
         """True if the recovery thread was started but is no longer running."""
@@ -1322,6 +1343,8 @@ class Proxy:
         """Begin proxy shutdown and wake any sleeping background threads."""
         with self._restart_lock:
             self._shutdown = True
+        self._health_stop.set()
+        self._lifecycle_idle.set()
         self._wake_input()
         self._subscriptions.clear()
         if self._preparing_child is not None:
@@ -2051,6 +2074,8 @@ class Proxy:
                     return "installation_changed"
                 self._owner_close_timeout = HANDOFF_TIMEOUT
                 self._shutdown = True
+                self._health_stop.set()
+                self._lifecycle_idle.set()
                 self._child_ready.set()
                 self._recovery_trigger.set()
                 if child is not None:
@@ -2070,7 +2095,7 @@ class Proxy:
         # Readers cannot enqueue after shutdown; the acknowledged barrier means
         # the writer is no longer blocked on host output.
         self._outbound.put(None)
-        for thread in (self._reader_thread_handle, self._recovery_thread_handle, self._writer_thread_handle):
+        for thread in (self._reader_thread_handle, self._recovery_thread_handle, self._health_thread_handle, self._writer_thread_handle):
             if thread is not None:
                 thread.join(timeout=HANDOFF_TIMEOUT)
                 if thread.is_alive():
@@ -2124,6 +2149,7 @@ class Proxy:
             self._pending_lifecycle = {"request": request, "resume": resume, "state": state,
                                        "generation": self._catalogue_generation, "cancelled": False}
             self._restart_in_progress = True
+            self._lifecycle_idle.clear()
         self._recovery_trigger.set()
         return None
 
@@ -2155,6 +2181,7 @@ class Proxy:
             self._restart_in_progress = False
             if self._pending_lifecycle is pending:
                 self._pending_lifecycle = None
+            self._lifecycle_idle.set()
         if not pending["resume"] or code is not None:
             self._send_to_client(control_response(request["id"], request["params"]["name"], self._proxy_status(), code=code))
         if self._subscriptions_changed.is_set():
@@ -2576,87 +2603,41 @@ class Proxy:
     def _reader_thread(self) -> None:
         """
         Continuously reads from child stdout and writes to proxy stdout.
-        Uses select() with timeout for health checking. Handles child exit,
+        Uses bounded complete-frame reads. Handles child exit,
         version-drift replay, and restart logic.
         """
         timeout = _get_read_timeout()
-        hang_counter = 0
 
         try:
             while not self._shutdown:
                 if not self._initial_protocol_selected.is_set():
                     self._initial_protocol_selected.wait(timeout=1.0)
                     continue
+                # An admitted idle lifecycle owns the next publication turn.
+                # A bounded read must not repeatedly reacquire ahead of it.
+                if not self._lifecycle_idle.wait(timeout=1.0):
+                    continue
                 child = self._get_child()
                 if child is None:
                     self._child_ready.wait(timeout=1.0)
                     self._child_ready.clear()
-                    hang_counter = 0
                     continue
-
-                if sys.platform == "win32":
-                    # Windows select() cannot wait on anonymous pipe handles.
-                    # This reader is already a daemon thread, so block directly
-                    # and rely on EOF/crash recovery; timeout-based hang
-                    # detection remains available on Unix.
-                    line = child.readline()
-                else:
-                    fd = child.stdout_fd
-                    if fd is None:
-                        line = None
-                    else:
-                        line = None
-                        ready = None
-                        try:
-                            ready = [fd] if child.line_ready else select.select([fd], [], [], timeout)[0]
-                        except (ValueError, OSError):
-                            line = None
-                        if ready is not None:
-                            if ready:
-                                line = True
-                                hang_counter = 0
-                            else:
-                                # Timeout — check child health
-                                poll = child.poll()
-                                if poll is not None:
-                                    # Child already dead — treat as EOF
-                                    line = None
-                                else:
-                                    # Child alive — check for hang
-                                    with self._inflight_lock:
-                                        has_inflight = bool(self._inflight_requests)
-                                    if has_inflight:
-                                        hang_counter += 1
-                                        _log().warning(
-                                            "child unresponsive with in-flight requests "
-                                            "(timeout %d/%d)",
-                                            hang_counter, _HANG_CONSECUTIVE_LIMIT,
-                                        )
-                                        if hang_counter >= _HANG_CONSECUTIVE_LIMIT:
-                                            _log().error(
-                                                "killing hung child after %d consecutive timeouts",
-                                                hang_counter,
-                                            )
-                                            child.kill()
-                                            line = None  # trigger EOF path
-                                        else:
-                                            continue
-                                    else:
-                                        # No in-flight requests — idle is fine
-                                        continue
 
                 with self._publication_gate:
                     if self._shutdown:
                         break
+                    try:
+                        line = child.read_reply(min(1.0, max(.05, timeout)))
+                    except TimeoutError:
+                        continue
+                    except OSError:
+                        line = None
                     if child is not self._get_child():
                         continue
-                    if line is True:
-                        line = child.readline()
                     if line is None:
                         # Child stdout closed — wait for exit code
                         exit_code = child.wait()
                         _log().info("child stdout EOF, exit code=%s", exit_code)
-                        hang_counter = 0
                         self._signal_recovery(exit_code, child=child)
                         continue
 
@@ -2667,6 +2648,8 @@ class Proxy:
                         _log().debug("failed to parse child output: %s", e)
                         continue
 
+                    if self._health.consume(child, obj, time.monotonic()):
+                        continue
                     subscription = child.subscription_id
                     metadata = obj.get("params", {}).get("_meta", {})
                     stream_id = metadata.get(SUBSCRIPTION_ID)
@@ -3109,7 +3092,7 @@ class Proxy:
         if child:
             _log().info("proxy shutting down — killing child pid=%s", child.pid)
             child.kill()
-        for thread in (self._reader_thread_handle, self._recovery_thread_handle):
+        for thread in (self._reader_thread_handle, self._recovery_thread_handle, self._health_thread_handle):
             if thread is not None and thread.is_alive():
                 thread.join(timeout=5.0)
         self._outbound.put(None)

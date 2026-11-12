@@ -109,8 +109,8 @@ class TestHangDetection:
 
     def test_hanging_child_killed_after_timeout(self, tmp_path):
         """
-        Child hangs after receiving a request. Proxy's select timeout fires,
-        detects in-flight requests, and kills the child after consecutive limit.
+        Child hangs after receiving a request. A bounded child probe fails,
+        so the proxy retires it through canonical recovery.
         Client gets an error response.
         """
         _write_vault(tmp_path)
@@ -135,7 +135,7 @@ class TestHangDetection:
             proc.stdin.write(_make_jsonrpc("ping", id=2, params={"name": "anything"}))
             proc.stdin.flush()
 
-            # Wait for 3 consecutive timeouts (1s each) + kill + drain + async
+            # Wait for probe admission + failed response window + kill + drain + async
             # restart attempts. Use idle > READ_TIMEOUT so we don't bail before
             # the proxy finishes the hang-detection cycle.
             all_msgs = _read_all_responses(proc, timeout=20.0, idle=10.0, max_count=10)

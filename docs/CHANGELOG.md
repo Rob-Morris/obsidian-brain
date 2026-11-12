@@ -31,6 +31,7 @@ Never edit past changelog entries. Only add new entries at the top.
 
 | Version | Date | Summary |
 |---|---|---|
+| [v0.76.5](changelog/v0.76.5.md) | 2026-11-12 | Keep healthy MCP work running and control development tests |
 | [v0.76.4](changelog/v0.76.4.md) | 2026-11-08 | Protect embedded Brain checkouts with vault-local branch guards |
 | [v0.76.3](changelog/v0.76.3.md) | 2026-10-27 | Guard Brain file access and support unmanaged README edits |
 | [v0.76.2](changelog/v0.76.2.md) | 2026-10-26 | Recover Doctor findings and bound CI fixture storage |

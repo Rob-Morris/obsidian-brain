@@ -469,6 +469,88 @@ mismatch: explain which evidence remains valid and choose the necessary work.
 Promotion preparation currently runs its full candidate suite; this dev policy
 does not add a promotion-evidence receipt or bypass that gate.
 
+### Controlling long development tests
+
+The optional POSIX contributor controller runs one serial pytest process. It
+keeps useful work running until the agent asks to stop; it adds no per-test
+execution deadline. Ordinary pytest, `make test`, parallel feedback and release
+certification do not load its plugin. Run `make dev-link` first for tests that
+consume the template engine, as with direct pytest.
+
+Start a run using a fresh state directory (or omit `--state-dir` for a unique
+directory under `.pytest_cache/controlled/`):
+
+```bash
+.venv/bin/python src/scripts/dev_tests.py run --state-dir /tmp/brain-dev-run -- -q tests/test_mcp_proxy_timeouts.py
+```
+
+The controller prints the run directory immediately and remains running while
+pytest works. Another terminal or agent tool invocation can inspect it or send
+a targeted request:
+
+```bash
+.venv/bin/python src/scripts/dev_tests.py status /tmp/brain-dev-run
+.venv/bin/python src/scripts/dev_tests.py finish /tmp/brain-dev-run --reason "finish useful work then release the workspace"
+.venv/bin/python src/scripts/dev_tests.py interrupt /tmp/brain-dev-run --reason "need faster feedback"
+.venv/bin/python src/scripts/dev_tests.py follow-up /tmp/brain-dev-run --state-dir /tmp/brain-dev-followup
+```
+
+`status` reports the current test, phase, elapsed time, available progress,
+outstanding work and combined development coverage. Keeping the run alive needs
+no command. `finish` lets the current test and cleanup finish, then stops before
+the next test. `interrupt` requests cooperative wrap-up of the observed attempt;
+stale commands cannot affect its successor. A repeated interruption does not
+renew its stop budget. Request publication is not proof that cleanup completed.
+Detailed pytest output remains in the run's `stdout.log` and `stderr.log`,
+alongside the existing failure-log paths.
+
+Supported waits call `_test_control.checkpoint(progress)`. The proxy transport
+read/predicate helpers already do this. Test authors explicitly register audited
+resource-restoration predicates with `_test_control.register_cleanup(check)`;
+each must return exactly `True` after normal pytest teardown. For example, a
+scenario that owns only a captured subprocess can verify its exit and closed
+streams. Register all applicable resources, not a generic always-true flag.
+These helpers perform no I/O during ordinary pytest runs. Checkpoints never
+interrupt cleanup phases or replace an exception already unwinding.
+
+No predicates, a failed predicate, teardown failure or an uncooperative test
+stops the whole run. The controller owns a five-second wrap-up budget from the
+explicit interrupt request, then allows three seconds for orderly whole-group
+termination before force termination and a bounded reap. It stays outside the
+pytest termination group. After escalation no next test starts in that run;
+unconfirmed termination remains an explicit failure. These are stop budgets,
+not limits on an otherwise healthy test's duration.
+When wrap-up stops the run, the original budget includes final session cleanup.
+
+The exact collected scope is saved before tests; terminal outcomes are appended
+before the next test, and the controller writes a receipt even if pytest never
+reaches session finish. Test names live in the scope manifest; bounded outcome
+records reference positions in that run's manifest, so large parametrized IDs
+retain their exact identity. Interrupted/torn records cannot credit a pass.
+Operator interruption is distinct from a normal failure or legitimate
+applicability skip. Partial runs remain non-green; a successful status query is
+not a gate.
+Combining passes also requires a matching normal-exit marker written only after
+`pytest.main()` returns through session and plugin finalisation.
+
+Follow-ups restart fixtures and whole test bodies, preserving original attempt
+files. They reuse only compatible development passes. The conservative identity
+covers authored source, dependencies and hashed environment; declare ignored or
+external files/directories with repeatable `run --input PATH`. Declare symlinked
+directory targets separately. State must be outside source/input directories or
+under `.pytest_cache`; it must not become an input to its own fingerprint.
+Per-invocation metadata such as `CODEX_TOOL_CALL_ID` is excluded from that
+environment identity; verification configuration remains part of it.
+Input changes during or after a run require reassessment rather than automatic
+reuse. Genuine failures require diagnosis and fresh verification. Collection/
+session errors or unknown shared cleanup require a fresh selected-scope run;
+unconfirmed termination refuses automatic follow-up. Earlier runs remain history.
+
+Only serial POSIX control is supported initially. Enabled xdist worker,
+distributed and loop-on-fail modes are refused before execution. Combined
+development results explicitly cannot certify a release; promotion and hosted
+certification retain their complete exact-candidate gates.
+
 ### Test diagnostics and timing
 
 The test-resource plugin removes each successful test's owned `tmp_path` only
