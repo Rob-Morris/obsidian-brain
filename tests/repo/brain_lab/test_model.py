@@ -69,6 +69,19 @@ def test_base_identity_changes_with_platform_specific_identity():
     assert arm.identity() != changed_probe.identity()
 
 
+def test_base_package_refresh_preserves_legacy_identity_and_is_a_recipe_input():
+    original = BaseSpec(
+        "ubuntu:24.04", "linux/arm64", "sha256:arm", "ubuntu@sha256:arm",
+        "dockerfile", "build-inputs",
+    )
+    assert original.identity() == "base-5e716b49238c88c1bf1c6e4e"
+    refreshed = BaseSpec(
+        "ubuntu:24.04", "linux/arm64", "sha256:arm", "ubuntu@sha256:arm",
+        "dockerfile", "build-inputs", package_refresh="review-a",
+    )
+    assert refreshed.identity() != original.identity()
+
+
 def test_run_network_is_closed_and_typed():
     assert RunSpec("image", "linux/arm64").network == "none"
 

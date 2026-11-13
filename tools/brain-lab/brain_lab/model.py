@@ -98,9 +98,13 @@ class BaseSpec:
     dockerfile_sha256: str
     build_inputs_sha256: str
     schema_revision: int = SCHEMA_REVISION
+    package_refresh: str | None = None
 
     def identity(self) -> str:
-        return content_id("base", asdict(self))
+        values = asdict(self)
+        if self.package_refresh is None:
+            del values["package_refresh"]
+        return content_id("base", values)
 
 
 @dataclass(frozen=True)

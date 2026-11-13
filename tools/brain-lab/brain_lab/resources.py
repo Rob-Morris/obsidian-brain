@@ -114,13 +114,18 @@ def _ensure_capture_space(root: Path, total_bytes: int) -> dict[str, int]:
 def build_base(context: OperationContext, request: dict[str, Any]) -> HandlerResult:
     require_keys(
         request,
-        optional=frozenset({"image", "platform", "timeout_seconds"}),
+        optional=frozenset({"image", "platform", "timeout_seconds", "package_refresh"}),
     )
     image = request.get("image", "ubuntu:24.04")
     platform = validate_linux_platform(request.get("platform", "linux/arm64"))
     timeout = float(request.get("timeout_seconds", 1800))
     if not isinstance(image, str):
         raise ValueError("base image must be a string")
+    package_refresh = request.get("package_refresh")
+    if package_refresh is not None and (
+        not isinstance(package_refresh, str) or not package_refresh.strip()
+    ):
+        raise ValueError("package_refresh must be a nonempty string")
     context.docker.pull(image, platform, context.evidence_directory / "01-pull", timeout_seconds=timeout)
     source_inspect = context.docker.image_inspect(image, context.evidence_directory / "02-source-inspect")
     repo_digests = source_inspect.get("RepoDigests") or []
@@ -145,6 +150,7 @@ def build_base(context: OperationContext, request: dict[str, Any]) -> HandlerRes
         resolved_digest=resolved_digest,
         dockerfile_sha256=dockerfile_sha256,
         build_inputs_sha256=build_inputs_sha256,
+        package_refresh=package_refresh,
     )
     resource_id = spec.identity()
     existing_path = context.store.receipt_path("base", resource_id)
@@ -165,7 +171,7 @@ def build_base(context: OperationContext, request: dict[str, Any]) -> HandlerRes
         tag=tag,
         platform=platform,
         labels=labels,
-        build_arguments={"BASE_IMAGE": resolved_digest},
+        build_arguments={"BASE_IMAGE": resolved_digest, "PACKAGE_REFRESH": package_refresh or ""},
         evidence_directory=context.evidence_directory / "03-build",
         timeout_seconds=timeout,
         context_directory=context.tool_root,

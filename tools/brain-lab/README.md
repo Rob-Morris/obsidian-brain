@@ -100,6 +100,15 @@ Changing a result directory, scenario, run network, timestamp, or arbitrary comm
 
 Each base image records the exact APT repository configuration and installed package versions at `/usr/local/share/brain-lab/package-inputs.json`. The base receipt points to that file and the immutable image ID that content-addresses it; the resolved Ubuntu image digest remains part of the base identity.
 
+New bases apply Ubuntu updates to the whole installed package set before recording
+that manifest. To refresh archive packages even when the upstream image digest is
+unchanged, pass a new nonempty `package_refresh` key to `base build`, for example
+`"package_refresh":"2026-11-13-security"`. The key participates in the immutable
+base identity and invalidates the APT build layer. Repeating the same key can reuse
+that base; use a new key for another refresh. Existing bases, baselines and their
+evidence remain intact. `baseline rebuild` deliberately reproduces its original
+base; it is not a package-refresh operation. Run fresh acceptance on the new base.
+
 ## Invocation contract
 
 The executable accepts one resource noun, one verb, and one JSON request object:

@@ -4,8 +4,10 @@ FROM ${BASE_IMAGE}
 COPY container/package_inputs.py /usr/local/lib/brain-lab/package_inputs.py
 
 ARG DEBIAN_FRONTEND=noninteractive
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends \
+ARG PACKAGE_REFRESH
+RUN apt-get -o Acquire::Retries=0 --error-on=any update \
+    && apt-get -o Acquire::Retries=0 upgrade -y --no-install-recommends --with-new-pkgs \
+    && apt-get -o Acquire::Retries=0 install -y --no-install-recommends \
         bash \
         ca-certificates \
         curl \
